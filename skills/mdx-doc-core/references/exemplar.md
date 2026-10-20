@@ -213,7 +213,14 @@ real run), `explainers/workstream-outcome-routing/explainer.mdx` (the
 mechanism with the exact messages the reader will receive, and an
 `<AnnotatedCode>` of the deciding function) and
 `explainers/document-classification-v2/explainer.mdx` (a port of an HTML
-explainer, useful for its in-place vocabulary-gap notes).
+explainer, useful for its in-place vocabulary-gap notes) and
+`explainers/tenant-audit-absence-model/explainer.mdx` (an explainer for
+non-engineers who must choose between two directions in a meeting: the answer
+with its numbers in the lede, real production screenshots beside
+`<Screen>` mock-ups on the same tenant so the two are visibly different kinds
+of picture, a `<Steps>` walk-through, three options as toned cards, and one
+bottom `<QuestionForm>` for the calls the room must make; anonymised, so the
+tenants and the client are fictional).
 
 ## Anti-patterns, and what each costs the reader
 

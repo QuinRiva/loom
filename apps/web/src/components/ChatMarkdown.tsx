@@ -1355,6 +1355,9 @@ function authoredImageSizeStyle(
   width: string | number | undefined,
   height: string | number | undefined,
   maxHeightRem = 30,
+  // loom: a document panel passes "100%" so the image fills its column; the
+  // chat timeline keeps its 30rem media cap.
+  maxWidthCap = "30rem",
 ): CSSProperties | undefined {
   const parsedWidth = Number(width);
   const parsedHeight = Number(height);
@@ -1365,10 +1368,10 @@ function authoredImageSizeStyle(
       width: parsedWidth,
       height: "auto",
       aspectRatio: `${parsedWidth} / ${parsedHeight}`,
-      maxWidth: `min(100%, 30rem, ${(maxHeightRem * parsedWidth) / parsedHeight}rem)`,
+      maxWidth: `min(100%, ${maxWidthCap}, ${(maxHeightRem * parsedWidth) / parsedHeight}rem)`, // loom: maxWidthCap
     };
   }
-  if (hasWidth) return { maxWidth: `min(100%, 30rem, ${parsedWidth}px)` };
+  if (hasWidth) return { maxWidth: `min(100%, ${maxWidthCap}, ${parsedWidth}px)` }; // loom: maxWidthCap
   if (hasHeight) return { maxHeight: `min(30rem, ${parsedHeight}px)` };
   return undefined;
 }
@@ -1626,6 +1629,9 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
   readonly srcFragment?: string;
   readonly standalone?: boolean | undefined;
   readonly maxHeightRem?: number | undefined;
+  // loom: drop the chat's 30rem width cap — the `.mdx` document panel's images
+  // fill their column up to their natural width.
+  readonly uncapWidth?: boolean | undefined;
   readonly style?: CSSProperties | undefined;
   readonly className?: string | undefined;
   readonly imageProps?:
@@ -1664,7 +1670,12 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
   const style =
     props.style ??
     (knownSize
-      ? authoredImageSizeStyle(knownSize.width, knownSize.height, maxHeightRem)
+      ? authoredImageSizeStyle(
+          knownSize.width,
+          knownSize.height,
+          maxHeightRem,
+          props.uncapWidth ? "100%" : undefined, // loom: uncapWidth
+        )
       : maxHeightRem !== 30
         ? { maxHeight: `${maxHeightRem}rem` }
         : undefined);
@@ -1722,6 +1733,7 @@ export const ChatMarkdownAssetImage = memo(function ChatMarkdownAssetImage(props
       standalone={props.standalone ?? true}
       className={cn(
         props.framed === false ? undefined : CHAT_MARKDOWN_WORKSPACE_IMAGE_CLASS_NAME,
+        props.uncapWidth && "max-w-full", // loom: uncapWidth, before dimensions are known
         props.className,
       )}
       style={style}

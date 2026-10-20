@@ -1,0 +1,907 @@
+---
+reader:
+  who: Will (CEO) and Pele (product), in a 30-minute meeting on 22 October with Carl; non-engineers who must leave the room having chosen between Direction A and Direction B and answered four product calls
+  knows: the tenant audit as a product and the client's complaint as a customer problem; none of the evidence, the audit's internals, or the two designs
+  after_first_screen: one in five of the fields we show the client as acceptable has nothing behind it, every one of those was the AI's call, and the choice in front of us is whether each such field explains itself (A) or stops being audited at all (B)
+kicker: "Tenant audit · worked example with fictional names · 22 October 2026"
+---
+
+# What "nothing there" looks like to the client, and what we propose
+
+<Callout tone="info" title="This is a worked example, not a client record">
+  The percentages and counts are from a real production run, but **every tenant, person, address, building id, quotation and lease-specific figure in this document and its screenshots is a fictional substitute**. "Mara", "Hadley Rowe Solicitors", "200 Marlow St" and the rest do not exist; the screenshots were edited to match. Nothing here should be read as a statement about a real tenant or a real client.
+</Callout>
+
+About **one in five** of the fields we show the client as acceptable have nothing behind them: no document, no clause. Not one of those verdicts was decided by a rule; every one is a sentence the AI writes, worded differently each run. That is Mara's complaint — and in **342 of 357** such cases the lease extraction had already written down the reason and the clause, which the audit throws away before anyone sees it.
+
+###### Evidence: three of the client's buildings (200 Marlow St, Sydney and two others), 61 tenants, 28 audited fields each; production as it stood on 19 October. Click any screenshot to enlarge it.
+
+
+<Callout tone="decision" title="Two directions, side by side" focus>
+  <Badge tone="info">A</Badge> **Every field, with its reason.** The field stays; it reads "N/A · Physical make good", cites the clause, and counts as acceptable by rule. <Badge tone="accent">B</Badge> **A hierarchy decides what is audited.** Once we know the make good is physical, the payment amount is not audited at all: it sits collapsed under the make good type with the clause, out of the counts. Tenants with no lease get one finding, not 26 N/As. B is Carl's current leaning and the likely long-term direction; A is the design as written.
+
+  In both, every empty field that _is_ audited carries its reason and document, the verdict comes from a fixed table where neither side has a figure, and the AI loses the power to make a field acceptable by deleting a value. **Choosing between A and B is this meeting's main question.**
+</Callout>
+
+<Callout tone="warning" title="The uncomfortable part">
+  About one in six of today's empty Acceptables become Review or Investigate, because nothing was ever checked: tenants with no lease on file, incentive deeds we were never given. The client should hear that before the first re-run. It is the signal Mara asked for.
+</Callout>
+
+## 1. The complaint
+
+Mara, the client's QA lead, was looking at Make Good Payment Amount. The field said Acceptable and N/A. When she opened it, there was nothing to review.
+
+<Columns>
+  <Column label="What Mara asked for — three messages, paraphrased">
+    > No source document was shown on the payment-amount field, so she could not see how it could be acceptable when there was nothing to review — and it was the same on more than one tenancy.
+    >
+    > — first message, mid-August
+
+    > Whatever was reviewed to reach a decision should be visible in the product, and visible consistently.
+    >
+    > — second message, a few days later
+
+    > N/A is fine where there is no clause. But in every case she wants to see the document that was reviewed; the export should say N/A rather than leave the source values blank; and both should hold across all fields, not only make good.
+    >
+    > — third message, late August
+
+    _The three messages are paraphrased from the support ticket, not quoted, so the correspondence itself is not reproduced here._
+
+    <Callout tone="warning" title="Where the conversation stands">
+      Our engineer replied between her second and third messages that for the make good amount there is generally nothing obvious to cite as evidence, and that the run-to-run changes in severity need a wider change to the system, which we are scoping. Her third message had not been answered when we last read the ticket in early October.
+    </Callout>
+  </Column>
+  <Column label="Production · 15 Aug 2026 run">
+    <Image
+      src="shots/hadley_detail.webp"
+      alt="Make Good Payment Amount detail panel: No source data, No target data, ACCEPTABLE, Values equivalent, No action required"
+      caption="Hadley Rowe Solicitors, 200 Marlow St. A panel like the one Mara opened: “No source data”, “No target data”, Acceptable, “No action required.”"
+    />
+    <Image
+      src="shots/hadley_page.webp"
+      alt="Hadley Rowe Solicitors tenant page with the field list: Make Good Obligation Type Physical Make Good Investigate, then Make Good Payment Amount N/A OK"
+      caption="The same tenant's field list. Make Good Obligation Type reads “Physical Make Good” with two documents, two cards above a Payment Amount that reads N/A against “No data” and is marked OK."
+    />
+  </Column>
+</Columns>
+
+### The export has the same gap
+
+<Image
+  src="shots/export_table.webp"
+  alt="Excel export Field Details sheet filtered to Make Good Payment Amount: Source Values blank in 26 of 29 rows, Source References empty for those rows"
+  caption="200 Marlow St, Make Good Payment Amount, all 29 tenants from the production Excel export. Source Values (yellow, left) is blank in 26 of 29 rows, no document is referenced for any of them, and the 26 Acceptable rows carry 26 different wordings of the same verdict."
+/>
+
+_Vocabulary gap — the HTML shows this export in a 520 px scroll box at the full page width with a “Production export” tag in its corner; `Image` is the closest native form — it fills the reading measure but has no scroll box, so the sheet is scaled to fit rather than scrolled and its text is small until the reader clicks to enlarge it, and the provenance tag moves into the caption._
+
+## 2. How big it is
+
+The same gap is on 16 of the 28 fields and on all three buildings we looked at. Across those buildings and 61 tenants, **674 of 5,124** verdicts are Acceptable with nothing on the lease side. All of them were the AI's call.
+
+<Columns>
+  <Column label="Share of each field's verdicts that are Acceptable with nothing to review">
+    <Table
+      density="compact"
+      columns={["Field", "61 tenants × 3 runs = 183 verdicts per field", "Share"]}
+      align={["left", "left", "right"]}
+      rows={[
+        { tone: "risk", cells: ["Make Good Payment Amount", "███████████████████", "93%"] },
+        { tone: "risk", cells: ["Outgoings ($/sqm pa)", "██████████████████", "91%"] },
+        ["Outgoings Base Year", "████████", "42%"],
+        ["Rent Abatement (Monthly)", "███████", "36%"],
+        ["Outgoings (Monthly)", "█████", "23%"],
+        ["Total Incentive Amount", "████", "21%"],
+        ["Outgoings Lessee Proportion", "███", "16%"],
+        ["Next Review Date", "██", "11%"],
+        ["Make Good Condition Standard", "██", "10%"],
+        ["Bank Guarantee Amount", "██", "8%"],
+        ["_six further fields_", "▌", "≤4%"]
+      ]}
+    />
+
+    _Vocabulary gap — the HTML shows this as a horizontal bar chart, one proportional bar per field; there is no proportion-bar block, so a toned `Table` carries the figures with a block-character bar standing in for the bar._
+
+    Two fields carry half of it. On Make Good Payment Amount, every Acceptable we issued had nothing on the lease side.
+  </Column>
+  <Column label="The same pattern in production">
+    <Image
+      src="shots/kpi_strip.webp"
+      alt="200 Marlow St Lease Audit summary: 29 audited tenants, 5 skipped, 812 fields, 561 Acceptable"
+      caption="200 Marlow St, production, 15 Aug 2026 run: 812 fields audited, 561 of them Acceptable."
+    />
+
+    <Stats
+      items={[
+        {
+          value: "109",
+          label: "of the 561 Acceptable cards",
+          tone: "risk",
+          detail: "read N/A against “No data”: nothing on either side."
+        },
+        {
+          value: "26 of 29",
+          label: "tenants on Make Good Payment Amount",
+          tone: "risk",
+          detail: "Acceptable with N/A; 17 with a blank ERP, 9 against an ERP note."
+        },
+        {
+          value: "0",
+          label: "rule-based Acceptables for an empty lease side",
+          tone: "neutral",
+          detail: "In the three-run study. The rules engine never calls one Acceptable; every such verdict is the AI overriding it."
+        }
+      ]}
+    />
+  </Column>
+</Columns>
+
+###### The 674 and the per-field percentages come from running the 1 October extraction three times through the AI; the 109 and 26 of 29 are read off the production run the client is looking at today. Same pattern, two measurements.
+
+## 3. Why it happens
+
+The audit was built to describe values. "Nothing there" was added later as a label on a value, so the reason never had anywhere to live. It falls out in the audit engine, the third step below.
+
+<Steps>
+  <Step at="1" title="Lease documents">
+    Original Lease, clause 11.10(a): make good means reinstating the premises. No payment in lieu.
+  </Step>
+  <Step at="2" tone="success" title="Lease extraction" badge="reason kept">
+    Writes the reason and the clause: `no payment amount is applicable`, cl 11.10, p.35. Cited.
+  </Step>
+  <Step at="3" tone="risk" title="Audit engine" badge="the reason falls out here">
+    The audit only knows how to carry a value. An empty field is passed on as just "empty"; the reason and the clause are thrown away before the reviewer's screen is built.
+  </Step>
+  <Step at="4" title="AI adjudicator">
+    Reads a prose note we wrote for it ("not applicable when the obligation is physical") and the extraction's working notes. Writes the verdict and a sentence.
+  </Step>
+  <Step at="5" title="Reviewer">
+    Sees N/A, "No data", Acceptable, "No source data". The sentence is the only trace of the reason, and it is worded differently every run.
+  </Step>
+</Steps>
+
+###### Today's path for Make Good Payment Amount, using Meridian (Harbinger Holdings) at 200 Marlow St.
+
+_Vocabulary gap — the HTML draws these five stages as boxes in a left-to-right row joined by arrows, the kept stage tinted green and the dropping stage tinted red; `Steps` is the closest native form — the rail is vertical, so the pipeline reads down the page rather than across it, and the tints become the step markers and badges._
+
+<Columns columns={3}>
+  <Column label="The clause is one field away">
+    <Image
+      src="shots/harbinger_type_detail.webp"
+      alt="Meridian, Make Good Obligation Type: Physical Make Good, AUTHORITATIVE, cited to Original Lease Clause 11.10(a) p.35"
+      caption="Production. Meridian's Make Good Obligation Type cites Original Lease cl 11.10(a), p.35. In every one of the 72 “ruled out by another term” cases we found, the governing field had its own cited clause."
+    />
+  </Column>
+  <Column label="The field that needs it shows nothing">
+    <Image
+      src="shots/harbinger_payment_detail.webp"
+      alt="Meridian, Make Good Payment Amount: No source data, No target data, ACCEPTABLE, Make good payment amount is appropriately absent"
+      caption="Production. Same tenant, Make Good Payment Amount: “appropriately absent”, no clause, no document. The extraction had written “no payment amount is applicable” against cl 11.10. We dropped it."
+    />
+  </Column>
+  <Column label="Different reason, identical screen">
+    <Image
+      src="shots/pelican_detail.webp"
+      alt="Pelican Energy, Make Good Payment Amount: No source data; ERP note describing a cash-settlement formula; ACCEPTABLE"
+      caption="Production. Pelican Energy's lease sets the amount by formula (cl 12.3(c): 40% of the average of three quotes). The lease side is still empty. Only the ERP note mentions the formula; the lease clause is never cited."
+    />
+  </Column>
+</Columns>
+
+### Three consequences
+
+<Columns columns={3}>
+  <Card tone="info" heading="The reviewer sees nothing, the AI sees everything.">
+    The AI reads the extraction's working notes and the applicability rules we wrote as prose. Mara reads "No source data". They are judging the same field from different evidence.
+  </Card>
+  <Card tone="warning" heading="Verdicts move between runs.">
+    The AI decides once per tenant, with nothing fixing its answer from one run to the next. Citywide Parking has no lease on file; ten of its fields read Acceptable in two runs out of three and Review in the third. This is the inconsistency Mara raised.
+  </Card>
+  <Card tone="risk" heading="The AI deletes values to make fields acceptable.">
+    In 106 of the 674 cases the engine had found a value and the AI removed it so it could call the field "correctly absent". Larkspur Architects' base year is one: the engine inferred 2022 from the term start, the AI deleted it, and the reviewer sees N/A.
+  </Card>
+</Columns>
+
+<Columns>
+  <Column label="Production · Larkspur Architects, Outgoings Recovery Basis">
+    <Image
+      src="shots/larkspur_recovery_card.webp"
+      alt="Larkspur Architects, Outgoings Recovery Basis: Net / Net, OK, 3 documents, 1 record"
+      caption="Net, three documents cited."
+    />
+  </Column>
+  <Column label="Production · Larkspur Architects, Outgoings Base Year">
+    <Image
+      src="shots/larkspur_base_year_card.webp"
+      alt="Larkspur Architects, Outgoings Base Year: N/A / No data, OK"
+      caption="Two cards below it: N/A, No data, OK. A net lease has no base year; the card could say so and cite the same three documents."
+    />
+  </Column>
+</Columns>
+
+<Details summary="More detail: how the engine mislabels what it does keep">
+  The audit's own explanation of why a field is empty is often wrong. In 122 cases it reports "no entry found before the audit date" when dated entries exist and a hidden empty-value filter removed them. One label, "failed", covers a lease that has not started yet, a tenant whose documents are shaped differently from what the calculation expects, and a genuine software error (Orbis's "determined by independent quantity surveyor" crashed a number parser). Half of all the empty results are noise of the form "this tenant has no sublease" sitting beside the one line that matters.
+
+  The lease extraction, by contrast, labels the same physical-make-good absence four different ways across tenants. So the kind of absence cannot be read off its label; it has to be decided from facts: an explicit "document not provided" marker, a date window, a governing term with a declared rule, a value that will not parse as a number, an explicit "not applicable" flag.
+</Details>
+
+## 4. The eight kinds of "nothing there"
+
+We classified every empty field on the three buildings, lease side and ERP side, and they fall into eight situations. Each means something different to a reviewer. Today the reviewer cannot tell them apart: no clause, no document, and a verdict sentence that changes from run to run.
+
+The last column says what Direction B does with each: <Badge tone="accent">scope</Badge> means the hierarchy decides the field is not audited at all (the reason and clause are shown, there is no verdict); <Badge tone="info">audited</Badge> means the field is audited and Direction A's reason-and-document treatment applies unchanged. Three of the eight are scope under B; the other five are audit outcomes under both.
+
+<Table
+  density="compact"
+  columns={["What happened", "Cases", "Verdict against an empty ERP", "Under B"]}
+  align={["left", "right", "left", "left"]}
+  rows={[
+    ["**No documents for this tenant**", "52 · 2 tenants", { badge: { label: "Review", tone: "warning" }, md: "Investigate on must-haves" }, { badge: { label: "Scope", tone: "accent" } }],
+    ["**The document that would say is missing**", "48", { badge: { label: "Review", tone: "warning" }, md: "Investigate on must-haves" }, { badge: { label: "Scope", tone: "accent" } }],
+    ["**The lease is silent**", "87", { badge: { label: "Acceptable", tone: "success" }, md: "Investigate if must-have" }, { badge: { label: "Audited", tone: "info" } }],
+    ["**The lease says “none”**", "84", { badge: { label: "Acceptable", tone: "success" } }, { badge: { label: "Audited", tone: "info" } }],
+    ["**Another term rules it out**", "72 + 33 hidden", { badge: { label: "Acceptable", tone: "success" }, md: "Review against an ERP note" }, { badge: { label: "Scope", tone: "accent" } }],
+    ["**Not in force yet, or any more**", "38", { badge: { label: "Acceptable", tone: "success" }, md: "Review if still to start" }, { badge: { label: "Audited", tone: "info" } }],
+    ["**It is a formula, not a figure**", "8", { badge: { label: "Review", tone: "warning" } }, { badge: { label: "Audited", tone: "info" } }],
+    ["**The ERP has no record**", "370 (ERP side)", "Combines with the lease-side kind", { badge: { label: "Audited", tone: "info" } }]
+  ]}
+/>
+
+Every verdict in the table is decided by rule, not by the AI. The cards below take one kind each: a real tenant, what the reviewer sees today, and what they would see under Direction A.
+
+_Vocabulary gap — the HTML carries all of this as one six-column table with two or three pills per verdict cell; a `Table` cell with a badge does not wrap its text, so six columns of sentences squeeze into slivers and the last columns scroll off the right edge. The index above keeps the badge cells to a few words, and the sentences move into a card per kind._
+
+<Card eyebrow="Kind 1 · 52 cases, 2 tenants" heading="No documents for this tenant" tone="accent" badges={[{ "label": "Review", "tone": "warning" }, { "label": "Investigate on must-haves", "tone": "risk" }, { "label": "B: scope", "tone": "accent" }]}>
+  **A real tenant:** Beacon Media (Certificate of Currency only, no lease).
+
+  **Today:** 13 Acceptable cards reading N/A / No data. "No action required - both systems are currently blank."
+
+  **Under A:** one banner on the tenant: _No lease documents on file. 26 fields unverified. Documents read: Certificate of Currency (1)._ Each field: Unverified. Review, Investigate on must-have fields (rent, dates, area), by rule.
+
+  **Under B:** one tenant-level finding; nothing lease-sourced is audited.
+</Card>
+
+<Card eyebrow="Kind 2 · 48 cases" heading="The document that would say is missing" tone="accent" badges={[{ "label": "Review", "tone": "warning" }, { "label": "Investigate on must-haves", "tone": "risk" }, { "label": "B: scope", "tone": "accent" }]}>
+  **A real tenant:** Harlow Recruitment, Outgoings (Monthly): the Landlord's Disclosure Statement is referenced at cl 11.1 and was never supplied.
+
+  **Today:** Review, "cannot be directly verified". No mention of which document is missing.
+
+  **Under A:** _Not supplied: Landlord's Disclosure Statement, referenced at cl 11.1._ The referencing clause is cited. Review by rule; the AI cannot lift it.
+
+  **Under B:** a document-level finding; fields only that document carries are not audited.
+</Card>
+
+<Card eyebrow="Kind 3 · 87 cases" heading="The lease is silent" tone="info" badges={[{ "label": "Acceptable if optional", "tone": "success" }, { "label": "Investigate if must-have", "tone": "risk" }, { "label": "B: audited as in A", "tone": "info" }]}>
+  **A real tenant:** Meridian, Outgoings (Monthly): Item 9 gives the tenant's share (3.42%) but no total.
+
+  **Today:** Review, "cannot be derived from the available lease documents".
+
+  **Under A:** _Not stated. Reviewed: Lease; Item 9 states the share (3.42%) only._ Where it looked and what it found instead. By rule.
+</Card>
+
+<Card eyebrow="Kind 4 · 84 cases" heading="The lease says “none”" tone="info" badges={[{ "label": "Acceptable", "tone": "success" }, { "label": "B: audited as in A", "tone": "info" }]}>
+  **A real tenant:** NetArc, Bank Guarantee Amount: "No security amount is required under the terms of this licence".
+
+  **Today:** Acceptable, "appropriately absent in both source and target". No clause.
+
+  **Under A:** _None._ The licence clause that says no security is required, cited. By rule.
+</Card>
+
+<Card eyebrow="Kind 5 · 72 cases + 33 base years" heading="Another term rules it out" tone="accent" badges={[{ "label": "Acceptable", "tone": "success" }, { "label": "Review against an ERP note", "tone": "warning" }, { "label": "B: scope", "tone": "accent" }]}>
+  **A real tenant:** Meridian, Make Good Payment Amount: the obligation is a physical make good (cl 11.10(a)). The 33 are base years hidden behind a fabricated value.
+
+  **Today:** Acceptable, "appropriately absent". No clause.
+
+  **Under A:** _N/A · Physical make good._ The governing clause and the extraction's reasoning, both cited. By rule; against an ERP note, Review until the AI confirms the note matches.
+
+  **Under B:** not audited; collapsed under the type with the clause; the ERP side is still read for contradictions.
+</Card>
+
+<Card eyebrow="Kind 6 · 38 cases" heading="Not in force yet, or any more" tone="info" badges={[{ "label": "Acceptable if closed", "tone": "success" }, { "label": "Review if still to start", "tone": "warning" }, { "label": "B: audited as in A", "tone": "info" }]}>
+  **Real tenants:** Autohub (Autohub Group): lease starts 1 Feb 2027. Hadley Rowe: a $152,340.00 incentive fully used before the audit date.
+
+  **Today:** Autohub: the AI added the future date itself. Hadley Rowe: Acceptable, the $152k clause never shown.
+
+  **Under A:** _Not in force: commences 1 Feb 2027_, with the term clause. _Not in force: $152,340.00 abatement exhausted_, with Incentive Deed Item 5. Window closed (used up, expired): Acceptable. Still to start: Review. By rule.
+</Card>
+
+<Card eyebrow="Kind 7 · 8 cases" heading="It is a formula, not a figure" tone="info" badges={[{ "label": "Review", "tone": "warning" }, { "label": "B: audited as in A", "tone": "info" }]}>
+  **Real tenants:** Pelican Energy: 40% of the average of three quotes (cl 12.3(c)). Orbis: determined by an independent quantity surveyor (cl 33(b)).
+
+  **Today:** Acceptable. Orbis: "No fixed make good payment amount is specified in either the source lease or the target system", which is wrong.
+
+  **Under A:** _Formula: 40% of average of three quotes (cl 12.3(c))._ _Formula: determined by independent QS (cl 33(b))._ Clause cited. Review by rule; against an ERP note, the AI may confirm the note describes the same formula.
+</Card>
+
+<Card eyebrow="Kind 8 · 370 cases on the ERP side" heading="The ERP has no record" tone="info" badges={[{ "label": "Combines with the lease-side kind", "tone": "neutral" }, { "label": "B: audited as in A", "tone": "info" }]}>
+  **A real tenant:** Meridian: no make good note in the ERP for this lease.
+
+  **Today:** "No data" / "No target data".
+
+  **Under A:** _No ERP record._ What was searched: make good notes for this lease.
+</Card>
+
+<Columns>
+  <Column label="“The lease says none.” NetArc, Bank Guarantee Amount">
+    <Image
+      src="shots/netarc_detail.webp"
+      alt="NetArc, Bank Guarantee Amount: No source data, No target data, ACCEPTABLE, appropriately absent"
+      caption="Production. The licence states no security is required. The field shows no clause."
+    />
+  </Column>
+  <Column label="“It is a formula.” Orbis, Make Good Payment Amount">
+    <Image
+      src="shots/orbis_detail.webp"
+      alt="Orbis, Make Good Payment Amount: ACCEPTABLE, No fixed make good payment amount is specified in either the source lease or the target system"
+      caption="Production. The lease specifies a QS determination at cl 33(b). The verdict sentence says no amount is specified. The reviewer has no way to tell."
+    />
+  </Column>
+</Columns>
+
+<Details summary="A ninth situation, and two that turned out not to be absences">
+  **The ERP has no field for this.** The client's ERP does not record make good obligation type or condition standard at all, and Outgoings ($/sqm pa) has no ERP counterpart in our system. Today these read as "no record" for every tenant and the lease side is flagged on every one of them. The proposal lets a client declare which fields their ERP does not hold; those fields then show the lease value alone and leave the sign-off count. That is one of the decisions at the end.
+
+  **Not absences.** In 20 cases the extraction holds a usable value (Total Incentive Amount up to $2.17M) that the audit never read; that is a defect, filed separately. And a software error is never a reason: every one we found was hiding one of the eight situations above.
+
+  The counts are cases from the 1 October extraction of the three buildings, classified by rule after reading every field's cases against the extraction's own reasoning and citation; a few on the boundary between "silent" and "none" could be misfiled.
+</Details>
+
+## 5. What Mara would see, under each direction
+
+Same tenants, same fields. <Badge tone="info">A</Badge> keeps the field and explains it. <Badge tone="accent">B</Badge> asks first whether the field should be audited at all, and only explains the ones that should.
+
+Left or top: production today. Then mock-ups in the app's layout, built from the real extraction data for that tenant. Mock-ups sit in the grey wireframe frame and are labelled as such. B is Carl's current leaning; A is the design as written.
+
+_Vocabulary gap — the HTML's mock-ups imitate the app's own colours (green, amber and red verdicts, a purple AI pill) inside a dashed, tagged frame; the wireframe surface offers three hues (accent, warn, ok) plus muted, so Investigate borrows the document palette's risk colour, the AI pill is drawn muted, and the frame's grey-box look stands in for the dashed border._
+
+### Hadley Rowe Solicitors, Make Good Payment Amount (the field Mara raised)
+
+<Columns>
+  <Column label="Production · today · Make Good Payment Amount">
+    <Image
+      src="shots/hadley_detail.webp"
+      alt="Hadley Rowe Make Good Payment Amount today: No source data, No target data, ACCEPTABLE"
+      caption="Acceptable by the AI, “not applicable because the tenant has a physical make good obligation”. No clause, no document, and the sentence is different for every tenant."
+    />
+  </Column>
+  <Column label="Production · today · Make Good Obligation Type (the sibling field)">
+    <Image
+      src="shots/hadley_type_detail.webp"
+      alt="Hadley Rowe Make Good Obligation Type today: Physical Make Good, cited to Original Lease §11.10 p.37 and Lease Renewal §11.10 p.36, INVESTIGATE"
+      caption="The sibling field already cites the clause: Original Lease §11.10 p.37 and Lease Renewal §11.10 p.36."
+    />
+  </Column>
+</Columns>
+
+<Columns>
+  <Column label="A · proposed · mock-up">
+    <Screen
+      surface="desktop"
+      caption="A: the field stays and explains itself. The value line says why, the clause chips are the ones the sibling field already shows, the verdict is a template so it is identical every run. It still counts as one of the tenant's 28 audited fields and one of its OKs."
+      html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;height:100%'><div style='display:flex;align-items:center;gap:10px;white-space:nowrap;padding-bottom:10px;border-bottom:1.4px solid var(--wf-line)'><span style='display:inline-grid;place-items:center;width:18px;height:18px;border-radius:999px;border:1.5px solid var(--wf-ok);color:var(--wf-ok);font-size:11px'>✓</span><h2>Make Good Payment Amount</h2></div><div style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px'><div style='min-width:0'><small style='display:block;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:6px'>Document sources</small><div class='wf-card'><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:600;font-size:15px;padding-bottom:8px;margin-bottom:8px;border-bottom:1.4px solid var(--wf-line)'>N/A · Physical make good <span class='wf-pill' style='color:var(--wf-warn);border-color:var(--wf-warn)'>NOT APPLICABLE</span></div><strong>Make Good Payment Amount from Lease Agreement</strong><p class='wf-muted'>Not applicable: Make Good Obligation Type is Physical Make Good</p><div style='margin-top:8px;padding-left:10px;border-left:2px solid var(--wf-line);font-size:13px'><strong>Make Good Obligation Type:</strong> Physical Make Good<br><span class='wf-chip'>Original Lease · §11.10 · p.37</span> <span class='wf-chip'>Lease Renewal · §11.10 · p.36</span></div></div></div><div style='min-width:0'><small style='display:block;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:6px'>Database</small><div class='wf-card'><div style='font-weight:600;font-size:15px;padding-bottom:8px;margin-bottom:8px;border-bottom:1.4px solid var(--wf-line)'>No ERP record</div><p class='wf-muted'>Searched: make good notes for this lease. None found.</p></div></div></div><div style='border:1.4px solid var(--wf-ok);background:color-mix(in srgb,var(--wf-ok) 10%,transparent);border-radius:var(--wf-radius);padding:12px 14px'><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:700;color:var(--wf-ok)'>✓ ACCEPTABLE <small style='font-weight:400'>· Source and Target</small> <span class='wf-pill' style='color:var(--wf-accent);border-color:var(--wf-accent)'>DECIDED BY RULE</span></div><strong style='display:block;margin-top:8px'>Not applicable</strong><p>Not applicable: Make Good Obligation Type is Physical Make Good (Original Lease §11.10 p.37). The ERP holds no make good note.</p></div></div>"}
+    />
+  </Column>
+  <Column label="B · proposed · mock-up">
+    <Screen
+      surface="desktop"
+      caption="B: the field is not audited. It sits collapsed under Make Good Obligation Type with the reason and the clause, has no verdict, and is out of the OK count. Export row: “Not audited: physical make good (Original Lease §11.10 p.37)”. The outgoings base-year citation is illustrative; Hadley Rowe's lease-type clause is not in the captures."
+      html={"<div style='display:flex;flex-direction:column;gap:10px;padding:16px;height:100%'><div style='display:flex;align-items:center;gap:10px;white-space:nowrap;padding-bottom:10px;border-bottom:1.4px solid var(--wf-line)'><span style='display:inline-grid;place-items:center;width:18px;height:18px;border-radius:999px;border:1.5px solid var(--plan-tone-risk);color:var(--plan-tone-risk);font-size:11px'>!</span><h2>Hadley Rowe Solicitors</h2></div><small><strong>26</strong> fields audited · <strong>2</strong> not audited · 3 investigate · 7 review · 16 ok</small><div class='wf-card' style='padding:10px 12px'><div style='display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap'><small style='text-transform:uppercase;letter-spacing:1px;font-weight:600'>Make good</small><small>gate: Make Good Obligation Type</small></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px solid var(--wf-line);border-radius:6px;background:var(--wf-paper);font-size:13px'><strong>Make Good Obligation Type</strong><span>Physical Make Good</span><span class='wf-muted' style='font-style:italic'>No data</span><span class='wf-pill' style='color:var(--plan-tone-risk);border-color:var(--plan-tone-risk)'>INVESTIGATE</span></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px solid var(--wf-line);border-radius:6px;background:var(--wf-paper);font-size:13px'><strong>Make Good Condition Standard</strong><span>in at least as good a condition as …</span><span class='wf-muted' style='font-style:italic'>No data</span><span class='wf-pill' style='color:var(--wf-warn);border-color:var(--wf-warn)'>REVIEW</span></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,3fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px dashed var(--wf-line);border-radius:6px;font-size:13px'><strong class='wf-muted'>Make Good Payment Amount</strong><span class='wf-muted'>Not audited: physical make good <span class='wf-chip'>Original Lease · §11.10 · p.37</span> <span class='wf-chip'>Lease Renewal · §11.10 · p.36</span></span><span class='wf-pill wf-muted'>NOT AUDITED</span></div></div><div class='wf-card' style='padding:10px 12px'><div style='display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap'><small style='text-transform:uppercase;letter-spacing:1px;font-weight:600'>Outgoings</small><small>gate: Outgoings Recovery Basis</small></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px solid var(--wf-line);border-radius:6px;background:var(--wf-paper);font-size:13px'><strong>Outgoings Recovery Basis</strong><span>Net</span><span>Net</span><span class='wf-pill' style='color:var(--wf-ok);border-color:var(--wf-ok)'>OK</span></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,3fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px dashed var(--wf-line);border-radius:6px;font-size:13px'><strong class='wf-muted'>Outgoings Base Year</strong><span class='wf-muted'>Not audited: net lease <span class='wf-chip'>Original Lease · Item 9</span></span><span class='wf-pill wf-muted'>NOT AUDITED</span></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px solid var(--wf-line);border-radius:6px;background:var(--wf-paper);font-size:13px'><strong>Outgoings Lessee Proportion</strong><span>1.1%</span><span class='wf-muted' style='font-style:italic'>No data</span><span class='wf-pill' style='color:var(--wf-warn);border-color:var(--wf-warn)'>REVIEW</span></div></div></div>"}
+    />
+  </Column>
+</Columns>
+
+### How B reaches that screen, step by step
+
+<Steps>
+  <Step title="Which documents does Hadley Rowe have?">
+    An Original Lease and a Lease Renewal. Every lease-sourced group is auditable. (Beacon Media fails here: see below.)
+  </Step>
+  <Step title="What kind of make good is it?">
+    The gate field resolves to Physical Make Good from §11.10 of both documents. That value is the engine's, not the AI's, so it does not move between runs.
+  </Step>
+  <Step title="Which children make sense?">
+    Payment Amount is in scope only for payment-in-lieu and refresh-fee leases, so it is out. Condition Standard is in scope only for physical make goods, so it is in. Decided per lease; Hadley Rowe has one.
+  </Step>
+  <Step title="Still look at the ERP for the out-of-scope field.">
+    The ERP holds no make good payment amount for Hadley Rowe, so there is nothing to raise. On 9 of the 29 tenants on 200 Marlow St the ERP holds a make good _note_ on this field (NFRC: "the Lessee will be required to make good the Premises to base build condition"); B shows the note under the collapsed field for information. Across the three buildings one tenant-field holds an ERP _figure_ for a payment amount the lease rules out; there B raises "the ERP records a payment amount the lease says should not exist" on the type field, Investigate.
+  </Step>
+  <Step title="Audit what is in scope as Direction A would.">
+    Type: Physical Make Good against an empty ERP, Investigate. Condition Standard: a clause against an empty ERP, Review. Both unchanged from today.
+  </Step>
+  <Step title="Count and export.">
+    26 fields audited, 2 not audited with their reason and clause. No OK with nothing behind it.
+  </Step>
+</Steps>
+
+### Rosetta (Copperleaf Hospitality), Make Good Payment Amount
+
+Rosetta is one of Copperleaf Hospitality's two tenancies at 200 Marlow St (Juniper and Sage is the other). The Rosetta tenancy has three leases: lease 1 is a physical make good (cl 11.11 p.32); leases 2 and 3 were never supplied, and the only document for them is a bank guarantee. Production shows Acceptable with nothing behind it.
+
+<Columns>
+  <Column label="A · proposed · mock-up">
+    <Screen
+      surface="desktop"
+      caption="A: one field, two reasons. The less settled one (documents missing) decides the verdict: Review. The lease-1 N/A is shown as a qualifier."
+      html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;height:100%'><div style='display:flex;align-items:center;gap:10px;white-space:nowrap;padding-bottom:10px;border-bottom:1.4px solid var(--wf-line)'><span style='display:inline-grid;place-items:center;width:18px;height:18px;border-radius:999px;border:1.5px solid var(--wf-warn);color:var(--wf-warn);font-size:11px'>!</span><h2>Make Good Payment Amount</h2></div><div style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px'><div style='min-width:0'><small style='display:block;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:6px'>Document sources</small><div class='wf-card'><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:600;font-size:15px;padding-bottom:8px;margin-bottom:8px;border-bottom:1.4px solid var(--wf-line)'>Not supplied · leases 2, 3 <span class='wf-pill' style='color:var(--plan-tone-risk);border-color:var(--plan-tone-risk)'>UNVERIFIED</span></div><p class='wf-muted'>Lease documents for leases 2 and 3 not supplied; documents read: Bank Guarantee (1).</p><p style='margin-top:8px;font-size:13px'><span class='wf-muted'>also:</span> N/A · Physical make good (lease 1) <span class='wf-chip'>Original Lease · cl 11.11 · p.32</span></p></div></div><div style='min-width:0'><small style='display:block;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:6px'>Database</small><div class='wf-card'><div style='font-weight:600;font-size:15px'>No ERP record</div></div></div></div><div style='border:1.4px solid var(--wf-warn);background:color-mix(in srgb,var(--wf-warn) 10%,transparent);border-radius:var(--wf-radius);padding:12px 14px'><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:700;color:var(--wf-warn)'>! REVIEW <small style='font-weight:400'>· Source and Target</small> <span class='wf-pill' style='color:var(--wf-accent);border-color:var(--wf-accent)'>DECIDED BY RULE</span></div><strong style='display:block;margin-top:8px'>Cannot be verified</strong><p>Lease documents for leases 2 and 3 not supplied; lease 1: not applicable (physical make good, cl 11.11).</p></div></div>"}
+    />
+  </Column>
+  <Column label="B · proposed · mock-up">
+    <Screen
+      surface="desktop"
+      caption="B: scope is decided per lease. Lease 1's payment amount is not audited (physical); leases 2 and 3 produce one document-level finding, Review, which is the thing the client should act on. A missing lease is a finding here, not just a reason to shorten the list."
+      html={"<div style='display:flex;flex-direction:column;gap:10px;padding:16px;height:100%'><div style='display:flex;align-items:center;gap:10px;white-space:nowrap;padding-bottom:10px;border-bottom:1.4px solid var(--wf-line)'><span style='display:inline-grid;place-items:center;width:18px;height:18px;border-radius:999px;border:1.5px solid var(--wf-warn);color:var(--wf-warn);font-size:11px'>!</span><h2>Rosetta</h2></div><div style='border:1.4px solid var(--wf-warn);background:color-mix(in srgb,var(--wf-warn) 10%,transparent);border-radius:var(--wf-radius);padding:10px 14px;font-size:13.5px'><strong style='color:var(--wf-warn)'>Lease documents for leases 2 and 3 not supplied.</strong> Lease-sourced fields are not audited for those leases. Documents read: Bank Guarantee (1). <span class='wf-pill' style='color:var(--wf-warn);border-color:var(--wf-warn)'>REVIEW</span></div><div class='wf-card' style='padding:10px 12px'><div style='display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap'><small style='text-transform:uppercase;letter-spacing:1px;font-weight:600'>Make good · lease 1</small><small>gate: Make Good Obligation Type</small></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px solid var(--wf-line);border-radius:6px;background:var(--wf-paper);font-size:13px'><strong>Make Good Obligation Type</strong><span>Physical Make Good</span><span class='wf-muted' style='font-style:italic'>No data</span><span class='wf-pill' style='color:var(--plan-tone-risk);border-color:var(--plan-tone-risk)'>INVESTIGATE</span></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,3fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px dashed var(--wf-line);border-radius:6px;font-size:13px'><strong class='wf-muted'>Make Good Payment Amount</strong><span class='wf-muted'>Not audited: physical make good <span class='wf-chip'>Original Lease · cl 11.11 · p.32</span></span><span class='wf-pill wf-muted'>NOT AUDITED</span></div></div><div class='wf-card' style='padding:10px 12px'><div style='display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap'><small style='text-transform:uppercase;letter-spacing:1px;font-weight:600'>Make good · leases 2, 3</small><small>not auditable</small></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,3fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px dashed var(--wf-line);border-radius:6px;font-size:13px'><strong class='wf-muted'>All make good fields</strong><span class='wf-muted'>Lease documents not supplied</span><span class='wf-pill wf-muted'>NOT AUDITED</span></div></div></div>"}
+    />
+  </Column>
+</Columns>
+
+### Beacon Media (no lease on file), the whole tenant
+
+<Columns>
+  <Column label="A · proposed · mock-up">
+    <Screen
+      surface="desktop"
+      caption="A: a banner plus 26 per-field “unverified” verdicts (Review, Investigate on must-haves), each with the same reason. Well-formed for the export and the sign-off count, but 26 copies of one fact."
+      html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;height:100%'><div style='border:1.4px solid var(--plan-tone-risk);background:var(--plan-tone-risk-soft);border-radius:var(--wf-radius);padding:10px 14px;font-size:13.5px'><strong style='color:var(--plan-tone-risk)'>No lease documents on file.</strong> 26 fields unverified. Documents read: Certificate of Currency (1).</div><div style='display:flex;align-items:center;gap:10px;white-space:nowrap;padding-bottom:10px;border-bottom:1.4px solid var(--wf-line)'><span style='display:inline-grid;place-items:center;width:18px;height:18px;border-radius:999px;border:1.5px solid var(--wf-warn);color:var(--wf-warn);font-size:11px'>!</span><h2>Make Good Payment Amount</h2></div><div style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px'><div style='min-width:0'><small style='display:block;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:6px'>Document sources</small><div class='wf-card'><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:600;font-size:15px'>No lease documents <span class='wf-pill' style='color:var(--plan-tone-risk);border-color:var(--plan-tone-risk)'>UNVERIFIED</span></div></div></div><div style='min-width:0'><small style='display:block;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:6px'>Database</small><div class='wf-card'><div style='font-weight:600;font-size:15px'>No ERP record</div></div></div></div><div style='border:1.4px solid var(--wf-warn);background:color-mix(in srgb,var(--wf-warn) 10%,transparent);border-radius:var(--wf-radius);padding:12px 14px'><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:700;color:var(--wf-warn)'>! REVIEW <small style='font-weight:400'>· Source and Target</small> <span class='wf-pill' style='color:var(--wf-accent);border-color:var(--wf-accent)'>DECIDED BY RULE</span></div><p style='margin-top:8px'>No lease or licence document on file; the ERP holds no make good note. Nothing has been checked against a document.</p></div><small>… and the same on 25 more fields: Review, or Investigate on Lease Start Date, Face Rent and the other must-have fields.</small></div>"}
+    />
+  </Column>
+  <Column label="B · proposed · mock-up">
+    <Screen
+      surface="desktop"
+      caption="B: one tenant-level finding, Investigate, and only the two fields the certificate can answer are audited. The tenant no longer shows 14 OKs; it shows the one thing that matters: the client has an ERP lease we cannot see."
+      html={"<div style='display:flex;flex-direction:column;gap:10px;padding:16px;height:100%'><div style='display:flex;align-items:center;gap:10px;white-space:nowrap;padding-bottom:10px;border-bottom:1.4px solid var(--wf-line)'><span style='display:inline-grid;place-items:center;width:18px;height:18px;border-radius:999px;border:1.5px solid var(--plan-tone-risk);color:var(--plan-tone-risk);font-size:11px'>!</span><h2>Beacon Media Pty Ltd</h2></div><small><strong>2</strong> fields audited · <strong>26</strong> not audited</small><div style='border:1.4px solid var(--plan-tone-risk);background:var(--plan-tone-risk-soft);border-radius:var(--wf-radius);padding:12px 14px'><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:700;color:var(--plan-tone-risk)'>! INVESTIGATE <small style='font-weight:400'>· Tenant</small> <span class='wf-pill' style='color:var(--wf-accent);border-color:var(--wf-accent)'>DECIDED BY RULE</span></div><strong style='display:block;margin-top:8px'>No lease documents on file</strong><p>The ERP records a lease for this tenant (start 2017-07-01, expiry 2023-06-30) but no lease or licence document is on file, so none of the 26 lease-sourced fields can be audited. Documents read: Certificate of Currency (1).</p></div><div class='wf-card' style='padding:10px 12px'><div style='display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap'><small style='text-transform:uppercase;letter-spacing:1px;font-weight:600'>Insurance</small><small>from the Certificate of Currency</small></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px solid var(--wf-line);border-radius:6px;background:var(--wf-paper);font-size:13px'><strong>Public Liability Insurance Held</strong><span>$20,000,000</span><span>$20,000,000</span><span class='wf-pill' style='color:var(--wf-ok);border-color:var(--wf-ok)'>OK</span></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px solid var(--wf-line);border-radius:6px;background:var(--wf-paper);font-size:13px'><strong>Tenant Legal Name</strong><span>Skyline Outdoor Limited …</span><span>Beacon Media Pty Ltd</span><span class='wf-pill' style='color:var(--plan-tone-risk);border-color:var(--plan-tone-risk)'>INVESTIGATE</span></div></div><div class='wf-card' style='padding:10px 12px'><div style='display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap'><small style='text-transform:uppercase;letter-spacing:1px;font-weight:600'>Lease terms · rent · outgoings · make good · security · options</small><small>not auditable</small></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,3fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px dashed var(--wf-line);border-radius:6px;font-size:13px'><strong class='wf-muted'>26 fields</strong><span class='wf-muted'>No lease documents on file</span><span class='wf-pill wf-muted'>NOT AUDITED</span></div></div></div>"}
+    />
+  </Column>
+</Columns>
+
+### Larkspur Architects, Outgoings Base Year
+
+Production shows Acceptable with nothing behind it (§3). Behind the screen the engine had inferred "2022" from the term start and the AI deleted it. The lease is Net (Lease Variation p.13 A1(b); Incentive Deed p.10 cl 7.1(b)). Larkspur Architects' make good is "Payment In Lieu, Yield Up Only" with a $28,500 payment amount and a stated condition standard, all Review or OK today.
+
+<Columns>
+  <Column label="A · proposed · mock-up">
+    <Screen
+      surface="desktop"
+      caption="A: the rule “base year applies to semi-gross leases only” is declared against the field and the engine applies it. The inferred 2022 is suppressed, so there is nothing for the AI to delete. Still an audited field, still an OK."
+      html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;height:100%'><div style='display:flex;align-items:center;gap:10px;white-space:nowrap;padding-bottom:10px;border-bottom:1.4px solid var(--wf-line)'><span style='display:inline-grid;place-items:center;width:18px;height:18px;border-radius:999px;border:1.5px solid var(--wf-ok);color:var(--wf-ok);font-size:11px'>✓</span><h2>Outgoings Base Year</h2></div><div style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px'><div style='min-width:0'><small style='display:block;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:6px'>Document sources</small><div class='wf-card'><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:600;font-size:15px;padding-bottom:8px;margin-bottom:8px;border-bottom:1.4px solid var(--wf-line)'>N/A · Net lease <span class='wf-pill' style='color:var(--wf-warn);border-color:var(--wf-warn)'>NOT APPLICABLE</span></div><p class='wf-muted'>Not applicable: Outgoings Lease Type is Net. A base year applies to semi-gross leases only.</p><div style='margin-top:8px;padding-left:10px;border-left:2px solid var(--wf-line);font-size:13px'><strong>Outgoings Lease Type:</strong> Net<br><span class='wf-chip'>Lease Variation · A1(b) · p.13</span> <span class='wf-chip'>Incentive Deed · 7.1(b) · p.10</span></div></div></div><div style='min-width:0'><small style='display:block;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:6px'>Database</small><div class='wf-card'><div style='font-weight:600;font-size:15px'>No ERP record</div></div></div></div><div style='border:1.4px solid var(--wf-ok);background:color-mix(in srgb,var(--wf-ok) 10%,transparent);border-radius:var(--wf-radius);padding:12px 14px'><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:700;color:var(--wf-ok)'>✓ ACCEPTABLE <small style='font-weight:400'>· Source and Target</small> <span class='wf-pill' style='color:var(--wf-accent);border-color:var(--wf-accent)'>DECIDED BY RULE</span></div><p style='margin-top:8px'>Not applicable: Outgoings Lease Type is Net (Lease Variation p.13 A1(b); Incentive Deed p.10 cl 7.1(b)). The ERP holds no record.</p></div></div>"}
+    />
+  </Column>
+  <Column label="B · proposed · mock-up">
+    <Screen
+      surface="desktop"
+      caption="B: the same rule, read as a gate on the group. The base year is never computed or guessed from the term start, and the field is not counted; 28 of 29 tenants on 200 Marlow St are in this position today. The make good group shows two things the rule has to handle: a gate with two values (payment amount is in scope because payment in lieu is one of them) and a lease value stated for a field the gate puts out of scope (the condition standard), which is raised on the gate rather than dropped."
+      html={"<div style='display:flex;flex-direction:column;gap:10px;padding:16px;height:100%'><div style='display:flex;align-items:center;gap:10px;white-space:nowrap;padding-bottom:10px;border-bottom:1.4px solid var(--wf-line)'><span style='display:inline-grid;place-items:center;width:18px;height:18px;border-radius:999px;border:1.5px solid var(--plan-tone-risk);color:var(--plan-tone-risk);font-size:11px'>!</span><h2>Larkspur Architects Pty. Ltd.</h2></div><small><strong>26</strong> fields audited · <strong>2</strong> not audited</small><div class='wf-card' style='padding:10px 12px'><div style='display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap'><small style='text-transform:uppercase;letter-spacing:1px;font-weight:600'>Make good</small><small>gate: Make Good Obligation Type</small></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px solid var(--wf-line);border-radius:6px;background:var(--wf-paper);font-size:13px'><strong>Make Good Obligation Type</strong><span>Payment In Lieu, Yield Up Only</span><span class='wf-muted' style='font-style:italic'>No data</span><span class='wf-pill' style='color:var(--wf-warn);border-color:var(--wf-warn)'>REVIEW</span></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px solid var(--wf-line);border-radius:6px;background:var(--wf-paper);font-size:13px'><strong>Make Good Payment Amount</strong><span>$28,500.00</span><span class='wf-muted' style='font-style:italic'>No data</span><span class='wf-pill' style='color:var(--wf-warn);border-color:var(--wf-warn)'>REVIEW</span></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,3fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px dashed var(--wf-line);border-radius:6px;font-size:13px'><strong class='wf-muted'>Make Good Condition Standard</strong><span class='wf-muted'>Not audited: payment in lieu / yield up. The lease states “clean and tidy condition”: raised on the type field for a human to read</span><span class='wf-pill wf-muted'>NOT AUDITED</span></div></div><div class='wf-card' style='padding:10px 12px'><div style='display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap'><small style='text-transform:uppercase;letter-spacing:1px;font-weight:600'>Outgoings</small><small>gate: Outgoings Recovery Basis</small></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px solid var(--wf-line);border-radius:6px;background:var(--wf-paper);font-size:13px'><strong>Outgoings Recovery Basis</strong><span>Net</span><span>Net</span><span class='wf-pill' style='color:var(--wf-ok);border-color:var(--wf-ok)'>OK</span></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,3fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px dashed var(--wf-line);border-radius:6px;font-size:13px'><strong class='wf-muted'>Outgoings Base Year</strong><span class='wf-muted'>Not audited: net lease <span class='wf-chip'>Lease Variation · A1(b) · p.13</span> <span class='wf-chip'>Incentive Deed · 7.1(b) · p.10</span></span><span class='wf-pill wf-muted'>NOT AUDITED</span></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px solid var(--wf-line);border-radius:6px;background:var(--wf-paper);font-size:13px'><strong>Outgoings Lessee Proportion</strong><span>…</span><span>…</span><span class='wf-pill' style='color:var(--wf-ok);border-color:var(--wf-ok)'>OK</span></div><div style='display:grid;grid-template-columns:minmax(130px,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;margin-top:6px;border:1.4px solid var(--wf-line);border-radius:6px;background:var(--wf-paper);font-size:13px'><strong>Outgoings (Monthly)</strong><span>…</span><span>$21,874.60 per month</span><span class='wf-pill' style='color:var(--wf-warn);border-color:var(--wf-warn)'>REVIEW</span></div></div></div>"}
+    />
+  </Column>
+</Columns>
+
+### Pelican Energy, Make Good Payment Amount: identical under A and B
+
+<Columns>
+  <Column label="Production · today">
+    <Image
+      src="shots/pelican_detail.webp"
+      alt="Pelican Make Good Payment Amount today"
+      caption="The formula is visible only because the ERP note happens to describe it. The lease clause that defines it is not cited anywhere on the field."
+    />
+  </Column>
+  <Column label="A and B · proposed · mock-up">
+    <Screen
+      surface="desktop"
+      caption="Pelican's make good is payment in lieu (cl 12.3), so under B the payment amount is in scope and audited. This is the point about B: it is the top layer. Everything that is genuinely in scope and still empty (silent lease, “none”, formula, not in force, ERP note, ERP empty) needs Direction A's reasons, documents and rule-based verdicts exactly as shown here."
+      html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;height:100%'><div style='display:flex;align-items:center;gap:10px;white-space:nowrap;padding-bottom:10px;border-bottom:1.4px solid var(--wf-line)'><span style='display:inline-grid;place-items:center;width:18px;height:18px;border-radius:999px;border:1.5px solid var(--wf-ok);color:var(--wf-ok);font-size:11px'>✓</span><h2>Make Good Payment Amount</h2></div><div style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px'><div style='min-width:0'><small style='display:block;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:6px'>Document sources</small><div class='wf-card'><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:600;font-size:15px;padding-bottom:8px;margin-bottom:8px;border-bottom:1.4px solid var(--wf-line)'>Formula · 40% of average of three quotes <span class='wf-pill' style='color:var(--wf-accent);border-color:var(--wf-accent)'>FORMULA</span></div><p class='wf-muted'>Defined by formula (Original Lease cl 12.3(c)): 40% of the average of three compliant quotes, not a fixed value</p><div style='margin-top:8px;padding-left:10px;border-left:2px solid var(--wf-line);font-size:13px'><strong>Payment Amount:</strong> formula<br><em class='wf-muted'>“The payment amount is not a fixed dollar sum but is defined by a formula in Clause 12.3(c): forty per cent of the average of three compliant quotes, obtained nine months before expiry.”</em><br><span class='wf-chip'>Original Lease · Clause 12.3(c) · p.22</span></div></div></div><div style='min-width:0'><small style='display:block;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:6px'>Database</small><div class='wf-card'><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:600;font-size:15px;padding-bottom:8px;margin-bottom:8px;border-bottom:1.4px solid var(--wf-line)'>Note <span class='wf-pill' style='color:var(--wf-warn);border-color:var(--wf-warn)'>NOT A FIGURE</span></div><p class='wf-muted' style='font-size:13px'>“Tenant to restore premises to base building condition at lease end, including removal of all fitout. Cl12. Cash settlement option: landlord and tenant each obtain quotes 9 months prior to expiry, tenant pays 40% of the averaged figure. Cl12.3.”</p><span class='wf-chip' style='margin-top:6px'>ERP · lease note · #001300-100417-2026-04-08</span></div></div></div><div style='border:1.4px solid var(--wf-ok);background:color-mix(in srgb,var(--wf-ok) 10%,transparent);border-radius:var(--wf-radius);padding:12px 14px'><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:700;color:var(--wf-ok)'>✓ ACCEPTABLE <small style='font-weight:400'>· Source and Target</small> <span class='wf-pill' style='color:var(--wf-accent);border-color:var(--wf-accent)'>RULE: REVIEW</span> <span class='wf-pill wf-muted'>AI: NOTE MATCHES CLAUSE</span></div><strong style='display:block;margin-top:8px'>Formula on both sides</strong><p>Defined by formula (Original Lease cl 12.3(c)): 40% of the average of three compliant quotes, not a fixed value. The ERP note describes the same formula.</p><small style='display:block;margin-top:8px'>If the AI is unavailable or unsure, the field stays at Review with the clause and the note side by side. If the AI says the note contradicts the clause, Investigate.</small></div></div>"}
+    />
+  </Column>
+</Columns>
+
+### The export
+
+<Table
+  density="compact"
+  columns={["", "Source Values", "Target Values", "Severity", "Source document(s)"]}
+  rows={[
+    [
+      { badge: { label: "Today", tone: "neutral" }, md: "Hadley Rowe Solicitors" },
+      "_blank_",
+      "_blank_",
+      "acceptable",
+      "_blank_"
+    ],
+    [
+      { badge: { label: "A", tone: "info" }, md: "Hadley Rowe Solicitors" },
+      "N/A (physical make good)",
+      "No ERP record",
+      "acceptable",
+      "Original Lease §11.10 p.37; Lease Renewal §11.10 p.36"
+    ],
+    [
+      { badge: { label: "B", tone: "accent" }, md: "Hadley Rowe Solicitors" },
+      "Not audited: physical make good",
+      "—",
+      "not audited",
+      "Original Lease §11.10 p.37; Lease Renewal §11.10 p.36"
+    ],
+    [
+      { badge: { label: "Today", tone: "neutral" }, md: "National Freight Rail Corporation" },
+      "_blank_",
+      "Upon expiry, sooner determination or yielding up of the Lease, the Lessee will be required to make good …",
+      "acceptable",
+      "_blank_"
+    ],
+    [
+      { badge: { label: "A", tone: "info" }, md: "National Freight Rail Corporation" },
+      "N/A (physical make good)",
+      "Note: Upon expiry, sooner determination or yielding up …",
+      "acceptable (AI confirmed the note matches)",
+      "Original Lease p.40 cl 11.10"
+    ],
+    [
+      { badge: { label: "B", tone: "accent" }, md: "National Freight Rail Corporation" },
+      "Not audited: physical make good",
+      "Note: Upon expiry … (shown for information; no contradiction)",
+      "not audited",
+      "Original Lease p.40 cl 11.10"
+    ]
+  ]}
+/>
+
+Both "today" rows are from the production Excel export of 200 Marlow St. Mara's export ask — N/A in the source values rather than blank — is met under either direction: A writes the value line and the citations; B writes "Not audited" with the reason and the same citations.
+
+### Which verdicts stop depending on the AI
+
+<Stats
+  items={[
+    {
+      value: "≈ 73%",
+      label: "of the 674 cells decided by the table",
+      tone: "info",
+      badge: { label: "A", tone: "info" },
+      detail: "Ruled out, none granted, silent on an optional field, closed window, unverified. Identical every run."
+    },
+    {
+      value: "≈ 55%",
+      label: "of the 674 cells stop being verdicts",
+      tone: "accent",
+      badge: { label: "B", tone: "accent" },
+      detail: "≈370 cells: ruled out by a gate (216 + ≈75 fabricated base years), documents not supplied (58), no lease (22). The other ≈300 are audited and get A's treatment."
+    },
+    {
+      value: "≈ 17%",
+      label: "keep an AI reading under either direction",
+      tone: "neutral",
+      detail: "Because an ERP note has to be read against a clause or a formula. Both documents are shown either way."
+    },
+    {
+      value: "100%",
+      label: "carry a cited reason",
+      tone: "success",
+      detail: "Of the 674, in the reviewer's panel and the export, under either direction. Today none do."
+    }
+  ]}
+/>
+
+## 6. The honest part
+
+Some fields that read Acceptable today will read Review or Investigate, because nothing was ever checked. We should tell the client before the first re-run. It is the correct signal, and it is the one Mara asked for. Under Direction B the field counts themselves shrink as well.
+
+<Columns>
+  <Column label="What changes">
+    <Callout tone="risk" title="≈ 110 of 674 empty Acceptables become Review or Investigate by rule">
+      About **one in six**. They come from: tenants with no lease on file (22), a document we were never given such as an incentive deed or disclosure statement (58), a silent lease where the ERP holds a figure or a note (23), and formulas and contradictions the AI had called a match (about 6, Orbis among them), plus the few not-yet-started leases among 20 not-in-force cells.
+    </Callout>
+
+    <Callout tone="risk" title="Beacon Media">
+      Has a Certificate of Currency and no lease. Today 13 of its 14 Acceptable cards read N/A against No data, with the verdict text admitting "no source documents are available". Under the proposal the tenant carries one banner and every lease-sourced field reads Unverified: Review, or Investigate on the must-have fields. The AI cannot lift it.
+    </Callout>
+
+    <Callout tone="info" title="What does not move">
+      Any field where the lease holds a value, or the ERP holds a figure, keeps today's comparison and today's AI adjustment. On these three buildings that is 633 cells of "lease has a value, ERP has none", untouched. About six optional-field cells the AI holds at Review today become Acceptable by rule.
+    </Callout>
+
+    <Callout tone="info" title="What becomes impossible">
+      The AI can no longer make a field Acceptable by deleting a value. If it believes a value is really a formula, it may say so, and the field is held at Review for a human.
+    </Callout>
+
+    <Callout tone="decision" title="Under Direction B the headline numbers change too">
+      On 200 Marlow St about 94 of the 812 fields (one in nine) would leave the audited set: 72 ruled out by a make good or outgoings gate and 22 whose document was never supplied. About 74 of those read OK today, so the building would show roughly **720 fields audited, 485 OK** instead of 812 and 561. The OK share barely moves (69% to 68%); what falls is "OK with nothing behind it", from 109 cards to about 45, and those 45 are silent-lease, "none" and not-in-force cases that carry a clause under either direction. The client would see a new bucket, "not audited, with a reason", and fewer OKs per tenant. Estimate; derivation in the appendix.
+    </Callout>
+  </Column>
+  <Column label="Production · Beacon Media, OK filter (14)">
+    <Image
+      src="shots/beacon_ok_list.webp"
+      alt="Beacon Media OK filter: Next Review Date, Review Methodology, Rent Abatement, Number of Car Parks, Outgoings (Monthly), each N/A / No data, OK"
+      caption="Thirteen of the fourteen cards read N/A / No data; the first five are shown."
+      width={520}
+    />
+  </Column>
+</Columns>
+
+_Vocabulary gap — the HTML showed the whole fourteen-card list in a 560 px scrolling frame; `Image` has no scroll box and caps its height, so the screenshot is cropped to the first screen._
+
+### Beacon Media, Make Good Payment Amount
+
+<Columns>
+  <Column label="Production · today">
+    <Image
+      src="shots/beacon_payment_detail.webp"
+      alt="Beacon Media Make Good Payment Amount today: ACCEPTABLE, no source documents are available, No action required - both systems are currently blank"
+      caption="Today's verdict on that field: Acceptable, “no source documents are available”, “No action required”. The sentence knows what the verdict ignores."
+    />
+  </Column>
+  <Column label="Under either direction">
+    <Callout tone="risk" title="This stops being Acceptable">
+      <Badge tone="info">A</Badge> the field reads "No lease documents", Review by rule, Investigate on Lease Start Date, Face Rent and the other must-have fields; a banner on the tenant says 26 fields are unverified. <Badge tone="accent">B</Badge> the field is not audited at all; the tenant carries one Investigate finding, "No lease documents on file", and only the two fields the insurance certificate can answer are audited. Both mock-ups are in §5.
+    </Callout>
+  </Column>
+</Columns>
+
+<Details summary="Why production already half-handles this, and where the gap is">
+  <Image
+    src="shots/no_docs_strip.webp"
+    alt="Tenants with no documents: five tenant cards, No Documents, cannot be audited"
+    caption="Production. 200 Marlow St lists five tenants with no documents at all as “cannot be audited” and skips them."
+  />
+
+  Beacon Media and Citywide Parking escape that treatment because each has an insurance certificate, so they are audited field by field and the AI is left to notice, or not, that there is no lease. The proposal records "has lease documents" as a fact about the tenant, so the banner and the per-field Unverified follow from it.
+</Details>
+
+## 7. Three ways forward
+
+Keep patching field by field; rebuild so every field explains itself (A); or rebuild so the audit first decides which fields are worth auditing, then explains the rest (B). A and B share most of their work. The choice between them is the question for this meeting.
+
+<Columns columns={3}>
+  <Card tone="neutral" heading="Keep patching" badge="the lesser option" meta={["about a week per carve-out", "three more mechanisms, none removed"]}>
+    Our engineer's open fix for Make Good Payment Amount, then the next carve-outs in the same style.
+
+    - **Extend the make good fix to its sibling fields.** The engineer's fix cites the clause on 162 of the 674 cells, all on Make Good Payment Amount. Extending it to condition standard, base year, lessee proportion and the two outgoings amounts cites ≈140 more. The rule is written in code and in prose, six times over. The ERP side still shows nothing; the verdict is still the AI's.
+    - **Merge the branch that keeps the explanation when the audit's calculation for a field ran but found no figure.** Improves ≈15 cells (formulas, unparsed ERP notes). The complaint's own case, where the calculation never ran because the lease side was empty, is unchanged.
+    - **Make the verdict deterministic on the hooked fields.** Stable on those cells only; the AI can still delete values elsewhere.
+
+    **After all three:** ≈320 of the 674 cells cited, ≈300 still prose-only, verdicts stable on ≈160. "Consistently across all fields" is not met.
+  </Card>
+  <Card tone="info" eyebrow="Direction A" heading="Every field, with its reason" badge="the design as written" meta={["four phases, ≈ four weeks", "less code than today", "one model for all 90 fields"]}>
+    - **Phase 1: every empty field carries its reason and document.** Pipeline, UI, export and data store change together. All 674 cells cited; unverified fields stop being Acceptable; export never blank.
+    - **Phase 2: "not applicable" decided by the governing term.** Six fields get a declared rule. "Not stated" becomes "N/A · Physical make good" on 129 cells; base years are no longer fabricated and then deleted.
+    - **Phase 3: ERP notes are notes, not figures.** No more Investigate manufactured by comparing prose to a number.
+    - **Phase 4: the AI's powers narrowed.** Confirm, relabel with a citation, say whether a note matches. It cannot delete a value to make a field Acceptable.
+
+    **What the client sees:** the same 28 fields per tenant; N/A fields read "N/A · reason" with the clause and count as OK by rule. Headline counts unchanged in shape. ≈110 empty Acceptables become Review/Investigate.
+
+    **Weak point:** the client still reads 28 verdicts per tenant, some of them on fields we knew were irrelevant before we started. Carl: "we're presenting the end-user of the client with noise."
+  </Card>
+  <Card tone="accent" eyebrow="Direction B" heading="A hierarchy decides what is audited" badge="Carl's leaning" meta={["same four phases, phase 2 swapped", "not separately costed"]}>
+    Instead of a rule that makes a field read N/A, a rule that decides whether the field is audited. The extra work is in the UI (grouped fields, "not audited" bucket) and the data store (a scope column); the saved work is the N/A kind and its verdict rows.
+
+    - **Document coverage first.** No lease on file: one tenant-level finding, Investigate; nothing lease-sourced is audited. A named document missing: one document-level finding, Review; the fields only it carries are not audited.
+    - **Then the gate per group.** Make good type, outgoings lease type, security type. Children that do not apply are not audited, shown collapsed with the clause. "Type not determined" is its own reviewable finding. Decided per lease.
+    - **Then audit what is in scope exactly as A does.** Silent lease, "none", formula, not in force, ERP note, ERP empty: same reasons, same documents, same rule-based verdicts. ≈300 of the 674 cells are in this group.
+    - **The ERP side of out-of-scope fields is still read.** A value where the lease says there should be none is raised on the gate field.
+
+    **What the client sees:** fewer fields per tenant, grouped; a "not audited" bucket with reasons; no OK with nothing behind it. On 200 Marlow St roughly 720 fields audited and 485 OK instead of 812 and 561 (§6).
+
+    **Weak points:** the gate can be wrong or move between runs, so child fields can appear and vanish; "out of scope" must not mean "not checked"; the rule that fields are independent of each other needs restating. All three are in §8.
+  </Card>
+</Columns>
+
+### What one patch looks like
+
+<Columns>
+  <Column label="PR #4256 description · dev build · before">
+    <Image
+      src="shots/pr_before.webp"
+      alt="Make Good Payment Amount row: OK, N/A, 'No derivation recorded for this side.'"
+      caption="Before the engineer's fix, from the PR's own description (dev build; tenant not named): N/A, “No derivation recorded for this side.”"
+    />
+  </Column>
+  <Column label="PR #4256 description · dev build · after">
+    <Image
+      src="shots/pr_after.webp"
+      alt="Make Good Payment Amount row: OK, N/A with 2 citations: Not applicable: the make good obligation type is Physical Make Good, two obligation type inputs cited to Lease Renewal 2.2(h) p.4 and Original Lease 1.1 p.8"
+      caption="After: the N/A cites the obligation type clauses. This is the right idea for one field, and it is Direction A in miniature. It is hand-coded for that one field, the ERP side is untouched, and the Acceptable is still the AI's. A applies the idea to all 90 fields; B uses the same clause to take the field out of the audit instead."
+    />
+  </Column>
+</Columns>
+
+<Details summary="What each phase changes for the customer, and what we accept">
+  <Table
+    columns={["Phase", "The client sees", "What we accept"]}
+    rows={[
+      ["1", "Every empty audited field has a reason and a cited document; the export shows N/A and the document, never blank; tenants with no lease carry a banner (A) or a single finding (B); fields nothing was checked against read Review or Investigate, not Acceptable.", "Every building is re-run once; the stored audit rows change shape (re-ingested on the next run). This is the phase to brief the client before."],
+      [{ badge: { label: "A", tone: "info" }, md: "2" }, "“N/A · Physical make good”, “N/A · Net lease” on the fields a sibling term rules out; the base-year verdict stops flipping.", "The rule for each of six fields is declared once; new governed fields need their own line."],
+      [{ badge: { label: "B", tone: "accent" }, md: "2" }, "Fields grouped under their gate; out-of-scope fields collapsed with the clause and out of the counts; “type not determined” and “documents not supplied” as findings; a “not audited” bucket in the building summary.", "The UI regroups fields; the data store gains a scope column; a client activates or deactivates a group as a unit. The gate's value drives what is shown, so gate accuracy matters more."],
+      ["3", "An ERP note shows as a note; no Investigate for “the ERP has text, the lease has a number”.", "Reverses a recent change that treated the note as a value."],
+      ["4", "Verdicts identical run to run except where a note must be read; even there, both documents are shown.", "The AI's instructions are rewritten; its edits are checked against a short list of allowed moves."]
+    ]}
+  />
+
+  Phases 1 to 3 are safe without phase 4: until then the AI's existing edits apply to values only and leave absences alone. The scope hierarchy is sketched in `scope-hierarchy.md` beside the design.
+</Details>
+
+## 8. What we need from this meeting
+
+One main question, four open points it raises, and four product calls that stand whichever way it goes. The full ten design decisions are in the decisions write-up with worked examples, and I own them. The form at the end of this section is for recording what the room decides.
+
+### The main question
+
+<Card tone="accent" eyebrow="The main question" heading="Do we build A, every field with its reason, or B, a hierarchy that decides what is audited and then explains the rest?">
+  Same complaint, same evidence, same first phase. They differ in what the client reads: A keeps 28 fields per tenant and makes the irrelevant ones explain themselves; B removes the irrelevant ones from the audit, with the same clause as the reason, and leaves fewer, grouped fields. B is Carl's current leaning and the likely long-term direction; A is the design as written, and B keeps most of it.
+
+  > **Carl's words:** "once we know what type of make good clause exists, then we determine which other fields actually make sense to even [audit] in the first place … This may not be the best approach and I'm open to other alternatives. Again this is a discussion not a conclusion."
+</Card>
+
+### Four open points about B, for discussion
+
+<Card tone="warning" eyebrow="Open point 1" heading="The gate can be wrong, and it can move. What happens to the fields beneath it?">
+  The gate value can change for three reasons: the AI amends it after the engine has read it (it does so on condition standard today, and the type field is adjudicated); a re-extraction reads the clause differently; and, trivially, the order of a multi-value type can swap between runs (11 obligation-type rows across 204 buildings, order only, no verdict changed; a gate that reads the set of values does not move on this). Under B any real change in the gate makes child fields appear or vanish between runs.
+
+  **Proposed answer:** scope follows the engine's gate value, never the AI's; "type not determined" is an explicit, reviewable finding rather than silence; scope is decided per lease, so one undocumented lease does not hide another's fields. And keep A's per-field reason inside B, so a reviewer can always see why a field was not audited.
+</Card>
+
+<Card tone="warning" eyebrow="Open point 2" heading="Out of scope is not the same as not checked. Does B still look at the ERP?">
+  Two things can sit under an out-of-scope field. On the ERP side: 9 of 29 tenants on 200 Marlow St have a make good note on the payment amount (84 such cells across the three buildings), and one tenant-field holds an ERP figure for an amount the lease rules out. On the lease side: Larkspur Architects states a condition standard ("clean and tidy condition") under a payment-in-lieu / yield-up make good, which B's rule puts out of scope; Pingly and Pacific Commerce Bank do the same. If B simply stops auditing those fields, all of that disappears.
+
+  **Proposed answer:** yes. Both sides of every out-of-scope field are still read. An ERP figure, or a lease value, for a field the gate rules out is raised on the gate field ("the ERP records a payment amount the lease says should not exist"; "the lease states a condition standard under a yield-up make good"), for a human to read; an ERP note is shown under the collapsed field for information. Whether the raised finding is Review or Investigate is open.
+</Card>
+
+<Card tone="warning" eyebrow="Open point 3" heading="Is a missing document a reason to shrink the list, or a finding for the client?">
+  Both, but the finding comes first: a missing lease is Investigate at tenant level, a missing incentive deed or disclosure statement is Review at document level. And a missing document should not un-scope what the lease itself states. Carl's own example was the bank guarantee ("if we don't have a bank guarantee document, it doesn't make sense to try and audit the bank guarantee field"); I read it the other way: the lease sets the amount, the guarantee certificate is the instrument, so a missing certificate is a note, not a reason to stop auditing the amount. Worth settling in the room.
+
+  **Proposed answer:** only fields whose _sole_ source is the missing document leave the audit; everything the lease states stays in.
+</Card>
+
+<Card tone="warning" eyebrow="Open point 4" heading="Fields were meant to be independent of each other. A hierarchy is a dependency. Does the rule change?">
+  Today each field can be switched on or off per client and new fields can be generated in isolation. B ties a child to its gate: a client could not keep Make Good Payment Amount and drop Make Good Obligation Type. A honours the rule by reading the lease term rather than the sibling field; B can read the term the same way, but the product rule still changes.
+
+  **Proposed answer:** restate the rule as "a group is switched on or off as a unit", and keep the calculations independent underneath.
+</Card>
+
+### Four product calls that stand under either direction
+
+<Card tone="success" eyebrow="Product call 1" badge="recommend: yes" heading="Do we tell the client, before the first re-run, that about one in six of today's empty Acceptables will become Review or Investigate, and under B that their field counts will shrink?">
+  These are the fields nothing was checked against: tenants with no lease on file, incentive deeds and disclosure statements we were never given, a formula the AI called a match. Under B they become findings and a "not audited" bucket rather than verdicts; the count of OKs falls either way.
+
+  **Recommendation:** yes, and reply to Mara's last message at the same time. This is the fix she asked for, framed as such: every audited field now shows what was reviewed, and where nothing was, it says so.
+</Card>
+
+<Card tone="success" eyebrow="Product call 2" badge="recommend: review if still to start" heading="A lease that has not started yet, against an empty ERP: is that Acceptable or Review?">
+  A new lease that starts after the audit date and that the ERP has not loaded yet. (Autohub's lease starts 1 February 2027; its ERP already holds that date, so it would read Acceptable with the dates shown.) And the mirror case: Hadley Rowe's $152,340.00 incentive was fully used before the audit date, and the ERP shows nothing. In scope under both directions.
+
+  **Recommendation:** still to start against an empty ERP is <Badge tone="warning">review</Badge> (someone should load it); already used up or expired against an empty ERP is <Badge tone="success">acceptable</Badge>, with the clause and dates shown.
+</Card>
+
+<Card tone="success" eyebrow="Product call 3" badge="recommend: declared “not held”" heading="Fields the client's ERP never records: a finding on every tenant, or declared “not held”?">
+  The client's ERP has no field for make good obligation type or condition standard. Today the lease side is flagged on every tenant, and our engineer has told Mara these are review-level for exactly that reason.
+
+  **Recommendation:** let each client declare the fields their ERP does not hold. Those fields show the lease value alone, read "Not held in the ERP" on the ERP side, and leave the sign-off count. Everything else stays a real gap.
+</Card>
+
+<Card tone="success" eyebrow="Product call 4" badge="recommend: yes" heading="Do we commit about four weeks to the rebuild, with every change the client sees landing in the first release?">
+  The first phase is the large one and is the same under A and B: everything the customer sees (reasons and documents on every empty audited field, the export, the no-lease finding, the new Review and Investigate verdicts) arrives together, and each building is re-run once. The A-or-B choice lands in the second phase.
+
+  **Recommendation:** yes. A consequence: the engineer's make good fix and the explanations branch close without merging; their good ideas become phase 2 and phase 1.
+</Card>
+
+### Record the meeting's calls
+
+Answered here, the choices come back to the author as the meeting's record. A question left unanswered takes its recommendation.
+
+<QuestionForm
+  questions={[
+    {
+      id: "direction",
+      title: "Which direction do we build?",
+      subtitle: "Same complaint, same evidence, same first phase; they differ in what the client reads per tenant.",
+      mode: "single",
+      refs: [{ label: "7. Three ways forward", anchor: "7-three-ways-forward" }, { label: "5. What Mara would see, under each direction", anchor: "5-what-mara-would-see-under-each-direction" }],
+      options: [
+        { id: "a", label: "A — every field stays and explains itself with its clause; 28 verdicts per tenant", detail: "The design as written. Headline counts keep their shape." },
+        { id: "b", label: "B — a hierarchy decides which fields are audited; the rest sit collapsed with their clause", recommended: true, detail: "Carl's current leaning. Fewer, grouped fields; a new “not audited, with a reason” bucket." },
+        { id: "patch", label: "Keep patching field by field", detail: "About a week per carve-out; “consistently across all fields” is not met." }
+      ]
+    },
+    {
+      id: "tell-client",
+      title: "Do we tell the client before the first re-run that about one in six of today's empty Acceptables will become Review or Investigate?",
+      subtitle: "Under B their field counts shrink as well; either way the count of OKs falls.",
+      mode: "single",
+      refs: [{ label: "6. The honest part", anchor: "6-the-honest-part" }],
+      options: [
+        { id: "yes", label: "Yes — brief them before the first re-run and reply to Mara's last message at the same time", recommended: true },
+        { id: "no", label: "No — let the first re-run speak for itself" }
+      ]
+    },
+    {
+      id: "not-started",
+      title: "A lease that has not started yet, against an empty ERP: Acceptable or Review?",
+      subtitle: "The mirror case, an incentive already used up before the audit date against an empty ERP, is Acceptable under the recommendation.",
+      mode: "single",
+      options: [
+        { id: "review", label: "Review — someone should load it into the ERP", recommended: true },
+        { id: "acceptable", label: "Acceptable — nothing is due yet, so an empty ERP is correct" }
+      ]
+    },
+    {
+      id: "erp-never-records",
+      title: "Fields the client's ERP never records: a finding on every tenant, or declared “not held”?",
+      subtitle: "The client's ERP has no field for make good obligation type or condition standard, so today the lease side is flagged on every tenant.",
+      mode: "single",
+      options: [
+        { id: "declare", label: "Declared — each client lists the fields its ERP does not hold; they show the lease value alone and leave the sign-off count", recommended: true },
+        { id: "finding", label: "Keep flagging — a review-level finding on every tenant, as today" }
+      ]
+    },
+    {
+      id: "commit",
+      title: "Do we commit about four weeks to the rebuild, with every change the client sees landing in the first release?",
+      subtitle: "The first phase is the same under A and B; the A-or-B choice lands in the second. The engineer's make good fix and the explanations branch would close without merging.",
+      mode: "single",
+      options: [
+        { id: "yes", label: "Yes — commit the four weeks; phase 1 ships everything the customer sees", recommended: true },
+        { id: "later", label: "Not yet — decide after the first phase is scoped in more detail" }
+      ]
+    }
+  ]}
+/>
+
+## Appendix: Sources and numbers
+
+Everything above traces to the evidence folder in the workbench repo (`Stratus-Labs/workbench`, `tenant-audit-absence-model/`): `design.md` (Direction A), `scope-hierarchy.md` (Direction B), `evidence/`, `screenshots/today/MANIFEST.md`. The tenant names in screenshots are the ERP's; the evidence uses legal names.
+
+<Details summary="Where each number comes from">
+  <Table
+    density="compact"
+    columns={["Number", "Source"]}
+    rows={[
+      ["674 of 5,124 (13.2%); 20% of 3,427 Acceptables; 190 tenant-fields in all three runs", "`evidence/absence-taxonomy.md` table 3 and answer 1. 61 tenants × 28 fields × 3 AI runs."],
+      ["Per-field percentages (93%, 91%, 42%, 36%, 23%, 21%, 16%, 11%, 10%, 8%)", "Same table 3, “% of 183” column."],
+      ["0 rule-based Acceptables for an empty lease side; every one the AI's", "Table 4: “The deterministic engine never says ACCEPTABLE for an absent source.”"],
+      ["342 of 357 absences with a cited reason in the extraction", "Answer 2 (all kinds except “no tenant documents”)."],
+      ["106 values the AI removed", "Table 1 “masked” rows; most surprising findings, item 1."],
+      ["Citywide Parking: 10 fields Acceptable in 2 of 3 runs", "Examples, “no tenant documents”; answer 3."],
+      ["Kind counts: 52 / 48 / 87 / 84 / 72 (+33) / 38 / 8; ERP no record 370", "Table 1 (source and target)."],
+      ["Governing clause cited in every ruled-out case", "Table 5."],
+      ["122 misleading “no entry before the audit date” statuses", "Table 6, first row."],
+      ["≈73% / ≈17% / ≈9%; ≈110 become Review or Investigate; all 674 cited", "`design.md` §5.3 (≈491 / ≈115 / ≈60 of 674) and §8."],
+      ["633 cells of lease value vs empty ERP unchanged; ≈6 optional cells lifted to Acceptable", "`design.md` §5.1 and §8 “Outside the 674”."],
+      ["22 / 58 / 23 / about 6 making up the ≈110", "`design.md` §5.3, “verdict changes” column: no documents 22, document not supplied 58, silent lease 23 (17 against an ERP value, 6 against a note), formulas 3 and ruled-out against an ERP value 3; not-in-force “up to 20”."],
+      ["Four phases, ≈ four weeks, net less code; patch path ≈320 / ≈300 / ≈160, a week per carve-out", "`design.md` §7 and §8 (“keep patching” table)."],
+      ["812 fields, 561 OK, 109 N/A vs No data, 131 incl. ERP-value cases; 26 of 29 on Make Good Payment Amount (17 blank ERP, 9 note)", "`screenshots/today/MANIFEST.md` headline numbers, read off production on 19 Oct."],
+      ["Export: Source Values blank in 26 of 29 rows; 26 different wordings", "Same manifest §7, from the production xlsx."],
+      ["Beacon Media: 13 of 14 OK cards N/A / No data; 26 lease-sourced fields", "Manifest §4; `design.md` §6.4."],
+      ["Direction B estimate for 200 Marlow St: ≈94 of 812 fields leave the audit; ≈74 of them OK today; ≈720 audited / ≈485 OK; “OK with nothing” 109 → ≈45", "`absence-taxonomy.md` table 1, 001100 column: ruled out 41, fabricated base years 31, document not supplied 22, no-lease tenants 0 (the five with no documents at all are already skipped). OK-today rates from table 4: ruled out 216/216 cells, base years ≈75/99, document not supplied 58/144. 109 by field from the manifest headline: base year 28, make good payment 17, condition standard 3 and about half of the 25 Outgoings ($/sqm pa) leave; the rest stay in scope. Estimate, not a re-run."],
+      ["Direction B across the three buildings: ≈370 of 674 cells become scope, ≈300 stay audit outcomes", "`absence-taxonomy.md` table 3 “by kind”: ruled out 216 + the ≈75 base-year cells among the 106 the AI removed + document not supplied 58 + no documents 22 = ≈371; the remainder (silent 139, none 88, not in force 27, formula 10, other AI-removed ≈31, dropped 8) ≈303."],
+      ["Gate instability: 11 obligation-type rows across 204 buildings differ by value order only, 0 verdict changes", "`tickets-and-history.md` AIT-146 (Carl's fleet sweep, 25 Aug: 45 rows = 33 condition standard, 11 obligation type, 1 recovery basis)."],
+      ["Content under out-of-scope fields: ERP make good note on 9 of 29 tenants; 84 ruled-out cells against an ERP note; one tenant-field with an ERP figure; stated condition standards under non-physical types at Larkspur Architects, Pingly, Pacific Commerce Bank", "Manifest headline (26 of 29: 17 blank, 9 note); `design.md` §5.3 “ruled_out 216: 84 (× ERP prose note), 3 (× ERP value)” where 3 cells = one tenant-field over three runs; `screenshots/today/data/001100-field-cards-as-rendered.json` Make Good cards."],
+      ["Mara's and our engineer's messages and dates", "`evidence/tickets-and-history.md` part 2 (the support ticket)."],
+      ["Tenant facts (Harbinger cl 11.10(a) p.35; Pelican cl 12.3(c); Orbis cl 33(b); Larkspur Architects net lease citations; Hadley Rowe $152,340.00; Autohub 1 Feb 2027; NetArc licence; Harlow cl 11.1)", "`design.md` §6 and `absence-taxonomy.md` examples, from the 1 October extraction."]
+    ]}
+  />
+</Details>
+
+<Details summary="Where production differs from the design's description of “today”">
+  - The design quotes the panel text as "No derivation recorded for this side." Production renders "No source data" / "No target data". Same finding; this document uses production's words.
+  - The design gives Beacon Media's Make Good Payment Amount as Review in all three runs. Production shows Acceptable ("no source documents are available"). Production is worse than described.
+  - The design records Orbis's verdict text as "values match". Production reads "No fixed make good payment amount is specified in either the source lease or the target system", which is factually wrong given cl 33(b).
+  - The design says 16 tenants on 200 Marlow St have a blank ERP on Make Good Payment Amount; production shows 17.
+  - Larkspur Architects: the design describes the AI adding a literal "N/A" value in two of three runs. Production shows an emptied lease side (the first-run behaviour). The inferred 2022 is invisible in both.
+  - Citywide Parking's Tenant Trading Name shows the literal word "null" on the ERP side and is badged OK: a separate defect, filed.
+  - Mock-up values marked "…" in the Direction B group views stand for the tenant's real in-scope values, which are not reproduced; Hadley Rowe's outgoings lease-type citation in the B mock-up is illustrative.
+  - Which export Mara saw blank is still unproven. The portfolio Excel export is blank in the Source Values column; the audit-app CSV could not be reached with the production key.
+</Details>
+
+<Details summary="Tenant names: screen vs legal">
+  <Table
+    density="compact"
+    columns={["Shown in the app", "Legal name in the evidence"]}
+    rows={[
+      ["Meridian", "Harbinger Holdings Pty Ltd"],
+      ["Juniper and Sage, Rosetta", "Copperleaf Hospitality Pty Ltd (two tenancies; the three-lease case is Rosetta)"],
+      ["Autohub", "Autohub Group Limited"],
+      ["Pingly", "Pingly Pty Ltd"],
+      ["Pelican Energy", "Pelican Renewables Pty Ltd"]
+    ]}
+  />
+
+  Buildings: 001100 is 200 Marlow St, Sydney; 001200 (Beacon Media, Orbis) and 001300 (Pelican, Citywide Parking, Harlow Recruitment) are the other two of the client's buildings in the evidence set. Tenant names, people, addresses, building ids and lease-specific figures in this document and its screenshots are fictional substitutes for the real ones.
+</Details>
+
+###### Tenant Audit handling of Null values · Thu 22 Oct 2026, 11:00 AEST · Carl, Will, Pele
