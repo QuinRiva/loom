@@ -16,8 +16,7 @@ tools:
     fetch_content,
     get_search_content,
     consult_manager,
-    memory_search,
-    memory_remember,
+    capture_lesson,
   ]
 ---
 

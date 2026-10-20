@@ -22,8 +22,7 @@ tools:
     session_read,
     knowledge_search,
     kb_read,
-    memory_search,
-    memory_remember,
+    capture_lesson,
   ]
 ---
 

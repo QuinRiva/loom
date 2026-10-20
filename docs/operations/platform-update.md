@@ -108,14 +108,13 @@ needs Carl's yes first (the `platform-update` skill asks).
 | 6   | cli-proxy (Claude pool only)        | `/home/Carl/cli-proxy/docker-compose.yml` `image:` tag; upstream `internal/registry/models/models.json` + cloak pin in `internal/runtime/executor/helps/claude_device_profile.go` | other project | restart (~6 s outage) | Anthropic rejects the model with `Claude Code <old> does not support this model; version <floor> or newer is required` — even though `GET /v1/models` lists it.                                                                                                                                                          |
 | 10  | Role prose                          | `roles/*.md`                                                                                                                                                                      | repo          | —                     | Nothing to edit: roles name model families and tiers (Opus = anthropic/medium, Sol = openai/medium), never versions.                                                                                                                                                                                                     |
 | 12  | Tests that assert a default         | the fixtures asserting `PI_DEFAULT_MODEL`'s value                                                                                                                                 | repo          | —                     | The skill's loom PR updates them with the constant (the gate fails loudly otherwise); the ~100 fixtures that merely _use_ a slug stay as they are.                                                                                                                                                                       |
-| 14  | Other patched pi extensions         | `~/.pi/agent/npm/node_modules/pi-total-recall/node_modules/@samfp/pi-memory/src/index.ts` (`grep -c "LOCAL PATCH (Carl)"` → 4)                                                    | machine       | live                  | Not touched by `npm install -g` of pi core; **is** wiped by `pi update --all`/`--extensions` on a version change. See `~/pi-craft/local-patches/README.md`.                                                                                                                                                              |
 | 15  | Deploy                              | `~/loom-releases/RUNBOOK.md` → `deployctl deploy cockpit main`                                                                                                                    | machine       | —                     | Row 1 and the skill's loom PR stay on paper, and the cockpit cannot run a new `cliproxy/*` model.                                                                                                                                                                                                                        |
 | 17  | Web search backend                  | `~/.pi/web-search.json` → `provider` (`exa`; absent means `auto`, which tries OpenAI first)                                                                                       | machine       | live                  | An unset provider sends every `web_search` through an OpenAI model on the Codex subscription.                                                                                                                                                                                                                            |
 | 18  | Prompt-template provider preference | `pi-prompt-template-model` `PREFERRED_PROVIDERS` (`openai-codex` first)                                                                                                           | machine       | live                  | Note only: it breaks a tie only for a template naming a bare model id, and `~/.pi/agent/prompts/` is empty.                                                                                                                                                                                                              |
 
 ## 3. Order of operations
 
-The machine-side steps (rows 2, 6, 14, and the skill's live targets) are
+The machine-side steps (rows 2, 6, and the skill's live targets) are
 **live**: the moment you save, the next pi process or spawn uses them, and the
 running cockpit re-reads its settings file within seconds. The repo steps
 (row 1 and the skill's loom PR) do nothing until a deploy. The skill runs this
@@ -141,7 +140,7 @@ deploy. Sequence so that nothing points at a model that nothing can serve:
    `PI_DEFAULT_MODEL` rollover and its fixtures (row 12) when a model moves.
    Gate, ship per `shipping.md`.
 3. **Global pi** (row 2, §5) — after the bundled bump, so the re-derived diffs
-   in `infra/pi-patches/` match the version you install. Check row 14 after.
+   in `infra/pi-patches/` match the version you install.
    Terminal pi now derives the new custom-provider models (row 4); verify with
    `pi -p` per provider (§7).
 4. **Model rollover** — the skill writes its live targets and probes each
@@ -185,13 +184,11 @@ npm install -g "@earendil-works/pi-coding-agent@$V"     # not `pi update`
 pi --version                                             # → 0.99.2
 <loom worktree>/infra/pi-patches/apply.sh                # readable dist, then the bundle
 <loom worktree>/infra/pi-patches/apply.sh --check        # 0001: applied=yes  0002: applied=yes  chunk-…: already patched
-grep -c "LOCAL PATCH (Carl)" ~/.pi/agent/npm/node_modules/pi-total-recall/node_modules/@samfp/pi-memory/src/index.ts   # → 4
 ```
 
 `npm install -g` rather than `pi update` because it installs the **exact**
 version the bundled pin and the re-derived diffs were made for; `pi update`
-installs latest, which can be newer than the bundle, and `--all`/`--extensions`
-also reinstalls extensions and wipes row 14. Either path replaces the stock
+installs latest, which can be newer than the bundle. Either path replaces the stock
 files, so the patches are re-applied afterwards regardless.
 
 `apply.sh` leaves `*.orig` next to each patched file on this path. That is its
@@ -346,9 +343,8 @@ Each of these cost real time in the last two rounds.
   image reverts the pin.
 - **`/v1/models` lies.** The old proxy image advertised `claude-opus-5-5`
   while rejecting every request for it. Completion or nothing.
-- **`pi update` wipes patches** — the core patches on `pi update`/reinstall,
-  the total-recall patch on any extension version change. Re-run `apply.sh`
-  and check the marker count after either.
+- **`pi update` wipes patches** — the core patches on `pi update`/reinstall.
+  Re-run `apply.sh` and check the marker count afterwards.
 - **`pnpm patch --ignore-existing` and a stale editable dir.** It silently
   reuses `/tmp/pi-patch-<v>` from a previous attempt, baking old edits into
   what you think is the pristine base. `rm -rf` it first and `diff -r` against
