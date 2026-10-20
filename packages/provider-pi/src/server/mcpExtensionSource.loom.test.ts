@@ -39,7 +39,7 @@ const TOOLS = [
   { name: "delegate_task", description: "Delegate.\nDetails.", inputSchema: { type: "object" } },
 ];
 
-it("registers Loom's _meta prose and appends no orchestration instructions", async () => {
+it("registers Loom's _meta prose and never forces the system prompt", async () => {
   const registered: Array<Registered> = [];
   const handlers = new Map<string, (event: { systemPrompt: string }) => unknown>();
   const source = NodeModule.stripTypeScriptTypes(
@@ -84,8 +84,9 @@ it("registers Loom's _meta prose and appends no orchestration instructions", asy
   assert.deepEqual(byName.get("mcp__t3-code__workstream_set_outcome")?.promptGuidelines, []);
   assert.isUndefined(byName.get("mcp__t3-code__delegate_task")?.promptSnippet);
   assert.isUndefined(byName.get("mcp__t3-code__delegate_task")?.promptGuidelines);
-  assert.deepEqual(handlers.get("before_agent_start")?.({ systemPrompt: "BASE" }), {
-    systemPrompt: "BASE\n\n",
-  });
+  // Any returned systemPrompt, even an unchanged one, makes pi force the prompt and collapse every
+  // system message into one head with all current tools: each tool_search load would then resend
+  // the tool list and rewrite the prompt cache instead of appending an inline tool addition.
+  assert.isUndefined(handlers.get("before_agent_start")?.({ systemPrompt: "BASE" }));
   server.close();
 });
