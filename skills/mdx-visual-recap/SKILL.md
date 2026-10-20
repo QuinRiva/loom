@@ -192,7 +192,7 @@ the 8 MiB transport ceiling `planLint` enforces (warn above 6 MB, error above
 ## Validate before presenting
 
 ```
-node apps/web/scripts/lint-plan.mjs recaps/<slug>/recap.mdx --out recaps/<slug>/render.html
+node apps/web/scripts/lint-plan.mjs recaps/<slug>/recap.mdx --out recaps/<slug>/render.html --png
 ```
 
 The render-health gate, in two stages against the real renderer modules:
@@ -203,8 +203,9 @@ or degrades on a payload its schema accepts and prints the block types that
 mounted — confirm every `<ReviewChoice>` is there. Fix all `error` findings
 and read each `warning`. Exit code 0 means the recap compiles and renders, so
 it will display in-app; a document handed over on an unrun or failing check
-may open as an error card. `--out` writes the rendered page beside the recap
-so you can look at it (§10 of `document-quality.md`).
+may open as an error card. `--out --png` writes the rendered page and PNG
+slices of it beside the recap, for you to `read` and look at (§10 of
+`document-quality.md`).
 
 A reader reporting the recap as broken (JSX shown as literal escaped text)
 after a passing check is seeing the plain markdown fallback — a view or

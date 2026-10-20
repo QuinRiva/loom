@@ -3,7 +3,7 @@
  * Headless render-health check for an MDX plan/recap — the gate an agent runs
  * before handing a document to a human:
  *
- *   node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx [--out <file.html>]
+ *   node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx [--out <file.html> [--png]]
  *
  * Two stages, both against the renderer's REAL module graph so neither can
  * drift from what the app accepts:
@@ -28,6 +28,13 @@
  * subresource. Write the page BESIDE the document (`<doc-dir>/render.html`) and
  * that holds for every image the document references.
  *
+ * `--png` screenshots that page with the playwright chromium already installed
+ * for the browser tests, as page-height PNG slices beside it
+ * (`render-1.png`, `render-2.png`, …) — the way an agent LOOKS at its document
+ * with the `read` tool, with no browser tool to load. Slices rather than one
+ * tall image: a model downsamples anything much over a megapixel, and a whole
+ * long document in one PNG shrinks to an unreadable strip.
+ *
  * Outside a browser that graph needs two things, which this script provides:
  * DOM globals (jsdom) and vite-powered module loading (tsx + `~` alias).
  */
@@ -43,11 +50,14 @@ import { createServer } from "vite";
 const args = process.argv.slice(2);
 const outIndex = args.indexOf("--out");
 const outFile = outIndex === -1 ? undefined : args[outIndex + 1];
+const png = args.includes("--png");
 const file = args.find(
   (arg, index) => !arg.startsWith("--") && (outIndex === -1 || index !== outIndex + 1),
 );
-if (!file || (outIndex !== -1 && !outFile)) {
-  console.error("Usage: node apps/web/scripts/lint-plan.mjs <plan.mdx> [--out <file.html>]");
+if (!file || (outIndex !== -1 && !outFile) || (png && !outFile)) {
+  console.error(
+    "Usage: node apps/web/scripts/lint-plan.mjs <plan.mdx> [--out <file.html> [--png]]",
+  );
   process.exit(2);
 }
 const planPath = NodePath.resolve(process.cwd(), file);
@@ -230,8 +240,59 @@ async function writeStandalonePage(html, target) {
 `;
   NodeFS.mkdirSync(NodePath.dirname(target), { recursive: true });
   NodeFS.writeFileSync(target, page);
-  const shown = NodePath.relative(process.cwd(), target);
-  console.log(`wrote ${shown.startsWith("..") ? target : shown} (${page.length} bytes)`);
+  console.log(`wrote ${shown(target)} (${page.length} bytes)`);
+}
+
+// 1024 wide holds the in-app prose measure (`max-w-4xl` + padding) with the
+// margin a panel has; 1024×1100 sits just under the ~1.15 MP a model reads at
+// native resolution, so 14px body text in a slice stays legible.
+const PNG_WIDTH = 1024;
+const PNG_SLICE_HEIGHT = 1100;
+
+/** Screenshot the standalone page as page-height slices beside it. Loaded over
+ * `file://` so the relative image srcs the page was written with resolve. Each
+ * slice scrolls the viewport rather than using `fullPage`, which resizes the
+ * render surface to the whole document and fails intermittently past ~10k px. */
+async function writeScreenshots(pageFile) {
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({
+      viewport: { width: PNG_WIDTH, height: PNG_SLICE_HEIGHT },
+    });
+    await page.goto(NodeURL.pathToFileURL(pageFile).href, { waitUntil: "load" });
+    await page.evaluate(() => document.fonts.ready);
+    const height = await page.evaluate(() => document.documentElement.scrollHeight);
+    const stem = pageFile.replace(/\.html?$/, "");
+    const slices = Math.max(1, Math.ceil(height / PNG_SLICE_HEIGHT));
+    for (let index = 0; index < slices; index++) {
+      const y = index * PNG_SLICE_HEIGHT;
+      const target = `${stem}-${index + 1}.png`;
+      // The last scroll clamps short of `y`; clip from where `y` landed in the viewport.
+      const scrollY = await page.evaluate((top) => {
+        window.scrollTo(0, top);
+        return Math.round(window.scrollY);
+      }, y);
+      await page.screenshot({
+        path: target,
+        animations: "disabled",
+        clip: {
+          x: 0,
+          y: y - scrollY,
+          width: PNG_WIDTH,
+          height: Math.min(PNG_SLICE_HEIGHT, height - y),
+        },
+      });
+      console.log(`wrote ${shown(target)} (slice ${index + 1} of ${slices}, ${height}px page)`);
+    }
+  } finally {
+    await browser.close();
+  }
+}
+
+function shown(target) {
+  const relative = NodePath.relative(process.cwd(), target);
+  return relative.startsWith("..") ? target : relative;
 }
 
 /** Render findings as terse `file:line:col severity: message` lines + a summary. */
@@ -256,7 +317,9 @@ try {
     const render = await renderFindings(source);
     findings.push(...render.findings);
     if (outFile && render.html !== undefined) {
-      await writeStandalonePage(render.html, NodePath.resolve(process.cwd(), outFile));
+      const pageFile = NodePath.resolve(process.cwd(), outFile);
+      await writeStandalonePage(render.html, pageFile);
+      if (png) await writeScreenshots(pageFile);
     }
   }
   console.log(formatFindings(findings, NodePath.relative(process.cwd(), planPath)));

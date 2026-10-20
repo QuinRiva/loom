@@ -316,28 +316,32 @@ Read the document as its reader, then check each line:
 
 ## 10. Before handoff, look at the rendered document
 
-Render the document to a standalone page and look at it:
+Render the document to a standalone page and PNG slices of it, and read the
+slices:
 
 ```
-node apps/web/scripts/lint-plan.mjs <doc>.mdx --out <doc-dir>/render.html
+node apps/web/scripts/lint-plan.mjs <doc>.mdx --out <doc-dir>/render.html --png
 ```
 
 `--out` keeps the markup the render-health check already produces, with the
 app's stylesheet inlined and image sources resolved, so the page is what the
 reader sees. Write it beside the document (`render.html` in the document's own
-folder — gitignored): images are then relative to the page, which is the only
-form that loads both when you open the file directly and when a human opens it
-in-app from its file chip.
+folder — gitignored, as are the slices): images are then relative to the page,
+which is the only form that loads both when you open the file directly and
+when a human opens it in-app from its file chip.
 
-To see it yourself, load it in a browser: the `browser_*` tools are deferred,
-so `tool_search` for `browser_navigate` first, then `browser_navigate` to
-`file:///<absolute path to>/render.html` and `browser_take_screenshot`
-(`fullPage: true` for the whole document, or a `selector` for one block). If
-the search returns no browser tools, the visual check is out of reach in this
-thread: say so in your report. A dev server is not needed for this check;
-reserve a live instance for what genuinely needs interaction — annotation,
-`<Prototype>` flows, a `<QuestionForm>`, a layout question that depends on the
-real panel width.
+`--png` screenshots that page at the in-app reading width as page-height
+slices beside it (`render-1.png`, `render-2.png`, …; the run prints each
+path). Open every slice with the `read` tool, which shows you the image. A
+slice is sized to stay legible at the resolution a model reads an image, and
+the cut falls wherever the page height does, so a block or heading continued
+across two slices is the slicing, not a defect. Do not load browser tools to
+look at the page instead: a tool loaded mid-session rewrites the whole cached
+context, and the slices show the same render. If the run cannot write the
+slices (no chromium on this machine), the visual check is out of reach in
+this thread: say so in your report. Reserve a browser or a live instance for
+what genuinely needs interaction — annotation, `<Prototype>` flows, a
+`<QuestionForm>`, a layout question that depends on the real panel width.
 
 Fix overlap, excessive whitespace, clipped fragments, misleading inactive
 controls, poor contrast and unreadable diagrams before handing off. The page

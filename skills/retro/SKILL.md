@@ -250,16 +250,18 @@ recommended verdict. Shape:
 Lint with the release copy, which works from any project:
 
 ```
-node /home/Carl/loom-releases/current/apps/web/scripts/lint-plan.mjs "$RUN/recap.mdx"
+node /home/Carl/loom-releases/current/apps/web/scripts/lint-plan.mjs "$RUN/recap.mdx" --out "$RUN/render.html" --png
 ```
 
-Fix every error and read each warning; exit 0 is the final check — the
-script itself renders the document headlessly and lists the blocks that
-mounted. Do not render, open or screenshot
-the recap yourself, and do not load browser tools to do so: a tool loaded
-mid-run invalidates the cached context (the retro that screenshotted its
-lint-clean recap re-wrote its whole context for the picture, a third of its
-cost). Then end the turn with the recap's absolute path in inline code and
+Fix every error and read each warning; exit 0 is the gate — the script
+itself renders the document headlessly and lists the blocks that mounted.
+`--png` writes page-height PNG slices of the render beside the recap
+(`$RUN/render-1.png`, …; the run prints each path): `read` each one and fix
+what reads badly. That is the whole visual check; do not load browser tools
+to open the page instead: a tool loaded mid-run invalidates the cached
+context (the retro that screenshotted its lint-clean recap re-wrote its whole
+context for the picture, a third of its cost). Then end the turn with the
+recap's absolute path in inline code and
 ask the human to open and triage it in-app. Expect discussion over one or more turns — the human may
 refine wording, contest evidence or drop proposals; update the recap as it
 settles. Triage has settled when the human says so, or when their review

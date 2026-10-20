@@ -137,7 +137,7 @@ silently. Run the render-health check and fix every finding before telling the
 reader the plan is ready:
 
 ```
-node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx --out plans/<slug>/render.html
+node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx --out plans/<slug>/render.html --png
 ```
 
 Two stages against the real renderer modules: **lint** (compile gate, block
@@ -147,10 +147,11 @@ registry, which catches a block that throws or degrades on a payload its schema
 accepts, and prints the block types that mounted. Fix all `error` findings;
 read each `warning` and fix it unless the degradation is intended. Exit code 0
 means the document compiles and renders, so it will display in-app; a plan
-handed over on an unrun or failing check may open as an error card. `--out`
-also writes the rendered page beside the plan so you can look at it — how, why
-it sits beside the document, and what it cannot show (a `<Mermaid>` draws
-only in-app), is §10 of `document-quality.md`.
+handed over on an unrun or failing check may open as an error card.
+`--out --png` also writes the rendered page and PNG slices of it beside the
+plan, for you to `read` and look at — how, why they sit beside the document,
+and what the page cannot show (a `<Mermaid>` draws only in-app), is §10 of
+`document-quality.md`.
 
 If a reader reports the plan looking broken (JSX shown as literal escaped text)
 after a passing check, the document is healthy: that signature is the plain
