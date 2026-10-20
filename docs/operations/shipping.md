@@ -124,8 +124,7 @@ branch (below) and `--dry-run` to preview the steps. In order, the script:
   `git rev-list --count origin/main..HEAD` is commits ahead and
   `git rev-list --count HEAD..origin/main` commits behind (`X..Y` reads "in Y,
   not in X"). The two-number `git rev-list --left-right --count A...B` form is
-  ordered by argument and has been misattributed before; `git status -sb` is
-  the other unambiguous form.
+  ordered by argument and has been misattributed before.
 
 ## Judgement calls (yours, not the script's)
 
