@@ -288,10 +288,15 @@ cd /home/Carl/cli-proxy && curl -s -m 300 -H "Authorization: Bearer $(cat .apike
 Unique probe bodies matter — session affinity binds identical bodies to one
 account, so repeats test a single credential, not the pool.
 
-**The live cockpit picked up a settings edit** — zero-cost, no spawn. Point a
-spare preset at the new slug, then read the preset block that
-`mcp__t3-code__workstream_list` prints from any thread: the entry appears with **no
-`[INVALID …]` marker** iff the running server's live catalogue accepts it.
+**The live cockpit picked up a settings edit** — zero-cost, nothing spawned. Point a
+spare preset at the new slug, then call `mcp__t3-code__workstream_spawn` with a
+preset name that does not exist (`modelPreset: "no-such-preset"`, plus any
+`role`, `title` and `purpose`) from any thread that can spawn. The
+server refuses it before creating anything, and the refusal lists every
+configured preset, marking each one the live catalogue cannot serve:
+`Available presets: coder, probe [INVALID: model "cliproxy/claude-opus-9-9" is unknown for instance "pi"], reviewer.`
+The probe preset appears with **no `[INVALID …]` marker** iff the running
+server's live catalogue accepts it.
 Always run a bogus slug as a negative control (`cliproxy/claude-opus-9-9`) —
 the check is skipped when an instance advertises an empty catalogue, so a clean
 render without the control proves nothing. Revert the probe.
@@ -416,7 +421,7 @@ pi 0.87.1 accepts this entry as is (checked with `gpt-6.1-sol`), and it
 overrides an overlay or bundled model with the same id.
 
 **Point and test.** Write the targets with the skill's `--set`, then probe both
-binaries and run the §7 `mcp__t3-code__workstream_list` check, using a bogus id of the same
+binaries and run the §7 spawn-refusal check, using a bogus id of the same
 family as the negative control:
 
 ```bash
@@ -426,7 +431,7 @@ for bin in pi "$B"; do $bin -p --model openai-codex/gpt-6.1-sol --thinking high 
 
 There is no restart or deploy. The cockpit re-reads its settings within
 seconds and re-probes pi's catalogue every ~2 min, so right after a `models.json`
-edit `mcp__t3-code__workstream_list` may show `[INVALID]` for up to 2 min.
+edit the refusal may show `[INVALID]` for up to 2 min.
 
 **Once a pi bump ships the model,** delete its `models.json` entry, and check
 that `pi --list-models` still lists the model. The targets need nothing: the
