@@ -26,7 +26,7 @@ import * as Option from "effect/Option";
 
 import { readWorkstreamBriefAt, writeWorkstreamBrief } from "../../../../loom/workstream/brief.ts";
 import { authoriseTarget, type WorkstreamCaller } from "../authorisation.ts";
-import type { LoomToolInput } from "../defs.ts";
+import { LoomToolError, type LoomToolInput } from "../defs.ts";
 import { agentToolName as t } from "../families.ts";
 import { requestKey, stableCommandId } from "../idempotency.ts";
 import { asToolError, childrenOf, committed, dispatch, fail, nowIso } from "./shared.ts";
@@ -72,7 +72,14 @@ export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(functi
       threadId,
       createdAt: yield* nowIso,
       kickoffBriefPath,
-    });
+    }).pipe(
+      Effect.mapError(
+        (error) =>
+          new LoomToolError({
+            message: `${error.message} Call ${t("workstream_prompt")} again — it now steers the running child.`,
+          }),
+      ),
+    );
     const siblings = new Map(
       (yield* childrenOf(caller.threadId)).map((child) => [
         child.threadId,
