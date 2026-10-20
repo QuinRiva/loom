@@ -24,7 +24,7 @@ import type { LoomExtensionPart } from "../loomExtension.ts";
 const NOTE = "[t3 command guard]";
 const BLOCKED = "Blocked by the t3 command guard:";
 
-const KILL_MESSAGE = `${BLOCKED} killing by pattern (\`pkill\`, or \`pgrep\` output fed to \`kill\`) can kill your own agent process or another thread's server, because their command lines carry the same names and paths. Kill only a PID you captured at spawn (\`pid=$!\`), or the owner of your port from \`ss -H -ltnp\` after checking \`/proc/<pid>/cwd\`. If you are sure the match is yours, list it with \`pgrep -af <pattern>\` first, then \`kill <pid>\` with the PIDs it printed.`;
+const KILL_MESSAGE = `${BLOCKED} killing by pattern (\`pkill\`, or \`pgrep\` output fed to \`kill\`) can kill your own agent process or another thread's server, because their command lines carry the same names and paths. Kill only a PID you captured at spawn (\`pid=$!\`), or the owner of your port from \`ss -H -ltnp\` after checking \`/proc/<pid>/cwd\`. If you are sure the match is yours, list it with a bracket pattern like \`pgrep -af '[v]ite'\` (the brackets stop it matching this shell), then \`kill <pid>\` with the PIDs it printed.`;
 
 const PGREP_MESSAGE = `${BLOCKED} \`pgrep -f\` here matches the shell running this very command (its command line contains your pattern), so it always finds a process and a polling loop runs until the tool times out. To wait on a process you started, capture \`pid=$!\` at spawn and poll \`kill -0 $pid\` or \`wait $pid\`, or poll for a file the process writes when it finishes. To match by pattern anyway, use \`pgrep -fx\` or a bracket pattern like \`[v]ite\`, which cannot match its own command line.`;
 
@@ -43,10 +43,12 @@ const MESSAGES = ${JSON.stringify({ KILL_MESSAGE, PGREP_MESSAGE, GH_MESSAGE, RG_
 const fill = (text, values) => text.replace(/\b(FROM|TO|ENDPOINT)\b/g, (key) => values[key]);
 const code = (text) => "\x60" + text + "\x60";
 
-// Each heredoc whose terminator line is present: operator span, delimiter, body span.
+// Each heredoc whose terminator line is present: operator span, delimiter, body span. A heredoc
+// inside another's body is that body's text (e.g. a script being written), so it is skipped.
 const heredocs = (command) => {
   const found = [];
   for (const m of command.matchAll(/(?<!<)<<(-?)[ \t]*([^\s;&|<>()]+)/g)) {
+    if (m.index < (found.at(-1)?.bodyEnd ?? 0)) continue;
     const delimiter = m[2].replace(/['"\\]/g, "");
     const newline = command.indexOf("\n", m.index);
     if (newline < 0 || delimiter === "") continue;
@@ -169,11 +171,17 @@ const analyse = (command) => {
   const blocks = new Set();
   const edits = [];
   const notes = [];
-  if (KILL_PIPELINES.some((re) => re.test(text))) blocks.add(MESSAGES.KILL_MESSAGE);
+  // Quoted prose (a commit message, a PR body) is not a pipeline; a "$(...)" string still runs.
+  const unquoted = text.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, (s) =>
+    s[0] === '"' && /\$\(|\x60/.test(s) ? s : s.replace(/[^\n]/g, " "));
+  if (KILL_PIPELINES.some((re) => re.test(unquoted))) blocks.add(MESSAGES.KILL_MESSAGE);
   for (const tokens of commands(text)) {
     const head = tokens[0].value.split("/").pop();
     if (head === "rg") edits.push(...rgEdits(tokens));
-    else if (head === "pkill") blocks.add(MESSAGES.KILL_MESSAGE);
+    // -P (children of a PID) and -F (a pidfile) select by PID, not by name.
+    else if (head === "pkill" && !tokens.some((t) => /^(-[PF]|--parent|--pidfile)/.test(t.raw))) {
+      blocks.add(MESSAGES.KILL_MESSAGE);
+    }
     else if (head === "pgrep" && pgrepSelfMatch(tokens, command)) blocks.add(MESSAGES.PGREP_MESSAGE);
     else if (head === "gh") {
       const endpoint = ghApiWrite(tokens);
@@ -185,8 +193,9 @@ const analyse = (command) => {
     if (d.quoted || (!tick && !/(?<!\\)\$\(/.test(d.body))) continue;
     const quotedOp = "<<" + d.dash + "'" + d.delimiter + "'";
     const values = { FROM: code(d.op), TO: code(quotedOp) };
-    // Rewrite only a body that expands nothing on purpose; any $VAR, braced or positional expansion means doubt.
-    if (tick && !/(?<!\\)\$[\w{?#@*!$-]/.test(d.body)) {
+    // Rewrite only a body that expands nothing on purpose: any $VAR, $(...), braced or positional
+    // expansion, or a backslash (whose escaping quoting would undo), means doubt.
+    if (tick && !/\\|\$[\w{(?#@*!$-]/.test(d.body)) {
       edits.push({ start: d.start, end: d.end, text: quotedOp, note: fill(MESSAGES.HEREDOC_REWRITE_NOTE, values) });
     } else notes.push(fill(MESSAGES.HEREDOC_WARN_NOTE, values));
   }

@@ -535,6 +535,7 @@ describe("command-guards part", () => {
       `pgrep -f vite | xargs kill`,
       `kill $(pgrep -f "vite --port 5173")`,
       `sleep 1; kill -9 \`pgrep node\``,
+      `kill "$(pgrep -f vite)"`,
     ]) {
       expect(run(command).reason, command).toContain("killing by pattern");
     }
@@ -559,6 +560,8 @@ describe("command-guards part", () => {
       `pgrep node`,
       `kill -0 "$pid"`,
       `kill 12345`,
+      `pkill -P $$`,
+      `pkill -F /tmp/server.pid`,
     ]) {
       untouched(command);
     }
@@ -603,6 +606,8 @@ describe("command-guards part", () => {
     for (const command of [
       "cat <<EOF\nHello $USER, see `docs`\nEOF",
       "cat <<EOF > stamp\nBuilt at $(date)\nEOF",
+      "cat <<EOF\nCommit: $(git rev-parse HEAD)\nUse `foo` here\nEOF",
+      "cat <<EOF\nCost \\$5, run `x`\nEOF",
     ]) {
       const out = run(command);
       expect(out.command, command).toBe(command);
@@ -620,6 +625,9 @@ describe("command-guards part", () => {
       "cat <<'EOF'\npkill -f vite and rg -rn x\nEOF",
       `gh pr create --body "Never run pkill -f or rg -rn"`,
       `python3 -c "print(1 << 2)"`,
+      "cat > s.sh <<'OUTER'\ncat <<EOF\nnow `date`\nEOF\nOUTER",
+      `echo "pgrep x | xargs kill"`,
+      `git commit -m 'never kill $(pgrep vite)'`,
     ]) {
       untouched(command);
     }
