@@ -235,7 +235,7 @@ The function itself, for the reader who wants the line rather than the row:
   }
 />
 
-The excerpt is the first 400 characters of the report; the full report is the file. The ☑️ marks an _unreviewed_ completion — the closing line asks you for the usual first look, as against a ✅ gate resolution, which a reviewer already verified.
+The excerpt is the report's response block, relayed verbatim; a report without one (a synthesised one, or one written before the block was required) is cut at its first 400 characters, as here. The full report is the file. The ☑️ marks an _unreviewed_ completion — the closing line asks you for the usual first look, as against a ✅ gate resolution, which a reviewer already verified.
 
 <Callout tone="info" title="Release is immediate; the digest is not">
   Dependents start on the next pass after the `done` commits — well before the digest tells you. If

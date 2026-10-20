@@ -18,12 +18,7 @@ import { type StartNode, dependenciesSatisfied } from "@t3tools/shared/workstrea
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 
-/**
- * Maximum report characters embedded inline in a wake (P3-22: 400, down from
- * V1's 600). A wake carries a bounded excerpt plus the on-disk reference; the
- * parent reads the full report on demand.
- */
-export const WAKE_REPORT_EXCERPT_LIMIT = 400;
+import { reportResponse } from "../../workstream/report.ts";
 
 /**
  * Leading line of every control message: wakes arrive as user-role turns, so
@@ -51,27 +46,25 @@ export const workstreamLane = (
           : "blocked";
 
 /**
- * Bounded inline report excerpt shared by every wake text: empty when there is
- * no report, the trimmed report when it fits, else a truncated prefix plus a
- * pointer to the reference. Leads with a blank line so callers append it
- * directly after the reference.
+ * The inline report excerpt shared by every wake text (`reportResponse`):
+ * empty when there is no report, else the response block or the head cut,
+ * with a pointer to the reference when it was cut. Leads with a blank line so
+ * callers append it directly after the reference.
  */
 export const formatReportExcerpt = (report: string | null): string => {
-  const trimmed = report?.trim() ?? "";
-  if (trimmed.length === 0) return "";
-  return trimmed.length > WAKE_REPORT_EXCERPT_LIMIT
-    ? `\n\n${trimmed.slice(0, WAKE_REPORT_EXCERPT_LIMIT)}…\n\n_[excerpt truncated — read the full report via the reference above]_`
-    : `\n\n${trimmed}`;
+  const response = responseOf(report);
+  if (response === undefined) return "";
+  return response.truncated
+    ? `\n\n${response.text}\n\n_[excerpt truncated — read the full report via the reference above]_`
+    : `\n\n${response.text}`;
 };
 
+const responseOf = (report: string | null | undefined) =>
+  report == null || report.trim() === "" ? undefined : reportResponse(report);
+
 /** The same excerpt un-framed, for a payload item — so a card and the text carry identical report content. */
-export const boundedExcerpt = (report: string | null | undefined): string | undefined => {
-  const trimmed = report?.trim() ?? "";
-  if (trimmed.length === 0) return undefined;
-  return trimmed.length > WAKE_REPORT_EXCERPT_LIMIT
-    ? `${trimmed.slice(0, WAKE_REPORT_EXCERPT_LIMIT)}…`
-    : trimmed;
-};
+export const boundedExcerpt = (report: string | null | undefined): string | undefined =>
+  responseOf(report)?.text;
 
 // A backticked span or a markdown link target, in report order.
 const REPORT_REFERENCE = /`([^`\n]+)`|\]\(\s*<?([^)\s>]+)/g;

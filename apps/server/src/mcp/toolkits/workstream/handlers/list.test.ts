@@ -1,8 +1,8 @@
 /**
  * mcp__t3-code__workstream_list on V2's real orchestrator: the caller's whole tree joined
  * with the shell — status, report path, waits-on, a synthesised report's
- * marker — and the spawn catalogue; a root before its first Loom write lists
- * itself.
+ * marker — lean unless `detail: "full"`, and never the spawn catalogue; a root
+ * before its first Loom write lists itself.
  */
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@t3tools/contracts";
@@ -17,7 +17,7 @@ import {
 import { callAs, HandlerTestLayer, spawnedId } from "./handlers.testkit.ts";
 
 it.layer(HandlerTestLayer)("workstream list", (it) => {
-  it.effect("a root before its first Loom write lists itself and the catalogue", () =>
+  it.effect("a root before its first Loom write lists itself and no catalogue", () =>
     Effect.gen(function* () {
       const root = ThreadId.make("list-bare-root");
       yield* seedThread({ threadId: root });
@@ -25,8 +25,7 @@ it.layer(HandlerTestLayer)("workstream list", (it) => {
       assert.isFalse(result.isError, result.text);
       assert.include(result.text, "Workstream: 1 thread(s).");
       assert.include(result.text, `- ${root} (you) [thread]`);
-      assert.include(result.text, '"thorough"');
-      assert.include(result.text, "presets: none configured");
+      assert.notInclude(result.text, "Model selection");
     }),
   );
 
@@ -43,7 +42,9 @@ it.layer(HandlerTestLayer)("workstream list", (it) => {
       const coder = yield* spawn("Coder");
       const reviewer = yield* spawn("Review", { role: "reviewer", gate: { rework: coder } });
       const quiet = yield* spawn("Quiet");
-      yield* callAs(coder, "workstream_submit", { markdown: "done" });
+      yield* callAs(coder, "workstream_submit", {
+        markdown: "<!-- response -->\nDone.\n<!-- /response -->",
+      });
       yield* writeEvents([
         yield* loomEvent("thread.report-set", quiet, {
           reportPath: "/reports/quiet.quiescent-r1.md",
@@ -69,6 +70,9 @@ it.layer(HandlerTestLayer)("workstream list", (it) => {
         text,
         "report: /reports/quiet.quiescent-r1.md (went quiet; report synthesised)",
       );
+      assert.notInclude(text, "purpose:");
+      const full = yield* callAs(reviewer, "workstream_list", { detail: "full" });
+      assert.include(full.text, "purpose: x");
     }),
   );
 });

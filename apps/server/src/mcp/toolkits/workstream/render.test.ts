@@ -12,12 +12,9 @@ import { describe, expect, it } from "vite-plus/test";
 import { emptyWorkstream } from "../../../loom/projection/LoomStore.ts";
 import {
   appendWarnings,
-  boundedExcerpt,
-  formatReportExcerpt,
   renderConsultCandidates,
   renderSubmitOutcome,
   renderWorkstreamList,
-  REPORT_EXCERPT_LIMIT,
   type WorkstreamListThread,
 } from "./render.ts";
 
@@ -73,21 +70,11 @@ describe("appendWarnings", () => {
   });
 });
 
-describe("report excerpts", () => {
-  it("trims to 400 characters with a truncation note", () => {
-    const long = "x".repeat(REPORT_EXCERPT_LIMIT + 50);
-    expect(REPORT_EXCERPT_LIMIT).toBe(400);
-    expect(boundedExcerpt(long)).toBe(`${"x".repeat(400)}…`);
-    expect(formatReportExcerpt(long)).toContain("_[excerpt truncated");
-    expect(formatReportExcerpt("  short  ")).toBe("\n\nshort");
-    expect(formatReportExcerpt(null)).toBe("");
-  });
-});
-
 describe("renderWorkstreamList", () => {
   it("renders lineage, the (you) marker, derived status, attention and the detail lines", () => {
     const rendered = renderWorkstreamList({
       callerId: id("root"),
+      detail: "full",
       threads: [
         root,
         node(
@@ -142,6 +129,7 @@ describe("renderWorkstreamList", () => {
   it("derives held, needs_brief, ready and terminal statuses, keys, purpose and anchors", () => {
     const rendered = renderWorkstreamList({
       callerId: id("root"),
+      detail: "full",
       threads: [
         root,
         node("held", "Held", { parentThreadId: id("root"), held: true }),
@@ -194,33 +182,56 @@ describe("renderWorkstreamList", () => {
     );
   });
 
-  it("renders the model-selection block with invalid markers and profile tags", () => {
-    const rendered = renderWorkstreamList({
+  it("lean by default: no purpose, anchor or session, and a finished thread is its node and report", () => {
+    const view = {
       callerId: id("root"),
-      threads: [root],
-      modelPresets: [
-        { name: "coder", instanceId: "pi", model: "a", valid: true },
-        { name: "stale", instanceId: "gone", model: "x", valid: false },
+      threads: [
+        root,
+        node("live", "Live", {
+          parentThreadId: id("root"),
+          kickoffAt: AT,
+          purpose: "Adds the merge endpoint.",
+          anchorTaskId: GoalTaskId.make("task-chip"),
+          blockedBy: [id("finished")],
+        }),
+        node("finished", "Done", {
+          parentThreadId: id("root"),
+          outcome: "done",
+          kickoffAt: AT,
+          purpose: "Shipped the chip.",
+          reportPath: "/reports/finished.md",
+          blockedBy: [id("root")],
+        }),
       ],
-      taskShapes: ["explore"],
-      modelProfiles: [
-        { name: "Fable", agentic: "full", usableContext: 200000, valid: true, spawnable: true },
-        { name: "Dead Oracle", agentic: "oracle", valid: false, spawnable: false },
-      ],
-    });
-    expect(rendered).toContain("Model selection (for spawning children):");
-    expect(rendered).toContain('    - "explore" — open-ended/prototype work');
-    expect(rendered).toContain('    - "coder" → pi / a\n');
-    expect(rendered).toContain(
-      '    - "stale" → gone / x [INVALID — points at an unconfigured instance/model; do not use]',
+      sessionPaths: new Map([
+        [id("live"), "/sessions/live.jsonl"],
+        [id("finished"), "/sessions/finished.jsonl"],
+      ]),
+      anchorTexts: new Map([[GoalTaskId.make("task-chip"), "Add the cost chip"]]),
+    };
+    expect(renderWorkstreamList(view)).toBe(
+      [
+        "Workstream: 3 thread(s). Indentation shows lineage (parent above its children).",
+        '- root (you) [orchestrator] "Root" status=in_progress',
+        `    last-activity: ${AT}`,
+        '  - live [thread] "Live" status=in_progress',
+        `      last-activity: ${AT}`,
+        "      waits-on: finished",
+        '  - finished [thread] "Done" status=done',
+        "      report: /reports/finished.md",
+      ].join("\n"),
     );
-    expect(rendered).toContain('    - "Fable" [full] usableContext=200000');
-    expect(rendered).toContain(
-      '    - "Dead Oracle" [oracle — not spawnable; consultation only] [INVALID — points at an unconfigured instance/model; do not use]',
-    );
-    expect(
-      renderWorkstreamList({ callerId: id("root"), threads: [root], taskShapes: ["explore"] }),
-    ).toContain("  presets: none configured");
+    const full = renderWorkstreamList({ ...view, detail: "full" });
+    for (const line of [
+      "      purpose: Adds the merge endpoint.",
+      '      anchor: task-chip "Add the cost chip"',
+      "      session: /sessions/live.jsonl",
+      "      purpose: Shipped the chip.",
+      "      session: /sessions/finished.jsonl",
+      "      waits-on: root",
+    ])
+      expect(full).toContain(line);
+    expect(full).not.toContain("Model selection");
   });
 });
 

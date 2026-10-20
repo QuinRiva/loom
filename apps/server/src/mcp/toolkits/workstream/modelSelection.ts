@@ -39,9 +39,6 @@ import {
 import { ProviderRegistry } from "../../../provider/ProviderRegistry.ts";
 import { ServerSettingsService } from "../../../serverSettings.ts";
 import { LoomToolError } from "./defs.ts";
-import type { PresetCatalogueEntry, ProfileSummaryEntry } from "./render.ts";
-
-export const TASK_SHAPES: ReadonlyArray<TaskShape> = ["explore", "thorough", "mechanical"];
 
 /** Upstream's option id for a pi thinking level; V1 selections carry `thinkingLevel`. */
 export const withUpstreamOptionIds = (selection: ModelSelection): ModelSelection =>
@@ -94,6 +91,22 @@ export const validateModelSelection = (
         models: entry.models,
       }
     : { kind: "ok" };
+};
+
+/** ` [INVALID: …]` for a preset the catalogue cannot serve; empty for a valid one. */
+const invalidPresetMarker = (
+  selection: ModelSelection,
+  catalogue: ReadonlyArray<ModelCatalogueEntry>,
+): string => {
+  const validation = validateModelSelection(selection, catalogue);
+  switch (validation.kind) {
+    case "ok":
+      return "";
+    case "unknown-instance":
+      return ` [INVALID: instance "${validation.instanceId}" is not configured]`;
+    case "unknown-model":
+      return ` [INVALID: model "${validation.model}" is unknown for instance "${validation.instanceId}"]`;
+  }
 };
 
 type SelectionSource =
@@ -416,7 +429,10 @@ export const resolveSpawnModelSelection = (input: SpawnModelInput): SpawnModelRe
   } else if (input.modelPreset !== undefined) {
     const preset = input.presets[input.modelPreset];
     if (preset === undefined) {
-      const available = Object.keys(input.presets);
+      // The platform-update check reads the markers here: a bogus name is its free lookup.
+      const available = Object.entries(input.presets).map(
+        ([name, selection]) => `${name}${invalidPresetMarker(selection, input.catalogue)}`,
+      );
       return {
         kind: "error",
         message: `Unknown modelPreset "${input.modelPreset}". Available presets: ${available.length > 0 ? available.join(", ") : "none configured"}.`,
@@ -505,35 +521,5 @@ export const resolveChildModel = Effect.fn("LoomToolkit.resolveChildModel")(func
       ...resolution.warnings,
       `Resolved model ${resolution.selection.model} is exhausted (resets ${formatResetHint(until, nowMs)}); the child's turns wait on that limit unless a fallback is configured.`,
     ],
-  };
-});
-
-/** The spawn catalogue `mcp__t3-code__workstream_list` shows: presets and profiles with their validity. */
-export const spawnCatalogue = Effect.gen(function* () {
-  const settings = yield* (yield* ServerSettingsService).getSettings.pipe(
-    Effect.mapError((error) => new LoomToolError({ message: error.message })),
-  );
-  const catalogue = modelCatalogueOf(yield* (yield* ProviderRegistry).getProviders);
-  const valid = (selection: ModelSelection) =>
-    validateModelSelection(selection, catalogue).kind === "ok";
-  return {
-    modelPresets: Object.entries(settings.workstreamModelPresets).map(
-      ([name, selection]): PresetCatalogueEntry => ({
-        name,
-        instanceId: selection.instanceId,
-        model: selection.model,
-        valid: valid(selection),
-      }),
-    ),
-    taskShapes: TASK_SHAPES,
-    modelProfiles: Object.entries(settings.workstreamModelProfiles).map(
-      ([name, profile]): ProfileSummaryEntry => ({
-        name,
-        agentic: profile.agentic,
-        ...(profile.usableContext === undefined ? {} : { usableContext: profile.usableContext }),
-        valid: valid(profile.selection),
-        spawnable: profile.agentic !== "oracle",
-      }),
-    ),
   };
 });

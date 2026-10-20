@@ -24,30 +24,6 @@ export const appendWarnings = (text: string, warnings: ReadonlyArray<string> = [
     ? text
     : [text, ...warnings.map((warning) => `Warning: ${warning}`)].join("\n");
 
-// Report excerpts (wake and digest messages; P3-22)
-
-/** Report characters a wake or digest item carries inline; the path carries the rest. */
-export const REPORT_EXCERPT_LIMIT = 400;
-
-/** The trimmed report, cut at the limit with an ellipsis; undefined when empty. */
-export const boundedExcerpt = (report: string | null | undefined): string | undefined => {
-  const trimmed = report?.trim() ?? "";
-  if (trimmed.length === 0) return undefined;
-  return trimmed.length > REPORT_EXCERPT_LIMIT
-    ? `${trimmed.slice(0, REPORT_EXCERPT_LIMIT)}…`
-    : trimmed;
-};
-
-/** The inline excerpt block appended after a report reference; empty when no report. */
-export const formatReportExcerpt = (report: string | null | undefined): string => {
-  const excerpt = boundedExcerpt(report);
-  if (excerpt === undefined) return "";
-  const truncated = (report?.trim().length ?? 0) > REPORT_EXCERPT_LIMIT;
-  return truncated
-    ? `\n\n${excerpt}\n\n_[excerpt truncated — read the full report via the reference above]_`
-    : `\n\n${excerpt}`;
-};
-
 // mcp__t3-code__workstream_list
 
 /** What the list reads from one thread: the V2 shell joined with its sidecar fields. */
@@ -56,41 +32,16 @@ export type WorkstreamListThread = Pick<
   "id" | "title" | "updatedAt" | "latestVisibleMessage" | "pendingRuntimeRequest"
 > & { readonly workstream: LoomThreadShellFields };
 
-export interface PresetCatalogueEntry {
-  readonly name: string;
-  readonly instanceId: string;
-  readonly model: string;
-  readonly valid: boolean;
-}
-
-export interface ProfileSummaryEntry {
-  readonly name: string;
-  readonly agentic: string;
-  readonly usableContext?: number;
-  readonly valid: boolean;
-  readonly spawnable: boolean;
-}
-
 export interface WorkstreamListView {
   readonly callerId: ThreadId;
   /** The caller's whole tree, archived threads included. */
   readonly threads: ReadonlyArray<WorkstreamListThread>;
+  /** `full` adds purpose, anchor and session lines, and the live-thread lines on finished ones. */
+  readonly detail?: "full";
   readonly sessionPaths?: ReadonlyMap<ThreadId, string>;
   /** Live text of each anchor task; an anchor missing here was deleted. */
   readonly anchorTexts?: ReadonlyMap<GoalTaskId, string>;
-  readonly modelPresets?: ReadonlyArray<PresetCatalogueEntry>;
-  readonly taskShapes?: ReadonlyArray<string>;
-  readonly modelProfiles?: ReadonlyArray<ProfileSummaryEntry>;
 }
-
-const TASK_SHAPE_HINTS: Record<string, string> = {
-  explore: "open-ended/prototype work, vague objective, plan likely to change",
-  thorough:
-    "edge cases, migrations, hardening, review gates — missing a real issue is worse than noise",
-  mechanical: "bounded, self-contained, high-volume work: extraction, renames, formatting",
-};
-
-const INVALID = " [INVALID — points at an unconfigured instance/model; do not use]";
 
 type StatusNode = LoomThreadShellFields & { readonly id: ThreadId };
 
@@ -131,8 +82,9 @@ const firstLine = (text: string) => {
 
 /**
  * The whole workstream as indented text: the lineage tree with each node's
- * status, attention, purpose, anchor, last activity, report, session and
- * waits-on lines, then the model-selection block.
+ * status and attention, then its report and, while it is live, its last
+ * activity and waits-on. `full` adds purpose, anchor and session, and keeps the
+ * live-thread lines on finished threads.
  */
 export const renderWorkstreamList = (view: WorkstreamListView): string => {
   const nodes = view.threads.map((thread) => ({ ...thread.workstream, id: thread.id }));
@@ -145,6 +97,7 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
   const lines = [
     `Workstream: ${view.threads.length} thread(s). Indentation shows lineage (parent above its children).`,
   ];
+  const full = view.detail === "full";
   const emit = (thread: WorkstreamListThread, depth: number): void => {
     const ws = thread.workstream;
     const pad = "  ".repeat(depth);
@@ -155,64 +108,35 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
         ` status=${workstreamStatus(byId.get(thread.id)!, byId)}` +
         (attention.length > 0 ? ` attention=${attention.join("+")}` : ""),
     );
-    if (ws.purpose) lines.push(`${pad}    purpose: ${ws.purpose}`);
-    if (ws.anchorTaskId) {
+    const live = full || ws.outcome === null;
+    if (full && ws.purpose) lines.push(`${pad}    purpose: ${ws.purpose}`);
+    if (full && ws.anchorTaskId) {
       const text = view.anchorTexts?.get(ws.anchorTaskId);
       lines.push(
         `${pad}    anchor: ${ws.anchorTaskId}` +
           (text === undefined ? " (task no longer in the tree)" : ` "${text}"`),
       );
     }
-    const preview = thread.latestVisibleMessage ? firstLine(thread.latestVisibleMessage.text) : "";
-    lines.push(
-      `${pad}    last-activity: ${DateTime.formatIso(thread.updatedAt)}${preview ? ` — ${preview}` : ""}`,
-    );
+    if (live) {
+      const preview = thread.latestVisibleMessage
+        ? firstLine(thread.latestVisibleMessage.text)
+        : "";
+      lines.push(
+        `${pad}    last-activity: ${DateTime.formatIso(thread.updatedAt)}${preview ? ` — ${preview}` : ""}`,
+      );
+    }
     if (ws.reportPath)
       lines.push(
         `${pad}    report: ${ws.reportPath}` +
           (ws.lastOutcome?.synthesised === true ? " (went quiet; report synthesised)" : ""),
       );
-    const sessionPath = view.sessionPaths?.get(thread.id);
+    const sessionPath = full ? view.sessionPaths?.get(thread.id) : undefined;
     if (sessionPath) lines.push(`${pad}    session: ${sessionPath}`);
-    const deps = ws.blockedBy.filter((id) => byId.has(id));
+    const deps = live ? ws.blockedBy.filter((id) => byId.has(id)) : [];
     if (deps.length > 0) lines.push(`${pad}    waits-on: ${deps.join(", ")}`);
     for (const child of children.get(thread.id) ?? []) emit(child, depth + 1);
   };
   for (const root of children.get(null) ?? []) emit(root, 0);
-
-  const presets = view.modelPresets ?? [];
-  const shapes = view.taskShapes ?? [];
-  const profiles = view.modelProfiles ?? [];
-  if (presets.length > 0 || shapes.length > 0 || profiles.length > 0) {
-    lines.push("", "Model selection (for spawning children):");
-    if (shapes.length > 0) {
-      lines.push("  task shapes (pass one as taskShape; the server picks the model):");
-      for (const shape of shapes) {
-        const hint = TASK_SHAPE_HINTS[shape];
-        lines.push(`    - "${shape}"${hint ? ` — ${hint}` : ""}`);
-      }
-    }
-    if (presets.length === 0) lines.push("  presets: none configured");
-    else {
-      lines.push("  presets (prefer these):");
-      for (const preset of presets)
-        lines.push(
-          `    - "${preset.name}" → ${preset.instanceId} / ${preset.model}${preset.valid ? "" : INVALID}`,
-        );
-    }
-    if (profiles.length > 0) {
-      lines.push("  profiles (what taskShape resolves among):");
-      for (const profile of profiles)
-        lines.push(
-          `    - "${profile.name}"` +
-            (profile.spawnable
-              ? ` [${profile.agentic}]`
-              : ` [${profile.agentic} — not spawnable; consultation only]`) +
-            (profile.usableContext === undefined ? "" : ` usableContext=${profile.usableContext}`) +
-            (profile.valid ? "" : INVALID),
-        );
-    }
-  }
   return lines.join("\n");
 };
 

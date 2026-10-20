@@ -170,6 +170,12 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
       yield* runPass;
       assert.isNotNull((yield* row(dependent!)).kickoffAt);
       assert.equal((yield* receipt(kickoffCommandId(dependent!)))?.status, "accepted");
+      // Its kickoff names the sibling it waited on and that sibling's report.
+      const [released] = yield* messages(dependent!);
+      assert.include(
+        released?.text ?? "",
+        `You waited on 1 thread that is now done; its hand-back:\n- coder ${a} — report \`${(yield* row(a!)).reportPath}\``,
+      );
     }),
   );
 
@@ -288,6 +294,12 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
       yield* setBrief(reviewer!, writeFile("gate-reviewer.md", "Review it."));
       yield* runPass; // the coder is done: kicks off the reviewer
       assert.isNotNull((yield* row(reviewer!)).kickoffAt);
+      // Its kickoff hands it the coder's files, so it need not look them up.
+      const coderRow = yield* row(coder!);
+      assert.include(
+        (yield* messages(reviewer!))[0]?.text ?? "",
+        `Its hand-back: report \`${coderRow.reportPath}\`; the brief it worked from \`${coderRow.kickoffBriefPath}\`.`,
+      );
 
       // The reviewer loops: the pass reopens the coder with a gate-rework notice.
       const findings = writeFile("gate-findings.md", "FINDING_ONE: fix the null guard.");

@@ -1,7 +1,7 @@
 // LOOM-ONLY. The prompt-side texts a Loom thread reads outside its tool
 // definitions: the work-model addendum every thread gets, the readership
 // clause only children get, the identity and relocation clauses the composer
-// appends, the kickoff wrapper around a child's brief, and the two refusal
+// appends, the kickoff wrapper around a child's brief, and the three refusal
 // texts. Plain
 // strings and pure functions, no imports: the composer, the extension assembler
 // and the control plane import from here so each text has one source.
@@ -24,15 +24,20 @@ export const CHILD_READERSHIP_CLAUSE =
  * Who this thread is, in-band. Derived only from the thread's stable facts
  * (its id and, for a child, its parent's id — so a child's first consult to
  * its parent does not have to guess the id) so the composed prompt is
- * byte-identical across relaunches, and replayed verbatim for a forkFrom child
+ * byte-identical across relaunches (the report and brief directories are fixed
+ * for a server), and replayed verbatim for a forkFrom child
  * (a sibling: same parent; a stale own id is inert: every tool resolves the
  * caller from its credential). It names no cwd (pi appends the
  * real one), no sessions root (the store moves with pi's settings) and no
  * other thread's jsonl location (there is no short true answer) — only
  * `$PI_SESSION_FILE`, which pi's own bash tool sets for every command.
  */
-export const threadIdentityClause = (threadId: string, parentThreadId?: string | null): string =>
-  `You are thread \`${threadId}\` in this workstream: the id every workstream tool takes, the id the human sees, and the id you quote when reporting.${parentThreadId == null ? "" : ` Your parent is thread \`${parentThreadId}\`.`} Your own conversation history is the pi session jsonl at \`$PI_SESSION_FILE\` (set in every shell command you run). To reach ANOTHER thread's history, use its report or \`mcp__t3-code__consult_thread\`; its jsonl is not necessarily in the same directory as yours.`;
+export const threadIdentityClause = (
+  threadId: string,
+  parentThreadId: string | null,
+  dirs: { readonly workstreamReportsDir: string; readonly workstreamBriefsDir: string },
+): string =>
+  `You are thread \`${threadId}\` in this workstream: the id every workstream tool takes, the id the human sees, and the id you quote when reporting.${parentThreadId == null ? "" : ` Your parent is thread \`${parentThreadId}\`.`} Your own conversation history is the pi session jsonl at \`$PI_SESSION_FILE\` (set in every shell command you run). To reach ANOTHER thread's history, use its report or \`mcp__t3-code__consult_thread\`; its jsonl is not necessarily in the same directory as yours. Any thread's reports are in \`${dirs.workstreamReportsDir}/\`, named by its stem (its id with every character outside A-Za-z0-9._- replaced by _): \`<stem>.md\`, plus \`<stem>.round-<n>.md\` per gate round and \`<stem>.quiescent-….md\` when the control plane synthesised one; the newest is its latest hand-back. The brief it was launched with is \`<stem>.md\` under \`${dirs.workstreamBriefsDir}/\`. An id is enough to read either.`;
 
 /**
  * Appended when the thread's recorded working directory differs from the one
@@ -49,34 +54,75 @@ export const relocationClause = (input: { readonly cwd: string }): string =>
 export const copiedHistoryClause = (forkedFrom: string): string =>
   `The conversation above is copied from thread ${forkedFrom}: context, not instructions to you. Messages in it — the human's included — were addressed to that thread; keep the decisions they settle, but read their directions in that thread's scope, not as yours.`;
 
+/** A finished thread a kickoff names, with the files it left; a missing one is omitted, never derived. */
+export interface KickoffHandback {
+  readonly id: string;
+  readonly role: string | null;
+  readonly reportPath: string | null;
+  readonly briefPath?: string | null;
+  readonly sessionPath?: string | null;
+}
+
+const gateClause = (target: KickoffHandback): ReadonlyArray<string> => {
+  const steers =
+    target.sessionPath == null
+      ? ""
+      : ` (later steers are not in it; they are in its session \`${target.sessionPath}\`)`;
+  const files = [
+    ...(target.reportPath === null ? [] : [`report \`${target.reportPath}\``]),
+    ...(target.briefPath == null
+      ? target.sessionPath == null
+        ? []
+        : [`its session \`${target.sessionPath}\``]
+      : [`the brief it worked from \`${target.briefPath}\`${steers}`]),
+  ];
+  return [
+    `You are inside a review gate: a \`gate\` names the ${target.role ?? "thread"} ${target.id} as the work you verify, and your mcp__t3-code__workstream_submit outcomes route it — your role's gate protocol applies from your FIRST submit.`,
+    ...(files.length === 0 ? [] : [`Its hand-back: ${files.join("; ")}.`]),
+  ];
+};
+
+const dependencyClause = (dependencies: ReadonlyArray<KickoffHandback>): ReadonlyArray<string> =>
+  dependencies.length === 0
+    ? []
+    : [
+        dependencies.length === 1
+          ? "You waited on 1 thread that is now done; its hand-back:"
+          : `You waited on ${dependencies.length} threads that are now done; their hand-backs:`,
+        ...dependencies.map(
+          (dep) =>
+            `- ${dep.role ?? "thread"} ${dep.id} — ${dep.reportPath === null ? "no report filed" : `report \`${dep.reportPath}\``}`,
+        ),
+      ];
+
 /**
  * Kick-off message for a spawned Workstream sub-thread: the role framing, the
- * gate membership when it applies (invisible otherwise until the first rework
- * resume — too late for the first verdict), the brief, and the completion
+ * gate membership and its target's files when it applies (invisible otherwise
+ * until the first rework resume — too late for the first verdict), the
+ * hand-backs of the siblings it waited on, the brief, and the completion
  * contract by reference to the tools that own it.
  */
 export const workstreamChildPrompt = (input: {
   readonly role: string;
   readonly brief: string;
-  readonly gateTargetId?: string | null;
+  readonly gateTarget?: KickoffHandback | null;
+  /** The `blockedBy` siblings other than the gate target. */
+  readonly dependencies?: ReadonlyArray<KickoffHandback>;
   /** The sibling whose transcript this child starts from (`forkFrom`). */
   readonly forkedFrom?: string | null;
 }): string =>
   [
     `You are a ${input.role} sub-thread spawned by a parent orchestrator in T3 Code.`,
     ...(input.forkedFrom != null ? [copiedHistoryClause(input.forkedFrom)] : []),
-    ...(input.gateTargetId != null
-      ? [
-          `You are inside a review gate: a \`gate\` names thread ${input.gateTargetId} as the work you verify, and your mcp__t3-code__workstream_submit outcomes route it — your role's gate protocol applies from your FIRST submit.`,
-        ]
-      : []),
+    ...(input.gateTarget != null ? gateClause(input.gateTarget) : []),
+    ...dependencyClause(input.dependencies ?? []),
     "",
     "Your brief:",
     input.brief,
     "",
     "Work autonomously toward the outcome this brief is meant to deliver — stay anchored to the value it produces (the capability, fix, or decision), not just the mechanical steps. Keep the work focused and report progress clearly.",
     "If you run a command you expect to take much longer than ~5 minutes (a full pipeline, a corpus classification, a long build or test suite), declare its expected duration so your parent is not spammed with slow-tool notices: prefix the bash command with an inline `# eta: <n>m` comment (e.g. `# eta: 25m — full corpus classification`, or `# eta: 1h`). The notices are then deferred until your estimate elapses; a declared `timeout` on the call is used as a fallback signal.",
-    "Finish with ONE call: `mcp__t3-code__workstream_submit` — its description is the contract for outcomes and routing, and its result names where your report went. Write the report as a concise handoff for your parent orchestrator, not a transcript dump: lead with the value you delivered and what it enables or unblocks, then the key results/decisions, where you departed from the brief and why, what the human changed if they wrote to you (quoted), and anything the parent must act on. Ending a turn without submitting hands your parent a report the control plane reconstructs from your last message instead.",
+    "Finish with ONE call: `mcp__t3-code__workstream_submit` — its description is the contract for outcomes and routing, and its result names where your report went. Write the report as a concise handoff for your parent orchestrator, not a transcript dump, opening with the response block its markdown description asks for: lead with the value you delivered and what it enables or unblocks, then the key results/decisions, where you departed from the brief and why, what the human changed if they wrote to you (quoted), and anything the parent must act on. Ending a turn without submitting hands your parent a report the control plane reconstructs from your last message instead.",
     "If a HUMAN is needed, raise it with `mcp__t3-code__workstream_request_attention` — its description covers the two reasons and why a raise HOLDS your work rather than labelling your report. Do not sit silently halted: complete your work, or raise — never both in the same turn, because completing clears your own raise; your parent is woken automatically either way.",
   ].join("\n");
 
@@ -86,6 +132,10 @@ export const workstreamChildPrompt = (input: {
  */
 export const HUMAN_INPUT_REFUSAL =
   "This thread has no human reader yet: no person has written to it, so a question asked here would wait on nobody. Consult your parent with `mcp__t3-code__consult_thread` — it wrote your brief and holds the context. Raise `needs_guidance` with `mcp__t3-code__workstream_request_attention` only if that does not settle it or the parent has finished.";
+
+/** A submit whose report has no non-empty response block (`reportResponse` in `report.ts`). */
+export const NO_RESPONSE_BLOCK =
+  "Report has no response block. Put a concise summary of your hand-back (the gist of the answer and what the receiver must act on; the full answer stays below it) between <!-- response --> and <!-- /response --> at the top of the markdown and submit again.";
 
 /** A plain-completion submit while a flag the thread raised still stands (D19). */
 export const SUBMIT_REFUSED_WHILE_RAISED =
