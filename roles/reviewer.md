@@ -22,7 +22,7 @@ tools:
     session_list,
     session_read,
     consult_manager,
-    memory_search,
+    capture_lesson,
   ]
 ---
 
