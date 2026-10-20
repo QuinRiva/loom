@@ -10,6 +10,7 @@ import { afterAll, describe, expect, it } from "vite-plus/test";
 
 import type { LoomExtensionPart } from "../loomExtension.ts";
 import { cacheWarmingGatePart } from "./cacheWarmingGate.ts";
+import { commandGuardsPart } from "./commandGuards.ts";
 import { promptDebugPart } from "./promptDebug.ts";
 import { SEARCH_GUARD_TIMEOUT_SECONDS, searchGuardPart } from "./searchGuard.ts";
 
@@ -471,5 +472,167 @@ describe("cacheWarmingGate part", () => {
     const gate = load("long");
     gate.submit(false);
     expect(gate.decide(idle)).toEqual({ action: "stop" });
+  });
+});
+
+describe("command-guards part", () => {
+  /** Runs one bash call through the guard: the block reason, the command as run, and the note. */
+  const run = (command: string) => {
+    const handlers = loadPart(commandGuardsPart);
+    const event = bashCall(command);
+    const result = handlers.get("tool_call")!(event, ctx) as
+      | { block: boolean; reason: string }
+      | undefined;
+    const after = handlers.get("tool_result")!(
+      { toolName: "bash", toolCallId: event.toolCallId, content: [{ type: "text", text: "out" }] },
+      ctx,
+    ) as { content: Array<{ text: string }> } | undefined;
+    return {
+      reason: result?.reason,
+      command: (event.input as { command: string }).command,
+      note: after?.content
+        .slice(1)
+        .map((c) => c.text)
+        .join(""),
+    };
+  };
+  const untouched = (command: string) => {
+    const out = run(command);
+    expect(out, command).toEqual({ reason: undefined, command, note: undefined });
+  };
+
+  it("drops the stray r from rg -rn style flags and says why", () => {
+    for (const [before, after] of [
+      [`rg -rn "needle" src`, `rg -n "needle" src`],
+      [`rg -rN needle`, `rg -N needle`],
+      [`cd apps && rg -rni needle | head`, `cd apps && rg -ni needle | head`],
+      [`rg -nr "needle" .`, `rg -n "needle" .`],
+      [`rg -r -n needle`, `rg  -n needle`],
+    ]) {
+      const out = run(before!);
+      expect(out.command, before).toBe(after);
+      expect(out.note, before).toContain("`-r` means `--replace <TEXT>`");
+    }
+  });
+
+  it("leaves real rg replacements and non-rg -r alone", () => {
+    for (const command of [
+      `rg -r 'replacement' pattern`,
+      `rg -r '$1' 'foo(\\w+)' src`,
+      `rg --replace=n pattern`,
+      `rg -n -- -rn`,
+      `grep -rn needle src`,
+      `rg -n needle src`,
+    ]) {
+      untouched(command);
+    }
+  });
+
+  it("blocks killing by pattern", () => {
+    for (const command of [
+      `pkill -f vite`,
+      `pkill node`,
+      `pgrep -f vite | xargs kill`,
+      `kill $(pgrep -f "vite --port 5173")`,
+      `sleep 1; kill -9 \`pgrep node\``,
+    ]) {
+      expect(run(command).reason, command).toContain("killing by pattern");
+    }
+  });
+
+  it("blocks pgrep -f whose pattern matches the command itself", () => {
+    for (const command of [
+      `while pgrep -f "vite build"; do sleep 1; done`,
+      `pgrep -f vite`,
+      `npx vite & until ! pgrep -f '[v]ite'; do sleep 1; done`,
+      `pgrep -af -u carl serve.ts`,
+    ]) {
+      expect(run(command).reason, command).toContain("matches the shell running this very command");
+    }
+  });
+
+  it("allows pgrep that cannot match its own command line", () => {
+    for (const command of [
+      `pgrep -x node`,
+      `pgrep -fx "node server.js"`,
+      `pgrep -f '[v]ite build'`,
+      `pgrep node`,
+      `kill -0 "$pid"`,
+      `kill 12345`,
+    ]) {
+      untouched(command);
+    }
+  });
+
+  it("blocks gh api field flags without an explicit method", () => {
+    for (const command of [
+      `gh api repos/o/r/pulls -f state=open`,
+      `gh api repos/o/r/issues/1 -F labels[]=bug`,
+      `gh api repos/o/r/pulls --raw-field state=open --jq '.[].number'`,
+    ]) {
+      const reason = run(command).reason;
+      expect(reason, command).toContain("sends a POST");
+      expect(reason, command).toContain("`-X GET`");
+    }
+    expect(run(`gh api repos/o/r/pulls -f state=open`).reason).toContain("`repos/o/r/pulls`");
+  });
+
+  it("allows gh api reads, explicit methods and graphql", () => {
+    for (const command of [
+      `gh api -X GET repos/o/r/pulls -f state=open`,
+      `gh api --method POST repos/o/r/issues -f title=x`,
+      `gh api repos/o/r/pulls --jq '.[].number'`,
+      `gh api graphql -f query='{ viewer { login } }'`,
+      `gh pr list -L 5`,
+    ]) {
+      untouched(command);
+    }
+  });
+
+  it("quotes an unquoted heredoc delimiter whose body has backticks", () => {
+    const out = run("cat <<EOF > msg.md\nRun `vp check` before shipping.\nEOF\ncurl -d @msg.md x");
+    expect(out.command).toBe(
+      "cat <<'EOF' > msg.md\nRun `vp check` before shipping.\nEOF\ncurl -d @msg.md x",
+    );
+    expect(out.note).toContain("(`<<EOF` became `<<'EOF'`)");
+    const dash = run("cat <<-END\n\tuse `rg`\n\tEND");
+    expect(dash.command).toBe("cat <<-'END'\n\tuse `rg`\n\tEND");
+  });
+
+  it("only warns when the heredoc body also expands variables or uses bare $(", () => {
+    for (const command of [
+      "cat <<EOF\nHello $USER, see `docs`\nEOF",
+      "cat <<EOF > stamp\nBuilt at $(date)\nEOF",
+    ]) {
+      const out = run(command);
+      expect(out.command, command).toBe(command);
+      expect(out.reason, command).toBeUndefined();
+      expect(out.note, command).toContain("ran as command substitution");
+    }
+  });
+
+  it("leaves quoted, plain and escaped heredocs alone and never lexes their bodies", () => {
+    for (const command of [
+      "cat <<'EOF'\nRun `vp check`.\nEOF",
+      'cat <<"EOF"\nRun `vp check`.\nEOF',
+      "cat <<EOF\nplain $HOME text\nEOF",
+      "cat <<EOF\nescaped \\`tick\\`\nEOF",
+      "cat <<'EOF'\npkill -f vite and rg -rn x\nEOF",
+      `gh pr create --body "Never run pkill -f or rg -rn"`,
+      `python3 -c "print(1 << 2)"`,
+    ]) {
+      untouched(command);
+    }
+  });
+
+  it("degrades to allow on malformed input instead of throwing", () => {
+    const handlers = loadPart(commandGuardsPart);
+    expect(handlers.get("tool_call")!({ toolName: "bash", input: {} }, ctx)).toBeUndefined();
+    expect(
+      handlers.get("tool_call")!({ toolName: "read", input: { path: "x" } }, ctx),
+    ).toBeUndefined();
+    expect(
+      handlers.get("tool_result")!({ toolName: "bash", toolCallId: "nope" }, ctx),
+    ).toBeUndefined();
   });
 });
