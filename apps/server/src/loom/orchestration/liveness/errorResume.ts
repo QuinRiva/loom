@@ -50,7 +50,8 @@ export const ERROR_RESUME_MESSAGE_ID = /^message:server:loom:error-resume:/;
  * resume: that run was not itself a resume (one per failure episode; the run's
  * persisted `userMessageId` says so, so a restart cannot grant a second), and
  * no other actor owns the thread — no flag, outcome, submit since, open runtime
- * request, queued run, archive or settle.
+ * request, archive or settle, and no run after it (queued, or one a human or the
+ * parent started since the sweep read the shell).
  */
 export const awaitsErrorResume = (
   shell: Pick<
@@ -65,7 +66,7 @@ export const awaitsErrorResume = (
     | "settledOverride"
   >,
   ws: Pick<LoomThreadWorkstream, "attention" | "outcome" | "lastOutcome">,
-  runs: ReadonlyArray<Pick<OrchestrationV2Run, "id" | "status" | "userMessageId">>,
+  runs: ReadonlyArray<Pick<OrchestrationV2Run, "id" | "ordinal" | "status" | "userMessageId">>,
 ): boolean => {
   const failed = runs.find((run) => run.id === shell.latestRunId);
   return (
@@ -76,8 +77,8 @@ export const awaitsErrorResume = (
     shell.pendingRuntimeRequest === null &&
     shell.archivedAt === null &&
     shell.settledOverride !== "settled" &&
-    !runs.some((run) => run.status === "queued") &&
-    failed !== undefined &&
+    failed?.status === "failed" &&
+    !runs.some((run) => run.ordinal > failed.ordinal) &&
     !ERROR_RESUME_MESSAGE_ID.test(failed.userMessageId)
   );
 };
