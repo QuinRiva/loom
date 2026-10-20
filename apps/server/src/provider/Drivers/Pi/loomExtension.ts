@@ -9,7 +9,9 @@
  * then 3c's `search-guard` and `prompt-debug`, and `cacheWarmingGate` (no idle cache
  * warming after a successful submit; a 1-hour root's idle keep-alive ping always warms;
  * the resulting plan is reported to `/cache-warming` for the sidebar's cache gauge) and
- * `consultGuard` (a consult fork refuses `edit` / `write`) (`loomExtensionParts/`).
+ * `consultGuard` (a consult fork refuses `edit` / `write`) and `systemHead` (pi's system message
+ * moved to the head of each request, so a `tool_search` load appends instead of rewriting the
+ * prompt cache) (`loomExtensionParts/`).
  *
  * A part's `source` is the body of `(pi, ctx) => { … }` with
  * `ctx = { profile(), endpoint, token }`; module-level `loomFetch(ctx, method,
@@ -32,6 +34,7 @@ import { cacheWarmingGatePart } from "./loomExtensionParts/cacheWarmingGate.ts";
 import { consultGuardPart } from "./loomExtensionParts/consultGuard.ts";
 import { promptDebugPart } from "./loomExtensionParts/promptDebug.ts";
 import { searchGuardPart } from "./loomExtensionParts/searchGuard.ts";
+import { systemHeadPart } from "./loomExtensionParts/systemHead.ts";
 import { T3_MCP_BEARER_ENV, T3_MCP_URL_ENV } from "@t3tools/provider-pi/server/mcpExtensionSource";
 
 export interface LoomExtensionPart {
@@ -97,7 +100,10 @@ const apply = () => {
   const active = new Set(pi.getActiveTools());
   const discovered = registered.filter((tool) => tool.exposure === "deferred" && active.has(tool.name)).map((tool) => tool.name);
   ctx.syncHumanInput?.();
-  pi.setActiveTools([...new Set([...base, "tool_search", ...discovered].filter(allowed)), ...(ctx.humanInputRefused() ? [] : HUMAN_INPUT)]);
+  const wanted = new Set([...[...base, "tool_search", ...discovered].filter(allowed), ...(ctx.humanInputRefused() ? [] : HUMAN_INPUT)]);
+  // pi's order wins for tools already active, newly wanted ones append: pi's <tools> prompt
+  // section follows the active order, so a reshuffle alone would patch the prompt for nothing.
+  pi.setActiveTools([...new Set([...[...active].filter((name) => wanted.has(name)), ...wanted])]);
 };
 pi.on("session_start", async (_event, ext) => {
   if (await refresh(ext?.ui)) apply();
@@ -194,6 +200,7 @@ export const LOOM_EXTENSION_PARTS: ReadonlyArray<LoomExtensionPart> = [
   promptDebugPart,
   cacheWarmingGatePart,
   consultGuardPart,
+  systemHeadPart,
 ];
 
 export const assembleLoomExtensionSource = (parts: ReadonlyArray<LoomExtensionPart>): string => `\

@@ -142,9 +142,8 @@ describe("Pi MCP tool exposure", () => {
     await bridge.handlers.get("session_start")!({ systemPrompt: "" }, discoveryContext);
     const start = bridge.handlers.get("before_agent_start");
     assert.isDefined(start);
-    const prompt = await start!({ systemPrompt: "Pi system prompt" }, discoveryContext);
-    // loom: no orchestration instructions — the role overlays and tool prose carry them (DL-905).
-    assert.equal(prompt.systemPrompt, "Pi system prompt\n\n");
+    // loom: returns no systemPrompt — see mcpExtensionSource.loom.test.ts.
+    assert.isUndefined(await start!({ systemPrompt: "Pi system prompt" }, discoveryContext));
     assert.equal(bridge.servers.length, 0);
     assert.equal(bridge.tools.length, 8);
     assert.deepEqual(bridge.getActiveTools(), ["read", "tool_search"]);

@@ -1,0 +1,297 @@
+---
+kicker: "Plan · tool loading vs the prompt cache · audit §3.1 · revised 20 Oct 2026 after Carl's annotations · 14 measured pi runs"
+reader:
+  who: Carl, deciding whether to approve a small change to loom's pi extension (plus a package update and a one-line proxy header) before anything is built
+  knows: the audit explainer (the ~$750/month figure; tool_search loads rewrite the cache) and his own annotations on the first draft; none of the research reports or payload captures
+  after_first_screen: that updating pi-total-recall does not fix the rewrite on its own (measured), that a ~20-line loom-side hoist does, what the package update should ship with, what changes for agents, and what he is approving
+manager_sessions:
+  - id: 01a15666-518c-7652-a400-51e55cb82c16
+    name: "Plan: cache-safe mid-session tool loading (system-message hoist)"
+    role: plan
+    authored_at: 2026-10-19T23:57:08.315Z
+---
+
+# Loading a tool mid-session should cost a few hundred tokens, not a full cache rewrite
+
+**Updating the out-of-date packages does not fix this; a ~20-line hoist in loom's pi extension does, so do both.** The rewrite happens because pi 1.3.0 only uses its cache-safe inline tool loading when the request **starts with pi's system message**, and every loom session starts with notes that two global pi packages inject at `session_start` instead. We are indeed behind — `pi-total-recall` 1.8.1 against 1.9.1, with `@samfp/pi-memory` 1.3.5 vs 1.6.1 and `pi-session-search` 1.4.3 vs 1.6.0 — and I installed the current versions in an isolated pi setup and re-ran the experiment: the newer `pi-memory` no longer writes its note at `session_start`, but `pi-session-search` 1.6.0 still does, **and** `pi-memory`'s new default (per-turn memory through pi's `context` hook) trips a second pi behaviour that defeats inline tool loading outright. Current packages, no fix, Fable 5.1: **0 / 9,655** cacheRead / cacheWrite on the turn after a load. Current packages + `perTurnInjection: false` + the hoist: **9,158 / 1,060**. Since 13 Oct, 99 of 104 post-load turns rewrote the cache ($141 in 6.5 days, about **$650 a month** notional); with the fix the same loads cost about $15 a month. The resident browser toolset, the per-spawn toolset switch and the MDX-skill rewrite no longer earn their keep and are dropped.
+
+<Stats
+  items={[
+    { value: "0 / 9,655", label: "Latest packages, no fix (Fable 5.1)", tone: "risk", detail: "Run K: pi-total-recall 1.9.1 in an isolated pi. The primer still precedes pi's system message and the new memory hook collapses the tool list, so the load still rewrites" },
+    { value: "9,158 / 1,060", label: "Latest packages + static memory + hoist", tone: "success", detail: "Run M: the load goes out as one inline tool_addition block; the cached prefix survives" },
+    { value: "99 of 104", label: "Post-load turns that rewrote since 13 Oct", tone: "risk", detail: "$141 in 6.48 days ≈ $650/month, all on Fable 5.1 and Opus 5.5 — both support inline tool changes" },
+    { value: "~20 lines", label: "Plus one setting and one header line", tone: "info", detail: "Loom's pi extension, ~/.pi/agent/settings.json, cliproxy.ts in pi-craft. No pi patch, no migration, no contract change" },
+  ]}
+/>
+
+<Callout tone="decision" title="What it means now" focus>
+  **You are approving four things.** (1) A `systemHead` part in loom's pi extension that puts pi's system message at index 0 of every request when only injected notes precede it — the saved transcript is untouched. (2) A 3-line fix so the per-turn tool-profile re-assertion keeps pi's tool order instead of reshuffling searched-in tools. (3) Updating `pi-total-recall` to 1.9.1 globally **with `memory.perTurnInjection: false`** in `~/.pi/agent/settings.json`, which keeps today's single memory note rather than the new per-turn hook (the hook is incompatible with inline tool loading until pi fixes it; §4). (4) Adding `inline-tools-2026-09-15` to cliproxy's `anthropic-beta` header in pi-craft. **What agents will notice:** nothing they should — the system prompt arrives in the `system` field (Codex: `instructions`) ahead of the memory and recent-sessions notes, where the API expects it; today it arrives as a mid-conversation "Updated system prompt section" message *after* the brief, and Codex threads run under `"You are a helpful assistant."`. **Dropped:** resident browser core, per-spawn `toolsets`, MDX §10 rewrite (§5). **Cost:** one rewrite per live session on its first turn after the deploy, which a deploy already causes. Three questions at the end: build as scoped, how to ship the package update, and two optional follow-ups.
+</Callout>
+
+**Scope.** The hoist, the ordering fix, their focused tests, the package update with its setting, the proxy header, the verification in §7 and the issue tidy-up in §8. **Not in scope:** pi patches, forks of the injecting packages, new toolsets or roles, the MDX skill. **Done when** a real loom session's turn after a `tool_search` load reads its cache instead of rewriting it, on Fable 5.1 and Opus 5.5, and the post-deploy scan in §7 shows the hit share above 90%.
+
+## 1. Is this just out-of-date packages? No — measured
+
+Carl's question on the first draft: are these legacy extensions, and does updating them fix it? The versions, the injection behaviour of each, and what a fresh isolated pi with the current releases does on the same five-turn experiment (bash → `tool_search` → the loaded tool → bash → done; "turn 3" is the first request after the load):
+
+<Table
+  density="compact"
+  columns={["Package", "Installed", "Current", "Injects at session_start?", "What changed"]}
+  rows={[
+    { cells: ["`pi-total-recall` (the bundle)", "1.8.1 (Jun)", "1.9.1 (10 Oct)", "—", "Bumps the three below; worker-thread indexing so startup no longer freezes pi"] },
+    { tone: "warning", cells: ["`@samfp/pi-memory`", "1.3.5", "1.6.1 (9 Oct)", { badge: { label: "no, by default", tone: "success" } }, "Default is now `injectionMode: \"context-hook\"`: the relevant memory is spliced in as an *ephemeral* user message before the latest user turn on every request, never persisted. `perTurnInjection: false` restores the single `session_start` note"] },
+    { tone: "risk", cells: ["`pi-session-search`", "1.4.3", "1.6.0 (24 Sep)", { badge: { label: "yes, still", tone: "risk" } }, "The \"Recent Sessions\" primer is still `pi.sendMessage` at `session_start`, by design (its comment: \"Matches pi-knowledge-search's pattern … BEFORE any user message\"). Only `primer.enabled: false` turns it off"] },
+    { cells: ["`pi-knowledge-search`", "1.3.5", "1.3.7", { badge: { label: "yes, when a KB exists", tone: "warning" } }, "Same pattern (`knowledge-overview`); fires in 1 of 565 production sessions since 13 Oct"] },
+    { cells: ["Everything else in `~/.pi/agent/settings.json`", "—", "—", { badge: { label: "no", tone: "success" } }, "pi-web-access, pi-intercom, plannotator, pi-image-tools, pi-btw, prompt-template-model, pi-craft, pi-fathom, pi-browser: their `sendMessage` calls are event-driven (fetch results, incoming messages), none at startup. All 565 production sessions since 13 Oct start with exactly `pi-memory-context, pi-session-search-primer`"] },
+  ]}
+/>
+
+<Table
+  density="compact"
+  columns={["Run (Fable 5.1)", "Packages", "Memory mode", "Hoist", "Turn 3: cacheRead / cacheWrite", "Prefix kept?"]}
+  rows={[
+    { tone: "risk", cells: ["J", "installed (1.8.1)", "session_start note", "no", "0 / 32,222", { badge: { label: "rewrite", tone: "risk" } }] },
+    { tone: "success", cells: ["I", "installed (1.8.1)", "session_start note", "yes", "29,364 / 2,893", { badge: { label: "kept", tone: "success" } }] },
+    { tone: "risk", cells: ["K", "current (1.9.1)", "context hook (new default)", "no", "0 / 9,655", { badge: { label: "rewrite", tone: "risk" } }] },
+    { tone: "risk", cells: ["L", "current (1.9.1)", "context hook (new default)", "yes", "same request shape as K: tools 16 → 17, no tool_addition", { badge: { label: "rewrite", tone: "risk" } }] },
+    { tone: "risk", cells: ["N", "current (1.9.1)", "`perTurnInjection: false`", "no", "3,592 / 6,577", { badge: { label: "rewrite", tone: "risk" } }] },
+    { tone: "success", cells: ["M", "current (1.9.1)", "`perTurnInjection: false`", "yes", "9,158 / 1,060", { badge: { label: "kept", tone: "success" } }] },
+  ]}
+/>
+
+Two things the runs show. **Updating alone (K) leaves the rewrite where it is**, because the primer still sits ahead of pi's system message. **Updating with the new memory default also disables the hoist (L):** pi-memory's `context` hook edits the message list on every request, and pi's runner then *collapses every system message into one head carrying all current tools* (`restoreSystemMessages` in `core/extensions/runner.js`) before the hoist ever runs — so the request's `tools` array grows on each load and nothing can anchor an inline addition. That is a pi behaviour, not a pi-memory bug, and it is triggered by any extension that edits messages in `context` (in Carl's set: pi-memory ≥ 1.5 by default; pi-btw and plannotator only when they have one of their own messages to filter out). Hence the recommendation: **take the update for its own fixes, pin `perTurnInjection: false`, and keep the hoist** (M). The hoist is not a stop-gap for old packages; the injecting pattern is what these authors consider correct, and the durable fix belongs in pi (§8 files it). Prefix sizes differ between rows because the isolated pi carries only the recall tools; the shapes are what matter.
+
+Memory quality is the trade. The new hook retrieves memory relevant to each prompt; `perTurnInjection: false` keeps today's one-shot dump (8 KB cap, which the audit already flagged as truncating). Beyond defeating inline tools, the hook also moves its ephemeral block to sit before each *new* user message, so by construction every new human or parent turn re-writes the previous turn's suffix from that point — an inferred cost I did not measure because the first problem already rules the mode out for loom. If pi fixes the collapse upstream, the setting can be revisited.
+
+## 2. What is actually broken, in one example
+
+Coder session `01a1535b` (Opus 5.5, 19 Oct), 277k tokens deep, searched for a browser tool four times. The third load, at turn 131, brought in six tools — 3,178 characters of schema, roughly 1,100 tokens — and the next turn paid for the whole context again:
+
+<Code language="text" code={"turn 131  cacheRead 280,199   cacheWrite   1,519   $0.07\n          tool_search -> loads 6 tools (browser_mouse_down, preview_press, ... : 3,178 chars)\nturn 132  cacheRead       0   cacheWrite 279,273   $1.40   <- whole context rewritten\nturn 133  cacheRead 279,273   cacheWrite   2,021   $0.07"} />
+
+Across all loom sessions since 13 Oct: 104 turns followed a `tool_search` that loaded something; 99 rewrote the cache; $141 in 6.48 days, all on Fable 5.1 (34 rewrites, $89) or Opus 5.5 (65, $52). The median browser load is **8 tools, about 6.7k characters (~2.4k tokens)** — not the 66-tool family the old `enable_toolset` loaded — so the rewrite is 100× the size of what was added.
+
+**Why.** For models flagged `supportsMidConvoToolChanges` (Fable 5/5.1, Opus 4.8/5/5.5, Sonnet 5.5, Haiku 5.5) pi keeps the request's `tools` array fixed at the session's initial tools plus a deferred placeholder and sends each later tool as an inline `tool_addition` block; Codex gets the same via `additional_tools`. The gate is one line in pi-ai's `anthropic-messages.js`: `nativeToolChanges = … && initialTools.length > 0`, where the initial tools are read from `messages[0]` **only if it is a system message**. In every loom session `messages[0]` is the memory note. pi's own session-format doc calls a transcript with no leading system message a legacy session. The request shows it:
+
+<Columns>
+  <Column label="Today (run A, Haiku 5.5, full extension set)">
+    <Code language="text" code={"tools:   all 29 current tools        <- resent in full on every change\nsystem:  (none)\nmessages:\n  0 user    <memory> ... (pi-memory)\n  1 user    ## Recent Sessions ... (pi-session-search)\n  2 user    the brief\n  3 system  \"Updated system prompt section \\\"preamble\\\": You are an expert coding assistant...\"\n  4 assistant ...\n\nturn after a load:  cacheRead 0 / cacheWrite 18,589"} />
+  </Column>
+  <Column label="With the hoist (run E, same setup)">
+    <Code language="text" code={"tools:   30 initial tools + pi's deferred placeholder   <- never changes again\nsystem:  You are an expert coding assistant... (9,445 chars)\nmessages:\n  0 user    <memory> ...\n  1 user    ## Recent Sessions ...\n  2 user    the brief\n  3 assistant ...\n  7 system  [tool_addition: narwhal_ping]   <- the load, appended where it happened\n\nturn after a load:  cacheRead 18,330 / cacheWrite 246"} />
+  </Column>
+</Columns>
+
+<Details summary="All 14 runs (the researcher's A–H on 19 Oct; I–N mine on 20 Oct)">
+
+<Table
+  density="compact"
+  columns={["Run", "Model", "Setup", "Turn 3: cacheRead / cacheWrite", "Prefix kept?"]}
+  rows={[
+    { tone: "risk", cells: ["A", "Haiku 5.5", "today: all extensions", "0 / 18,589", { badge: { label: "rewrite", tone: "risk" } }] },
+    ["B", "Haiku 5.5", "only cliproxy + bridge (no memory/primer)", "2,947 / 281", { badge: { label: "kept", tone: "success" } }],
+    { tone: "risk", cells: ["C", "Haiku 5.5", "B + pi-memory 1.3.5 alone", "0 / 6,800", { badge: { label: "rewrite", tone: "risk" } }] },
+    { tone: "success", cells: ["E", "Haiku 5.5", "A + hoist", "18,330 / 246", { badge: { label: "kept", tone: "success" } }] },
+    { tone: "success", cells: ["F", "Opus 5.5", "A + hoist", "18,325 / 240", { badge: { label: "kept", tone: "success" } }] },
+    ["G", "Haiku 5.5", "E, loaded tool also patches the tools/rules prompt sections", "18,334 / 2,906", { badge: { label: "kept (patch appended)", tone: "success" } }],
+    ["H", "Haiku 5.5", "G resumed in a new pi process", "21,414 / 46; searched-in tool still active", { badge: { label: "kept", tone: "success" } }],
+    { tone: "risk", cells: ["J", "Fable 5.1", "today: all extensions", "0 / 32,222", { badge: { label: "rewrite", tone: "risk" } }] },
+    { tone: "success", cells: ["I", "Fable 5.1", "J + hoist", "29,364 / 2,893", { badge: { label: "kept", tone: "success" } }] },
+    { tone: "risk", cells: ["K", "Fable 5.1", "isolated pi, pi-total-recall 1.9.1 defaults", "0 / 9,655", { badge: { label: "rewrite", tone: "risk" } }] },
+    { tone: "risk", cells: ["L", "Fable 5.1", "K + hoist (usage contaminated by K's cache; request shape is the evidence)", "tools 16 → 17, no tool_addition", { badge: { label: "rewrite", tone: "risk" } }] },
+    { tone: "risk", cells: ["N", "Fable 5.1", "K + perTurnInjection: false", "3,592 / 6,577", { badge: { label: "rewrite", tone: "risk" } }] },
+    { tone: "success", cells: ["M", "Fable 5.1", "N + hoist", "9,158 / 1,060", { badge: { label: "kept", tone: "success" } }] },
+    ["codex A / E", "gpt-6-luna", "without / with hoist", "9,472 held in both", { badge: { label: "kept either way", tone: "info" } }],
+  ]}
+/>
+
+Run C is the isolation: adding pi-memory alone to a working setup reproduces the rewrite. Codex keeps the prefix either way (its `additional_tools` path does not need the leading system message) but without the hoist its `instructions` field is `"You are a helpful assistant."` and the real prompt arrives as a developer message after the memory note. Scripts, payload captures and per-turn usage are in `/home/Carl/.t3/cockpit/scratch/tool-loading-cache/` (`run.sh`, `run-iso.sh`, `README.md`).
+
+</Details>
+
+## 3. The fix: keep pi's system message at the head of every request
+
+<Callout tone="decision" title="Decision: a request-local hoist in loom's pi extension, not a pi patch and not forks of the injecting packages">
+  A `context_with_system` handler — the hook pi documents for exactly this ("use `context_with_system` only when a request-local transformation must own the complete transcript, and keep a system message at index zero") — moves the first system message to index 0 when only user-side context precedes it. The saved transcript is unchanged, so relaunch, fork, consult and the session-log scans all see what they see today.
+</Callout>
+
+<Columns>
+  <Card heading="Loom-side hoist" tone="success" badge="RECOMMENDED" meta={["~15 lines", "no pi patch", "covers every injecting extension, present and future", "measured on 4 models"]}>
+    Lives beside the existing parts (the `loomExtensionParts/` folder of loom's pi driver), ships with loom, is covered by loom's tests and gates, and is a no-op whenever the transcript already starts with a system message. Becomes deletable the day pi fixes this upstream.
+  </Card>
+  <Card heading="A fifth pi patch: make providers tolerate leading custom messages" tone="neutral" badge="REJECTED" meta={["pi-ai, not pi-coding-agent", "4+ provider files", "bundle anchors"]}>
+    `getInitialSystemMessage` lives in pi-ai and is used by the Anthropic, Codex, Google and Bedrock transports, each of which also slices `messages[1:]` for the conversation. Several readable hunks plus minified-bundle anchors to re-derive on every pi bump, for the same request pi's own extension hook produces in one place.
+  </Card>
+  <Card heading="Update or fork the injecting packages" tone="neutral" badge="INSUFFICIENT" meta={["update: still rewrites (run K)", "fork: two third-party packages", "next injector reintroduces it"]}>
+    The update is worth taking (§4) but does not remove the primer from the head, and the authors consider startup injection the correct pattern. Disabling the primer (`primer.enabled: false`) would remove the last injector today and lose the recent-sessions note; it does not protect against the next extension.
+  </Card>
+</Columns>
+
+<AnnotatedCode
+  filename="apps/server/src/provider/Drivers/Pi/loomExtensionParts/systemHead.ts (new)"
+  language="ts"
+  code={"// loom: Loom extension part — keep pi's system message at the head of every request.\n// Global packages (pi-session-search, and pi-memory unless perTurnInjection is false) send\n// custom messages at `session_start`, before pi persists its first system message, so loom\n// transcripts start [custom, custom, system, user]. pi's providers read the prompt and the\n// initial tool list from messages[0] only: with none there Anthropic gets no `system` field\n// and the whole current tool list is resent on every change, which rewrites the cache.\n// Request-local: the saved transcript is unchanged.\nimport type { LoomExtensionPart } from \"../loomExtension.ts\";\n\nexport const systemHeadPart: LoomExtensionPart = {\n  name: \"systemHead\",\n  source: `\npi.on(\"context_with_system\", (event) => {\n  const m = event.messages;\n  const i = m.findIndex((x) => x.role === \"system\");\n  // Only user-side context may precede it; once the model has answered, leave the order alone.\n  if (i <= 0 || m.slice(0, i).some((x) => x.role === \"assistant\" || x.role === \"toolResult\")) return;\n  return { messages: [m[i], ...m.slice(0, i), ...m.slice(i + 1)] };\n});\n`,\n};"}
+  annotations={[
+    { lines: "13", label: "the hook", note: "Runs after pi's `context` handlers and before pi's own projections (hidden declarations, forced prompts), on a clone of the transcript. The on-disk session never changes." },
+    { lines: "16", label: "guard", note: "i <= 0: already at the head, or no system message — nothing to do. An assistant or tool result before the first system message would mean a genuine legacy transcript; it is left as is." },
+    { lines: "17", label: "the move", note: "Only the first system message moves. Later ones (tool additions, prompt-section patches) stay where they happened, which is what makes them cheap inline appends." }
+  ]}
+/>
+
+Register it in `LOOM_EXTENSION_PARTS` in `apps/server/src/provider/Drivers/Pi/loomExtension.ts` and name it in that file's header comment. Nothing else in loom changes shape: the composer still materialises one extension file; `promptDebug` still captures the same prompt; the cache warmer's "context still current" check compares pi's *state* messages, not the transformed request, so idle keep-alive pings are unaffected (and the warm ping re-sends the hoisted request it was given, so its prefix matches).
+
+**What changes for agents, and how it is watched.** The system prompt moves from a mid-conversation "Updated system prompt section …" message delivered *after* the memory note, the recent-sessions note and the brief, to the API's `system` field (Codex: `instructions`) ahead of all three — where every model is trained to find it. One literal instance of today's delivery confusing a model: in run A (Haiku 5.5, no fix), the first assistant turn opened with *"I won't reproduce or rewrite my system prompt; that's not something I'll share"* — it read the harness's own prompt-update message as a user request. A scan of the 564 loom sessions since 13 Oct finds **0** first turns mentioning a system prompt that way, so in production the expected visible change is none; the fix is a correction of where the prompt sits, not a behaviour experiment. Watch (§7): that first-turn scan stays at zero after the deploy, and the audit's refusal and hard-failure rates for the first post-deploy week sit inside the 13–19 Oct band.
+
+### 3a. The companion one-liner: stop reshuffling searched-in tools
+
+Loom's extension re-asserts the role's tool profile at every turn (`apply()` in `toolProfilePart`). It rebuilds the active list as *profile → `tool_search` → discovered tools in pi's registration order → `ask_user_question` last*. After a `tool_search`, pi's active order is *previous active → the matches in rank order*, so the first wake after a load almost always changes the order — which rewrites pi's `<tools>` prompt section (its text follows the active order) with no tool added or removed. Today that is a full rewrite ($15 across three forks of planner `01a13979` on 14 Oct). After the hoist it is a ~3k-token appended section patch per loading session (runs G and I show the size: 2,893–2,906 tokens) — about $1–2 a week. Small, but it is three lines in the function being touched and it keeps a spurious prompt patch out of every loading session's transcript, so it rides along.
+
+<Diff
+  filename="apps/server/src/provider/Drivers/Pi/loomExtension.ts — toolProfilePart.apply()"
+  language="js"
+  wrap
+  before={"  ctx.syncHumanInput?.();\n  pi.setActiveTools([...new Set([...base, \"tool_search\", ...discovered].filter(allowed)), ...(ctx.humanInputRefused() ? [] : HUMAN_INPUT)]);"}
+  after={"  ctx.syncHumanInput?.();\n  const wanted = new Set([...[...base, \"tool_search\", ...discovered].filter(allowed), ...(ctx.humanInputRefused() ? [] : HUMAN_INPUT)]);\n  // pi's current order wins for tools already active: a reorder patches the <tools> prompt section for nothing.\n  const kept = pi.getActiveTools().filter((name) => wanted.has(name));\n  pi.setActiveTools([...kept, ...[...wanted].filter((name) => !kept.includes(name))]);"}
+  annotations={[
+    { side: "after", lines: "4", note: "Tools already active keep pi's order (which is the order they were activated in). Newly required ones — the profile at session start, ask_user_question when a human first writes — append." }
+  ]}
+/>
+
+## 4. The package update and the proxy header
+
+**`pi-total-recall` 1.8.1 → 1.9.1, with `memory.perTurnInjection: false`.** Take the update for its own fixes (indexing on a worker thread so startup no longer freezes pi; atomic index writes; the duplicate-row cleanup) and pin the memory mode so the injection shape stays what the hoist handles (run M). Both are global pi settings, so they touch terminal pi as well as loom: the `~/.pi/agent/settings.json` `memory` block gains `"perTurnInjection": false` beside the existing `consolidationModel`, and the update is `pi update npm:pi-total-recall` (or the equivalent) on the global install — **done by Carl or the parent, not by a child thread**, since it is a live-environment change; the plan's job is to say it is safe and what to set first. Order matters: set the flag *before* updating, so no session ever starts under the context-hook default. 1.6.1 still honours the `memory.consolidationModel` key and the same `~/.pi/memory/memory.db`, so nothing else moves. If Carl prefers the per-turn semantic memory, that is a conscious choice to keep the rewrite until pi fixes the collapse (question 2 at the end).
+
+**cliproxy: request the inline-tools beta.** pi adds `inline-tools-2026-09-15` to its beta list when it uses native tool changes, but cliproxy's configured `anthropic-beta` header replaces pi's list (`/home/Carl/pi-craft/plugins/pi-craft/extensions/cliproxy.ts`, lines 49–61), so the beta is never requested. The `tool_addition` requests worked unflagged in every run through the proxy on Haiku 5.5, Opus 5.5 and Fable 5.1, but that is Anthropic (or the proxy's rebuilt baseline) being lenient. Add the beta to the list with a comment naming why; it is one line in pi-craft, takes effect for every new pi process without a loom deploy, and the proxy's header comment already documents that five betas are forwarded only when the caller asks. Verification in §7 step 3.
+
+## 5. What the fix makes unnecessary
+
+The second research thread, writing before the hoist was found, recommended a resident 12-tool browser core for coder, planner, researcher and reviewer, a rewrite of §10 of the MDX skill (the step that tells an agent to `tool_search` for `browser_navigate` and screenshot its own document — 24 of 51 loading sessions), and optionally a per-spawn `toolsets` switch. All three were priced against a load costing ~$1.4. Repriced against a load costing ~$0.03:
+
+<Table
+  density="compact"
+  columns={["Idea", "Verdict", "Why, on the researchers' own numbers"]}
+  rows={[
+    { cells: ["Resident 12-tool browser core for 4 roles", { badge: { label: "DROP", tone: "neutral" } }, "Rent for the resident 2k tokens: ~$16 per 6.5-day window. Post-fix cost of the 78 browser loads in that window: ~2.4k tokens written each at $5–12.5/M ≈ $2–3, and their rent is already paid today. The core would cost 5–7× what it saves, and 4 of 51 loading sessions would still search for tools outside it. Revisit only if the post-deploy scan shows loads still expensive."] },
+    { cells: ["Per-spawn `toolsets` parameter (contract field, event, 1001+ migration, 2–3 days)", { badge: { label: "DROP", tone: "neutral" } }, "Existed to avoid a $1.4 miss; a miss now costs cents. The brief-text predictor it needed had precision 0.49 anyway."] },
+    { cells: ["Rewrite §10 of `skills/mdx-doc-core/references/document-quality.md`", { badge: { label: "DROP (for cache reasons)", tone: "neutral" } }, "A planner's late-session screenshot load falls from ~$2.6 to ~$0.03–0.07 (Fable write price on ~2.4k tokens, plus a 2.9k section patch only when loaded tools carry guidelines — pi-browser's do not; 81 of 88 production loads carried no patch). Whether the visual self-check is worth its image tokens is a document-quality question, not a cache one."] },
+    { cells: ["`lint-plan.mjs --png` so agents `read` a rendering instead of loading the browser", { badge: { label: "OPTIONAL FOLLOW-UP", tone: "info" } }, "Removes a `tool_search` round trip and the ~3 unused T3 preview tools each browser search drags in (median 3 of 8 loaded). Worth maybe $20–30/month and a cleaner skill; judge it on quality. Queued in the question form."] },
+    { cells: ["#378's `setToolExposure` pi patch, #340's codemode", { badge: { label: "UNRELATED", tone: "neutral" } }, "Both decide which tools are *searchable* or *how* they are called, not what a load costs. The cache argument against deferring more tools disappears with this fix; both issues can be judged on their own merits (§8)."] },
+  ]}
+/>
+
+## 6. Residual gaps
+
+What the hoist does not cover, and the call on each.
+
+<Table
+  density="compact"
+  columns={["Gap", "Call", "Detail"]}
+  rows={[
+    { cells: ["Any extension that edits messages in pi's `context` hook makes pi collapse every system message into one head with all current tools, which defeats inline tool loading for that request", { badge: { label: "GUARDED BY THE SETTING", tone: "warning" } }, "Runs K/L. In Carl's set the only always-on trigger is pi-memory ≥ 1.5's default mode, hence `perTurnInjection: false`. pi-btw and plannotator edit only when a message of theirs is present to filter; a session that has one pays the rewrite on its loads. Durable fix is upstream (§8)."] },
+    { cells: ["Models without `supportsMidConvoToolChanges` (Sonnet 5, Opus 4.6/4.7, Haiku 4.5) still rewrite on a load", { badge: { label: "NOTED", tone: "neutral" } }, "Not in use: all 104 post-load turns since 13 Oct were Fable 5.1 or Opus 5.5. The post-deploy scan reports by model."] },
+    { cells: ["A `before_agent_start` handler that returns `systemPrompt` collapses the transcript the same way", { badge: { label: "NOTED", tone: "neutral" } }, "pi-diffloop did this when enabled; Carl has now uninstalled it. Remaining: prompt-template-model's `run-prompt` and plannotator's planning phase, neither of which fires in a loom turn. If the post-deploy hit share stalls below ~90%, these and the row above are the suspects."] },
+    { cells: ["One full rewrite per live session on its first turn after the deploy", { badge: { label: "ACCEPTED", tone: "neutral" } }, "A deploy already rewrites every live session (audit §3.4: the release path is in the prompt). Deploy at a quiet moment as §3.4 already asks."] },
+    { cells: ["Terminal pi (outside loom) has the same bug", { badge: { label: "OPTIONAL FOLLOW-UP", tone: "info" } }, "The same ~8 lines as a pi-craft global extension; idempotent alongside loom's part. Queued in the question form."] },
+    { cells: ["Compaction", { badge: { label: "N/A", tone: "neutral" } }, "Not a loom path — loom hands off or continues a goal rather than compacting, so the original session stays intact for consults. (Were a session compacted, pi puts its checkpointed system message first and the hoist is a no-op.)"] },
+  ]}
+/>
+
+## 7. Verification
+
+<Steps>
+  <Step at="1" title="Focused unit cases, in the existing stub-pi harness" badge="loomExtension.test.ts">
+    Emit `context_with_system` with `[custom, custom, system, user]` → handler returns `[system, custom, custom, user]`; with `[system, user]` → returns nothing (no-op, the fresh-pi shape); with `[user, assistant, system]` → returns nothing. For the ordering fix: after `session_start`, activate `[SPAWN]` the way `tool_search` does, emit `before_agent_start`, assert the list passed to `setActiveTools` keeps that order rather than moving `ask_user_question` or `SPAWN`.
+  </Step>
+  <Step at="2" title="Real model, loom's assembled extension, three models" badge="scratch run.sh">
+    Materialise the assembled extension (`assembleLoomExtensionSource(LOOM_EXTENSION_PARTS)`, or copy `<T3 home>/caches/pi-loom-extension.ts` from a dev server) and run `run.sh` in `/home/Carl/.t3/cockpit/scratch/tool-loading-cache/` with it in place of `hoist-system.ts`, on `cliproxy/claude-fable-5-1`, `cliproxy/claude-opus-5-5` and the Codex model. Pass: turn 3's `cacheRead` ≈ turn 2's, `cacheWrite` under 3k, Codex `instructions` is the real prompt. Without `T3_MCP_URL` the profile fetch fails and the part warns once — the hoist still runs, which is what this step checks.
+  </Step>
+  <Step at="3" title="Proxy header" badge="pi-craft cliproxy.ts">
+    After adding `inline-tools-2026-09-15` to the header, rerun step 2 on Fable 5.1: the `tool_addition` request still returns 200 and the payload's `betas` now lists it. Whether the proxy forwards it to Anthropic is only visible in the proxy's own logs; if they do not show request headers, record it as "requested; forwarding not independently verified" rather than guessing.
+  </Step>
+  <Step at="4" title="Package update, before and after" badge="run-iso.sh → global">
+    Run M is the before-the-fact proof. After Carl sets `memory.perTurnInjection: false` and updates `pi-total-recall` globally, rerun `run.sh` with the full extension set on Fable 5.1: the transcript head is still `custom_message, custom_message, system` and turn 3 keeps the prefix; `memory_search` and `session_search` still answer.
+  </Step>
+  <Step at="5" title="End to end in a real loom thread" badge="docs/dev-site-testing.md">
+    Dev-verify recipe: seed, start the dev stack, open a project thread, ask it to `tool_search` for `browser_navigate` and then reply, then send a second message. In that thread's pi session file: the turn after the load has `cacheRead` above zero and `cacheWrite` about the size of the loaded schemas; the transcript on disk still starts `custom_message, custom_message, system`; the role's profile and `ask_user_question` behaviour are unchanged; a relaunch keeps the searched-in tools.
+  </Step>
+  <Step at="6" title="Gates and ship" badge="vp check · vp run typecheck · pnpm ship">
+    `// loom:` marker on the new part and the `apply()` hunk; `vp check` and `vp run typecheck` pass; ship via `pnpm ship` after approval; the pi-craft change is its own commit in that repo. Deploying is Carl's separate call.
+  </Step>
+  <Step at="7" title="Post-deploy production check, after one week" badge="load_miss_scan.py" tone="accent">
+    Run `/home/Carl/.t3/cockpit/scratch/tool-loading-cache/load_miss_scan.py` with its date floor moved to the deploy day: it walks every loom session log and classifies the turn after each `tool_search` load as hit or miss, by provider and model. Today: 5 hits, 99 misses. Pass: hit share above 90% on Fable 5.1 and Opus 5.5. Alongside it, the first-turn "system prompt" mention scan from §3 (0 of 564 today) stays at zero, and the audit's refusal and hard-failure rates for the week sit inside the 13–19 Oct band.
+  </Step>
+</Steps>
+
+## 8. Housekeeping
+
+<Table
+  density="compact"
+  columns={["Item", "Action", "Comment to leave"]}
+  rows={[
+    { cells: ["#356 — orchestrators call `enable_toolset` for a family they already hold", { badge: { label: "CLOSE", tone: "success" } }, "`enable_toolset` was deleted in pull 10; the failure mode no longer exists."] },
+    { cells: ["#340 — investigate codemode / deferred exposure for the T3 tools", { badge: { label: "CLOSE", tone: "success" } }, "Deferred exposure shipped in pull 10; the cache rewrite it caused is fixed by this plan (link the PR); codemode remains unadopted per the findings comment. Reopen if codemode is wanted for its own reasons."] },
+    { cells: ["#378 — making third-party extension tools searchable", { badge: { label: "COMMENT · KEEP OPEN", tone: "info" } }, "Still a live reachability question, unrelated to cost. With this fix a deferred tool costs its own schema to load, so 'defer more' no longer has a cache penalty."] },
+    { cells: ["Upstream pi (`earendil-works/pi`)", { badge: { label: "FILE", tone: "info" } }, "One issue, two findings. (a) Extensions that `sendMessage` at `session_start` turn every session into a legacy transcript: `getInitialSystemMessage` reads `messages[0]`, so Anthropic requests lose the `system` field and inline tool changes, and Codex runs under 'You are a helpful assistant.' — repro: `pi -p` with pi-session-search and any deferred tool (runs A/C/K). (b) When a `context` handler edits the message list, `restoreSystemMessages` collapses every system message into one head carrying all current tools, which also defeats inline tool changes — repro: pi-memory ≥ 1.5 defaults (runs K/L). Suggested fixes: persist the initial system message before dispatching `session_start` (or locate the first system message past leading custom/user messages), and restore the original system-message sequence after `context` edits instead of collapsing. Our workaround: a `context_with_system` hoist plus `perTurnInjection: false`."] },
+  ]}
+/>
+
+<Details summary="Change map and the task tree shape">
+
+<FileTree
+  title="Files touched"
+  entries={[
+    { path: "apps/server/src/provider/Drivers/Pi/loomExtensionParts/systemHead.ts", change: "added", note: "the context_with_system hoist, ~15 lines with its loom: comment" },
+    { path: "apps/server/src/provider/Drivers/Pi/loomExtension.ts", change: "modified", note: "register systemHeadPart; name it in the header; the 3-line order-preserving setActiveTools in apply()" },
+    { path: "apps/server/src/provider/Drivers/Pi/loomExtension.test.ts", change: "modified", note: "three context_with_system cases and one re-assertion order case" },
+    { path: "/home/Carl/pi-craft/plugins/pi-craft/extensions/cliproxy.ts", change: "modified", note: "pi-craft repo: add inline-tools-2026-09-15 to the anthropic-beta list, with a comment" },
+    { path: "~/.pi/agent/settings.json", change: "modified", note: "Carl/parent, live environment: memory.perTurnInjection = false, then update pi-total-recall to 1.9.1" },
+    { path: "/home/Carl/.t3/cockpit/scratch/tool-loading-cache/", change: "modified", note: "already holds run-iso.sh, agentdir-latest/, recall-copy/ and the README rows for runs I–N" },
+  ]}
+/>
+
+Task tree, under *Implement the approved fix*: the two existing tasks (`systemHead` part; re-assertion keeps pi's order) plus two added — the pi-craft beta header, and the global package update with its setting (owned by Carl/parent). Under *Prove…*: steps 2–5 above plus the post-deploy scan. Under *Ship…*: the three issue actions plus the upstream pi issue. Nothing for a browser toolset, §10 or a per-spawn switch.
+
+</Details>
+
+<QuestionForm
+  submitLabel="Record decisions"
+  questions={[
+    {
+      id: "approve",
+      title: "Build the loom fix as scoped?",
+      subtitle: "The request-local hoist of pi's system message (the cache fix), the three-line change that keeps pi's tool order on re-assertion, and the one-line cliproxy beta header in pi-craft.",
+      mode: "single",
+      required: true,
+      refs: [{ label: "3. The fix", anchor: "3-the-fix-keep-pi-s-system-message-at-the-head-of-every-request" }, { label: "4. Package update and proxy header", anchor: "4-the-package-update-and-the-proxy-header" }],
+      options: [
+        { id: "all", label: "Yes — build the hoist, the ordering fix and the proxy header", detail: "One loom PR (one file plus its test) and one pi-craft commit.", recommended: true },
+        { id: "hoist-only", label: "Build the hoist and the proxy header; leave tool ordering as it is", detail: "Captures ~95% of the saving; loading sessions keep paying a small appended prompt patch on their next wake." },
+        { id: "no", label: "Do not build; discuss first", detail: "Use the span annotations to say what is wrong with the reading." }
+      ]
+    },
+    {
+      id: "packages",
+      title: "How should the pi-total-recall update ship?",
+      subtitle: "Updating is worth doing for its own fixes, but its new per-turn memory default defeats inline tool loading (runs K/L); the setting keeps today's single memory note (run M). Both are global pi settings, so they apply to terminal pi too.",
+      mode: "single",
+      required: true,
+      refs: [{ label: "1. Is this just out-of-date packages?", anchor: "1-is-this-just-out-of-date-packages-no-measured" }],
+      options: [
+        { id: "update-static", label: "Update to 1.9.1 and set memory.perTurnInjection: false first", detail: "Cache-safe with the hoist; memory stays the one-shot 8 KB note it is today. Revisit the mode once pi stops collapsing system messages after context edits.", recommended: true },
+        { id: "update-default", label: "Update to 1.9.1 and keep the new per-turn semantic memory", detail: "Better-targeted memory per prompt, but the tool-load rewrite stays exactly as it is today and the previous turn's suffix is re-written at every new user turn." },
+        { id: "hold", label: "Leave the packages at 1.8.1 for now; ship the loom fix alone", detail: "The hoist fixes the rewrite with today's packages (run I). The update's own fixes (no startup freeze, atomic index writes) wait." }
+      ]
+    },
+    {
+      id: "followups",
+      title: "Which optional follow-ups should be queued as separate small tasks?",
+      subtitle: "Neither is needed for the saving above.",
+      mode: "multi",
+      refs: [{ label: "6. Residual gaps", anchor: "6-residual-gaps" }, { label: "5. What the fix makes unnecessary", anchor: "5-what-the-fix-makes-unnecessary" }],
+      options: [
+        { id: "terminal", label: "Add the same hoist as a pi-craft global extension so terminal pi sessions get it too", detail: "Same eight lines; idempotent alongside loom's part. Only matters for Carl's non-loom pi usage." },
+        { id: "png", label: "lint-plan.mjs --png so MDX authors read a rendering instead of loading the browser", detail: "A document-quality change; removes a tool_search round trip and the unused preview tools it drags in. Judge on quality rather than the ~$20–30/month." }
+      ]
+    }
+  ]}
+/>

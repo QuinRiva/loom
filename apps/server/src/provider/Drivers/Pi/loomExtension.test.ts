@@ -4,7 +4,8 @@
  * stub `fetch` (the pattern of `piT3McpExtensionSource.test.ts`): the profile
  * at `session_start`, the per-turn re-assertion (P3-4) keeping `tool_search` discoveries,
  * the deny-list and the human-input rule, `mcp__t3-code__ask_user_question` across a
- * dropped poll, and 3c's parts assembled in (the prompt-debug capture).
+ * dropped poll, 3c's parts assembled in (the prompt-debug capture), and pi's system message
+ * hoisted to the head of each request.
  */
 import * as NodeFS from "node:fs";
 import * as NodeModule from "node:module";
@@ -112,9 +113,12 @@ const load = async (
     },
     clearTimeout: () => undefined,
   });
+  // Resolves to the last handler's result (context_with_system's request-local messages).
   const emit = async (name: string, event: unknown = {}) => {
+    let result: unknown;
     for (const handler of handlers.get(name) ?? [])
-      await handler(event, { ui: { notify: (message: string) => notices.push(message) } });
+      result = await handler(event, { ui: { notify: (message: string) => notices.push(message) } });
+    return result;
   };
   return {
     emit,
@@ -125,6 +129,7 @@ const load = async (
       all.get(name) === "deferred" ? pi.setActiveTools([...active, name]) : undefined,
     exposure: (name: string) => all.get(name),
     active: () => [...active].toSorted(),
+    order: () => [...active],
     notices,
     call: (name: string, params: unknown) => tools.get(name)!.execute(`call-${name}`, params),
   };
@@ -150,6 +155,39 @@ describe("Loom pi extension", () => {
     await pi.emit("before_agent_start");
 
     assert.deepEqual(pi.active(), ["read", SUBMIT, SPAWN, "tool_search"].toSorted());
+  });
+
+  // pi's <tools> prompt section follows the active order: a reshuffle would patch it for nothing.
+  it("keeps pi's active order when re-asserting after tool_search", async () => {
+    const pi = await load(serving(() => profile({ humanEngaged: true })));
+    await pi.emit("session_start");
+    pi.search(SPAWN);
+    const loaded = pi.order();
+    assert.deepEqual(loaded.slice(-2), [ASK, SPAWN]);
+
+    await pi.emit("before_agent_start");
+
+    assert.deepEqual(pi.order(), loaded);
+  });
+
+  it("moves pi's system message ahead of injected session_start notes, request-locally", async () => {
+    const pi = await load(serving(() => profile()));
+    const memory = { role: "custom", customType: "pi-memory-context" };
+    const primer = { role: "custom", customType: "pi-session-search-primer" };
+    const brief = { role: "user", content: "the brief" };
+    const system = { role: "system", content: "You are an expert coding assistant" };
+    const added = { role: "system", content: "[tool_addition]" };
+    const reply = { role: "assistant", content: [] };
+    const hoist = (messages: ReadonlyArray<unknown>) =>
+      pi.emit("context_with_system", { messages });
+
+    assert.deepEqual(await hoist([memory, primer, brief, system, reply, added]), {
+      messages: [system, memory, primer, brief, reply, added],
+    });
+    // Already at the head (fresh pi, or pi-craft's global copy ran first), or a genuine legacy
+    // transcript with a model reply before its first system message: left alone.
+    assert.isUndefined(await hoist([system, memory, brief]));
+    assert.isUndefined(await hoist([brief, reply, system]));
   });
 
   // pi-browser registers its browser_* tools deferred, like the bridge's t3-code tools.

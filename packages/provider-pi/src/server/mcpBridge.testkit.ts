@@ -34,7 +34,7 @@ type AgentStartHook = (
     model?: { api: string };
     ui: { notify: (message: string, severity: string) => void };
   },
-) => Promise<{ systemPrompt: string }>;
+) => Promise<void>; // loom: the bridge never returns a systemPrompt
 
 export async function loadMcpBridge(
   options: {

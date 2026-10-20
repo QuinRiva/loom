@@ -161,7 +161,7 @@ may be three paragraphs and a diagram. Both open with the summary.
 ## Validate before presenting
 
 ```
-node apps/web/scripts/lint-plan.mjs explainers/<slug>/explainer.mdx --out explainers/<slug>/render.html
+node apps/web/scripts/lint-plan.mjs explainers/<slug>/explainer.mdx --out explainers/<slug>/render.html --png
 ```
 
 A stray `<` or `{` in prose is an MDX compile error that kills the whole
@@ -171,9 +171,10 @@ place, so the render-health check runs before the reader hears the path: lint
 `file:line` findings, then a headless render through the real block registry
 that prints the block types that mounted. Fix all `error` findings and read
 each `warning`. Exit code 0 means the document compiles and renders, so it
-will display in-app. `--out` writes the rendered page beside the explainer so
-you can look at it (§10 of `document-quality.md`, which also says what the
-page cannot show: a `<Mermaid>` draws only in-app). For this genre the look
+will display in-app. `--out --png` writes the rendered page and PNG slices
+of it beside the explainer, for you to `read` and look at (§10 of
+`document-quality.md`, which also says what the page cannot show: a
+`<Mermaid>` draws only in-app). For this genre the look
 matters more than most, since a figure that does not read is the explanation
 failing — so when the diagram is the one thing you cannot see, the mental
 model is safer as the cards or `<Steps>` ladder the page can check, with any
