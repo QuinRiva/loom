@@ -77,11 +77,13 @@ export default defineConfig({
   fmt: {
     ignorePatterns: [
       ".repos/**",
-      // loom: MDX plans/recaps are product deliverables whose block attributes
-      // the formatter rewrites (same class as `.macroscope/ignore.md` below).
+      // loom: MDX plans/recaps/explainers are product deliverables whose block
+      // attributes the formatter rewrites (same class as `.macroscope/ignore.md`
+      // below).
       ".plans",
       "plans/**",
       "recaps/**",
+      "explainers/**",
       // Macroscope's glob-per-line ignore grammar, not Markdown: formatting
       // it rewrites `*` as `_` and joins lines.
       ".macroscope/ignore.md",

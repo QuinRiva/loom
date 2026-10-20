@@ -119,6 +119,8 @@ function usePlanImage(
             alt={label}
             copyMarkdown={copyMarkdown}
             standalone
+            // A document column, not a chat bubble: fill it, like the static render.
+            uncapWidth
             // The project root, not the document's directory: this is what the
             // media actions label and their "open file" path are relative to.
             workspaceRoot={location.cwd}
