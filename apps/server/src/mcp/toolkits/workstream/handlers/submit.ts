@@ -3,8 +3,9 @@
  * `thread.work.submit`; the arm routes the outcome and the echo reports what
  * it decided (from the `thread.outcome-recorded` / `thread.route-taken` events
  * it committed), so "yielded" and a rework route read as NOT done. A
- * completing submit is refused while a hold stands (D19) before any report is
- * written; inside a gate loop each round keeps its own report file.
+ * completing submit is refused while a hold stands (D19), and any submit
+ * without a response block, before any report is written; inside a gate loop
+ * each round keeps its own report file.
  *
  * @module mcp/toolkits/workstream/handlers/submit
  */
@@ -12,8 +13,8 @@ import { holdErasedByCompletion, routeWorkSubmit } from "@t3tools/shared/workstr
 import * as Effect from "effect/Effect";
 
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
-import { SUBMIT_REFUSED_WHILE_RAISED } from "../../../../loom/prompt/prose.ts";
-import { writeWorkstreamReport } from "../../../../loom/workstream/report.ts";
+import { NO_RESPONSE_BLOCK, SUBMIT_REFUSED_WHILE_RAISED } from "../../../../loom/prompt/prose.ts";
+import { reportResponse, writeWorkstreamReport } from "../../../../loom/workstream/report.ts";
 import type { WorkstreamCaller } from "../authorisation.ts";
 import type { LoomToolInput } from "../defs.ts";
 import { requestKey, stableCommandId } from "../idempotency.ts";
@@ -25,6 +26,7 @@ export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(functi
   caller: WorkstreamCaller,
 ) {
   if (input.markdown.trim().length === 0) return yield* fail("markdown is required.");
+  if (reportResponse(input.markdown).source !== "block") return yield* fail(NO_RESPONSE_BLOCK);
   const outcome = input.outcome?.trim();
   if (outcome === "") return yield* fail("outcome must be a non-empty string when present.");
   const contested = input.contested?.map((entry) => entry.trim());

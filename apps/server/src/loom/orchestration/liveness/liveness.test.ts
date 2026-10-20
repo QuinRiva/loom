@@ -4,14 +4,16 @@
  * nudge could not steer; a child inside a printing tool is never a stall and
  * gets one slow-tool advisory; approval waits are exempt and questions are not;
  * a flat work product under an advancing heartbeat is a `spinning` advisory;
- * a provider failure is resumed once, and a failed resume is dead; `usage_limit`,
- * a stop and a flagged child are never resumed. The sweep's clock
+ * a provider failure is resumed once, and a failed resume is dead, for a root as
+ * for a child; `usage_limit`, a stop, a flagged child and a root the human has
+ * since written to are never resumed. The sweep's clock
  * is the TestClock; each test builds its own layer so it starts at 0.
  */
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
   EventId,
+  MessageId,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ProviderFailureClass,
   type OrchestrationV2RuntimeRequest,
@@ -614,6 +616,65 @@ it.effect("usage_limit, an interrupted run and a flagged child are never resumed
       assert.isNull(yield* receipt(livenessDeadCommandId(limited, seededRunIds(limited).runId)));
       // The flagged child can still die (State A raises error alongside its flag).
       assert.deepEqual(yield* attention(held), ["needs_guidance", "error"]);
+    }),
+  ),
+);
+
+it.effect(
+  "a root gets the same one error resume, then error on itself; its child is judged as before",
+  () =>
+    withSweep(
+      Effect.gen(function* () {
+        const { root, child } = yield* seedRunningChild("root-fail", false);
+        yield* seedRunningRun({ threadId: root });
+        const failedRunId = yield* failRun(root, "transport_error", EOF_ERROR);
+        yield* sweep;
+        const [resume, ...rest] = yield* errorResumes(root);
+        assert.lengthOf(rest, 0);
+        assert.equal(resume?.id, `message:${errorResumeCommandId(root, failedRunId)}`);
+        assert.include(resume?.text ?? "", `\`${EOF_ERROR}\``);
+        for (let i = 0; i < 3; i++) yield* sweep;
+        assert.lengthOf(yield* errorResumes(root), 1);
+        assert.deepEqual(yield* attention(root), []);
+
+        const resumedRunId = yield* failRun(root, "provider_error", EOF_ERROR);
+        yield* sweep;
+        yield* sweep;
+        assert.deepEqual(yield* attention(root), []);
+        yield* sweep;
+        assert.equal(
+          (yield* receipt(livenessDeadCommandId(root, resumedRunId)))?.status,
+          "accepted",
+        );
+        assert.deepEqual(yield* attention(root), ["error"]);
+        assert.lengthOf(yield* errorResumes(root), 1);
+        // A root gets no stall or progress advisories; the child's ladder is untouched.
+        assert.lengthOf(advised, 0);
+        assert.lengthOf(yield* errorResumes(child), 0);
+        assert.deepEqual(yield* attention(child), []);
+      }),
+    ),
+);
+
+it.effect("a failed root the human has written to since is not resumed", () =>
+  withSweep(
+    Effect.gen(function* () {
+      const { root } = yield* seedRunningChild("root-human", false);
+      yield* seedRunningRun({ threadId: root });
+      yield* failRun(root, "provider_error", EOF_ERROR);
+      yield* dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("root-human-reply"),
+        threadId: root,
+        messageId: MessageId.make("message:root-human-reply"),
+        text: "Carry on.",
+        attachments: [],
+        createdBy: "user",
+        creationSource: "web",
+        dispatchMode: { type: "queue_after_active" },
+      });
+      for (let i = 0; i < 4; i++) yield* sweep;
+      assert.lengthOf(yield* errorResumes(root), 0);
     }),
   ),
 );

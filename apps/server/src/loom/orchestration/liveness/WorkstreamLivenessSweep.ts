@@ -1,7 +1,8 @@
 /**
  * The workstream liveness sweep on V2 (Phase 3 plan "Liveness"; P3-8–P3-10).
  * A periodic pass over every active Loom sub-thread that classifies it from the
- * V2 shell, the in-memory heartbeat and its in-flight tool:
+ * V2 shell, the in-memory heartbeat and its in-flight tool (a root with a Loom
+ * row gets State A only):
  *
  * - **dead** (State A) — the latest run `failed` with a provider failure class
  *   (`usage_limit` excluded: upstream's limit recovery parks and resumes it).
@@ -19,9 +20,10 @@
  *   the parent's next FYI digest (not an attention raise).
  * - **slow tool** — a tool in flight past its deferral → a `slow-tool` advisory.
  *
- * The parent learns of every `error` raise through the dispatcher's attention
- * rail. Nothing is persisted: the per-thread ladders live in this service and
- * restart from scratch, floored at sweep start. The classification and ladder
+ * A child's parent learns of every `error` raise through the dispatcher's
+ * attention rail; a root's flag shows on its own card and in the inbox. Nothing
+ * is persisted: the per-thread ladders live in this service and restart from
+ * scratch, floored at sweep start. The classification and ladder
  * functions are V1's (`WorkstreamLivenessSweep.ts`), unchanged in logic.
  *
  * @module loom/orchestration/liveness/WorkstreamLivenessSweep
@@ -430,7 +432,7 @@ const make = (thresholds: LivenessSweepThresholds) =>
       );
     });
 
-    // State A: `error` on the child, one per failed run; the attention rail wakes the parent.
+    // State A: `error` on the thread, one per failed run; the attention rail wakes a child's parent.
     const markDead = (
       row: LoomThreadWorkstream,
       shell: OrchestrationV2ThreadShell,
@@ -588,6 +590,14 @@ const make = (thresholds: LivenessSweepThresholds) =>
         return;
       }
 
+      // A root is judged on the failure path only: its long human-facing turns are not a
+      // child's stall, and the advisories are digest items a root has no parent to read.
+      if (row.parentThreadId === null) {
+        if (failureCount >= thresholds.failureCap)
+          yield* markDead(row, shell, `${failureCount} consecutive failed sweeps (root)`);
+        return;
+      }
+
       const tool = shell.activityRunStatus === "running" ? yield* inFlightTool(id) : null;
       const verdict = classifyLiveness({
         shell,
@@ -680,9 +690,8 @@ const make = (thresholds: LivenessSweepThresholds) =>
       const judged = new Set<ThreadId>();
       for (const row of rows) {
         const shell = shells.get(row.threadId);
-        // Sub-threads only, never a finished one, and only once a run exists (promotion owns the rest).
-        if (row.parentThreadId === null || row.outcome !== null || shell?.latestRunId == null)
-          continue;
+        // Never a finished thread, and only once a run exists (promotion owns the rest).
+        if (row.outcome !== null || shell?.latestRunId == null) continue;
         judged.add(row.threadId);
         yield* judge(row, shell, now).pipe(
           logFailure("workstream.liveness.thread-failed", { threadId: row.threadId }),

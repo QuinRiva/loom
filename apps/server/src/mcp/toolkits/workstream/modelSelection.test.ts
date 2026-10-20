@@ -80,6 +80,25 @@ describe("resolveSpawnModelSelection", () => {
       }),
     ).toMatchObject({ kind: "error", message: expect.stringContaining('instanceId "ghost"') });
   });
+
+  it("marks each configured preset the catalogue cannot serve in the unknown-preset echo", () => {
+    expect(
+      resolveSpawnModelSelection({
+        ...base,
+        modelPreset: "nope",
+        presets: {
+          coder: pi("anthropic/claude-opus-5"),
+          stale: pi("anthropic/claude-opus-3"),
+          gone: { instanceId: ProviderInstanceId.make("ghost"), model: "x" },
+        },
+        catalogue: [{ instanceId: "pi", models: ["anthropic/claude-opus-5"] }],
+      }),
+    ).toEqual({
+      kind: "error",
+      message:
+        'Unknown modelPreset "nope". Available presets: coder, stale [INVALID: model "anthropic/claude-opus-3" is unknown for instance "pi"], gone [INVALID: instance "ghost" is not configured].',
+    });
+  });
 });
 
 describe("headroomBucketFor", () => {

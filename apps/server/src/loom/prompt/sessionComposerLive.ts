@@ -130,7 +130,11 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
       const appendSystemPrompt = [
         WORK_MODEL_ADDENDUM,
         isChild ? CHILD_READERSHIP_CLAUSE : undefined,
-        threadIdentityClause(thread.id, isChild ? thread.lineage.parentThreadId : null),
+        threadIdentityClause(
+          thread.id,
+          isChild ? thread.lineage.parentThreadId : null,
+          loomPaths(config),
+        ),
         overlay?.prompt,
         shipPolicyPromptBlock(resolveMergeAuthority(projectRoot)),
         catalogue.length > 0

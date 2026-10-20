@@ -98,7 +98,9 @@ it.effect("a Loom credential is denied delegate_task and t3_thread_send, and lin
     ]);
 
     // Loom's own tools are served: the submit reaches its handler (no sidecar row here).
-    const loom = yield* mcp.callTool("workstream_submit", { markdown: "report" });
+    const loom = yield* mcp.callTool("workstream_submit", {
+      markdown: "<!-- response -->\nreport\n<!-- /response -->",
+    });
     expect(loom.content).toEqual([
       {
         type: "text",

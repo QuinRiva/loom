@@ -7,9 +7,14 @@ describe("kickoffText", () => {
   const brief = "Judge the corpus through lens A.";
 
   it("states gate membership in the kickoff when the child carries a loop route", () => {
-    const gated = kickoffText({ role: "reviewer", brief, gateTargetId: "coder-123" });
+    const gated = kickoffText({
+      role: "reviewer",
+      brief,
+      gateTarget: { id: "coder-123", role: "coder", reportPath: null },
+    });
     expect(gated).toContain("You are inside a review gate");
-    expect(gated).toContain("coder-123");
+    expect(gated).toContain("names the coder coder-123 as the work you verify");
+    expect(gated).not.toContain("Its hand-back");
     expect(kickoffText({ role: "reviewer", brief })).not.toContain("review gate");
   });
 
@@ -30,6 +35,47 @@ describe("kickoffText", () => {
 
   it("falls back to the raw brief for a role-less child", () => {
     expect(kickoffText({ role: null, brief })).toBe(brief);
+  });
+});
+
+describe("kickoff hand-back lines", () => {
+  const brief = "Verify it.";
+
+  it("gives a gated reviewer its target's report, brief and session paths", () => {
+    const kickoff = workstreamChildPrompt({
+      role: "reviewer",
+      brief,
+      gateTarget: {
+        id: "cod",
+        role: "coder",
+        reportPath: "/reports/cod.md",
+        briefPath: "/briefs/cod.md",
+        sessionPath: "/sessions/cod.jsonl",
+      },
+    });
+    expect(kickoff).toContain(
+      "You are inside a review gate: a `gate` names the coder cod as the work you verify, and your mcp__t3-code__workstream_submit outcomes route it — your role's gate protocol applies from your FIRST submit.\nIts hand-back: report `/reports/cod.md`; the brief it worked from `/briefs/cod.md` (later steers are not in it; they are in its session `/sessions/cod.jsonl`).\n",
+    );
+  });
+
+  it("lists each dependency's report, and says when one filed none", () => {
+    const kickoff = workstreamChildPrompt({
+      role: "coder",
+      brief,
+      dependencies: [
+        { id: "res-0", role: "researcher", reportPath: "/reports/res-0.md" },
+        { id: "res-1", role: null, reportPath: null },
+      ],
+    });
+    expect(kickoff).toContain(
+      "You waited on 2 threads that are now done; their hand-backs:\n- researcher res-0 — report `/reports/res-0.md`\n- thread res-1 — no report filed\n",
+    );
+  });
+
+  it("leaves a plain kickoff unchanged", () => {
+    const plain = workstreamChildPrompt({ role: "coder", brief });
+    expect(plain).not.toMatch(/review gate|You waited on|hand-back/);
+    expect(workstreamChildPrompt({ role: "coder", brief, dependencies: [] })).toBe(plain);
   });
 });
 

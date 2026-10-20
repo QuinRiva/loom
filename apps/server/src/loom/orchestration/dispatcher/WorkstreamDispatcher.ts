@@ -27,7 +27,6 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { makeCoalescingWorker } from "@t3tools/shared/DrainableWorker";
-import { gateLoopTargetOf } from "@t3tools/shared/workstreamGraph";
 import { isEligibleToStart } from "@t3tools/shared/workstreamStart.loom";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -54,7 +53,7 @@ import {
 import { forkParked } from "../../../serverActivation.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import { type LoomStoreError, LoomStoreV2 } from "../../projection/LoomStore.ts";
-import { kickoffText } from "../../prompt/childPrompt.ts";
+import { kickoffContext, kickoffText } from "../../prompt/childPrompt.ts";
 import { readWorkstreamReportAt } from "../../workstream/report.ts";
 import {
   dispatchServerCommand,
@@ -300,6 +299,7 @@ const promotion: PassStep = {
         if (!landed(prepared)) continue;
       }
       const brief = yield* fs.readFileString(row.kickoffBriefPath!).pipe(Effect.option);
+      const context = yield* kickoffContext(row, ctx.nodesById);
       yield* Option.match(brief, {
         onNone: () =>
           ctx.dispatch("brief-read", {
@@ -317,14 +317,9 @@ const promotion: PassStep = {
               id: kickoffCommandId(row.threadId),
               tier: "steered",
               origin: "kickoff",
-              // DL-472: the brief inside its kickoff wrapper (role framing, gate membership,
-              // completion contract), not the bare brief.
-              text: kickoffText({
-                role: row.role,
-                brief: text,
-                gateTargetId: gateLoopTargetOf(row),
-                forkedFrom: row.forkFromThreadId,
-              }),
+              // DL-472: the brief inside its kickoff wrapper (role framing, gate membership and its
+              // target's files, the dependencies' hand-backs, completion contract), not the bare brief.
+              text: kickoffText({ role: row.role, brief: text, ...context }),
             }),
           ),
       });

@@ -6,21 +6,66 @@
  *
  * @module loom/prompt/childPrompt
  */
-import { copiedHistoryClause, workstreamChildPrompt } from "./prose.ts";
+import type { LoomThreadWorkstream, ThreadId } from "@t3tools/contracts";
+import { gateLoopTargetOf } from "@t3tools/shared/workstreamGraph";
+import * as Effect from "effect/Effect";
 
-export const kickoffText = (input: {
+import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
+import { copiedHistoryClause, type KickoffHandback, workstreamChildPrompt } from "./prose.ts";
+
+/** A thread's pi session file: the native ref of its latest pi provider thread, if it has one. */
+export const piSessionPathOf = (threadId: ThreadId) =>
+  Effect.flatMap(OrchestratorV2, (orchestrator) =>
+    Effect.map(
+      orchestrator.getThreadRecords(threadId, ["providerThreads"]),
+      ({ providerThreads }) =>
+        providerThreads.findLast((providerThread) => providerThread.driver === "pi")
+          ?.nativeThreadRef?.nativeId ?? null,
+    ),
+  );
+
+type KickoffRow = Pick<LoomThreadWorkstream, "role" | "reportPath" | "kickoffBriefPath">;
+
+/**
+ * What a kickoff tells a child about the threads it waited on, from the rows
+ * the caller holds: its gate target's report, brief and session, and each
+ * other dependency's report.
+ */
+export const kickoffContext = Effect.fn("loom.kickoffContext")(function* (
+  row: Pick<LoomThreadWorkstream, "routes" | "blockedBy" | "forkFromThreadId">,
+  nodesById: ReadonlyMap<ThreadId, KickoffRow>,
+) {
+  const handback = (id: ThreadId): KickoffHandback => ({
+    id,
+    role: nodesById.get(id)?.role ?? null,
+    reportPath: nodesById.get(id)?.reportPath ?? null,
+  });
+  const targetId = gateLoopTargetOf(row);
+  return {
+    gateTarget:
+      targetId === null
+        ? null
+        : {
+            ...handback(targetId),
+            briefPath: nodesById.get(targetId)?.kickoffBriefPath ?? null,
+            sessionPath: yield* piSessionPathOf(targetId),
+          },
+    dependencies: row.blockedBy.filter((id) => id !== targetId).map(handback),
+    forkedFrom: row.forkFromThreadId,
+  };
+});
+
+type KickoffInput = {
   readonly role: string | null;
   readonly brief: string;
-  readonly gateTargetId?: string | null;
+  readonly gateTarget?: KickoffHandback | null;
+  readonly dependencies?: ReadonlyArray<KickoffHandback>;
   readonly forkedFrom?: string | null;
-}): string =>
+};
+
+export const kickoffText = (input: KickoffInput): string =>
   input.role === null
     ? input.forkedFrom != null
       ? `${copiedHistoryClause(input.forkedFrom)}\n\n${input.brief}`
       : input.brief
-    : workstreamChildPrompt({
-        role: input.role,
-        brief: input.brief,
-        gateTargetId: input.gateTargetId ?? null,
-        forkedFrom: input.forkedFrom ?? null,
-      });
+    : workstreamChildPrompt({ ...input, role: input.role });

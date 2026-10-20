@@ -11,7 +11,6 @@
 import * as Effect from "effect/Effect";
 import type * as JsonSchema from "effect/JsonSchema";
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/ai/Tool";
 
 import { MAX_GOAL_TASK_TEXT_LENGTH } from "../../../loom/goals/goalTaskMarkdown.ts";
 import type { WorkstreamCaller } from "./authorisation.ts";
@@ -112,7 +111,7 @@ const childFields = {
     ),
   ),
   modelPreset: optionalText(
-    `Escape hatch: a named model preset (see modelPresets in ${t("workstream_list")}); an unknown name is rejected with the available names.`,
+    "Escape hatch: a named model preset; an unknown name is rejected with the available names.",
   ),
   modelSelection: Schema.optionalKey(
     described(
@@ -250,7 +249,7 @@ const LOOM_TOOL_SPECS = {
     Schema.Struct({
       markdown: described(
         Schema.String,
-        "The markdown report to hand back, stored on disk and shown to whoever receives your work next. Make it a deliberate handoff: what you did, the key results and decisions, and anything the parent must act on, not a transcript dump.",
+        "The markdown report to hand back, stored on disk and shown to whoever receives your work next. Make it a deliberate handoff: what you did, the key results and decisions, and anything the parent must act on, not a transcript dump. Open with a <!-- response --> … <!-- /response --> block: a concise summary of your hand-back, giving the gist of the answer and anything the receiver must act on. Every notice carries the block verbatim to whoever receives your work. The full report below it may be as long as the work needs and is read from the file on demand; when the answer itself is long, the block summarises it rather than containing it.",
       ),
       outcome: optionalText(
         "Structured outcome token. Omitted ⇒ 'done'. Reserved: 'done', 'needs_human'. Review-gate verdicts: 'clean', 'fixed_inline', 'needs_rework'. Any unmatched token yields you to your parent — use a short snake_case token like 'rework_approach'.",
@@ -273,10 +272,19 @@ const LOOM_TOOL_SPECS = {
     }),
     "throw",
   ),
-  workstream_list: spec("List Workstream", Tool.EmptyParams, "throw", {
-    readOnly: true,
-    idempotent: true,
-  }),
+  workstream_list: spec(
+    "List Workstream",
+    Schema.Struct({
+      detail: Schema.optionalKey(
+        described(
+          Schema.Literals(["full"]),
+          'detail: "full" adds every thread\'s purpose, anchor task and pi session path.',
+        ),
+      ),
+    }),
+    "throw",
+    { readOnly: true, idempotent: true },
+  ),
   consult_thread: spec(
     "Consult Thread",
     Schema.Struct({

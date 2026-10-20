@@ -22,7 +22,8 @@ import {
   renderSlowToolDigestLine,
   terminalEpisodeKey,
 } from "./digest.ts";
-import { WAKE_REPORT_EXCERPT_LIMIT, type WakeMember } from "./wakes.ts";
+import { LEGACY_REPORT_HEAD_LIMIT } from "../../workstream/report.ts";
+import { type WakeMember } from "./wakes.ts";
 import { buildYieldPayload, buildYieldWakeMessage } from "./yield.ts";
 
 const at = IsoDateTime.make("2026-07-07T14:32:00.000Z");
@@ -90,15 +91,32 @@ describe("buildStandaloneDigest", () => {
     assert.notInclude(text, "has finished");
   });
 
-  it("bounds an oversized report to a 400-character excerpt + reference", () => {
-    assert.equal(WAKE_REPORT_EXCERPT_LIMIT, 400);
+  it("bounds a report with no response block to a 400-character head + reference", () => {
+    assert.equal(LEGACY_REPORT_HEAD_LIMIT, 400);
     const tail = "TAIL_MARKER_SHOULD_NOT_APPEAR";
-    const report = `${"x".repeat(WAKE_REPORT_EXCERPT_LIMIT + 50)}${tail}`;
+    const report = `${"x".repeat(LEGACY_REPORT_HEAD_LIMIT + 50)}${tail}`;
     const text = buildStandaloneDigest([
       member({ id: "child-1", reportPath: "child-1.md", report }),
     ]);
     assert.include(text, "excerpt truncated");
     assert.notInclude(text, tail);
+  });
+
+  it("relays a report's response block verbatim, however long, and nothing below it", () => {
+    const response = `The answer, summarised.\n\n${"y".repeat(LEGACY_REPORT_HEAD_LIMIT * 2)}`;
+    const report = `<!-- response -->\n${response}\n<!-- /response -->\n\n## Detail\nBODY_SHOULD_NOT_APPEAR`;
+    const text = buildStandaloneDigest([
+      member({ id: "child-1", reportPath: "child-1.md", report }),
+    ]);
+    assert.include(text, `(read the full report on demand)\n\n${response}`);
+    assert.notInclude(text, "excerpt truncated");
+    assert.notInclude(text, "BODY_SHOULD_NOT_APPEAR");
+    assert.notInclude(text, "<!--");
+    assert.equal(
+      buildDigestPayload([member({ id: "child-1", reportPath: "child-1.md", report })]).items[0]
+        ?.excerpt,
+      response,
+    );
   });
 
   it("gate-resolved items carry the no-review-owed closing; unreviewed completions the ☑️ first look", () => {

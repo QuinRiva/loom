@@ -22,6 +22,39 @@ import { loomPaths } from "../loomPaths.ts";
 import { QUIESCENT_REPORT_HEADER } from "../prompt/prose.ts";
 import { QUIESCENT_HUMAN_STARTED_LINE } from "../prompt/provenance.ts";
 
+/**
+ * Head characters relayed for a report with no response block: one the control
+ * plane synthesised (no author to write one) or one written before blocks were
+ * required.
+ */
+export const LEGACY_REPORT_HEAD_LIMIT = 400;
+
+/**
+ * A guard against a report that wrapped itself in the tag, not a target length:
+ * the block's author decides what the receiver needs.
+ */
+const RESPONSE_BLOCK_GUARD_LIMIT = 4_000;
+
+const RESPONSE_BLOCK = /<!--\s*response\s*-->([\s\S]*?)<!--\s*\/response\s*-->/;
+
+/**
+ * What a notice relays from a report: its first response block, verbatim,
+ * when that block has text, else its head cut at `LEGACY_REPORT_HEAD_LIMIT`; `truncated` when
+ * either was cut (the block only past the guard).
+ */
+export const reportResponse = (
+  markdown: string,
+): { readonly text: string; readonly source: "block" | "head"; readonly truncated: boolean } => {
+  const block = RESPONSE_BLOCK.exec(markdown)?.[1]?.trim() ?? "";
+  const [text, source, limit] =
+    block.length > 0
+      ? [block, "block" as const, RESPONSE_BLOCK_GUARD_LIMIT]
+      : [markdown.trim(), "head" as const, LEGACY_REPORT_HEAD_LIMIT];
+  return text.length > limit
+    ? { text: `${text.slice(0, limit)}…`, source, truncated: true }
+    : { text, source, truncated: false };
+};
+
 const fileStem = (id: string) => id.replace(/[^A-Za-z0-9._-]/g, "_");
 
 const writeReportFile = Effect.fn("loom.writeReportFile")(function* (

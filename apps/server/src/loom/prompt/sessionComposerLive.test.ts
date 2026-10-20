@@ -75,6 +75,9 @@ const composerDeps = (rootCacheLongShare: number) =>
     Layer.provideMerge(NodeServices.layer),
   );
 
+/** The running config's Loom directories, as the identity clause names them. */
+const paths = Effect.map(ServerConfig.ServerConfig, loomPaths);
+
 /** A fresh composer with its own state dir; `body` gets the launch-identity dir too. */
 const withComposer = <A, E, R>(
   rootCacheLongShare: number,
@@ -192,7 +195,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         const { appendSystemPrompt, env, extensions } = yield* composer.compose(threadId);
         assert.isTrue(
           appendSystemPrompt.startsWith(
-            `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(threadId)}\n\nYou orchestrate`,
+            `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(threadId, null, yield* paths)}\n\nYou orchestrate`,
           ),
         );
         assert.notInclude(appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
@@ -216,7 +219,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         const { appendSystemPrompt } = yield* composer.compose(threadId);
         assert.isTrue(
           appendSystemPrompt.startsWith(
-            `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(threadId)}\n\n- SLACK INBOX RULE\n\n`,
+            `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(threadId, null, yield* paths)}\n\n- SLACK INBOX RULE\n\n`,
           ),
         );
         assert.notInclude(appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
@@ -233,7 +236,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         const { appendSystemPrompt, env, idleTimeoutMs } = yield* composer.compose(child);
         assert.isTrue(
           appendSystemPrompt.startsWith(
-            `${WORK_MODEL_ADDENDUM}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(child, root)}\n\nYou are a coder sub-thread.`,
+            `${WORK_MODEL_ADDENDUM}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(child, root, yield* paths)}\n\nYou are a coder sub-thread.`,
           ),
         );
         assert.include(appendSystemPrompt, `Your parent is thread \`${root}\`.`);
@@ -304,7 +307,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           const relaunched = yield* composer.compose(fork);
           assert.isTrue(
             relaunched.appendSystemPrompt.startsWith(
-              `${WORK_MODEL_ADDENDUM}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(fork, root)}\n\nYou are a researcher sub-thread.`,
+              `${WORK_MODEL_ADDENDUM}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(fork, root, yield* paths)}\n\nYou are a researcher sub-thread.`,
             ),
           );
           assert.deepEqual(yield* composer.compose(fork), relaunched);
@@ -353,7 +356,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           const freshFields = yield* composer.compose(fresh);
           assert.isTrue(
             freshFields.appendSystemPrompt.startsWith(
-              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(fresh)}`,
+              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(fresh, null, yield* paths)}`,
             ),
           );
           assert.deepEqual(freshFields.env, longRootEnv(fresh));
@@ -369,7 +372,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           const relaunched = yield* composer.compose(target);
           assert.isTrue(
             relaunched.appendSystemPrompt.startsWith(
-              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(target)}\n\nYou orchestrate`,
+              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(target, null, yield* paths)}\n\nYou orchestrate`,
             ),
           );
           assert.deepEqual(yield* composer.compose(target), relaunched);
@@ -423,7 +426,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           assert.deepEqual(reviewerIdentity.tools, RETRO_REVIEWER_TOOLS);
           assert.isTrue(
             reviewed.startsWith(
-              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(reviewer)}\n\n${RETRO_REVIEWER_OVERLAY_PROMPT}`,
+              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(reviewer, null, yield* paths)}\n\n${RETRO_REVIEWER_OVERLAY_PROMPT}`,
             ),
           );
           assert.notInclude(reviewed, "Available roles for spawning children");
@@ -438,7 +441,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           );
           assert.isTrue(
             (yield* composer.compose(fresh)).appendSystemPrompt.startsWith(
-              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(fresh)}`,
+              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(fresh, null, yield* paths)}`,
             ),
           );
         }),

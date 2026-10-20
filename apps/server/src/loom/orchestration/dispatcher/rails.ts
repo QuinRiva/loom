@@ -62,7 +62,6 @@ import {
 } from "./digest.ts";
 import { renderHumanInChildDigestLine } from "../../prompt/provenance.ts";
 import {
-  boundedExcerpt,
   buildChildWakeMessage,
   formatWakeTimestamp,
   reportItemFields,
@@ -317,6 +316,15 @@ export const terminalDeltas: PassStep = {
  */
 export const HUMAN_IN_CHILD_HORIZON_MS = 24 * 60 * 60 * 1000;
 
+// A human message is not a report, so it gets a plain head cut, never the report's response block.
+const HUMAN_MESSAGE_EXCERPT_LIMIT = 400;
+const humanMessageExcerpt = (text: string) => {
+  const trimmed = text.trim();
+  return trimmed.length > HUMAN_MESSAGE_EXCERPT_LIMIT
+    ? `${trimmed.slice(0, HUMAN_MESSAGE_EXCERPT_LIMIT)}…`
+    : trimmed;
+};
+
 /**
  * The human wrote into a child: one FYI item per human-authored message to its parent, so the
  * parent neither steers against an instruction it never saw nor relays it upward as its own.
@@ -359,7 +367,7 @@ export const humanInChild: PassStep = {
                   role: child.role,
                   id: child.threadId,
                   timestamp: formatWakeTimestamp(DateTime.formatIso(message.createdAt)),
-                  excerpt: boundedExcerpt(message.text) ?? "",
+                  excerpt: humanMessageExcerpt(message.text),
                 }),
                 childId: child.threadId,
                 role: child.role,

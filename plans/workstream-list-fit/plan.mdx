@@ -1,0 +1,291 @@
+---
+kicker: "Plan · approved by Carl, revised as the implementation brief · from the 30-day audit, 20 Sep to 19 Oct 2026"
+reader:
+  who: the coders implementing this, and loom's owner glancing back at what he approved; no further approval is being asked
+  knows: loom, its roles, tools and dispatcher; the coder inherits nothing from the research or the conversation behind this document
+  after_first_screen: "Two PRs: the server one delivers report paths at launch, makes workstream_list lean and catalogue-free, replaces the 400-character wake excerpt with a required response block in every report, and lets the liveness sweep resume a root after a provider error; the second rewrites the prose that told agents to call the list. Each section names the files, the exact text and the test."
+manager_sessions:
+  - id: 01a1596c-fe27-7408-b68c-bc9b1c9d844c
+    name: workstream_list fix plan
+    role: plan
+    authored_at: 2026-10-20T22:20:07.357Z
+---
+
+# Hand agents the report path, and stop pointing them at the graph
+
+**Why.** Reports as the hand-off medium work: **62%** of child reports are read by another thread, a parent reads within **1.4 minutes** (median), and after **1,541** reads there was **one** consult of the author and under **3%** went on to open the author's session. Finding them is the failure: **240 of the 353** list calls that led to a report read already held the author's id, and **199 of 243** reviewer calls are a gated reviewer at turn five or earlier looking up the one path its kickoff id implies. The path is deterministic and no prompt states the rule, so agents never derive it.
+
+**What ships.** Deliver the report path wherever a thread id is delivered (gate kickoff, dependent child's kickoff, one derivation line in every identity clause). Delete the sentences that tell agents to call `workstream_list` and make its description say what it shows. Make `workstream_list` lean by default (a measured **60%** smaller on the 266 real outputs), with `detail: "full"` restoring purposes, anchors and session paths, and drop the spawn catalogue from it entirely. Replace the 400-character wake excerpt with a **required response block** every report carries and every notice relays verbatim. Let the liveness sweep resume a **root** after a provider error, as it does a child since PR #415. Of the audit's **$437 per 30 days, $171 was overnight watchdogs**, a symptom of stall risk that the root resume addresses and that is not counted here; of the **$266 that remains, about $200 goes**, for under $10 of added prompt per 30 days. No new tool.
+
+<Stats
+  items={[
+    { value: "$266 → $65", label: "list cost per 30 days, watchdogs excluded", tone: "risk", detail: "$437 in the audit, 851 calls; $171 of it was overnight watchdogs (§4)" },
+    { value: "240 of 353", label: "held the id already", tone: "warning", detail: "report-finding list calls whose path the agent could have derived" },
+    { value: "62% · 1.4 min", label: "reports read · parent lag", tone: "success", detail: "1 consult and under 3% session reads after 1,541 reads" },
+    { value: "2 PRs", label: "server, then prose", tone: "info", detail: "files, text and tests per section; coder split in §6" },
+  ]}
+/>
+
+<Callout tone="decision" title="Decisions, in Carl's words" focus>
+  **Paths at launch and the derivation rule:** approved. **Steering text:** approved, reframed: "I just think that it should be written for 'what it's purpose *actually* is'. We've already identify that the reason they are using workstream list is to get the paths that they need - if they already have that path I wouldn't anticipate they would call it provided we remove instructions that 'tells them to call it'." **Lean list and `detail: "full"`:** approved: "let's be concise in the tool trigger and description about what full does as it should be pretty obvious for a model to understand, and we don't need to teach it to suck eggs." **The catalogue:** "Why is this even included in workstream_list? Can you help me understand why it *should* be included?" It should not (§3.4); removed. **A lookup tool:** no. **The excerpt:** replaced: "I'm thinking that an option is to have a 'response' block as required tagged content, and have the control plane parse it and feed that back. We just need to ensure that the guidance is that the 'response' block should be a concise answer/summary/executive summary - we want to avoid scenarios where the 'answer' is 3000 tokens; that's fine, an answer *may* be 3000+ tokens, but the response should be a summary of that." **Root error resume:** in scope: "yes I agree that the control plane should detect feedback to the orchestrator that it detected an error and should continue. I believe we just implemented this for children ... Make sure we're leveraging the existing mechanism."
+</Callout>
+
+**Done means:** a gated reviewer's first turn contains the coder's report, brief and session paths; a `blockedBy` child's first turn lists each dependency's id and report path; a default `workstream_list` call carries no purpose, anchor, session or catalogue lines and only the node and `report:` lines for a finished thread, and no call carries the catalogue; `workstream_submit` refuses a report without a response block and every wake, digest and gate leg relays that block verbatim; a root whose turn fails on a provider error gets the same one resume a child gets; no shipped text tells an agent to call `workstream_list`; `vp check` and `vp run typecheck` pass; and the audit re-run four weeks after PR 2 meets the targets in §6.
+
+## 1. The two questions, with the evidence
+
+<Table
+  density="compact"
+  columns={["Question", "Answer", "Evidence (30-day audit)"]}
+  rows={[
+    [
+      "Should agents pass reports between each other? Is it effective?",
+      { badge: { label: "mostly yes", tone: "success" }, md: "Keep files plus a pointer. Fix delivery and two content gaps." },
+      "1,460 child reports: 62% read by another thread; parents read within 1.4 min median (p90 17). After a read: 1 consult of the author in 1,541; session file opened 0.5% (parents), 8.9% (gated reviewers, verification by design). Of 43 cases where the report was not enough: 16 wanted the coder's brief or later steers, 13 verified an evidence claim in the session, 7 chased an artefact in a reclaimed worktree.",
+    ],
+    [
+      "Are agents having to find reports with workstream_list instead of being given the path?",
+      { badge: { label: "confirmed", tone: "risk" }, md: "Yes, and mostly while already holding the id." },
+      "353 list calls led to a report read ($148). 240 held only the author's id (194 from a kickoff, 177 of those gated reviewers); 64 held neither (briefs that named a sibling by title: 115 parent-written briefs literally say find it with workstream_list); 49 already had the path in context. Nobody derives `<reports dir>/<id with non [A-Za-z0-9._-] replaced by _>.md`; it is written nowhere an agent reads.",
+    ],
+  ]}
+/>
+
+One qualification. The researcher counted **383 unread reports whose parent never received a message containing the path** and attributed it to digests listing bare ids. The digest renderer emits a `Report reference:` line for every finished child, so that is not what the code does. In the worst case, a late-September root with 110 researcher children, only 28 report paths ever reached the parent's transcript in any message: completions were lost, not abbreviated. That is a verify item in §6, not a change here.
+
+## 2. Where the $437 goes, and which section takes it
+
+<Table
+  density="compact"
+  columns={["Job the call was doing", "Calls", "$ / 30d", "What it needed", "Section"]}
+  align={["left", "right", "right", "left", "left"]}
+  rows={[
+    { tone: "neutral", cells: ["Overnight watchdogs polling for stalls (9 sessions)", "184", "171", "status and last-activity of live threads; 78% of nodes returned were already finished", "A backup against the graph stalling, not a tool-fit problem: the root resume in §3.6 closes the gap they covered. Not counted in this plan's saving"] },
+    { tone: "risk", cells: ["Reviewer or sibling finding one report path", "305", "115", "one `report:` line", "§3.1"] },
+    { tone: "warning", cells: ["Root checking named children", "137", "74", "status of 2 to 5 children, 40% already known from digests", "§3.3 lean output"] },
+    ["Checking a mutation landed", "32", "17", "one node", "§3.3"],
+    ["Orientation glance, used nothing", "55", "16", "nothing", "§3.2 removes the addendum nudge"],
+    ["Spawn catalogue", "32", "14", "preset names; 5 of 32 then used one", "§3.4 removes it from the list"],
+    ["Find a thread id, parent id or session path", "89", "28", "one id or path", "parent id already injected; session path in the gate kickoff (§3.1); §3.3"],
+  ]}
+/>
+
+Output composition drives the cost: about **300 tokens per thread**, of which purpose is 18 to 24%, the session path 18 to 20%, the report path 9 to 14%, and the catalogue about 300 tokens per call for every caller including leaves that cannot spawn.
+
+## 3. The changes
+
+### 3.1 Deliver the path wherever an id is delivered
+
+Three places, all built at launch from facts the dispatcher already holds in `ctx.nodesById` (`reportPath`, `kickoffBriefPath`, `role`, `blockedBy`) during the `promotion` step of `apps/server/src/loom/orchestration/dispatcher/WorkstreamDispatcher.ts`, and in the parallel path `apps/server/src/mcp/toolkits/workstream/handlers/prompt.ts` takes when a parent prompts an unstarted child. One shared helper (`kickoffContext(row, nodesById, sessionPathOf)`, beside `kickoffText` in `apps/server/src/loom/prompt/childPrompt.ts`) assembles the gate target and dependency facts so both sites deliver the same first turn (DL-472).
+
+**The gate kickoff** (`workstreamChildPrompt` in `apps/server/src/loom/prompt/prose.ts`). Today the reviewer gets the coder's id and nothing else; 199 of its 243 list calls follow. After, it gets the three files it reaches for: the report, the brief (16 of the 43 insufficiency cases wanted exactly this), and the session file for the 13 that verified an evidence claim. The session path is the coder's pi native thread ref, read the way `workstreamTreeView` reads it (`getThreadRecords(id, ["providerThreads"])`).
+
+<Diff
+  filename="apps/server/src/loom/prompt/prose.ts (gate clause of the kickoff)"
+  language="text"
+  mode="unified"
+  wrap
+  before={"You are inside a review gate: a `gate` names thread thread:mcp:…:workstream-scaffold:…:1 as the work you verify, and your mcp__t3-code__workstream_submit outcomes route it — your role's gate protocol applies from your FIRST submit.\n"}
+  after={"You are inside a review gate: a `gate` names the coder thread:mcp:…:workstream-scaffold:…:1 as the work you verify, and your mcp__t3-code__workstream_submit outcomes route it — your role's gate protocol applies from your FIRST submit.\nIts hand-back: report `/home/Carl/.t3/cockpit/userdata/workstream-reports/thread_mcp_…_1.md`; the brief it worked from `/home/Carl/.t3/cockpit/userdata/workstream-briefs/thread_mcp_…_1.md` (later steers are not in it; they are in its session `/home/Carl/.pi/agent/sessions/…/….jsonl`).\n"}
+  annotations={[{ side: "after", lines: "2", note: "about 165 tokens, only in gated reviewer sessions (20% of sessions): roughly $2 per 30 days against $56 of reviewer list calls" }]}
+/>
+
+"the coder" is the gate target's `role` (`thread` when it has none), not a fixed word. The paths come from the target's row (`reportPath`, `kickoffBriefPath`) and its pi provider thread; a piece that is missing (a target a parent marked done without a submit, a non-pi target) is left out of the line rather than derived.
+
+**The dependent child's kickoff.** A child that waited on `blockedBy` siblings is launched after they finish and is told nothing about them; 64 list calls came from coders, shippers and researchers holding neither id nor path. One line per dependency (the gate target, already named above, is not repeated; a dependency that filed no report says `no report filed`):
+
+<Code
+  language="text"
+  wrap
+  code={"You waited on 2 threads that are now done; their hand-backs:\n- researcher thread:mcp:…:workstream-scaffold:…:0 — report `/home/Carl/.t3/cockpit/userdata/workstream-reports/thread_mcp_…_0.md`\n- researcher thread:mcp:…:workstream-scaffold:…:1 — report `/home/Carl/.t3/cockpit/userdata/workstream-reports/thread_mcp_…_1.md`\n"}
+/>
+
+**The derivation rule, once.** `threadIdentityClause` gains one sentence so any thread holding an id can reach a report or brief: roots after compaction, siblings named in a brief, retro reviewers. About 70 tokens in every session. The two directories come from `loomPaths(config)` and are fixed for a server, so the clause stays byte-identical across relaunches as its docstring requires. The sentence names the suffixed files because `<stem>.md` is only a thread's first terminal submit: a gated coder's rework hand-back is `<stem>.round-<n>.md` and a quiet child's is `<stem>.quiescent-…md` (`report.ts`), so a rule that named `<stem>.md` alone would hand a reader the pre-rework report as if it were current.
+
+<Code
+  language="text"
+  wrap
+  code={"Any thread's reports are in `/home/Carl/.t3/cockpit/userdata/workstream-reports/`, named by its stem (its id with every character outside A-Za-z0-9._- replaced by _): `<stem>.md`, plus `<stem>.round-<n>.md` per gate round and `<stem>.quiescent-….md` when the control plane synthesised one; the newest is its latest hand-back. The brief it was launched with is `<stem>.md` under `/home/Carl/.t3/cockpit/userdata/workstream-briefs/`. An id is enough to read either.\n"}
+/>
+
+**Test.** In the existing test beside `prose.ts` or `childPrompt.ts`: a kickoff with a gate target renders the three paths; a kickoff with two dependencies renders two lines and `no report filed` for one without a report; a plain kickoff is unchanged. In the dispatcher test: the promotion step and `handlers/prompt.ts` produce the same text for the same row.
+
+### 3.2 Say what the tool shows; delete the sentences that tell agents to call it
+
+Carl's framing: agents call the list to get paths; once they have the path, they will not call it, provided no text tells them to. So every instruction to call `workstream_list` goes, nothing replaces it with a rule about when to call it, and the description says what the tool shows. This is an instruction change under `llm-instruction-change` (tier 3, a shared surface across every role); the before and after rendered prompts go in the PR, and §6 says what is measured.
+
+<Table
+  density="compact"
+  columns={["Surface", "Today (verbatim)", "After"]}
+  rows={[
+    ["Addendum, `WORK_MODEL_ADDENDUM` in `apps/server/src/loom/prompt/prose.ts`", "\"Getting information from another thread, cheapest first: a thread's REPORT is its curated hand-back — read that first. The workstream GRAPH lets you see every thread and find any of them without searching (`mcp__t3-code__workstream_list`). To resolve an ambiguity, CONSULT the thread that holds the context (`mcp__t3-code__consult_thread`). The full thread history can be accessed via the Pi session jsonl file if necessary.\"", "\"Getting information from another thread, cheapest first: a thread's REPORT is its curated hand-back — read that first; the message that named the thread carries its path, or the path follows from its id (your identity line says how). To resolve an ambiguity, CONSULT the thread that holds the context (`mcp__t3-code__consult_thread`). The full thread history can be accessed via the Pi session jsonl file if necessary.\" (the GRAPH sentence is deleted, not reworded)"],
+    ["List guideline (`promptGuidelines`), `apps/server/src/mcp/toolkits/workstream/prose.ts`", "\"Call mcp__t3-code__workstream_list first when you need to coordinate with another thread but only know it exists, not its id; the returned tree is exactly your workstream scope.\"", "Empty string, with the file's usual comment: no guidelines by design, the description is the contract."],
+    ["List description, same file", "\"List your workstream: the whole graph of threads in your orchestration tree (every node's id, role, title, board column and outcome, attention flags, spawn generation, parent, last-activity, and report/session file paths) plus lineage and waits-on edges, and the spawn catalogue … This is how you discover the ids of sibling/other threads you were not handed directly, so you can then consult them or read their report/session files. A child marked 'went quiet; report synthesised' …\"", "\"Your workstream's thread graph, indented by lineage: each thread's id, role, title, status, attention flags and report path, plus last-activity and waits-on for threads still running. detail: \\\"full\\\" adds every thread's purpose, anchor task and pi session path. A child marked 'went quiet; report synthesised' ended its turn without submitting — its report is the control plane's reconstruction, not a hand-back.\""],
+    ["List snippet, same file", "\"see your whole workstream graph — ids, roles, outcomes/attention, last-activity, report/session paths — and the spawn model catalogue, to find any thread without searching.\"", "\"your workstream's thread graph: ids, roles, status, attention and report paths; detail: \\\"full\\\" adds purposes, anchors and session paths.\""],
+    ["`workstream_spawn` description, same file", "\"Call mcp__t3-code__workstream_list to see the task-shape vocabulary, profiles, and presets.\"", "Sentence deleted. The preceding sentences already say most spawns pass no model fields."],
+    ["`modelPreset` parameter, `apps/server/src/mcp/toolkits/workstream/defs.ts`", "\"Escape hatch: a named model preset (see modelPresets in mcp__t3-code__workstream_list); an unknown name is rejected with the available names.\"", "\"Escape hatch: a named model preset; an unknown name is rejected with the available names.\""],
+    ["`workstream_scaffold` description, same file", "\"Threads are created eagerly (real ids, visible in mcp__t3-code__workstream_list immediately)\"", "\"Threads are created eagerly (real ids, returned in the result)\""],
+    ["`roles/orchestrator.md`, brief-writing rules", "(nothing; 115 parent-written briefs said \"find it with workstream_list\")", "\"A brief that points a child at another thread's work carries that thread's report path.\""],
+  ]}
+/>
+
+`apps/server/src/loom/handoff/retroDraft.ts` keeps `workstream_list` in its tool set (the retro reviewer genuinely walks the graph); `registration.ts`'s read-only refusal ("workstream_list and goal_task_list still work") stays, it states a fact. The platform-update runbook's use of the list moves to the spawn echo (§3.4).
+
+### 3.3 Lean `workstream_list` by default, `detail: "full"` on request
+
+`renderWorkstreamList` in `apps/server/src/mcp/toolkits/workstream/render.ts` keeps today's node line and changes what hangs under it. A live thread keeps `last-activity`, `waits-on` and any `report` (gate rounds). A finished thread (`done` or `cancelled`, 69% of nodes returned) collapses to its node line plus `report`. `purpose`, `anchor` and `session` appear only with `detail: "full"`; `handlers/list.ts` skips the per-thread `providerThreads` and goal reads when lean. The catalogue block is removed from the renderer (§3.4), so `full` is today's output minus the catalogue.
+
+<Columns>
+  <Column label="Today, one finished thread (about 300 tokens)">
+    <Code
+      language="text"
+      wrap
+      code={"  - thread:mcp:c6b8…:workstream-scaffold:a27d…:0 [assessor] \"Corpus lens: why visual-explainer HTML outcommunicates MDX plans/recaps\" key=corpus status=done\n      purpose: Pin down concretely what recent visual-explainer HTML pages do for the reader that recent MDX plans/recaps do not, grounded in verbatim evidence from a paired sample of both.\n      last-activity: 2026-10-13T22:56:46.025Z\n      report: /home/Carl/.t3/cockpit/userdata/workstream-reports/thread_mcp_c6b8…_0.md\n      session: /home/Carl/.pi/agent/sessions/--home-Carl-.t3-cockpit-worktrees-loom-t3-88231c65--/2026-10-13T22-22-02-836Z_01a1375b-….jsonl\n"}
+    />
+  </Column>
+  <Column label="Lean default (about 110 tokens)">
+    <Code
+      language="text"
+      wrap
+      code={"  - thread:mcp:c6b8…:workstream-scaffold:a27d…:0 [assessor] \"Corpus lens: why visual-explainer HTML outcommunicates MDX plans/recaps\" key=corpus status=done\n      report: /home/Carl/.t3/cockpit/userdata/workstream-reports/thread_mcp_c6b8…_0.md\n"}
+    />
+  </Column>
+</Columns>
+
+Replayed over the 266 real outputs: **median 5,580 characters becomes 2,108 (62% per call), total output down 60%**. The parameter replaces `Tool.EmptyParams` in `apps/server/src/mcp/toolkits/workstream/defs.ts` with one optional enum, described in one line: `detail: "full" adds every thread's purpose, anchor task and pi session path.` Nothing more; the model knows what a session path is.
+
+**Test.** `renderWorkstreamList` with the same view in both modes: lean has no `purpose:`, `anchor:` or `session:` lines and no `Model selection` block, finished nodes have exactly node line plus `report:`; full renders purpose, anchor and session for every node. Also the `/retro` launcher's manifest (`retroDraft.ts` uses `workstreamTreeView` directly) still gets what it renders.
+
+### 3.4 Remove the spawn catalogue from `workstream_list`
+
+Carl asked why it is in the list at all. It landed there in July (`plans/2026-07-13-capability-based-model-selection.md`, line 319) because the pi bridge was then post-and-print and `workstream_list` was the one text surface a parent saw. That constraint is gone, and the audit shows the cost: 32 calls, $14, printed for every caller including leaves that cannot spawn, and 27 of the 32 used nothing from it. It goes, from the renderer and from `handlers/list.ts` (`spawnCatalogue` is no longer read there).
+
+Its two consumers are served elsewhere. **An orchestrator checking preset names:** `resolveSpawnModelSelection` in `apps/server/src/mcp/toolkits/workstream/modelSelection.ts` already rejects an unknown `modelPreset` with `Unknown modelPreset "x". Available presets: a, b, c.`; nothing was spawned, so a wrong guess is a free lookup. **The platform-update `[INVALID]` check** (`docs/operations/platform-update.md` around lines 291 and 418, and the pi-craft `platform-update` skill out of repo) read the list for presets whose instance or model is not in the catalogue. That marker moves onto the same rejection echo: `resolveSpawnModelSelection` has `input.presets` and `input.catalogue` in scope, and `validateModelSelection(preset, catalogue)` is the pure check `spawnCatalogue` already runs per preset, so the message becomes `Available presets: a, b [INVALID: model "…" is unknown for instance "…"], c.` with no extra reads. The runbook step becomes "spawn with a bogus preset name and read the echo"; the negative-control logic is unchanged. The `taskShape` and profile lists are not needed by either consumer; `spawnCatalogue` and `TASK_SHAPE_HINTS` are deleted if nothing else imports them.
+
+**Test.** `resolveSpawnModelSelection` with an unknown preset and one invalid configured preset returns the names with the `[INVALID: …]` marker on the invalid one.
+
+### 3.5 A required response block replaces the 400-character excerpt
+
+Every notice that relays a report (digest, yield, attention wake, both gate legs) carries the first 400 characters, which 99.5% of reports overrun, and 25% of parent actions happen on that cut alone. Carl's direction: the report carries a tagged response block the author writes as the concise answer, the control plane parses it and relays it verbatim, and the full report stays on disk for the detail.
+
+**The tag.** HTML comment delimiters, `<!-- response -->` and `<!-- /response -->`, around ordinary markdown at the top of the report. Chosen over a `<response>` element because comments are invisible in every markdown renderer the report meets (the file preview, the digest card's `markdown(item.excerpt)`, GitHub) without a sanitiser rule, cannot collide with prose that mentions a tag in backticks, and parse with one regex. The block's content is markdown, so a heading or a short list inside it renders as such.
+
+<Code
+  language="markdown"
+  wrap
+  code={"<!-- response -->\nThe plan is at `plans/workstream-list-fit/plan.mdx`, signed. Four changes, no new tool: paths at launch, steering text deleted, lean list, catalogue removed. About $200 of the $266 a month saved for under $10 added. Carl's decisions are quoted in the plan; coders can start.\n<!-- /response -->\n\n## What I did\n…the rest of the report…\n"}
+/>
+
+**Parsing and relay.** One function, `reportResponse(markdown)` in `apps/server/src/loom/workstream/report.ts`, returns `{ text, source: "block" | "head" }`: the first block's inner text trimmed, else the head of the report cut at the legacy limit. `formatReportExcerpt` and `boundedExcerpt` in `apps/server/src/loom/orchestration/dispatcher/wakes.ts` call it: a block is relayed verbatim with no truncation marker; a head fallback keeps today's cut and its `_[excerpt truncated — …]_` line. The duplicate pair in `apps/server/src/mcp/toolkits/workstream/render.ts` (`REPORT_EXCERPT_LIMIT`, its own `boundedExcerpt` and `formatReportExcerpt`) is deleted and its importers re-pointed at `wakes.ts`; `rails.ts` line 362 cuts a relayed human message, not a report: it keeps a plain 400-character head cut of its own instead of calling the report-parsing `boundedExcerpt`. `WAKE_REPORT_EXCERPT_LIMIT` is renamed `LEGACY_REPORT_HEAD_LIMIT`, stays 400, and applies only to reports with no block: the synthesised "went quiet" reports (which have no author to write one) and reports written before this ships. A block longer than a generous bound (4,000 characters) is cut at the bound with a marker; the constant's comment says it is a guard against a report that wrapped itself in the tag, not a target length. No fixed length is a design parameter.
+
+**Enforcement.** `handlers/submit.ts` refuses a report without a block before writing anything, beside its other input checks: `Report has no response block. Put a concise summary of your hand-back (the gist of the answer and what the receiver must act on; the full answer stays below it) between <!-- response --> and <!-- /response --> at the top of the markdown and submit again.` A block with no text counts as none. Gate round reports are submits too, so they carry one.
+
+**Guidance** (instruction text, tier 2). `workstream_submit`'s `markdown` description in `defs.ts` gains: `Open with a <!-- response --> … <!-- /response --> block: a concise summary of your hand-back, giving the gist of the answer and anything the receiver must act on. Every notice carries the block verbatim to whoever receives your work. The full report below it may be as long as the work needs and is read from the file on demand; when the answer itself is long, the block summarises it rather than containing it.` The kickoff wrapper in `prose.ts` changes "Write the report as a concise handoff for your parent orchestrator, not a transcript dump: lead with" to "Write the report as a concise handoff for your parent orchestrator, not a transcript dump, opening with the response block its markdown description asks for: lead with". Role lines that already say what the report leads with are reworded to say the response block holds it: `roles/researcher.md` line 37 becomes "Your `mcp__t3-code__workstream_submit` response block gives the answer; the evidence follows it in the report.", and `roles/planner.md` line 42's first sentence becomes "Your `mcp__t3-code__workstream_submit` response block gives the plan's location and its key decisions." No role gains a new rule.
+
+**Test.** `reportResponse` on a report with a block, without one, with two (first wins), with the block inside a code fence (still matched: the guard cut covers the pathological case), and over the bound. Submit refuses a blockless report with the message above and writes nothing. A digest for a child with a block relays it verbatim with no truncation marker; for a synthesised report, the head cut.
+
+**Measurement.** From the first week of reports after release, extend `reportsizes.py` to print the response-block length distribution (expected: median well under 1,000 characters; a p90 past 2,500 means the guidance is read as "put the report in the block") and the share of reports falling back to the head (expected: only synthesised ones after the first day).
+
+### 3.6 The liveness sweep resumes a root after a provider error
+
+What the watchdog threads were for, in Carl's words: "a simple backup mechanism to ensure that a large graph didn't stall on large overnight work. If loom was robust, and never stalled, they would never be needed." For a **child** the rails now cover every condition those briefs polled: a run that dies on a provider error gets one steered resume naming the error (`apps/server/src/loom/orchestration/liveness/errorResume.ts`, PR #415, commit `fbf0225d5c`), then an `error` flag to the parent on repeat; a frozen turn gets a nudge, then `error`; a quiet child is yielded with a synthesised report; a usage limit is parked and rerouted; a wedged child is flagged; a stuck graph raises a deadlock notice. The gap: `WorkstreamLivenessSweep.ts` skips every row with `parentThreadId === null`, so a **root or orchestrator whose own turn dies on a provider error is resumed by nothing**, and its children's wakes queue until a human writes to it. That is the stall an overnight graph would most likely take now, and the one a watchdog child could catch.
+
+This is about provider failures that end the run (a dropped stream, an "unexpected EOF", a 5xx): the run's status is `failed` with a `lastErrorClass` other than `usage_limit`. A malformed tool call is not one; pi returns that as a tool error inside the turn and the model carries on.
+
+**The change.** In the sweep loop, a root (`parentThreadId === null`, in `listActiveWorkstreams` because every root that has delegated has a loom row) is judged on the failure path only: `resumeAfterError` sends the same one steered resume under the same `errorResumeCommandId(threadId, runId)` with the same `errorResumeText`, and `awaitsErrorResume` already refuses a second one per failure episode. On `failureCap` consecutive failed sweeps `markDead` raises `error` on the root itself; the attention rail skips rows with no parent, so no notice is composed, and the flag shows on the root's card and in the inbox as any `error` flag does (the web's `workstreamPresentation.ts` already maps it). Stall nudges (State C), spinning and slow-tool advisories stay sub-thread only: the first because a root's long human-facing turns are not a child's, the others because they are digest items and a root has no digest. The quiescence rail keeps excluding roots (`quiescence.ts` line 67): a root ends turns without submitting by design. Usage limits on roots are already the reroute sweep's.
+
+**Root-specific checks the coder makes.** `controlMessage` with `tier: "steered"` lands on a root the same way (it is the same thread kind); `submitSupersedesFailure` is false for a root (no `lastOutcome`), which is correct; a root never delegated has no row and is not covered, which is correct since it has no graph to stall; the resume must not fire while the human is mid-conversation, which `awaitsErrorResume`'s "no run after the failed one" clause already guarantees.
+
+**Test.** In `liveness.test.ts`: a root with a failed latest run gets one `error-resume` control message; the same root on the next sweep gets none; after `failureCap` failed sweeps it carries the `error` flag; a child's behaviour is unchanged. A `failed` root with a later queued run gets nothing.
+
+## 4. What was rejected, and what is deferred
+
+<Columns columns={3}>
+  <Card eyebrow="Rejected" heading="A narrow `thread_lookup(id | title)` tool" tone="neutral" badge="Carl: no" meta={["$15 to $26 / 30d resident"]}>
+    §3.1 removes the demand: 240 of its 353 would-be callers already hold the id, and the derivation rule covers them. What remains, find-thread-by-title and find-session, was about $17 in the window, halved by lean output. The tool would cost about what it saves, in every session.
+  </Card>
+  <Card eyebrow="Rejected" heading="Anything built for watchdog pollers" tone="neutral" badge="rails are the fix" meta={["§3.6 closes the root gap"]}>
+    A cheaper way to poll was the wrong lever. The preference that spawned the watchdogs is retired, the rails cover a child, and §3.6 covers the root. Lean output makes a surviving sweep 60% cheaper as a side effect, but nothing is built for them.
+  </Card>
+  <Card eyebrow="Rejected" heading="Inline whole reports in wakes" tone="neutral" badge="response block instead" meta={["+1.2k tokens per child at the median"]}>
+    The June design chose a bounded excerpt plus a reference after an external review flagged unbounded wakes; the data supports a summary plus a pointer. The response block (§3.5) keeps the bound without a fixed character count: the author decides what the receiver needs.
+  </Card>
+</Columns>
+
+**Deferred, outside this plan.** Reports cite plan files and artefacts in worktrees that are later reclaimed (two reviewers grepped a planner's session to recover a plan the file system no longer had), and a `goal_continue` or `goal_handoff` successor is handed a brief with no report material. Both are questions about where durable artefacts live, not prompt text.
+
+## 5. Cost and saving per section
+
+Dollar figures use the researchers' baseline: a token in every session costs about $58 per 1,000 tokens per 30 days; a role-scoped token scales by that role's share of sessions (reviewers 20%, roots 11%).
+
+<Table
+  density="compact"
+  columns={["Section", "Prompt added per session", "$ / 30d added", "$ / 30d saved (of the $266 that is not watchdogs)"]}
+  align={["left", "left", "right", "left"]}
+  rows={[
+    { tone: "success", cells: ["§3.1 paths at launch and the derivation rule", "about 70 tokens everywhere; about 165 for gated reviewers; about 60 per dependency for blocked children", "about 6", "about 100 of the $115 find-report, plus part of the $28 id and session lookups"] },
+    { tone: "success", cells: ["§3.2 instructions deleted, description rewritten", "net negative: the addendum loses a sentence, the guideline goes, spawn loses a sentence", "0", "orientation $16 to about $4; catalogue $14 to about $1"] },
+    { tone: "success", cells: ["§3.3 lean list and `detail`", "about 50 tokens (one enum parameter)", "about 3", "the remaining calls cost 60% less: root status checks $74 to about $30, mutation checks $17 to about $8"] },
+    ["§3.4 catalogue removed", "0", "0", "included above; the spawn echo already existed"],
+    ["§3.5 response block", "about 60 tokens on the submit description; per relayed report, whatever the author writes instead of a 400-character cut", "about 4", "none claimed; the saving is parents acting on an answer rather than a truncated opening"],
+    ["§3.6 root error resume", "0", "0", "none claimed; removes the reason for a $171 watchdog bucket"],
+  ]}
+/>
+
+Summed, with the $171 of watchdog polling set aside: **$266 to roughly $65 per 30 days, for about $13 of added prompt.** What remains is roots checking status after compaction and genuine graph questions.
+
+## 6. Delivery, verification and measurement
+
+**PR 1 (server).** §3.1, §3.3, §3.4, §3.5 and §3.6, plus the tool prose in `apps/server/src/mcp/toolkits/workstream/prose.ts` and `defs.ts` that describes the new outputs (the description cannot lag the renderer). All files are loom-only modules; the `pnpm ship` sweep confirms no unmarked hunk in an upstream file. Done when the per-section tests above pass, `vp check` and `vp run typecheck` pass, and one dev-verify run (`docs/dev-site-testing.md`, seeded workstream) shows: a gated reviewer's kickoff with the three paths, a lean `workstream_list` result, a submit refused for a missing response block and accepted with one, and that block verbatim in the parent's digest.
+
+**PR 2 (prose, roles, docs).** Starts from `main` after PR 1 merges: both edit `apps/server/src/loom/prompt/prose.ts` and coders share one worktree, so they run in sequence, not in parallel; the addendum's new wording also points at the identity line PR 1 adds. The addendum sentence in `prose.ts`, `roles/orchestrator.md` (brief-writing rule), the report-leads-with lines in `roles/researcher.md` and `roles/planner.md` (exact text in §3.5), and `docs/operations/platform-update.md` (the `[INVALID]` step reads the spawn echo). The kickoff wrapper clause ships in PR 1 with the enforcement it describes. No change to `docs/architecture/tool-def-authoring.md`: its table already says a description covers "what it does, when to use it, when NOT to", and Carl's direction was to remove the sentences that tell agents to call this one tool, not to ban when-to-use guidance in every tool. Tier 3 under `llm-instruction-change`: the composed system prompt and kickoff for one real reviewer, one coder and one root, rendered before and after, go in the PR description. The pi-craft `platform-update` skill needs the same runbook change out of repo. Done when the rendered diffs show only the intended sentences changed and `vp check` and `vp run typecheck` pass.
+
+**Measurement**, by re-running the researcher's scripts (`extract_cards.py`, `classify.py`, `tables.py`, `prepost.py` in `/home/Carl/.t3/cockpit/scratch/agent-behaviour-audit/wslist-intents/`, and `reportsizes.py` in `…/wslist-coverage/`) on sessions from the four weeks after PR 2, split on release date as the parent-id clause was. Copy both directories (and `../audit.sqlite`, `../tokensteps/items.sqlite`) aside first: every step overwrites its outputs in place, and the baseline is the comparison. The chain is `../extract.py --days 28` (rebuilds `audit.sqlite`), `../tokensteps/costmodel.py` (rebuilds `items.sqlite`, which `extract_cards.py` joins for cost), then the four scripts in order, with `prepost.py`'s hard-coded `CUT` set to PR 2's release time. The scripts print no week-to-week spread today: add a per-week split of calls per 100 sessions to `prepost.py`, run it on the baseline window first, and report a shift smaller than that spread as within noise.
+
+<Table
+  density="compact"
+  columns={["Measure", "Baseline", "Expected after", "Would falsify"]}
+  rows={[
+    ["Reviewer list calls per 100 reviewer sessions", "52", "under 15", "still above 35: reviewers list for something other than the path"],
+    ["Find-report calls per 100 child sessions", "12.4", "under 3", "above 8: the kickoff lines are ignored or briefs still say find it"],
+    ["Catalogue calls per 100 root sessions", "about 10", "0 (nothing to find)", "unknown-preset rejections per root session above 1: orchestrators are guessing names; reconsider an injected catalogue"],
+    ["Median list output, characters", "5,580", "about 2,100", "above 3,500: callers pass `detail: full` by habit, so the one-line description is steering wrong"],
+    ["Orientation calls that used nothing", "55 in 30 days", "under 20", "unchanged: the addendum sentence was not the trigger"],
+    ["Response-block length, first week of reports", "n/a (400-character cut)", "median under 1,000 characters; head fallback only on synthesised reports", "p90 above 2,500: authors wrap the whole report; tighten the submit description"],
+    ["Root provider-error resumes", "0 (roots excluded)", "one per failed root run, logged `workstream.liveness.error-resumed`", "a root resumed while a human turn was queued: the `awaitsErrorResume` guard missed a root case"],
+  ]}
+/>
+
+**Verify before coding (not in either PR).** The 110-child root where only 28 report paths reached the parent: find whether the digests were never dispatched, were coalesced past a limit, or landed in a message kind the audit did not scan. If completions are lost under large fan-out, that is a dispatcher defect and a separate issue.
+
+<Details summary="Change map, both PRs">
+  <FileTree
+    title="PR 1: server"
+    entries={[
+      { path: "apps/server/src/loom/prompt/prose.ts", change: "modified", note: "§3.1 gate clause with report, brief and session paths; dependency hand-back block; identity clause derivation sentence. §3.5 kickoff wrapper clause" },
+      { path: "apps/server/src/loom/prompt/childPrompt.ts", change: "modified", note: "§3.1 kickoffContext helper; kickoffText and kickoffTextForPrompt take the gate target's paths and the dependency list" },
+      { path: "apps/server/src/loom/orchestration/dispatcher/WorkstreamDispatcher.ts", change: "modified", note: "§3.1 promotion step builds the kickoff context from ctx.nodesById and the coder's provider thread ref" },
+      { path: "apps/server/src/mcp/toolkits/workstream/handlers/prompt.ts", change: "modified", note: "§3.1 same kickoff context when a parent prompts an unstarted child" },
+      { path: "apps/server/src/mcp/toolkits/workstream/defs.ts", change: "modified", note: "§3.3 workstream_list gains detail; §3.2 modelPreset text; §3.5 submit markdown description" },
+      { path: "apps/server/src/mcp/toolkits/workstream/handlers/list.ts", change: "modified", note: "§3.3 passes detail; skips providerThreads and goal reads when lean; §3.4 no longer reads spawnCatalogue" },
+      { path: "apps/server/src/mcp/toolkits/workstream/render.ts", change: "modified", note: "§3.3 lean rendering; §3.4 catalogue block and TASK_SHAPE_HINTS removed; §3.5 duplicate excerpt helpers deleted" },
+      { path: "apps/server/src/mcp/toolkits/workstream/prose.ts", change: "modified", note: "§3.2 list description and snippet rewritten, guideline emptied, spawn and scaffold sentences removed" },
+      { path: "apps/server/src/mcp/toolkits/workstream/modelSelection.ts", change: "modified", note: "§3.4 unknown-preset rejection carries [INVALID: …] per configured preset; spawnCatalogue deleted if unreferenced" },
+      { path: "apps/server/src/loom/workstream/report.ts", change: "modified", note: "§3.5 reportResponse(markdown): block or head fallback, with the guard bound" },
+      { path: "apps/server/src/loom/orchestration/dispatcher/wakes.ts", change: "modified", note: "§3.5 formatReportExcerpt and boundedExcerpt relay the response block; WAKE_REPORT_EXCERPT_LIMIT becomes LEGACY_REPORT_HEAD_LIMIT" },
+      { path: "apps/server/src/mcp/toolkits/workstream/handlers/submit.ts", change: "modified", note: "§3.5 refuses a report with no response block before writing" },
+      { path: "apps/server/src/loom/orchestration/liveness/WorkstreamLivenessSweep.ts", change: "modified", note: "§3.6 roots judged on the failure path: one error resume, then error flag" },
+      { path: "apps/server/src/loom/orchestration/liveness/liveness.test.ts", change: "modified", note: "§3.6 root cases" },
+    ]}
+  />
+  <FileTree
+    title="PR 2: prose, roles, docs"
+    entries={[
+      { path: "apps/server/src/loom/prompt/prose.ts", change: "modified", note: "§3.2 addendum: the GRAPH sentence deleted, the REPORT sentence names where the path comes from" },
+      { path: "roles/orchestrator.md", change: "modified", note: "§3.2 brief-writing rule: carry the report path" },
+      { path: "roles/researcher.md", change: "modified", note: "§3.5 line 37: the response block holds the answer" },
+      { path: "roles/planner.md", change: "modified", note: "§3.5 line 42: the response block holds the location and key decisions" },
+      { path: "docs/operations/platform-update.md", change: "modified", note: "§3.4 the [INVALID] check spawns with a bogus preset and reads the echo" },
+    ]}
+  />
+</Details>
