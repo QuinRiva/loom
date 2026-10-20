@@ -11,65 +11,28 @@
  * steer for a run whose turn has not started and is then rejected — DL-660).
  * The result says which of the three happened.
  *
- * An UNSTARTED child (no `kickoffAt`) gets its kickoff in this message, as V1's
- * `kickoffTextForPrompt` did: the kickoff wrapper around its brief, then the
- * parent's message. The brief file is not edited. The arm records the kickoff
- * (rule 5) and refuses while its dependencies are unsatisfied (rule 2). An
- * unblocked `forkFrom` child first gets its session fork the way promotion
- * writes it — `thread.fork.prepare` under promotion's deterministic id, so
- * whichever runs first wins and the other replays its receipt.
+ * An UNSTARTED child (no `kickoffAt`) is never launched from here: launch is the
+ * dispatcher's alone. The message is appended to its brief file as an amendment
+ * and the path re-recorded with `thread.kickoff-brief.set`, which the arm
+ * refuses once the child has started — the only guard, so a prompt racing the
+ * launch is refused and the parent prompts again as a steer.
  *
  * @module mcp/toolkits/workstream/handlers/prompt
  */
-import { CommandId, type LoomThreadWorkstream, MessageId } from "@t3tools/contracts";
-import { gateLoopTargetOf } from "@t3tools/shared/workstreamGraph";
-import { dependenciesSatisfied } from "@t3tools/shared/workstreamStart.loom";
+import { CommandId, MessageId } from "@t3tools/contracts";
+import { describeUnsatisfiedDependency } from "@t3tools/shared/workstreamDependencies";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import { kickoffTextForPrompt } from "../../../../loom/prompt/childPrompt.ts";
-import { readWorkstreamBriefAt } from "../../../../loom/workstream/brief.ts";
-import * as Orchestrator from "../../../../orchestration-v2/Orchestrator.ts";
+import { readWorkstreamBriefAt, writeWorkstreamBrief } from "../../../../loom/workstream/brief.ts";
 import { authoriseTarget, type WorkstreamCaller } from "../authorisation.ts";
-import { LoomToolError, type LoomToolInput } from "../defs.ts";
+import type { LoomToolInput } from "../defs.ts";
 import { agentToolName as t } from "../families.ts";
-import { requestKey } from "../idempotency.ts";
-import { childrenOf, committed, dispatch, dispatchRefusal, fail, nowIso } from "./shared.ts";
+import { requestKey, stableCommandId } from "../idempotency.ts";
+import { asToolError, childrenOf, committed, dispatch, fail, nowIso } from "./shared.ts";
 
-/** The fork transfer for an unblocked fork child; a blocked one is left to rule 2's refusal. */
-const prepareFork = Effect.fn("LoomToolkit.prepareFork")(function* (
-  row: LoomThreadWorkstream,
-  caller: WorkstreamCaller,
-) {
-  const siblings = new Map(
-    (yield* childrenOf(caller.threadId)).map((child) => [
-      child.threadId,
-      { ...child, id: child.threadId },
-    ]),
-  );
-  if (!dependenciesSatisfied({ ...row, id: row.threadId }, siblings)) return;
-  const createdAt = yield* nowIso;
-  yield* Orchestrator.OrchestratorV2.pipe(
-    Effect.flatMap((orchestrator) =>
-      orchestrator.dispatch({
-        type: "thread.fork.prepare",
-        commandId: CommandId.make(`server:loom:fork-prepare:${row.threadId}`),
-        threadId: row.threadId,
-        createdAt,
-        sourceThreadId: row.forkFromThreadId!,
-      }),
-    ),
-    Effect.mapError(
-      (error) =>
-        new LoomToolError({
-          message:
-            error._tag === "LoomDispatchDeferredError"
-              ? `Fork source ${row.forkFromThreadId} is mid-turn; forking now would copy an unfinished session. Wait for it to go idle, then prompt this child again to deliver its kickoff and launch the fork.`
-              : dispatchRefusal(error),
-        }),
-    ),
-  );
-});
+const AMENDMENT_HEADING =
+  "Amendment from your parent orchestrator, added after the brief above was written:";
 
 export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(function* (
   input: LoomToolInput<"workstream_prompt">,
@@ -87,7 +50,6 @@ export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(functi
       `Thread ${threadId} is ${row.outcome}; prompting would re-engage it without changing its outcome. Reopen it with ${t("workstream_set_outcome")} 'none' first, or spawn a new child.`,
     );
 
-  let text = input.message;
   if (row.kickoffAt === null) {
     if (row.kickoffBriefPath === null)
       return yield* fail(
@@ -98,15 +60,27 @@ export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(functi
       return yield* fail(
         `Child ${threadId} has a brief pointer but its file could not be read; re-attach it with ${t("workstream_brief")}.`,
       );
-    if (row.forkFromThreadId !== null) yield* prepareFork(row, caller);
-    text = kickoffTextForPrompt({
-      delivered: false,
-      role: row.role,
-      brief,
-      message: input.message,
-      gateTargetId: gateLoopTargetOf(row),
-      forkedFrom: row.forkFromThreadId,
+    const kickoffBriefPath = yield* asToolError(
+      writeWorkstreamBrief(
+        threadId,
+        `${brief.trimEnd()}\n\n---\n\n${AMENDMENT_HEADING}\n\n${input.message}\n`,
+      ),
+    );
+    yield* dispatch({
+      type: "thread.kickoff-brief.set",
+      commandId: stableCommandId(caller, yield* requestKey(undefined), "workstream-prompt-amend"),
+      threadId,
+      createdAt: yield* nowIso,
+      kickoffBriefPath,
     });
+    const siblings = new Map(
+      (yield* childrenOf(caller.threadId)).map((child) => [
+        child.threadId,
+        { ...child, id: child.threadId },
+      ]),
+    );
+    const blocker = describeUnsatisfiedDependency({ ...row, id: row.threadId }, siblings);
+    return `Added your message to the brief of Workstream child ${threadId} as an amendment; it has not started (${blocker ?? "its launch is pending"}) and reads the brief with your amendment as its first turn when it launches.`;
   }
 
   const id = yield* requestKey(undefined);
@@ -116,7 +90,7 @@ export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(functi
       commandId: CommandId.make(`server:workstream-prompt:${threadId}:${id}`),
       threadId,
       messageId: MessageId.make(`message:workstream-prompt:${threadId}:${id}`),
-      text,
+      text: input.message,
       attachments: [],
       createdBy: "agent",
       creationSource: "mcp",
@@ -131,8 +105,6 @@ export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(functi
       ? "steered into its running turn"
       : runs.every((event) => event.payload.status === "queued")
         ? "queued: its run cannot take a steer yet; it is steered in once its turn is up, else it starts the next turn"
-        : row.kickoffAt === null
-          ? "delivered with its kickoff brief as its first turn"
-          : "starting its next turn"
+        : "starting its next turn"
   }).`;
 });

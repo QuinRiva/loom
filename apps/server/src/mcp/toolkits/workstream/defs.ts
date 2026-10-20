@@ -228,7 +228,7 @@ const LOOM_TOOL_SPECS = {
       threadId: described(Schema.String, "Id of the direct child thread to prompt."),
       message: described(
         Schema.String,
-        `The markdown message for the child. A steer into a running turn is a course-correction, not a fresh assignment; a message to an idle child starts its next turn; on an unstarted node it is appended to that node's brief, so write it to ${t("workstream_spawn")}'s brief contract.`,
+        `The markdown message for the child. A steer into a running turn is a course-correction, not a fresh assignment; a message to an idle child starts its next turn; on an unstarted node it is appended to that node's brief as an amendment and does not launch it, so write it to ${t("workstream_spawn")}'s brief contract.`,
       ),
     }),
     "throw",

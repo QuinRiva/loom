@@ -1,8 +1,8 @@
 /**
  * The first-turn text a child receives: its brief inside the kickoff wrapper
  * (`workstreamChildPrompt` in `prose.ts`), or the raw brief for a role-less
- * child — led, for a `forkFrom` child either way, by the copied-history clause. Shared by `mcp__t3-code__workstream_prompt` and the dispatcher's
- * kickoff so both deliver an identical first turn.
+ * child — led, for a `forkFrom` child either way, by the copied-history clause.
+ * The dispatcher's kickoff is its only sender.
  *
  * @module loom/prompt/childPrompt
  */
@@ -24,22 +24,3 @@ export const kickoffText = (input: {
         gateTargetId: input.gateTargetId ?? null,
         forkedFrom: input.forkedFrom ?? null,
       });
-
-/**
- * What `mcp__t3-code__workstream_prompt` sends: an undelivered kickoff is
- * prepended to the parent's message so the brief is never lost, with the
- * message set apart so it reads as the parent's addendum rather than the tail
- * of the brief; once the kickoff was delivered the message goes alone (never
- * re-prepended).
- */
-export const kickoffTextForPrompt = (input: {
-  readonly delivered: boolean;
-  readonly role: string | null;
-  readonly brief: string;
-  readonly message: string;
-  readonly gateTargetId?: string | null;
-  readonly forkedFrom?: string | null;
-}): string =>
-  input.delivered
-    ? input.message
-    : `${kickoffText(input)}\n\n---\n\nAlso from your parent, sent with this brief:\n\n${input.message}`;
