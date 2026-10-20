@@ -1,0 +1,342 @@
+---
+kicker: "Implementation plan · hard tool failures (audit §3.3) · 20 Oct 2026"
+reader:
+  who: Carl, the owner of loom and the agent platform, deciding which of five small fixes go ahead
+  knows: the audit's one-paragraph summary of section 3.3; none of the five investigations behind this document
+  after_first_screen: which of the five audit claims held up, what the five fixes are, and whether to approve them as a batch
+manager_sessions:
+  - id: 01a156ac-9fcb-711e-ae00-b8a4e5d20d97
+    name: Hard tool-failure root causes and fixes
+    role: plan
+    authored_at: 2026-10-20T00:42:39.087Z
+---
+
+# Five tool-failure classes, five small fixes — about 130 lines across three repos
+
+Every one of the five causes was checked against the real code and real sessions. **Four held up; one mostly dissolved.** The audit undercounted the two silent problems — browser screenshots of the wrong page and `\u2014` written into prose — by roughly three times, and overstated the live-database one by ten. The fixes are all smaller than the audit guessed: **one line** makes browser calls safe, **~15 lines** stop `pkill` killing the agent's shell, **~20 lines** let an orchestrator amend a waiting child's brief, **~50 lines** absorb the model's `\uXXXX` escapes, and the database fix is **two paragraphs of guidance plus a one-line default** — not the periodic snapshot the audit proposed.
+
+<Stats
+  items={[
+    { value: "4 of 5", label: "Causes confirmed", tone: "success", detail: "Browser, edit escapes, `workstream_prompt`, `pkill` — all real, all wider than counted" },
+    { value: "1 of 5", label: "Mostly not a problem", tone: "info", detail: "Live DB: 90% of touches are safe sub-second reads; the slow example was fixed 13 Oct" },
+    { value: "~200 /mo", label: "Silent prose corruption", tone: "risk", detail: "Edits that wrote literal `\\u2014` into files and reported success (audit said 58)" },
+    { value: "~1,660", label: "Wrong-page observations", tone: "risk", detail: "Screenshots/evaluates that raced a navigate in 30 days and reported the wrong page as success" },
+    { value: "~130 lines", label: "Total change", tone: "neutral", detail: "loom ~45 · pi-craft ~50 · pi-browser ~10 · plus guidance text" },
+  ]}
+/>
+
+<Callout tone="decision" title="What you are approving" focus>
+  Five independent fixes, each shippable alone. Loom's two go through `pnpm ship` and reach agents at the next cockpit deploy, which you initiate. The pi-browser and pi-craft changes are PRs on your repos (`QuinRiva/pi-browser`, `QuinRiva/pi-craft`) that you merge; they reach agents on their next pi start, no deploy needed. One ops action — deleting ~56 GB of stale database copies — is yours or an agent's with your say-so. Nothing is implemented yet.
+</Callout>
+
+**Scope and non-goals.** Only the five classes in audit §3.3. Not in scope: the deferred-browser-tool cache busts (currency row 3), the fan-in conflict refusal the audit mis-filed under `workstream_prompt`, and the `counts` string rejection (7 events over three days in early October, zero since — do nothing). Done means: each approved fix merged, the loom ones deployed, and the audit queries re-run a few weeks later showing the metrics in §7 moved. Three open questions at the end: which fixes to approve, how aggressively to decode escapes, and who deletes the stale copies.
+
+## 1. Overview: what the audit said, what the code says
+
+<Table
+  density="compact"
+  columns={["Class", "Audit's cause", "Verified cause", "Fix", "Where", "Size"]}
+  rows={[
+    [
+      "`edit` escapes",
+      "Model double-escapes; decode on no-match",
+      { badge: { label: "confirmed, 3× bigger", tone: "risk" }, md: "Model emits literal `\\u2014`; nothing in pi or cliproxy adds it. The failed edits are the visible half; **~200 successful edits a month wrote the escape into the file**, and a session that does it once does it again (13% → 41–57%)" },
+      "Decode escapes in `edit` when the file has the character or no escapes of its own; note it in the result",
+      "pi-craft global extension",
+      "~50 lines",
+    ],
+    [
+      "Browser races",
+      "Calls race on one page; make tools sequential, add snapshot-on-action",
+      { badge: { label: "confirmed, 3 problems", tone: "risk" }, md: "**Launch race** (first batch starts several Chromiums — both audit examples are this), **same-page race** (1,660 wrong-page observations), and **click `ref` broken by construction** (Puppeteer syntax passed to Playwright, 13/13 fail). Terse results did *not* cause click failures: 23% before, 20% after" },
+      "`executionMode: \"sequential\"` on every browser tool (one line); fix `ref` (~5 lines); hint on locator failure",
+      "pi-browser",
+      "~10 lines",
+    ],
+    [
+      "`workstream_prompt` to a waiting child",
+      "Documented append path is broken",
+      { badge: { label: "confirmed, missing feature", tone: "warning" }, md: "The append the tool description promises never existed. Since 13 Oct, **13 of 15 refusals ended with the orchestrator hand-editing the brief file inside the live cockpit's state directory** — a worse workaround than the bug" },
+      "On a briefed child that is blocked, append the message to its brief instead of refusing",
+      "loom server",
+      "~20 lines + test + tool text",
+    ],
+    [
+      "`pkill -f` self-kill",
+      "Kills the agent; add a guard like the search guard",
+      { badge: { label: "confirmed, wider", tone: "warning" }, md: "It kills the *tool shell*, not the agent: pi runs `bash -c \"<command>\"`, so the pattern is always in a live argv. Same cause makes `while pgrep -f X` loops never end (4 × ~30 min timeouts) and liveness checks always true. Loom's rule gives the wrong reason" },
+      "Loom extension hook: base64-encode any bash command mentioning `pgrep`/`pkill` so the pattern leaves argv. Blocks nothing",
+      "loom extension part",
+      "~15 lines",
+    ],
+    {
+      tone: "info",
+      cells: [
+        "Live cockpit DB",
+        "Agents copy/query the 12 GB file; build a refreshed snapshot",
+        { badge: { label: "mostly dissolved", tone: "info" }, md: "**90% are sub-second read-only queries** — legitimate diagnostics. The 1,850 s example was the old `migrate-dev-db`, fixed 13 Oct (now 14–26 s). Remaining ~3 whole copies/day are driven by loom's `AGENTS.md`, which says copying 'is fine' and names a path that does not exist on this VM; `.backup` can never finish on a live DB. Real risk is disk: ~56 GB of stale copies, disk hit 99% this month" },
+        "Rewrite two `AGENTS.md` paragraphs; default `migrate-dev-db --source` to `$T3CODE_HOME`; delete stale copies. **No snapshot**",
+        "loom + ops",
+        "~10 lines + cleanup",
+      ],
+    },
+  ]}
+/>
+
+Separately, about a third of tool "errors" in the audit are false — compound shell commands whose trailing `rg`/`grep` exits 1. Worth remembering for any error metric; not a fix.
+
+## 2. `edit` escapes: decode in a pi-craft extension
+
+**What happens.** Claude models sometimes emit the six characters `\u2014` in a tool argument where they mean `—`. pi parses the JSON correctly (a model-emitted `\\u2014` decodes to the literal text), cliproxy passes `partial_json` through untouched, and pi's `edit` does exactly what it is asked. In the root thread that edited `docs/operations/shipping.md` on 3 Oct, turn 143's argument bytes were `disappears \u2014 it`, the file's were `disappears — it`; the edit succeeded and wrote the escape into the doc. The next turn the same model emitted a raw `—` in a `bash` call to `sed` it back.
+
+**Why it is worse than counted.** The audit counted the failed edits (oldText escaped, file has the character — ~42% of edit failures). It excluded code files from the silent half. Including them, **~200 successful edits a month** wrote a literal escape into a file, nearly all in comments and prose strings. And it compounds: after a session's first escaped call, the rate jumps from ~15% to 41–57%, because the model's own history primes it. In 29 of 34 "successful" escaped-oldText edits, the only reason the oldText matched was that the same session had already corrupted the file.
+
+**Where it lives.** A global pi extension in `pi-craft` (`plugins/pi-craft/extensions/edit-unicode-escapes.ts` plus one `package.json` line). pi-craft is loaded by every pi process on this machine — terminal pi and every loom thread — and survives pi upgrades because it uses only the documented `tool_call`/`tool_result` hooks. Rejected: a loom pi patch (re-derived at every pi bump, far too heavy for 50 lines) and loom's own extension (misses terminal pi). The right end state is an upstream PR to pi's `edit-diff.js`, which already absorbs model quirks in this tool; delete the extension when that lands.
+
+<Callout tone="decision" title="The decode rule">
+  Per edit item, decode only escapes for code points ≥ U+0080 not preceded by a backslash. Decode **both** `oldText` and `newText` when either: **(a)** the raw `oldText` is not in the file but the decoded one is — Claude Code's rule, which catches the failures; or **(b)** the file contains no literal escapes of its own — which catches the silent newText corruption that (a) misses because its oldText matched fine. Then append one line to the result: *"Note: decoded literal \uXXXX escapes in N edit(s) into the characters they name (e.g. —). Write such characters directly."* `write` stays verbatim — it is the escape hatch for deliberately writing a literal escape — and only gains a warning on `.md`/`.mdx`/`.txt`.
+</Callout>
+
+<Columns>
+  <Card eyebrow="Rule (a) + (b)" heading="Decode on no-match, or when the file has no escapes" tone="success" badge="RECOMMENDED" meta={["catches ~200/mo silent", "≈3% false decodes, announced"]}>
+    A JS/JSON file that genuinely uses `'\u2014'` is untouched: the raw oldText matches and the file has escapes. The residual wrong case is an agent's *first* deliberate literal escape in a file with none — about 1 in 30 firings in a sample — and the result note says what changed, so the agent can use `write` or `bash` instead.
+  </Card>
+  <Card eyebrow="Rule (a) only" heading="Decode on no-match only (Claude Code's rule)" tone="neutral" badge="REJECTED" meta={["zero false decodes", "misses the bigger half"]}>
+    Safe, but the ~200 newText-only corruptions a month never trigger it because their oldText matched. That is the half nobody gets an error for.
+  </Card>
+</Columns>
+
+<Details summary="Edge cases and the extension sketch">
+
+| Case | Result |
+|---|---|
+| Source that uses `'\u2014'` on purpose and the model copies it faithfully | Untouched — raw match, file has escapes |
+| A doc *about* escapes (like this one) in a file that already discusses them | Untouched — file has escapes |
+| First deliberate literal escape in a file with none | Wrongly decoded (≈3% of firings); the note announces it |
+| `\\u2014` in the argument | Untouched — preceded by a backslash |
+| ASCII escapes (`\u0022`, `\u000a`) | Never decoded |
+| Edits inside codemode | Covered — nested calls fire `tool_call` |
+
+<Code
+  filename="pi-craft/plugins/pi-craft/extensions/edit-unicode-escapes.ts (sketch)"
+  language="ts"
+  wrap
+  code={"const ESC = /(?<!\\\\)\\\\u([0-9a-fA-F]{4})/g;\nconst hasEsc = (s = \"\") => [...s.matchAll(ESC)].some((m) => parseInt(m[1], 16) >= 0x80);\nconst decode = (s: string) => s.replace(ESC, (m, h) => (parseInt(h, 16) >= 0x80 ? String.fromCharCode(parseInt(h, 16)) : m));\n\npi.on(\"tool_call\", async (event, ctx) => {\n  if (event.toolName !== \"edit\" || !input.edits?.some((e) => hasEsc(e.oldText) || hasEsc(e.newText))) return;\n  const file = await readFile(resolve(ctx.cwd, input.path), \"utf8\").catch(() => \"\");\n  const fileHasEsc = hasEsc(file);\n  const swapped = input.edits.filter((e) =>\n    (hasEsc(e.oldText) && !file.includes(e.oldText) && file.includes(decode(e.oldText))) ||   // (a)\n    (!fileHasEsc && (hasEsc(e.oldText) || hasEsc(e.newText))));                                // (b)\n  for (const e of swapped) Object.assign(e, { oldText: decode(e.oldText), newText: decode(e.newText) });\n  if (swapped.length) notes.set(event.toolCallId, `Note: decoded literal \\\\uXXXX escapes in ${swapped.length} edit(s) …`);\n});\n"}
+/>
+
+The sketch was checked against pi's real `applyEditsToNormalizedContent` and the real `shipping.md`: the escaped oldText fails with "Could not find the exact text"; the decoded one applies.
+
+</Details>
+
+**A second, separate bug found on the way.** pi's fuzzy-match path silently turns typographic characters into ASCII on every line an edit touches, including the part of the line outside the edited span: editing `next` in a line that also contained `—` produced `-`. That is its own upstream pi issue, already in the task tree; not part of this plan.
+
+## 3. Browser: one line for the races, five for the clicks
+
+**Three problems, not one.**
+
+<Columns columns={3}>
+  <Card eyebrow="Problem 1" heading="Launch race" tone="risk" badge="both audit examples" meta={["~63 turns / 30 d"]}>
+    The first browser batch in a pi process finds no browser and each call launches its own Chromium (`index.ts:76-78` has no guard). The last launch wins; the others are orphaned with their own cookies. In the researcher thread the audit cited, `navigate` returned the pairing URL, then `wait_for` and `take_screenshot` reported `about:blank`, and `browser_tabs` listed one blank tab — the navigated page was in a *different browser*. The agent concluded "the session restarted and lost its cookies" and went to re-pair.
+  </Card>
+  <Card eyebrow="Problem 2" heading="Same-page race" tone="risk" badge="silent wrong evidence" meta={["141 errors", "1,660 wrong-page reads"]}>
+    pi runs one message's tool calls in parallel unless a tool opts out; pi-browser never opts out, and every tool shares one page. So `navigate` and the `screenshot`/`evaluate` meant to check it start together. 141 "Execution context was destroyed" errors are the visible part; **1,660 observations ran alongside a page-changing call** and reported success about the wrong page. 1,348 batches used `wait_for` as a delay that delayed nothing.
+  </Card>
+  <Card eyebrow="Problem 3" heading="Clicks fail 21% of the time" tone="warning" badge="audit's cause wrong" meta={["~570 recovery turns / 30 d", "≈$65"]}>
+    Not the terse-results change: 23% failed before it, 20% after. Agents guess Playwright selectors from visible text because the `ref` path the tools *tell them to use* cannot work — `tab.ts:166` passes Puppeteer's `aria/` syntax to Playwright (13 of 13 ref clicks fail) and snapshots are taken without `mode: 'ai'`, so they carry no refs to pass anyway.
+  </Card>
+</Columns>
+
+**The knob already exists.** pi's extension API has `executionMode: "sequential" | "parallel"` per tool; when any call in a batch is a sequential tool, pi runs the whole batch in source order (`pi-agent-core/dist/agent-loop.js:366-371`). pi's own tic-tac-toe example uses it "to prevent race conditions on shared cursor state". pi-browser never sets it. Batching is also new: before 25 Sep almost no browser turns batched; since then `claude-opus-5-5` batches 56% of them. A prompt nudge would fight the model; making the tools sequential turns the batching into a correct one-turn script.
+
+<Diff
+  filename="pi-browser/index.ts"
+  language="ts"
+  before={"const registerTool = (tool: ToolDef) => {\n  tools.push(tool);\n  pi.registerTool({ ...tool, exposure } as ToolDef);\n};\n"}
+  after={"const registerTool = (tool: ToolDef) => {\n  tool = { ...tool, executionMode: 'sequential' };  // every tool drives the same page\n  tools.push(tool);\n  pi.registerTool({ ...tool, exposure } as ToolDef);\n};\n"}
+  annotations={[{ side: "after", lines: "2", note: "fixes both the launch race and the same-page race" }]}
+/>
+
+**The ref fix (~5 lines).** Take snapshots with `ariaSnapshot({ mode: 'ai' })`, which emits `[ref=e12]` markers and fills Playwright's per-frame ref table, and resolve clicks with `aria-ref=${ref}` instead of `aria/${ref}`. This is how Playwright's own MCP server clicks. Plus one line: when a locator action times out or hits strict-mode ambiguity, append *"Take browser_snapshot and click by ref (e.g. ref: "e12") instead of guessing a selector."* Snapshots stay opt-in and terse; the 20 KB spill-to-file cap is untouched. Rejected: snapshot-on-every-action (the audit's idea) — it cost ~8 KB per click before and bought nothing.
+
+**Where it lives and how it deploys.** `QuinRiva/pi-browser`, your fork of `larsderidder/pi-browser`, which has no `.t3code/ship.json`, so the platform default applies: an agent opens the PR, you merge. Deploy is `git pull` in `/home/Carl/.pi/agent/extensions/pi-browser`; new pi processes load it at once. No cockpit deploy. The `ref` bug is upstream's too and could be offered back.
+
+Edge cases: a batch that mixes browser and non-browser calls (6% of browser turns) also serialises — sum of durations instead of max, which matches the model's evident intent. `executionMode` is not part of the tool declaration the model sees, so the cached prompt prefix is unchanged. Both edits touch `index.ts` near `registerTool`; if the deferred-exposure work (currency row 3) touches the same spot, sequence them.
+
+## 4. `workstream_prompt`: amend a waiting child's brief
+
+**What happens.** `workstream_prompt` to a child that has a brief but is still waiting on a dependency composes the brief plus the message and tries to *start the child now*. The orchestrator's first-turn dependency gate refuses: `Thread … cannot start: dependency '…' is not done yet.` The tool description says the message is "appended to that brief"; neither the V1 nor the V2 code ever did that. The V2 port kept V1's behaviour and the existing test asserts the refusal on purpose. Every refused message since 10 Oct was an addendum or correction ("Correction to the brief above: 18 trials, not 27"), never an attempt to start early.
+
+**Why it matters more than $23 of recovery turns.** Since 13 Oct, 13 of 15 refusals were followed by the orchestrator doing `cat >> …/userdata/workstream-briefs/<id>.md` or a python rewrite — writing into the live cockpit's state directory, outside the control plane, with no event and no "has it started yet" check. It works only because the dispatcher reads the brief file at launch. The other two re-sent whole 10–20k-character briefs.
+
+<Callout tone="decision" title="The fix">
+  In `apps/server/src/mcp/toolkits/workstream/handlers/prompt.ts`, inside the unstarted-child branch: if the child has an unsatisfied dependency (`describeUnsatisfiedDependency`, the same check as the gate), append the message to the brief file under a separator, re-record the path with `thread.kickoff-brief.set` — which the orchestrator already refuses if the child has meanwhile started — and return *"Added your message to the brief of … It has not started (dependency … is not done yet); it reads the brief with your addition as its first turn once it launches."* The unblocked-unstarted path (compose and start) stays as is. No contract, schema, orchestrator or store change.
+</Callout>
+
+Edge cases: several amendments append in order; a later `workstream_brief` overwrites the whole file, amendments included (correct, and the description will say so). The amendment can race the launch only when the orchestrator marks the dependency done in the same tool batch; the window is the same one `workstream_brief` already has, and the worst outcome is the child seeing the addendum twice. The focused test flips the existing "a blocked one is refused" case to "a blocked one is amended" and asserts the file contents, `kickoffAt` still null, no message sent.
+
+I author the tool text (`prose.ts:85`, `defs.ts:229-230`, the separator heading and the success string) — text models read is not a coder's to write.
+
+Rejected: only improving the error ("call `workstream_brief` with the full revised brief") — pushes orchestrators to re-send 20k characters, and they would keep hand-editing because it is cheaper. Making *every* unstarted prompt an append and deleting the compose-and-start path is the cleanest end state but turns the race's worst case into a silent loss; worth doing only with a brief revision checked at kickoff, which is more machinery than this earns.
+
+## 5. `pkill`: take the pattern out of argv
+
+**What happens.** pi runs every bash call as `/bin/bash -c "<the whole command>"` (`bash.js:63-65`), and Carl's `shellCommandPrefix` makes every script compound, so bash never execs away. `pgrep -f X` / `pkill -f X` match on `/proc/<pid>/cmdline`, which now always contains `X` — procps 3.3.17 excludes only its own PID. So:
+
+<Steps>
+  <Step at="kill forms" tone="risk" title="`pkill -f X; echo done` kills the tool shell." badge="29 in 30 d" aside="`echo done` never runs; exit 143. The target usually dies too.">
+    Lease-extraction researcher, turn 82: `pkill -f "node srv.js" ; echo done` → `(no output) Command exited with code 143`. One session took three turns to discover the `[c]onsist_t0` bracket trick.
+  </Step>
+  <Step at="wait loops" tone="risk" title="`while pgrep -f X; do sleep 30; done` never ends." badge="4 timeouts, ~1.7 h" aside="The jobs had finished in ~6 min. One agent wrote the diagnosis into its own RUNBOOK.">
+    The audit filed these under slow calls, not here. Same cause.
+  </Step>
+  <Step at="liveness" tone="warning" title="`pgrep -f X && echo running` is always true." aside="Unmeasured; a finished pipeline looks alive.">
+    `pgrep -af X` listings always include the shell.
+  </Step>
+</Steps>
+
+The audit's "kills the agent" is wrong in detail: pi's own argv is just `pi`; what dies is the tool shell. Loom's `AGENTS.md` rule gives the wrong reason ("your own agent process has this worktree's path in its argv") — and loom agents trip too.
+
+<Callout tone="decision" title="The fix">
+  A ~15-line loom extension part (`loomExtensionParts/pgrepSelfMatch.ts`, registered after the search guard) hooks `tool_call`: when a bash command mentions `pgrep` or `pkill` (~7 a day across all threads), rewrite it to `eval "$(printf %s <base64> | base64 -d)"`. The pattern is then in no process's argv, so all three forms behave as the agent meant. Nothing is blocked, the agent is taught nothing, and because the hook mutates a `structuredClone` after `tool_execution_start`, the transcript and UI still show the original command. Covered: every loom thread in every repo (fathom, pi-fathom, slack-bridge, loom), since the generated extension is loaded by every loom-launched pi. Not covered: terminal pi, which does not appear in the audit.
+</Callout>
+
+Verified locally with `pgrep` only (no kill): the plain form self-matches and a wait loop spins; the encoded form returns rc=1 and the loop exits. `eval` of the whole script behaves like `-c` — same exit status, `set -e`, traps, heredocs, incremental parsing; the one visible difference is `bash: eval: line 2:` in syntax errors. Commands over 64 KiB are left alone to stay under `MAX_ARG_STRLEN`. The try/catch means an analyser bug degrades to "no fix", never to blocked tools. A focused test loads the part and runs the rewritten command through a real `bash -c`.
+
+Rejected: blocking `pkill -f` with a teaching message (the audit's idea) — treats the kill form only, costs a turn per block, and agents already know the bracket trick (37 uses) and still slip; PATH shims for `pgrep`/`pkill` (must re-implement `-n`/`-o`/`-c` after filtering); moving the rule to global `AGENTS.md` (loom's rule exists and loom agents still trip). The principled long-term fix is upstream: pi's bash tool should not put the command in argv. Worth an issue, not needed now. Also fix the wrong sentence in loom `AGENTS.md:162` and `docs/dev-site-testing.md:171` while there; keep the rule, since killing *another thread's* server by a loose pattern is still a hazard.
+
+## 6. Live database: fix the guidance, not the data
+
+**What the 362 calls actually are** (post-V2, all in the loom project):
+
+<Table
+  density="compact"
+  columns={["Kind", "Calls", "Wall time", "Timeouts", "Verdict"]}
+  rows={[
+    [{ badge: { label: "fine", tone: "success" }, md: "Read-only query in place (`sqlite3 'file:…?mode=ro'`)" }, "321", "0.4 h (p50 0.05 s)", "1", "Legitimate diagnostics of loom's own production behaviour. This is the 'rising' number. Not a target"],
+    [{ badge: { label: "fixed 13 Oct", tone: "success" }, md: "`migrate-dev-db`" }, "11", "1.0 h", "1 (the 1,850 s example)", "Old whole-DB `VACUUM INTO`; upstream `0f09627a11` now copies a slice in 14–26 s"],
+    { tone: "warning", cells: [{ badge: { label: "avoidable", tone: "warning" }, md: "Ad-hoc whole-DB `VACUUM INTO`" }, "12", "3.5 h", "6", "~half for dev seeding (use `migrate-dev-db`), ~half for analysis (query in place). A few a month are legitimate migration tests"] },
+    { tone: "risk", cells: [{ badge: { label: "can never finish", tone: "risk" }, md: "`sqlite3 .backup`" }, "3", "0.6 h", "3 of 3", "SQLite restarts the backup on every external write; the cockpit commits on every provider event"] },
+    { tone: "warning", cells: [{ badge: { label: "torn copy", tone: "warning" }, md: "`cp` of the live file + WAL" }, "9", "0.1 h", "0", "Inconsistent copy; wrong answers for the agent"] },
+  ]}
+/>
+
+**Why agents copy.** Loom's `AGENTS.md:163` says `~/.t3/userdata` "is the developer's real T3 Code database … Reading it and copying from it are fine", and `migrate-dev-db` defaults its source there. On this VM that path holds a 0-byte file; the live DB is `~/.t3/cockpit/userdata/statev2.sqlite` (12.3 GB, WAL mode). Both are upstream text written for a laptop with a small DB. Agents rediscover the real path by hand, then reach for `.backup` because it sounds right. One coder on the `/retro` redesign spent 15 minutes in a `.backup` that copied 2.8 of 10.7 GB, then `cp`'d a torn copy — when `vp run migrate-dev-db --root <id>` would have given it the one settled tree it needed in 25 s.
+
+**Real risk.** No accidental writes (every post-V2 open is `mode=ro`); no lock contention (WAL readers never block the writer); one evidenced bounded WAL-growth episode (104 MB vs the 32 MB cap, during the 1,850 s copy). The real one is **disk**: ~56 GB of stale copies sit in `/tmp/goalstale/`, `/tmp/sv2.sqlite`, `/tmp/f4eb_state.sqlite` and four retired worktrees' `.t3` dirs; the root filesystem was at 99% earlier this month, when one more copy fills the disk under the live DB. It is at 81% now.
+
+<Columns>
+  <Card eyebrow="Fix" heading="Guidance + one default + cleanup" tone="success" badge="RECOMMENDED" meta={["~10 lines", "no new machinery"]}>
+    Rewrite `AGENTS.md` rule 2 and "Test data" (as `// loom:`-marked hunks): name the real file via `$T3CODE_HOME`, say *query in place read-only*, say `migrate-dev-db` (`--root` for one tree) for a dev instance, `ATTACH` + `CREATE TABLE AS SELECT` for analysis, backgrounded `VACUUM INTO` only for a migration test, and **never `.backup` or `cp`**. Default `migrate-dev-db --source` to `$T3CODE_HOME/userdata/statev2.sqlite` when set (`migrate-dev-db.ts:449-452`). Delete the stale copies, keeping the frozen V1 `state.sqlite` until the V1 rollback path in the RUNBOOK is retired.
+  </Card>
+  <Card eyebrow="Audit's idea" heading="Shared, periodically refreshed read-only snapshot" tone="neutral" badge="REJECTED" meta={["12 GB permanent", "a refresh job", "an owner"]}>
+    Serves none of the actual intents: diagnostics need *current* data (a sub-second live read already gives it), and dev seeding and migration tests need *private writable* copies anyway, so a snapshot only moves where the 12 GB read comes from. The refresh job would itself be a daily whole-DB read pinning the WAL.
+  </Card>
+</Columns>
+
+An optional second step if the copy count does not move: ~20 lines in the same guard vehicle as §5 that refuse `.backup`/`cp` of the live path with a pointer to `migrate-dev-db`. Not now.
+
+<Details summary="Change map — every file each fix touches">
+
+<FileTree
+  title="loom (this repo) — ship via pnpm ship, reaches agents at the next cockpit deploy"
+  entries={[
+    { path: "apps/server/src/mcp/toolkits/workstream/handlers/prompt.ts", change: "modified", note: "§4: append-to-brief branch for a blocked child; prepareFork's dead dependency check removed" },
+    { path: "apps/server/src/mcp/toolkits/workstream/handlers/prompt.test.ts", change: "modified", note: "§4: 'a blocked one is refused' → 'a blocked one is amended'" },
+    { path: "apps/server/src/mcp/toolkits/workstream/prose.ts", change: "modified", note: "§4: tool description, orchestrator-authored" },
+    { path: "apps/server/src/mcp/toolkits/workstream/defs.ts", change: "modified", note: "§4: message param description" },
+    { path: "apps/server/src/provider/Drivers/Pi/loomExtensionParts/pgrepSelfMatch.ts", change: "added", note: "§5: the ~15-line tool_call hook" },
+    { path: "apps/server/src/provider/Drivers/Pi/loomExtension.ts", change: "modified", note: "§5: register the part after searchGuardPart" },
+    { path: "apps/server/src/provider/Drivers/Pi/loomExtensionParts.test.ts", change: "modified", note: "§5: real-bash test of the rewritten command" },
+    { path: "apps/server/scripts/migrate-dev-db.ts", change: "modified", note: "§6: default --source to $T3CODE_HOME (loom: hunk)" },
+    { path: "AGENTS.md", change: "modified", note: "§5: fix the wrong reason at :162 · §6: rewrite rule 2 and Test data" },
+    { path: "docs/dev-site-testing.md", change: "modified", note: "§5: same wrong sentence at :171" },
+  ]}
+/>
+
+<FileTree
+  title="QuinRiva/pi-craft — PR, you merge; pull in ~/pi-craft; every pi process on the machine loads it"
+  entries={[
+    { path: "plugins/pi-craft/extensions/edit-unicode-escapes.ts", change: "added", note: "§2: the ~50-line decode hook" },
+    { path: "package.json", change: "modified", note: "§2: one line in pi.extensions" },
+  ]}
+/>
+
+<FileTree
+  title="QuinRiva/pi-browser — PR, you merge; git pull in ~/.pi/agent/extensions/pi-browser"
+  entries={[
+    { path: "index.ts", change: "modified", note: "§3: executionMode sequential in registerTool; failure hint in makeTool; 'CSS selector' → 'Playwright selector'" },
+    { path: "src/tab.ts", change: "modified", note: "§3: ariaSnapshot({ mode: 'ai' }); aria-ref= locator" },
+  ]}
+/>
+
+</Details>
+
+## 7. Verification and how we know it worked
+
+Per fix, before merge:
+
+- **§2 edit escapes:** replay a captured escaped edit call through `ctx.executeTool` against a file containing `—`; assert the decode, the note, and that a JSON file with its own `\u` literals is untouched.
+- **§3 browser:** `scripts/live-check.ts` in pi-browser drives a real headless browser: snapshot → click by ref → confirm the action happened; a `navigate → wait_for → screenshot` batch returns the navigated page.
+- **§4 workstream_prompt:** the focused `prompt.test.ts` case (file contents, `kickoffAt` null, no message) plus a steer after `markStarted`.
+- **§5 pkill:** the real-bash test in `loomExtensionParts.test.ts`; `vp check` and `vp run typecheck` for both loom fixes.
+- **§6 live DB:** one `vp run migrate-dev-db --base-dir /tmp/x --projects 1 --threads-per-project 1` with no `--source` (14 s).
+
+Then the audit queries, re-run on the 30 days after deploy:
+
+<Table
+  density="compact"
+  columns={["Metric", "Now (30 d)", "Target"]}
+  rows={[
+    ["Edit-mismatch failures per 1k turns (currency row 17)", "3.35", "≈2.0 — the escaped-oldText share gone"],
+    ["Successful edits leaving a literal non-ASCII escape in the file", "~200", "near 0; count the 'decoded literal' note to see it firing"],
+    ["`Execution context was destroyed` in browser results", "141", "~0"],
+    ["Launch-race signature (navigate OK + sibling `about:blank`)", "~63 turns", "0"],
+    ["`browser_click` failure rate / `ref` failure rate", "21% / 81%", "falling with ref adoption / <15%"],
+    ["`workstream_prompt` 'cannot start: dependency' refusals", "15 of 142", "~0; hand-edits under `workstream-briefs/` → 0"],
+    ["bash exit 143 on `pgrep`/`pkill` commands · `while pgrep` timeouts", "29 · 4", "0 · 0"],
+    ["`.backup` / `cp` of the live DB · stale copies > 5 GB on disk", "3 / 9 · 7 (~56 GB)", "0 / 0 · ~0"],
+  ]}
+/>
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "approve",
+      title: "Which fixes go ahead?",
+      subtitle: "Each is independent and shippable alone; the loom ones need a cockpit deploy you initiate, the pi-craft and pi-browser ones are PRs you merge.",
+      mode: "multi",
+      refs: [{ label: "1. Overview: what the audit said, what the code says", anchor: "1-overview-what-the-audit-said-what-the-code-says" }],
+      options: [
+        { id: "edit", label: "Yes — the edit-escape decoder in pi-craft (§2, ~50 lines)", recommended: true, detail: "Removes the biggest and most silent class; one accepted ≈3% false-decode case, announced in the result." },
+        { id: "browser", label: "Yes — sequential browser tools and the ref fix in pi-browser (§3, ~10 lines)", recommended: true, detail: "One line removes both races; five more make the advertised click-by-ref path real." },
+        { id: "prompt", label: "Yes — workstream_prompt appends to a waiting child's brief (§4, ~20 lines + test)", recommended: true, detail: "Ends orchestrators hand-editing files in the live cockpit state directory." },
+        { id: "pkill", label: "Yes — the pgrep/pkill argv rewrite in the loom extension (§5, ~15 lines)", recommended: true, detail: "Small lever, near-zero risk, invisible to agents, covers every repo." },
+      ],
+    },
+    {
+      id: "decode-rule",
+      title: "How aggressively should the edit tool decode \\uXXXX escapes?",
+      subtitle: "Rule (a) decodes only when the escaped text fails to match the file; rule (b) also decodes newText when the file has no escapes of its own, which is what catches the ~200 silent corruptions a month.",
+      mode: "single",
+      refs: [{ label: "2. `edit` escapes: decode in a pi-craft extension", anchor: "2-edit-escapes-decode-in-a-pi-craft-extension" }],
+      options: [
+        { id: "ab", label: "Rules (a) and (b): catch the silent corruption, accept ≈3% wrong decodes that the result note announces", recommended: true, detail: "A file that already contains a literal escape is never touched, so deliberate code escapes survive." },
+        { id: "a", label: "Rule (a) only: decode on no-match, never touch a newText whose oldText matched", detail: "Zero false decodes; the silent half keeps happening." },
+      ],
+    },
+    {
+      id: "live-db",
+      title: "Live database: fix the guidance and delete the ~56 GB of stale copies?",
+      subtitle: "Deleting the /tmp copies is safe; the four retired-worktree .t3 directories should be confirmed retired first. The frozen V1 state.sqlite stays until the RUNBOOK's V1 rollback path is removed.",
+      mode: "single",
+      refs: [{ label: "6. Live database: fix the guidance, not the data", anchor: "6-live-database-fix-the-guidance-not-the-data" }],
+      options: [
+        { id: "all", label: "Yes — rewrite the AGENTS.md guidance, default migrate-dev-db's source, and have an agent delete the stale copies after listing them to you", recommended: true, detail: "The list of paths and sizes comes to you before anything is removed." },
+        { id: "guidance", label: "Guidance and the default only; I will delete the copies myself", detail: "Same code change; the cleanup stays in your hands." },
+        { id: "none", label: "Leave this class alone", detail: "The cost is small (~5 h wall time a month); the disk risk remains." },
+      ],
+    },
+  ]}
+/>

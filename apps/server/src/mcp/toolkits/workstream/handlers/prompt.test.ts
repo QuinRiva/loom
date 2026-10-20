@@ -2,19 +2,19 @@
  * mcp__t3-code__workstream_prompt, mcp__t3-code__workstream_stop, mcp__t3-code__workstream_request_attention and
  * mcp__t3-code__workstream_set_dependencies on V2's real orchestrator: the prompt is one
  * stored message with `loom.origin` orchestrator that clears a standing hold;
- * an unstarted briefed child is started by it with the kickoff wrapper; an
- * unbriefed or blocked child is refused; stop interrupts without raising;
- * dependencies carry the parent.
+ * on an unstarted briefed child it amends the brief and starts nothing, once
+ * started it steers; an unbriefed child is refused; stop interrupts without
+ * raising; dependencies carry the parent.
  */
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import { LoomStoreV2 } from "../../../../loom/projection/LoomStore.ts";
-import { workstreamChildPrompt } from "../../../../loom/prompt/prose.ts";
+import { readWorkstreamBriefAt } from "../../../../loom/workstream/brief.ts";
 import {
-  completeSeededRun,
   loomEvent,
   seedRunningRun,
   seedThread,
@@ -124,37 +124,11 @@ it.layer(HandlerTestLayer)("workstream prompt, stop, attention and dependencies"
   );
 
   it.effect(
-    "prompt: an unstarted briefed child starts with the kickoff wrapper before the message",
+    "prompt: an unbriefed child is sent to mcp__t3-code__workstream_brief; a briefed unstarted one has its brief amended",
     () =>
       Effect.gen(function* () {
         const store = yield* LoomStoreV2;
-        const root = ThreadId.make("kickoff-root");
-        yield* seedThread({ threadId: root });
-        const child = yield* spawn(root, "Unstarted", { brief: "Port the handlers." });
-
-        const result = yield* callAs(root, "workstream_prompt", {
-          threadId: child,
-          message: "Start with spawn.",
-        });
-        assert.isFalse(result.isError, result.text);
-        const [message, ...rest] = yield* messagesOf(child);
-        assert.lengthOf(rest, 0);
-        assert.equal(
-          message!.text,
-          `${workstreamChildPrompt({ role: "coder", brief: "Port the handlers.", gateTargetId: null })}\n\n---\n\nAlso from your parent, sent with this brief:\n\nStart with spawn.`,
-        );
-        assert.equal(message!.loom?.origin, "orchestrator");
-        const row = (yield* store.getWorkstream(child))!;
-        assert.isNotNull(row.kickoffAt);
-      }),
-  );
-
-  it.effect(
-    "prompt: an unbriefed child is sent to mcp__t3-code__workstream_brief; a blocked one is refused by the arm",
-    () =>
-      Effect.gen(function* () {
-        const store = yield* LoomStoreV2;
-        const root = ThreadId.make("refused-prompt-root");
+        const root = ThreadId.make("amend-prompt-root");
         yield* seedThread({ threadId: root });
         yield* callAs(root, "workstream_scaffold", {
           nodes: [
@@ -180,40 +154,33 @@ it.layer(HandlerTestLayer)("workstream prompt, stop, attention and dependencies"
         assert.include(unbriefed.text, "has not been briefed yet");
 
         yield* callAs(root, "workstream_brief", { node: "second", markdown: "brief" });
-        const blocked = yield* callAs(root, "workstream_prompt", {
-          threadId: second,
-          message: "go",
-        });
-        assert.isTrue(blocked.isError);
-        assert.include(blocked.text, "cannot start");
+        for (const message of ["go", "and also this"]) {
+          const amended = yield* callAs(root, "workstream_prompt", { threadId: second, message });
+          assert.isFalse(amended.isError, amended.text);
+          assert.include(amended.text, `dependency '${first}' is not done yet`);
+        }
         assert.lengthOf(yield* messagesOf(second), 0);
+        const row = (yield* store.getWorkstream(second))!;
+        assert.isNull(row.kickoffAt);
+        const amendment = (message: string) =>
+          `\n\n---\n\nAmendment from your parent orchestrator, added after the brief above was written:\n\n${message}`;
+        assert.equal(
+          Option.getOrUndefined(yield* readWorkstreamBriefAt(row.kickoffBriefPath!)),
+          `brief${amendment("go")}${amendment("and also this")}\n`,
+        );
+
+        yield* markStarted(second);
+        const steered = yield* callAs(root, "workstream_prompt", {
+          threadId: second,
+          message: "now steer",
+        });
+        assert.isFalse(steered.isError, steered.text);
+        assert.include(steered.text, "Sent prompt");
+        assert.deepEqual(
+          (yield* messagesOf(second)).map((message) => message.text),
+          ["now steer"],
+        );
       }),
-  );
-
-  it.effect("prompt: an unblocked fork child gets its fork transfer before its kickoff", () =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const root = ThreadId.make("fork-prompt-root");
-      yield* seedThread({ threadId: root });
-      const source = yield* spawn(root, "Reader");
-      const fork = spawnedId(
-        (yield* callAs(root, "workstream_spawn", {
-          title: "Fork",
-          purpose: "Act on it.",
-          forkFrom: source,
-        })).text,
-      );
-      yield* markStarted(source);
-      yield* seedRunningRun({ threadId: source });
-      yield* completeSeededRun({ threadId: source });
-      yield* callAs(source, "workstream_submit", { markdown: "read it" });
-
-      const result = yield* callAs(root, "workstream_prompt", { threadId: fork, message: "go" });
-      assert.isFalse(result.isError, result.text);
-      const { contextTransfers } = yield* orchestrator.getThreadRecords(fork, ["contextTransfers"]);
-      assert.deepInclude(contextTransfers[0], { type: "fork", sourceThreadId: source });
-      assert.lengthOf(yield* messagesOf(fork), 1);
-    }),
   );
 
   it.effect("stop: interrupts a direct child's run without raising attention", () =>

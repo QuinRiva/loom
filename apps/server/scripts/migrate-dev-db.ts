@@ -33,7 +33,8 @@ export class MigrateDevDbSharedHomeError extends Schema.TaggedError<MigrateDevDb
   {},
 ) {
   override get message(): string {
-    return "Refusing to rebuild the shared ~/.t3 database. Use an isolated --base-dir.";
+    // loom: names $T3CODE_HOME, the live home
+    return "Refusing to rebuild the live T3 home ($T3CODE_HOME, else ~/.t3) database. Use an isolated --base-dir.";
   }
 }
 
@@ -446,7 +447,11 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
-  const sharedHome = path.resolve(options.sharedHome ?? path.join(NodeOS.homedir(), ".t3"));
+  // loom: the live install is $T3CODE_HOME (the cockpit sets it for every agent), so the default
+  // source and the shared-home refusal both follow it rather than the bare ~/.t3.
+  const sharedHome = path.resolve(
+    options.sharedHome ?? (process.env.T3CODE_HOME || path.join(NodeOS.homedir(), ".t3")),
+  );
   const sourcePath = path.resolve(
     input.source ?? path.join(sharedHome, "userdata", "statev2.sqlite"),
   );
@@ -606,7 +611,10 @@ export const migrateDevDbCommand = Command.make(
     ),
     source: Flag.String("source").pipe(
       Flag.optional,
-      Flag.withDescription("Source database. Defaults to ~/.t3/userdata/statev2.sqlite."),
+      Flag.withDescription(
+        // loom: $T3CODE_HOME default
+        "Source database. Defaults to $T3CODE_HOME/userdata/statev2.sqlite (~/.t3 when unset).",
+      ),
     ),
     // loom: --root
     root: Flag.String("root").pipe(
@@ -641,7 +649,8 @@ export const migrateDevDbCommand = Command.make(
     }),
 ).pipe(
   Command.withDescription(
-    "Rebuild the worktree dev database from a pruned snapshot of the real ~/.t3 data, then run migrations.",
+    // loom: names $T3CODE_HOME, the live home
+    "Rebuild the worktree dev database from a pruned snapshot of the real $T3CODE_HOME (else ~/.t3) data, then run migrations.",
   ),
 );
 

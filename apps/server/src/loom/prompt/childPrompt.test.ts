@@ -1,75 +1,35 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { kickoffTextForPrompt } from "./childPrompt.ts";
+import { kickoffText } from "./childPrompt.ts";
 import { workstreamChildPrompt } from "./prose.ts";
 
-// `mcp__t3-code__workstream_prompt` must deliver the composed kickoff while the
-// child's kickoff has NOT been delivered, and must NOT re-prepend it once it was.
-describe("kickoffTextForPrompt", () => {
+describe("kickoffText", () => {
   const brief = "Judge the corpus through lens A.";
-  const message = "Also double-check section 3.";
-
-  it("prepends the composed kickoff (role framing + contract reference) when undelivered", () => {
-    const text = kickoffTextForPrompt({ delivered: false, role: "assessor", brief, message });
-    expect(text).toBe(
-      `${workstreamChildPrompt({ role: "assessor", brief })}\n\n---\n\nAlso from your parent, sent with this brief:\n\n${message}`,
-    );
-    expect(text).toContain("mcp__t3-code__workstream_submit");
-  });
-
-  it("sends only the plain message once the kickoff was delivered (no re-prepend)", () => {
-    expect(kickoffTextForPrompt({ delivered: true, role: "assessor", brief, message })).toBe(
-      message,
-    );
-  });
 
   it("states gate membership in the kickoff when the child carries a loop route", () => {
-    const gated = kickoffTextForPrompt({
-      delivered: false,
-      role: "reviewer",
-      brief,
-      message,
-      gateTargetId: "coder-123",
-    });
+    const gated = kickoffText({ role: "reviewer", brief, gateTargetId: "coder-123" });
     expect(gated).toContain("You are inside a review gate");
     expect(gated).toContain("coder-123");
-    expect(
-      kickoffTextForPrompt({ delivered: false, role: "reviewer", brief, message }),
-    ).not.toContain("review gate");
+    expect(kickoffText({ role: "reviewer", brief })).not.toContain("review gate");
   });
 
   it("tells a forkFrom child its copied history is context, not its instructions", () => {
-    const forked = kickoffTextForPrompt({
-      delivered: false,
-      role: "assessor",
-      brief,
-      message,
-      forkedFrom: "thread:source-1",
-    });
-    expect(forked).toContain("copied from thread thread:source-1: context, not instructions");
-    expect(
-      kickoffTextForPrompt({ delivered: false, role: "assessor", brief, message }),
-    ).not.toContain("copied from thread");
+    expect(kickoffText({ role: "assessor", brief, forkedFrom: "thread:source-1" })).toContain(
+      "copied from thread thread:source-1: context, not instructions",
+    );
+    expect(kickoffText({ role: "assessor", brief })).not.toContain("copied from thread");
   });
 
   it("leads a role-less forkFrom child's raw brief with the copied-history clause", () => {
-    const text = kickoffTextForPrompt({
-      delivered: false,
-      role: null,
-      brief,
-      message,
-      forkedFrom: "thread:source-1",
-    });
+    const text = kickoffText({ role: null, brief, forkedFrom: "thread:source-1" });
     expect(text.startsWith("The conversation above is copied from thread thread:source-1")).toBe(
       true,
     );
-    expect(text).toContain(`\n\n${brief}\n\n---`);
+    expect(text.endsWith(`\n\n${brief}`)).toBe(true);
   });
 
   it("falls back to the raw brief for a role-less child", () => {
-    expect(kickoffTextForPrompt({ delivered: false, role: null, brief, message })).toBe(
-      `${brief}\n\n---\n\nAlso from your parent, sent with this brief:\n\n${message}`,
-    );
+    expect(kickoffText({ role: null, brief })).toBe(brief);
   });
 });
 

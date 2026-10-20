@@ -168,9 +168,10 @@ T3CODE_HOME="$SEED_HOME" node apps/server/src/bin.ts auth pairing create
 
 ## 6. Clean up
 
-Never kill by pattern (`pkill -f`, `pgrep | kill`): your own agent process and
-several other dev servers on this machine carry matching worktree paths in their
-argv. Kill the PID you captured at spawn, or the owner of **your** port after
+Never kill by pattern (`pkill -f`, `pgrep | kill`): other threads' dev servers
+and tool shells on this machine carry matching worktree paths in their argv.
+(Loom keeps the pattern out of your own tool shell's argv, so it no longer
+matches the shell running it, but it still matches theirs.) Kill the PID you captured at spawn, or the owner of **your** port after
 confirming it is yours:
 
 ```sh

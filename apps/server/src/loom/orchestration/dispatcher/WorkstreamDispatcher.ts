@@ -317,8 +317,8 @@ const promotion: PassStep = {
               id: kickoffCommandId(row.threadId),
               tier: "steered",
               origin: "kickoff",
-              // DL-472: the same first turn mcp__t3-code__workstream_prompt sends (role framing, gate
-              // membership, completion contract), not the bare brief.
+              // DL-472: the brief inside its kickoff wrapper (role framing, gate membership,
+              // completion contract), not the bare brief.
               text: kickoffText({
                 role: row.role,
                 brief: text,
