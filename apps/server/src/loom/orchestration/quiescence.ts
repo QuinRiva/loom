@@ -14,6 +14,8 @@ import type {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
+import { awaitsErrorResume } from "./liveness/errorResume.ts";
+
 /** The latest run that is not queued (a queued run never started; a held queue is still queued). */
 export const latestUnheldRun = (runs: ReadonlyArray<OrchestrationV2Run>) =>
   runs
@@ -26,10 +28,10 @@ export const latestUnheldRun = (runs: ReadonlyArray<OrchestrationV2Run>) =>
 /**
  * A message that continues the turn before it rather than starting one (DL-482): upstream's
  * restart continuation and limit-resume, and Loom's steer redelivery, reroute / reroute-back
- * resumes and no-reset limit resume (`message:<commandId>` of `controlMessage.ts`'s builders).
+ * resumes, no-reset limit resume and error resume (`message:<commandId>` of `controlMessage.ts`'s builders).
  */
 const CONTINUATION_MESSAGE_ID =
-  /^(message:restart-continuation:|limit-resume:|message:server:loom:(steer-redeliver|reroute|reroute-back|limit-resume):)/;
+  /^(message:restart-continuation:|limit-resume:|message:server:loom:(steer-redeliver|reroute|reroute-back|limit-resume|error-resume):)/;
 
 /**
  * Whether the latest started turn was started by a human: the message that started its run,
@@ -82,6 +84,9 @@ export const quiescenceCandidate = (input: {
     return false;
   const lastRun = latestUnheldRun(input.runs);
   if (lastRun?.completedAt == null) return false;
+  // A failure the liveness sweep still owes its one resume is not quiet, whatever the grace: the
+  // parent hears of it only if the resumed turn fails too (the sweep's `error` raise).
+  if (awaitsErrorResume(input.shell, ws, input.runs)) return false;
   // A run the agent submitted from (after the run before it ended) did not go quiet: its report
   // stands, so a reopened or flag-cleared child is never synthesised over (DL-681).
   const previousEnd = latestUnheldRun(
