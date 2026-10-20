@@ -5,9 +5,11 @@
 // Running such a command base64-encoded through `eval` keeps the pattern out of every argv.
 // The hook's `input` is a clone, so the transcript and UI keep the original command.
 //
-// Under 64 KiB only, so the encoded `-c` argument stays below Linux's 128 KiB MAX_ARG_STRLEN.
+// Under 64 KiB (bytes, not characters) only, so the encoded `-c` argument stays below Linux's
+// 128 KiB MAX_ARG_STRLEN.
 // Wrapped in try/catch: a throwing `tool_call` handler blocks every tool in pi.
-// Registered after the search guard, which must analyse the original text.
+// Registered after the search and command guards, which must analyse the original text: a
+// pattern kill the command guard blocks never reaches this rewrite.
 import type { LoomExtensionPart } from "../loomExtension.ts";
 
 export const pgrepSelfMatchPart: LoomExtensionPart = {
@@ -16,7 +18,7 @@ export const pgrepSelfMatchPart: LoomExtensionPart = {
 pi.on("tool_call", (event) => {
   try {
     const command = event.toolName === "bash" ? event.input?.command : undefined;
-    if (typeof command === "string" && command.length < 65536 && /\\bp(grep|kill)\\b/.test(command)) {
+    if (typeof command === "string" && Buffer.byteLength(command) < 65536 && /\\bp(grep|kill)\\b/.test(command)) {
       event.input.command = 'eval "$(printf %s ' + Buffer.from(command).toString("base64") + ' | base64 -d)"';
     }
   } catch {}

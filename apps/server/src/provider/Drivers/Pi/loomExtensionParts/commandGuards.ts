@@ -4,10 +4,8 @@
 //  - `rg -rn` (grep habit): in ripgrep `-r` is `--replace`, so `-rn` rewrites every match to
 //    "n". Rewritten: the stray `r` is dropped.
 //  - `pkill`, or `pgrep` output fed to `kill`: kill by pattern, which on this shared machine can
-//    hit the agent's own process or another thread's server. Blocked.
-//  - `pgrep -f P` where P matches the command itself: the bash tool runs `bash -c <command>`,
-//    whose own command line contains P, so the check always succeeds and a polling loop runs to
-//    the tool timeout. Blocked (the test is the pattern run against the command text).
+//    hit another thread's server or job. Blocked. (`pgrep -f` matching the tool shell itself is
+//    fixed by the pgrep-self-match rewrite, which runs after this guard.)
 //  - `gh api` with a field flag and no `-X`: gh silently switches to POST. Blocked (a read and a
 //    write are equally plausible).
 //  - an unquoted heredoc whose body has backticks: bash runs them as command substitution, so a
@@ -24,9 +22,7 @@ import type { LoomExtensionPart } from "../loomExtension.ts";
 const NOTE = "[t3 command guard]";
 const BLOCKED = "Blocked by the t3 command guard:";
 
-const KILL_MESSAGE = `${BLOCKED} killing by pattern (\`pkill\`, or \`pgrep\` output fed to \`kill\`) can kill your own agent process or another thread's server, because their command lines carry the same names and paths. Kill only a PID you captured at spawn (\`pid=$!\`), or the owner of your port from \`ss -H -ltnp\` after checking \`/proc/<pid>/cwd\`. If you are sure the match is yours, list it with a bracket pattern like \`pgrep -af '[v]ite'\` (the brackets stop it matching this shell), then \`kill <pid>\` with the PIDs it printed.`;
-
-const PGREP_MESSAGE = `${BLOCKED} \`pgrep -f\` here matches the shell running this very command (its command line contains your pattern), so it always finds a process and a polling loop runs until the tool times out. To wait on a process you started, capture \`pid=$!\` at spawn and poll \`kill -0 $pid\` or \`wait $pid\`, or poll for a file the process writes when it finishes. To match by pattern anyway, use \`pgrep -fx\` or a bracket pattern like \`[v]ite\`, which cannot match its own command line.`;
+const KILL_MESSAGE = `${BLOCKED} killing by pattern (\`pkill\`, or \`pgrep\` output fed to \`kill\`) can kill another thread's process on this shared machine — several agents run dev servers and jobs with the same names and paths. Kill only a PID you captured at spawn (\`pid=$!\`), or the owner of your port from \`ss -H -ltnp\` after checking \`/proc/<pid>/cwd\`. If you must find it by name, list candidates with \`pgrep -af <pattern>\`, check each \`/proc/<pid>/cwd\` is your worktree, then \`kill <pid>\`.`;
 
 const GH_MESSAGE = `${BLOCKED} \`gh api\` with \`-f\`/\`-F\`/\`--field\` and no \`-X\` sends a POST, so this would write to ENDPOINT, not read it. To see what your flags expand to, \`printf '%s\\n'\` them instead. For a read, add \`-X GET\` (the fields become query parameters). If you did mean to write, re-run with an explicit \`-X POST\` (or \`PATCH\`/\`PUT\`).`;
 
@@ -39,7 +35,7 @@ const HEREDOC_WARN_NOTE = `${NOTE} Your unquoted heredoc FROM has backticks or \
 export const commandGuardsPart: LoomExtensionPart = {
   name: "command-guards",
   source: String.raw`
-const MESSAGES = ${JSON.stringify({ KILL_MESSAGE, PGREP_MESSAGE, GH_MESSAGE, RG_NOTE, HEREDOC_REWRITE_NOTE, HEREDOC_WARN_NOTE })};
+const MESSAGES = ${JSON.stringify({ KILL_MESSAGE, GH_MESSAGE, RG_NOTE, HEREDOC_REWRITE_NOTE, HEREDOC_WARN_NOTE })};
 const fill = (text, values) => text.replace(/\b(FROM|TO|ENDPOINT)\b/g, (key) => values[key]);
 const code = (text) => "\x60" + text + "\x60";
 
@@ -118,41 +114,6 @@ const rgEdits = (tokens) => {
   return edits;
 };
 
-// pgrep short flags that take a value (the rest of the bundle, or the next word).
-const PGREP_VALUED = "dgGPstuUF";
-const PGREP_VALUED_LONG = /^--(delimiter|pgroup|group|parent|session|terminal|euid|uid|pidfile|ns|nslist|older|runstates|signal|cgroup)$/;
-const pgrepSelfMatch = (tokens, command) => {
-  let full = false;
-  let exact = false;
-  let ignoreCase = false;
-  let pattern;
-  for (let i = 1; i < tokens.length; i += 1) {
-    const raw = tokens[i].raw;
-    if (raw.startsWith("--")) {
-      full ||= raw === "--full";
-      exact ||= raw === "--exact";
-      ignoreCase ||= raw === "--ignore-case";
-      if (PGREP_VALUED_LONG.test(raw)) i += 1;
-    } else if (raw.startsWith("-") && raw.length > 1) {
-      for (let k = 1; k < raw.length; k += 1) {
-        if (PGREP_VALUED.includes(raw[k])) {
-          if (k === raw.length - 1) i += 1;
-          break;
-        }
-        full ||= raw[k] === "f";
-        exact ||= raw[k] === "x";
-        ignoreCase ||= raw[k] === "i";
-      }
-    } else pattern ??= tokens[i].value;
-  }
-  if (!full || exact || pattern === undefined) return false;
-  try {
-    return new RegExp(pattern, ignoreCase ? "i" : "").test(command);
-  } catch {
-    return false;
-  }
-};
-
 // gh api + a field flag + no explicit method (graphql is always POST, and reads that way).
 const ghApiWrite = (tokens) => {
   if (tokens[1]?.value !== "api") return undefined;
@@ -182,7 +143,6 @@ const analyse = (command) => {
     else if (head === "pkill" && !tokens.some((t) => /^(-[PF]|--parent|--pidfile)/.test(t.raw))) {
       blocks.add(MESSAGES.KILL_MESSAGE);
     }
-    else if (head === "pgrep" && pgrepSelfMatch(tokens, command)) blocks.add(MESSAGES.PGREP_MESSAGE);
     else if (head === "gh") {
       const endpoint = ghApiWrite(tokens);
       if (endpoint) blocks.add(fill(MESSAGES.GH_MESSAGE, { ENDPOINT: endpoint }));

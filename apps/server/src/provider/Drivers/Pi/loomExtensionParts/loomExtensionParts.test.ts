@@ -9,7 +9,7 @@ import * as NodePath from "node:path";
 
 import { afterAll, describe, expect, it } from "vite-plus/test";
 
-import type { LoomExtensionPart } from "../loomExtension.ts";
+import { LOOM_EXTENSION_PARTS, type LoomExtensionPart } from "../loomExtension.ts";
 import { cacheWarmingGatePart } from "./cacheWarmingGate.ts";
 import { commandGuardsPart } from "./commandGuards.ts";
 import { pgrepSelfMatchPart } from "./pgrepSelfMatch.ts";
@@ -330,6 +330,51 @@ describe("pgrep-self-match part", () => {
   });
 });
 
+describe("command guards then pgrep rewrite, as assembled", () => {
+  // pi's emitToolCall: every extension tool_call handler in registration order, on one shared
+  // event, stopping at the first block.
+  const toolCall = (command: string) => {
+    const event = bashCall(command);
+    for (const part of LOOM_EXTENSION_PARTS.filter((p) => p.source.includes(`pi.on("tool_call"`))) {
+      const result = loadPart(part).get("tool_call")?.(event, ctx) as
+        | { block?: boolean; reason?: string }
+        | undefined;
+      if (result?.block) return { reason: result.reason, command: event.input.command };
+    }
+    return { reason: undefined, command: event.input.command };
+  };
+
+  it("blocks pkill by pattern before the rewrite can hide it", () => {
+    const out = toolCall("pkill -f marker; echo done");
+    expect(out.reason).toMatch(/^Blocked by the t3 command guard: killing by pattern/);
+    expect(out.reason).toContain("can kill another thread's process on this shared machine");
+  });
+
+  it("lets a self-matching pgrep through and rewrites it so it no longer matches its shell", () => {
+    const marker = `loom-pgrep-assembled-${process.pid}`;
+    const out = toolCall(
+      `while pgrep -f "${marker} loop" >/dev/null; do exit 9; done; pgrep -f ${marker} || echo none`,
+    );
+    expect(out.reason).toBeUndefined();
+    expect(out.command).not.toContain(marker);
+    const result = NodeChildProcess.spawnSync(
+      "bash",
+      ["-c", `export LOOM_PREFIX=1\n${out.command}`],
+      {
+        encoding: "utf8",
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("none");
+  });
+
+  it("passes bracket-pattern pgrep and pkill by parent PID", () => {
+    for (const command of [`pgrep -af '[v]ite'`, `pkill -P 123`]) {
+      expect(toolCall(command).reason, command).toBeUndefined();
+    }
+  });
+});
+
 describe("prompt-debug part", () => {
   const tmpDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "pi-prompt-debug-test-"));
   afterAll(() => NodeFS.rmSync(tmpDir, { recursive: true, force: true }));
@@ -574,19 +619,11 @@ describe("command-guards part", () => {
     }
   });
 
-  it("blocks pgrep -f whose pattern matches the command itself", () => {
+  it("allows pgrep on its own and pkill by PID or pidfile", () => {
     for (const command of [
       `while pgrep -f "vite build"; do sleep 1; done`,
       `pgrep -f vite`,
-      `npx vite & until ! pgrep -f '[v]ite'; do sleep 1; done`,
-      `pgrep -af -u carl serve.ts`,
-    ]) {
-      expect(run(command).reason, command).toContain("matches the shell running this very command");
-    }
-  });
-
-  it("allows pgrep that cannot match its own command line", () => {
-    for (const command of [
+      `pgrep -af '[v]ite'`,
       `pgrep -x node`,
       `pgrep -fx "node server.js"`,
       `pgrep -f '[v]ite build'`,
