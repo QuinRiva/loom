@@ -57,10 +57,12 @@ export function LoomMdxAnnotationLayer({
       ? undefined
       : {
           pins,
-          label:
-            author.authorSource === "signature"
-              ? `Ask the author's fork · ${author.authorTitle}`
-              : "No signature found: asks this thread's fork",
+          ...(author.authorSource === "signature"
+            ? { label: "Ask the author's fork", detail: `Signed by “${author.authorTitle}”` }
+            : {
+                label: "Ask this thread's fork",
+                detail: "No signature found in the document",
+              }),
           ask: async (input) => {
             // The server re-resolves the author from the document as it reads it now.
             const result = await documentQuery({

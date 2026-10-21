@@ -1003,7 +1003,8 @@ const textAnchor = (textQuote: string) => ({
   sectionTitle: "2. One reader lane, not two",
 });
 const QUERY_PINS_BINDING: PlanQueryBinding = {
-  label: "Ask the author's fork · Read-lane plan",
+  label: "Ask the author's fork",
+  detail: "Signed by “Read-lane plan”",
   pins: [
     "a write that crossed the port would lose the transaction it sits in",
     "one serialisation per read",

@@ -91,8 +91,9 @@ import {
  */
 export interface PlanQueryBinding {
   readonly pins: ReadonlyArray<DocumentQueryPin>;
-  /** The Query card's title: which thread's fork a question goes to. */
+  /** The Query card's title and the line under it: whose fork a question goes to, and why. */
   readonly label: string;
+  readonly detail: string;
   /** Ask, then open the query thread; resolves to an error message, or null on success. */
   readonly ask: (input: Omit<DocumentQueryInput, "sourceThreadId">) => Promise<string | null>;
   readonly openPin: (pin: DocumentQueryPin) => void;
@@ -1185,6 +1186,7 @@ export function MdxPlanAnnotationLayer({
           key={composer.id}
           mode={composer.mode}
           queryLabel={query?.label ?? "Ask the author's fork"}
+          queryDetail={query?.detail ?? null}
           fileName={fileNameOf(filePath)}
           draftKey={composer.draftKey}
           top={composer.top}
@@ -1300,6 +1302,7 @@ function AnnotationCard({
 interface AnnotationComposerProps {
   mode: ComposerMode;
   queryLabel: string;
+  queryDetail: string | null;
   fileName: string;
   draftKey: string;
   top: number;
@@ -1316,6 +1319,7 @@ interface AnnotationComposerProps {
 function AnnotationComposer({
   mode,
   queryLabel,
+  queryDetail,
   fileName,
   draftKey,
   top,
@@ -1403,6 +1407,9 @@ function AnnotationComposer({
           <span className="text-sm font-medium">Comment on plan</span>
         )}
       </div>
+      {querying && queryDetail ? (
+        <p className="mt-1 truncate text-2xs text-muted-foreground">{queryDetail}</p>
+      ) : null}
       {quotedText ? (
         <p
           className={cn(
