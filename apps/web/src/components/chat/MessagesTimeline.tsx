@@ -320,6 +320,8 @@ import { isConsultToolItem } from "../../loom/consultTool";
 import { ControlDigestRow } from "../../loom/ControlDigestRow";
 import { CHANNEL_CLASSES, type ControlBubble, KICKOFF_BUBBLE } from "../../loom/controlMessages"; // loom: 3d-3
 import { splitDocumentQueryKickoff } from "@t3tools/shared/documentQuery.loom"; // loom: query threads
+import { DocumentQueryPromoteButton } from "../../loom/DocumentQueryPromoteButton"; // loom: query threads
+import { PromotedFromQuery } from "../../loom/PromotedFromQuery"; // loom: query threads
 import { LoomTimelineRow } from "../../loom/LoomTimelineRow";
 import { insertLoomTimelineRows, useLoomTimelineRows } from "../../loom/loomTimelineRows";
 import { ModelChangeDivider } from "../../loom/ModelChangeDivider"; // loom: model-change divider
@@ -2872,6 +2874,14 @@ function AssistantMessageMeta({
       {projectedItem?.item.type === "assistant_message" ? (
         <AssistantForkButton projectedItem={projectedItem} />
       ) : null}
+      {/* loom: Promote on a query thread's answer (renders nothing elsewhere) */}
+      {projectedItem?.item.type === "assistant_message" && projectedItem.item.runId !== null ? (
+        <DocumentQueryPromoteButton
+          environmentId={ctx.activeThreadEnvironmentId}
+          threadId={projectedItem.sourceThreadId}
+          runId={projectedItem.item.runId}
+        />
+      ) : null}
       {!message.streaming && (
         <Tooltip>
           <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
@@ -4582,6 +4592,7 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
                   : {}),
                 ...(record.pullRequest !== undefined ? { pullRequest: record.pullRequest } : {}),
               }}
+              queryThreadId={record.mdxAnchor?.queryThreadId} // loom: promoted link back
             />
           </UserMessageContextPopover>
         );
@@ -4739,7 +4750,13 @@ const UserMessageBody = memo(function UserMessageBody(props: {
 });
 
 // loom: the card renders line comments; mdx-anchor ones have no diff to show.
-function UserMessageReviewCommentCard({ comment }: { comment: LineReviewCommentContext }) {
+function UserMessageReviewCommentCard({
+  comment,
+  queryThreadId, // loom: set on a comment promoted from a query thread
+}: {
+  comment: LineReviewCommentContext;
+  queryThreadId?: ThreadId | undefined; // loom:
+}) {
   const ctx = use(TimelineRowCtx);
   const fenceLanguage = comment.fenceLanguage ?? "diff";
   const renderablePatch = getRenderablePatch(
@@ -4756,6 +4773,14 @@ function UserMessageReviewCommentCard({ comment }: { comment: LineReviewCommentC
         <div className="text-2xs text-muted-foreground">
           {comment.sectionTitle} · {comment.rangeLabel}
         </div>
+        {queryThreadId ? ( // loom: the link back to the query thread
+          <PromotedFromQuery
+            environmentId={ctx.activeThreadEnvironmentId}
+            queryThreadId={queryThreadId}
+            filePath={comment.filePath}
+            fromThreadRef={ctx.threadRef ?? undefined}
+          />
+        ) : null}
       </div>
       {comment.text.length > 0 && (
         <div className="whitespace-pre-wrap wrap-break-word text-sm">

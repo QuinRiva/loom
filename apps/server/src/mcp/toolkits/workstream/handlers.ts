@@ -13,6 +13,7 @@ import type { WorkstreamCaller } from "./authorisation.ts";
 import type { LoomMcpToolName, LoomToolError, LoomToolHandlers, LoomToolInput } from "./defs.ts";
 import { workstreamBrief } from "./handlers/brief.ts";
 import { consultThread } from "./handlers/consult.ts";
+import { documentQueryPromote } from "./handlers/documentQuery.ts";
 import { threadFork } from "./handlers/fork.ts";
 import { goalContinue } from "./handlers/goalContinue.ts";
 import { goalHandoff } from "./handlers/goalHandoff.ts";
@@ -61,6 +62,7 @@ const loomHandlers = {
   goal_handoff: goalHandoff,
   goal_continue: goalContinue,
   goal_update: goalUpdate,
+  document_query_promote: documentQueryPromote,
 } satisfies {
   readonly [N in LoomMcpToolName]: (
     input: LoomToolInput<N>,

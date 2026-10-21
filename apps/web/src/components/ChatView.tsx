@@ -319,6 +319,7 @@ import { useLoomDraftIntercepts } from "../loom/useLoomDraftIntercepts"; // loom
 import { useLoomRightPanelSurfaces } from "../loom/useLoomRightPanelSurfaces"; // loom: 3d-2 seam 18
 import { LoomStagedCards } from "../loom/LoomStagedCards"; // loom: 3d-4 staged cards
 import { isDocumentQueryWaiting } from "../loom/DocumentQueryHeader"; // loom: query threads
+import { useSeedPromotedQueryComments } from "../loom/useSeedPromotedQueryComments"; // loom: query threads
 import { useHostLoomPendingInput } from "../loom/pendingUserInputLoom"; // loom: 3d-4 DT-36
 import { usePreviewSurfaceAnnotating } from "../loom/previewAnnotationPicks"; // loom: annotation picks
 import {
@@ -1609,6 +1610,8 @@ export default function ChatView(props: ChatViewProps) {
   // loom: a query thread waiting on its author's turn has no fork yet; a hand-typed first
   // message would start it as a fresh session, so the composer holds until the fork is sent.
   const queryForkWaiting = isDocumentQueryWaiting(activeThreadShell?.source.workstream);
+  // loom: comments promoted from this thread's query threads seed into its composer once.
+  useSeedPromotedQueryComments(isServerThread ? activeThreadRef : null);
   const timelineThreadError =
     serverRuntime?.status === "failed" &&
     serverRuntime.lastErrorClass === "usage_limit" &&

@@ -20,6 +20,7 @@ import {
   CommandId,
   DOCUMENT_QUERY_ROLE,
   DocumentQueryInput,
+  type DocumentQueryPromoteInput,
   LOOM_WS_METHODS,
   type LoomThreadWorkstream,
   LoomWsMethodError,
@@ -29,6 +30,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import {
+  documentQueryPromoteId,
   documentQueryQuestionId as questionId,
   joinDocumentQueryKickoff,
 } from "@t3tools/shared/documentQuery.loom";
@@ -354,6 +356,57 @@ export const askDocumentQuery = (input: DocumentQueryInput) =>
       (cause) =>
         Effect.fail(
           new LoomWsMethodError({ method, message: `${method} failed to ask the query.`, cause }),
+        ),
+    ),
+  );
+
+/**
+ * `loom.documentQueryPromote`: a human turn on the query thread asking the fork to distil the
+ * exchange at `exchangeAt` into one comment with `mcp__t3-code__document_query_promote`. The tool
+ * call records the promotion; this only queues the turn. The thread stays open: one review pass
+ * may promote several exchanges.
+ */
+export const promoteDocumentQuery = (input: DocumentQueryPromoteInput) =>
+  Effect.gen(function* () {
+    const promoteMethod = LOOM_WS_METHODS.documentQueryPromote;
+    const row = yield* (yield* LoomStoreV2).getWorkstream(input.queryThreadId);
+    if (row?.role !== DOCUMENT_QUERY_ROLE || row.deletedAt !== null)
+      return yield* new LoomWsMethodError({
+        method: promoteMethod,
+        message: "Only a query thread's exchanges can be promoted.",
+      });
+    if (!row.documentQuery?.questions.some((question) => question.askedAt === input.exchangeAt))
+      return yield* new LoomWsMethodError({
+        method: promoteMethod,
+        message: "That exchange is not a question asked in this query thread.",
+      });
+    const id = documentQueryPromoteId(
+      input.queryThreadId,
+      yield* (yield* Crypto.Crypto).randomUUIDv4(),
+    );
+    yield* (yield* OrchestratorV2).dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make(id),
+      threadId: input.queryThreadId,
+      messageId: MessageId.make(`message:${id}`),
+      text: `Promote the exchange above (my question at exchangeAt ${input.exchangeAt} and your answer): write one anchored comment for the author with \`mcp__t3-code__document_query_promote\`; nothing else reaches the author.`,
+      attachments: [],
+      // The human pressed Promote; the server words the turn.
+      createdBy: "user",
+      creationSource: "server",
+      dispatchMode: { type: "queue_after_active" },
+    });
+    return { dispatched: true as const };
+  }).pipe(
+    Effect.catchIf(
+      (error) => error._tag !== "LoomWsMethodError",
+      (cause) =>
+        Effect.fail(
+          new LoomWsMethodError({
+            method: LOOM_WS_METHODS.documentQueryPromote,
+            message: "Could not send the promote turn.",
+            cause,
+          }),
         ),
     ),
   );

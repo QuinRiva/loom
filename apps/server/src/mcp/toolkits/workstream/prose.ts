@@ -178,6 +178,14 @@ export const LOOM_TOOL_PROSE = {
     promptSnippet: "update this thread's goal metadata (title / description / slug).",
     promptGuidelines: "",
   },
+  document_query_promote: {
+    description:
+      "Record ONE comment for the author of the document this query thread is about, distilling the exchange the human asked you to promote; it waits in the author's composer until the human sends it. Query threads only.",
+    promptSnippet:
+      "promote one exchange to the document's author as an anchored comment (query threads only).",
+    // No guidelines: the description and the promote turn carry the contract.
+    promptGuidelines: "",
+  },
   ask_user_question: {
     description:
       "Ask the person reading this thread a structured question; it is available because a human has written here. For an irreversible, destructive or preference-only decision the request, codebase and prior context do not settle; otherwise state an assumption and proceed, and do not ask to reconfirm scope or for approval you do not need. Coupled decisions and plan or design sign-offs go in an MDX decision document (the mdx-visual-recap skill), with the question a pointer to it. What your parent could answer goes to mcp__t3-code__consult_thread; guidance you cannot frame as options is mcp__t3-code__workstream_request_attention with needs_guidance.",

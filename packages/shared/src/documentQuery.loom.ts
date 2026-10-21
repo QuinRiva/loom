@@ -12,6 +12,14 @@ const DIVIDER = "\n\n---\n\n";
 export const documentQueryQuestionId = (threadId: string, n: number) =>
   `server:loom:query:${threadId}:${n}`;
 
+/** A Promote turn's command id; its message id is `message:<this>`. */
+export const documentQueryPromoteId = (threadId: string, key: string) =>
+  `server:loom:query-promote:${threadId}:${key}`;
+
+/** A Promote turn's own answer is the tool call's receipt, never an exchange to promote. */
+export const isDocumentQueryPromoteMessage = (messageId: string) =>
+  messageId.startsWith("message:server:loom:query-promote:");
+
 const FIRST_QUESTION_MESSAGE = /^message:server:loom:query:.+:1$/;
 
 export const joinDocumentQueryKickoff = (overlay: string, question: string) =>

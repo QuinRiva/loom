@@ -34,8 +34,11 @@ import {
   seedRunningRun,
   seedThread,
 } from "../testkit/loomOrchestratorLayer.ts";
+import type { WorkstreamCaller } from "../../mcp/toolkits/workstream/authorisation.ts";
+import { documentQueryPromote } from "../../mcp/toolkits/workstream/handlers/documentQuery.ts";
 import {
   askDocumentQuery,
+  promoteDocumentQuery,
   buildDocumentQueryBrief,
   parseDocumentQueryBrief,
   reusableQueryThread,
@@ -239,6 +242,75 @@ it.layer(TestLayer)("Query threads", (it) => {
         yield* settlePass; // idempotent: nothing re-sent
         assert.lengthOf(yield* messagesOf(queryThreadId), 1);
         assert.deepEqual((yield* row(queryThreadId)).attention, []);
+      }),
+  );
+  it.effect(
+    "Promote queues a human turn; the tool, refused off a query thread, anchors to its question",
+    () =>
+      Effect.gen(function* () {
+        const author = ThreadId.make("query-promote-author");
+        yield* seedThread({ threadId: author });
+        yield* seedRunningRun({ threadId: author, driver: pi });
+        yield* completeSeededRun({ threadId: author });
+        documentContents = "# Promote plan";
+        const first = yield* askDocumentQuery(ask(author, "Why in-process?"));
+        const second = yield* askDocumentQuery(ask(author, "And the reads?"));
+        const caller = (threadId: ThreadId) => ({ threadId }) as WorkstreamCaller;
+
+        // The RPC: an unknown exchange is refused; a known one queues the human's promote turn.
+        const stray = yield* Effect.flip(
+          promoteDocumentQuery({
+            queryThreadId: first.queryThreadId,
+            exchangeAt: "2000-01-01T00:00:00.000Z",
+          }),
+        );
+        assert.include(stray.message, "not a question asked in this query thread");
+        yield* promoteDocumentQuery({
+          queryThreadId: first.queryThreadId,
+          exchangeAt: second.askedAt,
+        });
+        const turn = (yield* messagesOf(first.queryThreadId)).find((m) =>
+          m.id.startsWith("message:server:loom:query-promote:"),
+        );
+        assert.equal(turn?.loom?.humanAuthored, true);
+        assert.include(turn?.text ?? "", `exchangeAt ${second.askedAt}`);
+
+        // The tool: any thread but a query thread is refused, and nothing is recorded.
+        const refused = yield* Effect.flip(
+          documentQueryPromote({ text: "x", exchangeAt: second.askedAt }, caller(author)),
+        );
+        assert.include(refused.message, "Only a query thread can promote");
+        const wrong = yield* Effect.flip(
+          documentQueryPromote(
+            { text: "x", exchangeAt: "2000-01-01T00:00:00.000Z" },
+            caller(first.queryThreadId),
+          ),
+        );
+        assert.include(wrong.message, "matches no question");
+
+        // The anchor, passage and section come from the named question, not the model.
+        const reply = yield* documentQueryPromote(
+          { text: "  State the snapshot caveat in §2.  ", exchangeAt: second.askedAt },
+          caller(first.queryThreadId),
+        );
+        assert.equal(
+          reply,
+          "Recorded. The comment will appear in the author's composer; the human sends it.",
+        );
+        const query = yield* row(first.queryThreadId);
+        const asked = query.documentQuery?.questions[1];
+        const [promotion] = query.documentQuery?.promotions ?? [];
+        assert.equal(promotion?.exchangeAt, second.askedAt);
+        assert.deepEqual(promotion?.comment, {
+          text: "State the snapshot caveat in §2.",
+          anchor: asked!.anchor,
+          quotedText: asked!.quotedText,
+          sectionId: "s2",
+          sectionTitle: "2. One reader lane",
+          rangeLabel: "promoted",
+        });
+        // Promoting never closes the thread: a second exchange can be promoted too.
+        assert.deepInclude(query, { outcome: null, archivedAt: null });
       }),
   );
 });

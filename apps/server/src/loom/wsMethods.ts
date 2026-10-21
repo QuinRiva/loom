@@ -16,6 +16,7 @@
  */
 import {
   type DocumentQueryInput,
+  type DocumentQueryPromoteInput,
   type GoalId,
   GoalTaskId,
   type HandoffDraftInput,
@@ -49,7 +50,7 @@ import { ServerConfig } from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import type { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
 import type { WorkspaceFileSystem } from "../workspace/WorkspaceFileSystem.ts";
-import { askDocumentQuery } from "./query/documentQuery.ts";
+import { askDocumentQuery, promoteDocumentQuery } from "./query/documentQuery.ts";
 import { LoomUsageLedger } from "./economics/LoomUsageLedger.ts";
 import { buildHandoffDraftTurnStart, launchDraftFork } from "./handoff/handoffDraft.ts";
 import { launchRetro, RETRO_RUNS_DIR } from "./handoff/retroDraft.ts";
@@ -234,10 +235,9 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
     // Query: a question about a passage, in the author's read-only query thread for this revision.
     [LOOM_WS_METHODS.documentQuery]: (input: DocumentQueryInput) =>
       askDocumentQuery(input).pipe(Effect.provideContext(queryServices)),
-    // loom: placeholder so the typed group compiles; the Promote slice replaces this body
-    // (plans/plan-query-threads/plan.mdx §5).
-    [LOOM_WS_METHODS.documentQueryPromote]: () =>
-      Effect.fail(fail(LOOM_WS_METHODS.documentQueryPromote, "not implemented yet")),
+    // Promote: a human turn asking the query thread to distil one exchange for the author.
+    [LOOM_WS_METHODS.documentQueryPromote]: (input: DocumentQueryPromoteInput) =>
+      promoteDocumentQuery(input).pipe(Effect.provideContext(queryServices)),
     // 3d-4 — seam 11's spend reads.
     [LOOM_WS_METHODS.threadSpend]: (input: LoomThreadSpendInput) =>
       usageLedger
