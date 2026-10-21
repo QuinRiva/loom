@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  DOCUMENT_QUERY_ROLE,
   EventId,
   GoalId,
   GoalTaskId,
@@ -513,6 +514,105 @@ it.layer(TestLayer)("Loom projector", (it) => {
       const snapshot = yield* orchestrator.getShellSnapshot();
       assert.isDefined(snapshot.threads.find((entry) => entry.id === loomThread)?.workstream);
       assert.isUndefined(snapshot.threads.find((entry) => entry.id === plain)?.workstream);
+    }),
+  );
+
+  it.effect("records a query thread's questions and promotions, replay-safely", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStoreV2;
+      const author = ThreadId.make("query-author");
+      const query = ThreadId.make("query-thread");
+      yield* seedThread({ threadId: query });
+      yield* writeEvents([
+        yield* loomEvent("thread.workstream-created", query, {
+          parentThreadId: null,
+          rootThreadId: query,
+          projectId,
+          goalId: null,
+          anchorTaskId: null,
+          role: DOCUMENT_QUERY_ROLE,
+          purpose: "Query thread on plans/x/plan.mdx",
+          graphKey: null,
+          kickoffBriefPath: null,
+          held: false,
+          blockedBy: [],
+          routes: [],
+          spawnGeneration: null,
+          forkFromThreadId: author,
+          continuesThreadId: null,
+        }),
+      ]);
+      assert.isNull((yield* store.getWorkstream(query))?.documentQuery);
+
+      const document = { filePath: "plans/x/plan.mdx", revision: "0123456789ab" };
+      const question = (n: number) => ({
+        messageId: MessageId.make(`message:server:loom:query:${query}:${n}`),
+        askedAt: `2026-10-21T00:0${n}:00.000Z`,
+        anchor: { anchorKind: "text" as const, textQuote: `passage ${n}`, sectionId: "s2" },
+        quotedText: `passage ${n}`,
+        sectionTitle: "2. One reader lane",
+      });
+      const ask = (n: number, revision = document.revision) =>
+        dispatch({
+          type: "thread.document-query.ask",
+          commandId: CommandId.make(`server:query-ask-${n}-${revision}`),
+          threadId: query,
+          createdAt: question(n).askedAt,
+          filePath: document.filePath,
+          revision,
+          question: question(n),
+        });
+      const promotion = {
+        promotionId: "promotion-1",
+        promotedAt: "2026-10-21T00:05:00.000Z",
+        exchangeAt: question(2).askedAt,
+        comment: {
+          text: "State that the read lane may trail a same-tick commit.",
+          anchor: question(2).anchor,
+          quotedText: "passage 2",
+          sectionId: "s2",
+          sectionTitle: "2. One reader lane",
+          rangeLabel: "promoted",
+        },
+      };
+      const promote = (exchangeAt: string, id: string) =>
+        dispatch({
+          type: "thread.document-query.promote",
+          commandId: CommandId.make(id),
+          threadId: query,
+          createdAt: promotion.promotedAt,
+          promotion: { ...promotion, exchangeAt },
+        });
+
+      yield* ask(1);
+      yield* ask(2);
+      // Another revision forks a new query thread; the decider refuses it here.
+      const refused = (effect: ReturnType<typeof dispatch>) =>
+        Effect.map(Effect.flip(effect), (error) => String((error as { cause?: unknown }).cause));
+      assert.include(yield* refused(ask(3, "ba9876543210")), "forks a new one");
+      // A replayed asked event appends nothing.
+      yield* writeEvents([
+        yield* loomEvent("thread.document-query-asked", query, {
+          ...document,
+          question: question(1),
+        }),
+      ]);
+      assert.include(
+        yield* refused(promote("2026-10-21T09:00:00.000Z", "server:query-promote-orphan")),
+        "has no question at",
+      );
+      yield* promote(question(2).askedAt, "server:query-promote-1");
+      yield* writeEvents([
+        yield* loomEvent("thread.document-query-promoted", query, { promotion }),
+      ]);
+
+      const expected = {
+        ...document,
+        questions: [question(1), question(2)],
+        promotions: [promotion],
+      };
+      assert.deepEqual((yield* store.getWorkstream(query))?.documentQuery, expected);
+      assert.deepEqual((yield* store.shellFields([query])).get(query)?.documentQuery, expected);
     }),
   );
 

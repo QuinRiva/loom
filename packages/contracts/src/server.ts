@@ -24,6 +24,7 @@ import {
 } from "./keybindings.ts";
 import { EditorId, FileManagerRevealKind, RemoteOpenTarget } from "./editor.ts";
 import { ModelCapabilities } from "./model.ts";
+import { PlanCommentAnchor } from "./plan.ts"; // loom: query threads
 import { RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { ServerProviderUsageLimits, UsageLimitSourceSnapshots } from "./providerUsageLimits.ts";
@@ -543,6 +544,41 @@ export const RetroDraftResult = Schema.Struct({
   reviewerThreadId: ThreadId,
 });
 export type RetroDraftResult = typeof RetroDraftResult.Type;
+
+// loom: query threads (plans/plan-query-threads/plan.mdx §2.4). The MDX viewer's Query
+// asks about a passage in a read-only fork of the viewing thread (the document's
+// author), creating the query thread or reusing the live one for this revision; the
+// question becomes a human turn there.
+export const DocumentQueryInput = Schema.Struct({
+  sourceThreadId: ThreadId,
+  filePath: TrimmedNonEmptyString,
+  anchor: PlanCommentAnchor,
+  quotedText: Schema.String,
+  sectionId: Schema.String,
+  sectionTitle: Schema.String,
+  rangeLabel: Schema.String,
+  question: TrimmedNonEmptyString,
+});
+export type DocumentQueryInput = typeof DocumentQueryInput.Type;
+
+export const DocumentQueryResult = Schema.Struct({
+  queryThreadId: ThreadId,
+  /** False when the question landed in the live query thread for this revision. */
+  created: Schema.Boolean,
+  askedAt: IsoDateTime,
+});
+export type DocumentQueryResult = typeof DocumentQueryResult.Type;
+
+// loom: Promote on a query thread's answer: queues a human turn asking the fork to
+// distil the exchange at `exchangeAt` into one anchored comment for the author.
+export const DocumentQueryPromoteInput = Schema.Struct({
+  queryThreadId: ThreadId,
+  exchangeAt: IsoDateTime,
+});
+export type DocumentQueryPromoteInput = typeof DocumentQueryPromoteInput.Type;
+
+export const DocumentQueryPromoteResult = Schema.Struct({ dispatched: Schema.Literal(true) });
+export type DocumentQueryPromoteResult = typeof DocumentQueryPromoteResult.Type;
 
 export const EnvironmentThemeColor = Schema.String.check(
   Schema.isPattern(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/),

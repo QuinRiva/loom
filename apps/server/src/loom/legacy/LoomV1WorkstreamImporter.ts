@@ -340,6 +340,7 @@ export const mapLegacyThread = (
       reportPath,
       handoffDestinations,
       handoffOrigin: null,
+      documentQuery: null,
       notifySendLog: [],
       archivedAt: null,
       unarchivedAt: null,

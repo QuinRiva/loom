@@ -216,6 +216,12 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
         Effect.map((reviewerThreadId) => ({ reviewerThreadId })),
         Effect.provideContext(draftServices),
       ),
+    // loom: placeholders so the typed group compiles; the query-thread server slice (ask)
+    // and the Promote slice replace these bodies (plans/plan-query-threads/plan.mdx §5).
+    [LOOM_WS_METHODS.documentQuery]: () =>
+      Effect.fail(fail(LOOM_WS_METHODS.documentQuery, "not implemented yet")),
+    [LOOM_WS_METHODS.documentQueryPromote]: () =>
+      Effect.fail(fail(LOOM_WS_METHODS.documentQueryPromote, "not implemented yet")),
     // 3d-4 — seam 11's spend reads.
     [LOOM_WS_METHODS.threadSpend]: (input: LoomThreadSpendInput) =>
       usageLedger

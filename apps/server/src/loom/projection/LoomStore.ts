@@ -23,6 +23,7 @@ import {
   type LoomActiveStep,
   type LoomCacheRetention,
   LoomContextUsage,
+  LoomDocumentQuery,
   LoomRouteRecord,
   LoomThreadCache,
   type LoomThreadCachePatch,
@@ -73,6 +74,7 @@ export const LoomThreadWorkstreamRow = LoomThreadWorkstream.mapFields((fields) =
   handoffDestinations: Schema.fromJsonString(fields.handoffDestinations),
   handoffOrigin: Schema.NullOr(Schema.fromJsonString(HandoffOrigin)),
   notifySendLog: Schema.fromJsonString(fields.notifySendLog),
+  documentQuery: Schema.NullOr(Schema.fromJsonString(LoomDocumentQuery)),
 }));
 
 const WORKSTREAM_COLUMNS = {
@@ -109,6 +111,7 @@ const WORKSTREAM_COLUMNS = {
   handoff_destinations: "handoffDestinations",
   handoff_origin: "handoffOrigin",
   notify_send_log: "notifySendLog",
+  document_query: "documentQuery",
   archived_at: "archivedAt",
   unarchived_at: "unarchivedAt",
   unarchived_event_id: "unarchivedEventId",
@@ -191,6 +194,7 @@ export const emptyWorkstream = (input: {
   handoffDestinations: [],
   handoffOrigin: null,
   notifySendLog: [],
+  documentQuery: null,
   archivedAt: null,
   unarchivedAt: null,
   unarchivedEventId: null,
