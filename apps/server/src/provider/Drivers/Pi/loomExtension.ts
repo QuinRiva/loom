@@ -14,7 +14,9 @@
  * the resulting plan is reported to `/cache-warming` for the sidebar's cache gauge) and
  * `consultGuard` (a consult fork refuses `edit` / `write`) and `systemHead` (pi's system message
  * moved to the head of each request, so a `tool_search` load appends instead of rewriting the
- * prompt cache) (`loomExtensionParts/`).
+ * prompt cache) and `backgroundJobs` (`bg_start` / `bg_wait`, a wake when a job exits, the
+ * `loom-jobs` status line the adapter reads as a session pin, and a refused submit while a job runs)
+ * (`loomExtensionParts/`).
  *
  * A part's `source` is the body of `(pi, ctx) => { … }` with
  * `ctx = { profile(), endpoint, token }`; module-level `loomFetch(ctx, method,
@@ -33,6 +35,7 @@ import * as ServerConfig from "../../../config.ts";
 import { HUMAN_INPUT_REFUSAL } from "../../../loom/prompt/prose.ts";
 import { agentToolName, HUMAN_INPUT } from "../../../mcp/toolkits/workstream/families.ts";
 import { LOOM_TOOL_PROSE } from "../../../mcp/toolkits/workstream/prose.ts";
+import { backgroundJobsPart } from "./loomExtensionParts/backgroundJobs.ts";
 import { cacheWarmingGatePart } from "./loomExtensionParts/cacheWarmingGate.ts";
 import { commandGuardsPart } from "./loomExtensionParts/commandGuards.ts";
 import { consultGuardPart } from "./loomExtensionParts/consultGuard.ts";
@@ -105,7 +108,8 @@ const apply = () => {
   const active = new Set(pi.getActiveTools());
   const discovered = registered.filter((tool) => tool.exposure === "deferred" && active.has(tool.name)).map((tool) => tool.name);
   ctx.syncHumanInput?.();
-  const wanted = new Set([...[...base, "tool_search", ...discovered].filter(allowed), ...(ctx.humanInputRefused() ? [] : HUMAN_INPUT)]);
+  // The background-job tools are active in every profile, like tool_search.
+  const wanted = new Set([...[...base, "tool_search", "bg_start", "bg_wait", ...discovered].filter(allowed), ...(ctx.humanInputRefused() ? [] : HUMAN_INPUT)]);
   // pi's order wins for tools already active, newly wanted ones append: pi's <tools> prompt
   // section follows the active order, so a reshuffle alone would patch the prompt for nothing.
   pi.setActiveTools([...new Set([...[...active].filter((name) => wanted.has(name)), ...wanted])]);
@@ -208,6 +212,7 @@ export const LOOM_EXTENSION_PARTS: ReadonlyArray<LoomExtensionPart> = [
   cacheWarmingGatePart,
   consultGuardPart,
   systemHeadPart,
+  backgroundJobsPart,
 ];
 
 export const assembleLoomExtensionSource = (parts: ReadonlyArray<LoomExtensionPart>): string => `\

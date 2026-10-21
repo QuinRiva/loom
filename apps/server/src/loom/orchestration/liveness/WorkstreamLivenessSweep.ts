@@ -482,7 +482,7 @@ const make = (thresholds: LivenessSweepThresholds) =>
     ) {
       const estimateMs = declaredEstimateMs({
         commandText: tool.commandText,
-        timeoutSeconds: null,
+        timeoutSeconds: tool.timeoutSeconds,
       });
       const inFlightMs = now - tool.startedAtMs;
       const index = slowToolNoticeIndex(inFlightMs, slowToolDeferralMs(estimateMs));

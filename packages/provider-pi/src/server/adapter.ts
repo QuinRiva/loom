@@ -57,6 +57,7 @@ import {
 } from "./loomAdapterHooks.loom.ts"; // loom: 3c adapter hooks
 import { piThreadForkPath } from "./piThreadForkCut.loom.ts"; // loom: thread_fork cut (O3)
 import { labelledForModel } from "./provenance.loom.ts"; // loom: author labels
+import { LOOM_JOBS_STATUS_KEY, NO_LOOM_JOBS, parseLoomJobsStatus } from "./backgroundJobs.loom.ts"; // loom: background jobs pin the session and label their wake
 import {
   ProviderAdapterDriverCreateError,
   type ProviderAdapterDriver,
@@ -556,6 +557,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       let stopRequested = false;
       let unsolicitedActivityDetected = false;
       let pendingWake: PiWake | null = null;
+      let loomJobs = NO_LOOM_JOBS; // loom: the extension's `loom-jobs` status line
       let rollbackBarrier: Deferred.Deferred<
         void,
         ProviderAdapter.ProviderAdapterProtocolError
@@ -565,6 +567,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         Effect.gen(function* () {
           closed = true;
           pendingWake = null;
+          loomJobs = NO_LOOM_JOBS; // loom: background jobs die with the process
           if (rollbackBarrier !== null)
             yield* Deferred.fail(
               rollbackBarrier,
@@ -1242,6 +1245,13 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const method = recordString(event, "method");
         const nativeRequestId = recordString(event, "id");
         if (method === undefined) return;
+        // loom: background-job status. A wake reported while a turn runs is folded into that turn,
+        // so only an idle session keeps it for the next unprompted agent_start.
+        if (method === "setStatus" && recordString(event, "statusKey") === LOOM_JOBS_STATUS_KEY) {
+          const status = parseLoomJobsStatus(recordString(event, "statusText"));
+          loomJobs = threadState?.activeTurn == null ? status : { ...status, wake: null };
+          return;
+        }
         if (method === "notify") {
           const state = threadState;
           const turn = state?.activeTurn ?? null;
@@ -1721,6 +1731,8 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             ) {
               const wake: PiWake = { state, events: [event] };
               pendingWake = wake;
+              const jobWake = loomJobs.wake; // loom: consumed by this wake's offer below
+              loomJobs = { ...loomJobs, wake: null };
               if (rollbackBarrier !== null) {
                 yield* stopPendingWake(wake);
                 return;
@@ -1732,6 +1744,16 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                   providerThreadId: state.providerThread.id,
                   driver: PI_PROVIDER,
                   detail: null,
+                  // loom: a background job's exit names the job and its exit code on the wake chip
+                  ...(jobWake === null
+                    ? {}
+                    : {
+                        notification: {
+                          source: { kind: "command" as const },
+                          outcome: jobWake.outcome,
+                          summary: jobWake.summary,
+                        },
+                      }),
                   delivery: "adapter_buffered",
                   dispatchIfCurrent: (dispatch) =>
                     sessionEventPermit.withPermits(1)(
@@ -2195,6 +2217,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                   protocolError("Pi transport closed during rollback"),
                 );
               pendingWake = null;
+              loomJobs = NO_LOOM_JOBS; // loom: background jobs die with the process
               // loom: the warmer dies with the process — no further keep-alive pings (sidebar cache gauge)
               yield* loomHooks.cache(state?.providerThread.appThreadId ?? input.threadId, {
                 warming: "stopped",
@@ -2463,7 +2486,8 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           return sessionEntity;
         },
         events: Stream.fromQueue(events),
-        hasPendingBackgroundWork: Effect.sync(() => pendingWake !== null),
+        // loom: a running background job pins the session too (the idle-pin budget caps it)
+        hasPendingBackgroundWork: Effect.sync(() => pendingWake !== null || loomJobs.running > 0),
         hasPendingBackgroundWorkForThread: (providerThread) =>
           Effect.sync(
             () => pendingWake !== null && pendingWake.state.providerThread.id === providerThread.id,

@@ -33,7 +33,15 @@ export interface InFlightTool {
   readonly startedAtMs: number;
   /** A shell command's text (carries the `# eta:` marker); null for other tools. */
   readonly commandText: string | null;
+  /** A running `bg_wait`'s `timeout_s`: the wait's declared length; null for other tools. */
+  readonly timeoutSeconds: number | null;
 }
+
+const bgWaitTimeout = (item: ToolTurnItem): number | null => {
+  if (item.type !== "dynamic_tool" || item.toolName !== "bg_wait") return null;
+  const timeout = (item.input as { readonly timeout_s?: unknown } | null)?.timeout_s;
+  return typeof timeout === "number" ? timeout : null;
+};
 
 /**
  * The tool call running on the active attempt of the thread's running run, or
@@ -68,5 +76,6 @@ export const inFlightTool = Effect.fn("loom.liveness.inFlightTool")(function* (t
         toolName: toolNameOf(item),
         startedAtMs: DateTime.toEpochMillis(item.startedAt ?? item.updatedAt),
         commandText: item.type === "command_execution" ? item.input : null,
+        timeoutSeconds: bgWaitTimeout(item),
       } satisfies InFlightTool);
 });
