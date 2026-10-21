@@ -544,7 +544,11 @@ it.layer(TestLayer)("Loom projector", (it) => {
       ]);
       assert.isNull((yield* store.getWorkstream(query))?.documentQuery);
 
-      const document = { filePath: "plans/x/plan.mdx", revision: "0123456789ab" };
+      const document = {
+        filePath: "plans/x/plan.mdx",
+        revision: "0123456789ab",
+        authorSource: "signature" as const,
+      };
       const question = (n: number) => ({
         messageId: MessageId.make(`message:server:loom:query:${query}:${n}`),
         askedAt: `2026-10-21T00:0${n}:00.000Z`,
@@ -560,6 +564,7 @@ it.layer(TestLayer)("Loom projector", (it) => {
           createdAt: question(n).askedAt,
           filePath: document.filePath,
           revision,
+          authorSource: document.authorSource,
           question: question(n),
         });
       const promotion = {

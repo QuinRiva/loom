@@ -37,6 +37,7 @@ export function DocumentQueryHeaderChip({
         variant="label"
         size="sm"
         style={{ "--label": "var(--color-primary)" } as CSSProperties}
+        data-author-source={workstream?.documentQuery?.authorSource}
       >
         <GitForkIcon />
         read-only fork of “{truncateLabel(authorTitle ?? "an archived thread", 36)}”

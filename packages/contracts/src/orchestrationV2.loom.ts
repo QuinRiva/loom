@@ -285,6 +285,13 @@ export const LoomDocumentQueryPromotion = Schema.Struct({
 export type LoomDocumentQueryPromotion = typeof LoomDocumentQueryPromotion.Type;
 
 /**
+ * Which thread a query forks: the thread that signed the document (its
+ * `manager_sessions` manifest), or the viewing thread when none resolves.
+ */
+export const DocumentQueryAuthorSource = Schema.Literals(["signature", "viewing-thread"]);
+export type DocumentQueryAuthorSource = typeof DocumentQueryAuthorSource.Type;
+
+/**
  * A query thread's document: one revision of one file. A rewrite forks a new
  * query thread rather than changing these, so `filePath` and `revision` are set
  * once, by the first question. Promoting does not close the thread.
@@ -294,6 +301,8 @@ export const LoomDocumentQuery = Schema.Struct({
   filePath: TrimmedNonEmptyString,
   /** SHA-256 of the file bytes when first asked, 12 hex characters. */
   revision: TrimmedNonEmptyString,
+  /** How the author (`forkFromThreadId`) was chosen, set by the first question. */
+  authorSource: DocumentQueryAuthorSource,
   questions: Schema.Array(LoomDocumentQueryQuestion),
   promotions: Schema.Array(LoomDocumentQueryPromotion),
 });
@@ -886,6 +895,7 @@ export const makeLoomInternalCommandMembers = <
       ...LoomCommandFields,
       filePath: TrimmedNonEmptyString,
       revision: TrimmedNonEmptyString,
+      authorSource: DocumentQueryAuthorSource,
       question: LoomDocumentQueryQuestion,
     }),
     /** Records one promoted exchange on a query thread (`threadId`). */
@@ -1113,6 +1123,7 @@ export const makeLoomDomainEventMembers = <const Base extends Schema.Struct.Fiel
       payload: Schema.Struct({
         filePath: TrimmedNonEmptyString,
         revision: TrimmedNonEmptyString,
+        authorSource: DocumentQueryAuthorSource,
         question: LoomDocumentQueryQuestion,
       }),
     }),

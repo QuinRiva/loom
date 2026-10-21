@@ -30,6 +30,7 @@ const queryThread = (
       documentQuery: {
         filePath: fields.filePath ?? FILE,
         revision: "abcdefabcdef",
+        authorSource: "signature",
         questions: (fields.askedAt ?? ["2026-10-21T10:00:00.000Z"]).map((askedAt) => ({
           messageId: `message:${id}:${askedAt}` as never,
           askedAt,

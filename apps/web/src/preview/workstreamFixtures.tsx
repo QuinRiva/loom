@@ -88,6 +88,7 @@ const querySatellite = (
       documentQuery: {
         filePath: `plans/${id}/${fileName}`,
         revision: "a1b2c3d4e5f6",
+        authorSource: "signature",
         questions: Array.from({ length: questions }, (_, index) => ({
           messageId: MessageId.make(`message:server:loom:query:${id}:${index}`),
           askedAt: `2026-10-05T08:1${index}:00.000Z`,

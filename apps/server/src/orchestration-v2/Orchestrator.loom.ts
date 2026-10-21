@@ -1501,6 +1501,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
       yield* on("thread.document-query-asked", command.threadId, {
         filePath: command.filePath,
         revision: command.revision,
+        authorSource: command.authorSource,
         question: command.question,
       });
       return {};

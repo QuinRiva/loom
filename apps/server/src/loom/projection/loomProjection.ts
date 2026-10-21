@@ -177,8 +177,14 @@ const foldWorkstream = (
     // Appends keyed by message / promotion id, so a replay is a no-op. The first question
     // names the document; a later one never re-points it (a rewrite forks a new thread).
     case "thread.document-query-asked": {
-      const { filePath, revision, question } = event.payload;
-      const query = row.documentQuery ?? { filePath, revision, questions: [], promotions: [] };
+      const { filePath, revision, authorSource, question } = event.payload;
+      const query = row.documentQuery ?? {
+        filePath,
+        revision,
+        authorSource,
+        questions: [],
+        promotions: [],
+      };
       if (query.questions.some((entry) => entry.messageId === question.messageId)) return undefined;
       return next({ documentQuery: { ...query, questions: [...query.questions, question] } });
     }

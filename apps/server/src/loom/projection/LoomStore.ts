@@ -310,6 +310,11 @@ export interface LoomStoreV2Shape {
   readonly listReDriveInput: () => Op<ReadonlyArray<LoomThreadWorkstream>>;
   /** Loom threads with a held queued V2 run. */
   readonly listThreadsWithHeldQueue: () => Op<ReadonlyArray<ThreadId>>;
+  /**
+   * The live thread whose pi session is `sessionId` (the `id` `sign_document` writes), most
+   * recently updated first, else null. pi names a session file `<timestamp>_<sessionId>.jsonl`.
+   */
+  readonly threadForPiSession: (sessionId: string) => Op<ThreadId | null>;
   readonly goals: {
     /** Any state, tasks live only. */
     readonly get: (goalId: GoalId) => Op<LoomGoal | null>;
@@ -656,6 +661,18 @@ const make = Effect.gen(function* () {
       ).pipe(run("listChildren")),
     listActiveWorkstreams: () =>
       selectWorkstreams(sql, visibility()).pipe(run("listActiveWorkstreams")),
+    // An unindexed scan of provider threads (~5k rows, ~15ms live), run once per Query.
+    threadForPiSession: (sessionId) =>
+      sql<{ readonly threadId: ThreadId }>`SELECT p.thread_id AS "threadId"
+          FROM orchestration_v2_projection_provider_threads p
+          JOIN orchestration_v2_projection_threads t ON t.thread_id = p.thread_id
+          WHERE p.driver = 'pi' AND t.deleted_at IS NULL
+            AND substr(json_extract(p.payload_json, '$.nativeThreadRef.nativeId'),
+              -${sessionId.length + 7}) = ${`_${sessionId}.jsonl`}
+          ORDER BY p.updated_at DESC LIMIT 1`.pipe(
+        Effect.map((rows) => rows[0]?.threadId ?? null),
+        run("threadForPiSession"),
+      ),
     // A row is an episode root that its subtree has not followed when an
     // in-scope descendant still disagrees with it. "In scope" excludes nodes
     // created after the episode, and nodes a human moved deliberately after it

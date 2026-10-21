@@ -91,6 +91,8 @@ import {
  */
 export interface PlanQueryBinding {
   readonly pins: ReadonlyArray<DocumentQueryPin>;
+  /** The Query card's title: which thread's fork a question goes to. */
+  readonly label: string;
   /** Ask, then open the query thread; resolves to an error message, or null on success. */
   readonly ask: (input: Omit<DocumentQueryInput, "sourceThreadId">) => Promise<string | null>;
   readonly openPin: (pin: DocumentQueryPin) => void;
@@ -1182,6 +1184,7 @@ export function MdxPlanAnnotationLayer({
         <AnnotationComposer
           key={composer.id}
           mode={composer.mode}
+          queryLabel={query?.label ?? "Ask the author's fork"}
           fileName={fileNameOf(filePath)}
           draftKey={composer.draftKey}
           top={composer.top}
@@ -1296,6 +1299,7 @@ function AnnotationCard({
 
 interface AnnotationComposerProps {
   mode: ComposerMode;
+  queryLabel: string;
   fileName: string;
   draftKey: string;
   top: number;
@@ -1311,6 +1315,7 @@ interface AnnotationComposerProps {
 
 function AnnotationComposer({
   mode,
+  queryLabel,
   fileName,
   draftKey,
   top,
@@ -1388,7 +1393,7 @@ function AnnotationComposer({
         <GripVertical className="size-4 shrink-0 text-muted-foreground" />
         {querying ? (
           <>
-            <span className="truncate text-sm font-medium">Ask the author's fork</span>
+            <span className="truncate text-sm font-medium">{queryLabel}</span>
             <Badge variant="outline" size="sm">
               {fileName}
             </Badge>

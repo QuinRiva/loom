@@ -44,6 +44,11 @@ import {
   reusableQueryThread,
   supersededQueryThreads,
 } from "./documentQuery.ts";
+import {
+  lookupDocumentQueryAuthor,
+  parseManagerSessions,
+  signingSessionIds,
+} from "./documentAuthor.ts";
 import { buildDocumentQueryOverlay } from "./documentQueryOverlay.ts";
 
 const pi = ProviderDriverKind.make("pi");
@@ -104,7 +109,13 @@ it("reuses the live query thread for the revision and supersedes stale ones", ()
     }),
     role: DOCUMENT_QUERY_ROLE,
     forkFromThreadId: author,
-    documentQuery: { filePath, revision, questions: [], promotions: [] },
+    documentQuery: {
+      filePath,
+      revision,
+      authorSource: "signature" as const,
+      questions: [],
+      promotions: [],
+    },
     ...extra,
   });
   const rows = [
@@ -113,7 +124,13 @@ it("reuses the live query thread for the revision and supersedes stale ones", ()
     query("done", "bbb", { outcome: "done" }),
     query("archived", "ccc", { archivedAt: at }),
     query("other-file", "aaa", {
-      documentQuery: { filePath: "x.mdx", revision: "aaa", questions: [], promotions: [] },
+      documentQuery: {
+        filePath: "x.mdx",
+        revision: "aaa",
+        authorSource: "signature" as const,
+        questions: [],
+        promotions: [],
+      },
     }),
     query("other-author", "aaa", { forkFromThreadId: ThreadId.make("someone") }),
   ];
@@ -136,7 +153,115 @@ it("reuses the live query thread for the revision and supersedes stale ones", ()
   );
 });
 
+const signed = (entries: ReadonlyArray<readonly [id: string, role: string, at: string]>) =>
+  [
+    "---",
+    "kicker: plan",
+    "manager_sessions:",
+    ...entries.flatMap(([id, role, at]) => [
+      `  - id: ${id}`,
+      `    name: n`,
+      `    role: ${role}`,
+      `    authored_at: ${at}`,
+    ]),
+    "---",
+    "",
+    "# Plan",
+  ].join("\n");
+const S1 = "01a15c20-6744-7192-ba4d-ee2415c0b3e4";
+const S2 = "01a15c20-0000-7192-ba4d-ee2415c0b3e4";
+const S3 = "01a15c20-1111-7192-ba4d-ee2415c0b3e4";
+
+it("picks the latest authoring signer, then other signers by recency", () => {
+  const pick = (contents: string) => signingSessionIds(parseManagerSessions(contents));
+  assert.deepEqual(
+    pick(
+      signed([
+        [S1, "plan", "2026-10-01T00:00:00.000Z"],
+        [S2, "reviewer", "2026-10-09T00:00:00.000Z"],
+        [S3, "architecture", "2026-10-05T00:00:00.000Z"],
+      ]),
+    ),
+    [S3, S1, S2],
+  );
+  // No authoring role: the most recent signer overall.
+  assert.deepEqual(
+    pick(
+      signed([
+        [S1, "reviewer", "2026-10-01T00:00:00.000Z"],
+        [S2, "auditor", "2026-10-09T00:00:00.000Z"],
+      ]),
+    ),
+    [S2, S1],
+  );
+  // The HTML envelope carries the same manifest.
+  assert.deepEqual(
+    pick(
+      `<!DOCTYPE html>\n<!--pi-manifest\nmanager_sessions:\n  - id: ${S1}\n    role: intent\n-->\n<html></html>`,
+    ),
+    [S1],
+  );
+  // Unsigned, a malformed manifest, or a manifest that is not at the top: no signer.
+  assert.deepEqual(pick("# Plan\n\nmanager_sessions:\n  - id: " + S1), []);
+  assert.deepEqual(pick("---\nmanager_sessions: [\n---\n"), []);
+  assert.deepEqual(pick("---\nmanager_sessions:\n  - name: no id\n---\n"), []);
+});
+
 it.layer(TestLayer)("Query threads", (it) => {
+  it.effect("a signed document forks its signer from any thread; unsigned forks the viewer", () =>
+    Effect.gen(function* () {
+      const author = ThreadId.make("signing-author");
+      const viewer = ThreadId.make("signed-viewer");
+      yield* seedThread({ threadId: author, title: "Plan author" });
+      yield* seedRunningRun({
+        threadId: author,
+        driver: pi,
+        nativeThreadId: `/sessions/--wt--/2026-10-21T01-43-09-892Z_${S1}.jsonl`,
+      });
+      yield* completeSeededRun({ threadId: author });
+      yield* seedThread({ threadId: viewer });
+      yield* seedRunningRun({ threadId: viewer, driver: pi });
+      yield* completeSeededRun({ threadId: viewer });
+      assert.equal(yield* (yield* LoomStoreV2).threadForPiSession(S1), author);
+      assert.isNull(yield* (yield* LoomStoreV2).threadForPiSession(S2));
+
+      // The signer: an unresolvable newer authoring entry falls through to it.
+      documentContents = signed([
+        [S1, "plan", "2026-10-01T00:00:00.000Z"],
+        [S2, "plan", "2026-10-02T00:00:00.000Z"],
+      ]);
+      assert.deepEqual(yield* lookupDocumentQueryAuthor({ sourceThreadId: viewer, filePath }), {
+        authorThreadId: author,
+        authorTitle: "Plan author",
+        authorSource: "signature",
+      });
+      const asked = yield* askDocumentQuery(ask(viewer, "Why?"));
+      assert.deepInclude(asked, { authorThreadId: author, authorSource: "signature" });
+      const query = yield* row(asked.queryThreadId);
+      assert.equal(query.forkFromThreadId, author);
+      assert.equal(query.documentQuery?.authorSource, "signature");
+      // Asked from the author itself, the same revision reuses the same query thread.
+      const again = yield* askDocumentQuery(ask(author, "And?"));
+      assert.deepEqual([again.created, again.queryThreadId], [false, asked.queryThreadId]);
+      // Asked from inside the query thread, it still forks the author, never the fork.
+      assert.equal(
+        (yield* lookupDocumentQueryAuthor({ sourceThreadId: asked.queryThreadId, filePath }))
+          .authorThreadId,
+        author,
+      );
+
+      // Unsigned: the viewing thread, visibly.
+      documentContents = "# Unsigned plan";
+      assert.deepInclude(yield* lookupDocumentQueryAuthor({ sourceThreadId: viewer, filePath }), {
+        authorThreadId: viewer,
+        authorSource: "viewing-thread",
+      });
+      const unsigned = yield* askDocumentQuery(ask(viewer, "Who?"));
+      assert.deepInclude(unsigned, { authorThreadId: viewer, authorSource: "viewing-thread" });
+      assert.equal((yield* row(unsigned.queryThreadId)).forkFromThreadId, viewer);
+    }),
+  );
+
   it.effect("a question forks the idle author; a second reuses it; a rewrite supersedes it", () =>
     Effect.gen(function* () {
       const author = ThreadId.make("query-author");

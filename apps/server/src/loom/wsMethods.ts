@@ -15,6 +15,7 @@
  * @module loom/wsMethods
  */
 import {
+  type DocumentQueryAuthorInput,
   type DocumentQueryInput,
   type DocumentQueryPromoteInput,
   type GoalId,
@@ -50,6 +51,7 @@ import { ServerConfig } from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import type { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
 import type { WorkspaceFileSystem } from "../workspace/WorkspaceFileSystem.ts";
+import { lookupDocumentQueryAuthor } from "./query/documentAuthor.ts";
 import { askDocumentQuery, promoteDocumentQuery } from "./query/documentQuery.ts";
 import { LoomUsageLedger } from "./economics/LoomUsageLedger.ts";
 import { buildHandoffDraftTurnStart, launchDraftFork } from "./handoff/handoffDraft.ts";
@@ -235,6 +237,9 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
     // Query: a question about a passage, in the author's read-only query thread for this revision.
     [LOOM_WS_METHODS.documentQuery]: (input: DocumentQueryInput) =>
       askDocumentQuery(input).pipe(Effect.provideContext(queryServices)),
+    // The Query card's pre-flight: which thread a Query on this document forks.
+    [LOOM_WS_METHODS.documentQueryAuthor]: (input: DocumentQueryAuthorInput) =>
+      lookupDocumentQueryAuthor(input).pipe(Effect.provideContext(queryServices)),
     // Promote: a human turn asking the query thread to distil one exchange for the author.
     [LOOM_WS_METHODS.documentQueryPromote]: (input: DocumentQueryPromoteInput) =>
       promoteDocumentQuery(input).pipe(Effect.provideContext(queryServices)),

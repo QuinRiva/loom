@@ -1,7 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
  * Query threads (plans/plan-query-threads/plan.mdx §2): the MDX viewer's Query asks about a
- * passage in a read-only, visible fork of the document's author (the viewing thread). One
+ * passage in a read-only, visible fork of the document's author (`documentAuthor.ts`: the
+ * thread that signed it, else the viewing thread). One
  * query thread serves one revision (the file's content hash) of one document: a question on
  * that revision lands in the live thread as a new human turn; a question after a rewrite
  * supersedes it (outcome done, archived) and forks afresh.
@@ -46,8 +47,6 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
-import { ProjectStoreV2 } from "../../orchestration-v2/ProjectStore.ts";
-import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
 import {
   buildDraftSpawn,
   curatedTitle,
@@ -56,13 +55,12 @@ import {
 } from "../handoff/handoffDraft.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import { writeWorkstreamBrief } from "../workstream/brief.ts";
+import { resolveDocumentAuthor } from "./documentAuthor.ts";
 import { buildDocumentQueryOverlay } from "./documentQueryOverlay.ts";
 
 const method = LOOM_WS_METHODS.documentQuery;
 const fail = (message: string) => new LoomWsMethodError({ method, message });
 
-/** The `.mdx` preview's read budget: a plan larger than the default 1 MiB still hashes whole. */
-const DOCUMENT_READ_MAX_BYTES = 8 * 1024 * 1024;
 const QUOTED_TEXT_MAX = 16_000;
 
 type QueryKey = {
@@ -95,20 +93,6 @@ export const supersededQueryThreads = (
 ) =>
   candidates.filter(
     (row) => isLiveQueryOn(row, input) && row.documentQuery?.revision !== input.revision,
-  );
-
-/** SHA-256 of the document as the server reads it now, 12 hex characters. */
-export const hashDocumentRevision = (input: { readonly cwd: string; readonly filePath: string }) =>
-  Effect.flatMap(WorkspaceFileSystem, (workspace) =>
-    workspace.readFile({
-      cwd: input.cwd,
-      relativePath: input.filePath,
-      maxBytes: DOCUMENT_READ_MAX_BYTES,
-    }),
-  ).pipe(
-    Effect.map((file) =>
-      NodeCrypto.createHash("sha256").update(file.contents).digest("hex").slice(0, 12),
-    ),
   );
 
 /** What a question needs beyond the thread: the RPC input minus the author. */
@@ -248,7 +232,8 @@ export const buildDocumentQueryCommands = (
 };
 
 /**
- * `loom.documentQuery`: hash the document, reuse the live query thread for this revision or
+ * `loom.documentQuery`: resolve the author (`resolveDocumentAuthor`), hash the document, reuse
+ * the live query thread for this (author, file, revision) or
  * fork the author afresh, supersede stale live ones, send the question and record it on the
  * query thread's sidecar. Fails with `LoomWsMethodError`.
  */
@@ -256,30 +241,9 @@ export const askDocumentQuery = (input: DocumentQueryInput) =>
   Effect.gen(function* () {
     const orchestrator = yield* OrchestratorV2;
     const store = yield* LoomStoreV2;
-    const viewing = yield* orchestrator.getThreadShell(input.sourceThreadId);
-    if (viewing === null || viewing.deletedAt != null)
-      return yield* fail("The source thread was not found.");
-    // Query asked from inside a query thread's panel still forks the author, never the fork.
-    const viewingRow = yield* store.getWorkstream(viewing.id);
-    const authorThreadId =
-      viewingRow?.role === DOCUMENT_QUERY_ROLE && viewingRow.forkFromThreadId !== null
-        ? viewingRow.forkFromThreadId
-        : viewing.id;
-    const author =
-      authorThreadId === viewing.id ? viewing : yield* orchestrator.getThreadShell(authorThreadId);
-    if (author === null) return yield* fail("The document's author thread was not found.");
-    const cwd =
-      author.worktreePath ??
-      Option.getOrNull(
-        Option.map(yield* (yield* ProjectStoreV2).get(author.projectId), (p) => p.workspaceRoot),
-      );
-    if (cwd === null) return yield* fail("The author thread has no workspace to read from.");
-    const revision = yield* hashDocumentRevision({ cwd, filePath: input.filePath }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new LoomWsMethodError({ method, message: `${input.filePath} could not be read.`, cause }),
-      ),
-    );
+    const { author, authorSource, contents } = yield* resolveDocumentAuthor({ method, ...input });
+    const authorThreadId = author.id;
+    const revision = NodeCrypto.createHash("sha256").update(contents).digest("hex").slice(0, 12);
     const question = { ...input, sourceThreadId: authorThreadId };
     const key = { authorThreadId, filePath: input.filePath, revision };
     const candidates = yield* store.listActiveWorkstreams();
@@ -298,6 +262,7 @@ export const askDocumentQuery = (input: DocumentQueryInput) =>
         createdAt,
         filePath: input.filePath,
         revision,
+        authorSource,
         question: {
           messageId: MessageId.make(`message:${questionId(threadId, n)}`),
           askedAt: createdAt,
@@ -349,7 +314,13 @@ export const askDocumentQuery = (input: DocumentQueryInput) =>
         threadId: stale.threadId,
       });
     }
-    return { queryThreadId, created: reuse === null, askedAt: createdAt };
+    return {
+      queryThreadId,
+      created: reuse === null,
+      askedAt: createdAt,
+      authorThreadId,
+      authorSource,
+    };
   }).pipe(
     Effect.catchIf(
       (error) => error._tag !== "LoomWsMethodError",

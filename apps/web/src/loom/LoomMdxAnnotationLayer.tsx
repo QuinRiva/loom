@@ -1,7 +1,7 @@
 /**
  * loom: the MDX annotation layer with query threads bound
  * (plans/plan-query-threads/plan.mdx §5 steps 9-10). Query asks `loom.documentQuery`,
- * which forks the document's author (or reuses its live query thread for this
+ * which forks the document's author (the thread that signed it, else the viewing thread) (or reuses its live query thread for this
  * revision) and sends the question as that thread's first turn; the main window
  * then opens the query thread. A pin opens it scrolled to its question.
  */
@@ -37,26 +37,35 @@ export function LoomMdxAnnotationLayer({
 }: {
   readonly source: string;
   readonly filePath: string;
-  /** The viewing thread: the author a Query forks (or, on a query thread, its author). */
+  /** The viewing thread: the server resolves the author (signer, else this thread) from it. */
   readonly threadRef: ScopedThreadRef;
   readonly composerDraftTarget: ScopedThreadRef | DraftId;
 }) {
   const navigate = useNavigate();
   const documentQuery = useAtomCommand(loomCommands.documentQuery, { reportFailure: false });
-  const authorId = useDocumentQueryAuthor(threadRef);
-  const pins = useDocumentQueryPins(threadRef.environmentId, authorId, filePath);
+  const author = useDocumentQueryAuthor(threadRef, filePath);
+  const pins = useDocumentQueryPins(
+    threadRef.environmentId,
+    author?.authorThreadId ?? null,
+    filePath,
+  );
   const open = (ref: ScopedThreadRef) =>
     void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) });
 
   const query: PlanQueryBinding | undefined =
-    authorId === null
+    author === null
       ? undefined
       : {
           pins,
+          label:
+            author.authorSource === "signature"
+              ? `Ask the author's fork · ${author.authorTitle}`
+              : "No signature found: asks this thread's fork",
           ask: async (input) => {
+            // The server re-resolves the author from the document as it reads it now.
             const result = await documentQuery({
               environmentId: threadRef.environmentId,
-              input: { ...input, sourceThreadId: authorId },
+              input: { ...input, sourceThreadId: threadRef.threadId },
             });
             if (result._tag === "Failure") {
               if (isAtomCommandInterrupted(result)) return null;
@@ -122,7 +131,7 @@ export function LoomMdxReviewCount({
           !isReviewChoiceCommentId(c.id),
       ).length,
   );
-  const authorId = useDocumentQueryAuthor(threadRef);
+  const authorId = useDocumentQueryAuthor(threadRef, filePath)?.authorThreadId ?? null;
   const queries = useDocumentQueryPins(threadRef.environmentId, authorId, filePath).length;
   const parts = [
     comments > 0 ? `${comments} ${comments === 1 ? "comment" : "comments"}` : null,

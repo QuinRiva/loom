@@ -1,6 +1,6 @@
 /**
  * loom: the query pins a document draws — one per question asked about it in a
- * live query thread of its author (plans/plan-query-threads/plan.mdx §5 step 10).
+ * live query thread of its author (resolved by the server, `useDocumentQueryAuthor`) (plans/plan-query-threads/plan.mdx §5 step 10).
  * A derived atom per (environment, author, file) over the environment's live
  * shells: it recomputes on any shell change but keeps its previous value when
  * the pins are unchanged, so the annotation layer re-renders only when a
@@ -9,15 +9,18 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   DOCUMENT_QUERY_ROLE,
+  type DocumentQueryAuthorResult,
   type EnvironmentId,
   type OrchestrationV2ThreadShell,
   type PlanCommentAnchor,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
-import { Atom } from "effect/reactivity";
+import * as Option from "effect/Option";
+import { AsyncResult, Atom } from "effect/reactivity";
 
 import { environmentThreadShells } from "../state/threads";
+import { loomCommands } from "./loomGoalState";
 
 export interface DocumentQueryPin {
   readonly queryThreadId: ThreadId;
@@ -84,25 +87,35 @@ const pinsAtom = Atom.family((key: string) => {
 });
 
 /**
- * The author a Query from `ref`'s document panel forks: the viewing thread
- * itself, or — when the viewing thread is a query thread — the author it was
- * forked from, so a follow-up lands in the same query thread instead of forking
- * the fork. Null until the thread's shell exists (a draft has no author to fork).
+ * The thread a Query on `filePath` from `ref`'s document panel forks, as the
+ * server resolves it (`loom.documentQueryAuthor`): the thread that signed the
+ * document, else the viewing thread (a query thread stands for its author).
+ * Asked once per open document and cached, never per selection; null until
+ * answered, or while the viewing thread has no shell (a draft has no author).
  */
 const queryAuthorAtom = Atom.family((key: string) => {
-  const [environmentId, threadId] = JSON.parse(key) as [EnvironmentId, ThreadId];
-  return Atom.make((get): ThreadId | null => {
-    const shell = get(environmentThreadShells.threadShellAtom({ environmentId, threadId }));
-    if (shell === null) return null;
-    const workstream = shell.source.workstream;
-    return workstream?.role === DOCUMENT_QUERY_ROLE && workstream.forkFromThreadId !== null
-      ? workstream.forkFromThreadId
-      : threadId;
-  }).pipe(Atom.withLabel(`loom-document-query-author:${key}`));
+  const [environmentId, threadId, filePath] = JSON.parse(key) as [EnvironmentId, ThreadId, string];
+  return Atom.make((get): DocumentQueryAuthorResult | null =>
+    get(environmentThreadShells.threadShellAtom({ environmentId, threadId })) === null
+      ? null
+      : Option.getOrNull(
+          AsyncResult.value(
+            get(
+              loomCommands.documentQueryAuthor({
+                environmentId,
+                input: { sourceThreadId: threadId, filePath },
+              }),
+            ),
+          ),
+        ),
+  ).pipe(Atom.withLabel(`loom-document-query-author:${key}`));
 });
 
-export function useDocumentQueryAuthor(ref: ScopedThreadRef): ThreadId | null {
-  return useAtomValue(queryAuthorAtom(JSON.stringify([ref.environmentId, ref.threadId])));
+export function useDocumentQueryAuthor(
+  ref: ScopedThreadRef,
+  filePath: string,
+): DocumentQueryAuthorResult | null {
+  return useAtomValue(queryAuthorAtom(JSON.stringify([ref.environmentId, ref.threadId, filePath])));
 }
 
 const NO_PINS_ATOM = Atom.make(NO_PINS).pipe(Atom.withLabel("loom-document-query-pins:none"));
