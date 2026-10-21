@@ -252,11 +252,26 @@ export const askDocumentQuery = (input: DocumentQueryInput) =>
       return yield* fail(
         "The query thread on this document is still waiting for the author's turn to end; ask again once it has started.",
       );
+    const createdAt = DateTime.formatIso(yield* DateTime.now);
+    const recordAsk = (threadId: ThreadId, n: number) =>
+      orchestrator.dispatch({
+        type: "thread.document-query.ask",
+        commandId: CommandId.make(`${questionId(threadId, n)}:ask`),
+        threadId,
+        createdAt,
+        filePath: input.filePath,
+        revision,
+        question: {
+          messageId: MessageId.make(`message:${questionId(threadId, n)}`),
+          askedAt: createdAt,
+          anchor: input.anchor,
+          quotedText: input.quotedText.slice(0, QUOTED_TEXT_MAX),
+          sectionTitle: input.sectionTitle,
+        },
+      });
     let queryThreadId: ThreadId;
-    let n: number;
     if (reuse === null) {
       queryThreadId = ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4());
-      n = 1;
       const kickoffBriefPath = yield* writeWorkstreamBrief(
         queryThreadId,
         buildDocumentQueryBrief(
@@ -271,12 +286,16 @@ export const askDocumentQuery = (input: DocumentQueryInput) =>
         drafterThreadId: queryThreadId,
         build: (fork) => buildDocumentQueryCommands(fork, { question, revision, kickoffBriefPath }),
       });
+      // A thread whose first ask never recorded is never reused (it names no file), so no id clashes.
+      yield* recordAsk(queryThreadId, 1);
     } else {
       queryThreadId = reuse.threadId;
-      n = (reuse.documentQuery?.questions.length ?? 0) + 1;
+      const n = (reuse.documentQuery?.questions.length ?? 0) + 1;
+      // Recorded first: `n` counts recorded asks, so a message that landed unrecorded would
+      // hand the next question its id, and the receipt would drop that question silently.
+      yield* recordAsk(queryThreadId, n);
       yield* orchestrator.dispatch(buildQuestionDispatch({ threadId: queryThreadId, n, question }));
     }
-    const createdAt = DateTime.formatIso(yield* DateTime.now);
     for (const stale of supersededQueryThreads(candidates, key)) {
       const id = (step: string) =>
         CommandId.make(`server:loom:query-supersede:${stale.threadId}:${step}`);
@@ -293,21 +312,6 @@ export const askDocumentQuery = (input: DocumentQueryInput) =>
         threadId: stale.threadId,
       });
     }
-    yield* orchestrator.dispatch({
-      type: "thread.document-query.ask",
-      commandId: CommandId.make(`${questionId(queryThreadId, n)}:ask`),
-      threadId: queryThreadId,
-      createdAt,
-      filePath: input.filePath,
-      revision,
-      question: {
-        messageId: MessageId.make(`message:${questionId(queryThreadId, n)}`),
-        askedAt: createdAt,
-        anchor: input.anchor,
-        quotedText: input.quotedText.slice(0, QUOTED_TEXT_MAX),
-        sectionTitle: input.sectionTitle,
-      },
-    });
     return { queryThreadId, created: reuse === null, askedAt: createdAt };
   }).pipe(
     Effect.catchIf(
