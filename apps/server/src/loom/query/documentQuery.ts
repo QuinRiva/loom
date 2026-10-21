@@ -6,11 +6,11 @@
  * that revision lands in the live thread as a new human turn; a question after a rewrite
  * supersedes it (outcome done, archived) and forks afresh.
  *
- * The fork is the `/handoff` drafter's (`launchDraftFork`): spawn, `thread.fork.prepare`, the
- * overlay as kickoff, then the question as the human's own message (`queue_after_active`, so
- * it runs as the turn after the kickoff). A mid-turn author defers the fork; the spawn's
- * `kickoffBriefPath` brief carries the first question so `HandoffDrafterReactor` can send
- * fork, kickoff and question once the author's run ends.
+ * The fork is the `/handoff` drafter's (`launchDraftFork`): spawn, `thread.fork.prepare`, then
+ * ONE human message carrying the overlay and the first question, so the question is the
+ * thread's first turn (a separate kickoff turn drew a reply of its own). A mid-turn author
+ * defers the fork; the spawn's `kickoffBriefPath` brief carries the first question so
+ * `HandoffDrafterReactor` can send the fork and that message once the author's run ends.
  *
  * @module loom/query/documentQuery
  */
@@ -29,6 +29,10 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import {
+  documentQueryQuestionId as questionId,
+  joinDocumentQueryKickoff,
+} from "@t3tools/shared/documentQuery.loom";
+import {
   formatComposerContextReference,
   sanitizeComposerContextLabel,
   toKindScopedComposerContextId,
@@ -42,7 +46,12 @@ import * as Schema from "effect/Schema";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { ProjectStoreV2 } from "../../orchestration-v2/ProjectStore.ts";
 import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
-import { buildDraftForkCommands, curatedTitle, launchDraftFork } from "../handoff/handoffDraft.ts";
+import {
+  buildDraftSpawn,
+  curatedTitle,
+  forkPrepareCommand,
+  launchDraftFork,
+} from "../handoff/handoffDraft.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import { writeWorkstreamBrief } from "../workstream/brief.ts";
 import { buildDocumentQueryOverlay } from "./documentQueryOverlay.ts";
@@ -103,19 +112,18 @@ export const hashDocumentRevision = (input: { readonly cwd: string; readonly fil
 /** What a question needs beyond the thread: the RPC input minus the author. */
 export type DocumentQueryQuestionInput = Omit<DocumentQueryInput, "sourceThreadId">;
 
-/** The `<n>`th question's ids (1-based): a retry of one ask lands as the same message. */
-const questionId = (threadId: ThreadId, n: number) => `server:loom:query:${threadId}:${n}`;
-
 /**
  * The question as the human's own message: one `review-comment` record carrying the passage
  * (`mdxAnchor`), referenced inline ahead of the question text, as the composer's
  * `buildMessageContext` builds an annotation. The record's comment text is empty: the question
- * is the message body, so the agent reads it once.
+ * is the message body, so the agent reads it once. The first question carries the overlay ahead
+ * of it (`joinDocumentQueryKickoff`).
  */
 export const buildQuestionDispatch = (input: {
   readonly threadId: ThreadId;
   readonly n: number;
   readonly question: DocumentQueryQuestionInput;
+  readonly overlay?: string;
 }) => {
   const { question } = input;
   const id = questionId(input.threadId, input.n);
@@ -147,7 +155,10 @@ export const buildQuestionDispatch = (input: {
     commandId: CommandId.make(id),
     threadId: input.threadId,
     messageId: MessageId.make(`message:${id}`),
-    text: `${formatComposerContextReference({ kind: "review-comment", contextId, label })} ${question.question}`,
+    text: ((text) =>
+      input.overlay === undefined ? text : joinDocumentQueryKickoff(input.overlay, text))(
+      `${formatComposerContextReference({ kind: "review-comment", contextId, label })} ${question.question}`,
+    ),
     context: { version: 1, records: [record] },
     attachments: [],
     // The human typed it (the Query card); the server sequences it behind the fork.
@@ -177,9 +188,33 @@ export const parseDocumentQueryBrief = (brief: string) =>
     decodeQuestion,
   );
 
+/** The fork transfer from the author, then the overlay and first question as one message. */
+export const buildQueryForkLaunch = (input: {
+  readonly threadId: ThreadId;
+  readonly authorThreadId: ThreadId;
+  readonly question: DocumentQueryInput;
+  readonly createdAt: string;
+}) =>
+  [
+    forkPrepareCommand({
+      drafterThreadId: input.threadId,
+      sourceThreadId: input.authorThreadId,
+      createdAt: input.createdAt,
+    }),
+    buildQuestionDispatch({
+      threadId: input.threadId,
+      n: 1,
+      question: input.question,
+      overlay: buildDocumentQueryOverlay({
+        filePath: input.question.filePath,
+        authorThreadId: input.authorThreadId,
+      }),
+    }),
+  ] as const;
+
 /**
  * The `launchDraftFork` build: the drafter fork's spawn as a goal-less `document-query` root
- * carrying the brief, its fork and overlay kickoff, then the first question.
+ * carrying the brief, then `buildQueryForkLaunch` (no separate kickoff message).
  */
 export const buildDocumentQueryCommands = (
   fork: Parameters<Parameters<typeof launchDraftFork>[0]["build"]>[0],
@@ -189,7 +224,7 @@ export const buildDocumentQueryCommands = (
     readonly kickoffBriefPath: string;
   },
 ) => {
-  const [spawn, ...launch] = buildDraftForkCommands({
+  const spawn = buildDraftSpawn({
     ...fork,
     sourceGoalId: null,
     role: DOCUMENT_QUERY_ROLE,
@@ -197,16 +232,16 @@ export const buildDocumentQueryCommands = (
       "Query",
       input.question.filePath.split("/").pop() ?? input.question.filePath,
     ),
-    kickoff: buildDocumentQueryOverlay({
-      filePath: input.question.filePath,
-      authorThreadId: fork.source.id,
-    }),
     purpose: `Query thread on ${input.question.filePath} @ ${input.revision}`,
   });
   return [
     { ...spawn, kickoffBriefPath: input.kickoffBriefPath },
-    ...launch,
-    buildQuestionDispatch({ threadId: fork.drafterThreadId, n: 1, question: input.question }),
+    ...buildQueryForkLaunch({
+      threadId: fork.drafterThreadId,
+      authorThreadId: fork.source.id,
+      question: input.question,
+      createdAt: fork.createdAt,
+    }),
   ];
 };
 

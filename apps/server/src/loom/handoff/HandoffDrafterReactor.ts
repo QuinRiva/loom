@@ -16,8 +16,8 @@
  * It also launches a drafter whose source was mid-turn: the fork deferred, so
  * once a run ends the pass re-sends the fork and kickoff (`dispatchDraftFork`);
  * a refused fork raises `needs_guidance` as above. A `document-query` thread
- * (`loom/query/documentQuery.ts`) gets this launch leg only: fork, overlay kickoff
- * and the first question from its brief; it is never settled, and a refused fork
+ * (`loom/query/documentQuery.ts`) gets this launch leg only: the fork, then the overlay
+ * and the first question from its brief as one message; it is never settled, and a refused fork
  * flags the query thread itself, where the human is waiting.
  *
  * Every command has a deterministic `server:` id under the receipt discipline
@@ -52,8 +52,7 @@ import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { dispatchServerCommand } from "../orchestration/redrive.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
-import { buildQuestionDispatch, parseDocumentQueryBrief } from "../query/documentQuery.ts";
-import { buildDocumentQueryOverlay } from "../query/documentQueryOverlay.ts";
+import { buildQueryForkLaunch, parseDocumentQueryBrief } from "../query/documentQuery.ts";
 import { readWorkstreamBriefAt } from "../workstream/brief.ts";
 import {
   buildDraftForkLaunch,
@@ -127,22 +126,16 @@ const make = Effect.gen(function* () {
     CommandReceiptStoreV2 | OrchestratorV2 | FileSystem.FileSystem
   >();
 
-  /** A deferred query thread's fork, overlay kickoff and first question; none without a brief. */
+  /** A deferred query thread's fork and its overlay-led first question; none without a brief. */
   const queryLaunch = (row: LoomThreadWorkstream, authorThreadId: ThreadId, createdAt: string) =>
     Effect.map(
       row.kickoffBriefPath === null
         ? Effect.succeed(Option.none<string>())
         : readWorkstreamBriefAt(row.kickoffBriefPath),
       (brief) =>
-        Option.map(Option.flatMap(brief, parseDocumentQueryBrief), (question) => [
-          ...buildDraftForkLaunch({
-            drafterThreadId: row.threadId,
-            sourceThreadId: authorThreadId,
-            kickoff: buildDocumentQueryOverlay({ filePath: question.filePath, authorThreadId }),
-            createdAt,
-          }),
-          buildQuestionDispatch({ threadId: row.threadId, n: 1, question }),
-        ]),
+        Option.map(Option.flatMap(brief, parseDocumentQueryBrief), (question) =>
+          buildQueryForkLaunch({ threadId: row.threadId, authorThreadId, question, createdAt }),
+        ),
     );
 
   const settle = (row: LoomThreadWorkstream, nowMs: number) =>

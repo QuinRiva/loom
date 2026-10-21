@@ -318,7 +318,8 @@ import {
 import { ConsultCardRow } from "../../loom/ConsultCardRow";
 import { isConsultToolItem } from "../../loom/consultTool";
 import { ControlDigestRow } from "../../loom/ControlDigestRow";
-import { CHANNEL_CLASSES, type ControlBubble } from "../../loom/controlMessages"; // loom: 3d-3
+import { CHANNEL_CLASSES, type ControlBubble, KICKOFF_BUBBLE } from "../../loom/controlMessages"; // loom: 3d-3
+import { splitDocumentQueryKickoff } from "@t3tools/shared/documentQuery.loom"; // loom: query threads
 import { LoomTimelineRow } from "../../loom/LoomTimelineRow";
 import { insertLoomTimelineRows, useLoomTimelineRows } from "../../loom/loomTimelineRows";
 import { ModelChangeDivider } from "../../loom/ModelChangeDivider"; // loom: model-change divider
@@ -2011,7 +2012,22 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         <ControlDigestRow
           messageId={row.message.id}
           text={row.message.text}
-          fallback={(bubble) => <UserMessageRow row={row} loomBubble={bubble} />}
+          fallback={(bubble) => {
+            // loom: a query thread's first message is its overlay and first question in one
+            // turn; the overlay renders as the kickoff bubble, the question as the human's.
+            const kickoff = splitDocumentQueryKickoff(row.message.id, row.message.text);
+            if (kickoff === null) return <UserMessageRow row={row} loomBubble={bubble} />;
+            const part = (text: string) => ({ ...row, message: { ...row.message, text } });
+            return (
+              <div className="flex flex-col gap-3">
+                <UserMessageRow
+                  row={{ ...part(kickoff.overlay), revertTurnCount: undefined }}
+                  loomBubble={KICKOFF_BUBBLE}
+                />
+                <UserMessageRow row={part(kickoff.question)} loomBubble={null} />
+              </div>
+            );
+          }}
         />
       ) : null}
       {row.kind === "loom-handoff" ? (

@@ -2,7 +2,7 @@
  * Query threads on the real orchestrator (plans/plan-query-threads/plan.mdx §2): one live
  * query thread per (author, file, revision), reused while the content hash holds and superseded
  * (done, archived) once it changes; a mid-turn author defers the fork, and the reactor sends
- * fork, overlay kickoff and the first question, in that order, once the author's run ends.
+ * the fork and the overlay-led first question once the author's run ends.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -17,6 +17,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import { splitDocumentQueryKickoff } from "@t3tools/shared/documentQuery.loom";
 
 import * as ServerConfig from "../../config.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
@@ -156,13 +157,18 @@ it.layer(TestLayer)("Query threads", (it) => {
         type: "fork",
         sourceThreadId: author,
       });
-      const [kickoff, question] = yield* messagesOf(first.queryThreadId);
-      assert.equal(kickoff?.text, buildDocumentQueryOverlay({ filePath, authorThreadId: author }));
-      assert.equal(kickoff?.loom?.origin, "kickoff");
+      // ONE first message: the overlay, then the question as the human's, so the question is
+      // the thread's first turn and nothing invites a reply to the overlay alone.
+      const sent = yield* messagesOf(first.queryThreadId);
+      assert.lengthOf(sent, 1);
+      const question = sent[0];
       assert.equal(question?.id, `message:server:loom:query:${first.queryThreadId}:1`);
       assert.equal(question?.loom?.humanAuthored, true);
+      assert.isUndefined(question?.loom?.origin);
+      const split = splitDocumentQueryKickoff(question?.id ?? "", question?.text ?? "");
+      assert.equal(split?.overlay, buildDocumentQueryOverlay({ filePath, authorThreadId: author }));
       assert.match(
-        question?.text ?? "",
+        split?.question ?? "",
         /^\[plan\.mdx §2\]\(t3-context:\/\/v1\/review-comment\/.+\) Why in-process\?$/,
       );
       assert.deepInclude(question?.context?.records[0], { kind: "review-comment", filePath });
@@ -171,10 +177,11 @@ it.layer(TestLayer)("Query threads", (it) => {
       const second = yield* askDocumentQuery(ask(author, "And the reads?"));
       assert.deepEqual([second.created, second.queryThreadId], [false, first.queryThreadId]);
       assert.lengthOf((yield* row(first.queryThreadId)).documentQuery?.questions ?? [], 2);
-      assert.include(
-        (yield* messagesOf(first.queryThreadId)).map((m) => m.id),
-        `message:server:loom:query:${first.queryThreadId}:2`,
+      const reused = (yield* messagesOf(first.queryThreadId)).find(
+        (m) => m.id === `message:server:loom:query:${first.queryThreadId}:2`,
       );
+      // A later question is the question alone.
+      assert.match(reused?.text ?? "", /^\[plan\.mdx §2\]\(.+\) And the reads\?$/);
 
       documentContents = "# Plan v2";
       const third = yield* askDocumentQuery(ask(author, "Still true?"));
@@ -187,7 +194,7 @@ it.layer(TestLayer)("Query threads", (it) => {
   );
 
   it.effect(
-    "a mid-turn author defers the fork until its run ends, then fork, kickoff, question",
+    "a mid-turn author defers the fork until its run ends, then the fork and one first message",
     () =>
       Effect.gen(function* () {
         const author = ThreadId.make("query-busy-author");
@@ -220,15 +227,17 @@ it.layer(TestLayer)("Query threads", (it) => {
         const sent = yield* messagesOf(queryThreadId);
         assert.deepEqual(
           sent.map((m) => [m.loom?.origin ?? "user", m.id]),
-          [
-            ["kickoff", `message:server:loom:draft:${queryThreadId}:kickoff`],
-            ["user", `message:server:loom:query:${queryThreadId}:1`],
-          ],
+          [["user", `message:server:loom:query:${queryThreadId}:1`]],
         );
-        assert.include(sent[1]?.text ?? "", "Why?");
+        const split = splitDocumentQueryKickoff(sent[0]?.id ?? "", sent[0]?.text ?? "");
+        assert.equal(
+          split?.overlay,
+          buildDocumentQueryOverlay({ filePath, authorThreadId: author }),
+        );
+        assert.match(split?.question ?? "", / Why\?$/);
 
         yield* settlePass; // idempotent: nothing re-sent
-        assert.lengthOf(yield* messagesOf(queryThreadId), 2);
+        assert.lengthOf(yield* messagesOf(queryThreadId), 1);
         assert.deepEqual((yield* row(queryThreadId)).attention, []);
       }),
   );

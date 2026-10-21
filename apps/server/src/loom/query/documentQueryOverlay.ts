@@ -1,6 +1,7 @@
 /**
- * The query thread's overlay (plans/plan-query-threads/plan.mdx §3): its kickoff turn, never
- * its system prompt, so the replayed author identity stays the request prefix (a warm cache).
+ * The query thread's overlay (plans/plan-query-threads/plan.mdx §3): the head of its first
+ * message, ahead of the first question, never its system prompt, so the replayed author identity
+ * stays the request prefix (a warm cache).
  * Model-read text the human reviewed: edit under `llm-instruction-change`, not in passing.
  *
  * @module loom/query/documentQueryOverlay
@@ -19,4 +20,4 @@ export const buildDocumentQueryOverlay = (input: {
 - When the human promotes an exchange, write ONE anchored comment for the author with \`mcp__t3-code__document_query_promote\` (load it with \`tool_search\` if it is not in your tool list): what the exchange concluded and the change it implies, in the author's terms, as a reviewer's request rather than a transcript. Nothing else you say reaches the author.
 - Never call \`mcp__t3-code__workstream_submit\` or \`mcp__t3-code__workstream_request_attention\`: there is no parent, and this thread ends when the review moves on.
 
-This brief needs no reply of its own; the human's first question follows.`;
+The human's first question follows below; answer it directly.`;
