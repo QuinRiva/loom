@@ -11,6 +11,9 @@
 //  - an unquoted heredoc whose body has backticks: bash runs them as command substitution, so a
 //    markdown payload arrives mangled while the API reports success. Rewritten to a quoted
 //    delimiter when the body uses no `$` expansion; otherwise only a note.
+//  - a bash `sleep` of 60 s or more (literal seconds or an m/h/d suffix): it holds the turn and
+//    cannot end early when what it waits for finishes. Blocked, pointing at bg_start/bg_wait. A
+//    variable or quoted duration is doubt and passes; so do shorter readiness-loop sleeps.
 // The fix cannot live in the Slack scripts: the caller's shell substitutes before they run.
 //
 // Same contract as the search guard: heuristic, permissive on doubt, every handler wrapped so an
@@ -26,6 +29,8 @@ const KILL_MESSAGE = `${BLOCKED} killing by pattern (\`pkill\`, or \`pgrep\` out
 
 const GH_MESSAGE = `${BLOCKED} \`gh api\` with \`-f\`/\`-F\`/\`--field\` and no \`-X\` sends a POST, so this would write to ENDPOINT, not read it. To see what your flags expand to, \`printf '%s\\n'\` them instead. For a read, add \`-X GET\` (the fields become query parameters). If you did mean to write, re-run with an explicit \`-X POST\` (or \`PATCH\`/\`PUT\`).`;
 
+const SLEEP_MESSAGE = `${BLOCKED} SLEEP would hold this turn for MINUTES, cannot end early if what you are waiting for finishes, and shows nothing if it does not. To wait for a process, start it with bg_start and wait with bg_wait, which returns the moment the job exits or with its progress at your timeout. To wait for the clock, bg_start SLEEP and bg_wait on it. Sleeps under 60 s are not blocked.`;
+
 const RG_NOTE = `${NOTE} Rewrote FROM to TO in your rg command: in ripgrep \`-r\` means \`--replace <TEXT>\`, not recursive (rg recurses by default), so FROM would have replaced every match in the output. To really replace, use \`--replace=<text>\`.`;
 
 const HEREDOC_REWRITE_NOTE = `${NOTE} Quoted your heredoc delimiter (FROM became TO): its body has backticks, which an unquoted heredoc runs as command substitution, so markdown arrives mangled while the API still reports success. If you wanted substitution, use \`$(...)\` instead of backticks and keep the delimiter unquoted.`;
@@ -35,8 +40,8 @@ const HEREDOC_WARN_NOTE = `${NOTE} Your unquoted heredoc FROM has backticks or \
 export const commandGuardsPart: LoomExtensionPart = {
   name: "command-guards",
   source: String.raw`
-const MESSAGES = ${JSON.stringify({ KILL_MESSAGE, GH_MESSAGE, RG_NOTE, HEREDOC_REWRITE_NOTE, HEREDOC_WARN_NOTE })};
-const fill = (text, values) => text.replace(/\b(FROM|TO|ENDPOINT)\b/g, (key) => values[key]);
+const MESSAGES = ${JSON.stringify({ KILL_MESSAGE, GH_MESSAGE, SLEEP_MESSAGE, RG_NOTE, HEREDOC_REWRITE_NOTE, HEREDOC_WARN_NOTE })};
+const fill = (text, values) => text.replace(/\b(FROM|TO|ENDPOINT|SLEEP|MINUTES)\b/g, (key) => values[key]);
 const code = (text) => "\x60" + text + "\x60";
 
 // Each heredoc whose terminator line is present: operator span, delimiter, body span. A heredoc
@@ -123,6 +128,15 @@ const ghApiWrite = (tokens) => {
   return args[0] !== undefined && !args[0].startsWith("-") ? code(args[0]) : "the endpoint";
 };
 
+// sleep's total in seconds when every operand is a literal duration (sleep sums them), else null.
+const SLEEP_UNITS = { "": 1, s: 1, m: 60, h: 3600, d: 86400 };
+const sleepSeconds = (tokens) => {
+  const args = tokens.slice(1).map((t) => /^(\d+(?:\.\d+)?)([smhd]?)$/.exec(t.raw));
+  return args.length > 0 && args.every(Boolean)
+    ? args.reduce((sum, m) => sum + Number(m[1]) * SLEEP_UNITS[m[2]], 0)
+    : null;
+};
+
 const KILL_PIPELINES = [/\bpgrep\b[^;&\n]*\|\s*xargs\b[^;&|\n]*\bkill\b/, /\bkill\b[^;&|\n]*(\$\(|\x60)\s*pgrep\b/];
 
 const analyse = (command) => {
@@ -142,6 +156,14 @@ const analyse = (command) => {
     // -P (children of a PID) and -F (a pidfile) select by PID, not by name.
     else if (head === "pkill" && !tokens.some((t) => /^(-[PF]|--parent|--pidfile)/.test(t.raw))) {
       blocks.add(MESSAGES.KILL_MESSAGE);
+    }
+    else if (head === "sleep") {
+      const seconds = sleepSeconds(tokens);
+      if (seconds !== null && seconds >= 60) {
+        const minutes = Math.round(seconds / 6) / 10;
+        blocks.add(fill(MESSAGES.SLEEP_MESSAGE, {
+          SLEEP: code(tokens.map((t) => t.raw).join(" ")), MINUTES: minutes + " min" }));
+      }
     }
     else if (head === "gh") {
       const endpoint = ghApiWrite(tokens);

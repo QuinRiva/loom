@@ -22,7 +22,11 @@ export class LoomToolError extends Schema.TaggedError<LoomToolError>()("LoomTool
   message: Schema.String,
 }) {}
 
-export type LoomMcpToolName = Exclude<LoomProseToolName, "ask_user_question">;
+// ask_user_question and the bg_* job tools are pi-extension tools, not served over MCP.
+export type LoomMcpToolName = Exclude<
+  LoomProseToolName,
+  "ask_user_question" | "bg_start" | "bg_wait"
+>;
 
 const described = <S extends Schema.Top>(schema: S, description: string) =>
   schema.annotate({ description });

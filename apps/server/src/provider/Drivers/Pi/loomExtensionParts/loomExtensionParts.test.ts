@@ -7,9 +7,10 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { afterAll, describe, expect, it } from "vite-plus/test";
+import { afterAll, afterEach, describe, expect, it } from "vite-plus/test";
 
 import { LOOM_EXTENSION_PARTS, type LoomExtensionPart } from "../loomExtension.ts";
+import { backgroundJobsPart } from "./backgroundJobs.ts";
 import { cacheWarmingGatePart } from "./cacheWarmingGate.ts";
 import { commandGuardsPart } from "./commandGuards.ts";
 import { pgrepSelfMatchPart } from "./pgrepSelfMatch.ts";
@@ -34,6 +35,8 @@ const loadPart = (
   const pi = {
     on: (event: string, handler: Handler) => handlers.set(event, handler),
     getAllTools: () => tools.map((name) => ({ name })),
+    registerTool: () => undefined,
+    sendMessage: () => undefined,
   };
   new Function("pi", "ctx", "loomFetch", part.source)(pi, ctx, loomFetch);
   return handlers;
@@ -734,6 +737,35 @@ describe("command-guards part", () => {
     }
   });
 
+  it("blocks a bash sleep of 60 s or more with the command and its length", () => {
+    expect(run("sleep 600").reason).toBe(
+      "Blocked by the t3 command guard: `sleep 600` would hold this turn for 10 min, cannot end early if what you are waiting for finishes, and shows nothing if it does not. To wait for a process, start it with bg_start and wait with bg_wait, which returns the moment the job exits or with its progress at your timeout. To wait for the clock, bg_start `sleep 600` and bg_wait on it. Sleeps under 60 s are not blocked.",
+    );
+    for (const [command, sleep, minutes] of [
+      ["sleep 60", "sleep 60", "1 min"],
+      ["sleep 2m && tail -5 out.log", "sleep 2m", "2 min"],
+      ["timeout 1800 sleep 900", "sleep 900", "15 min"],
+      ["sleep 1m 30", "sleep 1m 30", "1.5 min"],
+    ]) {
+      expect(run(command!).reason, command).toContain(
+        `\`${sleep}\` would hold this turn for ${minutes},`,
+      );
+    }
+  });
+
+  it("passes short, variable, quoted and heredoc-body sleeps", () => {
+    for (const command of [
+      "sleep 30",
+      "sleep $N",
+      `ssh h "sleep 90"`,
+      "cat <<'EOF' > wait.sh\nsleep 300\nEOF",
+      "for i in 1 2 3; do sleep 20; done",
+      "timeout 1800 tail --pid=123 -f /dev/null",
+    ]) {
+      untouched(command);
+    }
+  });
+
   it("degrades to allow on malformed input instead of throwing", () => {
     const handlers = loadPart(commandGuardsPart);
     expect(handlers.get("tool_call")!({ toolName: "bash", input: {} }, ctx)).toBeUndefined();
@@ -743,5 +775,200 @@ describe("command-guards part", () => {
     expect(
       handlers.get("tool_result")!({ toolName: "bash", toolCallId: "nope" }, ctx),
     ).toBeUndefined();
+  });
+});
+
+describe("background-jobs part", () => {
+  const SUBMIT = "mcp__t3-code__workstream_submit";
+  const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "pi-bg-jobs-test-"));
+  afterAll(() => NodeFS.rmSync(root, { recursive: true, force: true }));
+  // Every loaded instance adds a SIGTERM listener at session_start; session_shutdown removes it.
+  const shutdowns: Array<() => void> = [];
+  afterEach(() => shutdowns.splice(0).forEach((shutdown) => shutdown()));
+
+  interface Sent {
+    readonly message: { readonly customType: string; readonly content: string };
+    readonly options: { readonly triggerTurn?: boolean; readonly deliverAs?: string };
+  }
+  type ToolResult = { content: Array<{ text: string }> };
+
+  /** One pi process: the part's body against a stub pi, started on `sessionDir`'s session s1. */
+  const load = (sessionDir = NodeFS.mkdtempSync(NodePath.join(root, "session-"))) => {
+    const handlers = new Map<string, (event: unknown, ext?: unknown) => unknown>();
+    const tools = new Map<
+      string,
+      { execute: (...args: ReadonlyArray<unknown>) => Promise<ToolResult> }
+    >();
+    const sent: Array<Sent> = [];
+    const statuses: Array<{ running: number; wake?: { summary: string; outcome: string } }> = [];
+    let onSend = () => {};
+    const pi = {
+      on: (name: string, handler: (event: unknown, ext?: unknown) => unknown) =>
+        handlers.set(name, handler),
+      registerTool: (tool: { name: string; execute: () => Promise<ToolResult> }) =>
+        tools.set(tool.name, tool),
+      sendMessage: (message: Sent["message"], options: Sent["options"]) => {
+        sent.push({ message, options });
+        onSend();
+      },
+    };
+    new Function("pi", "ctx", backgroundJobsPart.source)(pi, {});
+    const ext = {
+      cwd: root,
+      ui: {
+        setStatus: (key: string, text: string) => {
+          expect(key).toBe("loom-jobs");
+          statuses.push(JSON.parse(text));
+        },
+      },
+      sessionManager: { getSessionDir: () => sessionDir, getSessionId: () => "s1" },
+    };
+    handlers.get("session_start")!({ type: "session_start" }, ext);
+    const shutdown = () => handlers.get("session_shutdown")!({ type: "session_shutdown" }, ext);
+    shutdowns.push(shutdown);
+    const textOf = (result: ToolResult) => result.content[0]!.text;
+    return {
+      sessionDir,
+      sent,
+      statuses,
+      shutdown,
+      /** Resolves at the next sendMessage. */
+      nextSend: () => new Promise<void>((resolve) => (onSend = resolve)),
+      start: async (command: string, minMinutes = 0, maxMinutes = 1) => {
+        const text = textOf(
+          await tools
+            .get("bg_start")!
+            .execute(
+              "call",
+              { command, min_minutes: minMinutes, max_minutes: maxMinutes },
+              undefined,
+              undefined,
+              ext,
+            ),
+        );
+        const [, id, pid] = /^Started job (j\w{4}) \(pid (\d+)\)/.exec(text)!;
+        return { text, id: id!, pid: Number(pid) };
+      },
+      wait: async (id: string, timeoutSeconds?: number, signal?: AbortSignal) =>
+        textOf(
+          await tools
+            .get("bg_wait")!
+            .execute(
+              "call",
+              { id, ...(timeoutSeconds === undefined ? {} : { timeout_s: timeoutSeconds }) },
+              signal,
+            ),
+        ),
+      submit: () =>
+        handlers.get("tool_call")!({ toolName: SUBMIT, toolCallId: "s", input: {} }) as
+          | { block: boolean; reason: string }
+          | undefined,
+    };
+  };
+  /** Resolves once `pid` has exited (tail checks it about once a second). */
+  const exited = (pid: number) =>
+    new Promise((resolve) =>
+      NodeChildProcess.spawn("tail", [`--pid=${pid}`, "-f", "/dev/null"]).on("exit", resolve),
+    );
+
+  it("bg_wait returns the exit shape with the job's output, and nothing else is sent", async () => {
+    const jobs = load();
+    const { text, id } = await jobs.start("echo a; sleep 0.3; echo b", 0, 1);
+    expect(text).toContain("Expected 0 to 1 min. bg_wait " + id + " returns when it exits;");
+    const result = await jobs.wait(id, 30);
+    expect(result).toMatch(
+      new RegExp(
+        `^Background job ${id} finished \\(exit 0\\) after 0 s, inside your 0 to 1 min: \`echo a; sleep 0.3; echo b\`\nLog: .*${id}\\.log \\(2 lines\\)\nLast 2 lines:\na\nb$`,
+      ),
+    );
+    expect(jobs.sent).toEqual([]);
+    expect(jobs.statuses.at(-1)).toEqual({ running: 0 });
+    expect(await jobs.wait(id, 30)).toBe(result);
+  });
+
+  it("a timeout returns progress with growth, refuses a submit, and a later wait returns at exit", async () => {
+    const jobs = load();
+    const { id, pid } = await jobs.start("echo a; sleep 1; echo b", 0, 1);
+    const progress = await jobs.wait(id, 0.4);
+    expect(progress).toMatch(
+      new RegExp(
+        `^Job ${id} still running after 0 s \\(your bounds: 0 to 1 min\\)\\. Log: 1 line, 2 B; \\+1 line, \\+2 B since it started 0 s ago; last write 0 s ago\\.\nLast 1 line:\na$`,
+      ),
+    );
+    const refused = jobs.submit();
+    expect(refused?.block).toBe(true);
+    expect(refused?.reason).toContain(
+      `Refused: background job ${id} (\`echo a; sleep 1; echo b\`) is still running`,
+    );
+    expect(refused?.reason).toContain(
+      `or stop it (\`kill ${pid}\`) and say so, then submit again.`,
+    );
+    expect(await jobs.wait(id, 30)).toContain(`Background job ${id} finished (exit 0)`);
+    expect(jobs.submit()).toBeUndefined();
+    expect(jobs.sent).toEqual([]);
+  });
+
+  it("an exit with nobody waiting wakes once, the status line carrying the summary first", async () => {
+    const jobs = load();
+    const sent = jobs.nextSend();
+    const { id } = await jobs.start("echo done; exit 3", 0, 1);
+    await sent;
+    expect(jobs.sent).toHaveLength(1);
+    expect(jobs.sent[0]!.options).toEqual({ triggerTurn: true });
+    expect(jobs.sent[0]!.message.customType).toBe("loom-bg-job");
+    expect(jobs.sent[0]!.message.content).toContain(`Background job ${id} finished (exit 3)`);
+    expect(jobs.statuses).toEqual([
+      { running: 0 },
+      { running: 1 },
+      {
+        running: 0,
+        wake: { summary: "Background job finished (exit 3): echo done; exit 3", outcome: "failed" },
+      },
+    ]);
+    // A wait after the wake went out points at it instead of delivering the result twice.
+    expect(await jobs.wait(id, 30)).toBe(
+      `Background job ${id} finished (exit 3) after 0 s, before this call; its exit report was sent to you as a message, which follows this result if you have not seen it yet.`,
+    );
+    expect(jobs.sent).toHaveLength(1);
+  });
+
+  it("an aborted wait leaves the job running, and its exit then wakes", async () => {
+    const jobs = load();
+    const { id } = await jobs.start("sleep 0.3; echo late", 0, 1);
+    const abort = new AbortController();
+    const waiting = jobs.wait(id, 30, abort.signal);
+    abort.abort();
+    await expect(waiting).rejects.toThrow();
+    const sent = jobs.nextSend();
+    await sent;
+    expect(jobs.sent[0]!.message.content).toContain("late");
+  });
+
+  it("a job killed with pi is never woken on, and the next session start reports it lost once", async () => {
+    const first = load();
+    const { id, pid } = await first.start("sleep 30", 10, 30);
+    first.shutdown();
+    await exited(pid);
+    expect(first.sent).toEqual([]);
+    const record = JSON.parse(
+      NodeFS.readFileSync(NodePath.join(first.sessionDir, "jobs", "s1", `${id}.json`), "utf8"),
+    );
+    expect(record.exit).toBeNull();
+
+    const second = load(first.sessionDir);
+    expect(second.sent).toHaveLength(1);
+    expect(second.sent[0]!.options).toEqual({ deliverAs: "nextTurn" });
+    expect(second.sent[0]!.message.content).toMatch(
+      new RegExp(
+        `^Background job ${id} \\(\`sleep 30\`\\) was lost when this thread's pi process ended at \\d\\d:\\d\\d, 0 s into your 10 to 30 min; it was not restarted\\. Its log stops at .*${id}\\.log\\.\nThe log is empty\\.$`,
+      ),
+    );
+    expect(await second.wait(id)).toBe(second.sent[0]!.message.content);
+    expect(second.submit()).toBeUndefined();
+    expect(load(first.sessionDir).sent).toEqual([]);
+  });
+
+  it("refuses an unknown id", async () => {
+    await expect(load().wait("jzzzz", 1)).rejects.toThrow("No job jzzzz in this session.");
   });
 });

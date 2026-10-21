@@ -998,6 +998,64 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  // loom: Loom's background jobs report over the `loom-jobs` status line (backgroundJobs.loom.ts)
+  it.effect("pins the session while a background job runs and names the job on its wake", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const offers =
+        yield* Queue.unbounded<ProviderContinuationRequests.ProviderContinuationRequest>();
+      const { runtime, takeEvent } = yield* openRuntime(
+        fake,
+        "default",
+        THREAD_ID,
+        SESSION_ID,
+        undefined,
+        { offer: (request) => Queue.offer(offers, request).pipe(Effect.asVoid) },
+      );
+      yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      let dialogs = 0;
+      // pi's events are handled in order: a dialog's runtime request marks the status as read.
+      const setStatus = (status: unknown) =>
+        Effect.gen(function* () {
+          yield* fake.emit({
+            type: "extension_ui_request",
+            id: `status-${dialogs}`,
+            method: "setStatus",
+            statusKey: "loom-jobs",
+            statusText: JSON.stringify(status),
+          });
+          const id = `sync-${++dialogs}`;
+          yield* fake.emit({ type: "extension_ui_request", id, method: "confirm", title: id });
+          yield* takeEvent(
+            (event) =>
+              event.type === "runtime_request.updated" &&
+              event.runtimeRequest.nativeRequestRef?.nativeId === id,
+          );
+        });
+      assert.isFalse(yield* runtime.hasPendingBackgroundWork!);
+      yield* setStatus({ running: 1 });
+      assert.isTrue(yield* runtime.hasPendingBackgroundWork!);
+      yield* setStatus({ running: 0 });
+      assert.isFalse(yield* runtime.hasPendingBackgroundWork!);
+      yield* setStatus("not json");
+      assert.isFalse(yield* runtime.hasPendingBackgroundWork!);
+
+      const summary = "Background job finished (exit 0): python eval.py --gold";
+      yield* setStatus({ running: 0, wake: { summary, outcome: "completed" } });
+      yield* fake.emit({ type: "agent_start" });
+      const offer = yield* Queue.take(offers);
+      assert.deepEqual(offer.notification, {
+        source: { kind: "command" },
+        outcome: "completed",
+        summary,
+      });
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect.each([false, true])(
     "a user prompt takes the wake without premature settlement, native wake settled=%s",
     (settled) =>

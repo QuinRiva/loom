@@ -254,6 +254,24 @@ export const LOOM_TOOL_PROSE = {
       "One question; two only if independent and answerable alone, despite the schema's capacity of four. Use mdx-visual-recap for decision documents, with evidence beside each decision.",
     ].join("\n"),
   },
+  // Local process tools registered by Loom's pi extension (`backgroundJobs.ts`), not MCP tools:
+  // bare names, like pi's own `bash`.
+  bg_start: {
+    description:
+      "Run here, not in bash, any command that may take more than about two minutes: an eval, a pipeline, a build or test suite, a deliberate delay. A foreground bash call holds your turn until the command ends and cannot be steered, and a `sleep` waiting for it cannot end early. The job starts at once in the working directory with stdout and stderr captured to a log; the result is the job id, pid and log path. Its exit code and last output lines reach you in bg_wait if you are waiting there, otherwise as a new message (one that starts a turn if yours has ended). Before starting, make sure the command writes progress as it runs (a line per item, a counter, a growing results file): bg_wait shows only what the job writes, and a job silent until the end cannot be told from one that is stuck. Commands that finish in seconds stay in bash. The job dies with this session: Stop, a server restart, or more than four hours idle ends it, and your next turn is told.",
+    promptSnippet:
+      "start a command that may run more than about two minutes in the background, with a wake when it exits",
+    promptGuidelines:
+      "Never wait with a bash `sleep` of a minute or more for a process, a service or the clock: a sleep cannot end early when the thing you wait for finishes and shows nothing when it does not, which is how finished jobs sit unnoticed and unfinished ones get cancelled. Start the job (or a `sleep N` timer) with bg_start and wait on it with bg_wait.",
+  },
+  bg_wait: {
+    description:
+      "Wait for a job started with bg_start. Returns the moment the job exits, with its exit code and the last lines of its log; or when timeout_s runs out with the job still running, with how long it has run against your bounds, how much the log grew since your last check, and its latest lines. That timeout result is a progress report, not a failure: when the log is still advancing, wait again; stop the job (`kill <pid>`) only when its output shows it has stalled, is failing, or is doing the wrong work. Aborting this call leaves the job running.",
+    promptSnippet:
+      "wait for a background job: returns at its exit, or with its progress at a timeout",
+    // No guidelines by design: the sleep rule is bg_start's bullet alone (one definition, one place).
+    promptGuidelines: "",
+  },
 } as const satisfies Record<string, LoomToolProse>;
 
 export type LoomProseToolName = keyof typeof LOOM_TOOL_PROSE;

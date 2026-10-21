@@ -429,6 +429,48 @@ it.effect("a silent in-flight tool suppresses the stall (no heartbeat for 11 min
   ),
 );
 
+it.effect("a running bg_wait's timeout_s is its declared estimate", () =>
+  withSweep(
+    Effect.gen(function* () {
+      const { child } = yield* seedRunningChild("bg-wait", true);
+      const ids = seededRunIds(child);
+      const now = yield* DateTime.now;
+      yield* writeEvents([
+        yield* event(child, {
+          type: "turn-item.updated",
+          payload: {
+            id: TurnItemId.make(`turn-item:${child}:bg-wait`),
+            threadId: child,
+            runId: ids.runId,
+            nodeId: ids.nodeId,
+            providerThreadId: ids.providerThreadId,
+            providerTurnId: ids.providerTurnId,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal: 1,
+            status: "running",
+            title: "bg_wait",
+            startedAt: DateTime.makeUnsafe(0),
+            completedAt: null,
+            updatedAt: now,
+            type: "dynamic_tool",
+            toolName: "bg_wait",
+            input: { id: "j3ab", timeout_s: 1800 },
+          },
+        }),
+      ]);
+      yield* minutes(11);
+      yield* sweep;
+      // 30 min × 1.2: no slow-tool notice at 5 or 11 minutes.
+      assert.lengthOf(advised, 0);
+      yield* minutes(26);
+      yield* sweep;
+      assert.lengthOf(advised, 1);
+      assert.include(advised[0]?.item.excerpt ?? "", "long-running tool `bg_wait`");
+    }),
+  ),
+);
+
 it.effect("the heartbeat tracks Loom threads only and ignores incoming user messages", () =>
   withSweep(
     Effect.gen(function* () {

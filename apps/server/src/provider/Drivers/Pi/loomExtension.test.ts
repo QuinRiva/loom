@@ -36,6 +36,8 @@ const SPAWN = "mcp__t3-code__workstream_spawn";
 const ASK = "mcp__t3-code__ask_user_question";
 const DELEGATE = "mcp__t3-code__delegate_task";
 const THREAD_SEND = "mcp__t3-code__t3_thread_send";
+// The background-job tools are active in every profile.
+const JOBS = ["bg_start", "bg_wait"];
 
 const profile = (overrides: Record<string, unknown> = {}) => ({
   activeTools: ["read", SUBMIT],
@@ -102,6 +104,8 @@ const load = async (
     process: {
       env: { T3_MCP_URL: "http://127.0.0.1:4100/mcp", T3_MCP_BEARER_TOKEN: "token-1" },
       pid: 1,
+      on: () => undefined,
+      off: () => undefined,
       getBuiltinModule: (name: string) =>
         ({ "node:fs": NodeFS, "node:os": NodeOS, "node:path": NodePath })[name],
     },
@@ -142,7 +146,7 @@ describe("Loom pi extension", () => {
   it("applies the session profile at session_start, with tool_search", async () => {
     const pi = await load(serving(() => profile()));
     await pi.emit("session_start");
-    assert.deepEqual(pi.active(), ["read", SUBMIT, "tool_search"].toSorted());
+    assert.deepEqual(pi.active(), ["read", SUBMIT, "tool_search", ...JOBS].toSorted());
   });
 
   it("re-asserts the profile every turn and keeps what tool_search activated", async () => {
@@ -154,7 +158,7 @@ describe("Loom pi extension", () => {
 
     await pi.emit("before_agent_start");
 
-    assert.deepEqual(pi.active(), ["read", SUBMIT, SPAWN, "tool_search"].toSorted());
+    assert.deepEqual(pi.active(), ["read", SUBMIT, SPAWN, "tool_search", ...JOBS].toSorted());
   });
 
   // pi's <tools> prompt section follows the active order: a reshuffle would patch it for nothing.
@@ -201,7 +205,10 @@ describe("Loom pi extension", () => {
     pi.search("browser_navigate");
     await pi.emit("before_agent_start");
 
-    assert.deepEqual(pi.active(), ["read", SUBMIT, "browser_navigate", "tool_search"].toSorted());
+    assert.deepEqual(
+      pi.active(),
+      ["read", SUBMIT, "browser_navigate", "tool_search", ...JOBS].toSorted(),
+    );
   });
 
   it("hides mcp__t3-code__ask_user_question on a child nobody has written to, and offers it once a person has", async () => {
