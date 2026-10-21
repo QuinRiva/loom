@@ -208,6 +208,8 @@ export const launchDraftFork = (input: {
   /** "handed off" / "reviewed": the refusal wording. */
   readonly verb: string;
   readonly sourceThreadId: ThreadId;
+  /** Minted here unless the caller needed it first (a query thread writes its brief before). */
+  readonly drafterThreadId?: ThreadId;
   readonly build: (
     fork: Omit<DraftForkInput, "role" | "title" | "kickoff">,
     source: OrchestrationV2ThreadShell,
@@ -249,7 +251,8 @@ export const launchDraftFork = (input: {
         `This thread's pi session cannot be forked (no native session reference), so it cannot be ${input.verb}.`,
       );
     }
-    const drafterThreadId = ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4());
+    const drafterThreadId =
+      input.drafterThreadId ?? ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4());
     const launch = yield* dispatchDraftFork(
       input.build(
         {

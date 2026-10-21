@@ -13,7 +13,9 @@
  * A `retro-reviewer` (a fresh root, not a fork) composes with its server-owned
  * overlay. A `handoff-drafter` replays its source when the source has a record
  * and composes fresh when it has none (an upstream-only thread the human was
- * chatting to). `env` carries `PI_CACHE_RETENTION` (DL-300), the
+ * chatting to). A `document-query` thread replays its author's CURRENT record on every launch,
+ * never composing its own (the declared tools are the author's prompt-cache key, plan
+ * query-threads §2.3), with `T3_LOOM_QUERY_FORK` added: the read-only guard and credential. `env` carries `PI_CACHE_RETENTION` (DL-300), the
  * arm for life, and, per launch, the agent git identity, whose shim directory rides
  * `pathPrepend`. A 1-hour root's launch adds, outside the identity, the keep-alive
  * policy: pi's idle-warming horizon and a longer idle release.
@@ -21,6 +23,7 @@
  * @module loom/prompt/sessionComposerLive
  */
 import {
+  DOCUMENT_QUERY_ROLE,
   LOOM_CACHE_HORIZON_MS,
   type LoomThreadWorkstream,
   type OrchestrationV2AppThread,
@@ -46,6 +49,7 @@ import {
   LoomExtensionPath,
   LoomExtensionPathLive,
 } from "../../provider/Drivers/Pi/loomExtension.ts";
+import { LOOM_QUERY_FORK_ENV } from "../query/queryPosture.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
 import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_TOOLS } from "../handoff/retroDraft.ts";
@@ -180,6 +184,23 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
     longShare: number,
   ) =>
     Effect.gen(function* () {
+      if (workstream?.role === DOCUMENT_QUERY_ROLE && workstream.forkFromThreadId !== null) {
+        const author = workstream.forkFromThreadId;
+        const source = yield* readLaunchIdentity(identityDir, author);
+        if (Option.isNone(source))
+          return yield* new LoomForkSourceIdentityMissing({
+            threadId: thread.id,
+            sourceThreadId: author,
+          });
+        const record: LaunchIdentityRecord = {
+          ...source.value,
+          env: { ...source.value.env, [LOOM_QUERY_FORK_ENV]: "1" },
+          replayedFrom: author,
+        };
+        // Written so the session-profile route serves the author's tools as this thread's.
+        yield* writeLaunchIdentity(identityDir, thread.id, record);
+        return record;
+      }
       const own = yield* readLaunchIdentity(identityDir, thread.id);
       if (Option.isSome(own) && own.value.replayedFrom === undefined) return own.value;
       const firstLaunch = Option.isNone(own);
