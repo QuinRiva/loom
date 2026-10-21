@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off
 /**
  * Who a Query forks: the thread that signed the document. pi's `sign_document` writes a
  * `manager_sessions: [{ id, name, role, authored_at }]` manifest (YAML frontmatter, or an HTML
@@ -7,12 +8,15 @@
  *
  * @module loom/query/documentAuthor
  */
+import * as NodePath from "node:path";
+
 import {
   DOCUMENT_QUERY_ROLE,
   type DocumentQueryAuthorInput,
   type DocumentQueryAuthorSource,
   LOOM_WS_METHODS,
   LoomWsMethodError,
+  type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
 import { fromYaml } from "@t3tools/shared/schemaYaml";
@@ -74,6 +78,10 @@ export const signingSessionIds = (entries: ReadonlyArray<ManagerSession>) => [
  * The author a Query on `filePath` from `sourceThreadId` forks, and the document as the
  * viewing thread's workspace holds it now. A query thread stands for its own author, whether
  * it is the viewer or the signer, so a Query never forks a fork.
+ *
+ * `filePath` is the document as the author names it: a viewer in another worktree opens the
+ * author's file by absolute path, which becomes author-relative here so every view keys the
+ * same query thread and pins, and the fork (in the author's cwd) can open it.
  */
 export const resolveDocumentAuthor = (input: {
   readonly method: string;
@@ -97,35 +105,51 @@ export const resolveDocumentAuthor = (input: {
             : threadId,
         ),
       );
+    const projects = yield* ProjectStoreV2;
+    const workspaceOf = (shell: { worktreePath: string | null; projectId: ProjectId }) =>
+      shell.worktreePath === null
+        ? Effect.map(projects.get(shell.projectId), (project) =>
+            Option.getOrNull(Option.map(project, (p) => p.workspaceRoot)),
+          )
+        : Effect.succeed(shell.worktreePath);
     const viewing = yield* liveShell(input.sourceThreadId);
     if (viewing === null) return yield* fail("The source thread was not found.");
-    const cwd =
-      viewing.worktreePath ??
-      Option.getOrNull(
-        Option.map(yield* (yield* ProjectStoreV2).get(viewing.projectId), (p) => p.workspaceRoot),
-      );
+    const cwd = yield* workspaceOf(viewing);
     if (cwd === null) return yield* fail("The thread has no workspace to read the document from.");
     const { contents } = yield* (yield* WorkspaceFileSystem)
       .readFile({ cwd, relativePath: input.filePath, maxBytes: DOCUMENT_READ_MAX_BYTES })
       .pipe(Effect.mapError((cause) => fail(`${input.filePath} could not be read.`, cause)));
+    const resolved = (
+      author: NonNullable<typeof viewing>,
+      authorSource: DocumentQueryAuthorSource,
+    ) =>
+      Effect.map(workspaceOf(author), (root) => {
+        const relative =
+          root !== null && NodePath.isAbsolute(input.filePath)
+            ? NodePath.relative(root, input.filePath)
+            : "";
+        const inside =
+          relative !== "" && !relative.startsWith("..") && !NodePath.isAbsolute(relative);
+        return { author, authorSource, contents, filePath: inside ? relative : input.filePath };
+      });
     for (const sessionId of signingSessionIds(parseManagerSessions(contents))) {
       const signer = yield* store.threadForPiSession(sessionId);
       const author = signer === null ? null : yield* authorOf(signer);
-      if (author !== null)
-        return { author, authorSource: "signature" as DocumentQueryAuthorSource, contents };
+      if (author !== null) return yield* resolved(author, "signature");
     }
     const author = yield* authorOf(viewing.id);
     if (author === null) return yield* fail("The document's author thread was not found.");
-    return { author, authorSource: "viewing-thread" as DocumentQueryAuthorSource, contents };
+    return yield* resolved(author, "viewing-thread");
   });
 
 /** `loom.documentQueryAuthor`: the Query card's pre-flight, the same resolution `askDocumentQuery` makes. */
 export const lookupDocumentQueryAuthor = (input: DocumentQueryAuthorInput) =>
   resolveDocumentAuthor({ method: LOOM_WS_METHODS.documentQueryAuthor, ...input }).pipe(
-    Effect.map(({ author, authorSource }) => ({
+    Effect.map(({ author, authorSource, filePath }) => ({
       authorThreadId: author.id,
       authorTitle: author.title,
       authorSource,
+      filePath,
     })),
     Effect.catchIf(
       (error) => error._tag !== "LoomWsMethodError",

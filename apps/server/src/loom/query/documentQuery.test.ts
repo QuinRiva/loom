@@ -234,6 +234,7 @@ it.layer(TestLayer)("Query threads", (it) => {
         authorThreadId: author,
         authorTitle: "Plan author",
         authorSource: "signature",
+        filePath,
       });
       const asked = yield* askDocumentQuery(ask(viewer, "Why?"));
       assert.deepInclude(asked, { authorThreadId: author, authorSource: "signature" });
@@ -243,6 +244,22 @@ it.layer(TestLayer)("Query threads", (it) => {
       // Asked from the author itself, the same revision reuses the same query thread.
       const again = yield* askDocumentQuery(ask(author, "And?"));
       assert.deepEqual([again.created, again.queryThreadId], [false, asked.queryThreadId]);
+      // A viewer in another workspace opens the author's file by absolute path: the same
+      // document, so the same query thread and pins, keyed author-relative.
+      const elsewhere = ThreadId.make("signed-viewer-elsewhere");
+      yield* seedThread({ threadId: elsewhere, projectId: ProjectId.make("project:other") });
+      const absolute = `/workspace/project:loom-test/${filePath}`;
+      assert.equal(
+        (yield* lookupDocumentQueryAuthor({ sourceThreadId: elsewhere, filePath: absolute }))
+          .filePath,
+        filePath,
+      );
+      const across = yield* askDocumentQuery({
+        ...ask(elsewhere, "From afar?"),
+        filePath: absolute,
+      });
+      assert.deepEqual([across.created, across.queryThreadId], [false, asked.queryThreadId]);
+      assert.equal((yield* row(asked.queryThreadId)).documentQuery?.filePath, filePath);
       // Asked from inside the query thread, it still forks the author, never the fork.
       assert.equal(
         (yield* lookupDocumentQueryAuthor({ sourceThreadId: asked.queryThreadId, filePath }))

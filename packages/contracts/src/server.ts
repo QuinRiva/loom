@@ -584,6 +584,8 @@ export const DocumentQueryAuthorResult = Schema.Struct({
   authorThreadId: ThreadId,
   authorTitle: Schema.String,
   authorSource: DocumentQueryAuthorSource,
+  /** The document as the author names it (author-relative when it lies in its workspace). */
+  filePath: TrimmedNonEmptyString,
 });
 export type DocumentQueryAuthorResult = typeof DocumentQueryAuthorResult.Type;
 

@@ -1,9 +1,10 @@
 /**
  * loom: the MDX annotation layer with query threads bound
  * (plans/plan-query-threads/plan.mdx §5 steps 9-10). Query asks `loom.documentQuery`,
- * which forks the document's author (the thread that signed it, else the viewing thread) (or reuses its live query thread for this
- * revision) and sends the question as that thread's first turn; the main window
- * then opens the query thread. A pin opens it scrolled to its question.
+ * which forks the document's author, the thread that signed it, else the viewing
+ * thread, or reuses its live query thread for this revision, and sends the
+ * question as that thread's first turn; the main window then opens the query
+ * thread. A pin opens it scrolled to its question.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -47,7 +48,7 @@ export function LoomMdxAnnotationLayer({
   const pins = useDocumentQueryPins(
     threadRef.environmentId,
     author?.authorThreadId ?? null,
-    filePath,
+    author?.filePath ?? filePath,
   );
   const open = (ref: ScopedThreadRef) =>
     void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) });
@@ -133,8 +134,12 @@ export function LoomMdxReviewCount({
           !isReviewChoiceCommentId(c.id),
       ).length,
   );
-  const authorId = useDocumentQueryAuthor(threadRef, filePath)?.authorThreadId ?? null;
-  const queries = useDocumentQueryPins(threadRef.environmentId, authorId, filePath).length;
+  const author = useDocumentQueryAuthor(threadRef, filePath);
+  const queries = useDocumentQueryPins(
+    threadRef.environmentId,
+    author?.authorThreadId ?? null,
+    author?.filePath ?? filePath,
+  ).length;
   const parts = [
     comments > 0 ? `${comments} ${comments === 1 ? "comment" : "comments"}` : null,
     queries > 0 ? `${queries} ${queries === 1 ? "query" : "queries"}` : null,

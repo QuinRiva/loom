@@ -1,6 +1,8 @@
 /**
  * loom: the query pins a document draws — one per question asked about it in a
- * live query thread of its author (resolved by the server, `useDocumentQueryAuthor`) (plans/plan-query-threads/plan.mdx §5 step 10).
+ * live query thread of its author (plans/plan-query-threads/plan.mdx §5 step 10),
+ * keyed on the author and file as the server resolves them
+ * (`useDocumentQueryAuthor`), so every view of one document shares its pins.
  * A derived atom per (environment, author, file) over the environment's live
  * shells: it recomputes on any shell change but keeps its previous value when
  * the pins are unchanged, so the annotation layer re-renders only when a

@@ -241,11 +241,14 @@ export const askDocumentQuery = (input: DocumentQueryInput) =>
   Effect.gen(function* () {
     const orchestrator = yield* OrchestratorV2;
     const store = yield* LoomStoreV2;
-    const { author, authorSource, contents } = yield* resolveDocumentAuthor({ method, ...input });
+    const { author, authorSource, contents, filePath } = yield* resolveDocumentAuthor({
+      method,
+      ...input,
+    });
     const authorThreadId = author.id;
     const revision = NodeCrypto.createHash("sha256").update(contents).digest("hex").slice(0, 12);
-    const question = { ...input, sourceThreadId: authorThreadId };
-    const key = { authorThreadId, filePath: input.filePath, revision };
+    const question = { ...input, filePath, sourceThreadId: authorThreadId };
+    const key = { authorThreadId, filePath, revision };
     const candidates = yield* store.listActiveWorkstreams();
     const reuse = reusableQueryThread(candidates, key);
     // A thread still waiting on a mid-turn author has no session to take a second question yet.
@@ -260,7 +263,7 @@ export const askDocumentQuery = (input: DocumentQueryInput) =>
         commandId: CommandId.make(`${questionId(threadId, n)}:ask`),
         threadId,
         createdAt,
-        filePath: input.filePath,
+        filePath,
         revision,
         authorSource,
         question: {
@@ -276,10 +279,7 @@ export const askDocumentQuery = (input: DocumentQueryInput) =>
       queryThreadId = ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4());
       const kickoffBriefPath = yield* writeWorkstreamBrief(
         queryThreadId,
-        buildDocumentQueryBrief(
-          buildDocumentQueryOverlay({ filePath: input.filePath, authorThreadId }),
-          question,
-        ),
+        buildDocumentQueryBrief(buildDocumentQueryOverlay({ filePath, authorThreadId }), question),
       );
       yield* launchDraftFork({
         method,
