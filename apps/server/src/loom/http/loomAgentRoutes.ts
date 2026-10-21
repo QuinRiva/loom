@@ -69,12 +69,6 @@ const asWritingCaller = <E, R>(
       : handle(caller),
   );
 
-/**
- * The thread's profile. `humanEngaged` is seam 14's stamp on any user-role
- * message (or the human's Launch of a staged continuation) — never the shell's
- * `latestUserAuthoredMessageAt`, which counts a human-created scheduled task's fire. A child nobody has written to does not keep
- * `mcp__t3-code__ask_user_question` resident whatever its role says.
- */
 /** Who reads the thread: whether it is a child, and whether a human has engaged it. */
 const readership = Effect.fn("loom.sessionReadership")(function* (threadId: ThreadId) {
   const { thread, messages } = yield* (yield* OrchestratorV2).getThreadRecords(
@@ -96,6 +90,12 @@ const readership = Effect.fn("loom.sessionReadership")(function* (threadId: Thre
   };
 });
 
+/**
+ * The thread's profile. `humanEngaged` is seam 14's stamp on any user-role
+ * message (or the human's Launch of a staged continuation) — never the shell's
+ * `latestUserAuthoredMessageAt`, which counts a human-created scheduled task's fire. A child nobody has written to does not keep
+ * `mcp__t3-code__ask_user_question` resident whatever its role says.
+ */
 export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (
   threadId: ThreadId,
   readOnly = false,
