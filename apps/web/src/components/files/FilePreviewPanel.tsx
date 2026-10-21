@@ -125,7 +125,7 @@ import {
   UNBOUNDED_LINE_LENGTH,
 } from "./longLinePreview.loom";
 // loom: MDX plan renderer + debounced save coordinator
-import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationLayer";
+import { LoomMdxAnnotationLayer } from "~/loom/LoomMdxAnnotationLayer"; // loom: query threads
 import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
@@ -998,9 +998,11 @@ function RenderedMarkdownSurface({
               directory and loads through a signed asset URL, exactly as a `.md`
               preview's `![](x.png)` does (see `FileMarkdownPreview`). */}
           <PlanDocumentContext.Provider value={documentLocation}>
-            <MdxPlanAnnotationLayer
+            {/* loom: query threads — Query beside Comment, and pins on asked passages. */}
+            <LoomMdxAnnotationLayer
               source={contents}
               filePath={relativePath}
+              threadRef={threadRef}
               composerDraftTarget={composerDraftTarget}
             />
           </PlanDocumentContext.Provider>

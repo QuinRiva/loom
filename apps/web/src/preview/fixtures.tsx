@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { EnvironmentId, ThreadId, type FilesystemEntryMetadata } from "@t3tools/contracts";
 import type { RuntimeRequestId, UserInputQuestion } from "@t3tools/contracts";
@@ -12,8 +12,11 @@ import {
 import { cn } from "~/lib/utils";
 
 import ChatMarkdown from "../components/ChatMarkdown";
-import { DraftId } from "../composerDraftStore";
-import { MdxPlanAnnotationLayer } from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
+import { DraftId, useComposerDraftStore } from "../composerDraftStore";
+import {
+  MdxPlanAnnotationLayer,
+  type PlanQueryBinding,
+} from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
 import { useTimelineAvailableWidthVar } from "../components/chat/timelineLayout";
 import { __setMetadataFetcherForTests } from "../components/chat/usePathExistence";
@@ -968,6 +971,100 @@ const MDX_SCROLLING_TABLE_FIXTURE_SOURCE = [
   "Closing prose after the wide table, so you can confirm a scrolled highlight never paints over these words.",
 ].join("\n");
 
+/**
+ * Query threads (plans/plan-query-threads): the plan's "after" mockup — one
+ * pending comment (solid amber badge) and two query pins (hollow accent "?",
+ * dashed underline, no fill). Selecting prose offers Comment and Query; Query
+ * opens the card in query mode. Submitting a question succeeds after a beat
+ * (the real binding navigates to the query thread); a question containing
+ * "fail" shows the inline error instead.
+ */
+const MDX_QUERY_PINS_SOURCE = [
+  "# Plan: SQLite read lane v2",
+  "",
+  "## 2. One reader lane, not two",
+  "",
+  "The projection reader moves to the worker thread. Every read that used to block the event loop now crosses one message port, so a 40 ms query no longer stalls a turn.",
+  "",
+  "The writer stays in-process: a write that crossed the port would lose the transaction it sits in, and the orchestrator commits events, projections and outbox in one.",
+  "",
+  "Costs: one serialisation per read, measured at 0.3 ms on the seeded database.",
+  "",
+  '<Callout tone="decision" title="Reads cross the port; writes never do">',
+  "  Hover this block: the corner offers Query beside Comment.",
+  "</Callout>",
+].join("\n");
+const QUERY_PINS_TARGET = DraftId.make("preview-query-pins");
+const QUERY_PINS_FILE = "plans/preview/query-pins.mdx";
+const textAnchor = (textQuote: string) => ({
+  anchorKind: "text" as const,
+  textQuote,
+  sectionId: "2-one-reader-lane-not-two",
+  sectionTitle: "2. One reader lane, not two",
+});
+const QUERY_PINS_BINDING: PlanQueryBinding = {
+  pins: [
+    "a write that crossed the port would lose the transaction it sits in",
+    "one serialisation per read",
+  ].map((quote, index) => ({
+    queryThreadId: ThreadId.make("preview-query-thread"),
+    askedAt: `2026-10-21T10:0${index}:00.000Z`,
+    anchor: textAnchor(quote),
+    quotedText: quote,
+  })),
+  ask: (input) =>
+    new Promise((resolve) =>
+      setTimeout(
+        () =>
+          resolve(
+            input.question.includes("fail")
+              ? "The author's session has no finished run to fork yet."
+              : null,
+          ),
+        700,
+      ),
+    ),
+  openPin: () => {},
+};
+
+function PlanQueryPinsPreview() {
+  // One pending comment, seeded once into the scratch draft the layer reads.
+  useEffect(() => {
+    const quote = "Every read that used to block the event loop now crosses one message port";
+    useComposerDraftStore.getState().addReviewComment(QUERY_PINS_TARGET, {
+      kind: "mdx-anchor",
+      id: "mdx-anchor:preview-query-pins",
+      filePath: QUERY_PINS_FILE,
+      sectionId: "2-one-reader-lane-not-two",
+      sectionTitle: "2. One reader lane, not two",
+      rangeLabel: "annotation",
+      text: "Say what happens to a read issued mid-commit.",
+      anchor: textAnchor(quote),
+      quotedText: quote,
+    });
+  }, []);
+  const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
+  useTimelineAvailableWidthVar(viewport);
+  return (
+    <div ref={setViewport} className="min-h-[520px] rounded-lg border border-border">
+      <MdxPlanAnnotationLayer
+        source={MDX_QUERY_PINS_SOURCE}
+        filePath={QUERY_PINS_FILE}
+        composerDraftTarget={QUERY_PINS_TARGET}
+        query={QUERY_PINS_BINDING}
+      />
+    </div>
+  );
+}
+
+const mdxQueryPinsFixture: PreviewFixture = {
+  id: "mdx-query-pins",
+  title: "Query affordance and pins",
+  description:
+    "One pending comment (amber 1) and two query pins (hollow ?). Select prose: Comment and Query. Query opens the card in query mode; a question containing 'fail' shows the inline error.",
+  render: () => <PlanQueryPinsPreview />,
+};
+
 const mdxScrollingTableFixture: PreviewFixture = {
   id: "mdx-scrolling-table",
   title: "Wide table (intra-cell selection + scroll)",
@@ -1266,6 +1363,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       mdxAnnotationFixture,
       mdxScrollingTableFixture,
       mdxHtmlBlockCardsFixture,
+      mdxQueryPinsFixture,
     ],
   },
   {

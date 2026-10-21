@@ -110,6 +110,10 @@ export const liveNodes = (nodes: Iterable<WorkstreamNode>) =>
     .filter((node) => !node.archived)
     .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
 
+/** Settled cards recede on the graph; a query satellite also recedes once archived (superseded). */
+export const isReceded = (node: Pick<WorkstreamNode, "column" | "archived">) =>
+  node.column === "done" || node.column === "cancelled" || node.archived;
+
 /** A running turn (the activity axis): preparing, starting or running. */
 export const isRunning = (node: Pick<WorkstreamNode, "activity">) =>
   node.activity === "preparing" || node.activity === "starting" || node.activity === "running";

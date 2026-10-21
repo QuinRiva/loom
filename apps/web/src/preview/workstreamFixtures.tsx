@@ -8,8 +8,10 @@ import {
 } from "@t3tools/client-runtime/state/loom/rollup";
 import { workstreamIndexOf } from "@t3tools/client-runtime/state/loom/workstream";
 import {
+  DOCUMENT_QUERY_ROLE,
   EventId,
   type LoomThreadShellFields,
+  MessageId,
   type OrchestrationV2ThreadShell,
   ThreadId,
 } from "@t3tools/contracts";
@@ -61,7 +63,52 @@ const PREVIEW_SHELLS = PREVIEW_PATCHES.reduce(
   Object.values(loomPreviewThreads) as ReadonlyArray<OrchestrationV2ThreadShell>,
 );
 
-const nodes = buildWorkstreamNodes(PREVIEW_SHELLS);
+// Query threads (plans/plan-query-threads): two on the done coder (one live
+// with two questions, one superseded and archived) and one on the bridge-only root.
+const querySatellite = (
+  id: string,
+  authorId: ThreadId,
+  fileName: string,
+  questions: number,
+  archived: boolean,
+) => {
+  const threadId = ThreadId.make(id);
+  const archivedAt = archived ? "2026-10-05T08:30:00.000Z" : null;
+  return shell(
+    `Query: ${fileName}`,
+    workstream(threadId, {
+      parentThreadId: null,
+      rootThreadId: threadId,
+      goalId: null,
+      role: DOCUMENT_QUERY_ROLE,
+      forkFromThreadId: authorId,
+      kickoffAt: "2026-10-05T08:10:00.000Z",
+      outcome: archived ? "done" : null,
+      archivedAt,
+      documentQuery: {
+        filePath: `plans/${id}/${fileName}`,
+        revision: "a1b2c3d4e5f6",
+        questions: Array.from({ length: questions }, (_, index) => ({
+          messageId: MessageId.make(`message:server:loom:query:${id}:${index}`),
+          askedAt: `2026-10-05T08:1${index}:00.000Z`,
+          anchor: { anchorKind: "text", textQuote: "one message port" },
+          quotedText: "one message port",
+          sectionTitle: "2. One reader lane",
+        })),
+        promotions: [],
+      },
+    }),
+    archivedAt ? { archivedAt: DateTime.makeUnsafe(archivedAt) } : {},
+  );
+};
+const QUERY_SHELLS = [
+  querySatellite("preview-query-live", T.coderDone, "plan.mdx", 2, false),
+  querySatellite("preview-query-old", T.coderDone, "plan.mdx", 1, true),
+  querySatellite("preview-query-root", T.root, "recap.mdx", 1, false),
+];
+
+const nodes = buildWorkstreamNodes([...PREVIEW_SHELLS, ...QUERY_SHELLS]);
+const satellites = QUERY_SHELLS.map((query) => nodes.get(query.id)!);
 const startIndex = workstreamIndexOf(PREVIEW_SHELLS);
 const rollupOf = (threadId: ThreadId) => {
   const rollup = workstreamRollupOf(threadId, PREVIEW_SHELLS, startIndex);
@@ -86,6 +133,7 @@ function GraphFixture() {
         <WorkstreamGraph
           viewKey="preview:workstream-graph"
           nodes={subtree}
+          satellites={satellites}
           byId={nodes}
           rollupOf={rollupOf}
           titleOf={titleOf}

@@ -27,6 +27,8 @@ export function createLoomCommandAtoms<R, E>(
     threadHistory: command(LOOM_WS_METHODS.threadHistory),
     consultCancel: command(LOOM_WS_METHODS.consultCancel),
     promptCapture: command(LOOM_WS_METHODS.promptCapture),
+    // The MDX viewer's Query: forks (or reuses) the author's query thread and asks there.
+    documentQuery: command(LOOM_WS_METHODS.documentQuery),
     // The hub login dialog; a double-click must not post one code twice.
     hubLoginStart: command(LOOM_WS_METHODS.usageLimitSourceLoginStart),
     hubLoginFinish: createEnvironmentRpcCommand(runtime, {

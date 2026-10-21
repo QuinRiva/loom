@@ -28,6 +28,7 @@ import {
   computeForkJoinViewBox,
   type ConsultEdge,
   deriveConsultOverlay,
+  deriveQueryOverlay,
   type ExternalConsult,
   type LaidEdge,
   type LaidNode,
@@ -48,6 +49,7 @@ import {
   getStep,
   getVerdictChip,
   isRunning,
+  isReceded,
   legibleHue,
   nodeAttentionOf,
   TONE_COLORS,
@@ -69,6 +71,7 @@ const WAITS_ON_STROKE = COLUMN_STYLES.blocked.color;
 const CONSULT_STROKE = "var(--color-info)";
 const FORKED_FROM_STROKE = "var(--color-primary)";
 const LOOP_STROKE = "var(--color-primary)";
+const QUERY_STROKE = "var(--color-primary)";
 // Done/cancelled cards recede so the live front reads first.
 const RECEDE_OPACITY = 0.42;
 const FADE_OPACITY = 0.1;
@@ -103,7 +106,15 @@ const savedGraphView = (viewKey: string) => useWorkstreamUiStore.getState().grap
  * generation + deps + loop routes + order); loop rounds and status resolve
  * live at render, so a status-only shell update keeps the laid-out nodes.
  */
-function useStructuralLayout(threads: ReadonlyArray<WorkstreamNode>) {
+function useStructuralLayout(
+  threads: ReadonlyArray<WorkstreamNode>,
+  satellites: ReadonlyArray<WorkstreamNode>,
+) {
+  // A query satellite reserves room under its author's card, so how many hang
+  // under each author is structure.
+  const satelliteCounts = new Map<ThreadId, number>();
+  for (const { forkFromThreadId: authorId } of satellites)
+    if (authorId !== null) satelliteCounts.set(authorId, (satelliteCounts.get(authorId) ?? 0) + 1);
   const key = threads
     .map(
       (t) =>
@@ -112,10 +123,14 @@ function useStructuralLayout(threads: ReadonlyArray<WorkstreamNode>) {
           .map((route) => route.to ?? "")
           .join(",")}`,
     )
-    .join("|");
-  const [state, setState] = useState(() => ({ key, layout: computeForkJoinLayout(threads) }));
+    .join("|")
+    .concat("|sat:", [...satelliteCounts].map(([id, count]) => `${id}*${count}`).join(","));
+  const [state, setState] = useState(() => ({
+    key,
+    layout: computeForkJoinLayout(threads, satelliteCounts),
+  }));
   if (state.key === key) return state.layout;
-  const layout = computeForkJoinLayout(threads);
+  const layout = computeForkJoinLayout(threads, satelliteCounts);
   setState({ key, layout });
   return layout;
 }
@@ -125,20 +140,32 @@ function useStructuralLayout(threads: ReadonlyArray<WorkstreamNode>) {
  * Kept in one hook so no later hook call splits the compiler's cache for them:
  * the view box must keep its identity, or the re-fit effect loops.
  */
-function useGraphGeometry(threads: ReadonlyArray<WorkstreamNode>, byId: WorkstreamNodeIndex) {
-  const { nodes, edges } = useStructuralLayout(threads);
-  const consultOverlay = deriveConsultOverlay(nodes, byId, edges);
+function useGraphGeometry(
+  threads: ReadonlyArray<WorkstreamNode>,
+  satellites: ReadonlyArray<WorkstreamNode>,
+  byId: WorkstreamNodeIndex,
+) {
+  const { nodes, edges } = useStructuralLayout(threads, satellites);
+  const queryOverlay = deriveQueryOverlay(nodes, satellites);
+  // A query thread's consult of its live author draws like any other card's.
+  const consultOverlay = deriveConsultOverlay([...nodes, ...queryOverlay.nodes], byId, edges);
   return {
     nodes,
     edges,
+    queryOverlay,
     consultOverlay,
-    base: computeForkJoinViewBox(nodes, edges, consultOverlay.edges),
+    base: computeForkJoinViewBox(
+      [...nodes, ...queryOverlay.nodes],
+      [...edges, ...queryOverlay.edges],
+      consultOverlay.edges,
+    ),
   };
 }
 
 export default function WorkstreamGraph({
   viewKey,
   nodes: threads,
+  satellites,
   byId,
   rollupOf,
   titleOf,
@@ -151,6 +178,9 @@ export default function WorkstreamGraph({
   readonly viewKey: string;
   /** The orchestration: the root and every live descendant. */
   readonly nodes: ReadonlyArray<WorkstreamNode>;
+  /** Query threads (live and archived) forked from a member of `nodes`: drawn
+   * beside their author, outside the structure. */
+  readonly satellites: ReadonlyArray<WorkstreamNode>;
   readonly byId: WorkstreamNodeIndex;
   readonly rollupOf: (threadId: ThreadId) => WorkstreamRollup | null;
   readonly titleOf: (threadId: ThreadId) => string;
@@ -160,7 +190,11 @@ export default function WorkstreamGraph({
   readonly onOpenTimeline: (node: WorkstreamNode) => void;
   readonly onNodeContextMenu: (node: WorkstreamNode, position: { x: number; y: number }) => void;
 }) {
-  const { nodes, edges, consultOverlay, base } = useGraphGeometry(threads, byId);
+  const { nodes, edges, queryOverlay, consultOverlay, base } = useGraphGeometry(
+    threads,
+    satellites,
+    byId,
+  );
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -190,7 +224,7 @@ export default function WorkstreamGraph({
       ? null
       : new Set<string>([
           hoveredId,
-          ...edges.flatMap((edge) =>
+          ...[...edges, ...queryOverlay.edges].flatMap((edge) =>
             edge.fromKey === hoveredId || edge.toKey === hoveredId
               ? [edge.fromKey, edge.toKey]
               : [],
@@ -345,7 +379,7 @@ export default function WorkstreamGraph({
             <ArrowMarker id="workstream-loop-arrow" fill="context-stroke" />
             <ArrowMarker id="workstream-consult-arrow" fill={CONSULT_STROKE} />
           </defs>
-          {edges.map((edge) => (
+          {[...edges, ...queryOverlay.edges].map((edge) => (
             <GraphEdge
               key={edge.key}
               edge={edge}
@@ -401,6 +435,26 @@ export default function WorkstreamGraph({
               />
             ),
           )}
+          {queryOverlay.nodes.map((node) => (
+            <SatelliteNode
+              key={node.key}
+              laid={node}
+              byId={byId}
+              dimmed={litKeys !== null && !litKeys.has(node.thread.id)}
+              onOpenThread={onOpenThread}
+              onContextMenu={(thread, position) => {
+                cancelHover();
+                onNodeContextMenu(thread, position);
+              }}
+              onHoverStart={() => scheduleHover(node.thread.id)}
+              onHoverMove={(event) => {
+                pointerPosRef.current = { clientX: event.clientX, clientY: event.clientY };
+                positionFacts(event);
+              }}
+              onHoverEnd={cancelHover}
+              onFocusStart={(el) => focusHover(node.thread.id, el)}
+            />
+          ))}
           {nodes.length === 0 ? (
             <text
               className="fill-muted-foreground"
@@ -443,6 +497,9 @@ export default function WorkstreamGraph({
         <LegendItem swatch={<LineSwatch color={CONSULT_STROKE} line="dotted" />}>
           consult
         </LegendItem>
+        {queryOverlay.nodes.length > 0 ? (
+          <LegendItem swatch={<LineSwatch color={QUERY_STROKE} line="dashed" />}>query</LegendItem>
+        ) : null}
         <LegendItem
           swatch={
             <GitForkIcon className="size-3" style={{ color: legibleHue(FORKED_FROM_STROKE) }} />
@@ -542,6 +599,31 @@ function GraphEdge({
           </text>
         </g>
       </g>
+    );
+  }
+  if (edge.kind === "query") {
+    // A read-only fork of the author, not a dependency: no arrowhead.
+    const satellite = byId.get(edge.toKey as ThreadId);
+    return (
+      <path
+        opacity={dimmed ? FADE_OPACITY : satellite && isReceded(satellite) ? RECEDE_OPACITY : 1}
+        d={roundedPath(edge.points ?? [])}
+        fill="none"
+        stroke={QUERY_STROKE}
+        strokeDasharray="4 3"
+        strokeWidth="1.3"
+      />
+    );
+  }
+  if (edge.kind === "spine" && edge.points) {
+    return (
+      <path
+        opacity={opacity}
+        d={roundedPath(edge.points)}
+        fill="none"
+        stroke={SPINE_STROKE}
+        strokeWidth="2"
+      />
     );
   }
   if (edge.kind === "spine") {
@@ -714,6 +796,90 @@ function BridgeNode({
         y={node.y + 34}
       >
         Orchestrator · wave {node.waveIndex}
+      </text>
+    </g>
+  );
+}
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+/** A query thread hung off its author: `? <document>` and its question and promotion counts. */
+function SatelliteNode({
+  laid,
+  byId,
+  dimmed,
+  onOpenThread,
+  onContextMenu,
+  onHoverStart,
+  onHoverMove,
+  onHoverEnd,
+  onFocusStart,
+}: {
+  readonly laid: Extract<LaidNode, { kind: "thread" }>;
+  readonly byId: WorkstreamNodeIndex;
+  readonly dimmed: boolean;
+  readonly onOpenThread: (threadId: ThreadId) => void;
+  readonly onContextMenu: (node: WorkstreamNode, position: { x: number; y: number }) => void;
+  readonly onHoverStart: () => void;
+  readonly onHoverMove: (event: { clientX: number; clientY: number }) => void;
+  readonly onHoverEnd: () => void;
+  readonly onFocusStart: (el: Element) => void;
+}) {
+  const node = byId.get(laid.thread.id) ?? laid.thread;
+  const { x, y, w, h } = laid;
+  const query = node.documentQuery;
+  const label = `? ${query ? query.filePath.slice(query.filePath.lastIndexOf("/") + 1) : node.title}`;
+  const counts = query
+    ? `${plural(query.questions.length, "question")} · ${query.promotions.length} promoted`
+    : "forking…";
+  return (
+    <g
+      data-graph-hit
+      data-graph-query-satellite=""
+      className="group cursor-pointer outline-none"
+      role="button"
+      aria-label={`Open query thread ${node.title}`}
+      tabIndex={0}
+      opacity={dimmed ? FADE_OPACITY : isReceded(node) ? RECEDE_OPACITY : 1}
+      onClick={() => onOpenThread(node.id)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpenThread(node.id);
+        } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+          event.preventDefault();
+          const rect = event.currentTarget.getBoundingClientRect();
+          onContextMenu(node, { x: rect.left + rect.width / 2, y: rect.bottom });
+        }
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onContextMenu(node, { x: event.clientX, y: event.clientY });
+      }}
+      onMouseEnter={onHoverStart}
+      onMouseMove={onHoverMove}
+      onMouseLeave={onHoverEnd}
+      onFocus={(event) => onFocusStart(event.currentTarget)}
+      onBlur={onHoverEnd}
+    >
+      <FocusRing x={x} y={y} w={w} h={h} rx={8} />
+      <rect
+        fill="var(--color-background)"
+        height={h}
+        rx="8"
+        stroke={QUERY_STROKE}
+        strokeDasharray="4 3"
+        strokeWidth={1.3}
+        width={w}
+        x={x}
+        y={y}
+      />
+      <text className="fill-foreground" fontSize="10.5" fontWeight="600" x={x + 9} y={y + 16}>
+        {truncateLabel(label, 21)}
+      </text>
+      <text className="fill-muted-foreground" fontSize="9" x={x + 9} y={y + 30}>
+        {counts}
       </text>
     </g>
   );

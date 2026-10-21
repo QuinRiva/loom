@@ -5,13 +5,15 @@
  * run yet gets the read-only preview. Both vanish once the conversation starts
  * (as rendered: optimistic message and in-flight send included) or the human
  * types. ChatView owns the send: Launch goes through its ordinary composer path.
+ * A query thread instead shows the waiting row while its fork is deferred.
  */
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import { DOCUMENT_QUERY_ROLE, type ScopedThreadRef } from "@t3tools/contracts";
 
 import { StagedBriefPreviewCard } from "../components/chat/StagedBriefPreviewCard";
 import { StagedKickoffCard } from "../components/chat/StagedKickoffCard";
 import { type DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useThreadShell } from "../state/entities";
+import { DocumentQueryWaitingRow, isDocumentQueryWaiting } from "./DocumentQueryHeader";
 
 export function LoomStagedCards({
   threadRef,
@@ -39,6 +41,10 @@ export function LoomStagedCards({
     (store) => (store.getComposerDraft(composerDraftTarget)?.prompt.trim().length ?? 0) > 0,
   );
   const briefPath = workstream?.kickoffBriefPath ?? null;
+  // A query thread's brief is the server's deferred-launch record, not a brief
+  // to preview: it shows only that the fork waits on its author.
+  if (workstream?.role === DOCUMENT_QUERY_ROLE)
+    return isDocumentQueryWaiting(workstream) && !hasStarted ? <DocumentQueryWaitingRow /> : null;
   if (briefPath === null || hasStarted || typing) return null;
   if (workstream?.held) {
     return (

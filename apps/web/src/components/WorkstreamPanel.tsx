@@ -1,5 +1,5 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import { DOCUMENT_QUERY_ROLE, type ScopedThreadRef, type ThreadId } from "@t3tools/contracts";
 import { rootOf, subtreeOf } from "@t3tools/shared/workstreamGraph";
 import { useNavigate } from "@tanstack/react-router";
 import { NetworkIcon } from "lucide-react";
@@ -82,8 +82,23 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
     : null;
   const startOrigin = node ? threadStartOriginOf(node) : null;
   const live = liveNodes(nodes.values());
-  const rootId = node ? rootOf(node.id, live) : null;
+  // A query thread is a root of its own; its graph is its author's workstream,
+  // where it hangs as a satellite.
+  const graphAnchorId =
+    node?.role === DOCUMENT_QUERY_ROLE && node.forkFromThreadId && nodes.has(node.forkFromThreadId)
+      ? node.forkFromThreadId
+      : node?.id;
+  const rootId = graphAnchorId ? rootOf(graphAnchorId, live) : null;
   const subtree = rootId ? subtreeOf(rootId, live) : [];
+  // Query threads (archived ones recede) hang off their author; they never
+  // enter `subtree` or a rollup, so they gate and count nothing.
+  const subtreeIds = new Set(subtree.map((member) => member.id));
+  const satellites = [...nodes.values()].filter(
+    (member) =>
+      member.role === DOCUMENT_QUERY_ROLE &&
+      member.forkFromThreadId !== null &&
+      subtreeIds.has(member.forkFromThreadId),
+  );
   const rollup = rootId ? rollupOf(rootId) : null;
   const lineage = node ? buildThreadLineage(nodes, node.id) : [];
   // The whole workstream, archived threads included: its root and every descendant.
@@ -181,6 +196,7 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
                     key={rootId}
                     viewKey={scopedThreadKey(scopeThreadRef(threadRef.environmentId, rootId))}
                     nodes={subtree}
+                    satellites={satellites}
                     byId={nodes}
                     rollupOf={rollupOf}
                     titleOf={titleOf}
