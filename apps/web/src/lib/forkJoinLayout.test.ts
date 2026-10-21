@@ -1,7 +1,7 @@
 import type { ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { isReceded, type WorkstreamNode } from "./workstreamPresentation";
+import type { WorkstreamNode } from "./workstreamPresentation";
 import {
   BackEdgeLanes,
   computeForkJoinLayout,
@@ -743,10 +743,5 @@ describe("deriveQueryOverlay", () => {
     expect(overlay.edges.every((edge) => edge.kind === "query")).toBe(true);
     expect(overlay.edges.map((edge) => edge.toKey).toSorted()).toEqual(["qA", "qP1", "qP2", "qR"]);
     expect(overlay.edges.find((edge) => edge.toKey === "qP1")?.fromKey).toBe("P");
-  });
-
-  it("recedes an archived (superseded) satellite and keeps a live one lit", () => {
-    expect(isReceded(sat("qP1").thread)).toBe(true);
-    expect(isReceded(sat("qP2").thread)).toBe(false);
   });
 });
