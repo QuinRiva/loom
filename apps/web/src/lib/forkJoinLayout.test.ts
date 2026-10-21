@@ -744,4 +744,16 @@ describe("deriveQueryOverlay", () => {
     expect(overlay.edges.map((edge) => edge.toKey).toSorted()).toEqual(["qA", "qP1", "qP2", "qR"]);
     expect(overlay.edges.find((edge) => edge.toKey === "qP1")?.fromKey).toBe("P");
   });
+
+  it("stacks a childless root's satellites in the otherwise empty graph", () => {
+    const root = thread({ id: "R", parentThreadId: null, spawnGeneration: null, createdAt: "0" });
+    const lone = deriveQueryOverlay(computeForkJoinLayout([root]).nodes, [
+      query("q2", "R", "2"),
+      query("q1", "R", "1", true),
+    ]);
+    expect(lone.nodes.map((n) => [n.thread.id, n.y])).toEqual([
+      [tid("q1"), 0],
+      [tid("q2"), lone.nodes[0]!.h + 14],
+    ]);
+  });
 });

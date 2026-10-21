@@ -455,7 +455,7 @@ export default function WorkstreamGraph({
               onFocusStart={(el) => focusHover(node.thread.id, el)}
             />
           ))}
-          {nodes.length === 0 ? (
+          {nodes.length === 0 && queryOverlay.nodes.length === 0 ? (
             <text
               className="fill-muted-foreground"
               fontSize="13"

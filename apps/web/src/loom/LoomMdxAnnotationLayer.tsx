@@ -17,8 +17,11 @@ import {
   MdxPlanAnnotationLayer,
   type PlanQueryBinding,
 } from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
+import { isQuestionAnswerCommentId } from "../components/files/mdx-plan/questionAnswers";
+import { isReviewChoiceCommentId } from "../components/files/mdx-plan/reviewChoices";
 import { toastManager } from "../components/ui/toast";
-import type { DraftId } from "../composerDraftStore";
+import { refreshArchivedThreadsForEnvironment } from "../lib/archivedThreadsState";
+import { type DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { waitForThreadShell } from "../state/entities";
 import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
@@ -60,6 +63,10 @@ export function LoomMdxAnnotationLayer({
               const error = squashAtomCommandFailure(result);
               return error instanceof Error ? error.message : "Could not ask the author's fork.";
             }
+            // A fresh fork archived any stale-revision query thread; the graph reads
+            // archived shells from a one-shot snapshot, so refetch it or the
+            // superseded satellite vanishes instead of receding.
+            if (result.value.created) refreshArchivedThreadsForEnvironment(threadRef.environmentId);
             // Navigating before the query thread's shell reaches this client reads
             // as a missing thread and bounces to `/` (as `/retro` avoids).
             const queryRef = scopeThreadRef(threadRef.environmentId, result.value.queryThreadId);
@@ -88,5 +95,42 @@ export function LoomMdxAnnotationLayer({
       composerDraftTarget={composerDraftTarget}
       query={query}
     />
+  );
+}
+
+/**
+ * The file panel header's review count ("1 comment · 2 queries"): pending
+ * annotation comments in the viewing composer plus the questions pinned on
+ * this document. Answers and verdicts are counted by their own blocks.
+ */
+export function LoomMdxReviewCount({
+  filePath,
+  threadRef,
+  composerDraftTarget,
+}: {
+  readonly filePath: string;
+  readonly threadRef: ScopedThreadRef;
+  readonly composerDraftTarget: ScopedThreadRef | DraftId;
+}) {
+  const comments = useComposerDraftStore(
+    (store) =>
+      (store.getComposerDraft(composerDraftTarget)?.reviewComments ?? []).filter(
+        (c) =>
+          c.kind === "mdx-anchor" &&
+          c.filePath === filePath &&
+          !isQuestionAnswerCommentId(c.id) &&
+          !isReviewChoiceCommentId(c.id),
+      ).length,
+  );
+  const authorId = useDocumentQueryAuthor(threadRef);
+  const queries = useDocumentQueryPins(threadRef.environmentId, authorId, filePath).length;
+  const parts = [
+    comments > 0 ? `${comments} ${comments === 1 ? "comment" : "comments"}` : null,
+    queries > 0 ? `${queries} ${queries === 1 ? "query" : "queries"}` : null,
+  ].filter((part) => part !== null);
+  return parts.length === 0 ? null : (
+    <span className="shrink-0 px-2 text-2xs text-muted-foreground" data-mdx-review-count>
+      {parts.join(" · ")}
+    </span>
   );
 }

@@ -125,7 +125,7 @@ import {
   UNBOUNDED_LINE_LENGTH,
 } from "./longLinePreview.loom";
 // loom: MDX plan renderer + debounced save coordinator
-import { LoomMdxAnnotationLayer } from "~/loom/LoomMdxAnnotationLayer"; // loom: query threads
+import { LoomMdxAnnotationLayer, LoomMdxReviewCount } from "~/loom/LoomMdxAnnotationLayer"; // loom: query threads
 import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
@@ -1409,6 +1409,14 @@ export default function FilePreviewPanel({
               onEditingChange={(editing) =>
                 setLoomChoice({ path: loomChange.path, showChanges: !editing })
               }
+            />
+          ) : null}
+          {/* loom: query threads — "1 comment · 2 queries" on an MDX document */}
+          {isMdx && previewPath !== null ? (
+            <LoomMdxReviewCount
+              filePath={previewPath}
+              threadRef={threadRef}
+              composerDraftTarget={composerDraftTarget}
             />
           ) : null}
           {absolutePath &&

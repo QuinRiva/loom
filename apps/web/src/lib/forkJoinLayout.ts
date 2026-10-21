@@ -576,8 +576,10 @@ export interface QueryOverlay {
 /**
  * Place every query thread whose author is laid out as a satellite: stacked
  * under the author's card (in the room `computeForkJoinLayout` reserved), or —
- * for a bridge-only root author — left of its first bridge. A query thread whose
- * author is not in the graph draws nothing. Satellites are never part of the
+ * for a bridge-only root author — left of its first bridge. A root that has
+ * dispatched nothing yet (the usual planner under review) lays no node at all,
+ * so its satellites stack from the origin of the otherwise empty graph. A query
+ * thread whose author is not in the graph draws nothing. Satellites are never part of the
  * structural layout: they gate nothing and sit outside every rollup.
  */
 export function deriveQueryOverlay(
@@ -663,6 +665,10 @@ export function deriveQueryOverlay(
               ],
         );
       });
+    } else if (nodes.length === 0) {
+      members.forEach((member, index) =>
+        satelliteAt(member, 0, index * (SATELLITE_H + SATELLITE_GAP)),
+      );
     }
   }
   return { nodes: laid, edges };
@@ -1145,5 +1151,8 @@ export function computeForkJoinViewBox(
   const minY = Math.min(...ys);
   const maxX = Math.max(...xs);
   const maxY = Math.max(...ys);
-  return { x: minX - pad, y: minY - pad, w: maxX - minX + 2 * pad, h: maxY - minY + 2 * pad };
+  // Never zoom past the empty graph's frame: a lone query satellite would fill the panel.
+  const w = Math.max(maxX - minX + 2 * pad, 320);
+  const h = Math.max(maxY - minY + 2 * pad, 240);
+  return { x: (minX + maxX - w) / 2, y: (minY + maxY - h) / 2, w, h };
 }

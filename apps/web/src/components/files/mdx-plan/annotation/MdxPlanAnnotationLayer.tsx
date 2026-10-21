@@ -996,7 +996,7 @@ export function MdxPlanAnnotationLayer({
           {/* Force eager <Details> mounting only when annotation comments exist,
               so a comment anchored inside a closed drill-down resolves as
               `collapsed` rather than `detached`. Lazy everywhere else. */}
-          <PlanEagerMountContext.Provider value={comments.length + pins.length > 0}>
+          <PlanEagerMountContext.Provider value={comments.length > 0}>
             {/* The decided pill rides the renderer's sticky header row, beside
                 the section outline rather than on top of it. */}
             <MdxPlanRenderer
