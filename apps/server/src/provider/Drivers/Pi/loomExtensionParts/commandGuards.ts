@@ -11,9 +11,10 @@
 //  - an unquoted heredoc whose body has backticks: bash runs them as command substitution, so a
 //    markdown payload arrives mangled while the API reports success. Rewritten to a quoted
 //    delimiter when the body uses no `$` expansion; otherwise only a note.
-//  - a bash `sleep` of 60 s or more (literal seconds or an m/h/d suffix): it holds the turn and
-//    cannot end early when what it waits for finishes. Blocked, pointing at bg_start/bg_wait. A
-//    variable or quoted duration is doubt and passes; so do shorter readiness-loop sleeps.
+//  - a foreground bash `sleep` of 60 s or more (literal seconds or an m/h/d suffix): it holds the
+//    turn and cannot end early when what it waits for finishes. Blocked, pointing at
+//    bg_start/bg_wait. A variable or quoted duration is doubt and passes; so do shorter
+//    readiness-loop sleeps and a backgrounded sleep (`sleep 600 &`, `(sleep 120; kill $PID) &`).
 // The fix cannot live in the Slack scripts: the caller's shell substitutes before they run.
 //
 // Same contract as the search guard: heuristic, permissive on doubt, every handler wrapped so an
@@ -137,6 +138,24 @@ const sleepSeconds = (tokens) => {
     : null;
 };
 
+// Whether the command starting at offset "at" runs in the background: it, or a ( … ) group
+// around it, is ended by a lone "&" (not "&&", nor the "&" of a redirection like 2>&1 or &>log).
+const backgrounded = (text, at) => {
+  const seps = [...text.matchAll(LEX)]
+    .filter((m) => m[1] !== undefined && !(m[1] === "&" && /[<>]/.test((text[m.index - 1] ?? "") + (text[m.index + 1] ?? ""))))
+    .map((m) => ({ sep: m[1], index: m.index }));
+  const after = (index) => seps.find((s) => s.index >= index);
+  if (after(at)?.sep === "&") return true;
+  let depth = 0;
+  for (const s of seps.filter((s) => s.index > at)) {
+    if (s.sep === "(" || s.sep === "$(") depth += 1;
+    else if (s.sep !== ")") continue;
+    else if (depth > 0) depth -= 1;
+    else if (after(s.index + 1)?.sep === "&") return true;
+  }
+  return false;
+};
+
 const KILL_PIPELINES = [/\bpgrep\b[^;&\n]*\|\s*xargs\b[^;&|\n]*\bkill\b/, /\bkill\b[^;&|\n]*(\$\(|\x60)\s*pgrep\b/];
 
 const analyse = (command) => {
@@ -159,7 +178,7 @@ const analyse = (command) => {
     }
     else if (head === "sleep") {
       const seconds = sleepSeconds(tokens);
-      if (seconds !== null && seconds >= 60) {
+      if (seconds !== null && seconds >= 60 && !backgrounded(text, tokens[0].start)) {
         const minutes = Math.round(seconds / 6) / 10;
         blocks.add(fill(MESSAGES.SLEEP_MESSAGE, {
           SLEEP: code(tokens.map((t) => t.raw).join(" ")), MINUTES: minutes + " min" }));

@@ -746,6 +746,8 @@ describe("command-guards part", () => {
       ["sleep 2m && tail -5 out.log", "sleep 2m", "2 min"],
       ["timeout 1800 sleep 900", "sleep 900", "15 min"],
       ["sleep 1m 30", "sleep 1m 30", "1.5 min"],
+      // A backgrounded sibling does not background the foreground sleep.
+      ["sleep 600; foo &", "sleep 600", "10 min"],
     ]) {
       expect(run(command!).reason, command).toContain(
         `\`${sleep}\` would hold this turn for ${minutes},`,
@@ -761,6 +763,9 @@ describe("command-guards part", () => {
       "cat <<'EOF' > wait.sh\nsleep 300\nEOF",
       "for i in 1 2 3; do sleep 20; done",
       "timeout 1800 tail --pid=123 -f /dev/null",
+      // Backgrounded: the turn does not wait on these.
+      "sleep 600 &",
+      "(sleep 120; kill $PID) &",
     ]) {
       untouched(command);
     }
@@ -793,7 +798,7 @@ describe("background-jobs part", () => {
   type ToolResult = { content: Array<{ text: string }> };
 
   /** One pi process: the part's body against a stub pi, started on `sessionDir`'s session s1. */
-  const load = (sessionDir = NodeFS.mkdtempSync(NodePath.join(root, "session-"))) => {
+  const load = (sessionDir = NodeFS.mkdtempSync(NodePath.join(root, "session-")), cwd = root) => {
     const handlers = new Map<string, (event: unknown, ext?: unknown) => unknown>();
     const tools = new Map<
       string,
@@ -814,7 +819,7 @@ describe("background-jobs part", () => {
     };
     new Function("pi", "ctx", backgroundJobsPart.source)(pi, {});
     const ext = {
-      cwd: root,
+      cwd,
       ui: {
         setStatus: (key: string, text: string) => {
           expect(key).toBe("loom-jobs");
@@ -846,7 +851,7 @@ describe("background-jobs part", () => {
               ext,
             ),
         );
-        const [, id, pid] = /^Started job (j\w{4}) \(pid (\d+)\)/.exec(text)!;
+        const [, id, pid] = /^(?:Started|Background) job (j\w{4})(?: \(pid (\d+)\))?/.exec(text)!;
         return { text, id: id!, pid: Number(pid) };
       },
       wait: async (id: string, timeoutSeconds?: number, signal?: AbortSignal) =>
@@ -966,6 +971,20 @@ describe("background-jobs part", () => {
     expect(await second.wait(id)).toBe(second.sent[0]!.message.content);
     expect(second.submit()).toBeUndefined();
     expect(load(first.sessionDir).sent).toEqual([]);
+  });
+
+  it("reports a job that cannot start as its result, without crashing or waking", async () => {
+    const jobs = load(undefined, NodePath.join(root, "no-such-dir"));
+    const { text, id } = await jobs.start("echo never", 0, 1);
+    expect(text).toMatch(
+      new RegExp(
+        `^Background job ${id} could not start \\(spawn bash ENOENT\\) after 0 s, inside your 0 to 1 min: \`echo never\`\nLog: .*\\(0 lines\\)\nThe log is empty\\.$`,
+      ),
+    );
+    expect(await jobs.wait(id, 1)).toBe(text);
+    expect(jobs.sent).toEqual([]);
+    expect(jobs.statuses.at(-1)).toEqual({ running: 0 });
+    expect(jobs.submit()).toBeUndefined();
   });
 
   it("refuses an unknown id", async () => {

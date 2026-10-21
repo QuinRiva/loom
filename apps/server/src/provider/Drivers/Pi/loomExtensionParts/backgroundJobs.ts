@@ -146,7 +146,10 @@ const tailBlock = (stats) =>
 const startText = (job) =>
   "Started job " + job.id + " (pid " + job.pid + "): " + code(job.command) + "\nLog: " + job.log +
   "\nExpected " + bounds(job) + ". bg_wait " + job.id + " returns when it exits; if your turn ends first, its result arrives as a message.";
-const ending = (exit) => (exit.signal ? "ended by " + exit.signal : "finished (exit " + exit.code + ")");
+const ending = (exit) =>
+  exit.error ? "could not start (" + exit.error + ")"
+  : exit.signal ? "ended by " + exit.signal
+  : "finished (exit " + exit.code + ")";
 const exitText = (job) => {
   const stats = logStats(job);
   const ms = job.exit.at - job.startedAt;
@@ -276,9 +279,11 @@ pi.registerTool({
     jobs.set(id, job);
     writeRecord(job);
     report();
-    child.on("exit", (exitCode, signal) => {
-      if (shuttingDown || job.lost) return;
-      job.exit = { code: exitCode, signal, at: Date.now() };
+    // A spawn failure (say, a deleted cwd) arrives as "error" with no "exit"; unhandled, it would
+    // crash pi. It settles the job like any other exit.
+    const settle = (exitCode, signal, error) => {
+      if (shuttingDown || job.lost || job.exit !== null) return;
+      job.exit = { code: exitCode, signal, ...(error === undefined ? {} : { error }), at: Date.now() };
       try { writeRecord(job); } catch {}
       if (job.waiters.size > 0) {
         for (const done of [...job.waiters]) done();
@@ -288,7 +293,14 @@ pi.registerTool({
       report({ summary, outcome: exitCode === 0 ? "completed" : "failed" });
       job.woke = true;
       pi.sendMessage({ customType: MESSAGE_TYPE, content: exitText(job), display: true }, { triggerTurn: true });
-    });
+    };
+    child.on("exit", (exitCode, signal) => settle(exitCode, signal));
+    child.on("error", (error) => settle(null, null, error?.message ?? String(error)));
+    // No pid means the spawn failed and its "error" is on the way: this call reports it, not a wake.
+    if (child.pid === undefined) {
+      await new Promise((resolve) => job.waiters.add(resolve));
+      return text(exitText(job));
+    }
     return text(startText(job));
   },
 });
