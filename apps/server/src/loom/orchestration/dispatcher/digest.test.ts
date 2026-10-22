@@ -23,7 +23,7 @@ import {
   terminalEpisodeKey,
 } from "./digest.ts";
 import { LEGACY_REPORT_HEAD_LIMIT } from "../../workstream/report.ts";
-import { type WakeMember } from "./wakes.ts";
+import { type WakeMember, formatWakeTimestamp } from "./wakes.ts";
 import { buildYieldPayload, buildYieldWakeMessage } from "./yield.ts";
 
 const at = IsoDateTime.make("2026-07-07T14:32:00.000Z");
@@ -303,7 +303,7 @@ describe("digest lines, flush predicates and episode keys", () => {
       reportPath: "/r/c1.md",
       eventAt: at,
     });
-    assert.include(rec, "2026-07-07 14:32Z");
+    assert.include(rec, formatWakeTimestamp(at));
     assert.include(rec, "/r/c1.md");
     const slow = renderSlowToolDigestLine({
       id: ThreadId.make("c2"),

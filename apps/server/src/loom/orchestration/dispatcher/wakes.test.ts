@@ -162,7 +162,7 @@ describe("groupBatchForWake + pair rendering", () => {
       "coder `cod`",
       "2 rework rounds",
       "integration `tail`",
-      "2026-07-07 14:32Z",
+      formatWakeTimestamp("2026-07-07T14:32:09.000Z"),
       "Clean. Both findings resolved.",
       "/r/cod-r2.md",
       "verified by the gate",
@@ -174,8 +174,16 @@ describe("groupBatchForWake + pair rendering", () => {
 });
 
 describe("formatWakeTimestamp", () => {
-  it("formats a UTC event time and drops null/unparseable", () => {
-    assert.equal(formatWakeTimestamp("2026-07-07T14:32:09.000Z"), "2026-07-07 14:32Z");
+  it("formats an event time in the given zone, named, and drops null/unparseable", () => {
+    assert.equal(
+      formatWakeTimestamp("2026-10-22T23:30:00Z", "Australia/Sydney"),
+      "2026-10-23 10:30 AEDT",
+    );
+    assert.equal(
+      formatWakeTimestamp("2026-07-07T14:00:09Z", "Australia/Sydney"),
+      "2026-07-08 00:00 AEST",
+    );
+    assert.equal(formatWakeTimestamp("2026-07-07T14:32:09.000Z", "UTC"), "2026-07-07 14:32 UTC");
     assert.equal(formatWakeTimestamp(null), "");
     assert.equal(formatWakeTimestamp("not-a-date"), "");
   });
@@ -217,7 +225,7 @@ describe("buildChildWakeMessage", () => {
     for (const fragment of [
       "looks wedged",
       "reads busy",
-      "since 2026-07-07 14:32Z",
+      `since ${formatWakeTimestamp("2026-07-07T14:32:00.000Z")}`,
       "neither a human nor the child raised it",
       "NOT finished",
       "mcp__t3-code__workstream_stop",
