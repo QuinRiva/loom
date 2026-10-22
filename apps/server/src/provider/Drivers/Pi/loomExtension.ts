@@ -155,12 +155,12 @@ const askTool = {
         type: "array",
         minItems: 1,
         maxItems: 4,
-        description: "One question; two only when independent and answerable alone. Coupled decisions or a plan sign-off go in an MDX decision document (mdx-visual-recap) with evidence beside each decision, and the question becomes a pointer to it.",
+        description: "One question; two only when independent and answerable alone.",
         items: {
           type: "object",
           properties: {
             header: { type: "string", minLength: 1, description: "Short decision title, understandable alone." },
-            question: { type: "string", minLength: 1, description: "Markdown body, for a reader who has read none of this thread or any child report. In order: the situation (what you are working on in plain words, the ticket reference so they can open it, what just happened), one real example (a named file, record or screen with literal content), the stakes and why their decision is needed, then your pick with its reason. Explain what any quoted figure measures. No internal shorthand as names ('D7', 'must-fix #1'), no unexplained acronyms, no references in place of substance ('per the report'); a child's report was written for you, so translate it rather than pass on its labels, ids or questions." },
+            question: { type: "string", minLength: 1, description: "Markdown body for a reader who has read none of this thread or any child report. In order: the situation (what you are working on in plain words, the ticket reference so they can open it, what just happened), one real example (a named file, record or screen with literal content), the stakes and why their decision is needed, then your pick with its reason. Explain what any quoted figure measures. No internal shorthand as names ('D7', 'must-fix #1'), no unexplained acronyms, no references in place of substance ('per the report'): a child's report was written for you, so translate it rather than pass on its labels, ids or questions." },
             options: {
               type: "array",
               minItems: 2,
@@ -168,15 +168,15 @@ const askTool = {
               items: {
                 type: "object",
                 properties: {
-                  label: { type: "string", minLength: 1, description: "Plain-words outcome. 'Other' and 'Type something.' are reserved." },
-                  description: { type: "string", minLength: 1, description: "What this option gains and gives up, not how it works." },
-                  recommended: { type: "boolean", description: "Mark exactly one option: your pick and the default on dismissal." },
+                  label: { type: "string", minLength: 1, description: "Plain-words outcome; 'Other' and 'Type something.' are reserved." },
+                  description: { type: "string", minLength: 1, description: "What it gains and gives up, not how it works." },
+                  recommended: { type: "boolean", description: "Exactly one option: your pick, and the default on dismissal." },
                 },
                 required: ["label", "description"],
                 additionalProperties: false,
               },
             },
-            multiSelect: { type: "boolean", description: "Allow multiple selections. Defaults to false." },
+            multiSelect: { type: "boolean", description: "Allow several selections; default false." },
           },
           required: ["header", "question", "options"],
           additionalProperties: false,

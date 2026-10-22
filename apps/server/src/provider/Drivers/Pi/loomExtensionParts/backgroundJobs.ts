@@ -26,19 +26,19 @@ const BG_START_PARAMETERS = {
       type: "string",
       minLength: 1,
       description:
-        "The command, run by `bash -c` in the working directory. No trailing `&`, `nohup` or output redirection: the job already runs apart from your turn with its output captured.",
+        "Run by `bash -c` in the working directory. No trailing `&`, `nohup` or output redirection: the job already runs apart from your turn with its output captured.",
     },
     min_minutes: {
       type: "number",
       minimum: 0,
       description:
-        "Your lower bound on the run time, in minutes. An exit before it is reported as early, so you check the output before trusting it.",
+        "Your lower bound on the run time, in minutes; an exit before it is reported as early, so you check the output before trusting it.",
     },
     max_minutes: {
       type: "number",
       minimum: 0,
       description:
-        "Your upper bound, in minutes. bg_wait waits until here by default, and a job past it is reported as overdue, which is a reason to read its progress, not to stop it.",
+        "Your upper bound, in minutes; bg_wait waits until here by default, and a job past it is reported as overdue, a reason to read its progress rather than stop it.",
     },
   },
   required: ["command", "min_minutes", "max_minutes"],
@@ -53,7 +53,7 @@ const BG_WAIT_PARAMETERS = {
       type: "number",
       minimum: 1,
       description:
-        "Seconds to wait before returning with progress if the job has not exited; at most 3600. Omit for the time left before the job's max_minutes (never less than 60 s).",
+        "Seconds before returning with progress if the job has not exited, at most 3600; omitted, the time left to the job's max_minutes.",
     },
   },
   required: ["id"],

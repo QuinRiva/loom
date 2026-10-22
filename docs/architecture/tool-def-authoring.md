@@ -56,12 +56,27 @@ The prose and the schema are separate files with separate authors.
   `apps/server/src/loom/prompt/prose.ts` under the companion doctrine in
   [`prompt-surface-authoring.md`](./prompt-surface-authoring.md).
 
-**Who writes it.** Text a model will read is authored by a top-tier model (or
-Carl), in a dedicated authoring pass; the coder who ports or extends a tool
-reviews that text for schema fit only — does the prose name the parameters the
-schema has, with the semantics the handler enforces — and never rewrites it in
-passing. A wording change to a commonly injected surface gets a cross-family
-review before it ships.
+**Who writes it.** Text a model will read is authored on the `planner` preset
+(Carl's rule, in the orchestrator overlay: lower tiers write prescriptive
+do-and-don't lists that constrain a capable reader) or by Carl, in a dedicated
+authoring pass; the coder who ports or extends a tool reviews that text for
+schema fit only — does the prose name the parameters the schema has, with the
+semantics the handler enforces — and never rewrites it in passing. A wording
+change to a commonly injected surface gets a cross-family review before it
+ships.
+
+**What a description is.** It says three things and stops: what the tool does,
+in its first sentence; the consequences the caller must act on; and when
+another tool is the better choice, by name, one clause each. The test for every
+sentence is whether it changes what the caller does or writes. A mechanism
+whose consequence the result will report, or that the control plane handles
+either way, is not written; nor is narration of the result ("the result says
+whether…"), a capitalised prohibition or a list of what the tool is NOT for,
+a timing or an internal, doctrine (the addendum's and the overlay's job), or a
+numeric threshold invented to make a rule concrete. A rule lives once: about a
+value, on that parameter; about the call, in the description.
+`mcp__t3-code__workstream_prompt` and `mcp__t3-code__workstream_request_attention`
+are the register's worked examples.
 
 ## The decision-moment model
 
@@ -71,7 +86,7 @@ binding moment.
 
 | Surface                | Lands in                       | Binding moment                                    | Carries                                                                                                                                                                                    |
 | ---------------------- | ------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `description`          | Tool schema in the tools array | Selection ("should I call this?")                 | What it does, when to use it, when NOT to (name the alternative tool for the rejected branch); then, in its closing sentences, any duty that binds after the call returns.                 |
+| `description`          | Tool schema in the tools array | Selection ("should I call this?")                 | What it does; the consequences the caller must act on; the better tool, by name, where one exists.                                                                                         |
 | Parameter descriptions | Tool schema, per field         | Composition (while generating that field's value) | Format, register, and content rules for that field.                                                                                                                                        |
 | `promptSnippet`        | Nowhere                        | —                                                 | Inert: pi lists snippets only in the tools section its own preamble renders, which Loom's preamble replaces. Kept for the bridge contract.                                                 |
 | `promptGuidelines`     | Nowhere                        | —                                                 | Kept empty: a guideline lands in pi's rules section, which Loom's preamble removes. Text added here is dead; a duty after the call goes in the description, a field rule in the parameter. |
@@ -79,10 +94,10 @@ binding moment.
 Ambient cost: for a tool a role keeps resident, the description is sent with
 every request too, so it is ambient as well as selection-time, and every
 sentence in it is paid overwhelmingly by turns that never call the tool. The
-bar for a closing after-call duty is "must be present when the schema has lost
-salience", not "useful information about this tool". A control-plane notice
-is the cheaper surface for anything that binds at a moment the control plane
-creates (a child waiting on a brief, a gate resolving).
+bar is "changes what the caller does or writes", not "useful information about
+this tool". A control-plane notice is the cheaper surface for anything that
+binds at a moment the control plane creates (a child waiting on a brief, a
+gate resolving, a rework round's recovery).
 
 ## Principles
 
@@ -90,14 +105,14 @@ creates (a child waiting on a brief, a gate resolving).
    agent's prompt (a brief, a kickoff, a steer, a report) must say who reads it
    and what that reader does with it. The author's model of the reader
    determines everything else they write; with no stated reader, the author
-   defaults to the most familiar register, which is usually wrong. State the
-   recipient at both selection time (description) and composition time (the
-   parameter), and keep the two registers consistent: the parameter text wins
-   at composition time, so a contradiction resolves silently in its favour.
-   The recipient of a child's brief is an agent, told the brief is its
-   parent's writing and that it may depart from it with reasons, and usually
-   with no human reader — a child's questions come back to the parent, not to
-   a person — and the brief contract says so.
+   defaults to the most familiar register, which is usually wrong. The
+   recipient is characterised once, on the parameter (the text read at
+   composition time); the description does not repeat it. The recipient of a
+   child's brief is an agent, told the brief is its parent's writing and that
+   it may depart from it with reasons, and usually with no human reader — a
+   child's questions come back to the parent, not to a person — and the brief
+   contract, on `mcp__t3-code__workstream_brief`'s `markdown`, says so; the
+   spawn's `brief` points there.
 
 2. **Schema over prose.** Anything mechanically expressible (required fields,
    enums, defaults) goes in the schema and is enforced server-side. Prose
@@ -138,9 +153,10 @@ creates (a child waiting on a brief, a gate resolving).
    carry the same field (spawn and scaffold nodes) or one defines itself
    relative to another ("Like `mcp__t3-code__goal_handoff`, but…"), a
    paraphrase silently inherits the other def's future edits and drifts.
-   Either reference explicitly ("as in `mcp__t3-code__workstream_spawn`") or
-   own the full text. Any rewrite of a shared field must land on every def
-   that carries it, in the same change.
+   Either reference explicitly (a scaffold node's field is "As
+   `mcp__t3-code__workstream_spawn`'s `role`.") or own the full text. Any
+   rewrite of a shared field must land on every def that carries it, in the
+   same change.
 
 8. **Price the ambient block as a whole.** Each sentence in a resident
    tool's description competes with every other ambient sentence for salience
@@ -158,8 +174,10 @@ creates (a child waiting on a brief, a gate resolving).
 ## Audit checklist (static smells)
 
 - Text in `promptGuidelines` (dead) or a composition rule for one parameter
-  carried in the description rather than that parameter.
-- Description explaining plumbing the caller cannot act on.
+  carried in the description rather than that parameter, or the same rule in
+  both.
+- Description explaining plumbing the caller cannot act on, narrating what
+  the result will say, or listing what the tool is NOT for.
 - "Required"/"Optional" (or any schema fact) restated in prose.
 - Budget inversion: worked examples on cosmetic fields, one-liners on
   artefact-carrying fields.
@@ -181,7 +199,9 @@ Wording changes ship on evidence, not intuition. Two probes:
   for prompt-carrying parameters, sample the authored artefacts and judge them
   against intent. The prompt-debug sidecar (written by Loom's extension on
   every agent start when enabled) shows the assembled prompt a thread actually
-  received — read it before concluding a rule was present.
+  received and, after it, the declared tools array with each description and
+  parameter text as sent and a word count per tool — read it before concluding
+  a rule was present.
 - **Generative probing**: give a fresh model the tool def plus a realistic
   scenario and judge what it authors. Run the same scenarios before and after
   a rewrite; the rewrite is accepted only if the authored artefact improves.
