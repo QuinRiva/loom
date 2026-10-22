@@ -373,6 +373,16 @@ Design and verification evidence:
 - **Re-sync `.repos/` vendored subtrees** in the same change whenever a dependency moves, so
   reference material never drifts from installed versions.
 
+### 4.6 Loom-owned text: `AGENTS.md`
+
+`AGENTS.md` is loom-owned, like `roles/` and `skills/`: it is no longer upstream's
+text plus loom appendices, so upstream's edits to it do not merge. At each pull's
+clean-overlap review, read upstream's `AGENTS.md` diff and port each change by hand
+into loom's wording, or record it in the review's `AGENTS.md` row as ignored. (Decided
+2026-10-22 in the system-prompt audit, item I0; before it, pulls 10 and 12 kept the
+file byte-compatible and checked that both "supersedes upstream" notes still named
+existing text, which no longer applies.)
+
 The investment in §4.1–§4.2 converts the recurring sync from "re-discover the whole conflict
 surface" into "merge a handful of stable seams" — which is exactly what makes a daily/weekly
 cadence sustainable.
