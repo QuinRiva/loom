@@ -4139,6 +4139,8 @@ function AssistantChangedFilesSectionInner({
               thread?.worktreePath == null
                 ? activeProject?.repositoryIdentity?.rootPath
                 : undefined,
+            // loom: Download
+            download: ctx.threadRef ? { threadRef: ctx.threadRef, draft: false } : undefined,
           },
           event,
         )

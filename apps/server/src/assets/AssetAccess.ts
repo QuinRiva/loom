@@ -117,6 +117,8 @@ const AssetClaimsSchema = Schema.Union([
     filePath: Schema.String,
     device: Schema.String,
     inode: Schema.String,
+    // loom: served as an attachment download, so any file type is allowed.
+    download: Schema.optionalKey(Schema.Literal(true)),
     expiresAt: Schema.Number,
   }),
   Schema.Struct({
@@ -373,10 +375,13 @@ const finalizeAbsoluteMediaFileAsset = Effect.fn("AssetAccess.finalizeAbsoluteMe
     if (!canonicalFile) {
       return yield* new AssetWorkspaceAssetNotFoundError({ resource: input.resource });
     }
-    if (hostPreviewMimeTypeFromExtension(path.extname(canonicalFile)) === null) {
+    // loom: a download serves the bytes as an attachment, so it skips the preview-type gate.
+    const download = "disposition" in input.resource && input.resource.disposition === "attachment";
+    if (!download && hostPreviewMimeTypeFromExtension(path.extname(canonicalFile)) === null) {
       return yield* new AssetPreviewTypeValidationError({ resource: input.resource });
     }
-    const wantsDimensions = HEADER_IMAGE_EXTENSIONS.has(path.extname(canonicalFile).toLowerCase());
+    const wantsDimensions =
+      !download && HEADER_IMAGE_EXTENSIONS.has(path.extname(canonicalFile).toLowerCase()); // loom: !download
     const opened = yield* openMediaFile(canonicalFile).pipe(
       Effect.flatMap((file) =>
         file === null
@@ -405,6 +410,7 @@ const finalizeAbsoluteMediaFileAsset = Effect.fn("AssetAccess.finalizeAbsoluteMe
         kind: "media-file-exact" as const,
         filePath: canonicalFile,
         ...opened.identity,
+        ...(download ? { download: true as const } : {}), // loom:
         expiresAt: input.expiresAt,
       },
       fileName: path.basename(canonicalFile),
@@ -949,7 +955,7 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
     );
     if (canonicalFile !== claims.filePath) return null;
     const mimeType = hostPreviewMimeTypeFromExtension(path.extname(canonicalFile));
-    if (!mimeType) return null;
+    if (!mimeType && !claims.download) return null; // loom: downloads serve any type
     const file = yield* openMediaFile(canonicalFile, claims).pipe(
       Effect.tapError((cause) =>
         Effect.logError("Failed to open canonical media file.", { filePath: canonicalFile, cause }),
@@ -961,7 +967,12 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
           kind: "file",
           path: canonicalFile,
           mutable: true,
-          mimeType,
+          // loom: a download goes out as an octet-stream attachment under its own name.
+          ...(claims.download
+            ? { download: true, fileName: path.basename(canonicalFile) }
+            : mimeType
+              ? { mimeType }
+              : {}),
           file,
         } satisfies ResolvedAsset)
       : null;

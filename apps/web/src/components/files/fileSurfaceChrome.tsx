@@ -74,8 +74,9 @@ export function FileSurfaceAction(props: {
             <Button
               type="button"
               className="shrink-0"
-              disabled={props.disabled ?? false}
-              onClick={props.onPress}
+              // loom: aria-disabled keeps the hover tooltip saying why it is disabled.
+              aria-disabled={props.disabled || undefined}
+              onClick={props.disabled ? undefined : props.onPress}
               aria-label={props.label}
               variant="ghost"
               size="icon-sm"
