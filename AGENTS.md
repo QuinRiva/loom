@@ -77,8 +77,8 @@ HTML artefact.
 ## Fork-specific notes
 
 - Loom is a **Pi-first fork**: `PI_DEFAULT_MODEL` is the default model, and
-  pi is the default and the only provider loom maintains; the other adapters
-  remain as upstream ships them.
+  pi is the only provider loom maintains; the other adapters remain as
+  upstream ships them.
 - Upstream sync doctrine and per-area resolutions live in
   [`docs/upstream-sync/`](docs/upstream-sync/).
 - **Mark every loom hunk.** Any hunk you add to a file that also exists
@@ -197,5 +197,5 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 ## Additional tips
 
-- Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
+- Computer use (driving a human's browser or desktop) needs the user's agreement; the dev-verify recipe and the preview harness are not that.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
