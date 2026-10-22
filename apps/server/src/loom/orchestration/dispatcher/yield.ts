@@ -90,8 +90,7 @@ export const buildYieldWakeMessage = (
         ]
       : [];
   // The rework side of a gate completes only through the reviewer: setting it done would
-  // bypass re-verification, so that option is withheld and the recovery rule given instead
-  // (the overlay no longer carries it; this notice is where it binds).
+  // bypass re-verification, so that option is withheld and the recovery rule given instead.
   const rework = flags.gateSide === "rework";
   const dissolves = gate !== undefined || flags.gateSide === "reviewer";
   return [
