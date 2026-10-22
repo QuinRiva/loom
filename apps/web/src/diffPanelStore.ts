@@ -1,5 +1,5 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { RunId, ScopedThreadRef, ThreadId } from "@t3tools/contracts"; // loom: ThreadId for the 3d-4 coder selection
+import type { RunId, ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -8,10 +8,7 @@ import { resolveStorage } from "./lib/storage";
 export type DiffPanelSelection =
   | { kind: "branch"; baseRef: string | null }
   | { kind: "unstaged" }
-  | { kind: "turn"; turnId: RunId; filePath: string | null; revealRequestId: number }
-  // loom: 3d-4 — "By coder" (DT-33): a child thread's own checkpoint turns,
-  // its latest when `turnId` is null.
-  | { kind: "coder"; threadId: ThreadId; turnId: RunId | null };
+  | { kind: "turn"; turnId: RunId; filePath: string | null; revealRequestId: number };
 
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null };
 
@@ -22,7 +19,6 @@ interface DiffPanelStoreState {
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: RunId, filePath?: string) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<RunId>) => void;
-  selectCoder: (ref: ScopedThreadRef, threadId: ThreadId, turnId: RunId | null) => void; // loom: 3d-4
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -108,14 +104,6 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             },
           };
         }),
-      // loom: 3d-4 — By coder; any other scope action is the way back.
-      selectCoder: (ref, threadId, turnId) =>
-        set((state) => ({
-          byThreadKey: {
-            ...state.byThreadKey,
-            [scopedThreadKey(ref)]: { kind: "coder", threadId, turnId },
-          },
-        })),
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -132,13 +120,11 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       name: "t3code:diff-panel-state:v1",
       // loom: Loom shipped its own v2 (a `coder` selection kind, TurnId turn
       // selections), which upstream's v2 would load unmigrated; v3 reset it.
-      // v4 (3d-4) re-adds `coder` with a RunId: v3 state is a valid subset and
-      // carries over; anything older resets.
-      version: 4,
-      migrate: (persisted, version) =>
-        version === 3
-          ? (persisted as Pick<DiffPanelStoreState, "byThreadKey" | "branchBaseRefByThreadKey">)
-          : { byThreadKey: {}, branchBaseRefByThreadKey: {} },
+      // v4 (3d-4) re-added `coder`; v5 removes it for good (change review
+      // replaced By coder): a stored `coder` selection falls back to the
+      // default, the rest of v3/v4 state carries over, anything older resets.
+      version: 5,
+      migrate: migrateDiffPanelState, // loom:
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
@@ -149,6 +135,23 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     },
   ),
 );
+
+// loom: the v5 migration (see `version` above).
+export function migrateDiffPanelState(
+  persisted: unknown,
+  version: number,
+): Pick<DiffPanelStoreState, "byThreadKey" | "branchBaseRefByThreadKey"> {
+  if (version < 3) return { byThreadKey: {}, branchBaseRefByThreadKey: {} };
+  const state = persisted as Pick<DiffPanelStoreState, "byThreadKey" | "branchBaseRefByThreadKey">;
+  return {
+    byThreadKey: Object.fromEntries(
+      Object.entries(state.byThreadKey ?? {}).filter(
+        ([, selection]) => (selection.kind as string) !== "coder",
+      ),
+    ),
+    branchBaseRefByThreadKey: state.branchBaseRefByThreadKey ?? {},
+  };
+}
 
 export function selectThreadDiffPanelSelection(
   byThreadKey: Record<string, DiffPanelSelection>,

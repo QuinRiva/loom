@@ -8,8 +8,9 @@
  * `LoomStoreV2` and publishes the goal on `LoomGoalBroadcast`, DL-219) and
  * seam 11's two spend reads over 3c's `LoomUsageLedger` (DL-432/433/438),
  * the timeline's outcome history (DL-620), the consult card's Stop, the
- * Prompt button's captured-prompt lookup, and the hub login dialog's two calls
- * (thin over `UsageLimitSources`).
+ * Prompt button's captured-prompt lookup, the hub login dialog's two calls
+ * (thin over `UsageLimitSources`) and the change-review reads (thin over
+ * `ReviewSnapshotService`).
  *
  * @module loom/wsMethods
  */
@@ -25,6 +26,9 @@ import {
   type LoomGoalTaskRewriteNode,
   type LoomGoalUpdateInput,
   type LoomPromptCaptureInput,
+  type LoomReviewDiffInput,
+  type LoomReviewFileContentsInput,
+  type LoomReviewIntervalsInput,
   type LoomThreadHistoryInput,
   type LoomThreadSpendInput,
   type LoomTopSpendInput,
@@ -46,6 +50,7 @@ import { launchRetro, RETRO_RUNS_DIR } from "./handoff/retroDraft.ts";
 import { goalShellItem, LoomGoalBroadcast } from "./projection/LoomGoalBroadcast.ts";
 import { promptCapturePathsOf } from "./loomPaths.ts";
 import { LoomThreadConsult } from "./workstream/consult.ts";
+import { ReviewSnapshotService } from "./review/ReviewSnapshotService.ts";
 import { UsageLimitSources } from "../usage/UsageLimitSources.ts";
 import {
   type LoomGoalTaskInput,
@@ -124,6 +129,7 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
   const usageLedger = yield* LoomUsageLedger;
   const consult = yield* LoomThreadConsult;
   const usageLimitSources = yield* UsageLimitSources;
+  const reviewSnapshots = yield* ReviewSnapshotService;
   const draftServices = yield* Effect.context<OrchestratorV2 | LoomStoreV2 | Crypto.Crypto>();
 
   const fail = (method: string, message: string, cause?: unknown) =>
@@ -149,6 +155,11 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
         LoomStoreError: (cause) => Effect.fail(fail(method, `${method} failed.`, cause)),
       }),
     );
+
+  const reviewRead =
+    (method: string) =>
+    <A, E extends { readonly message: string }>(effect: Effect.Effect<A, E>) =>
+      effect.pipe(Effect.mapError((cause) => fail(method, cause.message, cause)));
 
   return {
     [LOOM_WS_METHODS.goalUpdate]: (input: LoomGoalUpdateInput) =>
@@ -238,6 +249,13 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
       usageLimitSources.loginStart(input),
     [LOOM_WS_METHODS.usageLimitSourceLoginFinish]: (input: UsageLimitSourceLoginFinishInput) =>
       usageLimitSources.loginFinish(input),
+    // Change review: the Diff panel's "Since your message" and "Earlier" entries.
+    [LOOM_WS_METHODS.reviewIntervals]: (input: LoomReviewIntervalsInput) =>
+      reviewRead(LOOM_WS_METHODS.reviewIntervals)(reviewSnapshots.listIntervals(input.threadId)),
+    [LOOM_WS_METHODS.reviewDiff]: (input: LoomReviewDiffInput) =>
+      reviewRead(LOOM_WS_METHODS.reviewDiff)(reviewSnapshots.diff(input)),
+    [LOOM_WS_METHODS.reviewFileContents]: (input: LoomReviewFileContentsInput) =>
+      reviewRead(LOOM_WS_METHODS.reviewFileContents)(reviewSnapshots.fileContents(input)),
   };
 });
 

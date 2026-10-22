@@ -12,6 +12,7 @@ import * as LoomUsageLedger from "./economics/LoomUsageLedger.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import { UsageLimitSources } from "../usage/UsageLimitSources.ts";
+import { ReviewSnapshotService } from "./review/ReviewSnapshotService.ts";
 import { LoomThreadConsult } from "./workstream/consult.ts";
 import { makeLoomWsHandlers } from "./wsMethods.ts";
 
@@ -21,6 +22,7 @@ const TestLayer = Layer.mergeAll(
   LoomUsageLedger.layer,
   Layer.mock(LoomThreadConsult)({}),
   Layer.mock(UsageLimitSources)({}),
+  Layer.mock(ReviewSnapshotService)({}),
   // The drafter handlers capture the orchestrator; these tests never call them.
   Layer.succeed(OrchestratorV2, {} as never),
 ).pipe(Layer.provideMerge(SqlitePersistence.layerMemory), Layer.provideMerge(NodeServices.layer));
