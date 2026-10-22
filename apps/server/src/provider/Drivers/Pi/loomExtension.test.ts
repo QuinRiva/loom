@@ -14,7 +14,7 @@ import * as NodePath from "node:path";
 import * as NodeVM from "node:vm";
 import { assert, describe, it } from "@effect/vitest";
 
-import { HUMAN_INPUT_REFUSAL } from "../../../loom/prompt/prose.ts";
+import { HUMAN_INPUT_REFUSAL, LOOM_PREAMBLE } from "../../../loom/prompt/prose.ts";
 import { assembleLoomExtensionSource, LOOM_EXTENSION_PARTS } from "./loomExtension.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
@@ -239,6 +239,23 @@ describe("Loom pi extension", () => {
     assert.include(pi.notices[0]!, "boom");
   });
 
+  // A non-empty customPrompt is what makes pi render no tools/rules/docs sections.
+  it("sets Loom's preamble as pi's custom prompt on every agent start, profile or not", async () => {
+    let served = true;
+    const pi = await load((url) =>
+      served && url.endsWith("/loom/agent/session-profile")
+        ? response(200, profile())
+        : response(500, { message: "boom" }),
+    );
+    await pi.emit("session_start");
+    for (const available of [true, false]) {
+      served = available;
+      const options = { customPrompt: undefined as string | undefined };
+      await pi.emit("before_agent_start", { systemPromptOptions: options });
+      assert.equal(options.customPrompt, LOOM_PREAMBLE);
+    }
+  });
+
   it("mcp__t3-code__ask_user_question re-attaches after a dropped poll and returns the answer", async () => {
     const posts: Array<unknown> = [];
     const polls = [
@@ -285,6 +302,9 @@ describe("Loom pi extension", () => {
     const captured = NodeFS.readFileSync(promptDebugPath, "utf8");
     assert.include(captured, "LOOM ADDENDUM");
     assert.include(captured, "SYSTEM PROMPT BYTES");
+    // The profile part runs first, so the sidecar sees the preamble it set.
+    assert.include(captured, "Custom base prompt: yes");
+    assert.include(captured, LOOM_PREAMBLE);
     assert.equal(NodeFS.readFileSync(NodePath.join(dir, "thread-1.first.md"), "utf8"), captured);
     NodeFS.rmSync(dir, { recursive: true, force: true });
   });

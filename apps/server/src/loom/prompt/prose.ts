@@ -1,11 +1,22 @@
 // LOOM-ONLY. The prompt-side texts a Loom thread reads outside its tool
-// definitions: the work-model addendum every thread gets, the readership
-// clause only children get, the identity and relocation clauses the composer
-// appends, the kickoff wrapper around a child's brief, and the three refusal
-// texts. Plain
-// strings and pure functions, no imports: the composer, the extension assembler
-// and the control plane import from here so each text has one source.
+// definitions: the preamble that replaces pi's, the work-model addendum every
+// thread gets, the readership clause only children get, the identity and
+// relocation clauses the composer appends, the kickoff wrapper around a
+// child's brief, and the three refusal texts. Plain strings and pure
+// functions, no imports: the composer, the extension assembler and the
+// control plane import from here so each text has one source.
 // Authoring doctrine: docs/architecture/prompt-surface-authoring.md.
+
+/**
+ * pi's `customPrompt`, set by the extension on every `before_agent_start`. A
+ * non-empty custom prompt makes pi render its preamble alone: no tools, rules
+ * or docs sections, so a tool's contract reaches the model only through its
+ * schema and the ambient texts here. pi's own edit-tool rules are in the
+ * `edit` schema already; its other rules and documentation pointers are
+ * dropped deliberately.
+ */
+export const LOOM_PREAMBLE =
+  "You are an expert coding agent operating inside pi, a coding-agent harness, within T3 Code. Your tools are the ones declared with this request.";
 
 /** Shared workstream mechanics for every role, root or child. */
 export const WORK_MODEL_ADDENDUM =

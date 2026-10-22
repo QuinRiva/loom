@@ -20,21 +20,27 @@ The prose and the schema are separate files with separate authors.
 
 - **`apps/server/src/mcp/toolkits/workstream/prose.ts`** holds every text a
   model reads: `LOOM_TOOL_PROSE`, a typed record keyed by the tool's bare MCP
-  name with `description`, `promptSnippet` and `promptGuidelines` (one rule per
-  line, or empty). It covers the 22 MCP tools and the one tool Loom's pi
-  extension registers itself (`mcp__t3-code__ask_user_question`).
+  name with `description`, `promptSnippet` and `promptGuidelines`. It covers
+  the 22 MCP tools, the one tool Loom's pi extension registers itself
+  (`mcp__t3-code__ask_user_question`) and the two background-job tools. Loom
+  supplies pi's preamble (`LOOM_PREAMBLE` in `loom/prompt/prose.ts`, set by the
+  extension on every agent start), so pi renders no tools, rules or docs
+  sections: `promptSnippet` is inert and `promptGuidelines` is kept empty,
+  because a guideline would land in a section that is never rendered. The
+  description is the only model-read surface a tool has.
 - **`defs.ts`** (same directory) imports that record for its prose fields and
   adds what is mechanical — JSON-schema parameters with their per-field
   descriptions, `errorMode`, idempotency hints. Parameter descriptions are
   prose too and follow this doctrine; they live beside the schema because they
   are read field by field.
 - **The carrier.** Loom registers each tool by hand on the server's MCP
-  endpoint. The description is the MCP tool description — what pi's tool list
-  shows at selection time. The snippet and guidelines travel in the tool's
-  `_meta` (`loom/promptSnippet`, `loom/promptGuidelines`), MCP's reserved
-  extension slot; upstream's bridge extension reads those two keys when it
-  registers the tool in pi and falls back to its generic text for any tool
-  without them. Every other MCP client ignores `_meta`.
+  endpoint. The description is the MCP tool description, sent in the tools
+  array of every request that declares the tool. The snippet and (empty)
+  guidelines travel in the tool's `_meta` (`loom/promptSnippet`,
+  `loom/promptGuidelines`), MCP's reserved extension slot; upstream's bridge
+  extension reads those two keys when it registers the tool in pi and falls
+  back to its generic text for any tool without them. Every other MCP client
+  ignores `_meta`.
 - **The name.** The server registers each tool without a prefix; upstream's
   bridge adds `mcp__t3-code__` when it registers the tool in pi, so the model
   sees and calls `mcp__t3-code__workstream_submit`. Every tool named _inside_ any text a
@@ -63,21 +69,20 @@ Each text surface lands in a different place in the model's context and is
 salient at a different moment. Place every rule at the surface read at its
 binding moment.
 
-| Surface                | Lands in                              | Binding moment                                    | Carries                                                                                                                   |
-| ---------------------- | ------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `promptSnippet`        | System prompt, "Available tools" line | Discovery                                         | One line: this capability exists. Nothing else.                                                                           |
-| `description`          | Tool schema in the tools array        | Selection ("should I call this?")                 | What it does, when to use it, when NOT to (name the alternative tool for the rejected branch).                            |
-| Parameter descriptions | Tool schema, per field                | Composition (while generating that field's value) | Format, register, and content rules for that field.                                                                       |
-| `promptGuidelines`     | System prompt, "Guidelines" bullets   | Ambient, every turn                               | Only rules that bind _outside_ the call itself, chiefly duties after the call returns, when the schema has lost salience. |
+| Surface                | Lands in                       | Binding moment                                    | Carries                                                                                                                                                                                    |
+| ---------------------- | ------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `description`          | Tool schema in the tools array | Selection ("should I call this?")                 | What it does, when to use it, when NOT to (name the alternative tool for the rejected branch); then, in its closing sentences, any duty that binds after the call returns.                 |
+| Parameter descriptions | Tool schema, per field         | Composition (while generating that field's value) | Format, register, and content rules for that field.                                                                                                                                        |
+| `promptSnippet`        | Nowhere                        | —                                                 | Inert: pi lists snippets only in the tools section its own preamble renders, which Loom's preamble replaces. Kept for the bridge contract.                                                 |
+| `promptGuidelines`     | Nowhere                        | —                                                 | Kept empty: a guideline lands in pi's rules section, which Loom's preamble removes. Text added here is dead; a duty after the call goes in the description, a field rule in the parameter. |
 
-Ambient cost: `promptGuidelines` are injected into every turn of every thread
-that has the tool active, paid overwhelmingly by turns that never call the
-tool. The bar for a guideline is not "useful information about this tool"; it
-is "must be ambiently present even when the model is not calling it". A tool
-whose description is the contract of record (`mcp__t3-code__workstream_submit`,
-`mcp__t3-code__workstream_set_outcome`, `mcp__t3-code__workstream_request_attention`)
-carries no guidelines by design — the comment on its entry says so, so the next
-editor does not "fill the gap".
+Ambient cost: for a tool a role keeps resident, the description is sent with
+every request too, so it is ambient as well as selection-time, and every
+sentence in it is paid overwhelmingly by turns that never call the tool. The
+bar for a closing after-call duty is "must be present when the schema has lost
+salience", not "useful information about this tool". A control-plane notice
+is the cheaper surface for anything that binds at a moment the control plane
+creates (a child waiting on a brief, a gate resolving).
 
 ## Principles
 
@@ -137,11 +142,12 @@ editor does not "fill the gap".
    own the full text. Any rewrite of a shared field must land on every def
    that carries it, in the same change.
 
-8. **Price the ambient block as a whole.** Each guideline bullet competes
-   with every other bullet for salience on every turn; the marginal bullet
-   dilutes the load-bearing ones. When adding a bullet, ask which existing
-   bullet it outranks; if the honest answer is none, it belongs on a
-   lower-cost surface or nowhere.
+8. **Price the ambient block as a whole.** Each sentence in a resident
+   tool's description competes with every other ambient sentence for salience
+   on every turn; the marginal sentence dilutes the load-bearing ones. When
+   adding one, ask which existing sentence it outranks; if the honest answer
+   is none, it belongs on a lower-cost surface (a parameter, a control-plane
+   notice) or nowhere.
 
 9. **Say what is gone, nowhere.** When a capability is removed (per-child
    worktree isolation, staging and release of a graph, the plan lane), every
@@ -151,14 +157,15 @@ editor does not "fill the gap".
 
 ## Audit checklist (static smells)
 
-- Guideline bullet that names a parameter: composition rule in ambient space.
+- Text in `promptGuidelines` (dead) or a composition rule for one parameter
+  carried in the description rather than that parameter.
 - Description explaining plumbing the caller cannot act on.
 - "Required"/"Optional" (or any schema fact) restated in prose.
 - Budget inversion: worked examples on cosmetic fields, one-liners on
   artefact-carrying fields.
 - Prompt-carrying parameter with no recipient characterisation.
-- Cross-surface contradiction or register drift between description,
-  guidelines, and parameters.
+- Cross-surface contradiction or register drift between description and
+  parameters.
 - Accretion strata: bullets that each patch one historical incident with no
   unifying contract.
 - Only one tail guarded (usually under-specification).

@@ -4,7 +4,8 @@
  * upstream's `T3_MCP_URL` / `T3_MCP_BEARER_TOKEN` and talks to the two REST
  * survivors beside `/mcp` (P3-3, `loom/http/loomAgentRoutes.ts`). Parts here:
  * `toolProfile` (the session profile applied at `session_start` and re-asserted
- * at every `before_agent_start`, P3-4, keeping `tool_search` discoveries) and
+ * at every `before_agent_start`, P3-4, keeping `tool_search` discoveries, and Loom's
+ * preamble in place of pi's tools/rules/docs sections) and
  * `askUserQuestion` (`mcp__t3-code__ask_user_question` over ask + long-poll),
  * then 3c's `search-guard`, `command-guards` (rewrite or block shell commands agents
  * repeatedly mistype), `pgrep-self-match` (a bash call naming pgrep/pkill that the guard let
@@ -32,7 +33,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
 import * as ServerConfig from "../../../config.ts";
-import { HUMAN_INPUT_REFUSAL } from "../../../loom/prompt/prose.ts";
+import { HUMAN_INPUT_REFUSAL, LOOM_PREAMBLE } from "../../../loom/prompt/prose.ts";
 import { agentToolName, HUMAN_INPUT } from "../../../mcp/toolkits/workstream/families.ts";
 import { LOOM_TOOL_PROSE } from "../../../mcp/toolkits/workstream/prose.ts";
 import { backgroundJobsPart } from "./loomExtensionParts/backgroundJobs.ts";
@@ -82,6 +83,7 @@ export const toolProfilePart: LoomExtensionPart = {
   name: "toolProfile",
   source: `
 const HUMAN_INPUT = ${json(HUMAN_INPUT)};
+const PREAMBLE = ${json(LOOM_PREAMBLE)};
 let profile;
 let warned = false;
 const refresh = async (ui) => {
@@ -117,8 +119,11 @@ const apply = () => {
 pi.on("session_start", async (_event, ext) => {
   if (await refresh(ext?.ui)) apply();
 });
-// Every turn: the profile and humanEngaged win again, but searched-in tools survive.
-pi.on("before_agent_start", async (_event, ext) => {
+// Every turn: the profile and humanEngaged win again, but searched-in tools survive. The
+// preamble is set on every run, profile or not, so a relaunched or forked session gets it
+// too; pi diffs the sections and patches the transcript only when they change.
+pi.on("before_agent_start", async (event, ext) => {
+  if (event?.systemPromptOptions) event.systemPromptOptions.customPrompt = PREAMBLE;
   if (await refresh(ext?.ui)) apply();
 });
 `,
@@ -150,11 +155,12 @@ const askTool = {
         type: "array",
         minItems: 1,
         maxItems: 4,
+        description: "One question; two only when independent and answerable alone. Coupled decisions or a plan sign-off go in an MDX decision document (mdx-visual-recap) with evidence beside each decision, and the question becomes a pointer to it.",
         items: {
           type: "object",
           properties: {
             header: { type: "string", minLength: 1, description: "Short decision title, understandable alone." },
-            question: { type: "string", minLength: 1, description: "Markdown body." },
+            question: { type: "string", minLength: 1, description: "Markdown body, for a reader who has read none of this thread or any child report. In order: the situation (what you are working on in plain words, the ticket reference so they can open it, what just happened), one real example (a named file, record or screen with literal content), the stakes and why their decision is needed, then your pick with its reason. Explain what any quoted figure measures. No internal shorthand as names ('D7', 'must-fix #1'), no unexplained acronyms, no references in place of substance ('per the report'); a child's report was written for you, so translate it rather than pass on its labels, ids or questions." },
             options: {
               type: "array",
               minItems: 2,

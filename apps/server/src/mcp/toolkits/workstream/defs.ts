@@ -1,7 +1,7 @@
 /**
  * The 22 Loom tools served on `/mcp`: input schema, error mode and hints per
- * tool, with the prose (description, snippet, guidelines) read from
- * `prose.ts`. The Effect schema is the single source: handlers receive its
+ * tool, with the prose (description, snippet) read from `prose.ts`. The
+ * Effect schema is the single source: handlers receive its
  * decoded type and `parameters` (the JSON schema `tools/list` serves) is
  * derived from it, so the two cannot drift (DL-336). `mcp__t3-code__ask_user_question` is
  * registered by Loom's pi extension, not here.
@@ -93,7 +93,7 @@ const childFields = {
   gate: Schema.optionalKey(
     described(
       GateInput,
-      `Declare a review gate on this child (typically a reviewer): its ${t("workstream_submit")} outcomes route in the control plane — 'needs_rework' loops the sibling named by rework, 'clean'/'fixed_inline' resolve the gate and complete both. gate.rework is added to blockedBy automatically.`,
+      `Declare a review gate on this child (typically a reviewer): its ${t("workstream_submit")} outcomes route in the control plane — 'needs_rework' loops the sibling named by rework, 'clean'/'fixed_inline' resolve the gate and complete both. gate.rework is added to blockedBy automatically. Wire downstream work on this gated child (or on both), never on the rework sibling alone: a rework round can reopen that sibling's done. You are woken once at gate resolution, or earlier if the gate yields.`,
     ),
   ),
   forkFrom: optionalText(
@@ -377,7 +377,7 @@ const LOOM_TOOL_SPECS = {
         `A short plain-language work item naming the outcome (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters) — never a finding, verdict, or status note.`,
       ),
       parentTaskId: optionalText(
-        "Id of an existing task in this goal to nest the new task under. Omit to add under your own anchor (or, unanchored, as a new top-level phase).",
+        "Id of an existing task in this goal to nest the new task under. Omit to add under your own anchor; unanchored, omitting it appends a new top-level phase, which is for a genuinely new phase of the goal, not the default.",
       ),
       clientRequestId,
     }),
@@ -391,7 +391,7 @@ const LOOM_TOOL_SPECS = {
         "Id of the task to update; must belong to this thread's goal.",
       ),
       text: optionalText(
-        `New task text: a short plain-language work item naming the outcome (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters).`,
+        `New task text: a short plain-language work item naming the outcome (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters) — never a finding, verdict, status note or result record.`,
       ),
       done: Schema.optionalKey(
         described(Schema.Boolean, "Mark the task done (true) or reopen it (false)."),
@@ -405,7 +405,7 @@ const LOOM_TOOL_SPECS = {
     Schema.Struct({
       markdown: described(
         Schema.String,
-        `The complete revised tree at your scope as an indented markdown checklist, one task per line: \`- [ ] Open task\`, \`- [x] Finished task (task-id)\`. Two spaces of indent per level; keep the trailing \`(id)\` on every retained task; omit it for new tasks. New or changed text is at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters.`,
+        `The complete revised tree at your scope as an indented markdown checklist, one task per line: \`- [ ] Open task\`, \`- [x] Finished task (task-id)\`. Two spaces of indent per level; keep the trailing \`(id)\` on every retained task; omit it for new tasks. New or changed text is at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters: a short plain-language work item naming the outcome, never a finding, verdict or status note, with concrete work hung under a handful of phase or theme parents. Your anchor line stays (renamed or ticked at most); an empty submission, an unparseable line or an id outside your scope is rejected whole and nothing is applied.`,
       ),
     }),
     "soft",
