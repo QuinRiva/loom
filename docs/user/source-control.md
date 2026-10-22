@@ -8,7 +8,25 @@ and publish repositories, create pull requests, and review changes.
 A turn's changed files and diff show only the turn's own work. When a turn pulls, merges, or
 rebases, the files Git brought in are left out. A file stays in the list when the turn edited it,
 committed it, or fixed a conflict in it. Use the branch comparison to review everything that changed
-against your base branch. Restore still returns the complete saved workspace.
+against your base branch. Restore still returns the complete saved workspace. The Turn list offers
+only turns that changed a file. <!-- loom: change review -->
+
+## Review since your last message
+
+<!-- loom: change review (plans/change-review) -->
+
+When agents work for you in a shared worktree, such as an orchestrator and its coders, no single
+turn holds what changed after you spoke. Choose **Since your message** in the Diff panel's scope
+menu to see everything that changed in the worktree since your latest message on this thread,
+whoever made the change. **Earlier** steps back through the spans between your previous messages;
+it lists only messages after which something changed, and each entry can jump to that message in
+the chat. A reply relayed from Slack counts as a message and shows its sender's name.
+
+The review covers repositories nested inside the worktree and folders declared for review
+(`.artifacts/` by default, or the `sources` listed in `.t3code/review.json`). Use **Sources** in
+the same menu to switch between **Repo code** and **Everything**; the choice is remembered on this
+device. The view refreshes when you open it, when you refresh it, and whenever a thread working in
+the same worktree finishes.
 
 ## Connect an account
 

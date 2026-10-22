@@ -34,6 +34,7 @@ import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as LoomUsageLedger from "../economics/LoomUsageLedger.ts";
 import * as LoomGoalBroadcast from "../projection/LoomGoalBroadcast.ts";
 import { UsageLimitSources } from "../../usage/UsageLimitSources.ts";
+import { ReviewSnapshotService } from "../review/ReviewSnapshotService.ts";
 import { LoomThreadConsult } from "../workstream/consult.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import {
@@ -79,6 +80,7 @@ const TestLayer = Layer.mergeAll(
   LoomUsageLedger.layer,
   Layer.mock(LoomThreadConsult)({}),
   Layer.mock(UsageLimitSources)({}),
+  Layer.mock(ReviewSnapshotService)({}),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-retro-" }),
 ).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(NodeServices.layer));
 

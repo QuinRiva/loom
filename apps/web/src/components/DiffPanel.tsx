@@ -7,7 +7,6 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import type { ScopedThreadRef, RunId } from "@t3tools/contracts";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment"; // loom: 3d-4 By coder
 import {
   ArrowRightIcon,
   CheckIcon,
@@ -47,7 +46,9 @@ import { PREFERRED_HIGHLIGHTER } from "../lib/syntaxHighlighting";
 import { areAllDiffFilesCollapsed, toggleAllDiffFiles } from "../lib/diffCollapse";
 import { useWorkspaceMutationRefresh } from "../hooks/useWorkspaceMutationRefresh";
 import { useProject, useThreadCheckpointSummaries, useQuietThreadShell } from "../state/entities";
-import { useLoomChildren } from "../loom/loomChildren"; // loom: 3d-4 By coder
+import { LoomScopeMenuEntries } from "../loom/review/LoomScopeMenuEntries"; // loom: change review
+import { useLoomReviewSelection } from "../loom/review/useLoomReviewSelection"; // loom: change review
+import { useReviewBaselineStore } from "../loom/review/reviewBaselineStore"; // loom: change review
 import { useClientSettings, updateClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffFilePathCopyButton } from "./DiffFilePathCopyButton";
@@ -260,20 +261,14 @@ export default function DiffPanel({
     selectThreadDiffPanelSelection(state.byThreadKey, routeThreadRef),
   );
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
-  // loom: 3d-4 — "By coder" (DT-33): a child's diff is its own checkpoint scope,
-  // so a coder selection points the turn machinery at the child's checkpoints
-  // (per-run diffs, made honest in a shared checkout by 3b's turn baseline).
-  const loomChildren = useLoomChildren(routeThreadRef ?? null);
-  const coder =
-    diffSelection.kind === "coder"
-      ? loomChildren.find((child) => child.id === diffSelection.threadId)
-      : undefined;
-  const diffThreadId = coder?.id ?? activeThreadId;
-  const turnDiffSummaries = useThreadCheckpointSummaries(
-    coder && routeThreadRef
-      ? scopeThreadRef(routeThreadRef.environmentId, coder.id)
-      : routeThreadRef, // loom: 3d-4
-  );
+  // loom: change review — while an interval is selected the panel shows it (loom/review/).
+  const loomReview = useLoomReviewSelection({
+    threadRef: routeThreadRef ?? null,
+    cwd: activeCwd ?? null,
+    ignoreWhitespace: diffIgnoreWhitespace,
+    enabled: isGitRepo && canReadFiles,
+  });
+  const turnDiffSummaries = useThreadCheckpointSummaries(routeThreadRef);
   const orderedTurnDiffSummaries = turnDiffSummaries.toSorted((left, right) => {
     if (left.checkpointTurnCount !== right.checkpointTurnCount) {
       return right.checkpointTurnCount - left.checkpointTurnCount;
@@ -289,13 +284,8 @@ export default function DiffPanel({
     );
   }, [diffSelection, orderedTurnDiffSummaries, routeThreadRef]);
 
-  const selectedRunId =
-    diffSelection.kind === "turn"
-      ? diffSelection.turnId
-      : // loom: 3d-4 — a coder with no checkpoint yet keeps the turn view (empty), never the parent's branch diff.
-        diffSelection.kind === "coder" && coder
-        ? (diffSelection.turnId ?? orderedTurnDiffSummaries[0]?.runId ?? ("" as RunId))
-        : null;
+  // loom: change review — an interval is not a turn.
+  const selectedRunId = diffSelection.kind === "turn" && !loomReview ? diffSelection.turnId : null;
   const selectedGitScope = diffSelection.kind === "unstaged" ? "unstaged" : "branch";
   const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
   const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
@@ -308,8 +298,10 @@ export default function DiffPanel({
         orderedTurnDiffSummaries[0]);
   const selectedCheckpointTurnCount = selectedTurn?.checkpointTurnCount;
   const latestTurn = orderedTurnDiffSummaries[0];
-  const selectedScopeLabel = coder // loom: 3d-4
-    ? `${coder.title} · ${selectedTurn?.runId === latestTurn?.runId ? "Latest turn" : `Turn ${selectedCheckpointTurnCount ?? "?"}`}`
+  // loom: change review — the Turn list offers only turns that changed a file.
+  const loomTurnsWithFiles = orderedTurnDiffSummaries.filter((summary) => summary.files.length > 0);
+  const selectedScopeLabel = loomReview // loom: change review
+    ? loomReview.label
     : selectedRunId === null
       ? selectedGitScope === "unstaged"
         ? "Uncommitted"
@@ -337,7 +329,7 @@ export default function DiffPanel({
   const activeCheckpointDiff = useCheckpointDiff(
     {
       environmentId: activeThread?.environmentId ?? null,
-      threadId: diffThreadId, // loom: 3d-4
+      threadId: activeThreadId,
       fromTurnCount: selectedCheckpointRange?.fromTurnCount ?? null,
       toTurnCount: selectedCheckpointRange?.toTurnCount ?? null,
       ignoreWhitespace: diffIgnoreWhitespace,
@@ -345,8 +337,8 @@ export default function DiffPanel({
     },
     { enabled: isGitRepo && selectedTurn !== undefined },
   );
-  const branchDiffPreview = useEnvironmentQuery(
-    canReadFiles && selectedRunId === null && activeThread && activeCwd
+  const upstreamBranchDiffPreview = useEnvironmentQuery(
+    canReadFiles && selectedRunId === null && !loomReview && activeThread && activeCwd // loom: not under an interval
       ? reviewEnvironment.diffPreview({
           environmentId: activeThread.environmentId,
           input: {
@@ -357,15 +349,19 @@ export default function DiffPanel({
         })
       : null,
   );
+  const branchDiffPreview = loomReview?.query ?? upstreamBranchDiffPreview; // loom: change review
   const canRefreshGitDiff =
     isGitRepo && selectedRunId === null && activeThread != null && activeCwd != null;
   const activeThreadRefreshKey = routeThreadRef
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}`
     : null;
 
-  const selectedGitSource = branchDiffPreview.data?.sources.find(
-    (source) => source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
-  );
+  const selectedGitSource = loomReview // loom: change review
+    ? loomReview.source
+    : branchDiffPreview.data?.sources.find(
+        (source) =>
+          source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
+      );
   const refreshPreviewQuery = branchDiffPreview.refresh;
   const refreshDiffFromUserAction = refreshPreviewQuery;
 
@@ -400,8 +396,9 @@ export default function DiffPanel({
           { additions: 0, deletions: 0 },
         )
       : null;
-  const currentLoadDiffFiles =
-    selectedRunId === null && activeThread && preview && selectedGitSource && canReadFiles
+  const currentLoadDiffFiles = loomReview // loom: change review
+    ? loomReview.loadDiffFiles
+    : selectedRunId === null && activeThread && preview && selectedGitSource && canReadFiles
       ? createGitDiffFileContentsLoader(getDiffFileContents, {
           environmentId: activeThread.environmentId,
           cwd: preview.cwd,
@@ -498,7 +495,7 @@ export default function DiffPanel({
   }, [canRefreshGitDiff, refreshBranchDiffPreview]);
 
   useWorkspaceMutationRefresh({
-    enabled: canRefreshGitDiff,
+    enabled: canRefreshGitDiff && !loomReview, // loom: an interval refreshes on run completion
     mutationId: workspaceMutationId,
     refresh: refreshBranchDiffPreview,
     resourceKey: `diff:${activeThreadRefreshKey ?? ""}`,
@@ -648,8 +645,6 @@ export default function DiffPanel({
 
   const selectTurn = (runId: RunId) => {
     if (!routeThreadRef) return;
-    // loom: 3d-4 — a turn picked while viewing a coder is that coder's turn.
-    if (coder) return useDiffPanelStore.getState().selectCoder(routeThreadRef, coder.id, runId);
     useDiffPanelStore.getState().selectTurn(routeThreadRef, runId);
   };
   const selectGitScope = (scope: "branch" | "unstaged") => {
@@ -661,18 +656,16 @@ export default function DiffPanel({
     useDiffPanelStore.getState().selectBranchBaseRef(routeThreadRef, baseRef);
   };
   const selectedTurnValue = selectedTurn ? `turn:${selectedTurn.runId}` : "";
-  const selectedScopeValue = coder // loom: 3d-4
-    ? `coder:${coder.id}`
+  const selectedScopeValue = loomReview // loom: change review
+    ? ""
     : selectedRunId === null
       ? selectedGitScope
       : selectedTurn?.runId === latestTurn?.runId
         ? "latest"
         : selectedTurnValue;
   const selectScopeValue = (value: string) => {
-    const coderChild = loomChildren.find((child) => `coder:${child.id}` === value); // loom: 3d-4
-    if (coderChild && routeThreadRef) {
-      useDiffPanelStore.getState().selectCoder(routeThreadRef, coderChild.id, null);
-    } else if (value === "unstaged" || value === "branch") {
+    if (routeThreadRef) useReviewBaselineStore.getState().selectInterval(routeThreadRef, null); // loom: leave the interval
+    if (value === "unstaged" || value === "branch") {
       selectGitScope(value);
     } else if (value === "latest") {
       if (latestTurn) selectTurn(latestTurn.runId);
@@ -710,7 +703,8 @@ export default function DiffPanel({
               <DropdownMenuSubTrigger>Turn</DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup value={selectedTurnValue} onValueChange={selectScopeValue}>
-                  {orderedTurnDiffSummaries.map((summary) => {
+                  {loomTurnsWithFiles.map((summary) => {
+                    // loom: only turns that changed a file (change review)
                     const turnCount = summary.checkpointTurnCount;
                     return (
                       <DropdownMenuRadioItem
@@ -730,27 +724,9 @@ export default function DiffPanel({
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-            {/* loom: 3d-4 — By coder (DT-33): each child's own turns. */}
-            {loomChildren.length > 0 ? (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>By coder</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  <DropdownMenuRadioGroup
-                    value={selectedScopeValue}
-                    onValueChange={selectScopeValue}
-                  >
-                    {loomChildren.map((child) => (
-                      <DropdownMenuRadioItem
-                        key={child.id}
-                        value={`coder:${child.id}`}
-                        closeOnClick
-                      >
-                        <span className="max-w-64 truncate">{child.title}</span>
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+            {/* loom: change review — Since your message · Earlier · Sources */}
+            {routeThreadRef ? (
+              <LoomScopeMenuEntries threadRef={routeThreadRef} active={loomReview !== null} />
             ) : null}
           </DropdownMenuContent>
         </DropdownMenu>

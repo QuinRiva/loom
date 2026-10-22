@@ -14,6 +14,7 @@ import {
   GoalId,
   GoalTaskId,
   IsoDateTime,
+  MessageId,
   NonNegativeInt,
   PositiveInt,
   ThreadId,
@@ -32,6 +33,7 @@ import {
   UsageLimitSourceLoginStartInput,
   UsageLimitSourceLoginStartResult,
 } from "./providerUsageLimits.ts";
+import { ReviewDiffFileContentsInput, ReviewDiffFileContentsResult } from "./review.ts";
 import {
   HandoffDraftInput,
   HandoffDraftResult,
@@ -57,6 +59,10 @@ export const LOOM_WS_METHODS = {
   // The hub login reminder's Log in… dialog: cliproxy's OAuth flow, run by the server.
   usageLimitSourceLoginStart: "usageLimitSource.login.start",
   usageLimitSourceLoginFinish: "usageLimitSource.login.finish",
+  // Change review (plans/change-review/plan.mdx §5): the snapshot intervals of a thread.
+  reviewIntervals: "loom.review.intervals",
+  reviewDiff: "loom.review.diff",
+  reviewFileContents: "loom.review.fileContents",
 } as const;
 
 /** Every Loom ws method fails with this (plus the group's authorization error). */
@@ -241,6 +247,114 @@ export const LoomPromptCaptureResult = Schema.Struct({
 });
 export type LoomPromptCaptureResult = typeof LoomPromptCaptureResult.Type;
 
+/** `repo` (the worktree's own git) · `nested_repo` (a repository inside it) · `artifact_path` (a declared ignored folder). */
+export const LoomReviewSourceKind = Schema.Literals(["repo", "nested_repo", "artifact_path"]);
+export type LoomReviewSourceKind = typeof LoomReviewSourceKind.Type;
+
+/** A review source of the thread's worktree; `prefix` maps its paths onto worktree-relative ones. */
+export const LoomReviewSource = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  kind: LoomReviewSourceKind,
+  /** `Repo` · `workbench/` · `.artifacts/` */
+  title: TrimmedNonEmptyString,
+  /** Worktree-relative root with a trailing `/` (a nested repo), else empty. */
+  prefix: Schema.String,
+});
+export type LoomReviewSource = typeof LoomReviewSource.Type;
+
+/** Files a closed interval changed per source kind, git imports excluded. */
+export const LoomReviewChangeCounts = Schema.Struct({
+  repo: NonNegativeInt,
+  nested_repo: NonNegativeInt,
+  artifact_path: NonNegativeInt,
+});
+export type LoomReviewChangeCounts = typeof LoomReviewChangeCounts.Type;
+
+/**
+ * The span between a human message's snapshot and the next one's (closed), or now (`live`).
+ * `id` is the closing message id, or `"live"`; `sender` is null for the user's own message and
+ * the name of a reply relayed from Slack (its `[Slack reply from <name>]` first line) otherwise.
+ */
+export const LoomReviewInterval = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  from: Schema.Struct({
+    messageId: MessageId,
+    at: IsoDateTime,
+    firstLine: Schema.String,
+    sender: Schema.NullOr(Schema.String),
+  }),
+  to: Schema.NullOr(Schema.Struct({ messageId: MessageId, at: IsoDateTime })),
+  /** Null for the live interval, which is counted only when its diff is read. */
+  changedBySource: Schema.NullOr(LoomReviewChangeCounts),
+});
+export type LoomReviewInterval = typeof LoomReviewInterval.Type;
+
+/** `loom.review.intervals`: newest first, the live interval leading once the thread has a snapshot. */
+export const LoomReviewIntervalsInput = Schema.Struct({ threadId: ThreadId });
+export type LoomReviewIntervalsInput = typeof LoomReviewIntervalsInput.Type;
+export const LoomReviewIntervalsResult = Schema.Struct({
+  intervals: Schema.Array(LoomReviewInterval),
+  sources: Schema.Array(LoomReviewSource),
+});
+export type LoomReviewIntervalsResult = typeof LoomReviewIntervalsResult.Type;
+
+export const LoomReviewFileStat = Schema.Struct({
+  /** Worktree-relative (the source's prefix applied). */
+  path: Schema.String,
+  previousPath: Schema.NullOr(Schema.String),
+  additions: Schema.Number,
+  deletions: Schema.Number,
+  status: Schema.Literals(["added", "modified", "deleted", "renamed"]),
+  /** Blob sizes, null on the side the file is absent from; known before anything is highlighted. */
+  oldBytes: Schema.NullOr(Schema.Number),
+  newBytes: Schema.NullOr(Schema.Number),
+});
+export type LoomReviewFileStat = typeof LoomReviewFileStat.Type;
+
+/** One source's patch over an interval, bounded like `review.getDiffPreview`'s; paths carry the prefix. */
+export const LoomReviewChangeSource = Schema.Struct({
+  ...LoomReviewSource.fields,
+  fromCommit: TrimmedNonEmptyString,
+  toCommit: TrimmedNonEmptyString,
+  diff: Schema.String,
+  diffHash: TrimmedNonEmptyString,
+  truncated: Schema.Boolean,
+  files: Schema.Array(LoomReviewFileStat),
+});
+export type LoomReviewChangeSource = typeof LoomReviewChangeSource.Type;
+
+/** `loom.review.diff`: `intervalId` `"live"` captures the worktree first; `file` narrows to one path. */
+export const LoomReviewDiffInput = Schema.Struct({
+  threadId: ThreadId,
+  intervalId: TrimmedNonEmptyString,
+  sourceKinds: Schema.Array(LoomReviewSourceKind),
+  ignoreWhitespace: Schema.Boolean,
+  file: Schema.optionalKey(
+    Schema.Struct({ path: Schema.NonEmptyString, previousPath: Schema.NullOr(Schema.String) }),
+  ),
+});
+export type LoomReviewDiffInput = typeof LoomReviewDiffInput.Type;
+export const LoomReviewDiffResult = Schema.Struct({
+  generatedAt: Schema.DateTimeUtc,
+  sources: Schema.Array(LoomReviewChangeSource),
+});
+export type LoomReviewDiffResult = typeof LoomReviewDiffResult.Type;
+
+/**
+ * `loom.review.fileContents`: both sides of one file, read from the two snapshot commits a
+ * `loom.review.diff` source named, so they match the patch exactly. Paths are worktree-relative.
+ */
+export const LoomReviewFileContentsInput = Schema.Struct({
+  threadId: ThreadId,
+  sourceId: TrimmedNonEmptyString,
+  fromCommit: TrimmedNonEmptyString,
+  toCommit: TrimmedNonEmptyString,
+  changeType: ReviewDiffFileContentsInput.fields.changeType,
+  oldPath: TrimmedNonEmptyString,
+  newPath: TrimmedNonEmptyString,
+});
+export type LoomReviewFileContentsInput = typeof LoomReviewFileContentsInput.Type;
+
 const goalRpc = <Tag extends string, Payload extends Schema.Top>(tag: Tag, payload: Payload) =>
   Rpc.make(tag, { payload, success: LoomGoalWriteResult, error: LoomWsError });
 
@@ -283,6 +397,21 @@ export const LoomWsRpcs = [
   Rpc.make(LOOM_WS_METHODS.promptCapture, {
     payload: LoomPromptCaptureInput,
     success: LoomPromptCaptureResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.reviewIntervals, {
+    payload: LoomReviewIntervalsInput,
+    success: LoomReviewIntervalsResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.reviewDiff, {
+    payload: LoomReviewDiffInput,
+    success: LoomReviewDiffResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.reviewFileContents, {
+    payload: LoomReviewFileContentsInput,
+    success: ReviewDiffFileContentsResult,
     error: LoomWsError,
   }),
   // The hub's own error text reaches the dialog, so these fail with the source's error.

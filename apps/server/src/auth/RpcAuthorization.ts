@@ -222,6 +222,9 @@ export const RPC_REQUIRED_SCOPES = {
   [LOOM_WS_METHODS.promptCapture]: AuthOrchestrationReadScope, // loom: the workstream Prompt button
   [LOOM_WS_METHODS.usageLimitSourceLoginStart]: AuthProvidersManageScope, // loom: hub login dialog
   [LOOM_WS_METHODS.usageLimitSourceLoginFinish]: AuthProvidersManageScope, // loom: hub login dialog
+  [LOOM_WS_METHODS.reviewIntervals]: AuthFilesystemReadScope, // loom: change review, as review.*
+  [LOOM_WS_METHODS.reviewDiff]: AuthFilesystemReadScope, // loom: change review, as review.*
+  [LOOM_WS_METHODS.reviewFileContents]: AuthFilesystemReadScope, // loom: change review, as review.*
 } as const satisfies Readonly<Record<WsRpcMethod, AuthEnvironmentScope>>;
 
 export function requiredScopeForRpcMethod(method: string): AuthEnvironmentScope {

@@ -293,6 +293,119 @@ it.layer(TestLayer)("Loom review snapshots", (it) => {
     }),
   );
 
+  it.effect("intervals, their diffs and file contents span every source between messages", () =>
+    Effect.gen(function* () {
+      const snapshots = yield* ReviewSnapshotService.ReviewSnapshotService;
+      const { worktree, workbench } = makeWorktree();
+      const threadId = yield* createThread(worktree);
+      const allKinds = ["repo", "nested_repo", "artifact_path"] as const;
+
+      // No snapshot yet: no interval, and no live ref is written.
+      assert.deepEqual(yield* snapshots.listIntervals(threadId), { intervals: [], sources: [] });
+      assert.deepEqual(yield* snapshots.captureLive(threadId), []);
+      assert.deepEqual(reviewRefs(worktree), []);
+
+      yield* react(yield* send(threadId, "first"));
+      NodeFS.writeFileSync(NodePath.join(worktree, "app.ts"), "export const a = 2;\n");
+      NodeFS.writeFileSync(NodePath.join(workbench, "notes.md"), "# notes, edited\n");
+      commitAll(workbench);
+      NodeFS.writeFileSync(NodePath.join(worktree, ".artifacts", "chart.svg"), "<svg/>\n");
+
+      // The live interval: everything since the message, nested paths under their prefix.
+      const live = yield* snapshots.diff({
+        threadId,
+        intervalId: "live",
+        sourceKinds: allKinds,
+        ignoreWhitespace: false,
+      });
+      assert.deepEqual(
+        live.sources.flatMap((source) =>
+          source.files.map((file) => [source.id, file.path, file.status]),
+        ),
+        [
+          ["repo", "app.ts", "modified"],
+          ["nested:workbench", "workbench/notes.md", "modified"],
+          ["artifacts:.artifacts", ".artifacts/chart.svg", "added"],
+        ],
+      );
+      const nested = live.sources.find((source) => source.kind === "nested_repo")!;
+      assert.include(nested.diff, "+++ b/workbench/notes.md");
+      assert.deepEqual(nested.files[0]!.oldBytes, "# notes\n".length);
+      assert.deepEqual(
+        yield* snapshots.fileContents({
+          threadId,
+          sourceId: nested.id,
+          fromCommit: nested.fromCommit,
+          toCommit: nested.toCommit,
+          changeType: "change",
+          oldPath: "workbench/notes.md",
+          newPath: "workbench/notes.md",
+        }),
+        { oldContents: "# notes\n", newContents: "# notes, edited\n" },
+      );
+      // "Repo code" leaves the nested repo and the artefact folder out.
+      const repoOnly = yield* snapshots.diff({
+        threadId,
+        intervalId: "live",
+        sourceKinds: ["repo"],
+        ignoreWhitespace: false,
+      });
+      assert.deepEqual(
+        repoOnly.sources.map((source) => source.id),
+        ["repo"],
+      );
+
+      // A second message closes the first interval; a third after no change closes an empty one.
+      yield* react(yield* send(threadId, "second"));
+      yield* react(yield* send(threadId, "third"));
+      const { intervals, sources } = yield* snapshots.listIntervals(threadId);
+      assert.deepEqual(
+        sources.map((source) => [source.id, source.title, source.prefix]),
+        [
+          ["repo", "Repo", ""],
+          ["nested:workbench", "workbench/", "workbench/"],
+          ["artifacts:.artifacts", ".artifacts/", ""],
+        ],
+      );
+      assert.deepEqual(
+        intervals.map((interval) => [
+          interval.id,
+          interval.from.firstLine,
+          interval.from.sender,
+          interval.changedBySource,
+        ]),
+        [
+          ["live", "third", "Pele", null],
+          [
+            `message:${threadId}:third`,
+            "second",
+            "Pele",
+            { repo: 0, nested_repo: 0, artifact_path: 0 },
+          ],
+          [
+            `message:${threadId}:second`,
+            "first",
+            "Pele",
+            { repo: 1, nested_repo: 1, artifact_path: 1 },
+          ],
+        ],
+      );
+
+      // A closed interval narrowed to one file reads only the source that owns it.
+      const closed = yield* snapshots.diff({
+        threadId,
+        intervalId: `message:${threadId}:second`,
+        sourceKinds: allKinds,
+        ignoreWhitespace: false,
+        file: { path: "workbench/notes.md", previousPath: null },
+      });
+      assert.deepEqual(
+        closed.sources.map((source) => [source.id, source.files.map((file) => file.path)]),
+        [["nested:workbench", ["workbench/notes.md"]]],
+      );
+    }),
+  );
+
   it.effect("the cap keeps the newest snapshots per source", () =>
     Effect.gen(function* () {
       const snapshots = yield* ReviewSnapshotService.ReviewSnapshotService;
