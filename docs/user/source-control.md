@@ -28,6 +28,23 @@ the same menu to switch between **Repo code** and **Everything**; the choice is 
 device. The view refreshes when you open it, when you refresh it, and whenever a thread working in
 the same worktree finishes.
 
+## Review changes from the Files tree
+
+<!-- loom: change review (plans/change-review) -->
+
+The Files tree marks every file that changed under the comparison the Diff panel uses, and each
+folder shows how many changed files it holds. Pick the comparison from the chip above the tree:
+**Changes (branch)**, **Uncommitted**, **Since your message** or an **Earlier** message. Choosing
+one moves the Diff panel too. **Changed only** narrows the tree to the changed files; turn it off
+to browse everything again. Clear **Show change marks** in the chip's menu to use the tree as a
+plain browser.
+
+Opening a changed file shows the whole file side by side, opened at its first change, so the code
+around each change is in view. Switch between side by side and unified in the file's header, and
+choose **Edit** to edit the file as usual; **Show changes** returns to the comparison. A very large
+file opens on its changed lines, with **Show whole file** one click away. In the Diff panel,
+**Open whole file** on any file opens it the same way.
+
 ## Connect an account
 
 Install Git and configure authentication on the machine running your T3 Code server. For a remote

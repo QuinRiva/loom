@@ -45,10 +45,15 @@ function Selected({ selected }: { selected: boolean }) {
 export function LoomScopeMenuEntries({
   threadRef,
   active,
+  showSources = true,
+  onSelect,
 }: {
   threadRef: ScopedThreadRef;
   /** An interval is what the panel shows (the Sources toggle applies only then). */
   active: boolean;
+  /** The Files header carries Sources as its own chip. */
+  showSources?: boolean;
+  onSelect?: () => void;
 }) {
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const intervalsQuery = useLoomReviewIntervals(threadRef);
@@ -66,8 +71,10 @@ export function LoomScopeMenuEntries({
   const earlier = closed.filter((interval) => changedFiles(interval, sources) > 0);
   const quiet = closed.length - earlier.length;
   const time = (at: string) => formatShortTimestamp(at, timestampFormat);
-  const select = (intervalId: string) =>
+  const select = (intervalId: string) => {
     useReviewBaselineStore.getState().selectInterval(threadRef, intervalId);
+    onSelect?.();
+  };
 
   return (
     <>
@@ -126,7 +133,21 @@ export function LoomScopeMenuEntries({
           </div>
         </DropdownMenuSubContent>
       </DropdownMenuSub>
-      <DropdownMenuSeparator />
+      {showSources ? (
+        <>
+          <DropdownMenuSeparator />
+          <LoomSourcesMenuGroup active={active} />
+        </>
+      ) : null}
+    </>
+  );
+}
+
+/** Repo code · Everything; it filters intervals only, so it is disabled under git scopes. */
+export function LoomSourcesMenuGroup({ active }: { active: boolean }) {
+  const sources = useReviewBaselineStore((state) => state.sources);
+  return (
+    <>
       <DropdownMenuGroup>
         <DropdownMenuLabel>
           {active ? "Sources" : "Sources (for Since your message and Earlier)"}

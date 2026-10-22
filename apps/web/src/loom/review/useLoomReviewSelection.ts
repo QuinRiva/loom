@@ -33,7 +33,7 @@ export function useLoomReviewIntervals(threadRef: ScopedThreadRef | null) {
 }
 
 /** "Since your message · 14:02", or "Earlier · 13:41 · Pele" for a closed interval. */
-function useLoomIntervalLabel(interval: LoomReviewInterval | undefined): string | null {
+export function useLoomIntervalLabel(interval: LoomReviewInterval | undefined): string | null {
   const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   if (!interval) return null;
   const at = formatShortTimestamp(interval.from.at, timestampFormat);
