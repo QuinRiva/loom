@@ -34,6 +34,7 @@ import { RerouteSweepLive } from "./economics/RerouteSweep.ts";
 import { UsageLedgerReactorLive } from "./economics/UsageLedgerReactor.ts";
 import { HandoffDrafterReactorLive } from "./handoff/HandoffDrafterReactor.ts";
 import { HandoffDuplicateJudgePiLive } from "./handoff/handoffDuplicates.ts";
+import { ReviewSnapshotReactorLive } from "./review/ReviewSnapshotReactor.ts";
 import { WorkstreamDispatcherStartedLive } from "./orchestration/dispatcher/WorkstreamDispatcher.ts";
 import {
   EmergentGoalGeneratorPiLive,
@@ -182,7 +183,8 @@ export const LoomGoalBroadcastLive = EmergentGoalsLive.pipe(
  * The workstream control plane (Phase 3 Track 3b), every worker started after
  * server activation: the dispatcher pass — re-drive, promotion and every wake —
  * the liveness sweep (which advises through the dispatcher), the emergent-goal
- * reactor and the `/handoff` drafter reactor. The startup pass itself is
+ * reactor, the `/handoff` drafter reactor and the review-snapshot reactor (a worktree snapshot
+ * per human message, plans/change-review). The startup pass itself is
  * `loomStartupRecovery`'s (DL-386).
  */
 export const LoomControlPlaneLive = Layer.mergeAll(
@@ -190,6 +192,7 @@ export const LoomControlPlaneLive = Layer.mergeAll(
   // The same layer reference as server.ts's entry, so the broadcast and the deriver are shared.
   EmergentGoalReactorLive.pipe(Layer.provide(LoomGoalBroadcastLive)),
   HandoffDrafterReactorLive, // loom: 3b-5 — archives a drafter once its handoff is recorded
+  ReviewSnapshotReactorLive,
 ).pipe(
   Layer.provideMerge(WorkstreamDispatcherStartedLive),
   Layer.provide([CommandReceiptStore.layer, LoomStore.layer]),

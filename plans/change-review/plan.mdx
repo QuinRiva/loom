@@ -1,0 +1,504 @@
+---
+kicker: "Implementation plan · change review before a PR · 22 Oct 2026"
+reader:
+  who: loom's owner, who directs agents in workstreams all day and wants to review what they changed before a PR exists; here to approve the design and answer four decisions in one sitting, then not think about it until PRs arrive
+  knows: the Diff panel, the Files tab and the workstream model as a daily user; the intent brief he was grilled for; none of the three research reports behind this plan
+  after_first_screen: what he will see in the file tree and when he opens a changed file, what "since my last message" means in practice, what it costs per message, and which four choices are his
+manager_sessions:
+  - id: 01a16130-215f-7400-9e0a-ce93a8e44aa0
+    name: Pre-PR change review plan
+    role: plan
+    authored_at: 2026-10-22T01:37:30.005Z
+---
+
+# Review what the agents changed, from the file tree, since your last message
+
+**Recommendation: snapshot the whole worktree every time a human message lands on a thread, and let that snapshot drive three things you already use.** The Files tree marks every file that differs from the snapshot (folders inherit the mark, and a filter shows only changed files), opening a marked file shows the whole file side by side with the changes highlighted, and the Diff panel's scope menu gains "Since your message" with a list of earlier messages that changed something. The snapshot is taken per source: the worktree's own repo, any git repository nested inside it (fathom's `workbench/`), and declared artefact folders (loom's `.artifacts/`), so the work that today reads "No net changes" is visible, behind a toggle between repo code and everything. The branch comparison you have today stays as the second baseline.
+
+The one bet is to **capture at the message rather than derive from the children's turn checkpoints**: three quarters of child runs overlap a sibling in the same worktree, so no per-thread checkpoint can say what changed after you spoke, while a worktree snapshot is exact whoever edited. The price is about **half a second of background git work per human message** (about 60 a day across every thread on this machine) and one hidden git ref per message per source, about 120 a day across the machine, swept away 14 days after a thread goes quiet (so the steady state is a couple of thousand refs, against the 14,600 this worktree carries today) and capped per thread. The whole-file view needs **no new renderer**: the diff library already installed shows a 10,000-line file side by side with the code visible in 0.2 s.
+
+<Stats
+  items={[
+    { value: "≈0.5 s", label: "Per human message", tone: "success", detail: "Background git work per source, off the message path; about 60 messages a day machine-wide" },
+    { value: "3 PRs", label: "To land it", tone: "info", detail: "Server capture · wire and selector · tree marks and whole-file view; each leaves the product usable" },
+    { value: "0.2 s", label: "Whole file on screen", tone: "success", detail: "10,000-line file, split view; colours arrive by 3 s with one 0.4 s freeze" },
+    { value: "4", label: "Decisions for you", tone: "accent", detail: "Toggle default · where the filter lives · fate of Turn and By coder · whether relayed Slack replies open an interval" },
+  ]}
+/>
+
+<Callout tone="decision" title="What you are approving" focus>
+  The design in sections 1 to 7 and the three-PR split in section 8. Four choices are yours and sit in the form at the end: the **sources toggle default**, **where the changed-only filter lives**, **what happens to the Turn and By coder scopes** (including whether upstream's Turn list, which today offers every turn whether or not it changed anything, is filtered or hidden), and **whether a reply relayed from Slack by someone else opens a review interval**. Everything else in the body is settled, with the rejected alternative beside each decision. One limit to know going in: the sources toggle applies to the incremental baseline; the branch comparison is the worktree's own repo only (section 3 says why). Non-goals from the intent brief hold: no PR Code tab changes, no mobile side-by-side, no change to Restore, no git operations from the review surface.
+</Callout>
+
+<Columns>
+  <Column label="Files tab today">
+<Screen
+  surface="panel"
+  html={'<div style="display:flex;flex-direction:column;height:100%;padding:12px;gap:10px"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><strong>Files</strong><div style="flex:1"></div><span class="wf-pill">Refresh</span><span class="wf-pill">Expand</span></div><input placeholder="Search files" /><div style="display:flex;flex-direction:column;gap:1px;font-size:12.5px;line-height:22px;white-space:nowrap"><div style="color:var(--wf-muted)">▸ .artifacts/</div><div>▾ apps/</div><div style="padding-left:14px">▾ server/</div><div style="padding-left:28px">▾ src/</div><div style="padding-left:42px">▸ checkpointing/</div><div style="padding-left:42px">▸ loom/</div><div style="padding-left:42px">▾ orchestration-v2/</div><div style="padding-left:56px">CheckpointService.ts</div><div style="padding-left:56px">Orchestrator.ts</div><div style="padding-left:14px">▾ web/</div><div style="padding-left:28px">▸ src/</div><div>▸ docs/</div><div>▸ packages/</div><div>AGENTS.md</div><div>package.json</div></div></div>'}
+/>
+  </Column>
+  <Column label="Files tab proposed">
+<Screen
+  surface="panel"
+  html={'<div style="display:flex;flex-direction:column;height:100%;padding:12px;gap:10px"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><strong>Files</strong><div style="flex:1"></div><span class="wf-pill">Refresh</span><span class="wf-pill">Expand</span></div><div style="display:flex;align-items:center;gap:6px;white-space:nowrap"><span class="wf-pill accent" style="overflow:hidden;text-overflow:ellipsis">Since your message · 14:02 ▾</span><span class="wf-pill">Changed only</span><span class="wf-pill">Everything ▾</span></div><input placeholder="Search files" /><div style="display:flex;flex-direction:column;gap:1px;font-size:12.5px;line-height:22px;white-space:nowrap"><div style="display:flex;gap:6px"><span style="color:var(--wf-ok)">▸ .artifacts/</span><span class="wf-pill" style="font-size:10px;line-height:14px;padding:0 5px;color:var(--wf-ok);border-color:var(--wf-ok)">1</span></div><div style="display:flex;gap:6px"><span style="color:var(--wf-accent)">▾ apps/</span><span class="wf-pill" style="font-size:10px;line-height:14px;padding:0 5px;color:var(--wf-accent);border-color:var(--wf-accent)">4</span></div><div style="padding-left:14px;display:flex;gap:6px"><span style="color:var(--wf-accent)">▾ server/</span><span class="wf-pill" style="font-size:10px;line-height:14px;padding:0 5px;color:var(--wf-accent);border-color:var(--wf-accent)">2</span></div><div style="padding-left:28px;color:var(--wf-accent)">▾ src/</div><div style="padding-left:42px">▸ checkpointing/</div><div style="padding-left:42px;color:var(--wf-ok)">▸ loom/</div><div style="padding-left:42px;color:var(--wf-accent)">▾ orchestration-v2/</div><div style="padding-left:56px;display:flex;gap:6px"><span style="color:var(--wf-accent)">CheckpointService.ts</span><span style="color:var(--wf-accent);font-size:10.5px">M</span></div><div style="padding-left:56px">Orchestrator.ts</div><div style="padding-left:14px;display:flex;gap:6px"><span style="color:var(--wf-ok)">▾ web/</span><span class="wf-pill" style="font-size:10px;line-height:14px;padding:0 5px;color:var(--wf-ok);border-color:var(--wf-ok)">2</span></div><div style="padding-left:28px;color:var(--wf-ok)">▸ src/</div><div style="display:flex;gap:6px"><span style="color:var(--wf-accent)">▸ docs/</span><span class="wf-pill" style="font-size:10px;line-height:14px;padding:0 5px;color:var(--wf-accent);border-color:var(--wf-accent)">1</span></div><div>▸ packages/</div><div>AGENTS.md</div><div>package.json</div></div></div>'}
+/>
+  </Column>
+</Columns>
+
+**Scope.** Web client and server, for the thread you are talking to and its worktree. Done means: a human message on any thread snapshots every source within a second; the Files tree and the Diff panel both show what differs from the chosen baseline; a changed file opens whole, side by side, in under a second for ordinary files; nested-repo and artefact edits appear when "everything" is on; the selector lists only messages after which something changed. Deferred to a fourth, optional PR: changed-file marks and counts on mobile. Not in scope: editing inside the side-by-side view (the Edit toggle returns to today's editor), attribution of a change to a thread (decision 3 may ask for it as a follow-up), and the retention sweep for the 11,000 legacy checkpoint refs this worktree already carries (an earlier, unshipped plan owns that).
+
+## 1. What you will see
+
+**The Files tree.** A baseline chip at the top of the explorer names what the marks are measured from: "Since your message · 14:02" by default when the thread has one, otherwise the branch comparison. A changed file is coloured and lettered (M modified, A added, D deleted, R renamed), its folders take the colour and a count, and "Changed only" collapses the tree to the marked files. The "Everything" chip is the sources toggle: "Repo code" marks only files the worktree's own git tracks or would track; "Everything" adds nested repositories and declared artefact folders, each marked the same way.
+
+**The opened file.** Opening a marked file shows the whole file, old on the left and new on the right, changes highlighted and every unchanged line present, so the enclosing function is on screen. The header carries the same baseline chip, a split or unified toggle, and Edit, which switches back to today's editor on the current contents. A file above about 5,000 lines opens in hunk mode with expand buttons instead, with "Show whole file" one click away.
+
+<Screen
+  surface="desktop"
+  caption="A changed file opened from the tree: whole file, side by side, the explorer filtered to changed files"
+  html={'<div style="display:flex;flex-direction:column;height:100%"><div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1.4px solid var(--wf-line);white-space:nowrap;font-size:12.5px"><span class="wf-muted">apps › server › src › orchestration-v2 ›</span><strong>CheckpointService.ts</strong><div style="flex:1"></div><span class="wf-pill accent">Since your message · 14:02 ▾</span><span class="wf-pill accent">Split</span><span class="wf-pill">Unified</span><span class="wf-pill">Edit</span></div><div style="display:flex;flex:1;min-height:0"><div style="flex:1;min-width:0;font-size:11.5px;line-height:20px;overflow:hidden"><div style="display:grid;grid-template-columns:34px minmax(0,1fr) 34px minmax(0,1fr);white-space:nowrap"><div class="wf-muted" style="text-align:right;padding-right:6px">284</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line)">const ensureScope = (scope) =&gt; Effect.succeed(scope);</div><div class="wf-muted" style="text-align:right;padding-right:6px">284</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis">const ensureScope = (scope) =&gt; Effect.succeed(scope);</div><div class="wf-muted" style="text-align:right;padding-right:6px">285</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line)"></div><div class="wf-muted" style="text-align:right;padding-right:6px">285</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis"></div><div class="wf-muted" style="text-align:right;padding-right:6px">286</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line)">const captureBaseline = (input) =&gt;</div><div class="wf-muted" style="text-align:right;padding-right:6px">286</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis">const captureBaseline = (input) =&gt;</div><div class="wf-muted" style="text-align:right;padding-right:6px">287</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line)">&nbsp;&nbsp;withWorkspaceLock(</div><div class="wf-muted" style="text-align:right;padding-right:6px">287</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis">&nbsp;&nbsp;withWorkspaceLock(</div><div class="wf-muted" style="text-align:right;padding-right:6px">288</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line)">&nbsp;&nbsp;&nbsp;&nbsp;input.scope.cwd,</div><div class="wf-muted" style="text-align:right;padding-right:6px">288</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis">&nbsp;&nbsp;&nbsp;&nbsp;input.scope.cwd,</div><div class="wf-muted" style="text-align:right;padding-right:6px">289</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line)">&nbsp;&nbsp;&nbsp;&nbsp;Effect.gen(function* () {</div><div class="wf-muted" style="text-align:right;padding-right:6px">289</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis">&nbsp;&nbsp;&nbsp;&nbsp;Effect.gen(function* () {</div><div class="wf-muted" style="text-align:right;padding-right:6px">290</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line)">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;if (!(yield* isGitCheckpointable(input.scope.cwd))) {</div><div class="wf-muted" style="text-align:right;padding-right:6px">290</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;if (!(yield* isGitCheckpointable(input.scope.cwd))) {</div><div class="wf-muted" style="text-align:right;padding-right:6px">291</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line)">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return;</div><div class="wf-muted" style="text-align:right;padding-right:6px">291</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return;</div><div class="wf-muted" style="text-align:right;padding-right:6px">292</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line)">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</div><div class="wf-muted" style="text-align:right;padding-right:6px">292</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</div><div class="wf-muted" style="text-align:right;padding-right:6px;background:var(--wf-accent-soft)">293</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line);background:var(--wf-accent-soft);color:var(--wf-warn)">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// loom: (P3-17) a Loom thread always snapshots its own start-of-run tree</div><div class="wf-muted" style="text-align:right;padding-right:6px"></div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;background:var(--wf-line)"></div><div class="wf-muted" style="text-align:right;padding-right:6px"></div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line);background:var(--wf-line)"></div><div class="wf-muted" style="text-align:right;padding-right:6px;background:var(--wf-accent-soft)">293</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;background:var(--wf-accent-soft);color:var(--wf-ok)">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// loom: (P3-17) the start-of-run tree a turn diff is measured from</div><div class="wf-muted" style="text-align:right;padding-right:6px"></div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line);background:var(--wf-line)"></div><div class="wf-muted" style="text-align:right;padding-right:6px;background:var(--wf-accent-soft)">294</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;background:var(--wf-accent-soft);color:var(--wf-ok)">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;// (the review snapshot is taken at the human message, not here)</div><div class="wf-muted" style="text-align:right;padding-right:6px">294</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line)">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;if (</div><div class="wf-muted" style="text-align:right;padding-right:6px">295</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;if (</div><div class="wf-muted" style="text-align:right;padding-right:6px">295</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line)">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(yield* loomStore</div><div class="wf-muted" style="text-align:right;padding-right:6px">296</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(yield* loomStore</div><div class="wf-muted" style="text-align:right;padding-right:6px">296</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis;border-right:1.4px solid var(--wf-line)">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;.getWorkstream(input.scope.threadId)</div><div class="wf-muted" style="text-align:right;padding-right:6px">297</div><div style="padding-left:6px;overflow:hidden;text-overflow:ellipsis">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;.getWorkstream(input.scope.threadId)</div></div></div><div style="width:190px;flex:none;border-left:1.4px solid var(--wf-line);padding:10px;display:flex;flex-direction:column;gap:8px;font-size:12px;line-height:20px;white-space:nowrap"><div style="display:flex;gap:6px"><span class="wf-pill accent" style="font-size:10.5px">Changed only</span><span class="wf-pill" style="font-size:10.5px">Everything</span></div><div style="display:flex;flex-direction:column;gap:1px"><div style="color:var(--wf-ok)">▾ .artifacts/review-bench/</div><div style="padding-left:14px;color:var(--wf-ok)">results.jsonl <span style="font-size:10px">A</span></div><div style="color:var(--wf-accent)">▾ apps/server/src/</div><div style="padding-left:14px;color:var(--wf-ok)">▾ loom/review/</div><div style="padding-left:28px;color:var(--wf-ok)">ReviewSnapshotService.ts <span style="font-size:10px">A</span></div><div style="padding-left:14px;color:var(--wf-accent)">▾ orchestration-v2/</div><div style="padding-left:28px;color:var(--wf-accent);background:var(--wf-accent-soft);border-radius:4px">CheckpointService.ts <span style="font-size:10px">M</span></div><div style="color:var(--wf-ok)">▾ apps/web/src/loom/review/</div><div style="padding-left:14px;color:var(--wf-ok)">useChangeMarks.ts <span style="font-size:10px">A</span></div><div style="padding-left:14px;color:var(--wf-ok)">FileChangeView.tsx <span style="font-size:10px">A</span></div><div style="color:var(--wf-accent)">▾ docs/user/</div><div style="padding-left:14px;color:var(--wf-accent)">source-control.md <span style="font-size:10px">M</span></div></div></div></div></div>'}
+/>
+
+**The Diff panel.** Its scope menu keeps upstream's entries and gains two of loom's: "Since your message" (the live interval) and "Earlier", a submenu listing only the messages after which something changed, newest first, each with its first line, time and file count. The sources toggle sits in the same menu. The panel otherwise stays what it is: the list of files that changed under the selected baseline, each with its hunks, and each file header gains "Open whole file", which opens that file in the Files surface with the baseline carried across.
+
+<Columns>
+  <Column label="Diff panel scope menu">
+<Screen
+  surface="popover"
+  html={'<div style="display:flex;flex-direction:column;padding:6px;gap:1px;font-size:13px;line-height:28px;white-space:nowrap"><div style="padding:0 10px">○ Changes</div><div style="padding:0 10px">○ Uncommitted</div><div style="padding:0 10px">○ Latest turn</div><div style="padding:0 10px;display:flex">Turn<div style="flex:1"></div><span class="wf-muted">›</span></div><hr /><div style="padding:0 10px;display:flex;gap:8px;color:var(--wf-accent);background:var(--wf-accent-soft);border-radius:4px">● Since your message · 14:02<div style="flex:1"></div><small>5 files</small></div><div style="padding:0 10px;display:flex">Earlier<div style="flex:1"></div><span class="wf-muted">3 ›</span></div><hr /><div style="padding:0 10px;display:flex;align-items:center;gap:6px"><small class="wf-muted">Sources</small><div style="flex:1"></div><span class="wf-pill">Repo code</span><span class="wf-pill accent">Everything</span></div></div>'}
+/>
+  </Column>
+  <Column label="Earlier submenu">
+<Screen
+  surface="popover"
+  html={'<div style="display:flex;flex-direction:column;padding:6px;gap:1px;font-size:12.5px;line-height:20px;white-space:nowrap"><div style="padding:4px 10px"><div style="display:flex;gap:8px"><strong>13:41</strong><span style="flex:1;overflow:hidden;text-overflow:ellipsis">rewrite that function so the lock is taken once</span><small class="wf-muted">2 files</small></div></div><div style="padding:4px 10px"><div style="display:flex;gap:8px"><strong>11:05</strong><span style="flex:1;overflow:hidden;text-overflow:ellipsis">[Slack reply from Pele] can we also cover the nested repo</span><small class="wf-muted">9 files</small></div></div><div style="padding:4px 10px"><div style="display:flex;gap:8px"><strong>09:30</strong><span style="flex:1;overflow:hidden;text-overflow:ellipsis">start on the capture service per the plan</span><small class="wf-muted">14 files</small></div></div><div style="padding:4px 10px;color:var(--wf-muted)"><small>Your 12:20 message changed nothing and is not listed.</small></div></div>'}
+/>
+  </Column>
+</Columns>
+
+**"Since your message", in practice.** The span runs from the moment a message you wrote was accepted on this thread to now, whoever edited the worktree in between: the thread's own agent, its coder children in their own turns, or you in an editor. Stepping back shows the span between two earlier messages of yours. A message after which nothing changed is not offered in "Earlier"; "Since your message" itself is offered as soon as the thread has a snapshot, even before anything has changed, because it is the live view and reads "No changes yet" rather than vanishing. The live view refreshes on opening, on an explicit refresh, and whenever **any** thread sharing the worktree finishes a run (the orchestrator or one of its coders), at 0.3 to 0.5 s of git work per enabled source, coalesced on the server so two clients or two quick refreshes share one capture.
+
+## 2. Capturing the baseline at the human message
+
+<Callout tone="decision" title="Decision: a new whole-worktree snapshot per human message, per source">
+  The existing start-of-run baseline refs stay as they are. Loom already snapshots the worktree at the start of every workstream turn (the `refs/t3/loom-baseline/…` refs, written in `apps/server/src/orchestration-v2/CheckpointService.ts:177-190` and `:293-306`). Those refs were considered as the baseline and rejected: they are keyed to a run, not a message, and they cover only the outer repo. They keep their current job, making a thread's turn diff honest in a shared checkout, and are not extended.
+</Callout>
+
+<Columns>
+  <Column label="Why the run-start refs cannot be the baseline">
+    A **steered** message (you type while the agent is mid-turn) starts no run, so it gets no baseline at all (`Orchestrator.ts` dispatch modes at `:4864` and `:4977`). A **queued** message gets its baseline when its run eventually starts, after sibling threads have kept editing, so the interval begins late. On the failing workstream, every one of the 16 start-of-run refs holds the identical tree because all the work happened in the gitignored `workbench/` repo. Extending them to nested repos would still leave the message-versus-run mismatch.
+  </Column>
+  <Column label="Why not the children's turn diffs">
+    In the last 30 days, 795 of 1,057 child runs (75%) overlapped a sibling run in the same workstream, so each child's turn diff contains the siblings' edits as well, and nothing can split a run that crosses a message boundary. The failing workstream's 25 child checkpoints all record zero files. A derived view over them would be inexact in exactly the delegated case this work exists for.
+  </Column>
+</Columns>
+
+**Mechanism.** Loom's dispatch hunk already stamps every message with the one human predicate (`isHumanAuthored`, `apps/server/src/orchestration-v2/Orchestrator.loom.ts:195-200`: created by the user, not a usage-limit continuation, not a scheduled task), computed in `Orchestrator.ts:4731-4738` before the delivery mode is chosen, so it covers new-run, queued and steered messages alike. The event sink then emits `message.updated` with that flag on the payload. A new **review-snapshot reactor** subscribes to the orchestrator's domain-event stream exactly as the emergent-goal reactor does (`apps/server/src/loom/orchestration/EmergentGoalReactor.ts:205-230`), and on the first `message.updated` for a human-authored user message it resolves the thread's worktree (`thread.worktreePath`, else the project's workspace root, as `loom/prompt/sessionComposerLive.ts:215-219` does), enumerates the sources (section 3) and captures each one. The same event is re-emitted for a message later (a queued edit, a promotion to steer), so the reactor ignores a message whose `createdAt` is more than a few seconds old: a capture that was lost is never taken late, because a late one would record the agent's progress as the baseline.
+
+**The race with the first edit.** The reactor runs off the in-process stream published after the event commits, so the capture starts within milliseconds. The thread's own run must first take its start-of-run checkpoint under `CheckpointService`'s lock, start the provider and wait for the model's first tool call, which is seconds; the repo snapshot (0.3 to 0.5 s) wins in practice. Sources are captured repo first, then the others, so a cold first build of an artefact index (up to 9 s) cannot push the repo snapshot past that first edit. An edit by an already-running sibling in that half-second lands in the adjacent interval, which the rejected outbox design would not have prevented either (it orders only against the thread's own run).
+
+<Columns>
+  <Column label="Reactor on the event stream (chosen)">
+    No change to upstream's effect-outbox schema or worker (`EffectOutbox.ts`, `EffectWorker.ts` stay untouched); the same shape loom already uses for emergent goals. A capture lost to a server restart in the sub-second between the message committing and the snapshot landing simply leaves that message without a boundary, so its interval merges into the previous one; the union of intervals stays exact. Restarts are deploys, so this is rare and bounded.
+  </Column>
+  <Column label="A new outbox effect kind (rejected)">
+    At-least-once after a restart and ordered ahead of the run start on the thread's lane, at the cost of three marked hunks in upstream files that both open upstream PRs on this area would churn, and a late capture after a restart is wrong anyway (it would record the agent's progress as the baseline), so the guarantee buys a row that must then be discarded.
+  </Column>
+</Columns>
+
+**Capture per source** reuses the isolated checkpoint primitive unchanged (`apps/server/src/vcs/GitVcsDriver.ts:886-1162`: a throwaway index copied from the real one, `add -A`, `write-tree`, `commit-tree -p HEAD`, `update-ref`), so it never touches the real index, `index.lock` or any branch, and `docs/architecture/checkpoint-git-isolation.md` continues to hold. The repo source calls it with the worktree as cwd. A nested repo calls it with the nested root as cwd, which needs nothing extra, so the ref and objects go into the nested repo's own store (150 ms on `workbench/`, 13.9k files; snapshotting the nested content into the outer store was measured at 39.8 s and 249 MB and rejected). An artefact folder is ignored by git, so it gets its own path: `git add -f -A -- <folder>` into a **persistent** per-source index at `git rev-parse --git-path loom-review-<source>.index` (worktree-private), then `write-tree`, `commit-tree`, `update-ref`; on `.artifacts/` (5,249 files, 119 MB) that is 1.8 s the first time and 21 ms after, against 1 to 9 s per capture with a throwaway index. Files over 5 MB in an artefact folder are skipped and recorded.
+
+**Cost, measured.** 261 to 484 ms per capture on this worktree (29k tracked files), 370 to 630 ms on a fathom worktree; production checkpoint spans run at p50 443 ms and p90 918 ms. Human messages ran at 1,770 in the last 30 days machine-wide, about 60 a day, so the total is under a minute of git a day. The reactor forks each capture and serialises captures per worktree with its own keyed lock; a concurrent start-of-run baseline from `CheckpointService` is harmless because every capture uses a private index.
+
+### The interval model
+
+<DataModel
+  entities={[
+    {
+      id: "snapshot",
+      name: "loom_review_snapshots",
+      note: "One row per (human message, source). Migration 1061 in LoomMigrations.ts. PK (message_id, source_id) makes the capture idempotent.",
+      change: "added",
+      fields: [
+        { name: "message_id", type: "text", pk: true, note: "the human message that opens the interval" },
+        { name: "source_id", type: "text", pk: true, note: "repo · nested:<relpath> · artifacts:<relpath>" },
+        { name: "thread_id", type: "text", note: "indexed with message_created_at" },
+        { name: "message_created_at", type: "text", note: "when the message was accepted" },
+        { name: "captured_at", type: "text", note: "when the snapshot landed; the two differ after a restart" },
+        { name: "worktree_path", type: "text" },
+        { name: "source_kind", type: "repo | nested_repo | artifact_path" },
+        { name: "source_root", type: "text", note: "absolute; the cwd the capture ran in" },
+        { name: "git_common_dir", type: "text", note: "which store holds the ref (nested repos have their own)" },
+        { name: "ref", type: "text", note: "refs/t3/loom-review/<threadKey>/<sourceKey>/<messageId>" },
+        { name: "commit_oid", type: "text" },
+        { name: "tree_oid", type: "text" },
+        { name: "head_oid", type: "text", nullable: true, note: "the source's HEAD at capture; drives the git-import filter" },
+        { name: "closes_files_changed", type: "integer", nullable: true, note: "files differing from this source's previous snapshot after the git-import filter; computed at capture (≈20 ms); null on the first" },
+        { name: "status", type: "ready | error" },
+        { name: "error", type: "text", nullable: true },
+      ],
+    },
+    {
+      id: "interval",
+      name: "ReviewInterval (wire)",
+      note: "Derived from the rows; never stored. The live interval has to = null.",
+      change: "added",
+      fields: [
+        { name: "id", type: "string", pk: true, note: "the closing message id, or \"live\"" },
+        { name: "threadId", type: "ThreadId" },
+        { name: "from", type: "{ messageId, at, firstLine, sender }", note: "sender is \"you\" or the relayed name parsed from a [Slack reply from …] prefix" },
+        { name: "to", type: "{ messageId, at } | null" },
+        { name: "changedBySource", type: "Record<sourceKind, number>", note: "what the selector filters on" },
+      ],
+    },
+    {
+      id: "change",
+      name: "ReviewChangeSource (wire)",
+      note: "Mirrors upstream's ReviewDiffPreviewSource so the Diff panel's patch pipeline renders it unchanged.",
+      change: "added",
+      fields: [
+        { name: "id", type: "string", pk: true, note: "the source_id" },
+        { name: "kind", type: "repo | nested_repo | artifact_path" },
+        { name: "title", type: "string", note: "Repo · workbench/ · .artifacts/" },
+        { name: "prefix", type: "string", note: "worktree-relative root, so nested paths map onto the Files tree" },
+        { name: "diff", type: "string", note: "the patch, bounded like upstream's with truncated + files" },
+        { name: "diffHash", type: "string" },
+        { name: "truncated", type: "boolean" },
+        { name: "files", type: "ReviewDiffFileStat[]", note: "path, previousPath, additions, deletions, status, oldBytes, newBytes (from one git ls-tree -l per source) so a file's size is known before anything is highlighted" },
+      ],
+    },
+  ]}
+  relations={[
+    { from: "snapshot", to: "interval", kind: "1-n", label: "consecutive rows bound an interval" },
+    { from: "interval", to: "change", kind: "1-n", label: "one per enabled source" },
+  ]}
+/>
+
+- **What opens an interval**: every message the server stamps human-authored, on any thread with a git worktree. Whether a reply relayed from Slack by someone other than you should count is decision 4 (the bridge sends those as ordinary user messages with a `[Slack reply from <name>]` first line, so the server cannot tell them apart without either parsing that prefix or a bridge change).
+- **The live interval's "now"** is a fresh capture of each enabled source into one overwritten ref per (thread, source), `…/live`, so the change list and the old-versus-new file contents come from the same uniform git commands whether the interval is live or closed. The client refreshes it on open, on explicit refresh and when any thread sharing the worktree completes a run: a derived atom over the environment's thread shells (the pattern `apps/web/src/loom/loomChildren.ts` already uses) takes the latest `latestRunCompletedAt` among shells whose `worktreePath` matches, so a coder child finishing moves it. The existing `workspaceMutationId` is not that signal: it is built from the route thread's own tool items and checkpoints only (`ChatView.tsx:2906-2923`), so it would miss every child's edit and fire on every orchestrator shell command. On the server, a live capture is single-flight per (thread, source) with a two-second coalescing window, so several clients or quick refreshes share one capture.
+- **Stepping back**: a closed interval is the pair of consecutive rows for a source; the selector lists intervals whose `closes_files_changed` is non-zero for any enabled source kind. That count is taken after the git-import filter, so a pull or rebase with no authored change does not put an interval in the list.
+- **Git-import noise**: snapshot commits keep `-p HEAD`, so the existing `listAuthoredPaths` (`GitVcsDriver.ts:1316-1360`) and `isGitImport` (`apps/server/src/checkpointing/Diffs.ts:38-46`) filtering drops files a pull or rebase brought in, as it does for turn diffs today; a coder's own commit inside `workbench/` counts as authored and survives it.
+- **A message while a file is half-written** captures the disk as it is; the torn edit shows split across two adjacent intervals and the union is exact.
+
+### Ref lifecycle
+
+<Table
+  density="compact"
+  columns={["Ref", "Written", "Deleted", "Bound"]}
+  rows={[
+    ["`refs/t3/loom-review/<threadKey>/<sourceKey>/<messageId>`", "once per human message per source, in the source's own store", "by an hourly sweep, 14 days after the thread last had a human message or a run (the same idle test `storageCleanup.ts:109-137` uses), on archive, on `thread.deleted`, and by the per-thread cap", "at most 50 per (thread, source): the 51st capture deletes the oldest ref and its row, so the oldest intervals fall off the selector"],
+    ["`refs/t3/loom-review/<threadKey>/<sourceKey>/live`", "overwritten on every live refresh", "with the sweep", "one per (thread, source)"],
+    ["`refs/t3/loom-baseline/…` (existing)", "unchanged", "unchanged", "not this plan"],
+  ]}
+/>
+
+For scale: `refs/t3` on this worktree holds **14,632 refs**, of which **11,468 are legacy V1 `refs/t3/checkpoints`** nothing reads any more, 1,866 are V2 checkpoints and 1,312 are start-of-run baselines; on a fathom worktree it is 18,331, and listing them all takes 1.76 s. Nothing in the server lists `refs/t3` on a user path (the ref snapshot at `GitVcsDriverCore.ts:3554` lists only `refs/heads` and `refs/remotes`), so the count is a packed-refs and `gc` hygiene cost rather than a hot path. Deleting with the thread alone would not do: of 5,448 threads in the live database, 81 have ever been deleted (2,097 are archived, and storage cleanup removes worktrees without deleting threads), so refs and every captured version of every `.artifacts/` file would stay reachable for good and `gc` could never prune them. Hence the quiet-thread sweep: it runs every hour beside the existing storage cleanup pass, deletes through `git --git-dir <git_common_dir> update-ref --stdin` from the stored `git_common_dir` so it works after the worktree directory is gone (nested-repo refs live in the nested repo's common dir, which outlives any one worktree), and removes the rows. At today's rate of about 120 refs a day the steady state is roughly 1,700 refs, the threads active in the last two weeks; the legacy backlog is the earlier retention plan's job and is not touched here.
+
+## 3. Sources and the toggle
+
+**Enumeration asks git, never the disk.** Candidates for nested repositories come from the worktree's own listing of collapsed untracked and ignored directories at the root (`git ls-files --others --exclude-standard --directory` with and without `--ignored`; 40 to 80 ms, 30 to 50 entries on loom and fathom; it finds `workbench/`), plus any gitlinks in the index. Known heavy names (`node_modules`, `.venv`, `__pycache__`, `.t3`, `.git`) are skipped before the stat, then `<dir>/.git` is stat'd once per candidate (a `.git` file counts, which is what `workbench/` uses). Git never descends into an ignored tree, so the walk is bounded by the repo's own ignore rules; nothing walks upward and nothing crosses the worktree boundary. A repo nested inside an ignored directory (`foo/bar/.git` when `foo/` is ignored) is not found this way; the declared list covers it. Artefact folders are **declared only**, because ignored directories also hold `logs/`, `__pycache__` and `.env`.
+
+<Callout tone="info" title="Carl's constraint, honoured">
+  "We don't want to be running diff git's across the entire hard drive, or some top-level root folder that consume enormous resources." Every source is the worktree repo, a nested repo found by git's own bounded listing at the root, or a declared path; every source root must resolve (through symlinks) inside the worktree, and the existing foreign-home guard extends to source paths. Per message, the total git work is 0.3 to 0.6 s per source, in the background.
+</Callout>
+
+**The declared list** lives beside loom's other per-project configuration, as `.t3code/review.json`, read from the worktree root only (not the nearest-ancestor walk `.t3code/vcs.json` and `.t3code/roles/` use, since nothing in this feature looks above the worktree). Paths are relative to the worktree root. When the file is absent, `.artifacts/` is a built-in default if it exists. Fathom's `.t3code/` is a gitignored overlay linked from `pi-fathom`, so its declaration of `workbench/` ships through that overlay.
+
+<Code
+  filename=".t3code/review.json"
+  language="json"
+  code={'{\n  "sources": [\n    { "path": "workbench", "kind": "nested_repo" },\n    { "path": ".artifacts", "kind": "artifact_path" }\n  ]\n}\n'}
+/>
+
+<Table
+  density="compact"
+  columns={["Source kind", "Found by", "Captured by", "Cost (measured)", "Paths shown as"]}
+  rows={[
+    [{ badge: { label: "repo", tone: "accent" }, md: "the worktree's own git" }, "always present", "`captureCheckpoint` with cwd = worktree, `-p HEAD`", "0.26 to 0.48 s on loom", "as is"],
+    [{ badge: { label: "nested_repo", tone: "info" }, md: "a `.git` inside the worktree" }, "git's collapsed-directory listing + gitlinks + declared", "`captureCheckpoint` with cwd = nested root, nested env reset; ref and objects in the nested store", "0.15 to 0.21 s on `workbench/` (13.9k files)", "`workbench/<path>`; the gitlink entry in the outer snapshot is hidden when the nested source is shown"],
+    [{ badge: { label: "artifact_path", tone: "warning" }, md: "a gitignored folder" }, "declared only (`.artifacts/` by default)", "`git add -f -A` into a persistent per-source index in the outer store, then write-tree / commit-tree / update-ref", "1.8 s first build, 21 to 23 ms after, on 119 MB", "as is"],
+  ]}
+/>
+
+**The toggle is a server-side filter, and it applies to the incremental baseline only.** Capture always runs for every source, so history is complete whichever way the toggle sits, and flipping it later costs nothing. "Repo code" asks the server for `repo` only; "Everything" asks for all three kinds. Under the **branch** comparison the marks and the patch come from upstream's `review.getDiffPreview`, which is the worktree's own repo against its merge base: a nested repo has its own branches and an artefact folder has no branch at all, so there is nothing for the toggle to add there. The control is therefore disabled while Branch or Uncommitted is selected, with a tooltip saying so, rather than sitting live and doing nothing. (A per-source branch comparison for nested repos is possible later; it is not in this plan.) The setting is a client-wide preference (a durable preference in loom's `uiStateStore`, tier 2 in `docs/architecture/loom-ui-state-tiers.md`); its default is decision 1.
+
+## 4. The file surface
+
+<Mermaid
+  caption="One baseline, three readers. The snapshot rows feed a change list; the tree, the opened file and the Diff panel all read it."
+  legend={[{ tone: "accent", label: "new in this plan" }, { tone: "neutral", label: "exists today" }]}
+  source={'flowchart TB\n  M["human message<br/>message.updated"]\n  R["review-snapshot reactor<br/>captures each source"]:::tone-accent\n  S["loom_review_snapshots<br/>+ refs/t3/loom-review"]:::tone-accent\n  Q["loom.review.* RPCs<br/>intervals · diff · fileContents"]:::tone-accent\n  T["Files tree<br/>setGitStatus marks"]\n  F["opened file<br/>whole file, side by side"]:::tone-accent\n  D["Diff panel<br/>scope menu + patch"]\n  M --> R --> S --> Q\n  Q --> T\n  Q --> F\n  Q --> D\n'}
+/>
+
+**Tree markers reuse an API the tree already has.** `@pierre/trees` (the library both trees are built on) takes `model.setGitStatus(entries)` with per-path statuses and rolls them up to folders itself (`directoriesWithChanges`, `changeCountByDirectoryPath` in its model). The Diff panel's tree already feeds it every changed file (`apps/web/src/components/diffs/DiffFileTree.tsx:60-63, 113`); the Files tree feeds it only `ignored` (`apps/web/src/components/files/FileBrowserPanel.tsx:365-373`). The change is a hook, `useLoomChangeMarks(threadRef, cwd)` in `apps/web/src/loom/review/`, that returns the active baseline's change list as status entries (branch baseline from upstream's `review.getDiffPreview` file stats; an interval from `loom.review.diff`), merged with the existing `ignored` entries so a marked file inside `.artifacts/` wins over the folder's ignored style, fed into that one `setGitStatus` call. Nested-repo paths are prefixed with the source's worktree-relative root so they land on the right rows. "Changed only" restricts the tree's `paths` to the marked entries and their ancestors.
+
+**The whole-file view renders through the component the Diff panel already uses.** `@pierre/diffs` 1.5.2 has `expandUnchanged` on its diff options (`node_modules/@pierre/diffs/dist/types.d.ts:353`): every unchanged line renders, no hunk separators, virtualised by rendered row (about 100 lines in the DOM at any file size). The path under the size cap is: fetch old and new contents first (one file, on open, never for the whole change list), build the diff with `parseDiffFromFile`, render one diff item through `StyledDiffCodeView` (`apps/web/src/components/diffs/StyledDiffCodeView.tsx`) in split or unified layout with `expandUnchanged: true` and `disableFileHeader`. Measured in headless Chromium on real files against their own older revisions:
+
+<Table
+  density="compact"
+  columns={["File", "Code visible", "Coloured", "Freeze when colours arrive", "Heap added", "Fling scroll p95 / frames over 33 ms"]}
+  align={["left", "right", "right", "right", "right", "right"]}
+  rows={[
+    ["516 lines", "0.11 to 0.13 s", "same", "≈65 ms", "≈0 MB", "16.8 ms / 0"],
+    ["3,246 lines", "0.11 s", "1.07 s", "100 ms", "10.7 MB", "22 ms / 0"],
+    ["9,692 lines", "0.14 to 0.20 s", "3.0 to 3.2 s", "380 ms", "32.8 MB", "25 to 27 ms / 0"],
+  ]}
+/>
+
+Hunk-only mode with the same full contents costs exactly the same (the freeze and the memory come from highlighting both full files, not from showing the unchanged lines), and dropping a `FileDiff` into the file tab's existing `Virtualizer` (`FilePreviewPanel.tsx:884-920`) was measured at 20 to 25 fps on a fling and is not used. Pierre's plain `File` cannot draw change markers in its gutter, and does not need to: the unified layout is VS Code's inline view.
+
+**The five budget items**, each with its answer:
+
+<Table
+  density="compact"
+  columns={["Item", "Why", "In the plan"]}
+  rows={[
+    ["Size cap with hunk-only fallback", "the colours-arrive freeze grows with length: 380 ms at 10,000 lines, about 1.5 s with the CPU slowed to a quarter, and it comes from highlighting both full files, so a hunk view built from the same two full files freezes just the same", "the size is known before anything is highlighted: the change list carries old and new byte sizes, and the Files surface already holds the working file it opened. Above 250 KB on either side (about 5,000 lines) the view never hands both full files to the renderer: it fetches that one file's patch (`loom.review.diff` with a `file` filter, or upstream's `review.getDiffPreview` `file` input under Branch) and renders it hunk-first through the Diff panel's existing path, with the lazy `loadDiffFiles` loader only when a hunk is expanded. \"Show whole file\" then opts into the full render for that file"],
+    ["Highlight cache", "about 3.4 MB of main-thread heap per 1,000 lines of split diff; the shared worker pool keeps up to 240 highlighted entries (`DiffWorkerPoolProvider.tsx:47`)", "only the active right-panel surface is mounted (`ChatView.tsx:7799` renders one), so at most one whole-file diff is live at a time; the cap above bounds it at about 17 MB; the worker LRU is measured after PR 3 and `totalASTLRUCacheSize` lowered if it grows, since the file viewer and Diff panel share the pool anyway"],
+    ["Payload over the websocket", "both full files travel: about 780 KB for the 10,000-line example", "contents are fetched per file on open through one RPC, never for the change list; the change list carries only paths and counts"],
+    ["Patch-first jump", "a diff rendered from the patch first swaps to the whole file about 400 ms later and the page jumps from 5,864 px to 65,060 px", "the opened file fetches both contents before rendering; the Diff panel keeps its patch-first rendering and its expand buttons, so it is unaffected"],
+    ["Slow machines", "with the CPU at a quarter, whole-file split scrolls at 20 to 25 fps; the plain viewer holds 60 on steady scrolling but drops to 13 on a fast fling", "the unified layout is cheaper (about 800 DOM nodes against 1,300) and is one click away; the size cap applies; nothing animates continuously"],
+  ]}
+/>
+
+**Where the view mounts.** `FilePreviewPanel.tsx` chooses a renderer at `:1560-1596` (table, read-only source, or the editable surface). One marked seam ahead of that choice renders loom's `FileChangeView` when the thread has an active baseline and the file is in its change list; the header gains the baseline chip, the split/unified toggle and Edit through the existing `FileSurfaceAction` row (`:1387-1424`). Edit flips to today's `EditableFileSurface` on the current contents, so editing semantics do not change. Under the cap, contents for an interval come from `loom.review.fileContents` (old side `cat-file` from the opening snapshot, new side from the closing snapshot or the working file); contents for the branch baseline come from upstream's `review.getDiffFileContents` through the existing `createGitDiffFileContentsLoader` (`apps/web/src/lib/diffFileContents.ts:79-101`).
+
+## 5. The Diff panel and the selector
+
+**One selection, two stores.** Upstream's `diffPanelStore` keeps its own kinds (`branch`, `unstaged`, `turn`). Loom adds a per-thread persisted store (`apps/web/src/loom/review/reviewBaselineStore.ts`, tier 1: persisted zustand keyed by `scopedThreadKey`, with `removeThread`) holding `intervalId | null` plus the Files surface's own "markers off" choice. Non-null means an interval is selected on both surfaces; choosing any upstream scope anywhere sets it to null, and choosing an interval anywhere leaves upstream's store as it was. No timestamps, no reconciliation. On first visit to a thread with no persisted choice the interval is seeded as the selection when one exists (seed, never override, per the UI state tiers doc), since it is the unit this work exists for.
+
+**What the Diff panel becomes.** The list of files that changed under the selected baseline, with hunks, which is what it is today; the file surface, not the panel, grows. Three things change in it: the scope menu gains "Since your message" and "Earlier" (loom entries rendered by a loom component mounted after upstream's radio group through one marked line), the sources toggle sits at the bottom of that menu, and each file header gains "Open whole file". When an interval is selected the panel's patch comes from `loom.review.diff`, one source per enabled kind, in the same shape as upstream's `ReviewDiffPreviewSource` so `getRenderablePatch`, the lazy large-diff path and the expand buttons work unchanged; the file-contents loader is loom's. The loom "By coder" scope and its 17 marked hunks are the subject of decision 3.
+
+<Table
+  density="compact"
+  columns={["Menu entry", "Owner", "Offered when", "Backed by"]}
+  rows={[
+    ["Changes (branch)", "upstream", "always", "`review.getDiffPreview`, merge base vs working tree"],
+    ["Uncommitted", "upstream", "always", "`review.getDiffPreview`, HEAD vs working tree"],
+    ["Latest turn · Turn ▸", "upstream", "today: every turn, empty ones included (the hunt the intent brief names). Decision 3 settles it: the recommended option filters the list to turns that changed a file, one marked line on `orderedTurnDiffSummaries` (`DiffPanel.tsx:713`, the summaries already carry `files`); the alternative hides the Turn entries once the thread has intervals", "checkpoint refs via `CheckpointDiffQuery`"],
+    [{ badge: { label: "Since your message", tone: "accent" }, md: "the live interval" }, "loom", "as soon as the thread has a snapshot, even before anything changed: it is the live view and reads \"No changes yet\"", "`loom.review.diff` with `intervalId: \"live\"`"],
+    [{ badge: { label: "Earlier ▸", tone: "accent" }, md: "closed intervals, newest first" }, "loom", "only intervals with a non-zero change count in an enabled source kind", "`loom.review.intervals`, then `loom.review.diff`"],
+    [{ badge: { label: "Sources", tone: "accent" }, md: "Repo code · Everything" }, "loom", "always", "a request parameter"],
+  ]}
+/>
+
+The three loom RPCs, as ws methods in `LOOM_WS_METHODS` (`packages/contracts/src/rpc.loom.ts`) with handlers in `apps/server/src/loom/wsMethods.ts`, each a thin call to one service method:
+
+<Table
+  density="compact"
+  columns={["Method", "Input", "Output", "Cost"]}
+  rows={[
+    ["`loom.review.intervals`", "`{ threadId }`", "`{ intervals: ReviewInterval[], sources: ReviewSource[] }`", "one SQL read"],
+    ["`loom.review.diff`", "`{ threadId, intervalId, sourceKinds, ignoreWhitespace, file? }` (`file` narrows to one path, as upstream's preview input does, for the over-cap whole-file path)", "`{ generatedAt, sources: ReviewChangeSource[] }`", "closed: `git diff -M` between two commits per source, ≈20 ms; live: one capture per source first, 0.3 to 0.5 s, single-flight per (thread, source)"],
+    ["`loom.review.fileContents`", "`{ threadId, intervalId, sourceId, changeType, oldPath, newPath }`", "`{ oldContents, newContents }`", "two `cat-file` reads, or one plus the working file"],
+  ]}
+/>
+
+## 6. Where the code lives
+
+Loom's earlier attempt at this, "By coder", lived as hunks inside `DiffPanel.tsx`'s scope logic and was reworked or lost at four upstream pulls (after one of them "By coder → All turns" rendered an empty diff for a month). Two open upstream PRs would hit the same lines again: #15010 moves `DiffPanel.tsx` to `panels/diff/DiffSidePanel.tsx`, and #19941 adds a fourth selection kind to `diffPanelStore.ts`. So the rule for this work: **upstream components plus loom data fed through their existing props and APIs**, with the code in `apps/web/src/loom/review/` and `apps/server/src/loom/review/`, and each upstream file touched by a few marked lines that mount or call a loom module, never by logic of its own.
+
+<Table
+  density="compact"
+  columns={["Upstream file", "Seams (a few marked lines each)", "Replaces"]}
+  rows={[
+    ["`apps/web/src/components/DiffPanel.tsx`", "mount `LoomScopeMenuEntries` after the Turn submenu (`:712-732`); take `preview` and `loadDiffFiles` from `useLoomReviewSelection` when an interval is active (`:346`, `:403`) and skip upstream's branch preview query while it is (`:348-357`, so the branch diff does not keep running underneath); the scope-trigger label (`:311`); the empty-turn filter on `orderedTurnDiffSummaries` if decision 3 picks it (`:713`); mount `OpenWholeFile` in the file header", "the 12 By coder hunks (decision 3)"],
+    ["`apps/web/src/diffPanelStore.ts`", "none new; the `coder` kind and its v4 migrate go if decision 3 removes By coder (version 5 strips stale `coder` selections)", "5 By coder hunks"],
+    ["`apps/web/src/components/files/FileBrowserPanel.tsx`", "merge `useLoomChangeMarks` entries into the one `setGitStatus` call (`:366`); pass the changed-only path filter; mount the baseline chip in the header", "nothing"],
+    ["`apps/web/src/components/files/FilePreviewPanel.tsx`", "render `FileChangeView` ahead of the renderer choice (`:1560`); add three `FileSurfaceAction`s (`:1387`)", "nothing"],
+    ["`packages/contracts/src/rpc.loom.ts` · `apps/server/src/loom/wsMethods.ts`", "three methods and handlers, in loom's existing registry", "nothing"],
+    ["`apps/server/src/persistence/LoomMigrations.ts`", "migration 1061 in the loom ledger", "nothing"],
+    ["`apps/server/src/checkpointing/Utils.ts`", "delete the dead loom hunk `checkpointBaselineRefForThreadTurn` (`:12-26`, no callers since the V2 move)", "15 lines"],
+  ]}
+/>
+
+Server pieces are services per `docs/internals/effect-services.md`: `ReviewSources` (enumeration and the declared list), `ReviewSnapshotService` (capture, delete, cap, and the three read methods), the reactor, and a small `ReviewSnapshotStore` for the table, all under `apps/server/src/loom/review/`. The git calls go through the existing `VcsProcess` runner for the artefact path and the diff queries, and through `CheckpointStore.captureCheckpoint` for repo and nested captures; `CheckpointStore.ts` itself is not changed.
+
+<Callout tone="info" title="Upstream contribution, as an option and not a dependency">
+  Upstream's maintainer invited exactly one primitive this touches: on PR #11528 Julius wrote that for "uncommitted edits made outside a turn … a focused PR on top of the new approach would be welcome". That is loom's existing start-of-run baseline for turn diffs, not the per-message snapshot. Pitching it in an Ideas discussion and then a PR would let loom drop those hunks if it lands; nothing here waits on it. The nested-repo and artefact capture, the interval, and the changed-only selector are loom-only by upstream's stated stance (capture inside the project folder only; empty-turn muting was closed without approval).
+</Callout>
+
+<Details summary="All touched files">
+<FileTree
+  title="Change map, in reading order"
+  entries={[
+    { path: "apps/server/src/loom/review/", change: "added", note: "PR 1 (server)" },
+    { path: "apps/server/src/loom/review/ReviewSources.ts", change: "added", note: "git-listed nested repos + .t3code/review.json + .artifacts default; realpath guard; heavy-name skip" },
+    { path: "apps/server/src/loom/review/ReviewSnapshotStore.ts", change: "added", note: "loom_review_snapshots reads and writes" },
+    { path: "apps/server/src/loom/review/ReviewSnapshotService.ts", change: "added", note: "captureForMessage (repo first), captureLive (single-flight), deleteForThread, applyCap, sweepQuiet; listIntervals, diff (with file filter and byte sizes), fileContents" },
+    { path: "apps/server/src/loom/review/ReviewSnapshotReactor.ts", change: "added", note: "message.updated (human, fresh) -> capture; thread.archived / thread.deleted -> delete; hourly sweep of threads quiet for 14 days via the stored git_common_dir" },
+    { path: "apps/server/src/loom/review/ReviewSnapshotService.test.ts", change: "added", note: "temp repo with a nested repo and an ignored folder: rows, refs, idempotency, stale-event skip, cap, archive and quiet-sweep deletion after the worktree directory is removed" },
+    { path: "apps/server/src/persistence/LoomMigrations.ts", change: "modified", note: "1061 LoomReviewSnapshots" },
+    { path: "apps/server/src/loom/serverLayers.ts", change: "modified", note: "provide the new layers" },
+    { path: "apps/server/src/checkpointing/Utils.ts", change: "modified", note: "delete dead checkpointBaselineRefForThreadTurn (loom hunk, lines 12-26)" },
+    { path: "docs/architecture/checkpoint-git-isolation.md", change: "modified", note: "one paragraph: nested-store writes are refs and objects only" },
+    { path: "packages/contracts/src/rpc.loom.ts", change: "modified", note: "PR 2: loom.review.intervals / diff / fileContents schemas" },
+    { path: "apps/server/src/loom/wsMethods.ts", change: "modified", note: "PR 2: three thin handlers" },
+    { path: "apps/web/src/loom/review/", change: "added", note: "PR 2 and PR 3 (web)" },
+    { path: "apps/web/src/loom/review/reviewBaselineStore.ts", change: "added", note: "PR 2: per-thread intervalId | null, tier 1" },
+    { path: "apps/web/src/loom/review/reviewQueries.ts", change: "added", note: "PR 2: createEnvironmentRpcCommand wrappers; loom file-contents loader" },
+    { path: "apps/web/src/loom/review/useLoomReviewSelection.ts", change: "added", note: "PR 2: the Diff panel's preview + loader when an interval is active" },
+    { path: "apps/web/src/loom/review/useWorktreeRunRevision.ts", change: "added", note: "PR 2: latest run completion across every shell sharing the worktree; the live view's refresh signal" },
+    { path: "apps/web/src/loom/review/LoomScopeMenuEntries.tsx", change: "added", note: "PR 2: Since your message · Earlier ▸ · Sources" },
+    { path: "apps/web/src/components/DiffPanel.tsx", change: "modified", note: "PR 2: the seams in section 6; By coder hunks removed per decision 3" },
+    { path: "apps/web/src/diffPanelStore.ts", change: "modified", note: "PR 2: coder kind and v4 migrate removed per decision 3 (version 5)" },
+    { path: "apps/web/src/loom/loomChildren.ts", change: "modified", note: "PR 2: drop useLoomChildren with By coder; keep useHasLoomChildren, which useLoomRightPanelSurfaces.ts:12 still imports" },
+    { path: "docs/user/source-control.md", change: "modified", note: "PR 2: a 'Review since your last message' section beside 'Review turn changes'" },
+    { path: "apps/web/src/loom/review/useLoomChangeMarks.ts", change: "added", note: "PR 3: change list → setGitStatus entries, merged with ignored; changed-only path filter" },
+    { path: "apps/web/src/loom/review/FileChangeView.tsx", change: "added", note: "PR 3: fetch both sides, parseDiffFromFile, StyledDiffCodeView with expandUnchanged; size cap; split/unified" },
+    { path: "apps/web/src/loom/review/BaselineChip.tsx", change: "added", note: "PR 3: the selector shared by the Files header and the opened file" },
+    { path: "apps/web/src/components/files/FileBrowserPanel.tsx", change: "modified", note: "PR 3: one seam at the setGitStatus call; header chip; changed-only filter" },
+    { path: "apps/web/src/components/files/FilePreviewPanel.tsx", change: "modified", note: "PR 3: one seam before the renderer choice; three header actions" },
+    { path: "apps/web/src/preview/fixtures.tsx", change: "modified", note: "PR 3: a FileChangeView fixture for the /preview harness" },
+  ]}
+/>
+</Details>
+
+## 7. Risks
+
+<Table
+  density="compact"
+  columns={["Risk", "Likelihood", "Mitigation"]}
+  rows={[
+    [{ md: "A capture lost to a restart leaves a message without a boundary", tone: "neutral" }, "rare (deploys)", "the interval merges into the previous one; `captured_at` versus `message_created_at` shows any late capture; no wrong data is shown"],
+    [{ md: "Writes into a nested repo's shared store (`workbench.git` serves 128 worktrees)", tone: "warning" }, "every capture", "hidden refs and objects only, namespaced by thread; never its index or branches; same posture as upstream's checkpoints, documented in the isolation doc"],
+    [{ md: "First artefact capture is heavy (1.8 to 9 s on 119 MB) and grows the outer store", tone: "neutral" }, "once per worktree", "runs in the background; per-file 5 MB cap; persistent index makes every later capture 21 ms"],
+    [{ md: "Upstream moves `DiffPanel.tsx` (#15010) or adds a selection kind (#19941)", tone: "warning" }, "likely within months", "three one-line seams move with the file; loom's logic is in `loom/review/` and `unmarkedsweep.sh` catches an unmarked line at ship time"],
+    [{ md: "Whole-file view on a weak laptop", tone: "neutral" }, "Carl's machines are not weak", "5,000-line cap, unified layout one click away, hunk mode as the fallback"],
+    [{ md: "A thread with hundreds of human messages", tone: "neutral" }, "long-lived threads", "the 50-per-source cap; older intervals fall off the selector, the branch comparison still covers them"],
+    [{ md: "The quiet-thread sweep deletes intervals someone still wanted", tone: "neutral" }, "a thread reopened after two idle weeks", "only closed intervals are lost; the next human message opens a fresh one and the branch comparison covers the rest. Fourteen days is a constant, not a setting, until usage says otherwise"],
+    [{ md: "Headless frame timings are a proxy, not a GPU-backed browser", tone: "neutral" }, "measurement caveat", "PR 3's verification includes a real-browser pass on the 10,000-line fixture"],
+  ]}
+/>
+
+## 8. Delivery in three PRs
+
+Ordered so each leaves the product usable; PR 2 depends on PR 1, PR 3 on PR 2. A fourth, optional PR brings marks and counts to mobile once the web surface has settled.
+
+<Card eyebrow="PR 1" heading="Capture and sources on the server" tone="accent" badge="server only" meta={["≈700 lines + tests", "no user-visible change", "about two coder-days"]}>
+  The table and migration, `ReviewSources`, `ReviewSnapshotService` with capture per kind, the per-thread cap and the quiet-thread sweep, the reactor for human messages, archive and deletion, the `.t3code/review.json` loader with the `.artifacts/` default, the `Utils.ts` dead-hunk deletion, and one paragraph in the isolation doc.
+
+  **Verifiable when it lands.** The focused service test builds a temp worktree containing a nested repo and an ignored folder and asserts: one row and one ref per source after a human message, none after an agent message or a scheduled-task message, idempotent on a repeated event and skipped on a stale one, the nested ref in the nested store, the cap deleting the oldest, and deletion on archive and on the quiet sweep after the worktree directory has been removed. Then the canonical check on real data: start a dev instance, seed a workstream rooted in your own worktree with `vp run dev:seed` (a `migrate-dev-db` copy would start a real agent run in that thread's real worktree), send one message to its root, and read back `git for-each-ref refs/t3/loom-review` in the worktree and `select * from loom_review_snapshots` in the dev database.
+</Card>
+
+<Card eyebrow="PR 2" heading="The interval over the wire, and the Diff panel's selector" tone="accent" badge="contracts + web" meta={["≈500 lines", "Diff panel gains Since your message · Earlier · Sources", "about a coder-day and a half"]}>
+  The three RPC contracts and handlers, the per-thread baseline store, the query wrappers and loom file-contents loader, `useLoomReviewSelection`, the loom menu entries, the three seams in `DiffPanel.tsx`, the By coder removal if decision 3 says so, and the user-doc section.
+
+  **Verifiable when it lands.** Live, via the dev-verify recipe: in a seeded workstream, send a message, let a coder child edit a file, and confirm the Diff panel's "Since your message" shows that file while "Latest turn" on the orchestrator shows nothing; send a second message that changes nothing and confirm "Earlier" does not list it; toggle Sources and confirm an `.artifacts/` file appears and disappears; expand a hunk and confirm the full-context loader works for an interval.
+</Card>
+
+<Card eyebrow="PR 3" heading="Tree marks, changed-only filter, and the whole-file view" tone="accent" badge="web" meta={["≈600 lines", "the Files tab becomes the review surface", "about two coder-days"]}>
+  `useLoomChangeMarks` and the `setGitStatus` seam, the changed-only filter, the baseline chip in the Files header, `FileChangeView` with the size cap and split/unified, the `FilePreviewPanel.tsx` seams and header actions, "Open whole file" in the Diff panel's file header, and a `/preview` fixture.
+
+  **Verifiable when it lands.** The `/preview` harness renders `FileChangeView` on the three benchmark files (516, 3,246 and 9,692 lines), in a real GPU-backed browser this time. The 9,692-line one must open from its patch in hunk mode with no long task over 100 ms before interaction (the proof that both full files were not highlighted), and reach whole-file mode only on request. Live, via the dev-verify recipe: after a coder edits `apps/server/src/orchestration-v2/CheckpointService.ts` and writes `.artifacts/x.html`, the Files tree shows `apps/` and `.artifacts/` coloured with counts, "Changed only" leaves exactly those rows, opening the `.ts` file shows the whole file split with the changed lines highlighted and the enclosing function visible, Edit returns to the editor, and switching the chip to "Changes (branch)" re-marks the tree against the merge base.
+</Card>
+
+<Card eyebrow="PR 4 (optional)" heading="Marks and counts on mobile" tone="neutral" badge="deferred" meta={["≈200 lines", "after PR 3", "mobile has its own review model"]}>
+  The intent brief keeps changed-file markers and counts in scope for mobile and the side-by-side view out. Mobile's file list is React Native with no `@pierre/trees`, so this is a count badge per folder and a mark per file fed by `loom.review.diff`, under `apps/mobile/src/…/loom/`. It is planned only after the web surface has been used for a week, in case the selector's shape changes.
+</Card>
+
+## 9. Verification across the whole
+
+Beyond each PR's checks above: `vp check` and `vp run typecheck` pass before any PR is called done; `unmarkedsweep.sh` at ship time confirms every hunk in an upstream file carries `// loom:`; and one end-to-end pass on the fathom shape, which is the case that started this: a thread whose coder commits into `workbench/` (nested, gitignored) must show that file under "Since your message" with "Everything" on, and show "No net changes" with "Repo code" on, while the sidebar's +/- count stays what it is today. Restore is exercised once to confirm the new refs are invisible to it (they live in a separate namespace, so `deleteStaleRefs` and rollback never see them).
+
+## Open decisions
+
+<QuestionForm
+  questions={[
+    {
+      id: "toggle-default",
+      title: "What should the sources toggle default to?",
+      subtitle: "Capture always covers every source; this only sets what the tree marks and the Diff panel lists until you flip it, and the choice is remembered client-wide.",
+      refs: [{ label: "3. Sources and the toggle", anchor: "3-sources-and-the-toggle" }],
+      mode: "single",
+      options: [
+        {
+          id: "everything",
+          label: "Everything: repo code, nested repositories and declared artefact folders are all marked",
+          recommended: true,
+          detail: "The failure that started this work was work going silently missing; the failure of this default is visible clutter (.artifacts/ marked in loom worktrees) that one click removes."
+        },
+        {
+          id: "repo-only",
+          label: "Repo code only: nested repositories and artefact folders are hidden until you switch",
+          detail: "Quieter in loom worktrees where .artifacts/ churns, at the cost of fathom's workbench/ edits being invisible again by default."
+        }
+      ]
+    },
+    {
+      id: "filter-home",
+      title: "Where does the changed-files-only filter live?",
+      subtitle: "The Diff panel is inherently a list of changed files; the question is whether the Files tree gets a filter chip, and whether the Diff panel also grows one.",
+      refs: [{ label: "4. The file surface", anchor: "4-the-file-surface" }, { label: "5. The Diff panel and the selector", anchor: "5-the-diff-panel-and-the-selector" }],
+      mode: "single",
+      options: [
+        {
+          id: "files-tree",
+          label: "On the Files tree only; the Diff panel stays the list of what changed",
+          recommended: true,
+          detail: "The tree is the first step of the hierarchy you review by, and the Diff panel already shows only changed files, so a second control there would filter nothing."
+        },
+        {
+          id: "diff-panel",
+          label: "In the Diff panel only; the Files tree gets marks but no filter",
+          detail: "Keeps the Files tree a plain browser; you would switch surfaces to see the changed list."
+        },
+        {
+          id: "both",
+          label: "Both surfaces carry a filter control",
+          detail: "Most controls, least to learn; the Diff panel's would hide files that changed in a disabled source kind, which the Sources toggle already does."
+        }
+      ]
+    },
+    {
+      id: "turn-and-coder",
+      title: "What happens to the existing Turn and By coder scopes?",
+      subtitle: "Turn is upstream's per-thread scope; its submenu lists every turn today, empty ones included, which is the hunt the intent brief names. By coder is loom's earlier attempt (17 marked hunks across DiffPanel.tsx and diffPanelStore.ts, the ones upstream churn keeps hitting).",
+      refs: [{ label: "5. The Diff panel and the selector", anchor: "5-the-diff-panel-and-the-selector" }, { label: "6. Where the code lives", anchor: "6-where-the-code-lives" }],
+      mode: "single",
+      options: [
+        {
+          id: "remove-filter",
+          label: "Remove By coder; keep Turn but list only turns that changed a file",
+          recommended: true,
+          detail: "Since your message answers what changed exactly, which By coder could not, and deleting its hunks removes the surface #15010 and #19941 would conflict with. The Turn filter is one marked line (the summaries already carry each turn's files), which keeps the single-agent case useful and honours no-empty-options. If you miss who did it, a per-file chip naming the coder can be added later from data the client already has."
+        },
+        {
+          id: "remove-hide",
+          label: "Remove By coder; hide the Latest turn and Turn entries once the thread has intervals",
+          detail: "The interval replaces the turn as the unit, so the menu shrinks to Changes, Uncommitted, Since your message and Earlier. Loses the per-thread turn view on workstream threads, where upstream still finds it useful for the orchestrator's own edits."
+        },
+        {
+          id: "fold",
+          label: "Remove By coder, filter Turn as above, and add a per-file attribution chip to the interval's file list in the same PR",
+          detail: "Each child's checkpoint summaries already list its files, so the chip is derivable; it adds a subscription per child to the Diff panel and about a day to PR 2."
+        },
+        {
+          id: "keep",
+          label: "Keep By coder and the full Turn list as they are alongside the new entries",
+          detail: "No removal work, but the 17 hunks stay in upstream's scope logic and are paid for again at the next pull, and the empty-turn hunt stays in the menu."
+        }
+      ]
+    },
+    {
+      id: "slack-replies",
+      title: "Does a reply relayed from Slack by someone other than you open a review interval?",
+      subtitle: "The bridge sends those as ordinary user messages with a first line like \"[Slack reply from Pele]\", so the server stamps them human-authored and cannot tell them from yours without parsing that prefix or changing the bridge.",
+      refs: [{ label: "2. Capturing the baseline at the human message", anchor: "2-capturing-the-baseline-at-the-human-message" }],
+      mode: "single",
+      options: [
+        {
+          id: "every-human",
+          label: "Yes: every human message opens an interval, and the selector shows the sender's name on relayed ones",
+          recommended: true,
+          detail: "The interval still answers what the agent did in response to that person; the name in the Earlier list keeps it honest, and nothing in the bridge changes. The sender label is parsed from that first line, and a bad parse there is cosmetic (a wrong name), whereas under the other option a bad parse moves interval boundaries."
+        },
+        {
+          id: "only-mine",
+          label: "No: only messages you typed in the app open an interval; relayed replies fold into the current one",
+          detail: "Needs the prefix parsed server-side (brittle) or a bridge field marking relays (a bridge release); what Pele asked for then shows up inside the interval your own message opened."
+        }
+      ]
+    }
+  ]}
+/>

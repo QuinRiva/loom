@@ -25,11 +25,11 @@ const at = "2026-01-01T00:00:00.000Z";
 // t-migrate (pull 9 Phase 2 §7): a V1 `state.sqlite` as the live install has it
 // (upstream lane at 054, Loom lane at 1045, with 1045's search triggers on the
 // goal tables) is copied to `statev2.sqlite` by `initializeV2Database` and
-// migrated by the live Sqlite layer: the Loom lane runs to its head (1060), V1's goal,
+// migrated by the live Sqlite layer: the Loom lane runs to its head (1061), V1's goal,
 // consult, peer-message and usage-ledger rows survive the renames (1048, 1049),
 // upstream's ledger is exactly upstream's manifest, and the search index survives
 // with its goal triggers following the rename.
-it.effect("migrates a copied V1 database to 1060 with the renamed tables' rows intact", () => {
+it.effect("migrates a copied V1 database to 1061 with the renamed tables' rows intact", () => {
   const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-loom-v1copy-"));
   const seed = Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -66,7 +66,6 @@ it.effect("migrates a copied V1 database to 1060 with the renamed tables' rows i
       const loomLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM ${sql(loomMigrationsTable)} ORDER BY migration_id`;
       assert.deepEqual(loomLedger.slice(-10), [
-        { id: 1051, name: "LoomLegacyImports" },
         { id: 1052, name: "LoomControlMessageRows" },
         { id: 1053, name: "LoomCardMetrics" },
         { id: 1054, name: "LoomImportedConsultItems" },
@@ -76,6 +75,7 @@ it.effect("migrates a copied V1 database to 1060 with the renamed tables' rows i
         { id: 1058, name: "LoomKickoffOrigin" },
         { id: 1059, name: "LoomThreadSnoozeRequests" },
         { id: 1060, name: "DropThreadSearchMessageTriggers" },
+        { id: 1061, name: "LoomReviewSnapshots" },
       ]);
       const upstreamLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM effect_sql_migrations ORDER BY migration_id`;
