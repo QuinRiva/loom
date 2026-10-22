@@ -142,11 +142,12 @@ creates (a child waiting on a brief, a gate resolving).
    own the full text. Any rewrite of a shared field must land on every def
    that carries it, in the same change.
 
-8. **Price the ambient block as a whole.** Each guideline bullet competes
-   with every other bullet for salience on every turn; the marginal bullet
-   dilutes the load-bearing ones. When adding a bullet, ask which existing
-   bullet it outranks; if the honest answer is none, it belongs on a
-   lower-cost surface or nowhere.
+8. **Price the ambient block as a whole.** Each sentence in a resident
+   tool's description competes with every other ambient sentence for salience
+   on every turn; the marginal sentence dilutes the load-bearing ones. When
+   adding one, ask which existing sentence it outranks; if the honest answer
+   is none, it belongs on a lower-cost surface (a parameter, a control-plane
+   notice) or nowhere.
 
 9. **Say what is gone, nowhere.** When a capability is removed (per-child
    worktree isolation, staging and release of a graph, the plan lane), every

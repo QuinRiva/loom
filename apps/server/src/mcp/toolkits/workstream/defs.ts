@@ -1,6 +1,7 @@
 /**
  * The 22 Loom tools served on `/mcp`: input schema, error mode and hints per
- * tool, with the prose (description, snippet) read from `prose.ts`. The Effect schema is the single source: handlers receive its
+ * tool, with the prose (description, snippet) read from `prose.ts`. The
+ * Effect schema is the single source: handlers receive its
  * decoded type and `parameters` (the JSON schema `tools/list` serves) is
  * derived from it, so the two cannot drift (DL-336). `mcp__t3-code__ask_user_question` is
  * registered by Loom's pi extension, not here.
