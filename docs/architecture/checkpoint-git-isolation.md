@@ -78,6 +78,22 @@ Nothing commits _your staging_ automatically: checkpoint captures are
 branch came from another thread sharing the worktree (or a user action), not
 from the checkpointer.
 
+## Review snapshots (`refs/t3/loom-review/…`)
+
+Loom also snapshots a thread's worktree each time a human message lands, for
+"what changed since your message" (`apps/server/src/loom/review/`). The repo and
+any git repository nested inside the worktree go through the same
+`captureCheckpoint` above, run with the nested repo as cwd, so a nested repo gets
+hidden refs and objects in its own store and nothing else: never its index, its
+branches or its `index.lock`. A declared artefact folder (`.artifacts/` by
+default) is gitignored, so it is `git add -f -A`'d into a persistent private
+index under the worktree's own git dir (`loom-review-<source>.index`), never
+`.git/index`. The refs live in their own namespace,
+`refs/t3/loom-review/<thread>/<source>/<message>` plus one `…/live` per source,
+which Restore, rollback and the turn diffs never read or delete; the review
+snapshot service deletes them itself (per-thread cap, archive, deletion, and a
+sweep 14 days after a thread goes quiet).
+
 ## The one checkpoint path that does mutate your worktree
 
 **Revert** (`restoreCheckpoint`: `git restore --worktree --staged`, `git clean
