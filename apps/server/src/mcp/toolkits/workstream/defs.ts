@@ -32,28 +32,20 @@ const described = <S extends Schema.Top>(schema: S, description: string) =>
   schema.annotate({ description });
 const optionalText = (description: string) =>
   Schema.optionalKey(described(Schema.String, description));
-const optionalThreadId = optionalText(
-  "Id of the thread to act on; defaults to the calling thread when omitted.",
-);
+const optionalThreadId = optionalText("This thread when omitted, else a direct child's id.");
 const clientRequestId = optionalText(
-  "Optional idempotency key. Reuse the same value only when retrying this exact call; a retry with it repeats nothing that already happened.",
+  "Idempotency key: reuse a value only when retrying this exact call, and the retry repeats nothing that already happened.",
 );
 
 const ModelSelectionInput = Schema.Struct({
-  instanceId: described(
-    Schema.String,
-    "Configured provider instance id to route to. Must be a configured instance in this build — an unknown id is rejected at spawn with the available instance ids.",
-  ),
-  model: described(
-    Schema.String,
-    "Model slug for that instance — an unknown slug is rejected at spawn with guidance.",
-  ),
+  instanceId: described(Schema.String, "A configured provider instance id."),
+  model: described(Schema.String, "Model slug on that instance."),
   options: Schema.optionalKey(
     described(
       Schema.Array(
         Schema.Struct({ id: Schema.String, value: Schema.Union([Schema.String, Schema.Boolean]) }),
       ),
-      "Optional per-model options, e.g. thinking level.",
+      "Per-model options, e.g. thinking level.",
     ),
   ),
 });
@@ -61,73 +53,118 @@ const ModelSelectionInput = Schema.Struct({
 const GateInput = Schema.Struct({
   rework: described(
     Schema.String,
-    "The sibling this gate loops rework back to (the work under review). Must be a thread you directly parent (or, in a scaffold, a node key or `thread:<id>`).",
+    "The sibling under review, whose rework this gate loops: a direct child's id (in a scaffold, a node key or `thread:<id>`).",
   ),
   maxRounds: Schema.optionalKey(
     described(
       Schema.Int,
-      "Maximum rework loops before the gate yields to you instead of looping again. Default 2.",
+      "Rework loops before the gate yields to you instead of looping again. Default 2.",
     ),
   ),
 });
 
-/** Model and placement fields shared by a spawn and a scaffold node. */
+const taskText = (noun: string) =>
+  `${noun}: a short plain-language work item naming the outcome (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters), never a finding, verdict or status note.`;
+
+/** The node fields of a spawn; a scaffold node carries the same fields and points here. */
 const childFields = {
   role: optionalText(
-    "The child's role: one of the built-in roles orchestrator, planner, coder, reviewer, researcher, assessor or shipper; a role the project adds under `.t3code/roles/`; or free text when none fits. Required for a normal spawn; OMIT it when forkFrom is set (a fork inherits the source's role, and passing role with forkFrom is rejected).",
+    "The child's role: one of the built-in roles orchestrator, planner, coder, reviewer, researcher, assessor or shipper; a role the project adds under `.t3code/roles/`; or free text when none fits. Omit it when forkFrom is set: a fork inherits its source's role.",
   ),
   title: described(
     Schema.String,
-    "Short label naming the work at a glance, the card's bold name, roughly ≤6 words. Lead with the distinguishing subject rather than a verb shared by every sibling: 'Receipt-dedup merge', not 'Implement receipt-dedup merge'.",
+    "The card's name, roughly six words at most, leading with the distinguishing subject rather than a verb every sibling shares: 'Receipt-dedup merge', not 'Implement receipt-dedup merge'.",
   ),
   purpose: described(
     Schema.String,
-    "Short (1-3 sentence) summary shown on the sidebar card as the thread's 'Goal'. State the value the work delivers — the capability, fix, or decision it produces — not the role or the mechanical steps.",
+    "One to three sentences shown on the sidebar card as the thread's goal: the value the work delivers, not the role or the steps.",
   ),
   blockedBy: Schema.optionalKey(
     described(
       Schema.Array(Schema.String),
-      "Threads this child waits on; it does not start until every listed thread's outcome is 'done'.",
+      "Threads this child waits on; it starts once every one is done.",
     ),
   ),
   gate: Schema.optionalKey(
     described(
       GateInput,
-      `Declare a review gate on this child (typically a reviewer): its ${t("workstream_submit")} outcomes route in the control plane — 'needs_rework' loops the sibling named by rework, 'clean'/'fixed_inline' resolve the gate and complete both. gate.rework is added to blockedBy automatically. Wire downstream work on this gated child (or on both), never on the rework sibling alone: a rework round can reopen that sibling's done. You are woken once at gate resolution, or earlier if the gate yields.`,
+      `A review gate on this child, typically a reviewer: its ${t("workstream_submit")} verdicts route in the control plane; 'needs_rework' loops the sibling named by rework, 'clean' or 'fixed_inline' resolve the gate and complete both. rework is added to blockedBy. Hang downstream work on this gated child, not on the rework sibling alone, since a rework round reopens that sibling's done.`,
     ),
   ),
   forkFrom: optionalText(
-    "Fork this child's session from an active sibling (the source) once the source is done: the child starts from a copy of the source's final transcript and inherits its role, model and anchor. Do NOT pass role / modelSelection / modelPreset / taskShape / sensitive with it. forkFrom is added to blockedBy automatically and cannot be combined with gate.",
+    "Fork this child's session from a direct sibling once that sibling is done: it starts from a copy of the sibling's final transcript and inherits its role, model and anchor, so pass none of role, modelSelection, modelPreset, taskShape, sensitive or gate with it.",
   ),
   anchorTaskId: optionalText(
-    `Bind this child to ONE task of the goal task tree: that task and its subtree become the branch the child owns. Anchor a child whose work IS a task in the tree; leave unbound a child with no task of its own (a reviewer, a researcher answering a brief). Pass the id from the trailing '(id)' of a task line in ${t("goal_task_list")}. When you are yourself anchored you may only pass your own anchor or a task beneath it.`,
+    `The goal task this child owns, with its subtree, from the trailing '(id)' of a ${t("goal_task_list")} line. Anchor a child whose work is a task in the tree; leave a reviewer or a researcher unbound. When you are anchored yourself, only your own anchor or a task beneath it.`,
   ),
   taskShape: Schema.optionalKey(
     described(
       Schema.Literals(["explore", "thorough", "mechanical"]),
-      "Server-resolved model hint; omit for most spawns. 'explore' (open-ended, plan likely to change); 'thorough' (edge cases, migrations, review gates); 'mechanical' (bounded, high-volume work). A shape with no matching server profile falls through to the role preset.",
+      "Server-resolved model hint; omit for most spawns. 'explore' for open-ended work whose plan will change, 'thorough' for edge cases, migrations and review gates, 'mechanical' for bounded high-volume work.",
     ),
   ),
   sensitive: Schema.optionalKey(
     described(
       Schema.Literals(["security"]),
-      "Optional sensitivity marker paired with taskShape: 'security' excludes models flagged unsuitable for security-adjacent work.",
+      "'security', with taskShape, excludes models flagged unsuitable for security-adjacent work.",
     ),
   ),
   modelPreset: optionalText(
-    "Escape hatch: a named model preset; an unknown name is rejected with the available names.",
+    "A named model preset, for the rare spawn that needs a specific model.",
   ),
   modelSelection: Schema.optionalKey(
     described(
       ModelSelectionInput,
-      "Escape hatch: an explicit model override, taking precedence over modelPreset and taskShape.",
+      "An explicit model, overriding modelPreset and taskShape, for the rare spawn that needs one.",
     ),
   ),
 };
 
+/** The same fields on a scaffold node: a few words each, with the contract on the spawn's field. */
+const asSpawn = (field: keyof typeof childFields) => `As ${t("workstream_spawn")}'s \`${field}\`.`;
+const scaffoldNodeFields = {
+  role: optionalText(asSpawn("role")),
+  title: described(Schema.String, asSpawn("title")),
+  purpose: described(Schema.String, asSpawn("purpose")),
+  blockedBy: Schema.optionalKey(
+    described(Schema.Array(Schema.String), `Node keys or \`thread:<id>\`s this node waits on.`),
+  ),
+  gate: Schema.optionalKey(
+    described(
+      Schema.Struct({ rework: Schema.String, maxRounds: Schema.optionalKey(Schema.Int) }),
+      `A review gate on this node; \`rework\` names the sibling it loops, by key or \`thread:<id>\`. Semantics as ${t("workstream_spawn")}'s \`gate\`.`,
+    ),
+  ),
+  forkFrom: optionalText(`${asSpawn("forkFrom")} By key or \`thread:<id>\`.`),
+  anchorTaskId: optionalText(asSpawn("anchorTaskId")),
+  taskShape: Schema.optionalKey(
+    described(Schema.Literals(["explore", "thorough", "mechanical"]), asSpawn("taskShape")),
+  ),
+  sensitive: Schema.optionalKey(described(Schema.Literals(["security"]), asSpawn("sensitive"))),
+  modelPreset: optionalText(asSpawn("modelPreset")),
+  modelSelection: Schema.optionalKey(
+    described(
+      Schema.Struct({
+        instanceId: Schema.String,
+        model: Schema.String,
+        options: Schema.optionalKey(
+          Schema.Array(
+            Schema.Struct({
+              id: Schema.String,
+              value: Schema.Union([Schema.String, Schema.Boolean]),
+            }),
+          ),
+        ),
+      }),
+      asSpawn("modelSelection"),
+    ),
+  ),
+};
+
+/** The brief contract, owned by `mcp__t3-code__workstream_brief`'s `markdown`; the spawn's `brief` points here. */
 const brief = described(
   Schema.String,
-  `The child's full, self-contained first-turn assignment, read by an agent that is told it is your writing and may depart from it with reasons. State the outcome it owes and the contract it works under (why it matters, constraints, definition of done, where the code and artefacts live) and leave how to its role. Mark which constraints are the human's stated decisions (quote them) and which are your own assumptions, so the child knows what it may challenge. When the deliverable is a document a human will read (a plan, a recap, an explainer), include its reader brief — who reads it and what they are there to do, what they already know, what they must be able to say or decide after the first screen — because the child has never met that reader and has none of the conversation you had. Do not restate what the child's system prompt already carries (AGENTS.md, the work-model doctrine, the shipping policy, its role overlay, the goal and its task tree).`,
+  `The child's first-turn assignment, read by an agent told it is your writing and free to depart from it with reasons. State the outcome it owes and the contract it works under: why it matters, the constraints, the definition of done, where the code and artefacts live; leave how to its role. Mark which constraints are the human's stated decisions, quoted, and which are your own assumptions, so the child knows what it may challenge. When the deliverable is a document a human will read, include its reader brief (who reads it and to do what, what they already know, what they must be able to say or decide after the first screen), since the child has never met that reader. Do not restate what its system prompt already carries: AGENTS.md, the work model, the shipping policy, its role, the goal and its task tree.`,
 );
 
 interface LoomToolSpec {
@@ -157,7 +194,12 @@ const LOOM_TOOL_SPECS = {
     "Spawn Workstream Sub-thread",
     Schema.Struct({
       ...childFields,
-      brief: Schema.optionalKey(brief),
+      brief: Schema.optionalKey(
+        described(
+          Schema.String,
+          `The child's first-turn assignment; the contract is ${t("workstream_brief")}'s \`markdown\`. Omitted, the purpose serves as the brief.`,
+        ),
+      ),
       clientRequestId,
     }),
     "throw",
@@ -170,12 +212,12 @@ const LOOM_TOOL_SPECS = {
           Schema.Struct({
             key: described(
               Schema.String,
-              "Symbolic key, unique forever among the parent's children, used by other nodes' blockedBy / gate / forkFrom. Must NOT be UUID-shaped (reference an existing thread as `thread:<id>`).",
+              "Symbolic key, unique forever among this parent's children, that other nodes' blockedBy, gate and forkFrom name. Not UUID-shaped: an existing thread is `thread:<id>`.",
             ),
-            ...childFields,
+            ...scaffoldNodeFields,
           }),
         ),
-        `The nodes to create (or add, for a delta call): each is a ${t("workstream_spawn")} node minus brief, plus a key. References are a node key in this call or \`thread:<id>\` for an existing child.`,
+        "The nodes to create, or to add in a delta call: a key plus the fields of a spawn, minus its brief.",
       ),
       clientRequestId,
     }),
@@ -184,10 +226,7 @@ const LOOM_TOOL_SPECS = {
   workstream_brief: spec(
     "Brief Workstream Node",
     Schema.Struct({
-      node: described(
-        Schema.String,
-        "The scaffolded node to brief: its key or its thread id (optionally `thread:`-prefixed). Must be a direct child that has not started.",
-      ),
+      node: described(Schema.String, "The node to brief: its scaffold key or its thread id."),
       markdown: brief,
     }),
     "throw",
@@ -199,7 +238,7 @@ const LOOM_TOOL_SPECS = {
       threadId: optionalThreadId,
       outcome: described(
         Schema.Literals(["done", "cancelled", "none"]),
-        "'done' releases dependents; 'cancelled' abandons the work and cascades to every non-terminal descendant, interrupting their in-flight turns; 'none' reopens a done or cancelled thread.",
+        "'done' releases dependents. 'cancelled' abandons the work without releasing dependents and cascades: every unfinished descendant is cancelled and its in-flight turn interrupted. 'none' clears a done or cancelled outcome.",
       ),
     }),
     "throw",
@@ -209,10 +248,7 @@ const LOOM_TOOL_SPECS = {
     "Request Workstream Attention",
     Schema.Struct({
       threadId: optionalThreadId,
-      reason: described(
-        Schema.Literals(["awaiting_acceptance", "needs_guidance"]),
-        "'awaiting_acceptance' (output needs sign-off before done) or 'needs_guidance' (cannot proceed without a human).",
-      ),
+      reason: Schema.Literals(["awaiting_acceptance", "needs_guidance"]),
     }),
     "throw",
     { idempotent: true },
@@ -220,7 +256,7 @@ const LOOM_TOOL_SPECS = {
   workstream_stop: spec(
     "Stop Workstream Child",
     Schema.Struct({
-      threadId: described(Schema.String, "Id of the direct child thread to stop."),
+      threadId: described(Schema.String, "The direct child's id."),
     }),
     "throw",
     { idempotent: true },
@@ -228,10 +264,10 @@ const LOOM_TOOL_SPECS = {
   workstream_prompt: spec(
     "Prompt Workstream Child",
     Schema.Struct({
-      threadId: described(Schema.String, "Id of the direct child thread to prompt."),
+      threadId: described(Schema.String, "The direct child's id."),
       message: described(
         Schema.String,
-        `The markdown message for the child. A steer into a running turn is a course-correction, not a fresh assignment; a message to an idle child starts its next turn; on an unstarted node it is appended to that node's brief as an amendment and does not launch it, so write it to ${t("workstream_spawn")}'s brief contract.`,
+        `The message. Into a running turn it is a course-correction, not a fresh assignment; to an idle child it is the next turn's prompt; on an unlaunched child it is appended to the brief, so write it to ${t("workstream_brief")}'s \`markdown\` contract.`,
       ),
     }),
     "throw",
@@ -242,7 +278,7 @@ const LOOM_TOOL_SPECS = {
       threadId: optionalThreadId,
       blockedBy: described(
         Schema.Array(Schema.String),
-        "Full set of thread ids this thread waits on. Replaces any existing dependencies.",
+        "The full set of thread ids this thread waits on; replaces the existing set.",
       ),
     }),
     "throw",
@@ -253,24 +289,24 @@ const LOOM_TOOL_SPECS = {
     Schema.Struct({
       markdown: described(
         Schema.String,
-        "The markdown report to hand back, stored on disk and shown to whoever receives your work next. Make it a deliberate handoff: what you did, the key results and decisions, and anything the parent must act on, not a transcript dump. Open with a <!-- response --> … <!-- /response --> block: a concise summary of your hand-back, giving the gist of the answer and anything the receiver must act on. Every notice carries the block verbatim to whoever receives your work. The full report below it may be as long as the work needs and is read from the file on demand; when the answer itself is long, the block summarises it rather than containing it.",
+        "The report, stored on disk and shown to whoever receives your work next: what you did, the key results and decisions, and anything they must act on; not a transcript. Open with a <!-- response --> … <!-- /response --> block summarising the hand-back (the gist, and what the receiver must act on). Every notice carries that block verbatim and the rest is read from the file on demand, so a long answer is summarised in the block rather than contained in it.",
       ),
       outcome: optionalText(
-        "Structured outcome token. Omitted ⇒ 'done'. Reserved: 'done', 'needs_human'. Review-gate verdicts: 'clean', 'fixed_inline', 'needs_rework'. Any unmatched token yields you to your parent — use a short snake_case token like 'rework_approach'.",
+        "Omitted means 'done'; otherwise 'needs_human', a gate verdict, or a short snake_case token such as 'rework_approach'.",
       ),
       contested: Schema.optionalKey(
         described(
           Schema.Array(Schema.String),
-          "Optional: findings you reject, verbatim-quotable — preserved on the audit trail (opaque to routing).",
+          "Findings you reject, quotable verbatim, kept on the audit trail.",
         ),
       ),
       counts: Schema.optionalKey(
         described(
           Schema.Struct({
-            mustFix: described(Schema.Int, "Number of must-fix findings."),
-            niceToHave: described(Schema.Int, "Number of nice-to-have findings."),
+            mustFix: described(Schema.Int, "Must-fix findings."),
+            niceToHave: described(Schema.Int, "Nice-to-have findings."),
           }),
-          "Optional reviewer finding counts for the verdict chip (opaque to routing).",
+          "Reviewer finding counts, for the verdict chip.",
         ),
       ),
     }),
@@ -282,7 +318,7 @@ const LOOM_TOOL_SPECS = {
       detail: Schema.optionalKey(
         described(
           Schema.Literals(["full"]),
-          'detail: "full" adds every thread\'s purpose, anchor task and pi session path.',
+          "'full' adds each thread's purpose, anchor task and pi session path.",
         ),
       ),
     }),
@@ -293,14 +329,14 @@ const LOOM_TOOL_SPECS = {
     "Consult Thread",
     Schema.Struct({
       threadId: optionalText(
-        "Exact id of the target thread, preferred when known (e.g. from an @-mention [Title](t3-thread://v1/<id>)). Provide threadId OR name, not both.",
+        "The target's exact id, preferred when known; an @-mentioned thread arrives as [Title](t3-thread://v1/<id>). One of threadId or name.",
       ),
       name: optionalText(
-        "Fuzzy sidebar title of the target thread, when you have no exact id; an ambiguous name returns ranked candidates.",
+        "Fuzzy sidebar-title match when you have no id; an ambiguous name returns ranked candidates to call again with.",
       ),
       question: described(
         Schema.String,
-        "The question to answer from the target thread's frozen session context. That fork shares none of your context, so make the question self-contained.",
+        "Self-contained: the fork answering it shares none of your context.",
       ),
     }),
     "throw",
@@ -310,14 +346,14 @@ const LOOM_TOOL_SPECS = {
     "Notify Thread",
     Schema.Struct({
       threadId: optionalText(
-        "Exact id of the target thread, preferred when known. Provide exactly one of threadId or name.",
+        "The target's exact id, preferred when known. One of threadId or name.",
       ),
       name: optionalText(
-        "Fuzzy sidebar title of the target thread; an ambiguous match returns ranked candidates without sending.",
+        "Fuzzy sidebar-title match when you have no id; an ambiguous name sends nothing and returns ranked candidates.",
       ),
       message: described(
         Schema.String,
-        "The markdown message the recipient receives, framed as a notification from your thread. Write it self-contained, reference outputs by absolute path, and say plainly if you want anything back. A notification informs; it never re-tasks.",
+        "Self-contained, framed to the recipient as a notification from your thread: reference outputs by absolute path and say plainly if you want anything back.",
       ),
     }),
     "throw",
@@ -325,7 +361,7 @@ const LOOM_TOOL_SPECS = {
   set_thread_title: spec(
     "Set Thread Title",
     Schema.Struct({
-      title: described(Schema.String, "The new sidebar title for this thread (non-empty)."),
+      title: described(Schema.String, "The new title."),
     }),
     "throw",
     { idempotent: true },
@@ -334,13 +370,10 @@ const LOOM_TOOL_SPECS = {
     "Snooze Thread",
     Schema.Struct({
       until: optionalText(
-        "ISO-8601 datetime at which the snooze lapses; must be in the future and at most 30 days ahead. Pass the same value on every re-snooze so the thread's quiet period does not creep.",
+        "ISO-8601 datetime at which the snooze lapses, at most 30 days ahead; pass the same value on every re-snooze so the quiet period does not creep.",
       ),
       cancel: Schema.optionalKey(
-        described(
-          Schema.Boolean,
-          "true withdraws the snooze requested earlier this turn; until is then ignored.",
-        ),
+        described(Schema.Boolean, "true withdraws a request made earlier this turn."),
       ),
     }),
     "throw",
@@ -350,7 +383,7 @@ const LOOM_TOOL_SPECS = {
     "Fork Thread",
     Schema.Struct({
       threadTitle: optionalText(
-        "Optional sidebar name for the staged fork (≤6 words). Defaults to this thread's title + ' (fork)'.",
+        "Sidebar name for the fork; defaults to this thread's title + ' (fork)'.",
       ),
       clientRequestId,
     }),
@@ -362,7 +395,7 @@ const LOOM_TOOL_SPECS = {
       scope: Schema.optionalKey(
         described(
           Schema.Literals(["branch", "tree"]),
-          '"branch" (default when you are anchored): your anchor\'s subtree, preceded by the read-only spine. "tree": the complete goal task tree.',
+          "'branch', the default when anchored: your anchor's subtree under the read-only spine. 'tree': the whole goal.",
         ),
       ),
     }),
@@ -372,12 +405,9 @@ const LOOM_TOOL_SPECS = {
   goal_task_add: spec(
     "Add Goal Task",
     Schema.Struct({
-      text: described(
-        Schema.String,
-        `A short plain-language work item naming the outcome (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters) — never a finding, verdict, or status note.`,
-      ),
+      text: described(Schema.String, taskText("The task")),
       parentTaskId: optionalText(
-        "Id of an existing task in this goal to nest the new task under. Omit to add under your own anchor; unanchored, omitting it appends a new top-level phase, which is for a genuinely new phase of the goal, not the default.",
+        "The task to nest under; omitted, your own anchor. Unanchored and omitted, a new top-level phase, for a genuinely new phase of the goal only.",
       ),
       clientRequestId,
     }),
@@ -386,15 +416,10 @@ const LOOM_TOOL_SPECS = {
   goal_task_update: spec(
     "Update Goal Task",
     Schema.Struct({
-      taskId: described(
-        Schema.String,
-        "Id of the task to update; must belong to this thread's goal.",
-      ),
-      text: optionalText(
-        `New task text: a short plain-language work item naming the outcome (at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters) — never a finding, verdict, status note or result record.`,
-      ),
+      taskId: described(Schema.String, "The task's id."),
+      text: optionalText(taskText("New text")),
       done: Schema.optionalKey(
-        described(Schema.Boolean, "Mark the task done (true) or reopen it (false)."),
+        described(Schema.Boolean, "true marks the task done, false reopens it."),
       ),
     }),
     "soft",
@@ -405,7 +430,7 @@ const LOOM_TOOL_SPECS = {
     Schema.Struct({
       markdown: described(
         Schema.String,
-        `The complete revised tree at your scope as an indented markdown checklist, one task per line: \`- [ ] Open task\`, \`- [x] Finished task (task-id)\`. Two spaces of indent per level; keep the trailing \`(id)\` on every retained task; omit it for new tasks. New or changed text is at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters: a short plain-language work item naming the outcome, never a finding, verdict or status note, with concrete work hung under a handful of phase or theme parents. Your anchor line stays (renamed or ticked at most); an empty submission, an unparseable line or an id outside your scope is rejected whole and nothing is applied.`,
+        `The complete revised tree at your scope, in the \`- [ ] Open task\` / \`- [x] Finished task (task-id)\` form ${t("goal_task_list")} returns, two spaces of indent per level. A line keeping an existing \`(id)\` is that task, with the text, done-state, parent and order you submit; a line without one is a new task; a task you omit is deleted, and comes back with its id if you resubmit its line. Text is at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters, a plain-language work item naming the outcome, never a finding, verdict or status note, with concrete work hung under a handful of phase or theme parents. Your anchor line stays, renamed or ticked at most.`,
       ),
     }),
     "soft",
@@ -416,18 +441,18 @@ const LOOM_TOOL_SPECS = {
     Schema.Struct({
       title: described(
         Schema.String,
-        "A short (≤6-word) noun-phrase label leading with the distinguishing subject of the work. Names the goal.",
+        "A noun phrase of up to six words naming the goal, leading with the distinguishing subject.",
       ),
       brief: described(
         Schema.String,
-        "The new session's first turn, read by a root that is told it is another agent's writing: a self-contained problem statement — context, motivation, constraints, and where things live. State what and why, never how; quote the human's words where you relay them and mark the rest as your own reading.",
+        "The new root's first turn, read as another agent's writing by an orchestrator that plans the work itself: a self-contained problem statement (context, motivation, constraints, where things live). What and why, never how; quote the human's words where you relay them and mark the rest as your own reading.",
       ),
       description: described(
         Schema.String,
-        "One or two sentences stating the objective, focused on the value or pain point rather than the implementation.",
+        "One or two sentences on the objective: the value or pain point, not the implementation.",
       ),
       project: optionalText(
-        "Optional target project (title or id) when the work belongs in a different project than this thread's.",
+        "The target project (title or id) when the work belongs in another project.",
       ),
       notDuplicateOf: Schema.optionalKey(
         described(
@@ -444,11 +469,9 @@ const LOOM_TOOL_SPECS = {
     Schema.Struct({
       brief: described(
         Schema.String,
-        "The continuation session's first turn, self-contained and read as your writing, not the human's: current state, what was done, what to do next, and where key artefacts live. Quote the human's decisions rather than paraphrasing them.",
+        "The continuation's first turn, self-contained and read as your writing, not the human's: current state, what was done, what to do next, where key artefacts live. Quote the human's decisions rather than paraphrasing them.",
       ),
-      threadTitle: optionalText(
-        "Optional sidebar name for the staged continuation (≤6 words). Defaults to the goal title + ' (continued)'.",
-      ),
+      threadTitle: optionalText("Sidebar name; defaults to the goal title + ' (continued)'."),
       clientRequestId,
     }),
     "soft",
@@ -456,11 +479,9 @@ const LOOM_TOOL_SPECS = {
   goal_update: spec(
     "Update Goal",
     Schema.Struct({
-      title: optionalText("New goal title."),
-      description: optionalText(
-        "New short goal objective statement, not a journal (may be empty to clear it).",
-      ),
-      slug: optionalText("New stable goal slug."),
+      title: optionalText("New title."),
+      description: optionalText("New objective statement, short, not a journal; empty clears it."),
+      slug: optionalText("New stable slug."),
     }),
     "soft",
     { idempotent: true },

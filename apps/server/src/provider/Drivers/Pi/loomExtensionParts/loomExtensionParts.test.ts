@@ -28,13 +28,15 @@ const CONSULT = "mcp__t3-code__consult_thread";
 const loadPart = (
   part: LoomExtensionPart,
   ctx: Record<string, unknown> = {},
-  tools: ReadonlyArray<string> = [],
+  tools: ReadonlyArray<string | { name: string; description: string; parameters: unknown }> = [],
   loomFetch: (...args: ReadonlyArray<unknown>) => Promise<unknown> = () => Promise.resolve(null),
 ) => {
   const handlers = new Map<string, Handler>();
+  const all = tools.map((tool) => (typeof tool === "string" ? { name: tool } : tool));
   const pi = {
     on: (event: string, handler: Handler) => handlers.set(event, handler),
-    getAllTools: () => tools.map((name) => ({ name })),
+    getAllTools: () => all,
+    getActiveTools: () => all.map((tool) => tool.name),
     registerTool: () => undefined,
     sendMessage: () => undefined,
   };
@@ -390,9 +392,28 @@ describe("prompt-debug part", () => {
       selectedTools: ["read"],
     },
   };
+  const declared = [
+    {
+      name: "mcp__t3-code__workstream_stop",
+      description: "Interrupt a direct child's active turn.",
+      parameters: {
+        type: "object",
+        properties: {
+          threadId: { type: "string", description: "The direct child's id." },
+          nodes: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { key: { type: "string", description: "Symbolic key." } },
+            },
+          },
+        },
+      },
+    },
+  ];
   /** Fires session_start and one agent start; resolves once the capture has run. */
   const start = async (profile: () => Promise<unknown>) => {
-    const handlers = loadPart(promptDebugPart, { profile });
+    const handlers = loadPart(promptDebugPart, { profile }, declared);
     handlers.get("session_start")?.({}, { cwd: "/w" });
     expect(handlers.get("before_agent_start")!(agentStart, { cwd: "/w" })).toBeUndefined();
     await new Promise((resolve) => setImmediate(resolve));
@@ -410,6 +431,13 @@ describe("prompt-debug part", () => {
     expect(written).toContain("# Effective prompt");
     expect(written).toContain("You are a coder.");
     expect(written).toContain("SYSTEM ~~~~ PROMPT");
+    // The declared tools array: name, description and every parameter description, counted.
+    expect(written).toContain(
+      "### `mcp__t3-code__workstream_stop` — 6 description + 6 parameter words",
+    );
+    expect(written).toContain("- `threadId`: The direct child's id.");
+    expect(written).toContain("- `nodes.[].key`: Symbolic key.");
+    expect(written).toContain("Total: 6 description + 6 parameter words = 12 across 1 tools.");
     expect(NodeFS.readFileSync(NodePath.join(tmpDir, "thread.prompt.first.md"), "utf8")).toBe(
       written,
     );

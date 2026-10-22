@@ -308,6 +308,8 @@ it.layer(TestLayer)("quiescence rail", (it) => {
       const [card] = yield* yields(root!);
       assert.isTrue(card?.loom?.controlPayload?.synthesised);
       assert.include(card?.text ?? "", "the gate is parked");
+      assert.include(card?.text ?? "", "This child is the rework side of a review gate.");
+      assert.notInclude(card?.text ?? "", "accept its work as-is");
     }),
   );
 });

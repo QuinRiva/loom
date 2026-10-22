@@ -13,6 +13,10 @@ third-party-licenses.config.json
 # Sync bookkeeping about the fork itself; markers would be noise.
 docs/upstream-sync/
 
+# Loom-owned prose (05-strategy.md §4.6): the whole file is loom's, so there is
+# no upstream hunk to mark; upstream's edits are ported by hand at each pull.
+AGENTS.md
+
 # Provider model catalogue: JSON has no comment syntax. The fork delta is the
 # model-generation rollovers loom applies ahead of upstream (Opus 5.5, GPT-6
 # Sol/Luna); it is refreshed from upstream's copy at runtime anyway, so the

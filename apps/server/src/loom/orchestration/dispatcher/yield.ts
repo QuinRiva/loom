@@ -37,12 +37,14 @@ export interface YieldGateContext {
 }
 
 /**
- * `synthesised`: the quiescence rail's submit, not the agent's; `gateParked`: the child is an
- * unresolved gate member; `awaitingAcceptance`: the child still holds a human's sign-off hold.
+ * `synthesised`: the quiescence rail's submit, not the agent's; `gateSide`: the child's side of
+ * an unresolved gate (`rework` when a live reviewer's loop route names it, `reviewer` when it
+ * holds the loop route, null outside a gate); `awaitingAcceptance`: the child still holds a
+ * human's sign-off hold.
  */
 export interface YieldFlags {
   readonly synthesised: boolean;
-  readonly gateParked: boolean;
+  readonly gateSide: "reviewer" | "rework" | null;
   readonly awaitingAcceptance?: boolean;
 }
 
@@ -61,11 +63,11 @@ export const buildYieldWakeMessage = (
   outcome: string,
   report: string | null,
   gate?: YieldGateContext,
-  flags: YieldFlags = { synthesised: false, gateParked: false },
+  flags: YieldFlags = { synthesised: false, gateSide: null },
 ): string => {
   const who = child.role === null ? `\`${child.id}\`` : `${child.role} \`${child.id}\``;
   const parked =
-    flags.gateParked && gate === undefined
+    flags.gateSide !== null && gate === undefined
       ? " It is a member of an unresolved review gate, so the gate is parked until you act."
       : "";
   const held = flags.awaitingAcceptance
@@ -87,7 +89,10 @@ export const buildYieldWakeMessage = (
           reference(gate.counterpart.reportPath) + formatReportExcerpt(gate.counterpart.report),
         ]
       : [];
-  const dissolves = gate !== undefined || flags.gateParked;
+  // The rework side of a gate completes only through the reviewer: setting it done would
+  // bypass re-verification, so that option is withheld and the recovery rule given instead.
+  const rework = flags.gateSide === "rework";
+  const dissolves = gate !== undefined || flags.gateSide === "reviewer";
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
@@ -96,9 +101,19 @@ export const buildYieldWakeMessage = (
     reference(child.reportPath) + formatReportExcerpt(report),
     ...counterpartSection,
     "",
-    "The decision is yours: resume it with guidance (`mcp__t3-code__workstream_prompt` — your prompt clears `awaiting_orchestrator` when its turn starts), accept its work as-is (`mcp__t3-code__workstream_set_outcome` done, which releases dependents" +
-      (dissolves ? " and dissolves the gate" : "") +
-      "), re-plan around it (spawn a replacement and `mcp__t3-code__workstream_set_outcome` cancelled on it), or escalate to the human." +
+    ...(rework
+      ? [
+          "This child is the rework side of a review gate. If its work is done, prompt it to submit (`mcp__t3-code__workstream_prompt`) so the reviewer re-verifies, rather than marking it done; to end the gate instead, mark the reviewer done, not this child. After resuming it, the reviewer runs again on its submit.",
+          "",
+        ]
+      : []),
+    "The decision is yours: resume it with guidance (`mcp__t3-code__workstream_prompt` — your prompt clears `awaiting_orchestrator` when its turn starts), " +
+      (rework
+        ? ""
+        : "accept its work as-is (`mcp__t3-code__workstream_set_outcome` done, which releases dependents" +
+          (dissolves ? " and dissolves the gate" : "") +
+          "), ") +
+      "re-plan around it (spawn a replacement and `mcp__t3-code__workstream_set_outcome` cancelled on it), or escalate to the human." +
       (gate
         ? " Adjudicate the open findings yourself before choosing: they are claims, not verdicts — judge each by what concretely fails without it and what recovery costs at this project's posture, and accept over the reviewer's objection where that bar isn't met."
         : ""),
@@ -119,7 +134,7 @@ export const buildYieldPayload = (
     readonly members: ReadonlyArray<WakeMember>;
     readonly extras: ReadonlyArray<DigestExtra>;
   },
-  flags: YieldFlags = { synthesised: false, gateParked: false },
+  flags: YieldFlags = { synthesised: false, gateSide: null },
 ): ControlPayload => {
   const items: ControlPayloadItem[] = [
     {
@@ -149,10 +164,10 @@ export const buildYieldPayload = (
     kind: "yield",
     ...(flags.synthesised ? { synthesised: true } : {}),
     heading: flags.synthesised
-      ? `A sub-thread went quiet; its report was synthesised${flags.gateParked ? " (gate parked)" : ""}.`
+      ? `A sub-thread went quiet; its report was synthesised${flags.gateSide !== null ? " (gate parked)" : ""}.`
       : gate
         ? `A sub-thread yielded to you (review-gate round cap exhausted, ${gate.rounds}/${gate.maxRounds}).`
-        : `A sub-thread yielded to you (unmatched outcome${flags.gateParked ? "; gate parked" : ""}).`,
+        : `A sub-thread yielded to you (unmatched outcome${flags.gateSide !== null ? "; gate parked" : ""}).`,
     items,
   };
 };

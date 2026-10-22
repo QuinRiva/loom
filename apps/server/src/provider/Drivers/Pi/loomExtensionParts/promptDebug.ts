@@ -38,10 +38,48 @@ const promptDebugFence = (body) => {
   return fence + "\\n" + String(body ?? "") + "\\n" + fence;
 };
 
+const wordCount = (text) => (String(text ?? "").match(/\\S+/g) ?? []).length;
+// Every \`description\` in a tool's parameter schema, with its path, in document order.
+const parameterDescriptions = (schema, path = []) => {
+  if (schema === null || typeof schema !== "object") return [];
+  if (Array.isArray(schema)) return schema.flatMap((entry) => parameterDescriptions(entry, path));
+  const own = typeof schema.description === "string" && path.length > 0 ? [[path.join("."), schema.description]] : [];
+  return own.concat(
+    Object.entries(schema.properties ?? {}).flatMap(([name, node]) => parameterDescriptions(node, path.concat(name))),
+    schema.items ? parameterDescriptions(schema.items, path.concat("[]")) : [],
+  );
+};
+
+// The tools array as declared to the model: pi's active set (what \`setActiveTools\` left on,
+// third-party tools included), each with the description and parameter text the request carries.
+const renderDeclaredTools = (tools) => {
+  const lines = [];
+  let descriptionWords = 0;
+  let parameterWords = 0;
+  lines.push("## Declared tools (" + tools.length + ") \u2014 the tools array as sent");
+  lines.push("");
+  for (const tool of tools) {
+    const params = parameterDescriptions(tool.parameters);
+    const toolDescriptionWords = wordCount(tool.description);
+    const toolParameterWords = params.reduce((sum, [, text]) => sum + wordCount(text), 0);
+    descriptionWords += toolDescriptionWords;
+    parameterWords += toolParameterWords;
+    lines.push("### \`" + tool.name + "\` \u2014 " + toolDescriptionWords + " description + " + toolParameterWords + " parameter words");
+    lines.push("");
+    lines.push(String(tool.description ?? ""));
+    lines.push("");
+    for (const [path, text] of params) lines.push("- \`" + path + "\`: " + String(text).replace(/\\n/g, " "));
+    if (params.length) lines.push("");
+  }
+  lines.push("Total: " + descriptionWords + " description + " + parameterWords + " parameter words = " + (descriptionWords + parameterWords) + " across " + tools.length + " tools.");
+  lines.push("");
+  return lines;
+};
+
 // Report the structured inputs pi was handed (see comment above): a
 // navigational aid to locate content within the authoritative assembled block,
 // NOT a reproduction of pi's inclusion/ordering rules.
-const renderPromptDebug = (event, startIndex) => {
+const renderPromptDebug = (event, startIndex, tools) => {
   const opts = event.systemPromptOptions ?? {};
   const hasCustom = !!opts.customPrompt;
   const selected = Array.isArray(opts.selectedTools) ? opts.selectedTools : [];
@@ -139,6 +177,7 @@ const renderPromptDebug = (event, startIndex) => {
   lines.push("");
   lines.push(promptDebugFence(event.systemPrompt));
   lines.push("");
+  lines.push(...renderDeclaredTools(tools));
   return lines.join("\\n");
 };
 
@@ -160,7 +199,7 @@ pi.on("session_start", () => {
 const capture = (event, path) => {
   try {
     agentStartIndex += 1;
-    const markdown = renderPromptDebug(event, agentStartIndex);
+    const markdown = renderPromptDebug(event, agentStartIndex, event.tools);
     // Latest capture: atomic replace (fully written temp + rename).
     const tempPath = path + ".tmp-" + process.pid + "-" + Date.now();
     NodeFS.writeFileSync(tempPath, markdown, "utf8");
@@ -189,11 +228,14 @@ const capture = (event, path) => {
   }
 };
 pi.on("before_agent_start", (event) => {
-  // The inputs as THIS handler sees them, captured before the path resolves.
+  // The inputs as THIS handler sees them, captured before the path resolves. The tool profile
+  // part's handler has already run (it registers first), so the active set is this turn's.
+  const active = new Set(pi.getActiveTools?.() ?? []);
   const seen = {
     prompt: event.prompt,
     systemPrompt: event.systemPrompt,
     systemPromptOptions: event.systemPromptOptions,
+    tools: (pi.getAllTools?.() ?? []).filter((tool) => active.has(tool.name)),
   };
   void promptDebugPath().then((path) => path && capture(seen, path));
   // Intentionally return nothing: a before_agent_start result mutates the run.
