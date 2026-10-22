@@ -25,7 +25,6 @@ tools:
     knowledge_search,
     kb_read,
     capture_lesson,
-    visual_explainer,
     sign_document,
     consult_manager,
   ]
