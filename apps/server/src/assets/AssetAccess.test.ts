@@ -290,6 +290,37 @@ describe("AssetAccess", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  // loom: the file viewer's Download button.
+  it.effect("serves any file type as a download only when the resource asks for one", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-media-download-" });
+      const filePath = path.join(root, "plan.mdx");
+      yield* fs.writeFileString(filePath, "# Plan");
+      const resource = { _tag: "media-file" as const, threadId: ThreadId.make("thread-1") };
+
+      const preview = yield* issueAssetUrl({ resource: { ...resource, path: filePath } }).pipe(
+        Effect.flip,
+      );
+      expect(preview).toBeInstanceOf(AssetPreviewTypeValidationError);
+
+      const result = yield* issueAssetUrl({
+        resource: { ...resource, path: filePath, disposition: "attachment" },
+      });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separator = suffix.indexOf("/");
+      const asset = yield* resolveAsset(suffix.slice(0, separator), suffix.slice(separator + 1));
+      expect(asset).toMatchObject({
+        kind: "file",
+        path: yield* fs.realPath(filePath),
+        download: true,
+        fileName: "plan.mdx",
+      });
+      expect(asset).not.toHaveProperty("mimeType");
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("reports pixel dimensions from an image header and nothing for other files", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

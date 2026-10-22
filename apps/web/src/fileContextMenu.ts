@@ -3,6 +3,7 @@ import {
   type ContextMenuItem,
   type EditorId,
   type EnvironmentId,
+  type ScopedThreadRef, // loom: Download
 } from "@t3tools/contracts";
 
 import { resolveDiffPathForWorkspace } from "./diffFileActions";
@@ -17,10 +18,12 @@ import { useAtomCommand } from "./state/use-atom-command";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { toastManager } from "./components/ui/toast";
 import { useAtomValue } from "@effect/atom-react";
+import { downloadFile } from "./components/files/fileDownload.loom"; // loom: Download
 
 export type FileContextMenuAction =
   | "reveal-in-folder"
   | "open"
+  | "download" // loom:
   /** Submenu parent; never the activated id. */
   | "open-with"
   | `editor:${EditorId}`;
@@ -31,6 +34,8 @@ export interface FileContextMenuTarget {
   readonly filePath: string;
   readonly workspaceRoot: string | undefined;
   readonly repositoryRoot?: string | undefined;
+  // loom: the file's thread, set by surfaces that offer Download; never for a folder.
+  readonly download?: { readonly threadRef: ScopedThreadRef; readonly draft: boolean } | undefined;
 }
 
 export function resolveFileContextMenuAbsolutePath(target: FileContextMenuTarget): string | null {
@@ -59,6 +64,7 @@ export interface FileContextMenuCapabilities {
 export function buildFileContextMenuItems(input: {
   readonly hasAbsolutePath: boolean;
   readonly capabilities: FileContextMenuCapabilities;
+  readonly canDownload?: boolean; // loom:
 }): readonly ContextMenuItem<FileContextMenuAction>[] {
   if (!input.hasAbsolutePath) return [];
   const items: ContextMenuItem<FileContextMenuAction>[] = [];
@@ -83,6 +89,7 @@ export function buildFileContextMenuItems(input: {
       })),
     });
   }
+  if (input.canDownload) items.push({ id: "download", label: "Download", icon: "download" }); // loom:
   return items;
 }
 
@@ -106,12 +113,23 @@ export function useFileContextMenu(environmentId: EnvironmentId | null) {
     editorIds: availableEditors,
   };
 
+  // loom: Download needs the environment, the file's thread and its workspace root.
+  const canDownload = (target: FileContextMenuTarget) =>
+    environmentId !== null && target.download !== undefined && target.workspaceRoot !== undefined;
+
   const activate = async (
     action: FileContextMenuAction,
     target: FileContextMenuTarget,
   ): Promise<void> => {
     const absolutePath = resolveFileContextMenuAbsolutePath(target);
     if (absolutePath === null || environmentId === null) return;
+    // loom: Download takes the file as saved on disk.
+    if (action === "download") {
+      const { download, workspaceRoot } = target;
+      if (download && workspaceRoot !== undefined)
+        await downloadFile({ environmentId, ...download, workspaceRoot, absolutePath });
+      return;
+    }
 
     const reveal = action === "reveal-in-folder";
     const editor =
@@ -145,6 +163,7 @@ export function useFileContextMenu(environmentId: EnvironmentId | null) {
     const items = buildFileContextMenuItems({
       hasAbsolutePath: resolveFileContextMenuAbsolutePath(target) !== null,
       capabilities,
+      canDownload: canDownload(target), // loom:
     });
     if (items.length === 0 || api === undefined) return;
     const clicked = await api.contextMenu.show(items, position);
@@ -157,6 +176,7 @@ export function useFileContextMenu(environmentId: EnvironmentId | null) {
       buildFileContextMenuItems({
         hasAbsolutePath: resolveFileContextMenuAbsolutePath(target) !== null,
         capabilities,
+        canDownload: canDownload(target), // loom:
       }),
     capabilities,
     activate,

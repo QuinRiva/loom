@@ -1118,6 +1118,10 @@ export default function DiffPanel({
                         filePath,
                         workspaceRoot: activeCwd,
                         repositoryRoot: activeRepositoryRoot,
+                        // loom: Download
+                        download: routeThreadRef
+                          ? { threadRef: routeThreadRef, draft: false }
+                          : undefined,
                       },
                       event,
                     );

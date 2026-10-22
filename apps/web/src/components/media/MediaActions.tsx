@@ -35,6 +35,8 @@ export interface MediaActionSource {
   readonly reference?: MediaReference;
   readonly asset?: { readonly environmentId: EnvironmentId; readonly resource: AssetResource };
   readonly onOpenFile?: () => void;
+  /** loom: the file viewer's header Download already saves this file. */
+  readonly hideSave?: boolean;
 }
 
 function mediaFileName(source: MediaActionSource): string {
@@ -145,7 +147,8 @@ export function MediaActions({
       }
       if (source.onOpenFile)
         items.push({ id: "open-file", label: "Open in file viewer", disabled: !canReadMedia });
-      items.push({ id: "save", label: `Save ${noun}`, disabled: unavailable });
+      if (!source.hideSave)
+        items.push({ id: "save", label: `Save ${noun}`, disabled: unavailable }); // loom: hideSave
       if (source.kind === "image") {
         items.push({
           id: "copy-image",

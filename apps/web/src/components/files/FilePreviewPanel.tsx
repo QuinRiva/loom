@@ -37,7 +37,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
-import { AppWindow, FolderTree, Globe2, WrapTextIcon } from "lucide-react"; // loom: AppWindow
+import { AppWindow, DownloadIcon, FolderTree, Globe2, WrapTextIcon } from "lucide-react"; // loom: AppWindow, DownloadIcon
 import { Code2, Eye, Table2 } from "lucide";
 import * as Schema from "effect/Schema";
 import { useEffect, useRef, useState, type ReactNode } from "react"; // loom: ReactNode (BleedFrame)
@@ -127,6 +127,7 @@ import {
 import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
+import { downloadFile } from "./fileDownload.loom"; // loom: Download button
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
 import {
   getOptimisticProjectFileQueryData,
@@ -215,6 +216,7 @@ function WorkspaceImagePreview(props: {
     src: imageUrl,
     reference: mediaFileReference(props.absolutePath, props.workspaceRoot),
     asset: { environmentId: props.environmentId, resource },
+    hideSave: true, // loom: the header's Download saves it
   };
 
   if (assetUrl._tag === "Failure" || (imageUrl !== null && failedUrl === imageUrl)) {
@@ -344,6 +346,7 @@ function WorkspaceVideoPreview(props: {
           src: latestUrl,
           reference: mediaFileReference(props.absolutePath, props.workspaceRoot),
           asset: { environmentId: props.environmentId, resource },
+          hideSave: true, // loom: the header's Download saves it
         }}
       />
     </div>
@@ -1418,6 +1421,25 @@ export default function FilePreviewPanel({
               <Globe2 className="size-3.5" />
             </FileSurfaceAction>
           ) : null}
+          {/* loom: Download, as the file menu's; a folder has nothing to download, and
+              edits not yet autosaved would be missing from the file on disk. */}
+          {previewPath !== null && absolutePath ? (
+            <FileSurfaceAction
+              label={selectedFilePending ? "Saving changes…" : "Download"}
+              disabled={selectedFilePending}
+              onPress={() =>
+                void downloadFile({
+                  environmentId,
+                  threadRef,
+                  draft,
+                  workspaceRoot: cwd,
+                  absolutePath,
+                })
+              }
+            >
+              <DownloadIcon className="size-3.5" />
+            </FileSurfaceAction>
+          ) : null}
           {!isHostFile && previewPath !== null ? (
             <FileSurfaceAction
               label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
@@ -1622,6 +1644,7 @@ export default function FilePreviewPanel({
               selectedPathRevealId={revealRequestId}
               onOpenFile={onOpenFile}
               workspaceMutationId={workspaceMutationId}
+              download={{ threadRef, draft }} // loom: the menu's Download
               {...(previewPath && !isMedia && !isPdf
                 ? { onRefreshSelectedFile: file.refresh }
                 : {})}
