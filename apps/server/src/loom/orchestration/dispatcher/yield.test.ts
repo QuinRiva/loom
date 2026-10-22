@@ -56,7 +56,7 @@ describe("buildYieldWakeMessage", () => {
   it("a synthesised yield says the child went quiet, and that its gate is parked", () => {
     const text = buildYieldWakeMessage(child, "quiescent", "last words", undefined, {
       synthesised: true,
-      gateParked: true,
+      gateSide: "reviewer",
     });
     assert.include(text, "went quiet");
     assert.include(text, "without calling `mcp__t3-code__workstream_submit`");
@@ -64,7 +64,7 @@ describe("buildYieldWakeMessage", () => {
     assert.include(text, "dissolves the gate");
   });
   it("an agent's yield from an unresolved gate member says the gate is parked", () => {
-    const flags = { synthesised: false, gateParked: true };
+    const flags = { synthesised: false, gateSide: "reviewer" as const };
     const text = buildYieldWakeMessage(child, "weird_token", null, undefined, flags);
     assert.include(text, "matched no route");
     assert.include(text, "the gate is parked");
@@ -74,9 +74,39 @@ describe("buildYieldWakeMessage", () => {
     );
   });
 
+  it("a rework-side yield carries the gate-recovery rule and withholds the accept option", () => {
+    const coder = { id: ThreadId.make("coder-1"), role: "coder", reportPath: "coder-1.md" };
+    for (const flags of [
+      { synthesised: false, gateSide: "rework" as const },
+      { synthesised: true, gateSide: "rework" as const },
+    ]) {
+      const text = buildYieldWakeMessage(coder, "quiescent", null, undefined, flags);
+      assert.include(text, "This child is the rework side of a review gate.");
+      assert.include(text, "mark the reviewer done, not this child");
+      assert.include(text, "the gate is parked");
+      assert.include(text, "re-plan around it");
+      assert.notInclude(text, "accept its work as-is");
+      assert.notInclude(text, "dissolves the gate");
+    }
+  });
+
+  it("a reviewer-side or non-gate yield keeps the accept option and no rework rule", () => {
+    for (const text of [
+      buildYieldWakeMessage(child, "weird_token", null, undefined, {
+        synthesised: false,
+        gateSide: "reviewer",
+      }),
+      buildYieldWakeMessage(child, "needs_rework", null, gate),
+      buildYieldWakeMessage(child, "weird_token", null),
+    ]) {
+      assert.include(text, "accept its work as-is (`mcp__t3-code__workstream_set_outcome` done");
+      assert.notInclude(text, "rework side of a review gate");
+    }
+  });
+
   it("every lead variant flags a standing awaiting_acceptance hold, and only when held", () => {
     const clause = "It also holds an `awaiting_acceptance` flag";
-    const held = { synthesised: false, gateParked: false, awaitingAcceptance: true };
+    const held = { synthesised: false, gateSide: null, awaitingAcceptance: true };
     for (const text of [
       buildYieldWakeMessage(child, "blocked", null, undefined, held),
       buildYieldWakeMessage(child, "needs_rework", null, gate, held),
@@ -114,7 +144,7 @@ describe("buildYieldPayload", () => {
   it("a quiescent yield is marked synthesised", () => {
     const payload = buildYieldPayload(child, "quiescent", "x", undefined, undefined, {
       synthesised: true,
-      gateParked: false,
+      gateSide: null,
     });
     assert.isTrue(payload.synthesised);
     assert.include(payload.items[0]!.title, "report synthesised");

@@ -18,7 +18,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { deadlockedNodes } from "@t3tools/shared/workstreamDependencies";
-import { isMemberOfUnresolvedGate } from "@t3tools/shared/workstreamGraph";
+import { isMemberOfUnresolvedGate, unresolvedGateSourcesOf } from "@t3tools/shared/workstreamGraph";
 import { isBriefNeeded } from "@t3tools/shared/workstreamStart.loom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -506,9 +506,15 @@ export const yieldRail: PassStep = {
                 },
         };
       }
+      const siblings = siblingNodes(ctx, parentId);
       const flags = {
         synthesised: lastOutcome.synthesised === true,
-        gateParked: isMemberOfUnresolvedGate(nodeOf(ctx, child), siblingNodes(ctx, parentId)),
+        gateSide:
+          unresolvedGateSourcesOf(child.threadId, siblings).length > 0
+            ? ("rework" as const)
+            : isMemberOfUnresolvedGate(nodeOf(ctx, child), siblings)
+              ? ("reviewer" as const)
+              : null,
         awaitingAcceptance: child.attention.includes("awaiting_acceptance"),
       };
       const piggyback = piggybackFor(ctx, parentId);
