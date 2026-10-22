@@ -47,6 +47,7 @@ import { areAllDiffFilesCollapsed, toggleAllDiffFiles } from "../lib/diffCollaps
 import { useWorkspaceMutationRefresh } from "../hooks/useWorkspaceMutationRefresh";
 import { useProject, useThreadCheckpointSummaries, useQuietThreadShell } from "../state/entities";
 import { LoomScopeMenuEntries } from "../loom/review/LoomScopeMenuEntries"; // loom: change review
+import { LoomOpenWholeFileButton } from "../loom/review/FileChangeView"; // loom: change review
 import { useLoomReviewSelection } from "../loom/review/useLoomReviewSelection"; // loom: change review
 import { useReviewBaselineStore } from "../loom/review/reviewBaselineStore"; // loom: change review
 import { useClientSettings, updateClientSettings } from "../hooks/useSettings";
@@ -1113,13 +1114,17 @@ export default function DiffPanel({
                       const path = resolveFileDiffPath(fileDiff);
                       const state = fileStates.get(path);
                       return (
-                        <DiffFileHeaderSuffix
-                          filePath={path}
-                          hasStat={fileStats.has(path)}
-                          error={state?.error ?? false}
-                          truncated={state?.truncated ?? false}
-                          onRetry={retry}
-                        />
+                        <>
+                          <DiffFileHeaderSuffix
+                            filePath={path}
+                            hasStat={fileStats.has(path)}
+                            error={state?.error ?? false}
+                            truncated={state?.truncated ?? false}
+                            onRetry={retry}
+                          />
+                          {/* loom: change review — the file whole, in the Files surface */}
+                          <LoomOpenWholeFileButton onOpen={() => openDiffFile(path)} />
+                        </>
                       );
                     }}
                     {...(lazySource

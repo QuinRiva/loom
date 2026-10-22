@@ -128,6 +128,10 @@ import { MdxPlanAnnotationLayer } from "./mdx-plan/annotation/MdxPlanAnnotationL
 import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
+// loom: change review — marks, the whole-file change view and its header (loom/review/).
+import { LoomFilesReviewBar } from "~/loom/review/BaselineChip";
+import { LoomFileChangeActions, LoomFileChangeSurface } from "~/loom/review/FileChangeView";
+import { useLoomChangeMarks } from "~/loom/review/useLoomChangeMarks";
 import {
   getOptimisticProjectFileQueryData,
   getProjectFileContents,
@@ -1272,6 +1276,19 @@ export default function FilePreviewPanel({
     !isPreviewSupportedInRuntime() &&
     isArtifactViewerPath(previewPath);
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
+  // loom: change review — a file the baseline marks opens whole, side by side, until Edit.
+  const loomMarks = useLoomChangeMarks({
+    threadRef,
+    cwd,
+    workspaceMutationId,
+    enabled: attachment === undefined && canReadFiles,
+  });
+  const [loomEditingPath, setLoomEditingPath] = useState<string | null>(null);
+  const loomChange =
+    previewPath !== null && !isHostFile && !isMedia && !isPdf
+      ? loomMarks?.files.get(previewPath)
+      : undefined;
+  const loomShowsChange = loomChange !== undefined && loomEditingPath !== previewPath;
   useWorkspaceMutationRefresh({
     enabled:
       attachment === undefined &&
@@ -1374,6 +1391,14 @@ export default function FilePreviewPanel({
               />
             </div>
           </ScrollArea>
+          {loomMarks && loomChange ? ( // loom: baseline · split/unified · Edit
+            <LoomFileChangeActions
+              threadRef={threadRef}
+              marks={loomMarks}
+              editing={!loomShowsChange}
+              onEditingChange={(editing) => setLoomEditingPath(editing ? previewPath : null)}
+            />
+          ) : null}
           {absolutePath &&
           (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
             <OpenInPicker
@@ -1511,6 +1536,17 @@ export default function FilePreviewPanel({
               title={relativePath}
               workspaceMutationId={workspaceMutationId}
             />
+          ) : loomMarks && loomChange && loomShowsChange && (file.data || file.error) ? (
+            // loom: the whole-file change view, ahead of the renderer choice
+            <LoomFileChangeSurface
+              key={loomChange.path}
+              environmentId={environmentId}
+              threadRef={threadRef}
+              marks={loomMarks}
+              file={loomChange}
+              working={file.data}
+              composerDraftTarget={composerDraftTarget}
+            />
           ) : relativePath && file.error && file.data === null ? (
             <div
               role="alert"
@@ -1624,6 +1660,13 @@ export default function FilePreviewPanel({
               workspaceMutationId={workspaceMutationId}
               {...(previewPath && !isMedia && !isPdf
                 ? { onRefreshSelectedFile: file.refresh }
+                : {})}
+              // loom: change review marks and the baseline row (workspace tree only)
+              {...(hostFolderPath === null && loomMarks
+                ? {
+                    loomMarks,
+                    loomReviewBar: <LoomFilesReviewBar threadRef={threadRef} marks={loomMarks} />,
+                  }
                 : {})}
             />
           </aside>

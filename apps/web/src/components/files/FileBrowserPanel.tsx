@@ -10,7 +10,7 @@ import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Cause from "effect/Cause";
 import { ChevronsDownUp, ChevronsUpDown } from "lucide";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react"; // loom: ReactNode (review bar)
 
 import { Button } from "~/components/ui/button";
 import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
@@ -34,6 +34,14 @@ import { buildFileTreePathUpdates } from "./fileTreePathReconciliation";
 import { loadFileAncestors } from "./loadFileAncestors";
 import { useDirectoryEntries } from "./useDirectoryEntries";
 import { useProjectPathSearch } from "~/state/queries";
+// loom: change review marks, folder counts and the Changed only filter (loom/review/).
+import {
+  LOOM_CHANGE_TREE_UNSAFE_CSS,
+  loomChangeTreeStatus,
+  loomChangedOnlyEntries,
+  loomFolderChangeDecoration,
+} from "~/loom/review/changeMarksTree";
+import type { LoomChangeMarks } from "~/loom/review/useLoomChangeMarks";
 
 interface FileBrowserPanelProps {
   environmentId: EnvironmentId;
@@ -55,6 +63,9 @@ interface FileBrowserPanelProps {
   hostFolder?: boolean;
   onRefreshSelectedFile?: () => void;
   workspaceMutationId: string | null;
+  // loom: change review — marks under the shared baseline, and the header row that picks it.
+  loomMarks?: LoomChangeMarks | null;
+  loomReviewBar?: ReactNode;
 }
 
 function treePath(entry: ProjectEntry): string {
@@ -150,6 +161,8 @@ export default function FileBrowserPanel({
   onRefreshSelectedFile,
   workspaceMutationId,
   hostFolder = false,
+  loomMarks = null, // loom: change review
+  loomReviewBar = null,
 }: FileBrowserPanelProps) {
   const panelPath = (relativePath: string) =>
     hostFolder ? joinHostPath(cwd, relativePath) : relativePath;
@@ -171,8 +184,11 @@ export default function FileBrowserPanel({
     { environmentId, cwd: hostFolder ? null : cwd, query: query.slice(0, 256) },
     200,
   );
+  // loom: "Changed only" swaps the listing for the marked files and their folders.
+  const loomChangedOnly =
+    loomMarks?.changedOnly && !hostFolder ? loomChangedOnlyEntries(loomMarks) : null;
   const { entries, entryKinds, treePaths, directoryPaths } = buildTreeEntries(
-    directoryEntries,
+    loomChangedOnly ?? directoryEntries, // loom: Changed only
     pathSearch.entries,
     pathSearch.isPending,
     query,
@@ -275,6 +291,7 @@ export default function FileBrowserPanel({
   );
 
   const loadingDirectoriesRef = useRef(loadingDirectories);
+  const loomFolderChangesRef = useRef(loomChangeTreeStatus([], null).folders); // loom: folder counts
   const dragMention = createFileTreeDragMentionController(
     hostFolder ? { mentionPath: (path: string) => joinHostPath(cwd, path) } : {},
   );
@@ -313,10 +330,10 @@ export default function FileBrowserPanel({
       row.isExpanded &&
       loadingDirectoriesRef.current.has(item.path.replace(/\/$/, ""))
         ? { icon: "t3-tree-icon-loading", title: "Loading…" }
-        : null,
+        : loomFolderChangeDecoration(loomFolderChangesRef.current, item.path), // loom: count
     search: false,
     onSearchChange: (value) => setQuery(value ?? ""),
-    unsafeCSS: PIERRE_TREE_UNSAFE_CSS,
+    unsafeCSS: `${PIERRE_TREE_UNSAFE_CSS}${LOOM_CHANGE_TREE_UNSAFE_CSS}`, // loom: change marks
   });
   useEffect(() => {
     if (loadingDirectoriesRef.current === loadingDirectories) return;
@@ -345,7 +362,7 @@ export default function FileBrowserPanel({
       if (!currentPaths.has(path)) expandedPathsRef.current.delete(path);
     }
     const loadExpanded = () => {
-      if (model.isSearchOpen()) return;
+      if (model.isSearchOpen() || loomChangedOnly) return; // loom: no listing under Changed only
       for (const path of directoryPaths) {
         const item = model.getItem(path);
         if (item?.isDirectory() && "isExpanded" in item && item.isExpanded()) {
@@ -361,17 +378,21 @@ export default function FileBrowserPanel({
     };
     loadExpanded();
     return model.subscribe(loadExpanded);
-  }, [directoryPaths, load, model]);
+  }, [directoryPaths, load, loomChangedOnly, model]);
   useEffect(() => {
-    model.setGitStatus(
+    // loom: change marks join the ignored feed, and win over it on the same path.
+    const status = loomChangeTreeStatus(
       entries
         .filter((entry) => entry.ignored)
         .map((entry) => ({
           path: treePath(entry),
-          status: "ignored",
+          status: "ignored" as const,
         })),
+      hostFolder ? null : loomMarks,
     );
-  }, [entries, model]);
+    loomFolderChangesRef.current = status.folders;
+    model.setGitStatus(status.entries);
+  }, [entries, hostFolder, loomMarks, model]);
   useEffect(() => {
     if (!selectedPath) return;
     const controller = new AbortController();
@@ -417,8 +438,10 @@ export default function FileBrowserPanel({
   }, [ready, entryKinds, model, treePaths]);
 
   useEffect(() => {
-    if (expandAll && !query.trim()) setAllDirectoriesExpanded(model, directoryPaths, true);
-  }, [directoryPaths, expandAll, model, query]);
+    // loom: Changed only opens every folder on the way to a marked file.
+    if ((expandAll || loomChangedOnly) && !query.trim())
+      setAllDirectoriesExpanded(model, directoryPaths, true);
+  }, [directoryPaths, expandAll, loomChangedOnly, model, query]);
 
   // loom: reveal a directory targeted by an in-workspace chip: expand ancestors, then
   // scroll to and select it. Runs when the request id changes or once the tree
@@ -574,6 +597,7 @@ export default function FileBrowserPanel({
           </Tooltip>
         ) : null}
       </div>
+      {loomReviewBar /* loom: baseline · Changed only · Sources */}
       {error || pathSearch.error ? (
         <button
           type="button"

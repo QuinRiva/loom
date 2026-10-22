@@ -5,6 +5,12 @@
 //   closing message id). Null once the user picks an upstream scope; absent until the thread is
 //   first seen with an interval, when "Since your message" is seeded (seed, never override).
 // - `sources` (tier 2, client-wide): the Sources toggle, "Everything" by default.
+// - `marksOff` (tier 2, client-wide): the Files surface used as a plain browser, with no change
+//   marks and no whole-file change view.
+// - `fileChangeLayout` (tier 2, client-wide): an opened changed file side by side (the default) or
+//   unified; separate from the Diff panel's layout, which defaults to unified.
+// - `changedOnly` (session only, not persisted): the Files tree collapsed to marked files, kept
+//   across file opens but not across reloads, so a fresh session never opens on a filtered tree.
 //
 // Picking an upstream scope records null for the thread: the scope menu does it in its one
 // marked line, and opening a turn's diff from anywhere (a `selectTurn`) does it through the
@@ -32,10 +38,16 @@ export const REVIEW_SOURCE_KINDS: Record<
 interface ReviewBaselineState {
   intervalIdByThreadKey: Record<string, string | null>;
   sources: ReviewSourcesChoice;
+  marksOff: boolean;
+  changedOnly: boolean;
+  fileChangeLayout: "split" | "unified";
   selectInterval: (ref: ScopedThreadRef, intervalId: string | null) => void;
   /** Selects the live interval only when the thread has no choice recorded yet. */
   seedLive: (ref: ScopedThreadRef) => void;
   setSources: (sources: ReviewSourcesChoice) => void;
+  setMarksOff: (marksOff: boolean) => void;
+  setChangedOnly: (changedOnly: boolean) => void;
+  setFileChangeLayout: (fileChangeLayout: "split" | "unified") => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -44,6 +56,9 @@ export const useReviewBaselineStore = create<ReviewBaselineState>()(
     (set) => ({
       intervalIdByThreadKey: {},
       sources: "everything",
+      marksOff: false,
+      changedOnly: false,
+      fileChangeLayout: "split",
       selectInterval: (ref, intervalId) =>
         set((state) => ({
           intervalIdByThreadKey: {
@@ -63,6 +78,9 @@ export const useReviewBaselineStore = create<ReviewBaselineState>()(
               },
         ),
       setSources: (sources) => set({ sources }),
+      setMarksOff: (marksOff) => set({ marksOff }),
+      setChangedOnly: (changedOnly) => set({ changedOnly }),
+      setFileChangeLayout: (fileChangeLayout) => set({ fileChangeLayout }),
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -80,6 +98,8 @@ export const useReviewBaselineStore = create<ReviewBaselineState>()(
       partialize: (state) => ({
         intervalIdByThreadKey: state.intervalIdByThreadKey,
         sources: state.sources,
+        marksOff: state.marksOff,
+        fileChangeLayout: state.fileChangeLayout,
       }),
     },
   ),
