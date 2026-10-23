@@ -65,7 +65,7 @@ export const LOOM_TOOL_PROSE = {
   },
   workstream_prompt: {
     description:
-      "Send a markdown message to a direct child you spawned, as its parent. It starts or steers the child's next turn; a child that has not launched yet reads it as part of its brief. A steer cannot interrupt a tool call in progress, so mcp__t3-code__workstream_stop a stuck child first. Prompting a child that holds an attention flag clears the hold when its turn starts: do it only when you hold what the child is waiting for. Reopen a finished child (mcp__t3-code__workstream_set_outcome 'none') before prompting it.",
+      "Send a markdown message to a direct child you spawned, as its parent. It starts or steers the child's next turn; a child that has not launched yet reads it as part of its brief. A steer reaches a child waiting in bg_wait at once but waits out any other tool call in progress, so mcp__t3-code__workstream_stop a child stuck in one first. Prompting a child that holds an attention flag clears the hold when its turn starts: do it only when you hold what the child is waiting for. Reopen a finished child (mcp__t3-code__workstream_set_outcome 'none') before prompting it.",
     promptSnippet:
       "send a message to a direct child, labelled to it as its parent's: resumes an idle child or steers a busy one, and clears a hold the child raised (a steer won't penetrate a hung tool call — stop first, then prompt).",
     promptGuidelines: "",
@@ -182,16 +182,16 @@ export const LOOM_TOOL_PROSE = {
   // bare names, like pi's own `bash`.
   bg_start: {
     description:
-      "Run here, not in bash, a command that may take more than a couple of minutes (an eval, a build, a test suite, a long sleep): a foreground bash call holds your turn and cannot be steered. The job runs in the working directory with its output captured to a log; its exit reaches you in bg_wait, or as a new message that starts a turn if yours has ended. Make the command write progress as it runs, since bg_wait shows only what the job writes and a silent job cannot be told from a stuck one. The job dies with this session (Stop, a server restart, a long idle), and your next turn is told.",
+      "Run here, not in bash, a command that may take more than a couple of minutes (an eval, a build, a test suite, a long sleep): a foreground bash call holds your turn and cannot be steered, while a message sent to you during bg_wait reaches you at once. The job runs in the working directory with its output captured to a log; its exit reaches you in bg_wait, or as a new message that starts a turn if yours has ended. Make the command write progress as it runs, since bg_wait shows only what the job writes and a silent job cannot be told from a stuck one. The job dies with this session (Stop, a server restart, a long idle), and your next turn is told.",
     promptSnippet:
       "start a command that may run more than about two minutes in the background, with a wake when it exits",
     promptGuidelines: "",
   },
   bg_wait: {
     description:
-      "Wait for a bg_start job: returns when it exits, with its exit code and the last lines of its log, or at timeout_s with its progress (run time against your bounds, log growth, latest lines). A timeout is a progress report, not a failure: while the log advances, wait again; kill the pid only when the output shows the job stalled, failing or doing the wrong work. Aborting this call leaves the job running.",
+      "Wait for a bg_start job: returns when it exits, with its exit code and the last lines of its log, or at timeout_s with its progress (run time against your bounds, log growth, latest lines). A message sent to you while it waits ends the wait early, with the same progress and the job untouched. A timeout is a progress report, not a failure: while the log advances, wait again; kill the pid only when the output shows the job stalled, failing or doing the wrong work. Aborting this call leaves the job running.",
     promptSnippet:
-      "wait for a background job: returns at its exit, or with its progress at a timeout",
+      "wait for a background job: returns at its exit, or with its progress at a timeout or when a message arrives",
     promptGuidelines: "",
   },
 } as const satisfies Record<string, LoomToolProse>;

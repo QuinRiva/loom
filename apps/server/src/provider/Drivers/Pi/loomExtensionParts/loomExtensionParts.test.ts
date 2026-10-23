@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off - the background-jobs cases run real processes on the wall clock.
 // Loom's extension parts (plan track 3c, seam 3), each built exactly as 3a's assembler
 // wraps it — `(pi, ctx) => { <source> }` — and driven through a stub pi. The search-guard
 // cases are quarantine's searchGuardExtension.test.ts, unchanged but for the loader.
@@ -835,6 +835,7 @@ describe("background-jobs part", () => {
     const sent: Array<Sent> = [];
     const statuses: Array<{ running: number; wake?: { summary: string; outcome: string } }> = [];
     let onSend = () => {};
+    let pending = false;
     const pi = {
       on: (name: string, handler: (event: unknown, ext?: unknown) => unknown) =>
         handlers.set(name, handler),
@@ -855,6 +856,7 @@ describe("background-jobs part", () => {
         },
       },
       sessionManager: { getSessionDir: () => sessionDir, getSessionId: () => "s1" },
+      hasPendingMessages: () => pending,
     };
     handlers.get("session_start")!({ type: "session_start" }, ext);
     const shutdown = () => handlers.get("session_shutdown")!({ type: "session_shutdown" }, ext);
@@ -890,8 +892,18 @@ describe("background-jobs part", () => {
               "call",
               { id, ...(timeoutSeconds === undefined ? {} : { timeout_s: timeoutSeconds }) },
               signal,
+              undefined,
+              ext,
             ),
         ),
+      /** A prompt arriving while the turn runs (`streamingBehavior` set) or idle (unset). */
+      input: (streamingBehavior?: "steer" | "followUp") =>
+        handlers.get("input")!(
+          { type: "input", text: "hello", source: "rpc", streamingBehavior },
+          ext,
+        ),
+      /** Whether pi holds a queued message, which it sets once every input handler has resolved. */
+      queue: (queued: boolean) => (pending = queued),
       submit: () =>
         handlers.get("tool_call")!({ toolName: SUBMIT, toolCallId: "s", input: {} }) as
           | { block: boolean; reason: string }
@@ -938,6 +950,38 @@ describe("background-jobs part", () => {
     );
     expect(await jobs.wait(id, 30)).toContain(`Background job ${id} finished (exit 0)`);
     expect(jobs.submit()).toBeUndefined();
+    expect(jobs.sent).toEqual([]);
+  });
+
+  it("a steer ends a wait early with the job untouched, and a later wait returns its exit", async () => {
+    const jobs = load();
+    const { id } = await jobs.start("echo a; sleep 2; echo b", 0, 1);
+    const waiting = jobs.wait(id, 60);
+    // An idle prompt or a follow-up is not held behind the wait, so it does not end it.
+    jobs.queue(true);
+    jobs.input();
+    jobs.input("followUp");
+    const held = new Promise((resolve) => setTimeout(resolve, 300, "still waiting"));
+    expect(await Promise.race([waiting, held])).toBe("still waiting");
+    jobs.queue(false);
+    jobs.input("steer");
+    // Another extension's input handler may await I/O before pi queues the steer; the result
+    // must not reach pi's loop before the steer does, or it would wait for the next batch.
+    let queued = false;
+    setTimeout(() => (queued = jobs.queue(true)), 100);
+    const early = await waiting;
+    expect(queued).toBe(true);
+    const line = `Returned early because a message arrived for you; it follows this result. The job is untouched: bg_wait ${id} again to keep waiting.`;
+    expect(early).toMatch(
+      new RegExp(`^Job ${id} still running after 0 s \\(your bounds: 0 to 1 min\\)\\. `),
+    );
+    expect(early.slice(early.indexOf("\nLast 1 line:"))).toBe(`\nLast 1 line:\na\n${line}`);
+    expect(jobs.statuses.at(-1)).toEqual({ running: 1 });
+    expect(jobs.submit()?.block).toBe(true);
+    // A steer still queued when a wait starts (one sent while you wrote the call) returns it at once.
+    expect((await jobs.wait(id, 60)).split("\n").at(-1)).toBe(line);
+    jobs.queue(false);
+    expect(await jobs.wait(id, 30)).toContain(`Background job ${id} finished (exit 0)`);
     expect(jobs.sent).toEqual([]);
   });
 

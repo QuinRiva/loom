@@ -1,6 +1,7 @@
 // loom: Loom extension part — background jobs. `bg_start` runs a command in pi's process group
 // with its output in a log beside a JSON record (`<sessionDir>/jobs/<sessionId>/`); `bg_wait`
-// returns at the job's exit or, at its timeout, with the job's progress. A job that exits with
+// returns at the job's exit or, at its timeout or when a steer arrives, with the job's progress. A
+// steer waits for the tool batch to end, so this is how a waiting thread hears one. A job that exits with
 // nobody waiting wakes the thread: a `loom-jobs` status line (which the pi adapter reads as the
 // session pin and the wake chip) then a custom message with `triggerTurn`. Exactly one of the
 // waiter or the wake fires; neither when pi itself is going down (the job got the same SIGTERM),
@@ -79,6 +80,10 @@ const MAX_WAIT_S = 3600;
 // id -> { id, pid, command, startedAt, minMinutes, maxMinutes, log, exit, reported, lostAt,
 //         dir, waiters, lastCheck, lost, woke }; the first ten fields are the on-disk record.
 const jobs = new Map();
+// Every in-flight bg_wait's wake; a steer calls it with "message".
+const waits = new Set();
+// A steer arrived since this turn began, so one may be queued behind the current tool batch.
+let steered = false;
 let ui;
 let jobsDir;
 let shuttingDown = false;
@@ -234,20 +239,25 @@ pi.on("session_shutdown", () => {
   report();
 });
 
+// Resolves with why the wait ended: "exit", "timeout" or "message".
 const waitFor = (job, ms, signal) => new Promise((resolve, reject) => {
-  const done = () => {
+  const release = () => {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
     job.waiters.delete(done);
-    resolve();
+    waits.delete(done);
+  };
+  const done = (why = "exit") => {
+    release();
+    resolve(why);
   };
   const onAbort = () => {
-    clearTimeout(timer);
-    job.waiters.delete(done);
+    release();
     reject(signal.reason ?? new Error("Tool call aborted."));
   };
-  const timer = setTimeout(done, ms);
+  const timer = setTimeout(done, ms, "timeout");
   job.waiters.add(done);
+  waits.add(done);
   if (signal?.aborted) return onAbort();
   signal?.addEventListener("abort", onAbort, { once: true });
 });
@@ -309,13 +319,19 @@ pi.registerTool({
   name: "bg_wait",
   label: "Wait for background job",
   ...WAIT,
-  async execute(_toolCallId, params, signal) {
+  async execute(_toolCallId, params, signal, _onUpdate, ext) {
     const job = jobs.get(params.id);
     if (job === undefined) throw new Error("No job " + params.id + " in this session.");
     if (job.lost) return text(lostText(job));
     if (job.exit === null) {
       const left = (job.startedAt + job.maxMinutes * 60000 - Date.now()) / 1000;
-      await waitFor(job, 1000 * Math.min(MAX_WAIT_S, params.timeout_s ?? Math.max(60, left)), signal);
+      // A steer queued before this call (say, while you wrote it) is likewise held until it returns.
+      const why = steered && ext?.hasPendingMessages?.() ? "message"
+        : await waitFor(job, 1000 * Math.min(MAX_WAIT_S, params.timeout_s ?? Math.max(60, left)), signal);
+      if (why === "message" && job.exit === null) {
+        return text(progressText(job) + "\nReturned early because a message arrived for you; it follows this result. The job is untouched: bg_wait " +
+          job.id + " again to keep waiting.");
+      }
     }
     // An exit nobody was waiting for already went out as a message (mid-turn it lands after this
     // result): say so rather than deliver the result twice.
@@ -325,6 +341,23 @@ pi.registerTool({
     }
     return text(job.exit !== null ? exitText(job) : progressText(job));
   },
+});
+
+// pi queues a steer only once every input handler has resolved (another extension's may await I/O),
+// so the wake waits for it to be queued, ahead of this result; one a handler swallowed never wakes.
+// The input itself passes through untouched.
+pi.on("input", (event, ext) => {
+  if (event.streamingBehavior !== "steer") return undefined;
+  steered = true;
+  if (waits.size === 0) return undefined;
+  const until = Date.now() + 10000;
+  const poll = () => (ext?.hasPendingMessages?.() ?? true) ? [...waits].forEach((done) => done("message"))
+    : Date.now() < until && setTimeout(poll, 50);
+  setTimeout(poll, 0);
+  return undefined;
+});
+pi.on("turn_start", () => {
+  steered = false;
 });
 
 pi.on("tool_call", (event) => {
