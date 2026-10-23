@@ -681,6 +681,40 @@ describe("command-guards part", () => {
     }
   });
 
+  it("blocks killing a process group, which takes pi down with a bg_start job", () => {
+    for (const command of [
+      `kill -- -123`,
+      `kill -TERM -123`,
+      `kill -9 -- -123`,
+      `kill -s TERM -123`,
+      `kill -TERM -- -$(ps -o pgid= -p 2455179)`,
+      `kill -- -"$(ps -o pgid= -p 42 | tr -d ' ')"`,
+      `PGID=$(ps -o pgid= -p 42); kill -TERM -$PGID`,
+      `kill -- "-$pgid"`,
+      `sudo /bin/kill -KILL -- -77`,
+    ]) {
+      const reason = run(command).reason;
+      expect(reason, command).toContain("this signals a whole process group");
+      expect(reason, command).toContain("`pkill -TERM -P <pid>; kill <pid>`");
+    }
+  });
+
+  it("allows a signal option before a plain PID", () => {
+    for (const command of [
+      `kill -9 123`,
+      `kill -TERM 123`,
+      `kill -s TERM 123`,
+      `kill -- 123`,
+      `kill -TERM "$pid"`,
+      `kill -l`,
+      `pkill -TERM -P 123; kill 123`,
+      `echo "never kill -- -123"`,
+      `kill -TERM $(ps -eo pid=,pgid= | awk -v g="$PGID" '$2 == g { print $1 }')`,
+    ]) {
+      untouched(command);
+    }
+  });
+
   it("allows pgrep on its own and pkill by PID or pidfile", () => {
     for (const command of [
       `while pgrep -f "vite build"; do sleep 1; done`,

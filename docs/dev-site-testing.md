@@ -178,12 +178,16 @@ confirming it is yours:
 # The PID that owns your port, cross-checked against this worktree before anything dies.
 DEV_PID=${DEV_PID:-$(ss -H -ltnp "sport = :$PORT" | grep -oP 'pid=\K[0-9]+' | head -1)}
 readlink "/proc/$DEV_PID/cwd"                       # must be this worktree
-kill -TERM -"$(ps -o pgid= -p "$DEV_PID" | tr -d ' ')"   # the whole process group
+PGID=$(ps -o pgid= -p "$DEV_PID" | tr -d ' ')       # the group setsid made in step 2
+kill -TERM $(ps -eo pid=,pgid= | awk -v g="$PGID" '$2 == g { print $1 }')   # each member, by PID
 rm -rf "$HOME_ROOT"                                 # scratch state
 ```
 
 Then confirm the ports are free again. `node --watch` children are the usual
 culprit for a port that stays busy — kill the whole group, not just the parent.
+Signal its members by PID rather than the group itself (`kill -- -$PGID`): the
+pi command guard blocks a process-group kill, because a `bg_start` job shares
+pi's group and signalling that group kills pi mid-turn.
 
 ## Verifying against a copy of the cockpit database
 

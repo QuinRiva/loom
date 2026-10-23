@@ -6,6 +6,9 @@
 //  - `pkill`, or `pgrep` output fed to `kill`: kill by pattern, which on this shared machine can
 //    hit another thread's server or job. Blocked. (`pgrep -f` matching the tool shell itself is
 //    fixed by the pgrep-self-match rewrite, which runs after this guard.)
+//  - `kill` of a process group (a negative PID operand, literal or computed: `kill -- -123`,
+//    `kill -TERM -$PGID`): a bg_start job shares pi's group, so this kills pi mid-turn. Blocked.
+//    A leading signal option (`kill -9 123`) is not a target.
 //  - `gh api` with a field flag and no `-X`: gh silently switches to POST. Blocked (a read and a
 //    write are equally plausible).
 //  - an unquoted heredoc whose body has backticks: bash runs them as command substitution, so a
@@ -28,6 +31,8 @@ const BLOCKED = "Blocked by the t3 command guard:";
 
 const KILL_MESSAGE = `${BLOCKED} killing by pattern (\`pkill\`, or \`pgrep\` output fed to \`kill\`) can kill another thread's process on this shared machine — several agents run dev servers and jobs with the same names and paths. Kill only a PID you captured at spawn (\`pid=$!\`), or the owner of your port from \`ss -H -ltnp\` after checking \`/proc/<pid>/cwd\`. If you must find it by name, list candidates with \`pgrep -af <pattern>\`, check each \`/proc/<pid>/cwd\` is your worktree, then \`kill <pid>\`.`;
 
+const GROUP_KILL_MESSAGE = `${BLOCKED} this signals a whole process group. A bg_start job runs in pi's own process group so that it dies with pi, so signalling that group kills pi as well and ends your turn with a provider error. To stop a job and the processes it started, signal its children and then the job: \`pkill -TERM -P <pid>; kill <pid>\`. If the group is one you created yourself (with \`setsid\`), kill its processes by PID instead.`;
+
 const GH_MESSAGE = `${BLOCKED} \`gh api\` with \`-f\`/\`-F\`/\`--field\` and no \`-X\` sends a POST, so this would write to ENDPOINT, not read it. To see what your flags expand to, \`printf '%s\\n'\` them instead. For a read, add \`-X GET\` (the fields become query parameters). If you did mean to write, re-run with an explicit \`-X POST\` (or \`PATCH\`/\`PUT\`).`;
 
 const SLEEP_MESSAGE = `${BLOCKED} SLEEP would hold this turn for MINUTES, cannot end early if what you are waiting for finishes, and shows nothing if it does not. To wait for a process, start it with bg_start and wait with bg_wait, which returns the moment the job exits or with its progress at your timeout. To wait for the clock, bg_start SLEEP and bg_wait on it. Sleeps under 60 s are not blocked.`;
@@ -41,7 +46,7 @@ const HEREDOC_WARN_NOTE = `${NOTE} Your unquoted heredoc FROM has backticks or \
 export const commandGuardsPart: LoomExtensionPart = {
   name: "command-guards",
   source: String.raw`
-const MESSAGES = ${JSON.stringify({ KILL_MESSAGE, GH_MESSAGE, SLEEP_MESSAGE, RG_NOTE, HEREDOC_REWRITE_NOTE, HEREDOC_WARN_NOTE })};
+const MESSAGES = ${JSON.stringify({ KILL_MESSAGE, GROUP_KILL_MESSAGE, GH_MESSAGE, SLEEP_MESSAGE, RG_NOTE, HEREDOC_REWRITE_NOTE, HEREDOC_WARN_NOTE })};
 const fill = (text, values) => text.replace(/\b(FROM|TO|ENDPOINT|SLEEP|MINUTES)\b/g, (key) => values[key]);
 const code = (text) => "\x60" + text + "\x60";
 
@@ -156,6 +161,17 @@ const backgrounded = (text, at) => {
   return false;
 };
 
+// kill's targets follow one leading option (-s/-n/--signal take a value) and an optional "--";
+// a target of "-" then a digit or "$" (a computed "-$(...)" or "-$PGID") is a process group.
+const killsGroup = (tokens) => {
+  let i = 1;
+  if (tokens[i]?.value.startsWith("-") && tokens[i].value !== "--") {
+    i += /^(-[sn]|--signal)$/.test(tokens[i].value) ? 2 : 1;
+  }
+  if (tokens[i]?.value === "--") i += 1;
+  return tokens.slice(i).some((t) => /^-[\d$]/.test(t.value));
+};
+
 const KILL_PIPELINES = [/\bpgrep\b[^;&\n]*\|\s*xargs\b[^;&|\n]*\bkill\b/, /\bkill\b[^;&|\n]*(\$\(|\x60)\s*pgrep\b/];
 
 const analyse = (command) => {
@@ -176,6 +192,7 @@ const analyse = (command) => {
     else if (head === "pkill" && !tokens.some((t) => /^(-[PF]|--parent|--pidfile)/.test(t.raw))) {
       blocks.add(MESSAGES.KILL_MESSAGE);
     }
+    else if (head === "kill" && killsGroup(tokens)) blocks.add(MESSAGES.GROUP_KILL_MESSAGE);
     else if (head === "sleep") {
       const seconds = sleepSeconds(tokens);
       if (seconds !== null && seconds >= 60 && !backgrounded(text, tokens[0].start)) {

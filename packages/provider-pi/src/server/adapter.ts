@@ -373,6 +373,8 @@ interface ActivePiTurn {
   readonly streamItems: Map<string, PiStreamItemState>;
   readonly toolArgs: Map<string, unknown>;
   readonly toolStartedAt: Map<string, DateTime.Utc>;
+  // loom: tool calls Pi started and has not ended, with their latest partial result
+  readonly openTools: Map<string, { readonly toolName: string; result: unknown }>;
   interrupted: boolean;
   nativeAborted: boolean;
   sawAgentActivity: boolean;
@@ -1016,6 +1018,14 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         if (phase === "start") {
           turn.toolArgs.set(toolCallId, event["args"]);
         }
+        // loom: tracked so finalizeTurn can end a call whose end never comes (Pi died mid-call);
+        // a subagent's partial result would read its unfinished tasks as done, so it keeps none.
+        if (phase === "end") turn.openTools.delete(toolCallId);
+        else
+          turn.openTools.set(toolCallId, {
+            toolName,
+            result: toolName === "subagent" ? undefined : event["partialResult"],
+          });
         const args = event["args"] ?? turn.toolArgs.get(toolCallId);
         const emittedAt = yield* DateTime.now;
         const startedAt = turn.toolStartedAt.get(toolCallId) ?? emittedAt;
@@ -1520,6 +1530,18 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const interrupted = turn.interrupted || turn.nativeAborted;
         const completedAt = yield* DateTime.now;
         yield* completeOpenStreamItems(turn);
+        // loom: a tool call still open here died with its Pi process; end it as Pi ends an aborted
+        // call, or it reads as running (and as pending background work) forever.
+        yield* Effect.forEach(
+          Array.from(turn.openTools, ([toolCallId, { toolName, result }]) => ({
+            toolCallId,
+            toolName,
+            isError: true,
+            result,
+          })),
+          (event) => emitToolItem(turn, event, "end"),
+          { discard: true },
+        );
         if (turn.activeCompaction !== null) {
           const status = interrupted ? "cancelled" : turn.failure === null ? "completed" : "failed";
           yield* emitCompaction(turn, turn.activeCompaction, status);
@@ -2619,6 +2641,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               streamItems: new Map(),
               toolArgs: new Map(),
               toolStartedAt: new Map(),
+              openTools: new Map(), // loom
               interrupted: false,
               nativeAborted: false,
               sawAgentActivity: false,
