@@ -62,6 +62,11 @@ export function shouldTypeToFocusComposer(event: KeyboardEvent): boolean {
   if (event.isComposing) return false;
   if (event.metaKey || event.ctrlKey || event.altKey) return false;
   if (event.key.length !== 1) return false;
+  // loom: a focused region that answers some printable keys itself (the change view's [ and ])
+  // lists them in data-loom-keys and keeps them; every other key still goes to the composer.
+  if (eventPathContainsSelector(event, `[data-loom-keys*="${CSS.escape(event.key)}"]`)) {
+    return false;
+  }
   if (!shouldRedirectInputToComposer(event)) return false;
 
   return true;

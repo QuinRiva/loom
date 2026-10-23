@@ -60,6 +60,12 @@ match in a folded file opens it. Escape closes the search. This shortcut is not
 configurable. A very large uncommitted diff loads its files as you scroll, and
 find only searches the files loaded so far.
 
+## Move between changes in a file
+
+With a changed file open from the Files tree, click into it and press `]` for the
+next change and `[` for the previous one; both wrap around. The header shows
+which change you are on ("3 of 7"). These keys are not configurable.
+
 ## iPad
 
 With a hardware keyboard, use `Cmd+1` through `Cmd+9` to open the first nine

@@ -2,7 +2,8 @@
  * loom: `FileChangeView` on the three file sizes the whole-file research measured (516, 3,246 and
  * 9,692 lines), each the real source file as its new side against a synthetic older side with six
  * edits. The 9,692-line file is over the size cap, so it opens from its patch in hunk mode; "Show
- * whole file" is the opt-in. Registered in `loomPreviewGroups.tsx`.
+ * whole file" is the opt-in. The header's change counter sits above each, as the Files surface
+ * shows it. Registered in `loomPreviewGroups.tsx`.
  */
 import type { FileDiffContentsLoader } from "@pierre/diffs";
 
@@ -15,6 +16,7 @@ import {
 import small from "../../../server/src/cli/theme.ts?raw";
 import medium from "../../../server/src/git/GitManager.ts?raw";
 import large from "../../../server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts?raw";
+import { LoomChangeCounter } from "../loom/review/ChangeRuler";
 import type { PreviewGroup } from "./fixtures";
 
 const EDITS = [
@@ -89,6 +91,9 @@ export const FILE_CHANGE_VIEW_PREVIEW_GROUP: PreviewGroup = {
         : "Whole file, every unchanged line present, opened on the first change.",
       render: () => (
         <div className="flex h-full min-h-0 flex-col">
+          <div className="flex justify-end border-b px-2 py-1">
+            <LoomChangeCounter />
+          </div>
           <FileChangeView
             file={{ path, previousPath: null, status: "modified", bytes: contents.length }}
             revision="preview"
