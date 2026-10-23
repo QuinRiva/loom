@@ -1,19 +1,6 @@
-// LOOM-ONLY. The digest and report lines that name a human author. The author labels the
+// LOOM-ONLY. The report line that names a human author. The author labels the
 // pi adapter prepends to every message live with the adapter, in
 // `@t3tools/provider-pi/server/loom` (provenance.loom.ts).
-
-/**
- * The FYI-digest line a parent gets when the human writes into one of its
- * children: one per human message, with a bounded excerpt. The excerpt is what
- * lets the parent avoid steering against an instruction it never saw.
- */
-export const renderHumanInChildDigestLine = (input: {
-  readonly role: string | null;
-  readonly id: string;
-  readonly timestamp: string;
-  readonly excerpt: string;
-}): string =>
-  `- 🧑 The human wrote to ${input.role ?? "sub-thread"} \`${input.id}\`${input.timestamp === "" ? "" : ` _${input.timestamp}_`}: “${input.excerpt}” — what they said outranks your brief and your steers; read the full message before steering it again.`;
 
 /**
  * Appended to `QUIESCENT_REPORT_HEADER` when the turn the quiet child ended was
