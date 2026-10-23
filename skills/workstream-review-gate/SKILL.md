@@ -73,3 +73,29 @@ If you fixed anything, you MUST re-run project verification (`vp check`,
   Adjudicate the rejection on its merits; if you still disagree, contest it
   once. If it comes back contested again, neither of you loops on it —
   escalate (ladder step 5) with the exchange in `contested`.
+
+## Instruction text under review
+
+When the change is text a model reads (a role, a skill, a tool description,
+an AGENTS.md), the coder's draft and your judgement are the two halves of the
+same act kept apart on purpose: the drafter never gets to decide its own
+addition is worth its tokens. Your brief carries the file's purpose in one
+sentence and the diff's +N/−M word count; if it does not, read the whole file
+and write the purpose yourself before judging a line.
+
+For every added or changed line, one of four reasons rejects it, and a line
+that survives all four stays:
+
+- **already covered** — the file, a tool description or a skill the reader
+  already holds says it;
+- **changes no decision** — a capable reader would act the same without it;
+- **derivable** — the code, the tool's own output or an error message
+  already tells the reader;
+- **a rule where a fact would do** — a prohibition or directive standing in
+  for the environment fact the reader cannot infer (a prohibition earns its
+  place only on an action agents were actually seen taking, with its reason).
+
+A rejected line is a must-fix, not a nice-to-have; the verdict is
+`needs_rework` with the reason named per line. A net addition that passes
+all four is fine; "it reads well" and "more context never hurts" are not
+grounds to keep a line.
