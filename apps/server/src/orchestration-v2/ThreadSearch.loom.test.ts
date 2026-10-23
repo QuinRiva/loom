@@ -88,12 +88,7 @@ const message = (
         ${at}, ${at}, ${JSON.stringify(payload)})`;
   });
 
-const search = (
-  query: string,
-  limit?: number,
-  includeArchived?: boolean,
-  projectId?: string,
-) =>
+const search = (query: string, limit?: number, includeArchived?: boolean, projectId?: string) =>
   makeThreadSearch.pipe(
     Effect.flatMap((threadSearch) =>
       threadSearch.searchThreads({

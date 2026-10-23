@@ -208,10 +208,9 @@ export const makeThreadSearch = Effect.gen(function* () {
    */
   const rank = Effect.fn("ThreadSearch.rank")(function* (query: string, scope: SearchScope = {}) {
     const terms = toTerms(query);
-    const [hits, nearest] = yield* Effect.all(
-      [lexical(terms, scope), semantic(query, scope)],
-      { concurrency: 2 },
-    );
+    const [hits, nearest] = yield* Effect.all([lexical(terms, scope), semantic(query, scope)], {
+      concurrency: 2,
+    });
     const roots = yield* rootRows([...hits.map((hit) => hit.rootId), ...(nearest ?? [])]);
     const lexicalIds = hits.map((hit) => hit.rootId).filter((id) => roots.has(id));
     let fused = lexicalIds;

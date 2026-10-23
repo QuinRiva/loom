@@ -34,7 +34,9 @@ export const threadSearch = Effect.fn("LoomToolkit.threadSearch")(function* (
         Effect.gen(function* () {
           const root = yield* store.getWorkstream(match.threadId);
           const matched =
-            match.matchedThreadId === null ? root : yield* store.getWorkstream(match.matchedThreadId);
+            match.matchedThreadId === null
+              ? root
+              : yield* store.getWorkstream(match.matchedThreadId);
           const goal = root?.goalId ? yield* store.goals.get(root.goalId) : null;
           return {
             match,

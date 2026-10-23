@@ -357,10 +357,7 @@ const LOOM_TOOL_SPECS = {
       ),
       projectId: optionalText("Narrow to one project. Omitted, every project this server holds."),
       includeArchived: Schema.optionalKey(
-        described(
-          Schema.Boolean,
-          "Default true. False drops archived roots and their subtrees.",
-        ),
+        described(Schema.Boolean, "Default true. False drops archived roots and their subtrees."),
       ),
     }),
     "throw",
