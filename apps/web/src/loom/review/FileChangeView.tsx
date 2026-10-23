@@ -45,10 +45,20 @@ import {
   resolveDiffThemeName,
 } from "../../lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
+import { isEditableFocused } from "../../lib/editableFocus";
 import { useEnvironmentQuery } from "../../state/query";
 import { reviewEnvironment } from "../../state/review";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { LoomBaselineChip } from "./BaselineChip";
+import { ChangeRuler, LoomChangeCounter } from "./ChangeRuler";
+import {
+  changeInRows,
+  nearestChange,
+  rowsOnScreen,
+  rulerChanges,
+  rulerTotalRows,
+  useChangeNavigationStore,
+} from "./changeNavigation";
 import { useReviewBaselineStore } from "./reviewBaselineStore";
 import { createLoomReviewFileContentsLoader, loomReviewQueries } from "./reviewQueries";
 import type { LoomChangeMarks, LoomChangedFile } from "./useLoomChangeMarks";
@@ -171,24 +181,65 @@ export function FileChangeView({
         : undefined;
 
   const [codeView, setCodeView] = useState<AnnotatableCodeViewHandle | null>(null);
+  const changes = fileDiff ? rulerChanges(fileDiff, layout) : [];
   const scrolledRef = useRef<string | null>(null);
   useEffect(() => {
-    if (mode !== "whole" || !fileDiff || !codeView || scrolledRef.current === file.path) return;
-    scrolledRef.current = file.path;
-    // Open on the first change with the code above it in view, not on line 1 of a long file.
-    const change = fileDiff.hunks
-      .flatMap((hunk) => hunk.hunkContent)
-      .find((content) => content.type === "change");
-    if (!change) return;
-    const onAdditions = change.additions > 0;
-    codeView.scrollTo({
-      type: "line",
-      id: file.path,
-      lineNumber: (onAdditions ? change.additionLineIndex : change.deletionLineIndex) + 1,
-      side: onAdditions ? "additions" : "deletions",
-      align: "center",
+    const root = codeView?.getInstance()?.getContainerElement();
+    if (!codeView || !root || changes.length === 0) return;
+    const owner = {};
+    // A jump holds "n" on its change while that change stays in view: one near the end cannot be
+    // centred, and the nearest to the centre would then be its neighbour, so next would stick.
+    let pinned: number | null = null;
+    const jump = (index: number) => {
+      const change = changes[index]!;
+      pinned = index;
+      useChangeNavigationStore.setState({ current: index });
+      codeView.scrollTo({
+        type: "line",
+        id: file.path,
+        lineNumber: change.lineNumber,
+        side: change.side,
+        align: "center",
+      });
+    };
+    const previous = useChangeNavigationStore.getState();
+    useChangeNavigationStore.setState({
+      owner,
+      path: file.path,
+      count: changes.length,
+      current: previous.path === file.path ? Math.min(previous.current, changes.length - 1) : 0,
+      jump,
+      step: (delta) =>
+        jump(
+          (useChangeNavigationStore.getState().current + delta + changes.length) % changes.length,
+        ),
     });
-  }, [codeView, file.path, fileDiff, mode]);
+    // Open on the first change with the code above it in view, not on line 1 of a long file.
+    if (mode === "whole" && scrolledRef.current !== file.path) {
+      scrolledRef.current = file.path;
+      jump(0);
+    }
+    // Which change is at the centre, read from the rows on screen once scrolling settles.
+    const settle = () => {
+      const rows = rowsOnScreen(root, layout);
+      if (!rows) return;
+      if (pinned !== null && changeInRows(changes[pinned]!, rows.first, rows.last)) return;
+      pinned = null;
+      useChangeNavigationStore.setState({ current: nearestChange(changes, rows.centre) });
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = codeView.getInstance()?.subscribeToScroll(() => {
+      clearTimeout(timer);
+      timer = setTimeout(settle, 150);
+    });
+    return () => {
+      unsubscribe?.();
+      clearTimeout(timer);
+      if (useChangeNavigationStore.getState().owner === owner) {
+        useChangeNavigationStore.setState({ owner: null, count: 0 });
+      }
+    };
+  }, [changes, codeView, file.path, layout, mode]);
 
   const notice =
     mode === "patch" ? (
@@ -231,7 +282,24 @@ export function FileChangeView({
   return (
     <>
       {notice}
-      <div className="flex min-h-0 flex-1" data-loom-file-change={mode}>
+      <div
+        className="flex min-h-0 flex-1"
+        data-loom-file-change={mode}
+        data-loom-keys="[]"
+        onKeyDown={(event) => {
+          if (
+            (event.key !== "[" && event.key !== "]") ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.altKey ||
+            isEditableFocused(event.target)
+          ) {
+            return;
+          }
+          event.preventDefault();
+          useChangeNavigationStore.getState().step(event.key === "]" ? 1 : -1);
+        }}
+      >
         <AnnotatableCodeView
           viewerRef={setCodeView}
           codeViewKey={`${file.path}:${mode}`}
@@ -264,6 +332,14 @@ export function FileChangeView({
             ...(mode === "patch" ? { loadDiffFiles } : {}),
           }}
         />
+        {/* Hunk mode shows only the changes and their gaps, so its scrollbar is no map of the file. */}
+        {mode === "whole" ? (
+          <ChangeRuler
+            codeView={codeView}
+            changes={changes}
+            totalRows={rulerTotalRows(fileDiff, layout)}
+          />
+        ) : null}
       </div>
     </>
   );
@@ -364,7 +440,7 @@ export function LoomFileChangeSurface({
   );
 }
 
-/** The opened file's header: baseline · split or unified · Edit (or back to the changes). */
+/** The opened file's header: n of m · baseline · split or unified · Edit (or back to the changes). */
 export function LoomFileChangeActions({
   threadRef,
   marks,
@@ -382,6 +458,7 @@ export function LoomFileChangeActions({
   const layout = useReviewBaselineStore((state) => state.fileChangeLayout);
   return (
     <>
+      {editing ? null : <LoomChangeCounter />}
       <LoomBaselineChip threadRef={threadRef} marks={marks} />
       {editing ? null : (
         <FileSurfaceAction
