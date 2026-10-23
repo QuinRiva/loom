@@ -515,15 +515,6 @@ export const loomPreviewHandbackMessages: ReadonlyArray<OrchestrationV2Conversat
           `${WS}/plans/pull11-sync/plan.mdx`,
         ],
       },
-      {
-        kind: "human-message",
-        threadId: T.gateCoder,
-        role: "coder",
-        title: "The human wrote to this child",
-        status: "human-message",
-        icon: "🧑",
-        excerpt: "Carl asked the coder to keep the old flag.",
-      },
     ],
   }),
   handbackMessage("yield", "[T3 Workstream control plane]\n\nA sub-thread went quiet (preview).", {

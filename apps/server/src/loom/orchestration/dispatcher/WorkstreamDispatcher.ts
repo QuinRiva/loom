@@ -22,7 +22,6 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type ControlPayloadItem,
   type LoomThreadWorkstream,
-  type OrchestrationV2ConversationMessage,
   type OrchestrationV2ThreadShell,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -77,7 +76,6 @@ import {
   briefNeededRail,
   deadlockRail,
   digestFlush,
-  humanInChild,
   notifyDelivery,
   surfaceDeferredWakes,
   terminalDeltas,
@@ -181,10 +179,6 @@ export interface PassContext {
   readonly delivered: (
     threadId: ThreadId,
   ) => Effect.Effect<ReadonlyArray<DeliveredItem>, PassError, PassServices>;
-  /** The human-authored messages `threadId` has received, oldest first (cached until its next user message). */
-  readonly humanMessages: (
-    threadId: ThreadId,
-  ) => Effect.Effect<ReadonlyArray<OrchestrationV2ConversationMessage>, PassError, PassServices>;
   /** Whether a `server:` id already has a receipt (sent, or dead). */
   readonly sent: (id: string) => Effect.Effect<boolean, PassError, PassServices>;
   /**
@@ -339,7 +333,6 @@ export const PASS_STEPS: ReadonlyArray<PassStep> = [
   steerRedelivery,
   quiescenceRail,
   terminalDeltas,
-  humanInChild,
   attentionRail,
   yieldRail,
   briefNeededRail,
@@ -359,11 +352,6 @@ interface DispatcherMemory {
   readonly deliveredCache: Map<
     ThreadId,
     { readonly stamp: string; readonly items: ReadonlyArray<DeliveredItem> }
-  >;
-  /** `humanMessages` cache, valid while the thread's `latestUserMessageAt` is `stamp`. */
-  readonly humanMessagesCache: Map<
-    ThreadId,
-    { readonly stamp: string; readonly messages: ReadonlyArray<OrchestrationV2ConversationMessage> }
   >;
   readonly startedAtMs: number;
 }
@@ -426,20 +414,6 @@ const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
         });
         memory.deliveredCache.set(threadId, { stamp, items });
         return items;
-      }),
-    humanMessages: (threadId) =>
-      Effect.gen(function* () {
-        const latest = shells.get(threadId)?.latestUserMessageAt ?? null;
-        if (latest === null) return [];
-        const stamp = String(latest);
-        const cached = memory.humanMessagesCache.get(threadId);
-        if (cached?.stamp === stamp) return cached.messages;
-        const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"], {
-          messageRoles: ["user"],
-        });
-        const human = messages.filter((message) => message.loom?.humanAuthored === true);
-        memory.humanMessagesCache.set(threadId, { stamp, messages: human });
-        return human;
       }),
     sent: (id) => Effect.map(receipts.getByCommandId(CommandId.make(id)), Option.isSome),
     dispatch: (rail, command, count = 1) =>
@@ -509,7 +483,6 @@ const make = Effect.gen(function* () {
     advisories: new Map(),
     leftStashes: new Map(),
     deliveredCache: new Map(),
-    humanMessagesCache: new Map(),
     startedAtMs: DateTime.toEpochMillis(yield* DateTime.now),
   };
   const lastDeferredWakes = yield* Ref.make<ReadonlyMap<ThreadId, ReadonlyMap<string, number>>>(

@@ -136,23 +136,6 @@ describe("buildStandaloneDigest", () => {
     assert.include(solo, "deserve the usual first look");
   });
 
-  it("a relayed human message gets the rider that it is not a status notice", () => {
-    const humanLine: DigestExtra = {
-      kind: "human-message",
-      line: "- 🧑 The human wrote to coder `cod`: “Use staging.”",
-      childId: ThreadId.make("cod"),
-      role: "coder",
-    };
-    for (const text of [
-      buildStandaloneDigest([], [humanLine]),
-      buildDigestPiggyback([], [humanLine]),
-    ]) {
-      assert.include(text, "not a status notice");
-      assert.notInclude(text, "no action required");
-    }
-    assert.notInclude(buildStandaloneDigest([member({ id: "solo" })]), "not a status notice");
-  });
-
   it("an info-only digest never claims anything completed", () => {
     const slow: DigestExtra = {
       kind: "slow-tool",
