@@ -9,6 +9,7 @@
 import type {
   GoalTaskId,
   LoomThreadShellFields,
+  OrchestrationThreadSearchMatch,
   OrchestrationV2ThreadShell,
   ThreadId,
   WorkOutcomeDecision,
@@ -261,3 +262,31 @@ export const describeSender = (input: {
 export const composeNotifyFramedText = (sender: string, senderThreadId: string, message: string) =>
   `Notification from ${sender}, sent via ${t("notify_thread")}:\n\n${message}\n\n` +
   `No reply is owed. If this needs no action from you, absorb it and continue your work. If the sender asked for something back, reply with ${t("notify_thread")} (threadId: ${senderThreadId}).`;
+
+// mcp__t3-code__thread_search
+
+export interface ThreadSearchRow {
+  readonly match: OrchestrationThreadSearchMatch;
+  readonly goalTitle: string | null;
+  readonly reportPath: string | null;
+}
+
+export const renderThreadSearch = (query: string, rows: ReadonlyArray<ThreadSearchRow>): string =>
+  rows.length === 0
+    ? `No thread matches "${query}".`
+    : [
+        `${rows.length} root thread(s) match "${query}", best first:`,
+        ...rows.map(({ match, goalTitle, reportPath }, index) =>
+          [
+            `${index + 1}. «${match.title}» (${match.threadId}) project ${match.projectId}, updated ${match.updatedAt}` +
+              (match.archivedAt === null ? "" : `, archived ${match.archivedAt}`),
+            ...(goalTitle === null ? [] : [`   goal: «${goalTitle}»`]),
+            `   matched ${match.source}` +
+              (match.matchedThreadId === null
+                ? ""
+                : ` of sub-thread «${match.matchedThreadTitle ?? "(untitled)"}» (${match.matchedThreadId})`) +
+              `: ${match.snippet}`,
+            ...(reportPath === null ? [] : [`   report: ${reportPath}`]),
+          ].join("\n"),
+        ),
+      ].join("\n");

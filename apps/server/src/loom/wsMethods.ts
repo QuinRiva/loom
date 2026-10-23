@@ -30,6 +30,7 @@ import {
   type LoomReviewFileContentsInput,
   type LoomReviewIntervalsInput,
   type LoomThreadHistoryInput,
+  type LoomThreadShellInput,
   type LoomThreadSpendInput,
   type LoomTopSpendInput,
   LoomWsMethodError,
@@ -130,6 +131,7 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
   const consult = yield* LoomThreadConsult;
   const usageLimitSources = yield* UsageLimitSources;
   const reviewSnapshots = yield* ReviewSnapshotService;
+  const orchestrator = yield* OrchestratorV2;
   const draftServices = yield* Effect.context<OrchestratorV2 | LoomStoreV2 | Crypto.Crypto>();
 
   const fail = (method: string, message: string, cause?: unknown) =>
@@ -244,6 +246,14 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
           );
         return { latest: yield* present(latest), first: yield* present(first) };
       }),
+    // Thread search opens an archived root, which the shell stream does not carry.
+    [LOOM_WS_METHODS.threadShell]: (input: LoomThreadShellInput) =>
+      orchestrator.getThreadShell(input.threadId).pipe(
+        Effect.map((thread) => ({ thread })),
+        Effect.mapError((cause) =>
+          fail(LOOM_WS_METHODS.threadShell, `${LOOM_WS_METHODS.threadShell} failed.`, cause),
+        ),
+      ),
     // The hub login reminder's Log in… dialog.
     [LOOM_WS_METHODS.usageLimitSourceLoginStart]: (input: UsageLimitSourceLoginStartInput) =>
       usageLimitSources.loginStart(input),

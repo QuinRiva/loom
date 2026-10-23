@@ -153,7 +153,7 @@ it.effect("an OAuth-signed outside agent is refused by every Loom tool before it
     const scope = yield* oauthScope;
     expect(scope.capabilities.has("workstream")).toBe(false);
     const { ran, results } = yield* callEveryTool(scope);
-    expect(results).toHaveLength(22);
+    expect(results).toHaveLength(23);
     for (const { def, result } of results) {
       // A soft-mode tool refuses as plain text; only throw-mode tools set isError.
       expect(result.isError, def.name).toBe(def.errorMode === "throw");
@@ -189,7 +189,7 @@ it.effect("a read-only consult fork reaches only workstream_list and goal_task_l
       ...scope(["workstream", "pull-requests"]),
       client: { sessionId: "consult-1", label: "consult fork", access: "read-only" },
     });
-    expect(results).toHaveLength(22);
+    expect(results).toHaveLength(23);
     for (const { def, result } of results) {
       if (def.name === "workstream_list" || def.name === "goal_task_list") {
         expect(result.content, def.name).toEqual([{ type: "text", text: "ran" }]);
@@ -217,7 +217,7 @@ it.effect("unknown or mistyped parameters are refused, closed like the JSON sche
   }),
 );
 
-it.effect("/mcp lists exactly the 22 Loom tools with _meta prose, object schemas and hints", () =>
+it.effect("/mcp lists exactly the 23 Loom tools with _meta prose, object schemas and hints", () =>
   Effect.gen(function* () {
     const mcp = yield* serveMcp({}, { threadId: LOOM_TEST_THREAD, capabilities: ["workstream"] });
     const tools = yield* mcp.listTools;
@@ -225,7 +225,7 @@ it.effect("/mcp lists exactly the 22 Loom tools with _meta prose, object schemas
     expect(loom.map((tool) => tool.name).toSorted()).toEqual(
       LOOM_TOOL_DEFS.map((def) => def.name).toSorted(),
     );
-    expect(loom).toHaveLength(22);
+    expect(loom).toHaveLength(23);
     for (const tool of loom) {
       const prose = LOOM_TOOL_PROSE[tool.name as keyof typeof LOOM_TOOL_PROSE];
       expect(tool.description).toBe(prose.description);
@@ -236,10 +236,11 @@ it.effect("/mcp lists exactly the 22 Loom tools with _meta prose, object schemas
       expect(tool.inputSchema.type, tool.name).toBe("object");
       expect(tool.annotations).toMatchObject({ destructiveHint: false, openWorldHint: false });
     }
-    expect(loom.find((tool) => tool.name === "workstream_list")?.annotations).toMatchObject({
-      readOnlyHint: true,
-      idempotentHint: true,
-    });
+    for (const name of ["workstream_list", "thread_search"])
+      expect(loom.find((tool) => tool.name === name)?.annotations, name).toMatchObject({
+        readOnlyHint: true,
+        idempotentHint: true,
+      });
     // Upstream's toolkits are still listed beside Loom's.
     expect(tools.map((tool) => tool.name)).toContain("delegate_task");
   }).pipe(Effect.scoped, Effect.provide(mcpTestLayer)),

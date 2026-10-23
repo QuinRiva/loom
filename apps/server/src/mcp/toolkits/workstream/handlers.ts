@@ -25,6 +25,7 @@ import {
 import { goalUpdate } from "./handlers/goalUpdate.ts";
 import { notifyThread } from "./handlers/notify.ts";
 import { snoozeThread } from "./handlers/snoozeThread.ts";
+import { threadSearch } from "./handlers/threadSearch.ts";
 import { setThreadTitle } from "./handlers/title.ts";
 import { workstreamList } from "./handlers/list.ts";
 import { workstreamSetOutcome } from "./handlers/outcome.ts";
@@ -48,6 +49,7 @@ const loomHandlers = {
   workstream_submit: workstreamSubmit,
   workstream_list: workstreamList,
   consult_thread: consultThread,
+  thread_search: threadSearch,
   notify_thread: notifyThread,
   set_thread_title: setThreadTitle,
   snooze_thread: snoozeThread,

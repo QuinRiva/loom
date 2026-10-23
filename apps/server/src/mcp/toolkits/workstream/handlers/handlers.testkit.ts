@@ -1,8 +1,9 @@
 /**
  * Calls a Loom tool as a given thread, through `callLoomTool` (the function
  * `/mcp` registration serves) with the real handler record, on V2's real
- * orchestrator (`LoomOrchestratorTestLayer`). Settings, provider catalogue and
- * health are test layers; reports and briefs land in a temp state dir.
+ * orchestrator (`LoomOrchestratorTestLayer`) and the real thread search over
+ * its database. Settings, provider catalogue and health are test layers;
+ * reports and briefs land in a temp state dir.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { EnvironmentId, ProviderInstanceId, type ThreadId } from "@t3tools/contracts";
@@ -17,6 +18,7 @@ import * as LoomGoalBroadcast from "../../../../loom/projection/LoomGoalBroadcas
 import { LoomOrchestratorTestLayer } from "../../../../loom/testkit/loomOrchestratorLayer.ts";
 import { LoomThreadConsult } from "../../../../loom/workstream/consult.ts";
 import * as ThreadLaunchService from "../../../../orchestration-v2/ThreadLaunchService.ts";
+import * as ThreadSearch from "../../../../orchestration-v2/ThreadSearch.ts";
 import { ProviderHealthRegistry } from "../../../../provider/ProviderHealthRegistry.ts";
 import { ProviderRegistry } from "../../../../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../../../../serverSettings.ts";
@@ -52,6 +54,8 @@ export const makeHandlerTestLayer = <E, R>(stubs: Layer.Layer<StubbedServices, E
     LoomGoalBroadcast.layer,
     // A goal-less root stays goal-less: no model behind the emergent goal here.
     Layer.succeed(EmergentGoals, { derive: () => Effect.void }),
+    // Lexical-only: no embedder in tests.
+    ThreadSearch.layer,
     stubs,
   ).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(NodeServices.layer));
 

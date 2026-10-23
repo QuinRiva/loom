@@ -8,7 +8,17 @@ import {
   TrimmedString,
 } from "./baseSchemas.ts";
 
-export const OrchestrationThreadSearchSource = Schema.Literals(["user", "assistant"]);
+// loom: every text unit loom's thread-content index holds; clients label the excerpt by source.
+export const OrchestrationThreadSearchSource = Schema.Literals([
+  "user",
+  "assistant",
+  "title",
+  "purpose",
+  "brief",
+  "goal",
+  "task",
+  "report",
+]);
 export type OrchestrationThreadSearchSource = typeof OrchestrationThreadSearchSource.Type;
 
 // The server's SQLite client is synchronous and single-connection. Bound both
@@ -16,15 +26,26 @@ export type OrchestrationThreadSearchSource = typeof OrchestrationThreadSearchSo
 export const OrchestrationSearchThreadsInput = Schema.Struct({
   query: TrimmedString.check(Schema.isMinLength(2), Schema.isMaxLength(200)),
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }))),
+  // loom: archived roots are searched unless this is false (default true).
+  includeArchived: Schema.optionalKey(Schema.Boolean),
+  // loom: one project's roots only; omitted, every project.
+  projectId: Schema.optionalKey(ProjectId),
 });
 export type OrchestrationSearchThreadsInput = typeof OrchestrationSearchThreadsInput.Type;
 
 export const OrchestrationThreadSearchMatch = Schema.Struct({
-  threadId: ThreadId,
+  threadId: ThreadId, // loom: always the ROOT thread
   projectId: ProjectId,
   source: OrchestrationThreadSearchSource,
   snippet: Schema.String.check(Schema.isMaxLength(240)),
   messageCreatedAt: Schema.NullOr(IsoDateTime),
+  // loom: enough to draw a result row without a shell (archived roots have none)
+  title: Schema.String,
+  archivedAt: Schema.NullOr(IsoDateTime),
+  updatedAt: IsoDateTime,
+  // loom: the sub-thread that produced the hit; null when the root itself did
+  matchedThreadId: Schema.NullOr(ThreadId),
+  matchedThreadTitle: Schema.NullOr(Schema.String),
 });
 export type OrchestrationThreadSearchMatch = typeof OrchestrationThreadSearchMatch.Type;
 

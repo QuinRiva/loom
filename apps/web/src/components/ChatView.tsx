@@ -461,6 +461,7 @@ import { useRightPanelSurfaceClose } from "../hooks/useRightPanelSurfaceClose";
 import { useAgentOpenedPreviews } from "./preview/useAgentOpenedPreviews";
 import type { ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import { ThreadStatusLine } from "./chat/ThreadStatusLine";
+import { ArchivedThreadStatusLine } from "../loom/ArchivedThreadStatusLine"; // loom: archived roots
 import { formatRelativeTimeLabel, formatRelativeTimeUntilLabel } from "../timestampFormat";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import { resolveThreadSyncPhase } from "../threadSync";
@@ -5296,6 +5297,19 @@ export default function ChatView(props: ChatViewProps) {
       onAction={acknowledgeActiveThreadWokeStable}
     />
   ) : null;
+  // loom: an archived root opened from thread search says so, with the way back
+  const archivedAt = activeThreadShell?.archivedAt ?? null;
+  const loomThreadStatusLine =
+    archivedAt !== null && activeThreadRef ? (
+      <ArchivedThreadStatusLine
+        threadRef={activeThreadRef}
+        archivedAt={archivedAt}
+        clockMinute={nowMinute}
+        disabled={!canOperateThread}
+      />
+    ) : (
+      threadStatusLine
+    );
   const activeThreadHasCompactableConversation = serverVisibleTurnItems.some(
     ({ item }) =>
       item.type === "user_message" &&
@@ -8067,7 +8081,7 @@ export default function ChatView(props: ChatViewProps) {
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
                 footer={
                   paintOnlyDisplayedTimeline ? null : pendingHandoff === null ? (
-                    threadStatusLine
+                    loomThreadStatusLine // loom: archived roots
                   ) : (
                     <>
                       <div className="chat-content-lane">
@@ -8077,7 +8091,7 @@ export default function ChatView(props: ChatViewProps) {
                           pending
                         />
                       </div>
-                      {threadStatusLine}
+                      {loomThreadStatusLine /* loom: archived roots */}
                     </>
                   )
                 }

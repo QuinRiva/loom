@@ -98,6 +98,13 @@ export const LOOM_TOOL_PROSE = {
       "ask another thread a read-only question (answered from a frozen fork) by id, @-mention, or name; a child's first stop for anything its brief leaves unsettled is its parent.",
     promptGuidelines: "",
   },
+  thread_search: {
+    description:
+      "Find the past thread where something was discussed, decided or built: it searches every thread's title, purpose, brief, goal and tasks, the human's and the orchestrator's messages, each turn's final answer and every workstream report, archived threads included, by meaning as well as by words, and returns top-level threads best-first with the sub-thread and the kind of text that matched. A short phrase in the words the thread would have used finds more than a long keyword bag; a ticket, file or PR name matches exactly. Each hit carries the report path of the thread that matched, the distilled record to read first; for what the report leaves open, mcp__t3-code__consult_thread asks that thread directly.",
+    promptSnippet:
+      "find the past thread where something was discussed or decided, by meaning or exact identifier, archived included; hits carry the matched thread's report path.",
+    promptGuidelines: "",
+  },
   notify_thread: {
     description:
       "Push a markdown message into any other live thread, across trees, worktrees and projects: it steers a busy recipient or starts an idle one, never aborts a turn, and earns no reply. Use it to tell a thread something it is waiting to hear. For an answer, mcp__t3-code__consult_thread; to direct your own child, mcp__t3-code__workstream_prompt. A sender-to-target pair is capped at a few messages an hour, which a back-and-forth exchange hits.",

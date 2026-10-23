@@ -181,9 +181,15 @@ The linked pull request participates in automatic settlement.
 
 ## Find and reference work
 
-On web and desktop, open the command palette with `Cmd/Ctrl+K` to search threads
-across connected environments. Message search starts after two characters and
-includes your messages and final agent responses.
+Search threads from the sidebar's search field or, on web and desktop, the
+command palette (`Cmd/Ctrl+K`), across connected environments. <!-- loom: thread-content search -->
+Search starts after two characters and looks past titles into your messages,
+final agent responses, goals and tasks, and the briefs and reports of every
+sub-thread, matching related wordings as well as exact ones. Each result is the
+top-level thread, best match first, with an excerpt saying where the words were
+found (for example "Sub-thread: Review · Report:"). Archived threads are
+included and marked **Archived**; opening one shows it without unarchiving it,
+and **Unarchive** under the conversation brings it back.
 
 Use **Settings → Keybindings** to find or customize shortcuts for searching files
 and copying a thread reference. A copied reference uses the thread's pull request

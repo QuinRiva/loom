@@ -26,6 +26,7 @@ import {
   LoomRouteKind,
   WorkOutcomeRecord,
 } from "./orchestrationV2.loom.ts";
+import { OrchestrationV2ThreadShell } from "./orchestrationV2.ts";
 import {
   UsageLimitSourceError,
   UsageLimitSourceLoginFinishInput,
@@ -56,6 +57,8 @@ export const LOOM_WS_METHODS = {
   consultCancel: "loom.consult.cancel",
   // The workstream surface's Prompt button: where a thread's captured system prompt is.
   promptCapture: "loom.promptCapture",
+  // Thread search: the shell of a thread the shell stream does not carry (an archived root).
+  threadShell: "loom.threadShell",
   // The hub login reminder's Log in… dialog: cliproxy's OAuth flow, run by the server.
   usageLimitSourceLoginStart: "usageLimitSource.login.start",
   usageLimitSourceLoginFinish: "usageLimitSource.login.finish",
@@ -247,6 +250,18 @@ export const LoomPromptCaptureResult = Schema.Struct({
 });
 export type LoomPromptCaptureResult = typeof LoomPromptCaptureResult.Type;
 
+/**
+ * `loom.threadShell`: one thread's shell, archived included, or null when it
+ * does not exist. The shell stream drops archived threads, so a client opening
+ * an archived root from thread search asks for its shell here.
+ */
+export const LoomThreadShellInput = Schema.Struct({ threadId: ThreadId });
+export type LoomThreadShellInput = typeof LoomThreadShellInput.Type;
+export const LoomThreadShellResult = Schema.Struct({
+  thread: Schema.NullOr(OrchestrationV2ThreadShell),
+});
+export type LoomThreadShellResult = typeof LoomThreadShellResult.Type;
+
 /** `repo` (the worktree's own git) · `nested_repo` (a repository inside it) · `artifact_path` (a declared ignored folder). */
 export const LoomReviewSourceKind = Schema.Literals(["repo", "nested_repo", "artifact_path"]);
 export type LoomReviewSourceKind = typeof LoomReviewSourceKind.Type;
@@ -397,6 +412,11 @@ export const LoomWsRpcs = [
   Rpc.make(LOOM_WS_METHODS.promptCapture, {
     payload: LoomPromptCaptureInput,
     success: LoomPromptCaptureResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.threadShell, {
+    payload: LoomThreadShellInput,
+    success: LoomThreadShellResult,
     error: LoomWsError,
   }),
   Rpc.make(LOOM_WS_METHODS.reviewIntervals, {

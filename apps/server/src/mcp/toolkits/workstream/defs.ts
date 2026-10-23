@@ -1,5 +1,5 @@
 /**
- * The 22 Loom tools served on `/mcp`: input schema, error mode and hints per
+ * The 23 Loom tools served on `/mcp`: input schema, error mode and hints per
  * tool, with the prose (description, snippet) read from `prose.ts`. The
  * Effect schema is the single source: handlers receive its
  * decoded type and `parameters` (the JSON schema `tools/list` serves) is
@@ -341,6 +341,27 @@ const LOOM_TOOL_SPECS = {
     }),
     "throw",
     { readOnly: true },
+  ),
+  thread_search: spec(
+    "Search Threads",
+    Schema.Struct({
+      query: described(
+        Schema.String.check(Schema.isMinLength(2), Schema.isMaxLength(200)),
+        "What you remember of it, in the words the thread would have used: a ruling, a symptom, a ticket or file name.",
+      ),
+      limit: Schema.optionalKey(
+        described(
+          Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 })),
+          "Roots to return, best-first. Default 10.",
+        ),
+      ),
+      projectId: optionalText("Narrow to one project. Omitted, every project this server holds."),
+      includeArchived: Schema.optionalKey(
+        described(Schema.Boolean, "Default true. False drops archived roots and their subtrees."),
+      ),
+    }),
+    "throw",
+    { readOnly: true, idempotent: true },
   ),
   notify_thread: spec(
     "Notify Thread",

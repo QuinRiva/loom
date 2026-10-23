@@ -3,8 +3,8 @@ import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state
 import { memo } from "react";
 import { View } from "react-native";
 
-import { AppText as Text } from "../../components/AppText";
-import { RowPressable } from "../../components/RowPressable";
+import { AppText as Text } from "../../components/ui/AppText";
+import { RowPressable } from "../../components/ui/RowPressable";
 import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/time";
 import { selectedThreadRowColors, THREAD_LIST_V2_MONO_FONT } from "./thread-list-v2-row-appearance";

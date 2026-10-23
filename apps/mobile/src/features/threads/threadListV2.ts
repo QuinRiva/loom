@@ -10,7 +10,10 @@ import {
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
-import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+import {
+  threadSearchMatchKey,
+  type EnvironmentThreadSearchMatch, // loom: archived search rows
+} from "@t3tools/client-runtime/state/thread-search";
 import {
   createInboxReturnTracker,
   isThreadWorking,
@@ -24,6 +27,7 @@ import {
   sortSettledThreads,
 } from "@t3tools/client-runtime/state/thread-sort";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { shelllessArchivedMatches } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom
 
 import type { ThreadListProvider } from "../../state/thread-list-environments";
 import type { ThreadMoveAvailability } from "./threadOrder";
@@ -313,12 +317,36 @@ export interface ThreadListV2SettledShelfListItem {
   readonly disabled: boolean;
 }
 
+// loom: a thread-search hit on an archived root, which has no shell; drawn from the match.
+export interface ThreadListV2SearchArchivedListItem {
+  readonly type: "v2-search-archived";
+  readonly key: string;
+  readonly match: EnvironmentThreadSearchMatch;
+}
+
 export type ThreadListV2ListItem =
   | ThreadListV2ThreadListItem
   | ThreadListV2PendingListItem
   | ThreadListV2WorkingShelfListItem
   | ThreadListV2SnoozedShelfListItem
-  | ThreadListV2SettledShelfListItem;
+  | ThreadListV2SettledShelfListItem
+  | ThreadListV2SearchArchivedListItem; // loom
+
+// loom: archived roots the search returned, after the list's own rows, in server order.
+export function threadListV2SearchArchivedItems(
+  matches: ReadonlyArray<EnvironmentThreadSearchMatch>,
+  projectKeys: ReadonlySet<string> | null,
+): ThreadListV2SearchArchivedListItem[] {
+  return shelllessArchivedMatches({
+    matches,
+    isInScope: (match) =>
+      projectKeys === null || projectKeys.has(`${match.environmentId}:${match.projectId}`),
+  }).map((match) => ({
+    type: "v2-search-archived",
+    key: `v2-search-archived:${threadSearchMatchKey(match)}`,
+    match,
+  }));
+}
 
 export function isThreadListV2ListItem(value: {
   readonly type: string;
@@ -328,7 +356,8 @@ export function isThreadListV2ListItem(value: {
     value.type === "v2-pending" ||
     value.type === "v2-working-shelf" ||
     value.type === "v2-snoozed-shelf" ||
-    value.type === "v2-settled-shelf"
+    value.type === "v2-settled-shelf" ||
+    value.type === "v2-search-archived" // loom
   );
 }
 
@@ -387,6 +416,8 @@ export function threadListV2ListItemsAreEqual(
         previous.expanded === item.expanded &&
         previous.disabled === item.disabled
       );
+    case "v2-search-archived": // loom
+      return previous.type === "v2-search-archived" && previous.match === item.match;
   }
 }
 

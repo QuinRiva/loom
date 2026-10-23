@@ -9,6 +9,7 @@ import {
   type EnvironmentThreadState,
   createThreadEnvironmentAtoms,
 } from "@t3tools/client-runtime/state/threads";
+import { createShelllessThreadAtoms } from "@t3tools/client-runtime/state/loom/shelllessThreads"; // loom
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -25,9 +26,11 @@ const environmentThreads = createEnvironmentThreadStateAtoms(connectionAtomRunti
 export const environmentThreadDetails = createEnvironmentThreadDetailAtoms(
   environmentThreads.stateAtom,
 );
+// loom: archived roots opened from thread search join the shells (state/loom/shelllessThreads)
+export const shelllessThreads = createShelllessThreadAtoms(connectionAtomRuntime);
 export const environmentThreadShells = createEnvironmentThreadShellAtoms({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
-  snapshotAtom: threadEnvironment.snapshotAtom,
+  snapshotAtom: shelllessThreads.withShelllessThreads(threadEnvironment.snapshotAtom), // loom
 });
 
 const EMPTY_THREAD_STATE_ATOM = Atom.make(AsyncResult.success(EMPTY_ENVIRONMENT_THREAD_STATE)).pipe(
