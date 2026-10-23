@@ -41,6 +41,7 @@ import {
 const COMPOSER_PATH_SEARCH_DEBOUNCE_MS = 200;
 const COMPOSER_PATH_SEARCH_LIMIT = 20;
 const THREAD_SEARCH_DEBOUNCE_MS = 200;
+const THREAD_SEARCH_LIMIT = 30; // loom: roots per environment
 const VCS_REF_LIST_LIMIT = 100;
 const EMPTY_REFS: ReadonlyArray<VcsRef> = [];
 const INITIAL_BRANCH_CURSORS = [undefined] as const;
@@ -54,7 +55,7 @@ const threadSearchResultsAtom = createThreadSearchResultsAtomFamily({
   getSearchAtom: (environmentId, query) =>
     orchestrationEnvironment.threadSearch({
       environmentId,
-      input: { query },
+      input: { query, limit: THREAD_SEARCH_LIMIT }, // loom: roots, best-first
     }),
   labelPrefix: "mobile:thread-search",
 });

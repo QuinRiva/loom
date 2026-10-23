@@ -37,6 +37,7 @@ const COMPOSER_PATH_SEARCH_LIMIT = 80;
 const PROJECT_CONTENT_SEARCH_DEBOUNCE_MS = 120;
 const PROJECT_CONTENT_SEARCH_LIMIT = 500;
 const THREAD_SEARCH_DEBOUNCE_MS = 200;
+const THREAD_SEARCH_LIMIT = 30; // loom: roots per environment
 const VCS_REF_LIST_LIMIT = 100;
 const EMPTY_REFS: ReadonlyArray<VcsRef> = [];
 const EMPTY_PROJECT_ENTRIES: ReadonlyArray<ProjectEntry> = [];
@@ -52,7 +53,7 @@ const threadSearchResultsAtom = createThreadSearchResultsAtomFamily({
   getSearchAtom: (environmentId, query) =>
     orchestrationEnvironment.threadSearch({
       environmentId,
-      input: { query },
+      input: { query, limit: THREAD_SEARCH_LIMIT }, // loom: roots, best-first
     }),
   labelPrefix: "web:thread-search",
 });

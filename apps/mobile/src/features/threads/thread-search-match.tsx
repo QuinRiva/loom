@@ -1,4 +1,8 @@
-import { splitThreadSearchText } from "@t3tools/shared/threadSearch";
+// loom: every indexed source, labelled; highlighting is per query token (the server stems)
+import {
+  threadSearchExcerptLabel,
+  threadSearchHighlightParts,
+} from "@t3tools/client-runtime/state/loom/threadSearch";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
 
 import { AppText as Text } from "../../components/ui/AppText";
@@ -11,8 +15,11 @@ export function ThreadSearchMatchExcerpt(props: {
   readonly compact?: boolean;
   readonly sidebar?: boolean;
 }) {
+  // loom: a hit on the root's own title has no label; the row already shows the title
+  const label = threadSearchExcerptLabel(props.match);
+  if (label === null) return null;
   const isUser = props.match.source === "user";
-  const parts = splitThreadSearchText(props.match.snippet, props.query);
+  const parts = threadSearchHighlightParts(props.match.snippet, props.query); // loom
   return (
     <Text
       className={cn(
@@ -37,7 +44,7 @@ export function ThreadSearchMatchExcerpt(props: {
               : "text-adaptive-emerald-600-400",
         )}
       >
-        {isUser ? "You:" : "Agent:"}{" "}
+        {label}{" "}
       </Text>
       {parts.map((part) => (
         <Text

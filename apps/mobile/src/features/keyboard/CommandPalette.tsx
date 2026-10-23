@@ -1,5 +1,6 @@
 import { useNavigation } from "@react-navigation/native";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
+import { threadSearchExcerptLabel } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom
 import { THREAD_JUMP_KEYBINDING_COMMANDS } from "@t3tools/contracts";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -105,9 +106,19 @@ function PaletteRow(props: {
         />
       </View>
       <View className="flex-1">
-        <Text numberOfLines={1} className={cn("text-base", foregroundClassName)}>
-          {props.item.title}
-        </Text>
+        <View className="flex-row items-center gap-2">
+          <Text numberOfLines={1} className={cn("shrink text-base", foregroundClassName)}>
+            {props.item.title}
+          </Text>
+          {props.item.archived ? (
+            // loom: an archived root, found by content search
+            <View className="rounded-full border border-border-subtle px-1.5 py-0.5">
+              <Text className={cn("text-3xs font-t3-bold", mutedForegroundClassName)}>
+                Archived
+              </Text>
+            </View>
+          ) : null}
+        </View>
         {props.searchMatch ? (
           <ThreadSearchMatchExcerpt
             match={props.searchMatch}
@@ -169,11 +180,12 @@ export function CommandPalette(props: {
       new Set(search.matches.map((match) => scopedThreadKey(match.environmentId, match.threadId))),
     [search.matches],
   );
+  // loom: every indexed source; a hit on the root's own title adds no excerpt
   const contentMatchByKey = useMemo(
     () =>
       new Map(
         search.matches
-          .filter((match) => match.source === "user" || match.source === "assistant")
+          .filter((match) => threadSearchExcerptLabel(match) !== null)
           .map((match) => [scopedThreadKey(match.environmentId, match.threadId), match]),
       ),
     [search.matches],
@@ -342,7 +354,22 @@ export function CommandPalette(props: {
           run: () => selectThread(thread),
         };
       });
-    return [...actions, ...projectItems, ...threadItems];
+    // loom: archived roots have no shell, so their search hits become items built from the match
+    const archivedItems = search.matches.flatMap((match): CommandPaletteItem[] =>
+      match.archivedAt === null
+        ? []
+        : [
+            {
+              key: scopedThreadKey(match.environmentId, match.threadId),
+              kind: "thread",
+              title: match.title || "Untitled thread",
+              archived: true,
+              searchTerms: [],
+              run: () => selectThread({ environmentId: match.environmentId, id: match.threadId }),
+            },
+          ],
+    );
+    return [...actions, ...projectItems, ...threadItems, ...archivedItems];
   }, [
     activeThread,
     activeThreadRef,
@@ -350,6 +377,7 @@ export function CommandPalette(props: {
     projects,
     runCommand,
     savedConnectionsById,
+    search.matches, // loom
     selectThread,
     threads,
   ]);

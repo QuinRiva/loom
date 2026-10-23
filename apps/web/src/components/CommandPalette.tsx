@@ -190,6 +190,7 @@ import {
   type CommandPaletteOpenIntent,
   type CommandPaletteProject,
   type CommandPaletteSubmenuItem,
+  type CommandPaletteThreadContentMatch, // loom
   type CommandPaletteView,
   filterCommandPaletteGroups,
   filterPinnedBrowseEntries,
@@ -249,6 +250,8 @@ import {
 } from "../sidebarProjectGrouping";
 import type { Project } from "../types";
 import { CacheFuelRing } from "../loom/CacheFuelRing"; // loom: prompt-cache liveness
+import { ArchivedBadge } from "../loom/ArchivedSearchResultRow"; // loom: archived content hits
+import { formatRelativeTimeLabel } from "../timestampFormat"; // loom: archived content hits
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
@@ -397,12 +400,19 @@ function useThreadSearchWithContentMatches(
   query: string,
 ) {
   const threadSearch = useThreadSearch(environmentIds, query);
+  // loom: every source counts, and each root keeps its server rank position.
   const contentMatchByKey = new Map(
-    threadSearch.matches.flatMap((match) =>
-      match.source === "user" || match.source === "assistant"
-        ? [[threadSearchMatchKey(match), match] as const]
-        : [],
-    ),
+    threadSearch.matches.map((match, position) => {
+      const contentMatch: CommandPaletteThreadContentMatch = {
+        source: match.source,
+        snippet: match.snippet,
+        matchedThreadId: match.matchedThreadId,
+        matchedThreadTitle: match.matchedThreadTitle,
+        query: threadSearch.query,
+        position,
+      };
+      return [threadSearchMatchKey(match), { match, contentMatch }] as const;
+    }),
   );
   return { threadSearch, contentMatchByKey };
 }
@@ -1266,21 +1276,14 @@ function OpenCommandPaletteDialog(props: {
         />
       );
     },
-    getContentMatch: (thread) => {
-      const match = threadContentMatchByKey.get(
+    // loom: keyed by ROOT id, so only root items ever carry a content hit.
+    getContentMatch: (thread) =>
+      threadContentMatchByKey.get(
         threadSearchMatchKey({
           environmentId: thread.environmentId,
           threadId: thread.id,
         }),
-      );
-      return match && (match.source === "user" || match.source === "assistant")
-        ? {
-            source: match.source,
-            snippet: match.snippet,
-            query: threadSearch.query,
-          }
-        : undefined;
-    },
+      )?.contentMatch,
     runThread: async (thread) => {
       await navigate({
         to: "/$environmentId/$threadId",
@@ -1289,6 +1292,34 @@ function OpenCommandPaletteDialog(props: {
     },
   });
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
+  // loom: archived roots have no shell, so their content hits become items
+  // built from the match itself.
+  const archivedThreadSearchItems = [...threadContentMatchByKey.values()].flatMap(
+    ({ match, contentMatch }): CommandPaletteActionItem[] =>
+      match.archivedAt === null
+        ? []
+        : [
+            {
+              kind: "action",
+              value: `thread:${match.threadId}`,
+              searchTerms: [match.title, contentMatch.snippet],
+              title: match.title || "Untitled thread",
+              description: projectTitleById.get(match.projectId) ?? "",
+              threadContentMatch: contentMatch,
+              timestamp: formatRelativeTimeLabel(match.updatedAt),
+              icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+              titleTrailingContent: <ArchivedBadge />,
+              run: async () => {
+                await navigate({
+                  to: "/$environmentId/$threadId",
+                  params: buildThreadRouteParams(
+                    scopeThreadRef(match.environmentId, match.threadId),
+                  ),
+                });
+              },
+            },
+          ],
+  );
 
   // Stable so the item builders that capture it during render never see the
   // highlight ref it writes.
@@ -2170,7 +2201,7 @@ function OpenCommandPaletteDialog(props: {
               });
             },
           })
-        : allThreadItems,
+        : [...allThreadItems, ...archivedThreadSearchItems], // loom: + archived roots
   });
 
   const handleAddProjectForEnvironment = async (input: {

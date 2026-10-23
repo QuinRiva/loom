@@ -1,44 +1,13 @@
-import type { OrchestrationThreadSearchSource } from "@t3tools/contracts";
-
-function foldAsciiCase(value: string): string {
-  return value.replace(/[A-Z]/g, (character) => character.toLowerCase());
-}
+// loom: every indexed source, labelled; highlighting is per query token (the server stems)
+import {
+  threadSearchExcerptLabel,
+  threadSearchHighlightParts,
+} from "@t3tools/client-runtime/state/loom/threadSearch";
+import type { OrchestrationThreadSearchMatch } from "@t3tools/contracts";
 
 function HighlightedSearchText(props: { text: string; query: string }) {
-  const query = props.query.trim();
-  if (query.length === 0) return props.text;
-
-  const normalizedText = foldAsciiCase(props.text);
-  const normalizedQuery = foldAsciiCase(query);
-  const parts: Array<{
-    readonly text: string;
-    readonly highlighted: boolean;
-    readonly start: number;
-  }> = [];
-  let cursor = 0;
-
-  while (cursor < props.text.length) {
-    const matchIndex = normalizedText.indexOf(normalizedQuery, cursor);
-    if (matchIndex === -1) {
-      parts.push({ text: props.text.slice(cursor), highlighted: false, start: cursor });
-      break;
-    }
-    if (matchIndex > cursor) {
-      parts.push({
-        text: props.text.slice(cursor, matchIndex),
-        highlighted: false,
-        start: cursor,
-      });
-    }
-    parts.push({
-      text: props.text.slice(matchIndex, matchIndex + query.length),
-      highlighted: true,
-      start: matchIndex,
-    });
-    cursor = matchIndex + query.length;
-  }
-
-  return parts.map((part) =>
+  // loom: per-token prefix highlight; a stemmed or semantic hit need not contain the query
+  return threadSearchHighlightParts(props.text, props.query).map((part) =>
     part.highlighted ? (
       <mark className="bg-transparent font-semibold text-foreground" key={part.start}>
         {part.text}
@@ -50,18 +19,19 @@ function HighlightedSearchText(props: { text: string; query: string }) {
 }
 
 export function ThreadSearchMatchExcerpt(props: {
-  match: {
-    readonly source: OrchestrationThreadSearchSource; // loom: widened; per-source labels land with the search surfaces
-    readonly snippet: string;
-    readonly query: string;
-  };
+  // loom: every source, plus the sub-thread that produced the hit
+  match: Pick<
+    OrchestrationThreadSearchMatch,
+    "source" | "snippet" | "matchedThreadId" | "matchedThreadTitle"
+  > & { readonly query: string };
 }) {
+  // loom: a hit on the root's own title has no label; the row already shows the title
+  const label = threadSearchExcerptLabel(props.match);
+  if (label === null) return null;
   const isUser = props.match.source === "user";
   return (
     <span className="truncate text-xs text-muted-foreground/85">
-      <span className={isUser ? "text-info-foreground" : "text-success-foreground"}>
-        {isUser ? "You:" : "Agent:"}
-      </span>{" "}
+      <span className={isUser ? "text-info-foreground" : "text-success-foreground"}>{label}</span>{" "}
       <HighlightedSearchText text={props.match.snippet} query={props.match.query} />
     </span>
   );

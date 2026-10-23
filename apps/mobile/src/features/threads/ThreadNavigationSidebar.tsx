@@ -10,6 +10,7 @@ import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,
 } from "@t3tools/client-runtime/state/thread-search";
+import { threadSearchExcerptLabel } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom
 import { LegendList } from "@legendapp/list/react-native";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useAtomValue } from "@effect/atom-react";
@@ -76,7 +77,9 @@ import {
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
+  threadListV2SearchArchivedItems, // loom
 } from "./threadListV2";
+import { ArchivedSearchResultRow } from "./ArchivedSearchResultRow.loom"; // loom
 
 type SidebarListItem =
   | ThreadListV2ListItem
@@ -93,7 +96,8 @@ interface ThreadNavigationSidebarProps {
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
   readonly onSearchQueryChange: (query: string) => void;
-  readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+  // loom: by id, so an archived search hit (no shell) opens too
+  readonly onSelectThread: (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => void;
   readonly onOpenThreadPullRequests: (
     thread: EnvironmentThreadShell,
     pr: ThreadPrPresentation,
@@ -180,15 +184,12 @@ function ThreadNavigationSidebarPane(
         ? [options.selectedEnvironmentId]
         : [];
   const threadSearch = useThreadSearch(searchEnvironmentIds, props.searchQuery);
-  const threadSearchMatchByKey = (() => {
-    const matches = new Map<string, EnvironmentThreadSearchMatch>();
-    for (const match of threadSearch.matches) {
-      if (match.source === "user" || match.source === "assistant") {
-        matches.set(threadSearchMatchKey(match), match);
-      }
-    }
-    return matches;
-  })();
+  // loom: every indexed source; a hit on the root's own title adds no excerpt
+  const threadSearchMatchByKey = new Map<string, EnvironmentThreadSearchMatch>(
+    threadSearch.matches
+      .filter((match) => threadSearchExcerptLabel(match) !== null)
+      .map((match) => [threadSearchMatchKey(match), match]),
+  );
   const matchedThreadKeys = new Set(threadSearch.matches.map(threadSearchMatchKey));
   const projectScopeKey = options.selectedProjectKey;
   const resolvedProjectKey = resolveScratchProjectScopeKey(projectScopeKey, projects, {
@@ -376,6 +377,10 @@ function ThreadNavigationSidebarPane(
       moveAvailability: threadMoveAvailability,
       shelfPreferencesLoading: !shelfPreferencesLoaded,
     });
+    // loom: archived roots the search returned have no shell; they follow the list's rows, above Show more
+    if (props.searchQuery.trim().length > 0) {
+      items.push(...threadListV2SearchArchivedItems(threadSearch.matches, selectedProjectRefs));
+    }
     if (settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0) {
       items.push({
         type: "v2-show-more",
@@ -487,7 +492,7 @@ function ThreadNavigationSidebarPane(
   // These close the open row too, so they cannot be pass-throughs. The compiler would
   // recache a closure over `props` whenever any prop changed.
   const { onSelectThread, onOpenThreadPullRequests } = props;
-  const handleSelectThread = (thread: EnvironmentThreadShell) => {
+  const handleSelectThread = (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => {
     onSelectThread(thread);
     openSwipeableRef.current?.close();
   };
@@ -669,6 +674,20 @@ function ThreadNavigationSidebarPane(
             pane="sidebar"
           />
         );
+      case "v2-search-archived":
+        // loom: an archived root's search hit, drawn from the match
+        return (
+          <ArchivedSearchResultRow
+            match={item.match}
+            searchQuery={props.searchQuery}
+            pane="sidebar"
+            selected={
+              scopedThreadKey(item.match.environmentId, item.match.threadId) ===
+              props.selectedThreadKey
+            }
+            onSelectThread={handleSelectThread}
+          />
+        );
       case "v2-show-more":
         return (
           <ThreadListV2ShowMoreRow
@@ -710,7 +729,7 @@ function ThreadNavigationSidebarPane(
           ? "No environments connected"
           : props.searchQuery.trim().length > 0
             ? threadSearch.isPending
-              ? "Searching thread messages…"
+              ? "Searching threads…" // loom: more than messages
               : "No matching threads"
             : selectedProjectScope !== null
               ? `No threads in ${selectedProjectScope.title}`

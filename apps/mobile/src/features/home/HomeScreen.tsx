@@ -11,6 +11,7 @@ import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,
 } from "@t3tools/client-runtime/state/thread-search";
+import { threadSearchExcerptLabel } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom
 import { type EnvironmentId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
@@ -74,7 +75,9 @@ import {
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
+  threadListV2SearchArchivedItems, // loom
 } from "../threads/threadListV2";
+import { ArchivedSearchResultRow } from "../threads/ArchivedSearchResultRow.loom"; // loom
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
 import {
@@ -108,7 +111,8 @@ interface HomeScreenProps {
   readonly onAddConnection: () => void;
   readonly onOpenSettings: () => void;
   readonly onStartNewTask: () => void;
-  readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+  // loom: by id, so an archived search hit (no shell) opens too
+  readonly onSelectThread: (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
   readonly onSettleThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
@@ -300,15 +304,12 @@ export function HomeScreen(props: HomeScreenProps) {
         ? [props.selectedEnvironmentId]
         : [];
   const threadSearch = useThreadSearch(searchEnvironmentIds, props.searchQuery);
-  const threadSearchMatchByKey = (() => {
-    const matches = new Map<string, EnvironmentThreadSearchMatch>();
-    for (const match of threadSearch.matches) {
-      if (match.source === "user" || match.source === "assistant") {
-        matches.set(threadSearchMatchKey(match), match);
-      }
-    }
-    return matches;
-  })();
+  // loom: every indexed source; a hit on the root's own title adds no excerpt
+  const threadSearchMatchByKey = new Map<string, EnvironmentThreadSearchMatch>(
+    threadSearch.matches
+      .filter((match) => threadSearchExcerptLabel(match) !== null)
+      .map((match) => [threadSearchMatchKey(match), match]),
+  );
   const matchedThreadKeys = new Set(threadSearch.matches.map(threadSearchMatchKey));
   const handleSwipeableWillOpen = (methods: SwipeableMethods) => {
     if (openSwipeableRef.current !== methods) {
@@ -563,6 +564,12 @@ export function HomeScreen(props: HomeScreenProps) {
     moveAvailability: threadMoveAvailability,
     shelfPreferencesLoading: !shelfPreferencesLoaded,
   });
+  // loom: archived roots the search returned have no shell; they follow the list's rows
+  if (hasSearchQuery) {
+    threadListV2Items.push(
+      ...threadListV2SearchArchivedItems(threadSearch.matches, v2ScopedProjectKeys),
+    );
+  }
 
   useThreadJumpShortcuts(threadListV2Items, props.onSelectThread);
   useEffect(() => {
@@ -621,6 +628,20 @@ export function HomeScreen(props: HomeScreenProps) {
           disabled={item.disabled}
           expanded={item.expanded}
           onToggle={toggleSettledShelf}
+        />
+      );
+    }
+    if (item.type === "v2-search-archived") {
+      // loom: an archived root's search hit, drawn from the match
+      return (
+        <ArchivedSearchResultRow
+          match={item.match}
+          searchQuery={props.searchQuery}
+          {...(primaryColumn ? { pane: "sidebar" as const } : {})}
+          selected={
+            scopedThreadKey(item.match.environmentId, item.match.threadId) === selectedThreadKey
+          }
+          onSelectThread={props.onSelectThread}
         />
       );
     }

@@ -16,6 +16,7 @@ import {
   reduceCommandPaletteUiState,
   type CommandPaletteActionItem,
   type CommandPaletteGroup,
+  type CommandPaletteThreadContentMatch, // loom
 } from "./CommandPalette.logic";
 
 describe("linked pull request thread navigation", () => {
@@ -319,6 +320,21 @@ function makeProject(overrides: Partial<Project> = {}): Project {
   };
 }
 
+// loom: a server content hit as the palette carries it
+function contentMatch(
+  overrides: Partial<CommandPaletteThreadContentMatch> = {},
+): CommandPaletteThreadContentMatch {
+  return {
+    source: "user",
+    snippet: "",
+    matchedThreadId: null,
+    matchedThreadTitle: null,
+    query: "convex",
+    position: 0,
+    ...overrides,
+  };
+}
+
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return makeThreadFixture({
     id: ThreadId.make("thread-1"),
@@ -466,10 +482,14 @@ describe("buildThreadActionItems", () => {
       projectTitleById: new Map([[PROJECT_ID, "T3 Code"]]),
       sortOrder: "created_at",
       icon: null,
+      // loom: the server ranked recent-content first and old-prefix second;
+      // recent-title is a local-only title hit.
       getContentMatch: (thread) =>
         thread.id === ThreadId.make("recent-content")
-          ? { source: "user", snippet: "Please check Convex", query: "convex" }
-          : undefined,
+          ? contentMatch({ snippet: "Please check the cursor", position: 0 })
+          : thread.id === ThreadId.make("old-prefix")
+            ? contentMatch({ source: "title", snippet: thread.title, position: 1 })
+            : undefined,
       runThread: async () => undefined,
     });
 
@@ -481,10 +501,12 @@ describe("buildThreadActionItems", () => {
       threadSearchItems: items,
     });
 
+    // loom: content hits lead in server order (recent-content lacks the literal
+    // token yet survives the filter); local-only title hits follow.
     expect(groups[0]?.items.map((item) => item.value)).toEqual([
-      "thread:recent-title",
-      "thread:old-prefix",
       "thread:recent-content",
+      "thread:old-prefix",
+      "thread:recent-title",
     ]);
   });
 
@@ -615,20 +637,15 @@ describe("buildThreadActionItems", () => {
       projectTitleById: new Map([[PROJECT_ID, "T3 Code"]]),
       sortOrder: "updated_at",
       icon: null,
-      getContentMatch: () => ({
-        source: "assistant",
-        snippet: "The relay reconnect is now bounded.",
-        query: "reconnect",
-      }),
+      getContentMatch: () =>
+        contentMatch({ source: "assistant", snippet: "The relay reconnect is now bounded." }),
       runThread: async (_thread) => undefined,
     });
 
     expect(item?.searchTerms).toContain("The relay reconnect is now bounded.");
-    expect(item?.threadContentMatch).toEqual({
-      source: "assistant",
-      snippet: "The relay reconnect is now bounded.",
-      query: "reconnect",
-    });
+    expect(item?.threadContentMatch).toEqual(
+      contentMatch({ source: "assistant", snippet: "The relay reconnect is now bounded." }),
+    );
     expect(item?.description).toBe("T3 Code · #feat/search");
   });
 

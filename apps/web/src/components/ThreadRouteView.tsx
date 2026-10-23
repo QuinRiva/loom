@@ -17,6 +17,7 @@ import {
 // consolidation (the leaf routes that used to mount the strip are now inert).
 import { ThreadTabsStrip } from "../loom/ThreadTabsStrip";
 import { useThreadTabsSync } from "../loom/useThreadTabsSync";
+import { useAwaitingShelllessThread } from "../loom/useAwaitingShelllessThread"; // loom: archived roots
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { useEnvironmentThreadRefs, useThreadRefs, useQuietThreadShell } from "../state/entities";
 import { useEnvironmentShellStatus } from "../state/shell";
@@ -90,12 +91,19 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const environmentHasDraftThreads = useComposerDraftStore((store) =>
     serverThreadRef ? store.hasDraftThreadsInEnvironment(serverThreadRef.environmentId) : false,
   );
-  const renderState = resolveThreadRouteRenderState({
+  // loom: an archived root has no shell on the stream; wait while its own shell is fetched
+  const awaitingShelllessThread = useAwaitingShelllessThread(
+    target.kind === "server" ? target.threadRef : null,
+    { shellExists: serverThreadShell !== null, bootstrapComplete },
+  );
+  const resolvedRenderState = resolveThreadRouteRenderState({
     bootstrapComplete,
     serverThreadExists: serverThreadShell !== null,
     serverThreadDeleted: serverThreadShell?.deletedAt != null,
     draftThreadExists: draftThread !== null,
   });
+  const renderState =
+    resolvedRenderState === "missing" && awaitingShelllessThread ? "loading" : resolvedRenderState; // loom
   const serverThreadStarted = threadHasStarted(serverThreadShell);
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;
 

@@ -4,6 +4,7 @@ import {
   type EnvironmentId,
   type FilesystemBrowseEntry,
   type KeybindingCommand,
+  type OrchestrationThreadSearchMatch, // loom
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 import { filterFilesystemBrowseEntries } from "@t3tools/client-runtime/state/filesystem";
@@ -115,11 +116,15 @@ export function reduceCommandPaletteUiState(
   }
 }
 
-export interface CommandPaletteThreadContentMatch {
-  readonly source: "user" | "assistant";
-  readonly snippet: string;
+// loom: every indexed source, the sub-thread that produced the hit, and the
+// root's position in the server's fused ranking.
+export type CommandPaletteThreadContentMatch = Pick<
+  OrchestrationThreadSearchMatch,
+  "source" | "snippet" | "matchedThreadId" | "matchedThreadTitle"
+> & {
   readonly query: string;
-}
+  readonly position: number;
+};
 
 export interface CommandPaletteItem {
   readonly kind: "action" | "submenu";
@@ -472,7 +477,12 @@ export function filterCommandPaletteGroups(input: {
   return searchableGroups.flatMap((group) => {
     const items = Arr.filterMap(group.items, (item, index) => {
       const haystack = normalizeSearchText(item.searchTerms.join(" "));
-      if (!queryTokens.every((token) => haystack.includes(token))) {
+      // loom: the server already judged a content hit; stemmed or semantic, it
+      // may contain none of the typed words.
+      if (
+        item.threadContentMatch === undefined &&
+        !queryTokens.every((token) => haystack.includes(token))
+      ) {
         return Result.failVoid;
       }
 
@@ -485,6 +495,9 @@ export function filterCommandPaletteGroups(input: {
       .toSorted(
         (left, right) =>
           Number(left.item.secondary ?? false) - Number(right.item.secondary ?? false) ||
+          // loom: content hits lead in the server's order; local-only title hits follow.
+          (left.item.threadContentMatch?.position ?? Number.MAX_SAFE_INTEGER) -
+            (right.item.threadContentMatch?.position ?? Number.MAX_SAFE_INTEGER) ||
           right.rank - left.rank ||
           (right.item.searchRecency ?? 0) - (left.item.searchRecency ?? 0) ||
           left.index - right.index,
