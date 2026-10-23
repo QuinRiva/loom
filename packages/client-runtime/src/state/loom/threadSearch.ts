@@ -19,19 +19,26 @@ const SOURCE_LABEL = {
 } satisfies Record<OrchestrationThreadSearchSource, string>;
 
 /**
- * What an excerpt says about where a hit came from, or null when there is
- * nothing to add: a hit on the root's own title, which the row already shows.
+ * The kind of text an excerpt matched, or null when there is nothing to add:
+ * a hit on the root's own title, which the row already shows. A sub-thread
+ * hit names its sub-thread apart (`threadSearchMatchedSubThreadTitle`), so the
+ * snippet keeps the excerpt line.
  */
 export function threadSearchExcerptLabel(
+  match: Pick<EnvironmentThreadSearchMatch, "source" | "matchedThreadId">,
+): string | null {
+  if (match.source !== "title") return `${SOURCE_LABEL[match.source]}:`;
+  // A sub-thread title hit: the snippet is that title.
+  return match.matchedThreadId === null ? null : "Sub-thread:";
+}
+
+/** The sub-thread a non-title hit came from, for a line of its own; null for a root's own text. */
+export function threadSearchMatchedSubThreadTitle(
   match: Pick<EnvironmentThreadSearchMatch, "source" | "matchedThreadId" | "matchedThreadTitle">,
 ): string | null {
-  if (match.matchedThreadId === null) {
-    return match.source === "title" ? null : `${SOURCE_LABEL[match.source]}:`;
-  }
-  // A sub-thread title hit: the snippet is that title, so the label stands alone.
-  return match.source === "title"
-    ? "Sub-thread:"
-    : `Sub-thread: ${match.matchedThreadTitle ?? "Untitled"} · ${SOURCE_LABEL[match.source]}:`;
+  return match.matchedThreadId === null || match.source === "title"
+    ? null
+    : (match.matchedThreadTitle ?? "Untitled");
 }
 
 /**

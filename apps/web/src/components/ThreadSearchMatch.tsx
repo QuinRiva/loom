@@ -2,6 +2,7 @@
 import {
   threadSearchExcerptLabel,
   threadSearchHighlightParts,
+  threadSearchMatchedSubThreadTitle,
 } from "@t3tools/client-runtime/state/loom/threadSearch";
 import type { OrchestrationThreadSearchMatch } from "@t3tools/contracts";
 
@@ -29,10 +30,19 @@ export function ThreadSearchMatchExcerpt(props: {
   const label = threadSearchExcerptLabel(props.match);
   if (label === null) return null;
   const isUser = props.match.source === "user";
+  // loom: the sub-thread gets its own line so its title never crowds out the matched words
+  const subThreadTitle = threadSearchMatchedSubThreadTitle(props.match);
   return (
-    <span className="truncate text-xs text-muted-foreground/85">
-      <span className={isUser ? "text-info-foreground" : "text-success-foreground"}>{label}</span>{" "}
-      <HighlightedSearchText text={props.match.snippet} query={props.match.query} />
-    </span>
+    <>
+      <span className="truncate text-xs text-muted-foreground/85">
+        <span className={isUser ? "text-info-foreground" : "text-success-foreground"}>{label}</span>{" "}
+        <HighlightedSearchText text={props.match.snippet} query={props.match.query} />
+      </span>
+      {subThreadTitle === null ? null : (
+        <span className="truncate text-xs text-muted-foreground/60">
+          Sub-thread: {subThreadTitle}
+        </span>
+      )}
+    </>
   );
 }

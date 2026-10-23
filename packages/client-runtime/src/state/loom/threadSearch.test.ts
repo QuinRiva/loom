@@ -5,6 +5,7 @@ import type { EnvironmentThreadSearchMatch } from "../threadSearch.ts";
 import {
   rankThreadSearchResults,
   threadSearchExcerptLabel,
+  threadSearchMatchedSubThreadTitle,
   threadSearchHighlightParts,
 } from "./threadSearch.ts";
 
@@ -50,15 +51,13 @@ it("keeps the server's order, draws archived roots from the match, and appends l
 
 it("labels sub-thread hits and stays silent on the root's own title", () => {
   expect(threadSearchExcerptLabel(match("r", { source: "title" }))).toBeNull();
-  expect(
-    threadSearchExcerptLabel(
-      match("r", {
-        source: "report",
-        matchedThreadId: ThreadId.make("c"),
-        matchedThreadTitle: "C",
-      }),
-    ),
-  ).toBe("Sub-thread: C · Report:");
+  const subThreadReport = match("r", {
+    source: "report",
+    matchedThreadId: ThreadId.make("c"),
+    matchedThreadTitle: "C",
+  });
+  expect(threadSearchExcerptLabel(subThreadReport)).toBe("Report:");
+  expect(threadSearchMatchedSubThreadTitle(subThreadReport)).toBe("C");
 });
 
 it("highlights words that start with a query token, not mid-word fragments", () => {
