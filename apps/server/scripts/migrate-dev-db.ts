@@ -17,6 +17,7 @@ import { Command, Flag } from "effect/cli";
 
 import * as ProjectionStore from "../src/orchestration-v2/ProjectionStore.ts";
 import { migrationManifest, runMigrations } from "../src/persistence/Migrations.ts";
+import { rebuildThreadSearchIndex } from "../src/persistence/threadSearchIndex.loom.ts"; // loom
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 export class MigrateDevDbNotInWorktreeError extends Schema.TaggedError<MigrateDevDbNotInWorktreeError>()(
@@ -548,6 +549,15 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
           Layer.provideMerge(NodeSqliteClient.layer({ filename: snapshotPath })),
         ),
       ),
+      wrapPhase("prune", snapshotPath),
+    );
+    // loom: the copy renumbers rowids, which the thread-search index encodes, so rebuild it.
+    yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const indexed = yield* sql`SELECT 1 FROM sqlite_master WHERE name = 'loom_thread_search'`;
+      if (indexed.length > 0) yield* rebuildThreadSearchIndex;
+    }).pipe(
+      Effect.provide(NodeSqliteClient.layer({ filename: snapshotPath })),
       wrapPhase("prune", snapshotPath),
     );
 
