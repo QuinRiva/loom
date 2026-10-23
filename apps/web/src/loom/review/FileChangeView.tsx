@@ -19,7 +19,7 @@ import {
   parseDiffFromFile,
 } from "@pierre/diffs";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
-import { Columns2Icon, FileCode2Icon, PencilIcon, Rows3Icon } from "lucide-react";
+import { Columns2Icon, EyeIcon, FileCode2Icon, PencilIcon, Rows3Icon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -369,11 +369,14 @@ export function LoomFileChangeActions({
   threadRef,
   marks,
   editing,
+  rendered,
   onEditingChange,
 }: {
   threadRef: ScopedThreadRef;
   marks: LoomChangeMarks;
   editing: boolean;
+  /** The file renders (markdown, MDX, HTML, a table), so the way back is to the rendering. */
+  rendered: boolean;
   onEditingChange: (editing: boolean) => void;
 }) {
   const layout = useReviewBaselineStore((state) => state.fileChangeLayout);
@@ -399,6 +402,11 @@ export function LoomFileChangeActions({
       <Button size="xs" variant="outline" onClick={() => onEditingChange(!editing)}>
         {editing ? (
           "Show changes"
+        ) : rendered ? (
+          <>
+            <EyeIcon className="size-3.5" />
+            Rendered
+          </>
         ) : (
           <>
             <PencilIcon className="size-3.5" />

@@ -1276,19 +1276,25 @@ export default function FilePreviewPanel({
     !isPreviewSupportedInRuntime() &&
     isArtifactViewerPath(previewPath);
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
-  // loom: change review — a file the baseline marks opens whole, side by side, until Edit.
+  // loom: change review — a file the baseline marks opens whole, side by side, unless it is a
+  // document that renders (markdown, MDX, HTML, tables): one the agent just wrote is always
+  // changed, so it opens as a document (rendered or source, as preferred) and its changes are
+  // opt-in. Keyed on the file type, not `rendered`, so the source toggle never lands in the diff.
+  // An explicit choice holds while the file stays open.
   const loomMarks = useLoomChangeMarks({
     threadRef,
     cwd,
     workspaceMutationId,
     enabled: attachment === undefined && canReadFiles,
   });
-  const [loomEditingPath, setLoomEditingPath] = useState<string | null>(null);
+  const [loomChoice, setLoomChoice] = useState<{ path: string; showChanges: boolean } | null>(null);
   const loomChange =
     previewPath !== null && !isHostFile && !isMedia && !isPdf
       ? loomMarks?.files.get(previewPath)
       : undefined;
-  const loomShowsChange = loomChange !== undefined && loomEditingPath !== previewPath;
+  const loomShowsChange =
+    loomChange !== undefined &&
+    (loomChoice?.path === previewPath ? loomChoice.showChanges : renderedMode === null);
   useWorkspaceMutationRefresh({
     enabled:
       attachment === undefined &&
@@ -1391,12 +1397,15 @@ export default function FilePreviewPanel({
               />
             </div>
           </ScrollArea>
-          {loomMarks && loomChange ? ( // loom: baseline · split/unified · Edit
+          {loomMarks && loomChange ? ( // loom: baseline · split/unified · Edit or Rendered
             <LoomFileChangeActions
               threadRef={threadRef}
               marks={loomMarks}
               editing={!loomShowsChange}
-              onEditingChange={(editing) => setLoomEditingPath(editing ? previewPath : null)}
+              rendered={rendered}
+              onEditingChange={(editing) =>
+                setLoomChoice({ path: loomChange.path, showChanges: !editing })
+              }
             />
           ) : null}
           {absolutePath &&
@@ -1409,7 +1418,8 @@ export default function FilePreviewPanel({
               compact
             />
           ) : null}
-          {canToggleRendered && renderedMode ? (
+          {/* loom: !loomShowsChange — the change view replaces the renderer */}
+          {canToggleRendered && renderedMode && !loomShowsChange ? (
             <FileSurfaceAction
               label={renderedToggleLabel(renderedMode, rendered)}
               pressed={rendered}
@@ -1525,6 +1535,17 @@ export default function FilePreviewPanel({
               alt={relativePath}
               workspaceMutationId={workspaceMutationId}
             />
+          ) : loomMarks && loomChange && loomShowsChange && (file.data || file.error) ? (
+            // loom: the whole-file change view, ahead of the renderer choice (HTML included)
+            <LoomFileChangeSurface
+              key={loomChange.path}
+              environmentId={environmentId}
+              threadRef={threadRef}
+              marks={loomMarks}
+              file={loomChange}
+              working={file.data}
+              composerDraftTarget={composerDraftTarget}
+            />
           ) : relativePath && renderBrowserFile && absolutePath ? (
             <WorkspaceBrowserPreview
               key={absolutePath}
@@ -1535,17 +1556,6 @@ export default function FilePreviewPanel({
               workspaceRoot={cwd}
               title={relativePath}
               workspaceMutationId={workspaceMutationId}
-            />
-          ) : loomMarks && loomChange && loomShowsChange && (file.data || file.error) ? (
-            // loom: the whole-file change view, ahead of the renderer choice
-            <LoomFileChangeSurface
-              key={loomChange.path}
-              environmentId={environmentId}
-              threadRef={threadRef}
-              marks={loomMarks}
-              file={loomChange}
-              working={file.data}
-              composerDraftTarget={composerDraftTarget}
             />
           ) : relativePath && file.error && file.data === null ? (
             <div
