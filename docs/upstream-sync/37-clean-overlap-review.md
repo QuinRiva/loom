@@ -405,7 +405,7 @@ Reviewer: thread `thread:mcp:5b96cd49-a5b7-4d9a-a689-3194085c8630:workstream-sca
 - `apps/server/src/persistence/ProviderSessionRuntime.ts`: `deleteStoppedForDeletedThreads` has no caller. Delete it (44 lines).
 - `apps/server/src/git/GitWorkflowService.ts`: the fan-in/reaper wrappers have been uncalled since pull 9 (DT-45). Delete them, or record why they are kept.
 - `apps/server/src/usage/usageScanCache.ts:268`: the pull-10 shim says "remove at pull 11", and its test pins it. Remove both.
-- `threadSearchEmbedding`: the setting (`packages/contracts/src/settings.loom.ts`), its redaction in `serverSettings.ts` and the cockpit's `"provider": "vertex"` value lost their last consumer when DL-1251 dropped the index (the embedder is quarantined). Retire them with the quarantine.
+- ~~`threadSearchEmbedding`: the setting (`packages/contracts/src/settings.loom.ts`), its redaction in `serverSettings.ts` and the cockpit's `"provider": "vertex"` value lost their last consumer when DL-1251 dropped the index (the embedder is quarantined). Retire them with the quarantine.~~ Superseded: the thread-search revival (migration 1062, `orchestration-v2/ThreadEmbedder.loom.ts`) reads the setting again; keep it.
 
 ### Outside my zone (seen in passing)
 
