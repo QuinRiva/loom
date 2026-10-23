@@ -6,9 +6,11 @@
 //  - `pkill`, or `pgrep` output fed to `kill`: kill by pattern, which on this shared machine can
 //    hit another thread's server or job. Blocked. (`pgrep -f` matching the tool shell itself is
 //    fixed by the pgrep-self-match rewrite, which runs after this guard.)
-//  - `kill` of a process group (a negative PID operand, literal or computed: `kill -- -123`,
-//    `kill -TERM -$PGID`): a bg_start job shares pi's group, so this kills pi mid-turn. Blocked.
-//    A leading signal option (`kill -9 123`) is not a target.
+//  - `kill` of a process group (a negative PID operand): a bg_start job shares pi's group, so
+//    signalling it kills pi mid-turn. Blocked when the target is pi's own group, computed
+//    (`-$(...)`, `-$PGID`: its value is unknown here), `-0`/`-1`, or any literal when pi's group
+//    cannot be read; a literal other group (`kill -- -123`) passes, which is the bypass for a
+//    group an agent made with `setsid`. A leading signal option (`kill -9 123`) is not a target.
 //  - `gh api` with a field flag and no `-X`: gh silently switches to POST. Blocked (a read and a
 //    write are equally plausible).
 //  - an unquoted heredoc whose body has backticks: bash runs them as command substitution, so a
@@ -31,7 +33,7 @@ const BLOCKED = "Blocked by the t3 command guard:";
 
 const KILL_MESSAGE = `${BLOCKED} killing by pattern (\`pkill\`, or \`pgrep\` output fed to \`kill\`) can kill another thread's process on this shared machine — several agents run dev servers and jobs with the same names and paths. Kill only a PID you captured at spawn (\`pid=$!\`), or the owner of your port from \`ss -H -ltnp\` after checking \`/proc/<pid>/cwd\`. If you must find it by name, list candidates with \`pgrep -af <pattern>\`, check each \`/proc/<pid>/cwd\` is your worktree, then \`kill <pid>\`.`;
 
-const GROUP_KILL_MESSAGE = `${BLOCKED} this signals a whole process group. A bg_start job runs in pi's own process group so that it dies with pi, so signalling that group kills pi as well and ends your turn with a provider error. To stop a job and the processes it started, signal its children and then the job: \`pkill -TERM -P <pid>; kill <pid>\`. If the group is one you created yourself (with \`setsid\`), kill its processes by PID instead.`;
+const GROUP_KILL_MESSAGE = `${BLOCKED} this signals a whole process group. A bg_start job runs in pi's own process group so that it dies with pi, so signalling that group kills pi as well and ends your turn with a provider error. To stop a job and the processes it started, signal its children and then the job: \`pkill -TERM -P <pid>; kill <pid>\`. If the group is one you created yourself (with \`setsid\`), look up its number first and pass it as a literal (\`kill -TERM -- -<pgid>\`): the guard lets a literal group through when it is not pi's.`;
 
 const GH_MESSAGE = `${BLOCKED} \`gh api\` with \`-f\`/\`-F\`/\`--field\` and no \`-X\` sends a POST, so this would write to ENDPOINT, not read it. To see what your flags expand to, \`printf '%s\\n'\` them instead. For a read, add \`-X GET\` (the fields become query parameters). If you did mean to write, re-run with an explicit \`-X POST\` (or \`PATCH\`/\`PUT\`).`;
 
@@ -161,15 +163,30 @@ const backgrounded = (text, at) => {
   return false;
 };
 
+// pi's process group: field 5 of /proc/self/stat, counted after the ")" closing the command name.
+const PI_PGID = (() => {
+  try {
+    const stat = process.getBuiltinModule("node:fs").readFileSync("/proc/self/stat", "utf8");
+    const pgid = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[2];
+    return /^\d+$/.test(pgid) ? Number(pgid) : null;
+  } catch {
+    return null;
+  }
+})();
 // kill's targets follow one leading option (-s/-n/--signal take a value) and an optional "--";
-// a target of "-" then a digit or "$" (a computed "-$(...)" or "-$PGID") is a process group.
+// a target of "-" then a digit or "$" is a process group. Only a literal group above 1 that is
+// known not to be pi's is safe ("-0" is the caller's own group, "-1" every process).
 const killsGroup = (tokens) => {
   let i = 1;
   if (tokens[i]?.value.startsWith("-") && tokens[i].value !== "--") {
     i += /^(-[sn]|--signal)$/.test(tokens[i].value) ? 2 : 1;
   }
   if (tokens[i]?.value === "--") i += 1;
-  return tokens.slice(i).some((t) => /^-[\d$]/.test(t.value));
+  return tokens.slice(i).some((t) => {
+    if (!/^-[\d$]/.test(t.value)) return false;
+    const group = /^-\d+$/.test(t.value) ? Number(t.value.slice(1)) : null;
+    return PI_PGID === null || group === null || group <= 1 || group === PI_PGID;
+  });
 };
 
 const KILL_PIPELINES = [/\bpgrep\b[^;&\n]*\|\s*xargs\b[^;&|\n]*\bkill\b/, /\bkill\b[^;&|\n]*(\$\(|\x60)\s*pgrep\b/];

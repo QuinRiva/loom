@@ -681,21 +681,34 @@ describe("command-guards part", () => {
     }
   });
 
-  it("blocks killing a process group, which takes pi down with a bg_start job", () => {
+  // The guard reads pi's group from /proc/self/stat; the stub runs it in this process, so the
+  // test reads the same file rather than assuming the runner's group.
+  const stat = NodeFS.readFileSync("/proc/self/stat", "utf8");
+  const ownGroup = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[2]);
+
+  it("blocks signalling pi's own process group, or a group it cannot rule out", () => {
     for (const command of [
-      `kill -- -123`,
-      `kill -TERM -123`,
-      `kill -9 -- -123`,
-      `kill -s TERM -123`,
+      `kill -- -${ownGroup}`,
+      `kill -TERM -${ownGroup}`,
+      `kill -9 -- -${ownGroup}`,
+      `kill -s TERM -${ownGroup}`,
+      `sudo /bin/kill -KILL -- -${ownGroup}`,
       `kill -TERM -- -$(ps -o pgid= -p 2455179)`,
       `kill -- -"$(ps -o pgid= -p 42 | tr -d ' ')"`,
       `PGID=$(ps -o pgid= -p 42); kill -TERM -$PGID`,
       `kill -- "-$pgid"`,
-      `sudo /bin/kill -KILL -- -77`,
+      `kill -- -0`,
+      `kill -TERM -1`,
     ]) {
       const reason = run(command).reason;
       expect(reason, command).toContain("this signals a whole process group");
-      expect(reason, command).toContain("`pkill -TERM -P <pid>; kill <pid>`");
+      expect(reason, command).toContain("`kill -TERM -- -<pgid>`");
+    }
+  });
+
+  it("lets a literal process group through when it is not pi's", () => {
+    for (const command of [`kill -TERM -- -${ownGroup + 1}`, `kill -9 -${ownGroup + 1}`]) {
+      untouched(command);
     }
   });
 
