@@ -41,7 +41,9 @@ plain browser.
 
 Opening a changed file shows the whole file side by side, opened at its first change, so the code
 around each change is in view. Switch between side by side and unified in the file's header, and
-choose **Edit** to edit the file as usual; **Show changes** returns to the comparison. A very large
+choose **Edit** to edit the file as usual; **Show changes** returns to the comparison. Documents
+that render (Markdown, MDX, HTML and tables) open rendered instead, with **Show changes** in the
+header and **Rendered** to go back. A very large
 file opens on its changed lines, with **Show whole file** one click away. In the Diff panel,
 **Open whole file** on any file opens it the same way.
 
