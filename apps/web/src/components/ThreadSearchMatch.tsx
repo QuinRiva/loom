@@ -1,3 +1,5 @@
+import type { OrchestrationThreadSearchSource } from "@t3tools/contracts";
+
 function foldAsciiCase(value: string): string {
   return value.replace(/[A-Z]/g, (character) => character.toLowerCase());
 }
@@ -49,7 +51,7 @@ function HighlightedSearchText(props: { text: string; query: string }) {
 
 export function ThreadSearchMatchExcerpt(props: {
   match: {
-    readonly source: "user" | "assistant";
+    readonly source: OrchestrationThreadSearchSource; // loom: widened; per-source labels land with the search surfaces
     readonly snippet: string;
     readonly query: string;
   };

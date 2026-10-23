@@ -33,6 +33,9 @@ const SearchRow = Schema.Struct({
   source: OrchestrationThreadSearchSource,
   matchText: Schema.String,
   messageCreatedAt: Schema.NullOr(IsoDateTime),
+  title: Schema.String,
+  archivedAt: Schema.NullOr(IsoDateTime),
+  updatedAt: IsoDateTime,
 });
 
 function escapeLikePattern(value: string): string {
@@ -84,6 +87,8 @@ export const make = Effect.gen(function* () {
           json_extract(messages.payload_json, '$.text') AS match_text,
           messages.created_at AS message_created_at,
           messages.message_id,
+          threads.title,
+          threads.archived_at,
           threads.updated_at AS thread_updated_at
         FROM orchestration_v2_projection_messages AS messages
         INNER JOIN orchestration_v2_projection_threads AS threads
@@ -104,6 +109,8 @@ export const make = Effect.gen(function* () {
           role AS source,
           match_text,
           message_created_at,
+          title,
+          archived_at,
           CASE role WHEN 'user' THEN 0 ELSE 1 END AS match_rank,
           thread_updated_at,
           ROW_NUMBER() OVER (
@@ -120,7 +127,10 @@ export const make = Effect.gen(function* () {
         project_id AS "projectId",
         source,
         match_text AS "matchText",
-        message_created_at AS "messageCreatedAt"
+        message_created_at AS "messageCreatedAt",
+        title,
+        archived_at AS "archivedAt",
+        thread_updated_at AS "updatedAt"
       FROM ranked
       WHERE thread_match_rank = 1
       ORDER BY match_rank ASC, thread_updated_at DESC, thread_id ASC
@@ -156,6 +166,11 @@ export const make = Effect.gen(function* () {
           source: row.source,
           snippet: buildSearchSnippet(row.matchText, input.query),
           messageCreatedAt: row.messageCreatedAt,
+          title: row.title,
+          archivedAt: row.archivedAt,
+          updatedAt: row.updatedAt,
+          matchedThreadId: null,
+          matchedThreadTitle: null,
         })),
       };
     },
