@@ -1920,9 +1920,16 @@ export const layerWithOptions = (
 
       const startEventPump = (entry: LiveSessionEntry) => {
         let stoppedByProvider = false;
+        // loom: an error the adapter reported as its last event outranks the stream's failure
+        // cause; any later event makes that report stale.
+        let reportedError: string | null = null;
         return entry.runtime.events.pipe(
           Stream.runForEach((event) => {
             if (shutdownSignal.received) return Effect.void;
+            reportedError = // loom
+              event.type === "provider_session.updated" && event.providerSession.status === "error"
+                ? event.providerSession.lastError
+                : null;
             // Live output skips run subscribers and ingestion entirely: it is
             // never persisted, and a flood of it must not queue ahead of real events.
             if (event.type === "command_output.delta") {
@@ -2032,10 +2039,19 @@ export const layerWithOptions = (
                 cause,
               });
               yield* Ref.set(entry.eventSubscribers, new Map());
+              // loom: keep the adapter's own error as the session's lastError so the thread keeps
+              // its failure class (the liveness sweep resumes only a classed failure); the stack
+              // goes to the log instead of the error banner.
+              if (reportedError !== null) {
+                yield* Effect.logWarning("orchestration-v2.driver-session.event-stream-failed", {
+                  providerSessionId: entry.runtime.providerSessionId,
+                  cause,
+                });
+              }
               yield* releaseEntry({
                 providerSessionId: entry.runtime.providerSessionId,
                 reason: "runtime_error",
-                detail: Cause.pretty(cause),
+                detail: reportedError ?? Cause.pretty(cause),
               }).pipe(logReleaseFailure(entry.runtime.providerSessionId));
             }),
           ),

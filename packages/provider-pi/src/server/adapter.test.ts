@@ -2938,6 +2938,59 @@ describe("PiAdapterV2", () => {
       }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("ends a tool call still running when Pi exits mid-turn", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit({
+        type: "tool_execution_start",
+        toolCallId: "shell-call",
+        toolName: "bash",
+        args: { command: "kill -TERM -- -$(ps -o pgid= -p 42)" },
+      });
+      yield* fake.emit({
+        type: "tool_execution_update",
+        toolCallId: "shell-call",
+        toolName: "bash",
+        partialResult: { content: [{ type: "text", text: "partial" }] },
+      });
+      yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.type === "command_execution" &&
+          event.turnItem.output === "partial",
+      );
+      yield* fake.closeStdout;
+      const ended = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.type === "command_execution" &&
+          event.turnItem.status !== "running",
+      );
+      assert.isTrue(
+        ended.type === "turn_item.updated" &&
+          ended.turnItem.type === "command_execution" &&
+          ended.turnItem.status === "failed" &&
+          ended.turnItem.completedAt !== null &&
+          ended.turnItem.output === "partial",
+      );
+      const terminal = yield* takeEvent((event) => event.type === "turn.terminal");
+      assert.isTrue(
+        terminal.type === "turn.terminal" &&
+          terminal.status === "failed" &&
+          terminal.failure.message === "Pi process exited unexpectedly.",
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect("emits session-start dialogs before a turn exists", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;

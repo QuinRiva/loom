@@ -321,6 +321,8 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
   state: Ref.Ref<TestProviderRuntimeState>,
   options: {
     readonly failEventStream?: boolean;
+    /** The adapter's last report before its stream fails, as Pi reports its process dying. */
+    readonly failEventStreamAfterError?: string;
     readonly capabilities?: OrchestrationV2ProviderCapabilities;
     readonly mcpConfigs?: Ref.Ref<
       ReadonlyArray<McpProviderSession.McpProviderSessionConfig | undefined>
@@ -403,15 +405,29 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
           driver: CODEX_DRIVER,
           providerSessionId: input.providerSessionId,
           providerSession: session,
-          events: options.failEventStream
-            ? Stream.fail(
-                new ProviderAdapter.ProviderAdapterEventStreamError({
-                  driver: CODEX_DRIVER,
-                  providerSessionId: input.providerSessionId,
-                  cause: "process exited",
-                }),
-              )
-            : Stream.fromQueue(events),
+          events:
+            options.failEventStream || options.failEventStreamAfterError !== undefined
+              ? Stream.concat(
+                  options.failEventStreamAfterError === undefined
+                    ? Stream.empty
+                    : Stream.make({
+                        type: "provider_session.updated" as const,
+                        driver: CODEX_DRIVER,
+                        providerSession: {
+                          ...session,
+                          status: "error" as const,
+                          lastError: options.failEventStreamAfterError,
+                        },
+                      }),
+                  Stream.fail(
+                    new ProviderAdapter.ProviderAdapterEventStreamError({
+                      driver: CODEX_DRIVER,
+                      providerSessionId: input.providerSessionId,
+                      cause: "process exited",
+                    }),
+                  ),
+                )
+              : Stream.fromQueue(events),
           ...(options.backgroundTasksEndWithProcess === false
             ? {}
             : { backgroundTasksEndWithProcess: true as const }),
@@ -462,6 +478,7 @@ function layerTest(input: {
   readonly idleTimeoutMs: number;
   readonly maxIdlePinMs?: number;
   readonly failEventStream?: boolean;
+  readonly failEventStreamAfterError?: string;
   readonly capabilities?: OrchestrationV2ProviderCapabilities;
   readonly mcpConfigs?: Ref.Ref<
     ReadonlyArray<McpProviderSession.McpProviderSessionConfig | undefined>
@@ -502,6 +519,9 @@ function layerTest(input: {
   const layerRegistry = Layer.unwrap(
     makeProviderAdapter(input.state, {
       failEventStream: input.failEventStream ?? false,
+      ...(input.failEventStreamAfterError === undefined
+        ? {}
+        : { failEventStreamAfterError: input.failEventStreamAfterError }),
       ...(input.capabilities === undefined ? {} : { capabilities: input.capabilities }),
       ...(input.mcpConfigs === undefined ? {} : { mcpConfigs: input.mcpConfigs }),
       ...(input.beforeOpen === undefined ? {} : { beforeOpen: input.beforeOpen }),
@@ -3491,58 +3511,69 @@ it.effect("ProviderSessionManagerV2 uses the same release path for runtime failu
   }),
 );
 
-it.effect("ProviderSessionManagerV2 releases sessions when provider event streams fail", () =>
-  Effect.gen(function* () {
-    const state = yield* Ref.make(emptyState);
-    const effect = Effect.gen(function* () {
-      const eventSink = yield* EventSink.EventSinkV2;
-      const idAllocator = yield* IdAllocator.IdAllocatorV2;
-      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
-      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
-      const now = yield* DateTime.now;
-      const projectId = yield* idAllocator.allocate.project({
-        fixtureName: "provider-session-manager-stream-error",
-      });
-      const threadId = yield* idAllocator.allocate.thread({
-        fixtureName: "provider-session-manager-stream-error",
-        projectId,
-      });
-      const providerSessionId = yield* idAllocator.allocate.providerSession({
-        providerInstanceId: modelSelection.instanceId,
-        threadId,
+it.effect.each([
+  { reportedError: undefined },
+  // The thread's error class matches this text against the failed turn's (Pi process death).
+  { reportedError: "Pi process exited unexpectedly." },
+])(
+  "ProviderSessionManagerV2 releases sessions when provider event streams fail, reported=$reportedError",
+  ({ reportedError }) =>
+    Effect.gen(function* () {
+      const state = yield* Ref.make(emptyState);
+      const effect = Effect.gen(function* () {
+        const eventSink = yield* EventSink.EventSinkV2;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+        const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+        const now = yield* DateTime.now;
+        const projectId = yield* idAllocator.allocate.project({
+          fixtureName: "provider-session-manager-stream-error",
+        });
+        const threadId = yield* idAllocator.allocate.thread({
+          fixtureName: "provider-session-manager-stream-error",
+          projectId,
+        });
+        const providerSessionId = yield* idAllocator.allocate.providerSession({
+          providerInstanceId: modelSelection.instanceId,
+          threadId,
+        });
+
+        yield* eventSink.write({
+          events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+        });
+        const runtime = yield* manager.open({
+          threadId,
+          providerSessionId,
+          modelSelection,
+          runtimePolicy,
+        });
+        yield* runtime.events.pipe(Stream.runDrain, Effect.ignore, Effect.forkScoped);
+        yield* Effect.yieldNow;
+
+        const liveSession = yield* manager.get(providerSessionId);
+        const runtimeState = yield* Ref.get(state);
+        const projection = yield* projectionStore.getThreadProjection(threadId);
+
+        assert.isTrue(Option.isNone(liveSession));
+        assert.equal(runtimeState.closeCount, 1);
+        assert.equal(projection.providerSessions.at(-1)?.status, "error");
+        const lastError = projection.providerSessions.at(-1)?.lastError ?? "";
+        if (reportedError === undefined) assert.include(lastError, "process exited");
+        else assert.equal(lastError, reportedError);
       });
 
-      yield* eventSink.write({
-        events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
-      });
-      const runtime = yield* manager.open({
-        threadId,
-        providerSessionId,
-        modelSelection,
-        runtimePolicy,
-      });
-      yield* runtime.events.pipe(Stream.runDrain, Effect.ignore, Effect.forkScoped);
-      yield* Effect.yieldNow;
-
-      const liveSession = yield* manager.get(providerSessionId);
-      const runtimeState = yield* Ref.get(state);
-      const projection = yield* projectionStore.getThreadProjection(threadId);
-
-      assert.isTrue(Option.isNone(liveSession));
-      assert.equal(runtimeState.closeCount, 1);
-      assert.equal(projection.providerSessions.at(-1)?.status, "error");
-    });
-
-    yield* effect.pipe(
-      Effect.provide(
-        layerTest({
-          state,
-          idleTimeoutMs: 1000,
-          failEventStream: true,
-        }),
-      ),
-    );
-  }),
+      yield* effect.pipe(
+        Effect.provide(
+          layerTest({
+            state,
+            idleTimeoutMs: 1000,
+            ...(reportedError === undefined
+              ? { failEventStream: true }
+              : { failEventStreamAfterError: reportedError }),
+          }),
+        ),
+      );
+    }),
 );
 
 it.effect("ProviderSessionManagerV2 marks pending runtime requests non-live on release", () =>
