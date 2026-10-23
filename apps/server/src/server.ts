@@ -178,6 +178,7 @@ import * as UsageService from "./usage/UsageService.ts";
 import * as RuntimeLayer from "./orchestration-v2/runtimeLayer.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
+import { ThreadEmbedderLive } from "./orchestration-v2/ThreadEmbedder.loom.ts"; // loom
 import * as ResourceCleanupService from "./orchestration-v2/ResourceCleanupService.ts";
 import * as ThreadSettlementService from "./orchestration-v2/ThreadSettlementService.ts";
 import * as ThreadPullRequestService from "./orchestration-v2/ThreadPullRequestService.ts";
@@ -603,7 +604,12 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
 ).pipe(
   Layer.provideMerge(layerOrchestrationApplication),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
-  Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
+  Layer.provideMerge(
+    Layer.merge(
+      ProjectStore.layer,
+      ThreadSearch.layer.pipe(Layer.provide(ThreadEmbedderLive)), // loom: semantic half of search
+    ),
+  ),
   Layer.provideMerge(layerServerSettings),
   Layer.provideMerge(layerSourceControlProviderRegistry),
   Layer.provideMerge(layerGit),

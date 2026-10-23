@@ -1,6 +1,6 @@
 /**
  * On-disk workstream reports (Phase 3 plan seam 7), ported from V1's
- * `workstreamReport.ts` minus the search-index call. A sub-thread's hand-back
+ * `workstreamReport.ts`. A sub-thread's hand-back
  * is a markdown file under `<stateDir>/workstream-reports/` (durable, never the
  * worktree); its absolute path is event-sourced onto the sidecar as
  * `reportPath`, so the parent — whose cwd is its own worktree — reads it
@@ -18,6 +18,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import { ServerConfig } from "../../config.ts";
+import { upsertThreadSearchReport } from "../../persistence/threadSearchIndex.loom.ts";
 import { loomPaths } from "../loomPaths.ts";
 import { QUIESCENT_REPORT_HEADER } from "../prompt/prose.ts";
 import { QUIESCENT_HUMAN_STARTED_LINE } from "../prompt/provenance.ts";
@@ -57,7 +58,9 @@ export const reportResponse = (
 
 const fileStem = (id: string) => id.replace(/[^A-Za-z0-9._-]/g, "_");
 
+/** Writes the file and makes it the thread's `report` row in the search index (latest wins). */
 const writeReportFile = Effect.fn("loom.writeReportFile")(function* (
+  threadId: ThreadId,
   fileName: string,
   markdown: string,
 ) {
@@ -66,6 +69,7 @@ const writeReportFile = Effect.fn("loom.writeReportFile")(function* (
   const filePath = (yield* Path.Path).join(dir, fileName);
   yield* fs.makeDirectory(dir, { recursive: true });
   yield* fs.writeFileString(filePath, markdown);
+  yield* upsertThreadSearchReport(threadId, markdown);
   return filePath;
 });
 
@@ -76,6 +80,7 @@ const writeReportFile = Effect.fn("loom.writeReportFile")(function* (
  */
 export const writeWorkstreamReport = (threadId: ThreadId, markdown: string, round?: number) =>
   writeReportFile(
+    threadId,
     `${fileStem(threadId)}${round === undefined ? "" : `.round-${round}`}.md`,
     markdown,
   );
@@ -104,6 +109,7 @@ export const writeSynthesisedReport = (
   humanStarted: boolean,
 ) =>
   writeReportFile(
+    threadId,
     synthesisedReportFileName(threadId, runId),
     `${QUIESCENT_REPORT_HEADER.replace("<grace>", grace)}${humanStarted ? `\n${QUIESCENT_HUMAN_STARTED_LINE}` : ""}\n\n${lastAssistantText}`,
   );

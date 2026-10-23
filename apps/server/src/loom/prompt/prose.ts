@@ -107,6 +107,14 @@ const dependencyClause = (dependencies: ReadonlyArray<KickoffHandback>): Readonl
       ];
 
 /**
+ * The lines that bracket the brief in a kick-off message; thread search indexes
+ * only the text between them (threadSearchIndex.loom.ts).
+ */
+export const KICKOFF_BRIEF_HEADING = "Your brief:";
+export const KICKOFF_CLOSING =
+  "Work autonomously toward the outcome this brief is meant to deliver — stay anchored to the value it produces (the capability, fix, or decision), not just the mechanical steps. Keep the work focused and report progress clearly.";
+
+/**
  * Kick-off message for a spawned Workstream sub-thread: the role framing, the
  * gate membership and its target's files when it applies (invisible otherwise
  * until the first rework resume — too late for the first verdict), the
@@ -128,10 +136,10 @@ export const workstreamChildPrompt = (input: {
     ...(input.gateTarget != null ? gateClause(input.gateTarget) : []),
     ...dependencyClause(input.dependencies ?? []),
     "",
-    "Your brief:",
+    KICKOFF_BRIEF_HEADING,
     input.brief,
     "",
-    "Work autonomously toward the outcome this brief is meant to deliver — stay anchored to the value it produces (the capability, fix, or decision), not just the mechanical steps. Keep the work focused and report progress clearly.",
+    KICKOFF_CLOSING,
     "Run anything you expect to take more than a couple of minutes with bg_start and wait on it with bg_wait rather than ending your turn: a running job blocks your submit, and a turn that ends without submitting reads as gone quiet. A long command that must run in the foreground carries an inline `# eta: <n>m` comment so your parent is not sent slow-tool notices before then.",
     "Finish with ONE call: `mcp__t3-code__workstream_submit` — its description is the contract for outcomes and routing, and its result names where your report went. Write the report as a concise handoff for your parent orchestrator, not a transcript dump, opening with the response block its markdown description asks for: lead with the value you delivered and what it enables or unblocks, then the key results/decisions, where you departed from the brief and why, what the human changed if they wrote to you (quoted), and anything the parent must act on. Ending a turn without submitting hands your parent a report the control plane reconstructs from your last message instead.",
     "If a HUMAN is needed, raise it with `mcp__t3-code__workstream_request_attention` — its description covers the two reasons and why a raise HOLDS your work rather than labelling your report. Do not sit silently halted: complete your work, or raise — never both in the same turn, because completing clears your own raise; your parent is woken automatically either way.",

@@ -23,13 +23,13 @@ import { migrationEntries, runMigrations } from "./Migrations.ts";
 const at = "2026-01-01T00:00:00.000Z";
 
 // t-migrate (pull 9 Phase 2 §7): a V1 `state.sqlite` as the live install has it
-// (upstream lane at 054, Loom lane at 1045, with 1045's search triggers on the
-// goal tables) is copied to `statev2.sqlite` by `initializeV2Database` and
-// migrated by the live Sqlite layer: the Loom lane runs to its head (1061), V1's goal,
-// consult, peer-message and usage-ledger rows survive the renames (1048, 1049),
-// upstream's ledger is exactly upstream's manifest, and the search index survives
-// with its goal triggers following the rename.
-it.effect("migrates a copied V1 database to 1061 with the renamed tables' rows intact", () => {
+// (upstream lane at 054, Loom lane at 1045) is copied to `statev2.sqlite` by
+// `initializeV2Database` and migrated by the live Sqlite layer: the Loom lane runs
+// to its head (1062), V1's goal, consult, peer-message and usage-ledger rows survive
+// the renames (1048, 1049), upstream's ledger is exactly upstream's manifest, and
+// 1062 rebuilds the search index from the renamed goal tables with no trigger left
+// on a V1 table.
+it.effect("migrates a copied V1 database to 1062 with the renamed tables' rows intact", () => {
   const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-loom-v1copy-"));
   const seed = Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -66,7 +66,6 @@ it.effect("migrates a copied V1 database to 1061 with the renamed tables' rows i
       const loomLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM ${sql(loomMigrationsTable)} ORDER BY migration_id`;
       assert.deepEqual(loomLedger.slice(-10), [
-        { id: 1052, name: "LoomControlMessageRows" },
         { id: 1053, name: "LoomCardMetrics" },
         { id: 1054, name: "LoomImportedConsultItems" },
         { id: 1055, name: "LoomHandoffOrigin" },
@@ -76,6 +75,7 @@ it.effect("migrates a copied V1 database to 1061 with the renamed tables' rows i
         { id: 1059, name: "LoomThreadSnoozeRequests" },
         { id: 1060, name: "DropThreadSearchMessageTriggers" },
         { id: 1061, name: "LoomReviewSnapshots" },
+        { id: 1062, name: "ThreadSearchIndexV2" },
       ]);
       const upstreamLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM effect_sql_migrations ORDER BY migration_id`;
@@ -159,7 +159,8 @@ it.effect("migrates a copied V1 database to 1061 with the renamed tables' rows i
       assert.isTrue(Exit.isFailure(yield* Effect.exit(turnRow("usage-5"))));
       // 1050: the reroute record exists and starts empty.
       assert.deepEqual(yield* sql`SELECT * FROM loom_thread_reroute`, []);
-      // The goal FK and the search triggers followed the rename; the index is kept.
+      // The goal FK followed the rename; 1062 indexed the goal tables and left no
+      // trigger on a V1 table.
       const fk = yield* sql<{ readonly table: string }>`
         SELECT "table" FROM pragma_foreign_key_list('loom_goal_tasks')`;
       assert.deepEqual(
@@ -167,6 +168,19 @@ it.effect("migrates a copied V1 database to 1061 with the renamed tables' rows i
         ["loom_goals"],
       );
       assert.includeMembers(tables, ["loom_thread_search", "loom_thread_embeddings"]);
+      const triggerTables = yield* sql<{ readonly table: string }>`
+        SELECT DISTINCT tbl_name AS "table" FROM sqlite_master
+        WHERE type = 'trigger' AND name LIKE 'loom_ts_%' ORDER BY tbl_name`;
+      assert.deepEqual(
+        triggerTables.map((row) => row.table),
+        [
+          "loom_goal_tasks",
+          "loom_goals",
+          "loom_thread_workstream",
+          "orchestration_v2_projection_messages",
+          "orchestration_v2_projection_threads",
+        ],
+      );
       yield* sql`UPDATE loom_goals SET title = 'Renamed' WHERE goal_id = 'goal-1'`;
       assert.deepEqual(
         yield* sql`SELECT kind, text FROM loom_thread_search WHERE goal_id = 'goal-1' ORDER BY kind`,

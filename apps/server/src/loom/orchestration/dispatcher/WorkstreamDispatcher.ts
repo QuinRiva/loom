@@ -39,6 +39,7 @@ import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import type * as SqlClient from "effect/sql/SqlClient";
 
 import type { ServerConfig } from "../../../config.ts";
 import {
@@ -207,7 +208,8 @@ export type PassServices =
   | FileSystem.FileSystem
   | Path.Path
   | ServerConfig
-  | ServerSettings.ServerSettingsService;
+  | ServerSettings.ServerSettingsService
+  | SqlClient.SqlClient; // the synthesised report is indexed for thread search
 
 /** What a failing step can fail with; the failure is logged, the pass goes on, and the next pass retries. */
 export type PassError = LoomStoreError | OrchestratorV2Error | CommandReceiptStoreV2Error;

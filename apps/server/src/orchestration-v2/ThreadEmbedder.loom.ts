@@ -1,4 +1,4 @@
-// @effect-diagnostics preferSchemaOverJson:off - settings are compared by a JSON key, never parsed.
+// @effect-diagnostics preferSchemaOverJson:off nodeBuiltinImport:off - settings are compared by a JSON key, never parsed; sha1 of a root document is a sync hash.
 /**
  * ThreadEmbedder — the semantic half of thread search (plans/thread-content-search).
  *
@@ -26,10 +26,11 @@ import * as Path from "effect/Path";
 import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
-import { ServerConfig } from "../../config.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
+import { ServerConfig } from "../config.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import type { EmbeddingProvider } from "./embedding/EmbeddingProvider.loom.ts";
 import { makeLocalProvider } from "./embedding/local.loom.ts";
 import { makeOpenAiCompatibleProvider } from "./embedding/openaiCompatible.loom.ts";
@@ -59,51 +60,68 @@ export const providerFromSettings = (
  * One document per root: title, purpose, goal, the first non-automated user
  * message (800 chars) and its direct children's titles (400 chars). The title
  * comes first (providers that take a separate title split it off) and the
- * lowest-value text last, so window truncation drops the right end.
+ * lowest-value text last, so window truncation drops the right end. A root is
+ * a thread whose V2 lineage names no parent.
  */
+const ROOT_DOCUMENTS = `
+  WITH lineage AS MATERIALIZED (
+    SELECT thread_id, project_id, title, deleted_at,
+      json_extract(payload_json, '$.lineage.parentThreadId') AS parent_id
+    FROM orchestration_v2_projection_threads
+  ),
+  children AS MATERIALIZED (
+    SELECT parent_id, group_concat(title, char(10)) AS titles FROM lineage
+    WHERE parent_id IS NOT NULL AND deleted_at IS NULL GROUP BY parent_id
+  )
+  SELECT
+    t.thread_id AS "threadId", t.title, w.purpose,
+    g.title AS "goalTitle", g.description AS "goalDescription",
+    (SELECT json_extract(m.payload_json, '$.text') FROM orchestration_v2_projection_messages m
+      WHERE m.thread_id = t.thread_id AND m.role = 'user'
+        AND json_extract(m.payload_json, '$.loom.origin') IS NULL
+      ORDER BY m.created_at LIMIT 1) AS "firstUser",
+    c.titles AS "childTitles"
+  FROM lineage t
+  JOIN projection_projects p ON p.project_id = t.project_id AND p.deleted_at IS NULL
+  LEFT JOIN loom_thread_workstream w ON w.thread_id = t.thread_id
+  LEFT JOIN loom_goals g ON g.goal_id = w.goal_id AND g.deleted_at IS NULL
+  LEFT JOIN children c ON c.parent_id = t.thread_id
+  WHERE t.parent_id IS NULL AND t.deleted_at IS NULL`;
+
 const rootDocuments = (sql: SqlClient.SqlClient) =>
-  sql<{
-    readonly threadId: string;
-    readonly title: string;
-    readonly purpose: string | null;
-    readonly goalTitle: string | null;
-    readonly goalDescription: string | null;
-    readonly firstUser: string | null;
-    readonly childTitles: string | null;
-  }>`
-    SELECT
-      t.thread_id AS "threadId", t.title, t.purpose,
-      g.title AS "goalTitle", g.description AS "goalDescription",
-      (SELECT m.text FROM projection_thread_messages m
-        WHERE m.thread_id = t.thread_id AND m.role = 'user' AND m.origin IS NULL
-        ORDER BY m.created_at LIMIT 1) AS "firstUser",
-      (SELECT group_concat(c.title, char(10)) FROM projection_threads c
-        WHERE c.parent_thread_id = t.thread_id AND c.deleted_at IS NULL) AS "childTitles"
-    FROM projection_threads t
-    JOIN projection_projects p ON p.project_id = t.project_id AND p.deleted_at IS NULL
-    LEFT JOIN projection_goals g ON g.goal_id = t.goal_id AND g.deleted_at IS NULL
-    WHERE t.parent_thread_id IS NULL AND t.deleted_at IS NULL
-  `.pipe(
-    Effect.map((rows) =>
-      rows.map((row) => {
-        const text = [
-          row.title,
-          row.purpose,
-          row.goalTitle,
-          row.goalDescription,
-          row.firstUser?.slice(0, 800),
-          row.childTitles?.slice(0, 400),
-        ]
-          .filter(Boolean)
-          .join("\n");
-        return {
-          threadId: row.threadId,
-          text,
-          hash: NodeCrypto.createHash("sha1").update(text).digest("hex"),
-        };
-      }),
-    ),
-  );
+  sql
+    .unsafe<{
+      readonly threadId: string;
+      readonly title: string;
+      readonly purpose: string | null;
+      readonly goalTitle: string | null;
+      readonly goalDescription: string | null;
+      readonly firstUser: string | null;
+      readonly childTitles: string | null;
+    }>(ROOT_DOCUMENTS)
+    .pipe(
+      sql.withTransaction,
+      NodeSqliteClient.readOnly,
+      Effect.map((rows) =>
+        rows.map((row) => {
+          const text = [
+            row.title,
+            row.purpose,
+            row.goalTitle,
+            row.goalDescription,
+            row.firstUser?.slice(0, 800),
+            row.childTitles?.slice(0, 400),
+          ]
+            .filter(Boolean)
+            .join("\n");
+          return {
+            threadId: row.threadId,
+            text,
+            hash: NodeCrypto.createHash("sha1").update(text).digest("hex"),
+          };
+        }),
+      ),
+    );
 
 const normalise = (vector: Float32Array) => {
   const norm = Math.hypot(...vector) || 1;
@@ -122,7 +140,7 @@ export class ThreadEmbedder extends Context.Service<
     /** Bring the stored vectors in line with the root documents and provider. */
     readonly sweep: Effect.Effect<{ readonly embedded: number; readonly identity?: string }>;
   }
->()("t3/orchestration/Layers/ThreadEmbedder.loom/ThreadEmbedder") {}
+>()("t3/orchestration-v2/ThreadEmbedder.loom/ThreadEmbedder") {}
 
 interface ProviderState {
   readonly provider: EmbeddingProvider | undefined;
@@ -209,8 +227,9 @@ export const makeThreadEmbedder = (currentProvider: Effect.Effect<EmbeddingProvi
       const live = new Set(docs.map((doc) => doc.threadId));
       for (const threadId of current.vectors.keys())
         if (!live.has(threadId)) current.vectors.delete(threadId);
-      yield* sql`DELETE FROM loom_thread_embeddings WHERE thread_id NOT IN (
-        SELECT thread_id FROM projection_threads WHERE parent_thread_id IS NULL AND deleted_at IS NULL)`;
+      for (const threadId of stored.keys())
+        if (!live.has(threadId))
+          yield* sql`DELETE FROM loom_thread_embeddings WHERE thread_id = ${threadId}`;
 
       const todo = docs.filter((doc) => {
         const row = stored.get(doc.threadId);

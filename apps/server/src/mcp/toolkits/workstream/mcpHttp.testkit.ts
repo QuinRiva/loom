@@ -9,6 +9,7 @@ import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Path from "effect/Path";
 import { ChildProcessSpawner } from "effect/process";
 import { HttpBody, HttpClient, HttpRouter } from "effect/http";
@@ -114,6 +115,7 @@ export const loomToolkitServiceStubs = (
     consult,
     Layer.mock(HandoffDuplicateJudge)({}),
     Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+    Layer.succeed(SqlClient.SqlClient, {} as never),
   );
 
 export interface McpToolResult {
