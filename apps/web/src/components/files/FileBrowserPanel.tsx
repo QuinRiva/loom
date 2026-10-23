@@ -41,6 +41,7 @@ import {
   loomChangedOnlyEntries,
   loomFolderChangeDecoration,
 } from "~/loom/review/changeMarksTree";
+import { useLoomTreeExpansion } from "~/loom/review/treeExpansion";
 import type { LoomChangeMarks } from "~/loom/review/useLoomChangeMarks";
 
 interface FileBrowserPanelProps {
@@ -66,6 +67,8 @@ interface FileBrowserPanelProps {
   // loom: change review — marks under the shared baseline, and the header row that picks it.
   loomMarks?: LoomChangeMarks | null;
   loomReviewBar?: ReactNode;
+  // loom: folder expansion survives the tree unmounting (opening a file closes the explorer).
+  loomExpansionKey?: string | null;
 }
 
 function treePath(entry: ProjectEntry): string {
@@ -163,6 +166,7 @@ export default function FileBrowserPanel({
   hostFolder = false,
   loomMarks = null, // loom: change review
   loomReviewBar = null,
+  loomExpansionKey = null, // loom: folder expansion
 }: FileBrowserPanelProps) {
   const panelPath = (relativePath: string) =>
     hostFolder ? joinHostPath(cwd, relativePath) : relativePath;
@@ -424,7 +428,7 @@ export default function FileBrowserPanel({
   });
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready && !loomChangedOnly) return; // loom: Changed only needs no listing to draw
     if (previousTreePathsRef.current === treePaths) return;
     entryKindsRef.current = entryKinds;
     const previousTreePaths = previousTreePathsRef.current;
@@ -435,13 +439,20 @@ export default function FileBrowserPanel({
     }
     const updates = buildFileTreePathUpdates(previousTreePaths, treePaths);
     if (updates.length > 0) model.batch(updates);
-  }, [ready, entryKinds, model, treePaths]);
+  }, [ready, entryKinds, loomChangedOnly, model, treePaths]); // loom: loomChangedOnly
+
+  // loom: restore stored folder expansion; Changed only opens every folder on the way to a
+  // marked file unless the user collapsed it.
+  useLoomTreeExpansion(
+    model,
+    loomExpansionKey,
+    directoryPaths,
+    loomChangedOnly !== null && !query.trim(),
+  );
 
   useEffect(() => {
-    // loom: Changed only opens every folder on the way to a marked file.
-    if ((expandAll || loomChangedOnly) && !query.trim())
-      setAllDirectoriesExpanded(model, directoryPaths, true);
-  }, [directoryPaths, expandAll, loomChangedOnly, model, query]);
+    if (expandAll && !query.trim()) setAllDirectoriesExpanded(model, directoryPaths, true);
+  }, [directoryPaths, expandAll, model, query]);
 
   // loom: reveal a directory targeted by an in-workspace chip: expand ancestors, then
   // scroll to and select it. Runs when the request id changes or once the tree
@@ -612,7 +623,8 @@ export default function FileBrowserPanel({
           More matches available. Refine your search.
         </div>
       ) : null}
-      {(!ready || pathSearch.isPending) && (
+      {/* loom: Changed only draws before the listing loads */}
+      {((!ready && !loomChangedOnly) || pathSearch.isPending) && (
         <div role="status" className="px-3 py-1 text-xs text-muted-foreground">
           Loading files…
         </div>

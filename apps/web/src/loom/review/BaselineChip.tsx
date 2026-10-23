@@ -87,44 +87,47 @@ export function LoomFilesReviewBar({
   return (
     <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-1 px-2 pb-1">
       <LoomBaselineChip threadRef={threadRef} marks={marks} />
-      <Toggle
-        size="xs"
-        variant="outline"
-        className="shrink-0"
-        pressed={changedOnly && !marks.marksOff}
-        disabled={marks.marksOff}
-        onPressedChange={(pressed) =>
-          useReviewBaselineStore.getState().setChangedOnly(Boolean(pressed))
-        }
-        aria-label="Show only changed files"
-      >
-        Changed only{marks.baseline ? ` · ${count}` : ""}
-      </Toggle>
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <DropdownMenuTrigger
-                render={<Button size="xs" variant="ghost-muted" />}
-                className="shrink-0"
-                disabled={!sourcesActive}
-                aria-label={`Sources: ${sources === "repo" ? "Repo code" : "Everything"}`}
-              />
-            }
-          >
-            {sources === "repo" ? "Repo code" : "Everything"}
-            <ChevronDownIcon className="size-3.5 shrink-0 opacity-70" />
-          </TooltipTrigger>
-          <TooltipPopup side="bottom">
-            {sourcesActive
-              ? "Repo code, or also nested repositories and artefact folders"
-              : "Applies to Since your message and Earlier; git comparisons cover the repo only"}
-          </TooltipPopup>
-        </Tooltip>
-        <DropdownMenuContent align="start">
-          <LoomSourcesMenuGroup active={sourcesActive} />
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* The filter and its sources wrap as one, so a narrow explorer never strands a lone chip. */}
+      <div className="flex shrink-0 items-center gap-1">
+        <Toggle
+          size="xs"
+          variant="outline"
+          className="shrink-0"
+          pressed={changedOnly && !marks.marksOff}
+          disabled={marks.marksOff}
+          onPressedChange={(pressed) =>
+            useReviewBaselineStore.getState().setChangedOnly(Boolean(pressed))
+          }
+          aria-label="Show only changed files"
+        >
+          Changed only{marks.baseline ? ` · ${count}` : ""}
+        </Toggle>
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <DropdownMenuTrigger
+                  render={<Button size="xs" variant="ghost-muted" />}
+                  className="shrink-0"
+                  disabled={!sourcesActive}
+                  aria-label={`Sources: ${sources === "repo" ? "Repo code" : "Everything"}`}
+                />
+              }
+            >
+              {sources === "repo" ? "Repo code" : "Everything"}
+              <ChevronDownIcon className="size-3.5 shrink-0 opacity-70" />
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">
+              {sourcesActive
+                ? "Repo code, or also nested repositories and artefact folders"
+                : "Applies to Since your message and Earlier; git comparisons cover the repo only"}
+            </TooltipPopup>
+          </Tooltip>
+          <DropdownMenuContent align="start">
+            <LoomSourcesMenuGroup active={sourcesActive} />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
   );
 }

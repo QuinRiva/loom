@@ -37,6 +37,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment"; // loom: tree expansion key
 import { AppWindow, FolderTree, Globe2, WrapTextIcon } from "lucide-react"; // loom: AppWindow
 import { Code2, Eye, Table2 } from "lucide";
 import * as Schema from "effect/Schema";
@@ -1657,7 +1658,8 @@ export default function FilePreviewPanel({
               cwd={hostFolderPath ?? cwd}
               projectName={hostFolderPath ?? projectName}
               hostFolder={hostFolderPath !== null}
-              // loom: directory reveal
+              // loom: directory reveal, and folder expansion kept per thread and folder
+              loomExpansionKey={`${scopedThreadKey(threadRef)}:${hostFolderPath ?? cwd}`}
               revealPath={revealDirectoryPath}
               revealRequestId={revealDirectoryRequestId}
               selectedPath={
