@@ -238,7 +238,10 @@ export const makeThreadSearch = Effect.gen(function* () {
     const ids = fused.slice(0, input.limit ?? CANDIDATES);
     const best = new Map(hits.map((hit) => [hit.rootId, hit] as const));
     const shown = ids.flatMap((id) => best.get(id)?.rowid ?? []);
-    // snippet() only for the rows returned: over every hit it costs ~130 ms.
+    // snippet() only for the rows returned: over every hit it costs ~130 ms. The
+    // unary + keeps `rowid IN` from reaching FTS5 as a rowid constraint, which
+    // re-evaluates the whole MATCH (prefix expansion included) once per row:
+    // 250 ms instead of 13 for "the thread is in the new one".
     const snippets = new Map(
       shown.length === 0
         ? []
@@ -256,7 +259,7 @@ export const makeThreadSearch = Effect.gen(function* () {
                 AS "matchedTitle"
             FROM loom_thread_search f
             WHERE loom_thread_search MATCH ${matchTerms(terms).join(" OR ")}
-              AND f.rowid IN (SELECT value FROM json_each(${JSON.stringify(shown)}))`)).map(
+              AND +f.rowid IN (SELECT value FROM json_each(${JSON.stringify(shown)}))`)).map(
             (row) => [row.rowid, row] as const,
           ),
     );
