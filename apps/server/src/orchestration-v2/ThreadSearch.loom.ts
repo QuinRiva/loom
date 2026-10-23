@@ -12,8 +12,9 @@
  *   lexical matches would outvote a correct semantic #1.
  * - No embedder (provider `none`, unavailable, still loading): the full lexical
  *   order, partial matches included.
- * - `includeArchived: false` drops archived roots (and so their subtrees) from
- *   both candidate sets before ranking, so they never take a result slot.
+ * - `includeArchived: false` drops archived roots (and so their subtrees), and
+ *   `projectId` other projects' roots, from both candidate sets before ranking,
+ *   so they never take a result slot.
  *
  * @module ThreadSearch
  */
@@ -82,7 +83,7 @@ const rootOf = (thread: string) => `json_extract(${thread}.payload_json, '$.line
  * table's own columns per hit costs several times the MATCH itself. Goals and
  * tasks credit the roots that carry their goal.
  */
-const lexicalSql = (termCount: number, includeArchived: boolean) => `
+const lexicalSql = (termCount: number, scope: SearchScope) => `
   WITH hits AS MATERIALIZED (
     ${Array.from(
       { length: termCount },
@@ -127,9 +128,13 @@ const lexicalSql = (termCount: number, includeArchived: boolean) => `
   )
   SELECT p.root_id AS "rootId", p.rowid AS "rowid", p.thread_id AS "threadId", p.coverage AS "coverage"
   FROM ranked p CROSS JOIN ${THREADS} r ON r.thread_id = p.root_id
-  WHERE p.rn = 1 AND r.deleted_at IS NULL${includeArchived ? "" : " AND r.archived_at IS NULL"}
+  WHERE p.rn = 1 AND r.deleted_at IS NULL${scope.includeArchived === false ? " AND r.archived_at IS NULL" : ""}${
+    scope.projectId === undefined ? "" : " AND r.project_id = ?"
+  }
   ORDER BY p.coverage DESC, p.score, r.updated_at DESC
   LIMIT ${CANDIDATES}`;
+
+type SearchScope = Pick<OrchestrationSearchThreadsInput, "includeArchived" | "projectId">;
 
 interface LexicalHit {
   readonly rootId: string;
@@ -159,20 +164,26 @@ export const makeThreadSearch = Effect.gen(function* () {
   const read = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     sql.withTransaction(effect).pipe(NodeSqliteClient.readOnly);
 
-  const lexical = (terms: ReadonlyArray<string>, includeArchived: boolean) =>
+  const lexical = (terms: ReadonlyArray<string>, scope: SearchScope) =>
     terms.length === 0
       ? Effect.succeed([] as ReadonlyArray<LexicalHit>)
-      : read(sql.unsafe<LexicalHit>(lexicalSql(terms.length, includeArchived), matchTerms(terms)));
+      : read(
+          sql.unsafe<LexicalHit>(lexicalSql(terms.length, scope), [
+            ...matchTerms(terms),
+            ...(scope.projectId === undefined ? [] : [scope.projectId]),
+          ]),
+        );
 
-  /** Archived roots leave the candidate set before the top-k cut, not after it. */
-  const semantic = (query: string, includeArchived: boolean) =>
+  /** Out-of-scope roots leave the candidate set before the top-k cut, not after it. */
+  const semantic = (query: string, scope: SearchScope) =>
     Option.isNone(embedder)
       ? Effect.succeed(undefined)
-      : includeArchived
+      : scope.includeArchived !== false && scope.projectId === undefined
         ? embedder.value.nearest(query, CANDIDATES)
         : read(sql<{ readonly threadId: string }>`
             SELECT thread_id AS "threadId" FROM orchestration_v2_projection_threads
-            WHERE archived_at IS NOT NULL`).pipe(
+            WHERE (${scope.includeArchived === false ? 1 : 0} AND archived_at IS NOT NULL)
+              OR project_id <> COALESCE(${scope.projectId ?? null}, project_id)`).pipe(
             Effect.flatMap((rows) =>
               embedder.value.nearest(query, CANDIDATES, new Set(rows.map((row) => row.threadId))),
             ),
@@ -195,10 +206,10 @@ export const makeThreadSearch = Effect.gen(function* () {
    * Both rankings and their fusion, as root ids best-first (the harness reads
    * all three). `semantic` is undefined when search is lexical-only.
    */
-  const rank = Effect.fn("ThreadSearch.rank")(function* (query: string, includeArchived = true) {
+  const rank = Effect.fn("ThreadSearch.rank")(function* (query: string, scope: SearchScope = {}) {
     const terms = toTerms(query);
     const [hits, nearest] = yield* Effect.all(
-      [lexical(terms, includeArchived), semantic(query, includeArchived)],
+      [lexical(terms, scope), semantic(query, scope)],
       { concurrency: 2 },
     );
     const roots = yield* rootRows([...hits.map((hit) => hit.rootId), ...(nearest ?? [])]);
@@ -224,7 +235,7 @@ export const makeThreadSearch = Effect.gen(function* () {
   const searchThreads = Effect.fn("ThreadSearch.searchThreads")(function* (
     input: OrchestrationSearchThreadsInput,
   ): Effect.fn.Return<OrchestrationSearchThreadsResult, SqlError> {
-    const { terms, hits, roots, fused } = yield* rank(input.query, input.includeArchived);
+    const { terms, hits, roots, fused } = yield* rank(input.query, input);
     const ids = fused.slice(0, input.limit ?? CANDIDATES);
     const best = new Map(hits.map((hit) => [hit.rootId, hit] as const));
     const shown = ids.flatMap((id) => best.get(id)?.rowid ?? []);

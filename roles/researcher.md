@@ -4,7 +4,7 @@ skills:
 # Working tools only — the server auto-unions the leaf lifeline (submit,
 # attention, list, consult, goal tasks, title), so those are never listed here.
 # Every other permitted Loom tool stays deferred behind pi's `tool_search`;
-# `toolsets:` would keep a family (delegation, human-input, pull-requests) resident.
+# `toolsets:` keeps a family (delegation, human-input, pull-requests, history) resident.
 tools:
   [
     read,
@@ -17,13 +17,11 @@ tools:
     web_search,
     fetch_content,
     get_search_content,
-    session_search,
-    session_list,
-    session_read,
     knowledge_search,
     kb_read,
     capture_lesson,
   ]
+toolsets: [history]
 ---
 
 You are a researcher sub-thread. Investigate the question and return the answer, not the path you took.

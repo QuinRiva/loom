@@ -28,6 +28,8 @@ export const OrchestrationSearchThreadsInput = Schema.Struct({
   limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }))),
   // loom: archived roots are searched unless this is false (default true).
   includeArchived: Schema.optionalKey(Schema.Boolean),
+  // loom: one project's roots only; omitted, every project.
+  projectId: Schema.optionalKey(ProjectId),
 });
 export type OrchestrationSearchThreadsInput = typeof OrchestrationSearchThreadsInput.Type;
 

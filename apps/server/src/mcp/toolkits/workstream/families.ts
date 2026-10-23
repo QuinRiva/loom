@@ -53,6 +53,9 @@ export const DELEGATION = prefixed([
   "goal_update",
 ] as const);
 
+/** Search over every thread's content, for the roles that look up past decisions. */
+export const HISTORY = prefixed(["thread_search"] as const);
+
 /** The structured-question surface, registered by Loom's extension rather than /mcp. */
 export const HUMAN_INPUT = prefixed(["ask_user_question"] as const);
 
@@ -63,6 +66,7 @@ export const PULL_REQUESTS = Object.keys(PullRequestsToolkit.tools).map(agentToo
 export const TOOLSETS = {
   delegation: DELEGATION,
   "human-input": HUMAN_INPUT,
+  history: HISTORY,
   "pull-requests": PULL_REQUESTS,
 } as const;
 

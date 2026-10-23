@@ -7,6 +7,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   DELEGATION as DELEGATION_PROVIDER_TOOLS,
+  HISTORY,
   HUMAN_INPUT as HUMAN_INPUT_PROVIDER_TOOLS,
   LEAF_CORE,
   PULL_REQUESTS,
@@ -136,6 +137,16 @@ describe("loadRoleOverlay", () => {
     );
     expect(overlay?.delegation).toBe(true);
   });
+
+  it.each(["orchestrator", "planner", "researcher", "reviewer"])(
+    "the built-in %s keeps thread search resident in place of pi's session search",
+    (role) => {
+      const overlay = loadRoleOverlay({ role, projectRoot: fixture().lookup.projectRoot });
+      for (const tool of HISTORY) expect(overlay?.tools).toContain(tool);
+      for (const tool of ["session_search", "session_list", "session_read"])
+        expect(overlay?.tools).not.toContain(tool);
+    },
+  );
 
   // The role files' allowlists are long, and `vp check --fix` reformats them:
   // prettier's canonical form for a long flow sequence puts the bracket block on

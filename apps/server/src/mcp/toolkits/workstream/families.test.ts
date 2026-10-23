@@ -13,6 +13,7 @@ import { LOOM_TOOL_DEFS } from "./defs.ts";
 import {
   agentToolName,
   DELEGATION,
+  HISTORY,
   HUMAN_INPUT,
   LEAF_CORE,
   PULL_REQUESTS,
@@ -23,13 +24,14 @@ const namesOf = (toolkit: { readonly tools: Record<string, unknown> }) =>
   Object.keys(toolkit.tools).map(agentToolName);
 
 describe("Loom tool families", () => {
-  it("LEAF_CORE and DELEGATION partition the 22 MCP tools with no overlap", () => {
-    const families: ReadonlyArray<string> = [...LEAF_CORE, ...DELEGATION];
+  it("LEAF_CORE, DELEGATION and HISTORY partition the 23 MCP tools with no overlap", () => {
+    const families: ReadonlyArray<string> = [...LEAF_CORE, ...DELEGATION, ...HISTORY];
     expect(new Set(families).size).toBe(families.length);
     expect(families.toSorted()).toEqual(
       LOOM_TOOL_DEFS.map((def) => agentToolName(def.name)).toSorted(),
     );
-    expect(LOOM_TOOL_DEFS).toHaveLength(22);
+    expect(LOOM_TOOL_DEFS).toHaveLength(23);
+    expect(HISTORY).toEqual(["mcp__t3-code__thread_search"]);
   });
 
   it("HUMAN_INPUT names only the extension's mcp__t3-code__ask_user_question", () => {

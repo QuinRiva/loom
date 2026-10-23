@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@t3tools/contracts";
+import { ProjectId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -33,15 +33,22 @@ const reset = Effect.gen(function* () {
     "loom_thread_embeddings",
   ])
     yield* sql.unsafe(`DELETE FROM ${table}`);
-  yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
-    VALUES ('project', 'Project', '/tmp/project', '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`;
+  for (const project of ["project", "other"])
+    yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+      VALUES (${project}, 'Project', ${`/tmp/${project}`}, '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`;
 });
 
 /** A V2 thread; a child also gets the workstream sidecar row a spawn writes. */
 const thread = (
   id: string,
   title: string,
-  fields: { parent?: string; purpose?: string; archivedAt?: string; updatedAt?: string } = {},
+  fields: {
+    parent?: string;
+    purpose?: string;
+    archivedAt?: string;
+    updatedAt?: string;
+    project?: string;
+  } = {},
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -53,7 +60,7 @@ const thread = (
     yield* sql`INSERT INTO orchestration_v2_projection_threads
       (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
        created_at, updated_at, archived_at, payload_json)
-      VALUES (${id}, 'project', ${title}, 'pi', 'full-access', 'default', '2026-01-01T00:00:00.000Z',
+      VALUES (${id}, ${fields.project ?? "project"}, ${title}, 'pi', 'full-access', 'default', '2026-01-01T00:00:00.000Z',
         ${fields.updatedAt ?? "2026-01-02T00:00:00.000Z"}, ${fields.archivedAt ?? null},
         ${JSON.stringify({ lineage })})`;
     if (fields.parent || fields.purpose)
@@ -81,13 +88,19 @@ const message = (
         ${at}, ${at}, ${JSON.stringify(payload)})`;
   });
 
-const search = (query: string, limit?: number, includeArchived?: boolean) =>
+const search = (
+  query: string,
+  limit?: number,
+  includeArchived?: boolean,
+  projectId?: string,
+) =>
   makeThreadSearch.pipe(
     Effect.flatMap((threadSearch) =>
       threadSearch.searchThreads({
         query,
         ...(limit === undefined ? {} : { limit }),
         ...(includeArchived === undefined ? {} : { includeArchived }),
+        ...(projectId === undefined ? {} : { projectId: ProjectId.make(projectId) }),
       }),
     ),
     Effect.map(({ matches }) => matches),
@@ -166,6 +179,28 @@ layer("ThreadSearch", (it) => {
         );
       assert.equal((yield* semantic(true))[0]?.threadId, "archived");
       assert.notInclude(ids(yield* semantic(false)), "archived");
+    }),
+  );
+
+  it.effect("projectId keeps other projects' roots out of both rankings", () =>
+    Effect.gen(function* () {
+      yield* reset;
+      yield* thread("here", "pulsar timing");
+      yield* thread("there", "pulsar timing", { project: "other" });
+      assert.deepStrictEqual(
+        (yield* search("pulsar", undefined, undefined, "project")).map((match) => match.threadId),
+        ["here"],
+      );
+      const embedder = yield* makeThreadEmbedder(
+        Effect.succeed(stubProvider({ quasar: [1, 0], "pulsar timing": [1, 0] })),
+      );
+      yield* embedder.sweep;
+      assert.deepStrictEqual(
+        (yield* search("quasar", undefined, undefined, "other").pipe(
+          Effect.provideService(ThreadEmbedder, embedder),
+        )).map((match) => match.threadId),
+        ["there"],
+      );
     }),
   );
 
