@@ -2245,12 +2245,14 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 warming: "stopped",
               });
               const interrupted = state?.activeTurn?.interrupted === true;
+              // loom: one literal for both uses; the session error must match the turn failure to keep its class (liveness resume)
+              const exitedMessage = "Pi process exited unexpectedly.";
               if (state?.activeTurn != null) {
                 state.activeTurn.failure = interrupted
                   ? null
                   : makeProviderFailure({
                       cause,
-                      message: "Pi process exited unexpectedly.",
+                      message: exitedMessage,
                       class: "transport_error",
                     });
                 yield* finalizeTurn(state, false);
@@ -2266,7 +2268,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               } else {
                 yield* updateProviderSession(
                   "error",
-                  interrupted ? "Pi process was stopped." : "Pi process exited unexpectedly.",
+                  interrupted ? "Pi process was stopped." : exitedMessage,
                 );
                 yield* Queue.fail(
                   events,
