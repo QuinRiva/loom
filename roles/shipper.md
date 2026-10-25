@@ -1,4 +1,6 @@
 ---
+skills:
+  - skills/ship
 # Working tools only — the server auto-unions the leaf lifeline (submit,
 # attention, list, consult, goal tasks, title), so those are never listed here.
 # `toolsets:` names the families this role keeps RESIDENT; every other

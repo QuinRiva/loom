@@ -21,14 +21,9 @@ child once the work is approved or ship inline via the `ship` skill; outside a
 workstream, follow the doc directly. Do not ship until the user has approved
 shipping the change.
 
-**Merge authority is per-project**, declared in `.t3code/ship.json` (resolved by
-walking up from the working directory) and injected into every thread's system
-prompt as the SHIPPING POLICY block. The platform default is `human` — agents
-open the PR and stop for a human to review and merge; **loom itself is `agent`**,
-so the flow above carries through the merge. Never merge under a `human` policy,
-even when a brief's definition of done says "merged". See
-[`docs/operations/shipping.md`](docs/operations/shipping.md) for the policy shape
-and rationale.
+Merge authority is per-project (`.t3code/ship.json`; policy shape in the
+shipping doc). Loom's is `agent`, so the flow above carries through the merge;
+in a workstream the SHIPPING POLICY block in your prompt states it.
 
 Shipping ends at the merge. **Deploying to the production VM is a separate,
 human-initiated act** — never deploy as part of finishing a change unless the

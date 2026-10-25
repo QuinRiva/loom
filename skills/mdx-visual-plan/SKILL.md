@@ -1,16 +1,11 @@
 ---
 name: mdx-visual-plan
 description: >-
-  Author an implementation plan — a proposal for work that does not yet exist,
-  before any code is written — as a reviewable MDX document that opens with the
-  recommendation for a named reader, using T3 Code's block vocabulary (data
-  models, endpoints, file trees, annotated code, diagrams, tables, diffs,
-  callouts, checklists, OpenAPI/Mermaid, containers, and — for UI work —
-  wireframe/design artboards, a spatial canvas and interactive prototypes). Use
-  when a plan is worth reviewing and annotating in-app and the work is
-  approval-gated. For a recap of work already done or a decision batch, use
-  mdx-visual-recap; to explain, orient or diagnose without asking for a
-  decision, use mdx-visual-explainer.
+  Author an implementation plan, a proposal for work that does not yet exist,
+  as a reviewable MDX document. Use when a plan is worth reviewing and
+  annotating in-app and the work is approval-gated. For a recap of work already
+  done or a decision batch use mdx-visual-recap; to explain, orient or diagnose
+  without asking for a decision use mdx-visual-explainer.
 pi_global: true
 pi_global_requires: [mdx-doc-core]
 ---
