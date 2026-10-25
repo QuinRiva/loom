@@ -17,6 +17,7 @@ import type {
 import * as DateTime from "effect/DateTime";
 import { dependenciesSatisfied } from "@t3tools/shared/workstreamStart.loom";
 
+import { formatWakeTimestamp } from "../../../loom/orchestration/dispatcher/wakes.ts";
 import { agentToolName as t } from "./families.ts";
 
 /** Suffix any warnings onto a confirmation line, one `Warning: …` per line. */
@@ -123,7 +124,7 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
         ? firstLine(thread.latestVisibleMessage.text)
         : "";
       lines.push(
-        `${pad}    last-activity: ${DateTime.formatIso(thread.updatedAt)}${preview ? ` — ${preview}` : ""}`,
+        `${pad}    last-activity: ${formatWakeTimestamp(DateTime.formatIso(thread.updatedAt))}${preview ? ` — ${preview}` : ""}`,
       );
     }
     if (ws.reportPath)
