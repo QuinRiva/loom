@@ -488,9 +488,31 @@ export const briefNeededRail: PassStep = {
         "briefNeeded",
         row.threadId,
         Effect.gen(function* () {
+          const delivered = yield* ctx.delivered(parentId);
+          const pending = ctx.pendingDigests.get(parentId) ?? [];
+          // loom: the brief builds on its dependencies' results, so the notice waits until the
+          // parent has heard how each one ended, earlier or piggybacked on this notice (a resolved
+          // gate reports as one pair only once both parties are stamped, a pass after the
+          // reviewer). A dependency terminalDeltas never reports (archived, an imported row with
+          // no submit) has no news to wait for.
+          const awaitingNews = node.blockedBy.some((depId) => {
+            const dep = ctx.nodesById.get(depId);
+            return (
+              depId !== node.id &&
+              dep?.parentThreadId === parentId &&
+              dep.archivedAt === null &&
+              dep.lastOutcome?.eventId != null &&
+              !toldAbout(delivered, depId, Date.parse(dep.lastOutcome.at)) &&
+              !pending.some(
+                ({ member, extra }) =>
+                  member?.id === depId || (extra?.kind === "recovered" && extra.childId === depId),
+              )
+            );
+          });
+          if (awaitingNews) return;
           const sinceMs = briefNeededSinceMs(node, ctx.nodesById);
           const rung = rungFor(Math.max(0, nowMs(ctx) - sinceMs));
-          const told = (yield* ctx.delivered(parentId)).some(
+          const told = delivered.some(
             ({ payload, item, atMs }) =>
               payload.notice === "brief-needed" &&
               item.kind === undefined &&
