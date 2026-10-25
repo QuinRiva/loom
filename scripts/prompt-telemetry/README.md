@@ -25,5 +25,5 @@ A 14-day window counts only sessions with the cut headers from 2026-11-06 on; be
 - `run.sh`: the entrypoint. `compare.py` builds its comparison section.
 - `skill-usage.py` (one record per session), `skill-usage-agg.py` (the table; `all|loom|terminal`), `skill-usage-triggers.py` (missed-fire check): the census, also runnable alone; usage is in each file's header.
 - `delegation.sh SINCE [DB]`: the delegation table from the date given.
-- `baselines/skill-usage-30d.md`: the 2026-10-23 census report (30 days from 2026-09-23), with its method and the pre-cut rates. `baselines/skill-usage-30d.jsonl.gz` holds its per-session records; `skill-usage-agg.py <(zcat baselines/skill-usage-30d.jsonl.gz) all` reproduces its table.
+- `baselines/skill-usage-30d.md`: the 2026-10-23 census report (30 days from 2026-09-23), with its method and the pre-cut rates.
 - `baselines/delegation-2026-10-22.txt`: the delegation table for children created 2026-10-13 to 2026-10-22T06:18Z.
