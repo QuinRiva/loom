@@ -65,16 +65,12 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
         yield* connection
           .request({ type: "set_model", provider: parsed.provider, modelId: parsed.modelId })
           .pipe(
-            // Model discovery loads extensions that this background helper disables.
             Effect.mapError((error) =>
               error._tag === "PiRpcError" && error.operation === "set_model"
                 ? new TextGenerationError({
                     operation,
-                    detail:
-                      `Pi rejected model '${modelSelection.model}': ${error.detail ?? "unknown error"}. ` +
-                      "If the model comes from a Pi extension or package, text generation cannot use it " +
-                      "because it runs Pi with --no-extensions. Pick a built-in Pi model or one defined " +
-                      "in Pi's models.json.",
+                    // loom: extensions stay on (above), so no --no-extensions hint
+                    detail: `Pi rejected model '${modelSelection.model}': ${error.detail ?? "unknown error"}.`,
                     cause: error,
                   })
                 : error,

@@ -63,7 +63,8 @@ const makeFakePi = (reply: string, setModelError?: string) =>
     return { spawner, received };
   });
 
-it.effect("names the model and the disabled extensions when Pi cannot load it", () =>
+it.effect("names the model when Pi cannot load it", () =>
+  // loom: extensions stay on, no hint
   Effect.gen(function* () {
     const pi = yield* makeFakePi("", "Model not found: demo/demo-model");
     const textGeneration = yield* makePiTextGeneration(
@@ -84,7 +85,7 @@ it.effect("names the model and the disabled extensions when Pi cannot load it", 
     assert.equal(error._tag, "TextGenerationError");
     assert.include(error.detail, "Pi rejected model 'demo/demo-model'");
     assert.include(error.detail, "Model not found: demo/demo-model");
-    assert.include(error.detail, "--no-extensions");
+    assert.notInclude(error.detail, "--no-extensions"); // loom: extensions stay on
     assert.isUndefined(pi.received.find((record) => record["type"] === "prompt"));
   }),
 );
