@@ -5,8 +5,12 @@
  * `toolsets:` names the family they belong to (`withheldFrom`).
  */
 import { AttachmentToolkit } from "../attachment/tools.ts";
+import { DeviceToolkit } from "../device/tools.ts";
 import { EnvironmentToolkit } from "../environment/tools.ts";
+import { HtmlToolkit } from "../html/tools.ts";
 import { OrchestratorToolkit } from "../orchestrator/tools.ts";
+import { PreviewToolkit } from "../preview/tools.ts";
+import { PreviewControlsToolkit } from "../previewControls/tools.ts";
 import { ProjectToolkit } from "../project/tools.ts";
 import { PullRequestsToolkit } from "../pullRequests/tools.ts";
 import { ThreadToolkit } from "../thread/tools.ts";
@@ -15,6 +19,9 @@ import { WorktreeToolkit } from "../worktree/tools.ts";
 /** The name upstream's bridge registers an MCP tool under in pi. */
 export const agentToolName = <const Name extends string>(name: Name) =>
   `mcp__t3-code__${name}` as const;
+
+const namesOf = (...toolkits: ReadonlyArray<{ readonly tools: Record<string, unknown> }>) =>
+  toolkits.flatMap((toolkit) => Object.keys(toolkit.tools).map(agentToolName));
 
 const prefixed = <const Names extends ReadonlyArray<string>>(names: Names) =>
   names.map(agentToolName) as { readonly [K in keyof Names]: `mcp__t3-code__${Names[K]}` };
@@ -62,7 +69,7 @@ export const DOCUMENT_QUERY = prefixed(["document_query_promote"] as const);
 export const HUMAN_INPUT = prefixed(["ask_user_question"] as const);
 
 /** Upstream's PR toolkit, resident for orchestrator and shipper (seam 13). */
-export const PULL_REQUESTS = Object.keys(PullRequestsToolkit.tools).map(agentToolName);
+export const PULL_REQUESTS = namesOf(PullRequestsToolkit);
 
 /** Upstream's scheduled-task tools, carved out of the withheld OrchestratorToolkit for the roles that name them. */
 export const SCHEDULING = prefixed([
@@ -87,14 +94,56 @@ export const TOOLSETS = {
  * adds to these toolkits is withheld by construction. Most also fail on the
  * server, whose Loom credential lacks `orchestration`.
  */
-export const UPSTREAM_WITHHELD_TOOLS = [
+export const UPSTREAM_WITHHELD_TOOLS = namesOf(
   OrchestratorToolkit,
   ThreadToolkit,
   ProjectToolkit,
   AttachmentToolkit,
   EnvironmentToolkit,
   WorktreeToolkit,
-].flatMap((toolkit) => Object.keys(toolkit.tools).map(agentToolName));
+);
+
+/**
+ * The families a thread reaches by `tool_search`, each with the model-facing phrase that announces
+ * it (`deferredCapabilitiesClause`): a capability in plain words, anchored by tool names BM25 matches.
+ * With the lists above it partitions the registered catalogue, so a toolkit without one fails CI.
+ * SCHEDULING has none: withheld unless a role names it, it is never behind `tool_search`.
+ */
+export const CAPABILITIES: ReadonlyArray<{
+  readonly id: string;
+  readonly tools: ReadonlyArray<string>;
+  readonly phrase: string;
+}> = [
+  {
+    id: "browser",
+    tools: namesOf(PreviewToolkit, PreviewControlsToolkit, HtmlToolkit),
+    phrase:
+      "a headless browser: `html_preview` renders an HTML document to a screenshot with its console output, and `preview_*` drives a live tab at any URL that the human can watch (navigate, click, type, snapshot)",
+  },
+  {
+    id: "devices",
+    tools: namesOf(DeviceToolkit),
+    phrase:
+      "iOS simulators and Android emulators streamed to the human's Device panel (`device_*`)",
+  },
+  {
+    id: "pull-requests",
+    tools: PULL_REQUESTS,
+    phrase:
+      "pull requests: link one to this thread and be woken when its checks or comments change instead of polling (`watch_pull_request`, `link_pull_request`)",
+  },
+  {
+    id: "delegation",
+    tools: DELEGATION,
+    phrase:
+      "children of your own and the graph around them (`workstream_spawn`, `workstream_scaffold`, `notify_thread`)",
+  },
+  {
+    id: "history",
+    tools: HISTORY,
+    phrase: "search over every past thread's content (`thread_search`)",
+  },
+];
 
 /** The withheld tools a role's profile (`tools`, its `toolsets:` included) does not name. */
 export const withheldFrom = (tools: ReadonlyArray<string>) =>

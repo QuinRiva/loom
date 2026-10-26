@@ -1,3 +1,7 @@
+// @effect-diagnostics nodeBuiltinImport:off - enumerates the toolkit directories.
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+
 import { describe, expect, it } from "vite-plus/test";
 
 import { AttachmentToolkit } from "../attachment/tools.ts";
@@ -12,6 +16,7 @@ import { WorktreeToolkit } from "../worktree/tools.ts";
 import { LOOM_TOOL_DEFS } from "./defs.ts";
 import {
   agentToolName,
+  CAPABILITIES,
   DELEGATION,
   HISTORY,
   DOCUMENT_QUERY,
@@ -41,6 +46,39 @@ describe("Loom tool families", () => {
     );
     expect(LOOM_TOOL_DEFS).toHaveLength(24);
     expect(HISTORY).toEqual(["mcp__t3-code__thread_search"]);
+  });
+
+  it("every registered tool is in exactly one of the core, human-input, query and withheld lists or one CAPABILITIES entry", async () => {
+    // Every `<toolkit>/tools.ts` beside this directory, so a toolkit added there is covered unasked.
+    const toolkitsDir = NodePath.join(import.meta.dirname, "..");
+    const modules = await Promise.all(
+      NodeFS.readdirSync(toolkitsDir)
+        .filter((dir) => NodeFS.existsSync(NodePath.join(toolkitsDir, dir, "tools.ts")))
+        .map((dir) => import(NodePath.join(toolkitsDir, dir, "tools.ts"))),
+    );
+    const registered = new Set([
+      ...modules
+        .flatMap((module) => Object.values(module as Record<string, unknown>))
+        .filter(
+          (value): value is { readonly tools: Record<string, unknown> } =>
+            (typeof value === "object" || typeof value === "function") &&
+            value !== null &&
+            "tools" in value,
+        )
+        .flatMap(namesOf),
+      ...LOOM_TOOL_DEFS.map((def) => agentToolName(def.name)),
+    ]);
+    const listed: ReadonlyArray<string> = [
+      ...LEAF_CORE,
+      ...HUMAN_INPUT,
+      ...DOCUMENT_QUERY,
+      ...UPSTREAM_WITHHELD_TOOLS,
+      ...CAPABILITIES.flatMap((capability) => capability.tools),
+    ];
+    expect(new Set(listed).size).toBe(listed.length);
+    // HUMAN_INPUT is the extension's, not a toolkit's.
+    expect(listed.toSorted()).toEqual([...registered, ...HUMAN_INPUT].toSorted());
+    expect(registered).toContain("mcp__t3-code__html_preview");
   });
 
   it("HUMAN_INPUT names only the extension's mcp__t3-code__ask_user_question", () => {

@@ -198,8 +198,11 @@ silently. Run the render-health check and fix every finding before telling the
 reader the plan is ready:
 
 ```
-node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx --out plans/<slug>/render.html --png
+bash ../mdx-doc-core/scripts/lint-doc.sh plans/<slug>/plan.mdx --out plans/<slug>/render.html --png
 ```
+
+The script path resolves against this skill's directory, the document paths
+against your working directory.
 
 The same check runs on `intent.mdx`.
 

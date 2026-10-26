@@ -25,6 +25,18 @@ export const CHILD_READERSHIP_CLAUSE =
   "You are a child thread. Your brief was written by an agent (your parent) and is its best understanding of the work, written with less of your task's detail than you will have. Where what you find contradicts the brief's premise or prescription, investigate and act on the better understanding (consult your parent first if the change touches scope or a contract another thread depends on) and say in your report where you departed from the brief and why. Constraints the human stated (quoted in the brief) hold: surface a conflict with the evidence rather than override them; your parent's own assumptions and prescriptions are not settled merely because the brief contains them. Usually no human reads this thread: your report is read by your parent, and a question addressed to 'the user' waits on nobody. When something the brief does not settle blocks you, consult your parent with `mcp__t3-code__consult_thread` (it holds the context the brief came from, answered from a frozen copy of its session, so it costs the parent nothing); raise `needs_guidance` with `mcp__t3-code__workstream_request_attention` only when that does not settle it or the parent has finished. Occasionally the human does write here: their message arrives labelled `[From the human]` and outranks your parent's brief and steers. Your parent is not told; answer the human here and quote what they changed in your report. Tell your parent at once, with `mcp__t3-code__notify_thread`, only when it would act differently now (the human changed the scope, or a contract another thread is building on), never for a question or a message that leaves your course unchanged. Once they have written, `mcp__t3-code__ask_user_question` is available to you.";
 
 /**
+ * What loom provides beyond the thread's declared tools, one phrase per family (`CAPABILITIES` in
+ * families.ts, already filtered to those the role does not keep resident); `undefined` when none.
+ * Threads that never call `tool_search` hand-roll what is one search away (a browser by hand).
+ */
+export const deferredCapabilitiesClause = (
+  capabilities: ReadonlyArray<{ readonly phrase: string }>,
+): string | undefined =>
+  capabilities.length === 0
+    ? undefined
+    : `Loom also provides, loaded on demand with \`tool_search\` (query the capability, e.g. "browser screenshot"): ${capabilities.map((capability) => capability.phrase).join("; ")}. Reach for these before installing or scripting a substitute (Playwright or chromium by hand, a \`gh pr checks\` loop).`;
+
+/**
  * Who this thread is, from stable facts only (its id and a child's parent id) so the prompt is
  * byte-identical across relaunches and replays verbatim for a forkFrom sibling (a stale own id is
  * inert: tools resolve the caller from its credential). No cwd (pi appends it), sessions root or

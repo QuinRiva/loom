@@ -51,18 +51,28 @@ import {
   testModelSelection,
   writeEvents,
 } from "../testkit/loomOrchestratorLayer.ts";
-import { CHILD_READERSHIP_CLAUSE, WORK_MODEL_ADDENDUM, threadIdentityClause } from "./prose.ts";
+import { CAPABILITIES, SCHEDULING } from "../../mcp/toolkits/workstream/families.ts";
+import {
+  CHILD_READERSHIP_CLAUSE,
+  deferredCapabilitiesClause,
+  WORK_MODEL_ADDENDUM,
+  threadIdentityClause,
+} from "./prose.ts";
 import { agentGitEnv } from "../workstream/agentGitIdentity.ts";
 import type { LoomOpenSessionFields } from "@t3tools/contracts";
 import type { LoomSessionComposerShape } from "./sessionComposer.ts";
 import { loomHiddenToolsEnv, makeLoomSessionComposer } from "./sessionComposerLive.ts";
-import { SCHEDULING } from "../../mcp/toolkits/workstream/families.ts";
 
 /** A replayed record as `threadId` launches it: the identity verbatim, the git identity its own. */
 const asThread = (fields: LoomOpenSessionFields, threadId: ThreadId) => ({
   ...fields,
   env: { ...fields.env, ...agentGitEnv(threadId) },
 });
+
+/** The addendum and the capability line a role with these deferred families reads after it. */
+const addendumWith = (...deferred: ReadonlyArray<string>) =>
+  `${WORK_MODEL_ADDENDUM}\n\n${deferredCapabilitiesClause(CAPABILITIES.filter((capability) => deferred.includes(capability.id)))}`;
+const ORCHESTRATOR_HEAD = addendumWith("browser", "devices");
 
 /** Where the stub adapter's sessions run (the testkit's inert provider session). */
 const STUB_SESSION_CWD = "/workspace/loom-test";
@@ -194,11 +204,13 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         const { appendSystemPrompt, env, extensions } = yield* composer.compose(threadId);
         assert.isTrue(
           appendSystemPrompt.startsWith(
-            `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(threadId, null, yield* paths)}\n\nYou orchestrate`,
+            `${ORCHESTRATOR_HEAD}\n\n${threadIdentityClause(threadId, null, yield* paths)}\n\nYou orchestrate`,
           ),
         );
         assert.notInclude(appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
         assert.notInclude(appendSystemPrompt, "Your parent is thread");
+        // Resident for the orchestrator, so the capability line does not announce it.
+        assert.notInclude(appendSystemPrompt, "schedule_task");
         assert.include(appendSystemPrompt, "SHIPPING POLICY");
         assert.include(appendSystemPrompt, "Available roles for spawning children");
         assert.deepEqual(env, longRootEnv(threadId));
@@ -235,11 +247,13 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         const { appendSystemPrompt, env, idleTimeoutMs } = yield* composer.compose(child);
         assert.isTrue(
           appendSystemPrompt.startsWith(
-            `${WORK_MODEL_ADDENDUM}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(child, root, yield* paths)}\n\nYou are a coder sub-thread.`,
+            `${addendumWith("browser", "devices", "pull-requests", "delegation", "history")}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(child, root, yield* paths)}\n\nYou are a coder sub-thread.`,
           ),
         );
         assert.include(appendSystemPrompt, `Your parent is thread \`${root}\`.`);
         assert.notInclude(appendSystemPrompt, "Available roles for spawning children");
+        // Withheld from a coder (hidden, so `tool_search` cannot load it): absent, not deferred.
+        assert.notInclude(appendSystemPrompt, "schedule_task");
         assert.deepEqual(env, {
           PI_CACHE_RETENTION: "short",
           ...agentGitEnv(child),
@@ -248,6 +262,32 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         assert.isUndefined(idleTimeoutMs);
       }),
     ),
+  );
+
+  it.effect(
+    "names only the capabilities a role reaches by tool_search: a shipper keeps pull requests resident",
+    () =>
+      withComposer(1, (composer) =>
+        Effect.gen(function* () {
+          const { threadId: root, projectId } = yield* seedRoot("shipper-parent", tempCheckout());
+          const shipper = ThreadId.make("thread:composer-shipper");
+          yield* spawnChild({
+            parentThreadId: root,
+            threadId: shipper,
+            projectId,
+            role: "shipper",
+          });
+          const { appendSystemPrompt } = yield* composer.compose(shipper);
+          assert.isTrue(
+            appendSystemPrompt.startsWith(
+              `${addendumWith("browser", "devices", "delegation", "history")}\n\n${CHILD_READERSHIP_CLAUSE}`,
+            ),
+          );
+          assert.include(appendSystemPrompt, "`html_preview`");
+          assert.include(appendSystemPrompt, "`thread_search`");
+          assert.notInclude(appendSystemPrompt, "`watch_pull_request`");
+        }),
+      ),
   );
 
   it.effect(
@@ -306,7 +346,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           const relaunched = yield* composer.compose(fork);
           assert.isTrue(
             relaunched.appendSystemPrompt.startsWith(
-              `${WORK_MODEL_ADDENDUM}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(fork, root, yield* paths)}\n\nYou are a researcher sub-thread.`,
+              `${addendumWith("browser", "devices", "pull-requests", "delegation")}\n\n${CHILD_READERSHIP_CLAUSE}\n\n${threadIdentityClause(fork, root, yield* paths)}\n\nYou are a researcher sub-thread.`,
             ),
           );
           assert.deepEqual(yield* composer.compose(fork), relaunched);
@@ -355,7 +395,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           const freshFields = yield* composer.compose(fresh);
           assert.isTrue(
             freshFields.appendSystemPrompt.startsWith(
-              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(fresh, null, yield* paths)}`,
+              `${ORCHESTRATOR_HEAD}\n\n${threadIdentityClause(fresh, null, yield* paths)}`,
             ),
           );
           assert.deepEqual(freshFields.env, longRootEnv(fresh));
@@ -371,7 +411,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           const relaunched = yield* composer.compose(target);
           assert.isTrue(
             relaunched.appendSystemPrompt.startsWith(
-              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(target, null, yield* paths)}\n\nYou orchestrate`,
+              `${ORCHESTRATOR_HEAD}\n\n${threadIdentityClause(target, null, yield* paths)}\n\nYou orchestrate`,
             ),
           );
           assert.deepEqual(yield* composer.compose(target), relaunched);

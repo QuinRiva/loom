@@ -158,8 +158,11 @@ may be three paragraphs and a diagram. Both open with the summary.
 ## Validate before presenting
 
 ```
-node apps/web/scripts/lint-plan.mjs explainers/<slug>/explainer.mdx --out explainers/<slug>/render.html --png
+bash ../mdx-doc-core/scripts/lint-doc.sh explainers/<slug>/explainer.mdx --out explainers/<slug>/render.html --png
 ```
+
+The script path resolves against this skill's directory, the document paths
+against your working directory.
 
 A stray `<` or `{` in prose is an MDX compile error that kills the whole
 rendered document, and an unknown tag or invalid props show an error card in

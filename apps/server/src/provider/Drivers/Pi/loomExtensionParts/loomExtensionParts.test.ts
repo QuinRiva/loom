@@ -46,9 +46,9 @@ const loadPart = (
 
 let counter = 0;
 
-// A Loom thread's session has the consult tool; a plain pi session does not.
+// A Loom thread's session has the consult tool and tool_search; a plain pi session neither.
 const loadGuard = (workstream = true) => {
-  const handlers = loadPart(searchGuardPart, {}, workstream ? [CONSULT] : []);
+  const handlers = loadPart(searchGuardPart, {}, workstream ? [CONSULT, "tool_search"] : []);
   return { toolCall: handlers.get("tool_call")!, toolResult: handlers.get("tool_result")! };
 };
 
@@ -76,6 +76,9 @@ describe("search-guard part", () => {
     expect(result?.reason).toContain(foreign);
     expect(result?.reason).toContain(CONSULT);
     expect(result?.reason).toContain("brief paths are authoritative");
+    expect(result?.reason).toContain(
+      "(0) if what you are hunting is a tool or a capability (a browser, a simulator, a linter a skill named), it is probably provided: `tool_search` loads loom's tools, and a skill's bundled files resolve against the skill's own directory, not your cwd; (1)",
+    );
   });
 
   it("blocks unbounded find over vast roots: /, $HOME, worktree ancestors", () => {
@@ -277,7 +280,58 @@ describe("search-guard part", () => {
     };
     expect(result?.block).toBe(true);
     expect(result?.reason).not.toContain(CONSULT);
-    expect(result?.reason).toContain("brief paths are authoritative");
+    expect(result?.reason).not.toContain("tool_search");
+    expect(result?.reason).toContain("it is probably provided: a skill's bundled files resolve");
+  });
+
+  it("lets an explicitly bounded search over a vast root run, then appends the ladder", () => {
+    const guard = loadGuard();
+    const resultOf = (event: ReturnType<typeof bashCall>) =>
+      guard.toolResult(
+        {
+          toolName: "bash",
+          toolCallId: event.toolCallId,
+          content: [{ type: "text", text: "out" }],
+        },
+        ctx,
+      ) as { content: Array<{ text: string }> } | undefined;
+    // 26 Oct: a planner hunting a skill's linter, escaping the guard with its own timeout.
+    const planner = bashCall(
+      `wc -l /home/Carl/.pi/agent/skills/mdx-doc-core/references/*.md; ls /home/Carl/.pi/agent/skills/mdx-doc-core/; find / -name lint-plan.mjs -path "*apps/web/scripts*" 2>/dev/null | head -3`,
+      { timeout: 60 },
+    );
+    expect(guard.toolCall(planner, ctx)).toBeUndefined();
+    expect((planner.input as { timeout?: number }).timeout).toBe(60);
+    const note = resultOf(planner)!.content[1]!.text;
+    expect(note).toMatch(
+      /^\n\n\[t3 search guard\] Your bound let this search walk \/\. When a file/,
+    );
+    expect(note).toContain("`tool_search` loads loom's tools");
+    expect(note).toContain(CONSULT);
+    expect(note).not.toContain("bound it explicitly");
+    for (const command of [
+      `timeout 90 find ${NodeOS.homedir()} -name x`,
+      `find / -maxdepth 6 -path '*node_modules/playwright/package.json' 2>/dev/null | head -3`,
+    ]) {
+      const event = bashCall(command);
+      expect(guard.toolCall(event, ctx), command).toBeUndefined();
+      expect(resultOf(event)?.content[1]?.text, command).toContain(
+        "Your bound let this search walk",
+      );
+    }
+    // Bounded searches of ordinary trees, and in-worktree ones, hear nothing.
+    for (const command of [
+      `ls ~/.n/lib/node_modules; ls ~/.cache/ms-playwright/; find ~/.n/lib/node_modules -maxdepth 3 -name "playwright*" -type d 2>/dev/null | head`,
+      `find /home/u/other-repo -maxdepth 3 -name x.md`,
+      `timeout 120 find . -name x.md`,
+    ]) {
+      const event = bashCall(command);
+      guard.toolCall(event, ctx);
+      expect(resultOf(event), command).toBeUndefined();
+    }
+    const explicitForeign = bashCall(`find /home/u/other-repo -name x.md`, { timeout: 120 });
+    guard.toolCall(explicitForeign, ctx);
+    expect(resultOf(explicitForeign)).toBeUndefined();
   });
 
   it("guards the built-in grep/find tools' path argument", () => {
@@ -619,9 +673,10 @@ describe("cacheWarmingGate part", () => {
 });
 
 describe("command-guards part", () => {
+  const HTML_PREVIEW = "mcp__t3-code__html_preview";
   /** Runs one bash call through the guard: the block reason, the command as run, and the note. */
-  const run = (command: string) => {
-    const handlers = loadPart(commandGuardsPart);
+  const run = (command: string, tools = [HTML_PREVIEW]) => {
+    const handlers = loadPart(commandGuardsPart, {}, tools);
     const event = bashCall(command);
     const result = handlers.get("tool_call")!(event, ctx) as
       | { block: boolean; reason: string }
@@ -847,6 +902,55 @@ describe("command-guards part", () => {
     ]) {
       untouched(command);
     }
+  });
+
+  const BROWSER_NOTE =
+    '[t3 command guard] Loom provides a headless browser: `html_preview` renders an HTML document to a screenshot with its console output and `preview_*` drives a live tab at any URL, both loaded with `tool_search` (query "browser screenshot"); if you need a browser of your own, carry on.';
+
+  it("notes loom's browser, without blocking, when a command installs, launches or hunts one", () => {
+    for (const command of [
+      // 26 Oct: a coder hunting for a browser, an install, a figure render.
+      `which chromium chromium-browser google-chrome 2>/dev/null; ls ~/.cache/ms-playwright 2>/dev/null | head`,
+      `ls ~/.n/lib/node_modules; ls ~/.cache/ms-playwright/; find ~/.n/lib/node_modules -maxdepth 3 -name "playwright*" -type d 2>/dev/null | head`,
+      `npm i playwright`,
+      `cd /tmp/pw && npm install --no-save playwright@1.49 && npx playwright install chromium`,
+      `chromium --headless --disable-gpu --no-sandbox --window-size=1500,2300 --screenshot=/tmp/f12_top.png file://$PWD/f12.html`,
+      `B=$(command -v chromium || command -v google-chrome); timeout 60 $B --headless=new --screenshot=/tmp/shot.png file:///tmp/x.html`,
+      `pnpm exec playwright install chromium`,
+      `pip install playwright`,
+      `node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch(); })()"`,
+    ]) {
+      const out = run(command);
+      expect(out.reason, command).toBeUndefined();
+      expect(out.command, command).toBe(command);
+      expect(out.note, command).toBe("\n\n" + BROWSER_NOTE);
+    }
+  });
+
+  it("notes the browser once per session, only where html_preview exists, and not for ordinary installs", () => {
+    for (const command of [
+      `npm i`,
+      `pnpm add -D vitest`,
+      `soffice --headless --convert-to pdf report.docx`,
+      `export CHROME=$HOME/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome`,
+      `git commit -m "npm i playwright in the e2e package"`,
+    ]) {
+      untouched(command);
+    }
+    expect(run(`npm i playwright`, []).note).toBeUndefined();
+    const handlers = loadPart(commandGuardsPart, {}, [HTML_PREVIEW]);
+    const notes = ["npm i puppeteer", "chromium --headless --screenshot=a.png a.html"].map(
+      (command) => {
+        const event = bashCall(command);
+        handlers.get("tool_call")!(event, ctx);
+        return handlers.get("tool_result")!(
+          { toolName: "bash", toolCallId: event.toolCallId, content: [] },
+          ctx,
+        );
+      },
+    );
+    expect(notes[0]).toBeDefined();
+    expect(notes[1]).toBeUndefined();
   });
 
   it("degrades to allow on malformed input instead of throwing", () => {

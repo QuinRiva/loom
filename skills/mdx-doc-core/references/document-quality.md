@@ -320,8 +320,11 @@ Render the document to a standalone page and PNG slices of it, and read the
 slices:
 
 ```
-node apps/web/scripts/lint-plan.mjs <doc>.mdx --out <doc-dir>/render.html --png
+bash ../scripts/lint-doc.sh <doc>.mdx --out <doc-dir>/render.html --png
 ```
+
+The script path resolves against this file's directory, the document paths
+against your working directory.
 
 `--out` keeps the markup the render-health check already produces, with the
 app's stylesheet inlined and image sources resolved, so the page is what the
