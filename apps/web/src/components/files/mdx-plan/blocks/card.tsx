@@ -9,20 +9,9 @@ import { type BadgeSpec, badgeSpecSchema, type Tone, toneColor, toneSchema } fro
 import { PlanBadge } from "./badge";
 
 /**
- * The `<Card>` block (§3) — a toned item container for verdict/review batches: a
- * top edge in a categorical tone colour (none for neutral), a header row
- * (heading left, badge pills right), a line of meta chips under it, and a
- * `passChildren` body (`.plan-card*` in `index.css`). Give each item an
- * `id` so annotations anchor to the whole card and nested `<Details>` drill-downs
- * live inside it.
- *
- * The tone is the shared six-slot CATEGORICAL palette (`tones.ts`; not
- * `<Callout>`'s status semantics): a Card tone is a category colour, not a
- * status, so meaning always rides the badge/heading text and colour is triage
- * only. `eyebrow` is the small line above the heading (`RULE 1`, `OPTION B`);
- * `badges` are extra pills with their own tones after `badge`. The heading is
- * inline markdown, so `code` and *emphasis* in it render. `<Card>` is a container like `<Columns>` — it does not participate
- * in the document's heading/section model; headings inside it render normally.
+ * `<Card>`: a toned item container for verdict batches (`.plan-card*` in `index.css`).
+ * The tone is a category colour, not a status, so meaning rides the badge and heading
+ * text. Like `<Columns>`, it takes no part in the heading/section model.
  */
 
 export interface CardData {

@@ -10,14 +10,9 @@ import { badgeSpecSchema, resolveBadge, toneSchema, type Tone } from "../tones";
 import { PlanBadge } from "./badge";
 
 /**
- * The `<Table>` block — a grid of header columns + rows for comparisons,
- * parameters, statuses or structured lists. `columns`/`rows`/`align` are JSON
- * attributes; `density` is dropped when "normal".
- *
- * A cell is inline markdown, or `{ md?, badge?, tone? }` to carry a pill (before
- * the text; a bare-string badge takes the cell's tone) and/or a tint. A row is a
- * cell array, or `{ tone?, cells }` to tint the whole row. Filter and sort read
- * {@link cellText}: the badge label then the markdown source.
+ * A cell is inline markdown or `{ md?, badge?, tone? }`; a row is a cell array or
+ * `{ tone?, cells }`. Filter and sort read {@link cellText}: the badge label, then
+ * the markdown source.
  */
 
 const TABLE_DENSITIES = ["compact", "normal", "relaxed"] as const;

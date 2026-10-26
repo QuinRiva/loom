@@ -11,25 +11,10 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
 import { PlanDocumentContext } from "../planDocument";
 
 /**
- * The `<Image>` block — a screenshot or exported diagram that lives **beside the
- * document on disk**, referenced by a path relative to it
- * (`<Image src="shots/before.png" caption="…" />`).
- *
- * Path resolution follows the app's existing file-relative image surface rather
- * than inventing a second one: the src is classified by
- * {@link classifyMarkdownImageSource} against the document's directory (the same
- * call `ChatMarkdown` makes for a `.md` preview's `![](shot.png)`), and a
- * resolved filesystem path is loaded through a signed `media-file` asset URL —
- * never handed to the browser as a bare path. `https:`/`data:` sources render
- * directly.
- *
- * Markdown image syntax renders through {@link PlanMarkdownImage}, registered as
- * the renderer's `img` component, so `![alt](shot.png)` resolves the same way
- * instead of emitting a bare `<img>` against the app origin.
- *
- * Outside the app (the headless renderer in `scripts/lint-plan.mjs`) there is no
- * thread to sign a URL against, so the picture falls back to a `file://` src,
- * which is what makes `--out` HTML show the real image when opened locally.
+ * `<Image>`: a picture beside the document, by relative path. Resolved like `ChatMarkdown`
+ * images ({@link classifyMarkdownImageSource}) and loaded via a signed `media-file` URL,
+ * never a bare path. Headless (`lint-plan.mjs`) there is no thread to sign against, so it
+ * falls back to `file://`, which makes `--out` HTML show the real image locally.
  */
 
 export interface ImageData {
@@ -99,7 +84,7 @@ function usePlanImage(
     return {
       picture: (
         <span className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-          Image “{src}” could not be resolved — write the path relative to this document.
+          Image “{src}” could not be resolved. Write the path relative to this document.
         </span>
       ),
     };
@@ -168,11 +153,9 @@ function ImageRead({ data, blockId }: PlanBlockReadProps<ImageData>) {
 }
 
 /**
- * The renderer's `img` component — markdown image syntax (`![alt](shot.png)`)
- * and any authored `<img>`. Without it MDX emits a bare `<img>` whose relative
- * src resolves against the app origin and silently shows broken, which is an
- * author's most natural first attempt. Inline-level so it stays legal inside the
- * paragraph markdown wraps it in; `<Image>` is the block form with a caption.
+ * The renderer's `img` component, so markdown `![alt](shot.png)` resolves like `<Image>`
+ * instead of a bare `<img>` silently broken against the app origin. Inline-level so it
+ * stays legal inside the paragraph markdown wraps it in.
  */
 export function PlanMarkdownImage({ src, alt, title }: Record<string, unknown>) {
   const { path, picture } = usePlanImage(

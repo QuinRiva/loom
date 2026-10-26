@@ -13,13 +13,9 @@ import { cn } from "~/lib/utils";
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 
 /**
- * The `<DataModel>` block — a dbdiagram / Prisma-style entity-relationship
- * diagram. Schema + MDX round-trip ported verbatim from `@agent-native/core`
- * `data-model.config.ts` (whole `entities`/`relations` arrays are JSON props).
- * The Read renderer is ported from their `DataModelBlock.tsx` (Read half only —
- * the editor half is dropped) with BuilderIO's `plan-*` theme classes swapped
- * for the app's own design tokens (foreground / muted-foreground / border /
- * card / accent). FK hover/click highlights + scrolls to the referenced entity.
+ * `<DataModel>`: an entity-relationship diagram, Read half ported from BuilderIO's
+ * `DataModelBlock.tsx` onto the app's design tokens. FK hover/click highlights and
+ * scrolls to the referenced entity.
  */
 
 export type DataModelRelationKind = "1-1" | "1-n" | "n-n";

@@ -6,21 +6,10 @@ import { cn } from "~/lib/utils";
 import type { PlanBlock, PlanBlockReadProps } from "../blockTypes";
 
 /**
- * The `<Columns>` / `<Column>` container blocks (Wave B6) — a side-by-side layout
- * (the common case is a Before/After or current/target pair). Ported from
- * BuilderIO's `columns` schema (`columns: [{ id, label?, blocks: [] }]`), but
- * expressed MDX-natively: instead of a `blocks` data array dispatched through a
- * block renderer, each column's blocks are ordinary MDX *children* already
- * resolved to React nodes by the evaluate path. So a container just renders its
- * `children` (`passChildren`) — no custom dispatcher.
- *
- * ANNOTATION. `<Columns>` is one block (own `data-plan-block-id`), annotatable as
- * a unit. Its nested blocks keep their own `data-plan-block-type`, so
- * `assignBlockIds` (which recurses, Wave A2) stamps each a distinct id and
- * `enclosingBlock`/`sectionFor` resolve a selection to the *nested* block plus
- * the document-level section — never the container, never the first match. The
- * `<Column>` slot is a structural wrapper (no block type), so children render
- * inside the container's own subtree (A2's constraint: never portal them out).
+ * `<Columns>`/`<Column>`: each column's blocks are MDX children (`passChildren`).
+ * `<Columns>` is annotatable as one block while nested blocks keep their own ids. The
+ * `<Column>` slot has no block type and must render in the container's subtree (never
+ * portalled) so selections resolve to the nested block.
  */
 
 export interface ColumnData {
@@ -52,11 +41,9 @@ export const columnBlock: PlanBlock<ColumnData> = {
   },
 };
 
-/** Direct children are `<Column>` slots or bare blocks (a row of `<Card>`s needs
- * no wrappers); `columns` caps how many sit across — the grid still collapses
- * on a narrow panel. Uncapped, the row balances: all `n` across when they fit,
- * else `ceil(n/2)` across (four cards are 2×2, never 3 + 1), else one — and
- * three go straight to one, since 2 + 1 is the orphan this avoids. */
+/** Children are `<Column>` slots or bare blocks; `columns` caps how many sit across.
+ * Uncapped, the row balances: all across when they fit, else `ceil(n/2)` (four cards are
+ * 2×2, never 3 + 1), else one; three go straight to one to avoid a 2 + 1 orphan. */
 export interface ColumnsData {
   columns?: number;
 }

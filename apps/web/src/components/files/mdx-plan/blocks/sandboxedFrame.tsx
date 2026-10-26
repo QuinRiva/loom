@@ -8,66 +8,19 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
 import { toneSchema } from "../tones";
 
 /**
- * The two untrusted-content iframe surfaces — `<Prototype>` (C4, interactive)
- * and `<HtmlBlock>` (B5, static). Both render author-supplied HTML inside a
- * **sandboxed `<iframe srcdoc>`**, which is THE security boundary (decision D9):
- * the sandbox gives the frame an opaque (`null`) origin, so it cannot read the
- * parent window/DOM, cookies, or app RPCs — script-in-a-plan can never escalate
- * to the browser session. A strict `srcdoc` CSP `<meta>` is the second belt.
- *
- * Because the sandbox fully isolates the frame, we deliberately do **not** run a
- * redundant HTML sanitiser over the `srcdoc` (D9: "for a fully-isolated sandbox,
- * drop the double-sanitise" — that is exactly the over-defensive coding to
- * avoid). This is the reverse of the wireframe surface, which sanitises because
- * it injects into the *live* DOM. SECURITY REVIEW FOCUS: the `sandbox` + CSP
- * strings below are the entire boundary; see {@link PROTOTYPE_SANDBOX} /
- * {@link HTML_SANDBOX}.
- *
- * The two surfaces differ in their sandbox capability + CSP:
- *   - Prototype: `allow-scripts allow-forms` (interactive), NO `allow-same-origin`.
- *   - HtmlBlock: `allow-same-origin` and NOTHING else — no scripts run at all, but
- *     the host can read the frame's DOM so a reviewer can comment on one card.
- *
- * ANNOTATION: the `<figure>` host carries `data-plan-block-type` +
- * `data-plan-block-id`, so either surface is annotatable as one block via the
- * `visual` (whole-block) anchor path. A Prototype's opaque-origin frame cannot be
- * selected into, so that is its finest grain. An HtmlBlock frame is same-origin,
- * so the annotation layer listens inside it and pins a selection to the card it
- * was made in (`anchorForFrameRange` in `annotation/anchoring.ts`). Any
- * `postMessage` from either frame is treated as hostile: we register no listener.
- *
- * WHY SAME-ORIGIN IS SAFE FOR HtmlBlock (and only HtmlBlock). `allow-same-origin`
- * is dangerous with `allow-scripts` (frame script could reach the parent and
- * strip its own sandbox). Without `allow-scripts` nothing in the frame ever
- * executes — no `<script>`, handler, `javascript:` URL — so the only actor in
- * that origin is OUR host code, which only reads text and geometry. What
- * same-origin DOES change is that the frame's own requests become same-site,
- * credentialed requests to the app (cookies ride along), so every way static
- * HTML can make a request must be shut — CSP for fetches; for the navigations
- * CSP has no directive for, a parse pass ({@link inertSrcDoc}) and a click guard
- * ({@link blockLinkActivation}):
- *   - subresources (`<img>`, `<link>`, CSS `url()` / `@import` / `@font-face`,
- *     `<video>`/`<audio>`, `<object>`, nested frames, SVG `<image>`/`<use>`):
- *     {@link HTML_CSP} — `default-src 'none'`, only `data:` images/fonts and
- *     inline styles, and crucially no `'self'` (which now means the app);
- *   - `<form action>`: no `allow-forms`, plus `form-action 'none'`;
- *   - `<base href>`: `base-uri 'none'` (and stripped);
- *   - `<meta http-equiv="refresh">` (self-navigation on load): stripped;
- *   - link clicks (`<a>`, `<area>`, SVG `<a>`, any `target`): activation is
- *     cancelled on load, whatever the `href` — stripping attributes cannot work,
- *     since an `href` can arrive after parse (declarative shadow DOM, SVG SMIL
- *     `<set attributeName="href">`). No `allow-popups` / `allow-top-navigation`
- *     for a `target` to use either. Residual: a click in the few ms between first
- *     paint and `load`, before the guard is attached.
+ * `<Prototype>` and `<HtmlBlock>` render author HTML in a sandboxed `<iframe srcdoc>`; the
+ * sandbox and CSP strings below ARE the boundary, so the srcdoc is not sanitised and no
+ * `postMessage` listener exists. Same-origin HtmlBlock requests would carry app cookies, so
+ * CSP, {@link inertSrcDoc} and {@link blockLinkActivation} shut every request path.
  */
 
 /** Prototype iframe sandbox: interactive (scripts + forms) but opaque origin —
  * NO `allow-same-origin`, so the frame cannot touch the parent session. */
 export const PROTOTYPE_SANDBOX = "allow-scripts allow-forms";
 
-/** HtmlBlock iframe sandbox: `allow-same-origin` ONLY — no `allow-scripts`, so no
- * JS (inline handlers, `<script>`, `javascript:`) executes at all; same-origin so
- * the annotation layer can pin comments inside it (see the header comment). */
+/** HtmlBlock iframe sandbox: `allow-same-origin` ONLY, so the annotation layer can pin
+ * comments inside it. Safe only because without `allow-scripts` nothing in the frame
+ * executes; with both, frame script could reach the parent and strip its own sandbox. */
 export const HTML_SANDBOX = "allow-same-origin";
 
 /** Prototype `srcdoc` CSP: no remote script (`script-src 'self' 'unsafe-inline'`
@@ -85,12 +38,10 @@ export const HTML_CSP =
   "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; " +
   "frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
-/** Strip what navigates the same-origin HtmlBlock frame on its own, on load (CSP
- * has no navigation directive): every `<meta http-equiv>` except an extra CSP
- * (which can only tighten) — i.e. `refresh` — and `<base>`. Parsed with the inert
- * `DOMParser` (no fetch, no script), then re-parsed to confirm the serialisation
- * did not resurrect one (mutation-XSS style) — if it did, the frame gets nothing.
- * Link CLICKS are {@link blockLinkActivation}'s job. */
+/** Strip what navigates the same-origin HtmlBlock frame on load, which CSP cannot stop:
+ * `<meta http-equiv>` other than an extra CSP (i.e. `refresh`) and `<base>`. A re-parse
+ * confirms serialisation did not resurrect one (mutation XSS); if it did, the frame gets
+ * nothing. */
 export function inertSrcDoc(srcDoc: string): string {
   // Returns whether anything was stripped.
   const strip = (doc: Document) => {
@@ -109,11 +60,9 @@ export function inertSrcDoc(srcDoc: string): string {
   return strip(parse(out)) ? "" : out;
 }
 
-/** Cancel every link activation in an HtmlBlock frame's document: a capture-phase
- * `click` (mouse, or Enter on a focused link) or `auxclick` (middle-click → new
- * tab) whose composed path — which crosses
- * shadow roots — passes through an `<a>`/`<area>` (HTML or SVG). Other clicks
- * keep their default, so `<details>`/`<summary>` in a mockup still toggle. */
+/** Cancel link activation in an HtmlBlock frame: a capture-phase `click`/`auxclick` whose
+ * composed path (crossing shadow roots) passes an HTML or SVG `<a>`/`<area>`. Other clicks
+ * keep their default, so `<details>` in a mockup still toggles. */
 export function blockLinkActivation(doc: Document): void {
   for (const type of ["click", "auxclick"])
     doc.addEventListener(

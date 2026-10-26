@@ -9,20 +9,10 @@ import { type BadgeSpec, badgeSpecSchema, type Tone, toneColor, toneSchema } fro
 import { PlanBadge } from "./badge";
 
 /**
- * The `<Steps>` / `<Step>` rail (vocabulary v2) — moments or stages in order:
- * a timeline when `at` is a time, a ladder when it is a stage, numbered when
- * every step omits it. Same container/slot pattern as `<Columns>`/`<Column>`:
- * each step's body is MDX children (inline `<Badge>`, code, lists all work),
- * the chrome is props.
- *
- * LAYOUT. The rail is one grid and every `<Step>` is `display: contents`, so the
- * `at` column lines up down the whole rail (a step cannot size its siblings).
- * The optional aside track appears via `:has(.plan-step-aside)` — the container
- * never sees its children's props. All of that lives in `index.css`
- * (`MDX vocabulary v2: steps`).
- *
- * ANNOTATION. `<Steps>` is one block; `<Step>` is a structural slot (no block
- * type), so blocks nested in a step body keep their own ids.
+ * `<Steps>`/`<Step>`: an ordered rail whose step bodies are MDX children. Each `<Step>`
+ * is `display: contents` in one grid so the `at` column aligns down the rail; the aside
+ * track appears via `:has(.plan-step-aside)` (`index.css`). `<Step>` is a structural slot
+ * with no block type, so nested blocks keep their own ids.
  */
 
 export interface StepData {

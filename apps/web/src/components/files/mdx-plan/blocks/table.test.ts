@@ -7,15 +7,9 @@ import { describe, expect, it } from "vite-plus/test";
 import { cellText, TableRead, tableBlock, tableMdx, type TableData } from "./table";
 
 /**
- * The `<Table filterable>` affordance (C1): the plain table is unchanged, and
- * the opt-in `filterable` prop adds a case-insensitive substring filter across
- * all cells (with a filtered/total count) plus header-click sort that cycles
- * asc → desc → unsorted with a numeric-aware comparison. The `filterable`
- * attribute round-trips only when true.
- *
- * Vocabulary v2: a cell is inline markdown or `{ md, badge, tone }`, a row is
- * cells or `{ tone, cells }`, `align` sets per-column alignment, and filter/sort
- * read `cellText` (badge label + markdown source).
+ * Opt-in `filterable` adds a case-insensitive filter with a filtered/total count and
+ * header sort cycling asc → desc → unsorted (numeric-aware), round-tripping only when
+ * true. Cells and rows take the toned v2 shapes; filter/sort read `cellText`.
  */
 
 const COLUMNS = ["Item", "Score"];

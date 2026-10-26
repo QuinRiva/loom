@@ -18,23 +18,10 @@ import type { PlanBlock, PlanBlockReadProps } from "../blockTypes";
 import { ScreenRead, type ScreenData, type ScreenFidelity, type WireframeSurface } from "./screen";
 
 /**
- * Wave C2 \u2014 the spatial canvas. A `<DesignBoard>` establishes a board-unit
- * coordinate space; `<Section>` frames group artboards; each `<Artboard>` is a
- * positioned wireframe/design screen (rendered through {@link ScreenRead}, in the
- * LIVE DOM so annotation keeps ONE geometry model); `<Annotation>` is an authored
- * gutter note; `<Connector>` draws a flow line between two artboards.
- *
- * BOARD GEOMETRY. Board units map to pixels at ~2 units/pixel
- * ({@link CANVAS_BOARD_SCALE} = 0.5), the canonical transform the A1 anchoring
- * contract ({@link CanvasTransform}) and its `resolveCanvasAnchor` consume. The
- * `DesignBoard` PROVIDES the transform to its descendants (context) AND publishes
- * the scale on the DOM (`data-board-scale`) so the annotation overlay layer can
- * rebuild it from the element via {@link canvasTransformForElement} \u2014 the same
- * transform for authored layout and for free-floating review anchors.
- *
- * Node-pinned canvas annotations resolve through the `wireframe` branch (the
- * artboard is `[data-plan-block-type="wireframe"|"design"]`); only truly
- * free-floating board-space notes use the `canvas` coordinate branch.
+ * The spatial canvas: `<DesignBoard>` sets a board-unit space at {@link CANVAS_BOARD_SCALE},
+ * provided as context and published as `data-board-scale` so the annotation layer can
+ * rebuild the same transform. Artboards render in the live DOM; node-pinned notes resolve
+ * via the `wireframe` anchor branch, free-floating ones via `canvas`.
  */
 
 /** ~2 board-units per pixel (BuilderIO's canvas scale). */

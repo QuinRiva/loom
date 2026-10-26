@@ -7,26 +7,10 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
 import { type Tone, toneColor, toneSchema } from "../tones";
 
 /**
- * The `<Mermaid>` block — a Mermaid diagram rendered from its text `source`.
- * The `mermaid` runtime is heavy and browser-only, so it is loaded with a LAZY
- * `await import("mermaid")` that runs ONLY when a Mermaid block actually mounts
- * — it never enters the base bundle. Schema + MDX round-trip ported verbatim
- * from `@agent-native/core` `mermaid.config.ts` (`source`/`caption` flat attrs;
- * `source` a multiline string attr).
- *
- * This is a deliberately slimmer port than BuilderIO's: we drop the optional
- * Excalidraw "sketch" conversion (two extra heavy deps) and render with
- * `securityLevel: "strict"` and `htmlLabels: false` (labels come out as SVG
- * `<text>`, which survives the foreignObject strip below). The rendered SVG is
- * sanitised (scripts, `foreignObject`, event handlers, and `javascript:` URLs
- * stripped) before injection, matching BuilderIO's `sanitizeSvgMarkup`.
- *
- * loom: vocabulary v2 — `look` defaults to Mermaid's crisp `classic` (the July
- * port's `handDrawn` default was a stand-in for the dropped Excalidraw sketch,
- * not a readability choice; it stays as an opt-in). Nodes take the shared tone
- * palette through Mermaid's own class syntax (`A:::tone-risk`, `class A,B
- * tone-neutral`), styled by {@link TONE_THEME_CSS}; `legend` decodes the
- * colours under the figure.
+ * `<Mermaid>`, with the heavy browser-only runtime lazily imported on mount. Rendered
+ * at `securityLevel: "strict"` with `htmlLabels: false` so labels are SVG `<text>` and
+ * survive the `foreignObject` strip. Nodes take the shared tone palette via Mermaid
+ * class syntax (`A:::tone-risk`); `look` defaults to `classic`, `handDrawn` is opt-in.
  */
 
 export interface MermaidData {
@@ -64,13 +48,9 @@ const mermaidMdx: BlockMdxConfig<MermaidData> = {
 };
 
 /**
- * Mermaid `themeCSS` mapping a `tone-<name>` node class onto the palette. The
- * SVG is injected inline, so `var(--plan-tone-*)` resolves from the app's
- * `:root`/`.dark` and the colours follow the theme. Selectors mirror the shape
- * elements Mermaid's own `classDef` targets, one class deeper so they outrank
- * the theme's `.node rect`; a `handDrawn` (rough) node is two stroked paths,
- * the fill pattern first, so only its strokes are recoloured. Labels keep the
- * app's foreground for contrast on the soft fill.
+ * `themeCSS` mapping `tone-<name>` node classes onto the palette; inline SVG resolves
+ * `var(--plan-tone-*)` from the app theme. Selectors sit one class deeper than the
+ * theme's `.node rect`, and a `handDrawn` node recolours only its strokes.
  */
 export const TONE_THEME_CSS = toneSchema.options
   .map((tone) => {
@@ -88,13 +68,9 @@ export const TONE_THEME_CSS = toneSchema.options
   .join("\n");
 
 /**
- * The document look every diagram shares, mapped onto the app's tokens so it
- * follows the theme: sans labels in the foreground colour, solid slate edges,
- * and edge labels as small mono text on a card-coloured gap in the line
- * rather than a grey box. A node label written as two lines
- * (`A["name<br/>status"]`, marked `.plan-status` by {@link markStatusNodes})
- * reads as a bold name over a mono status line, which takes the node's tone
- * colour; a long label Mermaid wraps by itself stays one style.
+ * Shared diagram look on the app's theme tokens. A two-line node label
+ * (`A["name<br/>status"]`, marked `.plan-status` by {@link markStatusNodes}) reads as
+ * a bold name over a mono status line in the node's tone.
  */
 const DOCUMENT_THEME_CSS = [
   `.label text{font-family:var(--font-sans);fill:var(--foreground)}`,
@@ -135,20 +111,9 @@ function markStatusNodes(source: string): string {
 }
 
 /**
- * Strip scripts / event handlers / javascript: URLs from rendered SVG markup.
- *
- * NOTE: this is deliberately DEFENCE-IN-DEPTH, not the primary trust boundary.
- * Mermaid's own DOMPurify pass over its output (active at `securityLevel:
- * "strict"`, which also disables click/JS interaction) is the real boundary.
- * Beware: in mermaid 11 strict mode does NOT disable `%%{init}%%` directives or
- * HTML labels — we pass `htmlLabels: false` in `renderMermaidSvg` explicitly,
- * because labels rendered as HTML live in `<foreignObject>` and the strip below
- * would delete them (empty boxes). This pass is therefore
- * intentionally lighter than `sanitizeWireframeHtml` (no CSS escape/entity
- * decoding, no `<style>`/containment/viewport handling): the wireframe surface
- * injects raw author HTML with no upstream guard, whereas here Mermaid's own
- * strict renderer produces the markup. Keep it as a cheap second net over the
- * generated output, not a reimplementation of the wireframe sanitiser.
+ * Defence in depth only: Mermaid's strict-mode DOMPurify pass is the real boundary, so
+ * this stays lighter than `sanitizeWireframeHtml`. Strict mode does NOT disable HTML
+ * labels, hence `htmlLabels: false`: they live in `<foreignObject>`, which this strips.
  */
 function sanitizeSvgMarkup(svg: string): string {
   if (typeof DOMParser === "undefined") return svg;
@@ -169,11 +134,8 @@ function sanitizeSvgMarkup(svg: string): string {
   return doc.documentElement.outerHTML;
 }
 
-/** Unique id per render invocation. `mermaid.render` deletes any existing DOM
- * elements carrying its id (both its temp body-level container and a previously
- * injected svg), so any id reuse across in-flight renders — two un-id'd blocks,
- * React StrictMode's doubled effects, a theme flip mid-render — makes one
- * render destroy the other's containers and yield an empty/blank diagram. */
+/** Unique id per render: `mermaid.render` deletes existing elements with its id, so
+ * reuse across in-flight renders (StrictMode, a theme flip) blanks a diagram. */
 let renderSeq = 0;
 
 /** `initialize` sets Mermaid's global config and `render` reads it later, so two

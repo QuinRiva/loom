@@ -7,17 +7,9 @@ import { cn } from "~/lib/utils";
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 
 /**
- * The `<OpenApi>` block — a Redoc / Swagger-UI-style API reference rendered from
- * a whole OpenAPI 3 / Swagger 2 document. The raw `spec` TEXT is the source of
- * truth; the reader parses it defensively and, on any parse error, falls back to
- * the raw text + the error (it never throws). Operations are grouped by tag,
- * each a collapsed-by-default row expanding to params / request body / per-status
- * responses, with `$ref` models resolved. v1 parses JSON specs only (no `yaml`
- * dependency). The defensive parser (`parseSpec`/`normalizeSpec`/`deref`/…) is
- * ported verbatim from `@agent-native/core` `OpenApiSpecBlock.tsx`; the render is
- * slimmed to the read surface (BuilderIO's `ctx.renderMarkdown`/`CodeSurface` are
- * dropped — descriptions render as text, examples as `<pre>`). Schema + MDX
- * round-trip ported from `openapi-spec.config.ts` (`title`/`spec` flat attrs).
+ * `<OpenApi>`: an API reference from a whole OpenAPI 3 / Swagger 2 document. The raw
+ * `spec` text is the source of truth; the defensive parser (ported from BuilderIO) never
+ * throws and falls back to the raw text plus the error. JSON specs only (no `yaml` dep).
  */
 
 export interface OpenApiSpecData {
@@ -101,15 +93,14 @@ function asString(value: Json): string | undefined {
 
 function parseSpec(raw: string): ParseResult {
   const trimmed = raw.trim();
-  if (!trimmed)
-    return { ok: false, error: "Empty spec — paste an OpenAPI 3 / Swagger 2 document." };
+  if (!trimmed) return { ok: false, error: "Empty spec. Paste an OpenAPI 3 / Swagger 2 document." };
   let doc: Json;
   try {
     doc = JSON.parse(trimmed);
   } catch (error) {
     const hint =
       /^[A-Za-z][\w-]*\s*:/.test(trimmed) || trimmed.startsWith("---")
-        ? " (YAML is not supported yet — paste JSON, or convert the spec to JSON.)"
+        ? " (YAML is not supported yet. Paste JSON, or convert the spec to JSON.)"
         : "";
     return {
       ok: false,
@@ -537,7 +528,7 @@ function OperationRow({ operation }: { operation: NormalizedOperation }) {
                     )}
                     {param.description && (
                       <span className="text-2xs italic text-muted-foreground">
-                        — {param.description}
+                        ({param.description})
                       </span>
                     )}
                   </div>
@@ -683,7 +674,7 @@ function OpenApiRead({ data, blockId }: PlanBlockReadProps<OpenApiSpecData>) {
           <div className="space-y-2 px-3 py-2.5">
             <p className="text-xs text-destructive">Could not parse spec: {parsed.error}</p>
             <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs text-foreground">
-              {data.spec || "—"}
+              {data.spec || "-"}
             </pre>
           </div>
         </div>

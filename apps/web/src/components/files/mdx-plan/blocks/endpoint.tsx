@@ -7,11 +7,8 @@ import { cn } from "~/lib/utils";
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 
 /**
- * The `<Endpoint>` block — one API operation: a method pill + monospace path
- * that expands to params (grouped by location), an optional request example, and
- * per-status responses. The prose *between the tags* is the description (rendered
- * live as MDX children). Schema + MDX round-trip ported verbatim from
- * `@agent-native/core` `api-endpoint.config.ts`.
+ * `<Endpoint>`: one API operation (method, path, params by location, request example,
+ * per-status responses). The prose between the tags is its description.
  */
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
@@ -247,7 +244,7 @@ function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointDa
                     )}
                     {param.description && (
                       <span className="text-2xs italic text-muted-foreground">
-                        — {param.description}
+                        ({param.description})
                       </span>
                     )}
                   </div>

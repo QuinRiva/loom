@@ -14,15 +14,9 @@ import {
 import { QuestionRefChips, type QuestionRef } from "./questionRefs";
 
 /**
- * The `<QuestionForm>` block — the single bottom "Open Questions" list. When the
- * annotation layer provides {@link PlanQuestionAnswersContext} the questions are
- * ANSWERABLE in place: option clicks select (single/multi semantics), a write-in
- * renders where the question allows it (`mode:"freeform"` or `allowOther`), and
- * each answer flows into the composer as a review-comment chip included in the
- * next review turn. Without the context (bare renderer/tests) it stays read-only.
- * Schema + MDX round-trip ported verbatim from `@agent-native/core`
- * `question-form.config.ts`; `submitLabel` is accepted for the wire round-trip
- * but not rendered — answers attach per-question, so there is nothing to submit.
+ * `<QuestionForm>`: answerable in place when the annotation layer provides
+ * {@link PlanQuestionAnswersContext}, read-only otherwise. `submitLabel` round-trips
+ * on the wire but is not rendered: answers attach per question.
  */
 
 export type QuestionMode = "single" | "multi" | "freeform";

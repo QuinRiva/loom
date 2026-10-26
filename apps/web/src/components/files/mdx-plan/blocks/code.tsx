@@ -8,11 +8,8 @@ import { useShikiHtml } from "../shiki";
 import { WrapToggle } from "./wrapToggle";
 
 /**
- * The primitive `<Code>` block — one syntax-highlighted snippet. Reuses the
- * app's existing Shiki highlighter (`@pierre/diffs` `getSharedHighlighter`) — the
- * same one `ChatMarkdown` code fences use — rather than adding a second Shiki.
- * Schema + MDX round-trip ported verbatim from `@agent-native/core`
- * `code.config.ts` (the `code` string is a multiline string attribute).
+ * `<Code>`: one snippet highlighted with the app's shared Shiki highlighter (the one
+ * `ChatMarkdown` fences use), not a second Shiki instance.
  */
 
 export interface CodeData {

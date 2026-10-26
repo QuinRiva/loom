@@ -6,11 +6,8 @@ import { type BadgeSpec, badgeSpecSchema, type Tone, toneColor, toneSchema } fro
 import { PlanBadge } from "./badge";
 
 /**
- * The `<Stats items>` block — the number strip under the lede: one tile per
- * number the answer rests on (`43 min`, `3 of 4`), each a large `value` in its
- * tone colour (neutral → foreground), a mono `label` naming it, and a one-line
- * `detail` (inline markdown) with an optional pill. Bled `stretch` at top level
- * (`MdxPlanRenderer`), so four tiles share one line in the panel.
+ * `<Stats items>`: the number strip under the lede, one tile per number the answer rests
+ * on. Bled `stretch` at top level (`MdxPlanRenderer`) so four tiles share one line.
  */
 
 export interface StatItem {

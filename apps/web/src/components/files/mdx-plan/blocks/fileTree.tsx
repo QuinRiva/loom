@@ -9,15 +9,9 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
 import { useShikiHtml } from "../shiki";
 
 /**
- * The `<FileTree>` block — a nested file/change map. Slash-delimited `entries`
- * paths are folded into a real directory tree; each file carries an optional
- * change badge, note, and an expandable syntax-highlighted snippet. Rows render
- * in the order the author listed the entries (there is no sort), so the author
- * controls reading order — e.g. a pipeline in processing order. A path ending in
- * `/` is a folder: its note/change sit on the folder row and later entries nest
- * under it, even if none do. Schema + MDX
- * round-trip ported verbatim from `@agent-native/core` `file-tree.config.ts`
- * (the whole `entries` array is one JSON prop).
+ * `<FileTree>`: slash-delimited `entries` folded into a directory tree. Rows keep the
+ * author's order (no sort). A path ending in `/` is a folder: its note and change sit on
+ * the folder row, and later entries nest under it.
  */
 
 export type FileChange = "added" | "modified" | "removed" | "renamed";
@@ -139,7 +133,7 @@ function EntryMeta({ entry }: { entry: FileTreeEntry }) {
         </Tooltip>
       )}
       {entry.note && (
-        <span className="truncate text-2xs italic text-muted-foreground">— {entry.note}</span>
+        <span className="truncate text-2xs italic text-muted-foreground">({entry.note})</span>
       )}
     </>
   );

@@ -11,15 +11,9 @@ import {
 } from "../reviewChoices";
 
 /**
- * The `<ReviewChoice>` block (§4) — per-item tri-state decision capture
- * (Accept / Reject / Discuss + note) for "default-accept, flag exceptions" over N
- * items. Reuses the question-answer channel via {@link PlanReviewChoicesContext}:
- * a decision upserts one deterministic `mdx-review:<file>:<itemId>` comment that
- * injects into the next review turn (no export step). When the context is absent
- * (bare renderer / tests) it renders read-only, exactly like `<QuestionForm>`.
- *
- * `itemId` is the aggregation key and MUST be unique per file (a duplicate would
- * collapse two widgets onto one comment) — `planLint.ts` enforces that.
+ * `<ReviewChoice>`: per-item Accept/Reject/Discuss plus note, each decision upserting one
+ * `mdx-review:<file>:<itemId>` comment; read-only without the context. `itemId` MUST be
+ * unique per file or two widgets collapse onto one comment (`planLint.ts` enforces it).
  */
 
 export interface ReviewChoiceData {

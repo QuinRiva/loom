@@ -17,24 +17,10 @@ import { cn } from "~/lib/utils";
 import type { PlanBlock, PlanBlockReadProps } from "../blockTypes";
 
 /**
- * The `<TabsBlock>` / `<Tab>` container blocks (Wave B6) — tabbed child blocks
- * (a strip of tabs + one panel per tab). `TabsBlock` is BuilderIO's `tabs`
- * `mdxTag` (kept verbatim for wire round-trip; `Tabs` is not their tag). Ported
- * from `tabs: [{ id, label, blocks: [] }], orientation?`, expressed MDX-natively:
- * each tab's blocks are ordinary MDX *children* of a `<Tab>` slot, already
- * resolved to React nodes — no block dispatcher.
- *
- * ANNOTATION. `TabsBlock` is one block (own `data-plan-block-id`), annotatable as
- * a unit; each panel's nested blocks keep their own `data-plan-block-type` and so
- * get a distinct id from `assignBlockIds` (Wave A2, which recurses). ALL panels
- * stay mounted (inactive ones `hidden`) — not conditionally rendered — because
- * `assignBlockIds` runs once per compile, not per tab switch, so a switched-to
- * panel would otherwise have unstamped, un-annotatable blocks. Panels render
- * in-place (never portalled out), so nested-block `enclosingBlock`/`sectionFor`
- * resolve correctly.
- *
- * A11Y. WAI-ARIA tabs: `role="tablist"`/`tab`/`tabpanel`, roving `tabIndex`,
- * arrow/Home/End keyboard nav with automatic activation.
+ * `<TabsBlock>`/`<Tab>` (BuilderIO's wire tag): tab blocks are MDX children of a `<Tab>`.
+ * ALL panels stay mounted (inactive ones `hidden`) and in place, because
+ * `assignBlockIds` runs once per compile: a lazily mounted panel would hold unstamped,
+ * un-annotatable blocks. WAI-ARIA tabs with automatic activation.
  */
 
 export type TabsOrientation = "horizontal" | "vertical";
