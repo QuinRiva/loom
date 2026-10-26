@@ -44,6 +44,7 @@ export interface ShipPlanOptions {
   readonly branch: string;
   readonly message: string;
   readonly mergeOnly: boolean;
+  readonly prOnly?: boolean | undefined;
   readonly title?: string | undefined;
   readonly body?: string | undefined;
 }
@@ -151,7 +152,7 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
         ]
       : ["pr", "create", "--base", "main", "--fill"];
 
-  return [
+  const steps: ReadonlyArray<ShipStep> = [
     {
       kind: "set-default",
       title: `Pin PR target to ${SHIP_REPO} (not the upstream fork parent)`,
@@ -237,6 +238,10 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
       args: ["push", "origin", "--delete", options.branch],
     },
   ];
+  // --pr-only is the `human` merge-authority ceiling: stop at the open PR.
+  return options.prOnly
+    ? steps.slice(0, steps.findIndex((step) => step.kind === "pr-create") + 1)
+    : steps;
 }
 
 /**
@@ -427,6 +432,7 @@ const runShipStep = Effect.fn("runShipStep")(function* (step: ShipStep) {
 export const runShip = Effect.fn("runShip")(function* (options: {
   readonly message: string;
   readonly mergeOnly: boolean;
+  readonly prOnly: boolean;
   readonly title?: string | undefined;
   readonly body?: string | undefined;
   readonly dryRun: boolean;
@@ -442,6 +448,7 @@ export const runShip = Effect.fn("runShip")(function* (options: {
     branch,
     message: options.message,
     mergeOnly: options.mergeOnly,
+    prOnly: options.prOnly,
     title: options.title,
     body: options.body,
   });
@@ -460,7 +467,11 @@ export const runShip = Effect.fn("runShip")(function* (options: {
   for (const step of steps) {
     yield* runShipStep(step);
   }
-  yield* Console.log(`\n✓ Shipped "${branch}" and deleted the remote branch.`);
+  yield* Console.log(
+    options.prOnly
+      ? `\n✓ Opened the PR for "${branch}"; not merged (--pr-only).`
+      : `\n✓ Shipped "${branch}" and deleted the remote branch.`,
+  );
 });
 
 export const shipCommand = Command.make(
@@ -484,6 +495,12 @@ export const shipCommand = Command.make(
       ),
       Flag.withDefault(false),
     ),
+    prOnly: Flag.Boolean("pr-only").pipe(
+      Flag.withDescription(
+        "Stop once the PR is open: no merge, no branch delete (the ceiling under human merge authority, or when the human will merge or close the PR).",
+      ),
+      Flag.withDefault(false),
+    ),
     dryRun: Flag.Boolean("dry-run").pipe(
       Flag.withDescription("Print the ordered ship sequence without running git/gh/vp."),
       Flag.withDefault(false),
@@ -495,10 +512,11 @@ export const shipCommand = Command.make(
       Flag.withDefault(false),
     ),
   },
-  ({ message, title, body, mergeOnly, dryRun, includeUntracked }) =>
+  ({ message, title, body, mergeOnly, prOnly, dryRun, includeUntracked }) =>
     runShip({
       message,
       mergeOnly,
+      prOnly,
       dryRun,
       includeUntracked,
       title: Option.getOrUndefined(title),
