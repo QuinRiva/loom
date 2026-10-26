@@ -291,14 +291,22 @@ export interface LoomStoreV2Shape {
     parentThreadId: ThreadId,
     options?: LoomTreeQueryOptions,
   ) => Op<ReadonlyArray<LoomThreadWorkstream>>;
-  /** Every row neither archived nor deleted. */
-  readonly listActiveWorkstreams: () => Op<ReadonlyArray<LoomThreadWorkstream>>;
+  /** Every row neither archived nor deleted, or only those in `roles` / still unfinished. */
+  readonly listActiveWorkstreams: (options?: {
+    readonly roles?: ReadonlyArray<string>;
+    readonly unfinishedOnly?: boolean;
+  }) => Op<ReadonlyArray<LoomThreadWorkstream>>;
   /**
-   * The re-drive planner's input: live rows, plus every cancelled / archived /
-   * deleted / unarchived episode root whose in-scope descendants have not
-   * followed it, plus those roots' descendants.
+   * A pass's input: each unarchived child that can still wake someone (unfinished, flagged, in
+   * rework, outcome since `newsSince`, owed its parent's goal) with its unarchived siblings and
+   * parent; `threadIds`; and each cascade episode root its subtree has not followed, with that subtree.
    */
-  readonly listReDriveInput: () => Op<ReadonlyArray<LoomThreadWorkstream>>;
+  readonly listPassInput: (input: {
+    readonly newsSince: IsoDateTime;
+    readonly threadIds: ReadonlyArray<ThreadId>;
+  }) => Op<ReadonlyArray<LoomThreadWorkstream>>;
+  /** Threads with a `running` V2 run. */
+  readonly listThreadsWithRunningRun: () => Op<ReadonlyArray<ThreadId>>;
   /** Loom threads with a held queued V2 run. */
   readonly listThreadsWithHeldQueue: () => Op<ReadonlyArray<ThreadId>>;
   /**
@@ -645,8 +653,15 @@ const make = Effect.gen(function* () {
         sql,
         sql.and([sql`w.parent_thread_id = ${parentThreadId}`, visibility(options)]),
       ).pipe(run("listChildren")),
-    listActiveWorkstreams: () =>
-      selectWorkstreams(sql, visibility()).pipe(run("listActiveWorkstreams")),
+    listActiveWorkstreams: (options = {}) =>
+      selectWorkstreams(
+        sql,
+        sql.and([
+          visibility(),
+          options.roles === undefined ? "1 = 1" : sql`w.role IN ${sql.in(options.roles)}`,
+          options.unfinishedOnly ? "w.outcome IS NULL" : "1 = 1",
+        ]),
+      ).pipe(run("listActiveWorkstreams")),
     // An unindexed scan of provider threads (~5k rows, ~15ms live), run once per Query.
     threadForPiSession: (sessionId) =>
       sql<{ readonly threadId: ThreadId }>`SELECT p.thread_id AS "threadId"
@@ -663,7 +678,7 @@ const make = Effect.gen(function* () {
     // scope: nodes created after the episode and nodes a human moved deliberately after it (the
     // planner's episode-keyed ids would skip them anyway). Imported rows carry no
     // `outcome_event_id`, so a historical cancel is never an episode.
-    listReDriveInput: () =>
+    listPassInput: ({ newsSince, threadIds }) =>
       sql`
         WITH RECURSIVE descent(ancestor_id, thread_id) AS (
           SELECT parent_thread_id, thread_id FROM loom_thread_workstream
@@ -689,15 +704,35 @@ const make = Effect.gen(function* () {
               OR (r.deleted_at IS NOT NULL AND c.deleted_at IS NULL)
             )
           )
+        ),
+        live(parent_thread_id) AS (
+          SELECT c.parent_thread_id FROM loom_thread_workstream c
+          WHERE c.parent_thread_id IS NOT NULL AND c.archived_at IS NULL AND c.deleted_at IS NULL
+            AND (c.outcome IS NULL OR c.pending_rework = 1 OR c.attention <> '[]'
+              OR c.outcome_at >= ${newsSince}
+              OR (c.goal_id IS NULL AND EXISTS (SELECT 1 FROM loom_thread_workstream p
+                WHERE p.thread_id = c.parent_thread_id AND p.goal_id IS NOT NULL)))
         )
         SELECT ${sql.literal(workstreamSelectList)} FROM loom_thread_workstream w
-        WHERE (w.archived_at IS NULL AND w.deleted_at IS NULL)
+        WHERE (w.archived_at IS NULL AND w.deleted_at IS NULL AND (
+            w.parent_thread_id IN (SELECT parent_thread_id FROM live)
+            OR w.thread_id IN (SELECT parent_thread_id FROM live)
+            OR w.thread_id IN (SELECT value FROM json_each(${JSON.stringify(threadIds)}))
+          ))
           OR w.thread_id IN (SELECT thread_id FROM stale)
           OR w.thread_id IN (
             SELECT d.thread_id FROM descent d JOIN stale s ON s.thread_id = d.ancestor_id
           )
         ORDER BY w.created_at ASC, w.thread_id ASC
-      `.pipe(Effect.flatMap(decodeWorkstreamRows), run("listReDriveInput")),
+      `.pipe(Effect.flatMap(decodeWorkstreamRows), run("listPassInput")),
+    listThreadsWithRunningRun: () =>
+      sql<{ readonly threadId: ThreadId }>`
+        SELECT DISTINCT thread_id AS "threadId" FROM orchestration_v2_projection_runs
+        WHERE status = 'running'
+      `.pipe(
+        Effect.map((rows) => rows.map((row) => row.threadId)),
+        run("listThreadsWithRunningRun"),
+      ),
     listThreadsWithHeldQueue: () =>
       sql<{ readonly threadId: ThreadId }>`
         SELECT DISTINCT w.thread_id AS "threadId"

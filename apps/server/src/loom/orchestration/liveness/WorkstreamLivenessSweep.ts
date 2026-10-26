@@ -637,9 +637,12 @@ const make = Effect.fn("WorkstreamLivenessSweep.make")(function* (
 
   const sweep = Effect.gen(function* () {
     const now = DateTime.toEpochMillis(yield* DateTime.now);
-    const rows = yield* loomStore.listActiveWorkstreams();
+    const rows = yield* loomStore.listActiveWorkstreams({ unfinishedOnly: true });
     const shells = new Map(
-      (yield* orchestrator.getShellSnapshot()).threads.map((shell) => [shell.id, shell]),
+      (yield* orchestrator.getShellSnapshot({
+        location: "active",
+        threadIds: rows.map((row) => row.threadId),
+      })).threads.map((shell) => [shell.id, shell]),
     );
     const judged = new Set<ThreadId>();
     for (const row of rows) {

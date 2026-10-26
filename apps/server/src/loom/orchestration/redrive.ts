@@ -18,6 +18,7 @@ import {
 } from "@t3tools/contracts";
 import { descendantsOf } from "@t3tools/shared/workstreamGraph";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -124,7 +125,7 @@ const gateLegCommand = (
 
 /** One episode-keyed command per affected thread. Pure: the graph snapshot, the clock and the gate-leg text come in; commands come out. */
 export const planReDrive = (input: {
-  readonly rows: ReadonlyArray<LoomThreadWorkstream>; // LoomStoreV2.listReDriveInput()
+  readonly rows: ReadonlyArray<LoomThreadWorkstream>; // readPassInput
   readonly now: IsoDateTime; // every Loom command carries createdAt
   readonly gateLeg: GateLegComposer;
 }): ReadonlyArray<ThreadServerCommand> => {
@@ -284,19 +285,37 @@ export const dispatchServerCommand = Effect.fn("loom.dispatchServerCommand")(fun
 });
 
 /**
- * One re-drive: plan over `listReDriveInput` and dispatch each command
+ * How long a finished child stays news: while its outcome is younger, it and its whole family are
+ * read every pass, so its terminal delta, gate leg and goal attach are recomputed. After that it is
+ * read only as a sibling of a live row: a parent not told of an outcome within a week is not told.
+ */
+const PASS_NEWS_WINDOW = Duration.days(7);
+
+/** The pass input (`LoomStoreV2.listPassInput`) as of now, with `threadIds` forced in. */
+export const readPassInput = Effect.fn("loom.readPassInput")(function* (
+  threadIds: ReadonlyArray<ThreadId> = [],
+) {
+  const now = yield* DateTime.now;
+  return yield* (yield* LoomStoreV2).listPassInput({
+    newsSince: DateTime.formatIso(DateTime.subtractDuration(now, PASS_NEWS_WINDOW)),
+    threadIds,
+  });
+});
+
+/**
+ * One re-drive: plan over the pass input and dispatch each command
  * SEQUENTIALLY — one thread lock at a time, never nested — through `dispatch`
  * (the dispatcher's pass helper, or the bare `dispatchServerCommand`).
  */
 export const runReDrivePass = Effect.fn("redrive.runReDrivePass")(function* <E, R>(
+  rows: ReadonlyArray<LoomThreadWorkstream>,
   gateLeg: GateLegComposer,
   dispatch: (
     command: ThreadServerCommand,
   ) => Effect.Effect<{ readonly status: "receipted" | "accepted" | "deferred" | "dead" }, E, R>,
 ) {
-  const loomStore = yield* LoomStoreV2;
   const commands = planReDrive({
-    rows: yield* loomStore.listReDriveInput(),
+    rows,
     now: DateTime.formatIso(yield* DateTime.now),
     gateLeg,
   });

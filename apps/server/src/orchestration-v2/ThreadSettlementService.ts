@@ -328,15 +328,9 @@ export const make = Effect.gen(function* () {
     // Merge events resweep all candidates because unlinked threads settle through branch lookup.
     // loom: a Loom thread its parent owes a turn, or with unfinished sub-threads, is no candidate
     // (no rejected receipt every minute); a finished Loom root settles at its outcome time
-    const loomSettlement = new Map(
-      yield* Effect.forEach(
-        threads.filter((thread) => isAutoSettlementCandidate(thread, nowMs)),
-        (thread) =>
-          loomSettleBlockers(loomStore, thread.id).pipe(
-            Effect.map((view) => [thread.id, view] as const),
-          ),
-        { concurrency: 8 },
-      ),
+    const loomSettlement = yield* loomSettleBlockers(
+      loomStore,
+      threads.filter((thread) => isAutoSettlementCandidate(thread, nowMs)).map(({ id }) => id),
     );
     const candidates = threads.filter(
       (thread) =>

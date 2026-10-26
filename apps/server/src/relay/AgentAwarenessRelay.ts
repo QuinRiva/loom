@@ -734,7 +734,7 @@ export const make = Effect.gen(function* () {
     const environmentId = yield* serverEnvironment.getEnvironmentId;
     const [projectSnapshot, shellSnapshot] = yield* Effect.all([
       projects.snapshot,
-      threads.getShellSnapshot(),
+      threads.getShellSnapshot({ location: "active" }), // loom: only `.threads` is read
     ]);
     const activeThreadIds = resolveAgentAwarenessRelayActiveThreadIds({
       environmentId,

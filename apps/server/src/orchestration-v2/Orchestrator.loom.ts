@@ -413,19 +413,18 @@ export const loomHumanStopRaise = Effect.fn("loom.humanStopRaise")(function* (in
  * parent owes it a turn, or a live descendant is unfinished) and
  * `finishedRootAt` (a root with an outcome settles at its outcome time).
  */
-export const loomSettleBlockers = Effect.fn("loom.settleBlockers")(function* (
-  loomStore: LoomStoreV2["Service"],
+const settleView = (
   threadId: ThreadId,
-) {
-  const workstream = yield* loomStore.getWorkstream(threadId);
+  workstream: LoomThreadWorkstream | null,
+  tree: ReadonlyArray<LoomThreadWorkstream>,
+) => {
   if (workstream === null) return { blocker: null, finishedRootAt: null };
   if (workstream.attention.includes("awaiting_orchestrator")) {
     return { blocker: `Thread ${threadId} is awaiting its orchestrator.`, finishedRootAt: null };
   }
-  const unfinished = descendantsOf(
-    threadId,
-    (yield* loomStore.listWorkstreamTree(workstream.rootThreadId)).map(asNode),
-  ).find((row) => row.outcome === null && row.archivedAt === null);
+  const unfinished = descendantsOf(threadId, tree.map(asNode)).find(
+    (row) => row.outcome === null && row.archivedAt === null,
+  );
   if (unfinished !== undefined) {
     return {
       blocker: `Thread ${threadId} has an unfinished sub-thread ${unfinished.threadId}.`,
@@ -441,6 +440,33 @@ export const loomSettleBlockers = Effect.fn("loom.settleBlockers")(function* (
         ? DateTime.makeUnsafe(workstream.outcomeAt)
         : null,
   };
+};
+
+/** The settlement view of each of `threadIds`, reading each workstream tree once. */
+export const loomSettleBlockers = Effect.fn("loom.settleBlockers")(function* (
+  loomStore: LoomStoreV2["Service"],
+  threadIds: ReadonlyArray<ThreadId>,
+) {
+  const rows = yield* Effect.forEach(threadIds, loomStore.getWorkstream, { concurrency: 8 });
+  const roots = new Set(
+    rows.flatMap((row) =>
+      row === null || row.attention.includes("awaiting_orchestrator") ? [] : [row.rootThreadId],
+    ),
+  );
+  const trees = new Map(
+    yield* Effect.forEach(
+      roots,
+      (root) => Effect.map(loomStore.listWorkstreamTree(root), (tree) => [root, tree] as const),
+      { concurrency: 8 },
+    ),
+  );
+  return new Map(
+    threadIds.map((threadId, index) => {
+      const row = rows[index] ?? null;
+      const tree = row === null ? undefined : trees.get(row.rootThreadId);
+      return [threadId, settleView(threadId, row, tree ?? [])] as const;
+    }),
+  );
 });
 
 // Child threads (D6, D7)

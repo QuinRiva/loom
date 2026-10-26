@@ -34,6 +34,7 @@ const TestLayer = Layer.mergeAll(
   LoomCacheBroadcast.layer,
 ).pipe(Layer.provideMerge(LoomOrchestratorTestLayer));
 const projectId = ProjectId.make("project:loom-test");
+const EPOCH = "1970-01-01T00:00:00.000Z"; // every outcome is news: the whole graph
 // Distinct event times, as a live server has them (the goal cascades are time-judged).
 const tick = TestClock.adjust("1 second");
 
@@ -625,11 +626,11 @@ it.layer(TestLayer)("Loom projector", (it) => {
     Effect.gen(function* () {
       const store = yield* LoomStoreV2;
       const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
-      const before = yield* store.listReDriveInput();
+      const before = yield* store.listPassInput({ newsSince: EPOCH, threadIds: [] });
       const goalsBefore = yield* store.goals.listByProject(projectId, { includeDeleted: true });
       const verification = yield* maintenance.rebuild;
       assert.isTrue(verification.valid);
-      assert.deepEqual(yield* store.listReDriveInput(), before);
+      assert.deepEqual(yield* store.listPassInput({ newsSince: EPOCH, threadIds: [] }), before);
       assert.deepEqual(
         yield* store.goals.listByProject(projectId, { includeDeleted: true }),
         goalsBefore,

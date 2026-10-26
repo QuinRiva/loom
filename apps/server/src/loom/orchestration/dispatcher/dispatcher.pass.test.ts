@@ -1053,4 +1053,72 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
       assert.isEmpty(wakes);
     }),
   );
+
+  it.effect("pass scope: old news is skipped, a live child's whole family is read", () =>
+    Effect.gen(function* () {
+      const id = (name: string) => ThreadId.make(`scope-${name}`);
+      const [quiet, quietOld, root, dep, wedged, doneSib, released, settled, fresh] = [
+        "quiet",
+        "quiet-old",
+        "root",
+        "dep",
+        "wedged",
+        "done-sib",
+        "released",
+        "settled",
+        "fresh",
+      ].map(id);
+      for (const parent of [quiet!, root!, settled!]) yield* seedThread({ threadId: parent });
+      yield* spawnChild({ parentThreadId: quiet!, threadId: quietOld!, graphKey: "old" });
+      yield* spawnChild({ parentThreadId: root!, threadId: dep!, graphKey: "dep" });
+      yield* spawnChild({ parentThreadId: root!, threadId: doneSib!, graphKey: "done-sib" });
+      yield* spawnChild({
+        parentThreadId: root!,
+        threadId: wedged!,
+        graphKey: "wedged",
+        blockedBy: [dep!],
+      });
+      yield* spawnChild({
+        parentThreadId: root!,
+        threadId: released!,
+        graphKey: "released",
+        blockedBy: [doneSib!],
+      });
+      yield* setBrief(released!, writeFile("scope-released.md", "Brief for released."));
+      yield* spawnChild({ parentThreadId: settled!, threadId: fresh!, graphKey: "fresh" });
+      // Outcomes from before the news window: no pass ran while they were news.
+      yield* submit(quietOld!);
+      yield* submit(doneSib!);
+      yield* dispatch({
+        type: "thread.outcome.set",
+        commandId: CommandId.make("scope-cancel-dep"),
+        threadId: dep!,
+        createdAt,
+        outcome: "cancelled",
+      });
+      yield* TestClock.adjust("8 days");
+      yield* submit(fresh!);
+      yield* dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("scope-settle"),
+        threadId: settled!,
+      });
+
+      yield* runPass;
+      yield* runPass;
+      // The finished-and-forgotten family is not read.
+      assert.isEmpty(yield* withPayload(quiet!, "digest"));
+      // A live child brings its old siblings: the cancelled dependency wedges its dependent, and
+      // its parent hears; the done one releases its dependent.
+      assert.deepEqual((yield* row(wedged!)).attention, ["needs_guidance"]);
+      assert.lengthOf(yield* withPayload(root!, "notice", "attention"), 1);
+      assert.isNotNull((yield* row(released!)).kickoffAt);
+      // Recent news still reaches a settled parent.
+      const [digest] = yield* withPayload(settled!, "digest");
+      assert.deepEqual(
+        digest?.loom?.controlPayload?.items.map((item) => item.threadId),
+        [fresh!],
+      );
+    }),
+  );
 });

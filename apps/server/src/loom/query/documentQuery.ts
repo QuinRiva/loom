@@ -237,7 +237,7 @@ export const askDocumentQuery = Effect.fn("documentQuery.askDocumentQuery")(
     const revision = NodeCrypto.createHash("sha256").update(contents).digest("hex").slice(0, 12);
     const question = { ...input, filePath, sourceThreadId: authorThreadId };
     const key = { authorThreadId, filePath, revision };
-    const candidates = yield* store.listActiveWorkstreams();
+    const candidates = yield* store.listActiveWorkstreams({ roles: [DOCUMENT_QUERY_ROLE] });
     const reuse = reusableQueryThread(candidates, key);
     // A thread still waiting on a mid-turn author has no session to take a second question yet.
     if (reuse !== null && reuse.kickoffAt === null)

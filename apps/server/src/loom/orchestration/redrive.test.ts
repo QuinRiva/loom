@@ -30,7 +30,7 @@ import {
   spawnChild,
 } from "../testkit/loomOrchestratorLayer.ts";
 import { makeGateLegComposer } from "./dispatcher/gateLegs.ts";
-import { dispatchServerCommand, planReDrive, runReDrivePass } from "./redrive.ts";
+import { dispatchServerCommand, planReDrive, readPassInput, runReDrivePass } from "./redrive.ts";
 
 // The recording wrapper around upstream's KeyedLock (ThreadCommandExecutor's
 // implementation): a fiber-local list of held (lock, key) pairs.
@@ -105,7 +105,9 @@ it.layer(LoomOrchestratorTestLayer)("Loom re-drive", (it) => {
       Effect.gen(function* () {
         const store = yield* LoomStoreV2;
         const orchestrator = yield* Orchestrator.OrchestratorV2;
-        const pass = runReDrivePass(makeGateLegComposer(new Map()), dispatchServerCommand);
+        const pass = Effect.flatMap(readPassInput(), (rows) =>
+          runReDrivePass(rows, makeGateLegComposer(new Map()), dispatchServerCommand),
+        );
         yield* seedThread({ threadId: A });
         yield* spawnChild({ parentThreadId: A, threadId: B });
         yield* spawnChild({ parentThreadId: B, threadId: C });

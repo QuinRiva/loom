@@ -42,6 +42,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import {
   dispatchServerCommand,
+  readPassInput,
   runReDrivePass,
   type GateLegComposer,
 } from "../loom/orchestration/redrive.ts";
@@ -443,7 +444,8 @@ const seedProgram = Effect.gen(function* () {
       yield* message(asker, `seed:after-consult:${asker}:${step}`, `Carry on (step ${step}).`);
   });
 
-  const reDrive = runReDrivePass(seedGateLeg, dispatchServerCommand).pipe(
+  const reDrive = readPassInput().pipe(
+    Effect.flatMap((rows) => runReDrivePass(rows, seedGateLeg, dispatchServerCommand)),
     Effect.mapError((cause) => new Error(`re-drive pass failed: ${String(cause)}`)),
   );
 

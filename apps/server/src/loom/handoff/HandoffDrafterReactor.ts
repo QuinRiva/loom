@@ -198,13 +198,11 @@ const make = Effect.gen(function* () {
 
   const pass = Effect.gen(function* () {
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-    for (const row of yield* loomStore.listActiveWorkstreams()) {
-      if (
-        row.role === HANDOFF_DRAFTER_ROLE ||
-        (row.role === DOCUMENT_QUERY_ROLE && row.kickoffAt === null)
-      )
-        yield* settle(row, nowMs);
-    }
+    const rows = yield* loomStore.listActiveWorkstreams({
+      roles: [HANDOFF_DRAFTER_ROLE, DOCUMENT_QUERY_ROLE],
+    });
+    for (const row of rows)
+      if (row.role === HANDOFF_DRAFTER_ROLE || row.kickoffAt === null) yield* settle(row, nowMs);
   }).pipe(
     Effect.provideContext(services),
     Effect.catchCause((cause) =>

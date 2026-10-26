@@ -11749,9 +11749,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           });
         }
         // loom: race guard — a Loom thread its parent owes a turn, or with unfinished sub-threads, stays
-        const loomBlocker = (yield* loomSettleBlockers(loomStore, command.threadId).pipe(
+        const loomBlocker = (yield* loomSettleBlockers(loomStore, [command.threadId]).pipe(
           mapDispatchError(command),
-        )).blocker;
+        )).get(command.threadId)!.blocker;
         if (loomBlocker !== null) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,

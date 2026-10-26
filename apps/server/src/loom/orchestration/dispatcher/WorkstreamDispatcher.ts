@@ -46,6 +46,7 @@ import { readWorkstreamReportAt } from "../../workstream/report.ts";
 import {
   dispatchServerCommand,
   isPassTrigger,
+  readPassInput,
   runReDrivePass,
   type ThreadServerCommand,
 } from "../redrive.ts";
@@ -136,7 +137,12 @@ export type PassDispatchOutcome =
 /** Everything one pass reads and writes; built once per pass, threaded through every step. */
 export interface PassContext {
   readonly now: DateTime.Utc;
-  /** Every sidecar row neither archived nor deleted. */
+  /** `readPassInput`: live rows and their families, plus the re-drive's open cascade episodes. */
+  readonly input: ReadonlyArray<LoomThreadWorkstream>;
+  /**
+   * The input's rows neither archived nor deleted: every row that can still produce a wake, its
+   * siblings and parent, and the threads a snooze request, left stash or dead episode names.
+   */
   readonly rows: ReadonlyArray<LoomThreadWorkstream>;
   /**
    * The rows as graph nodes by id, plus every archived (not deleted) row an
@@ -145,7 +151,10 @@ export interface PassContext {
    * only read same-parent entries, so one map serves every parent.
    */
   readonly nodesById: ReadonlyMap<ThreadId, WorkstreamNode>;
-  /** The V2 thread shells (active and archived), joined with `shell.workstream`. */
+  /**
+   * The V2 shells (archived included) of every row, its parent, a snooze or notify party and every
+   * thread with a running run, joined with `shell.workstream`.
+   */
   readonly shells: ReadonlyMap<ThreadId, OrchestrationV2ThreadShell>;
   /** Wakes a target deferred this pass (no receipt), per thread and rail; `surfaceDeferredWakes` reads it. */
   readonly deferredWakes: Map<ThreadId, Map<string, number>>;
@@ -249,7 +258,7 @@ const reDrive: PassStep = {
         continue;
       reports.set(row.reportPath, Option.getOrNull(yield* readWorkstreamReportAt(row.reportPath)));
     }
-    yield* runReDrivePass(makeGateLegComposer(reports), (command) =>
+    yield* runReDrivePass(ctx.input, makeGateLegComposer(reports), (command) =>
       ctx.dispatch("re-drive", command),
     );
   }),
@@ -343,7 +352,7 @@ interface DispatcherMemory {
   readonly startedAtMs: number;
 }
 
-/** Builds the pass context: the active rows, their archived dependencies, the joined shells. */
+/** Builds the pass context: the pass input, its rows' archived dependencies, the shells it reads. */
 const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
   memory: DispatcherMemory,
 ) {
@@ -354,7 +363,13 @@ const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
   const settings = yield* (yield* ServerSettings.ServerSettingsService).getSettings.pipe(
     Effect.orElseSucceed(() => DEFAULT_SERVER_SETTINGS),
   );
-  const rows = yield* loomStore.listActiveWorkstreams();
+  const snoozes = yield* loomStore.snoozeRequests.list;
+  const input = yield* readPassInput([
+    ...snoozes.map((request) => request.threadId),
+    ...memory.leftStashes.keys(),
+    ...[...memory.deadEpisodes].map((dead) => dead.threadId),
+  ]);
+  const rows = input.filter((row) => row.archivedAt === null && row.deletedAt === null);
   const nodesById = new Map<ThreadId, WorkstreamNode>(
     rows.map((row) => [row.threadId, { ...row, id: row.threadId }]),
   );
@@ -363,7 +378,15 @@ const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
     const dep = yield* loomStore.getWorkstream(depId);
     if (dep !== null && dep.deletedAt === null) nodesById.set(depId, { ...dep, id: depId });
   }
-  const snapshot = yield* orchestrator.getShellSnapshot();
+  const shellIds = new Set([
+    ...rows.flatMap((row) =>
+      row.parentThreadId === null ? [row.threadId] : [row.threadId, row.parentThreadId],
+    ),
+    ...snoozes.map((request) => request.threadId),
+    ...(yield* loomStore.peerMessages.listPending()).map((record) => record.senderThreadId),
+    ...(yield* loomStore.listThreadsWithRunningRun()),
+  ]);
+  const snapshot = yield* orchestrator.getShellSnapshot({ threadIds: [...shellIds] });
   const shells = new Map(
     [...snapshot.threads, ...snapshot.archivedThreads].map((shell) => [shell.id, shell]),
   );
@@ -371,6 +394,7 @@ const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
   const now = yield* DateTime.now;
   return {
     now,
+    input,
     rows,
     nodesById,
     shells,
