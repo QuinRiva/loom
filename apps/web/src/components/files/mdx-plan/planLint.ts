@@ -250,6 +250,30 @@ interface BoardScope {
   }>;
 }
 
+/**
+ * 1-based source lines of a Mermaid state diagram whose `;` pele would split
+ * into stray states. Exempt: `#59;`-style entities, a `state "…" as` name,
+ * comments, classDef/class/style/direction lines and multi-line note bodies.
+ */
+export function stateSemicolonLines(source: string): number[] {
+  let inNote = false;
+  return source.split("\n").flatMap((line, index) => {
+    const text = line.trim();
+    if (inNote) {
+      inNote = !/^end\s+note\b/.test(text);
+      return [];
+    }
+    if (/^note\s/.test(text) && !text.includes(":")) inNote = true;
+    if (inNote || /^(%%|(classDef|class|style|direction)\s)/.test(text)) return [];
+    return text
+      .replace(/#\w+;/g, "")
+      .replace(/^state\s+"[^"]*"/, "")
+      .includes(";")
+      ? [index + 1]
+      : [];
+  });
+}
+
 export async function lintPlanSource(source: string): Promise<PlanLintFinding[]> {
   const findings: PlanLintFinding[] = [];
   const sizeFinding = planSizeFinding(source);
@@ -674,8 +698,17 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
     const pele = await import("pele/lazy");
     for (const { source: mermaidSource, node } of mermaidChecks) {
       try {
-        await pele.load(pele.detectType(mermaidSource));
+        const type = pele.detectType(mermaidSource);
+        await pele.load(type);
         pele.parse(mermaidSource);
+        const lines = type === "state" ? stateSemicolonLines(mermaidSource) : [];
+        if (lines.length) {
+          findings.push({
+            severity: "error",
+            ...at(node),
+            message: `<Mermaid> state diagram has a ";" on source line ${lines.join(", ")}. Pele ends a state diagram statement at any ";", even in a quoted label, and draws what follows (a trailing ";" included) as stray states. #59; renders a literal semicolon.`,
+          });
+        }
       } catch (cause) {
         const message = (cause instanceof Error ? cause.message : String(cause))
           .trim()

@@ -2,7 +2,12 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { compilePlanMdx } from "./MdxPlanRenderer";
-import { lintPlanSource, planSizeFinding, renderedTextFindings } from "./planLint";
+import {
+  lintPlanSource,
+  planSizeFinding,
+  renderedTextFindings,
+  stateSemicolonLines,
+} from "./planLint";
 
 /**
  * Contract test for the plan validator — authoring agents rely on it to gate
@@ -153,6 +158,25 @@ describe("lintPlanSource", () => {
     expect(await warningText('<Mermaid source="" />')).toContain("empty");
     expect(
       await lintWithReader('<Mermaid source={"flowchart LR\\n  A[Hi] --> B[There]"} />'),
+    ).toEqual([]);
+  });
+
+  it("flags a state diagram semicolon that pele splits into stray states", async () => {
+    // The lifecycle diagram that drew eight stray word boxes under pele.
+    expect(
+      await errorText(
+        '<Mermaid source={"stateDiagram-v2\\n  [*] --> Presenting\\n  Presenting --> Answered: human answers (any surface)\\\\nlive tool call returns the answers;\\\\ndead consumer ⇒ answers open the next turn\\n  Answered --> [*]"} />',
+      ),
+    ).toContain('";" on source line 3');
+    expect(stateSemicolonLines('stateDiagram-v2\n  A --> B: "one; two"')).toEqual([2]);
+    expect(stateSemicolonLines("stateDiagram-v2\n  A --> B;")).toEqual([2]);
+    expect(
+      stateSemicolonLines(
+        'stateDiagram-v2\n  state "x; y" as S\n  A --> S: a#59; b\n  %% c; d\n  classDef hot fill:#f00;\n  note left of A\n    e; f\n  end note',
+      ),
+    ).toEqual([]);
+    expect(
+      await lintWithReader('<Mermaid source={"flowchart LR\\n  A -->|x; y| B;\\n  B --> C;"} />'),
     ).toEqual([]);
   });
 

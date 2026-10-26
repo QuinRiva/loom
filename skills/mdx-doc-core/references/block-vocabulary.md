@@ -360,7 +360,9 @@ A Redoc-style reference rendered from a whole OpenAPI 3 / Swagger 2 document.
 
 Renders a Mermaid diagram from its text `source` (multiline string attr), with an
 optional `caption`. Drawn by pele, the renderer the chat uses: labels are plain
-SVG text, links and images are off, and the output is sanitised.
+SVG text, links and images are off, and the output is sanitised. In a
+`stateDiagram`, pele ends a statement at any `;`, even inside a quoted label, and
+draws the rest of the line as stray states; `#59;` renders a literal semicolon.
 Use `<Diagram>` for a hand-placed spatial
 layout; use `<Mermaid>` when Mermaid's auto-layout of a flow/sequence/ER graph is
 enough.
