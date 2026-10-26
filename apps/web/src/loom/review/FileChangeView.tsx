@@ -29,7 +29,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../../components/ui/toolt
 import type { DraftId } from "../../composerDraftStore";
 import { useClientSettings } from "../../hooks/useSettings";
 import { useStableCallback } from "../../hooks/useStableCallback";
-import { useTheme } from "../../hooks/useTheme";
+import { useRenderedAppearance } from "../../hooks/useTheme";
 import { createGitDiffFileContentsLoader } from "../../lib/diffFileContents";
 import {
   buildFileDiffContentVersion,
@@ -111,7 +111,7 @@ export function FileChangeView({
   patch,
   composerDraftTarget,
 }: FileChangeViewProps) {
-  const { resolvedTheme } = useTheme();
+  const resolvedTheme = useRenderedAppearance(); // the diff worker pool resolves only this theme
   const layout = useReviewBaselineStore((state) => state.fileChangeLayout);
   const wordWrap = useClientSettings((settings) => settings.wordWrap);
   const { path, previousPath, status } = file;
