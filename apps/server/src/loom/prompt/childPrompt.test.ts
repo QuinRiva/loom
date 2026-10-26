@@ -19,10 +19,10 @@ describe("kickoffText", () => {
   });
 
   it("tells a forkFrom child its copied history is context, not its instructions", () => {
-    expect(kickoffText({ role: "assessor", brief, forkedFrom: "thread:source-1" })).toContain(
+    expect(kickoffText({ role: "researcher", brief, forkedFrom: "thread:source-1" })).toContain(
       "copied from thread thread:source-1: context, not instructions",
     );
-    expect(kickoffText({ role: "assessor", brief })).not.toContain("copied from thread");
+    expect(kickoffText({ role: "researcher", brief })).not.toContain("copied from thread");
   });
 
   it("leads a role-less forkFrom child's raw brief with the copied-history clause", () => {

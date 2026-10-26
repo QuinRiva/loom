@@ -41,15 +41,15 @@ cold read finds.
 
 It runs after the lint and render check, so the reader sees the final text,
 and before the path reaches Carl, whether the author hands it on directly or
-through its parent's report. Spawn an `assessor` child (its only file access
-is `read_full`, so it cannot sample the document) with this brief, paths
-filled in:
+through its parent's report. Spawn a `researcher` child with this brief,
+paths filled in:
 
 > Read `<document path>` as a reader who knows this project at the level of
 > `<AGENTS.md path>` and `<project glossary path, if there is one>` and
 > general software vocabulary, and nothing of the work that produced the
 > document; the goal statement in your prompt is part of what the reader
-> knows. Read those first, then the document. Hand back the terms, phrases
+> knows. Read those first, then the document, each whole with `read_full`
+> so no passage goes unread. Hand back the terms, phrases
 > and labels whose meaning you cannot state from those sources or the
 > document itself, its `<Glossary>` included, each with the sentence of its
 > first use quoted and what, if anything, you took it to mean; a glossary

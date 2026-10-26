@@ -64,7 +64,7 @@ const taskText = (noun: string) =>
 /** The node fields of a spawn; a scaffold node carries the same fields and points here. */
 const childFields = {
   role: optionalText(
-    "The child's role: one of the built-in roles orchestrator, planner, coder, reviewer, researcher, assessor or shipper; a role the project adds under `.t3code/roles/`; or free text when none fits. Omit it when forkFrom is set: a fork inherits its source's role.",
+    "The child's role: one of the built-in roles orchestrator, planner, coder, reviewer, researcher or shipper; a role the project adds under `.t3code/roles/`; or free text when none fits. Omit it when forkFrom is set: a fork inherits its source's role.",
   ),
   title: described(
     Schema.String,
