@@ -250,7 +250,7 @@ it.layer(TestLayer)("Loom drafters", (it) => {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const source = ThreadId.make("handoff-imported");
       yield* seedThread({ threadId: source });
-      // What `LoomV1WorkstreamImporter` writes for a thread whose pi session it found.
+      // What the retired Loom V1 importer wrote for a thread whose pi session it found.
       const nativeThreadRef = {
         driver: pi,
         nativeId: "/sessions/imported.jsonl",

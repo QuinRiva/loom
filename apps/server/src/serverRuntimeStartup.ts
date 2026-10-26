@@ -33,7 +33,6 @@ import {
   refuseForeignHomeSideEffect,
 } from "./workspace/foreignHomeGuard.loom.ts"; // loom: foreign-home guard (DL-81)
 import { loomStartupRecovery } from "./loom/recovery/loomRecoveryPolicy.ts"; // loom:
-import * as LoomV1WorkstreamImporter from "./loom/legacy/LoomV1WorkstreamImporter.ts"; // loom: Phase 4 importer
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as EffectWorker from "./orchestration-v2/EffectWorker.ts";
@@ -559,7 +558,6 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
               ? Effect.void
               : Effect.logInfo("Imported legacy v1 thread shells", summary),
           ),
-          Effect.andThen(LoomV1WorkstreamImporter.reconcile), // loom: workstream sidecar, lineage, session binding (Phase 4 §1)
         ),
       ),
       recover: runStartupPhase("orchestration-v2.recovery", providerRuntimeRecovery.recover),

@@ -1,10 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// Pull 9 Phase 4 §1: the Loom V1 importer's ledger — one row per V1 thread
-// `loom/legacy/LoomV1WorkstreamImporter.ts` has considered, written in the same
-// transaction as that thread's sidecar row and events. Deleting a row (server
-// stopped) re-processes that thread at the next boot.
+// Pull 9 Phase 4 §1: the ledger of the Loom V1 importer (retired once every
+// cockpit V1 thread was imported): one row per V1 thread it considered.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`

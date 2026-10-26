@@ -29,7 +29,6 @@ import * as ServerConfig from "./config.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import { setForeignDatabaseForTest } from "./workspace/foreignHomeGuard.loom.ts"; // loom:
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient"; // loom: startup test layers
-import * as LoomV1WorkstreamImporter from "./loom/legacy/LoomV1WorkstreamImporter.ts"; // loom:
 import { WorkstreamDispatcher } from "./loom/orchestration/dispatcher/WorkstreamDispatcher.ts"; // loom:
 import { LoomStoreV2 } from "./loom/projection/LoomStore.ts"; // loom:
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
@@ -236,11 +235,10 @@ it.effect.each([
         Layer.mock(HttpServer.HttpServer)({
           address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 3773),
         }),
-        // loom: the home-provenance check, V1 workstream import and Loom recovery phases;
+        // loom: the home-provenance check and Loom recovery phases;
         // an empty database and no stashed steers make each a no-op.
         NodeSqliteClient.layer({ filename: ":memory:" }),
         FileSystem.layerNoop({}),
-        Layer.mock(LoomV1WorkstreamImporter.LoomV1WorkstreamImporter)({ reconcile: Effect.void }),
         Layer.succeed(LoomStoreV2, {
           listThreadsWithHeldQueue: () => Effect.succeed([]),
         } as Partial<LoomStoreV2["Service"]> as LoomStoreV2["Service"]),
