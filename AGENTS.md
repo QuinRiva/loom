@@ -116,10 +116,11 @@ The most common defect in this repo is a change that works on the path you teste
 - Setup runs in the background. Read `"$(git rev-parse --git-dir)/t3code-setup-state.json"`: `ready`, proceed; `pending`, wait and re-check, and do not run `vp i`; `failed`, read its `detail` and fix or report rather than reinstalling. With no file at all, no setup script ran here, so run `vp i` yourself. <!-- loom: setup state file -->
 - `vp run dev` starts server and web. In a worktree, state defaults to that worktree's gitignored `.t3`, which deliberately outranks an ambient `T3CODE_HOME` so you cannot land on shared state by accident. An explicit `--home-dir` still wins. Ports, the server-side home rule, sharing over the tailnet and the reusable dev credential: [Development](docs/operations/development.md#choosing-a-dev-process). <!-- loom: moved to docs -->
 - Stop what you started, by the PID you tracked. See rule 1.
+- Need a second checkout? `git worktree add` it next to this worktree, not in `/tmp`. Remove it when done.
 
 ## Test data
 
-An empty database is a bad test. The first `vp run dev` in a worktree seeds its `.t3` from a read-only slice of the developer's real data; refresh or enlarge it with `vp run migrate-dev-db` ([Test data](docs/operations/development.md#test-data)). Copy in, never symlink: data flows one way, into your sandbox, never back out. <!-- loom: moved to docs -->
+An empty database is a bad test. The first `vp run dev` in a worktree seeds its `.t3` from a read-only slice of the developer's real data; refresh or enlarge it with `vp run migrate-dev-db --base-dir <the port-scoped home the [dev-runner] line prints>` (without `--base-dir` it silently rebuilds a home `vp run dev` does not read; [Test data](docs/operations/development.md#test-data)). Copy in, never symlink: data flows one way, into your sandbox, never back out. <!-- loom: moved to docs -->
 
 ## Verifying
 

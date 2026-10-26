@@ -2,7 +2,9 @@
 
 The test rules that lint enforces, with the reasons the lint messages cannot carry, plus the
 browser-test render contract that lint can only partly see. Read this before writing a server or
-browser test; [`AGENTS.md`](../../AGENTS.md#verifying) carries only the gist and the commands.
+browser test; [`AGENTS.md`](../../AGENTS.md#verifying) carries only the gist and the commands. What
+to test, and where test doubles are allowed, is the
+[orchestration testing strategy](../orchestration-v2/testing-strategy.md).
 
 ## Server tests: await the milestone, never the clock
 
@@ -19,8 +21,6 @@ the effect worker (`OrchestrationEffectWorkerV2.drain`) or await the specific pe
 - No per-test timeout argument or `retry`. The project timeout is the ceiling, and flaky tests are
   fixed, not retried.
 - No `performance.now()` or `Date.now()` deltas. Assert on events and counts, not elapsed time.
-- Browser tests assert through `expect.element` or `vi.waitFor`, never `requestAnimationFrame` or
-  `transitionend`.
 - `vi.mock` factories must not spread a real module that pulls in Shiki or the diff workers.
 - `it.skip` and friends need a tracking issue on the line above: `// quarantine: #1234 <why>`.
 
@@ -36,7 +36,9 @@ In `apps/web`, a test that renders React or touches the DOM is `*.browser.test.t
 ([Checks](../operations/development.md#checks)). Render with `await using screen = await render(...)` from
 [`apps/web/test/render.tsx`](../../apps/web/test/render.tsx), which owns the React root and unmounts
 it on dispose. `t3code/require-disposable-render` errors on the old patterns (`react-dom/client`,
-a bare `act`, lifecycle hooks). The conventions lint cannot see:
+a bare `act`, lifecycle hooks). Assert through `expect.element` or `vi.waitFor`, never
+`requestAnimationFrame` or `transitionend` (`t3code/no-frame-waits-in-browser-tests`). The
+conventions lint cannot see:
 
 - Acquire what the test drives after mounting (fake timers it advances, spies it sets up after
   mounting) after the render, so it disposes before the unmount. Anything the first render reads

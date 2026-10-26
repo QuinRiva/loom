@@ -18,18 +18,12 @@ vp i
 vp run dev
 ```
 
-<!-- loom: worktree bootstrap and setup state -->
+<!-- loom: worktree bootstrap pointer -->
 
 A linked worktree gets its install from the project's worktree setup script (Loom's runs
 `scripts/bootstrap-worktree.sh`; see [worktree development](../internals/worktree-development.md)).
-It runs in the background and records its state in
-`"$(git rev-parse --git-dir)/t3code-setup-state.json"`: `ready`, proceed; `pending`, wait and
-re-check rather than running `vp i`; `failed`, read its `detail` and the setup output, then fix or
-report rather than reinstalling. With no file at all, no setup script ran here, so run `vp i`
-yourself. If module resolution looks broken in a worktree, the script probably did not run.
-
-Need a second checkout? `git worktree add` it next to the current worktree, not in `/tmp`, and
-remove it when done.
+It runs in the background; [`AGENTS.md`](../../AGENTS.md#dev-servers) says how to read its state
+file before running anything.
 
 Open the pairing URL printed by the dev runner. The bare origin does not authenticate
 a new browser.
@@ -107,9 +101,6 @@ server already holds that home's database (`statev2.sqlite`); clear it by deleti
 Read ports from the `[dev-runner]` output. Worktrees derive stable preferences from their paths,
 but occupied ports can shift them. `T3CODE_PORT_OFFSET` or `T3CODE_DEV_INSTANCE` can select a
 different preference when needed.
-
-Stop what you started, by the PID you tracked; never by matching a name or path
-([the three ways to hurt yourself](../../AGENTS.md#the-three-ways-to-hurt-yourself)).
 
 ### Test data
 
