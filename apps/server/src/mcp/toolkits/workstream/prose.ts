@@ -35,14 +35,14 @@ export const LOOM_TOOL_PROSE = {
   },
   workstream_set_outcome: {
     description:
-      "Set the plan outcome of this thread or a direct child. 'done' is how you accept a child that yielded to you instead of completing; 'none' reopens a finished child before you prompt it again. Your own completion goes through mcp__t3-code__workstream_submit, which routes it. To pull in a human, mcp__t3-code__workstream_request_attention.",
+      "Set the plan outcome of this thread or a direct child. Your own completion goes through mcp__t3-code__workstream_submit, which routes it. To pull in a human, mcp__t3-code__workstream_request_attention.",
     promptSnippet:
       "set a thread's plan outcome: 'done' releases dependents (how you accept a yielded child); 'cancelled' cascades to the whole subtree and stops in-flight turns; 'none' reopens.",
     promptGuidelines: "",
   },
   workstream_request_attention: {
     description:
-      "Raise an attention flag that holds this thread, or a child you spawned, for a human. 'awaiting_acceptance': a human (or your parent, holding the human's decision) must accept this thread's output before it can be done. 'needs_guidance': you cannot proceed without a human, including when what you need is answers. To hand back a report while the flag stands, submit with a short non-'done' outcome. A child consults its parent first (mcp__t3-code__consult_thread); usually no human reads a child thread. Write the report for someone who has read none of this thread.",
+      "Raise an attention flag that holds this thread, or a child you spawned, for a human. 'awaiting_acceptance': a human (or your parent, holding the human's decision) must accept this thread's output before it can be done. 'needs_guidance': you cannot proceed without a human, including when what you need is answers. To hand back a report while the flag stands, submit with a short non-'done' outcome.",
     promptSnippet:
       "raise a hold for a human: 'awaiting_acceptance' (your output needs sign-off before it may be done) or 'needs_guidance' (you're stuck, or you need answers); a plain completion is refused while it stands.",
     promptGuidelines: "",
@@ -91,7 +91,7 @@ export const LOOM_TOOL_PROSE = {
   },
   thread_search: {
     description:
-      "Find the past thread where something was discussed, decided or built: it searches every thread's title, purpose, brief, goal and tasks, the human's and the orchestrator's messages, each turn's final answer and every workstream report, archived threads included, by meaning as well as by words, and returns top-level threads best-first with the sub-thread and the kind of text that matched. A short phrase in the words the thread would have used finds more than a long keyword bag; a ticket, file or PR name matches exactly. Each hit carries the report path of the thread that matched, the distilled record to read first; for what the report leaves open, mcp__t3-code__consult_thread asks that thread directly.",
+      "Find the past thread where something was discussed, decided or built: it searches every thread's title, purpose, brief, goal and tasks, the human's and the orchestrator's messages, each turn's final answer and every workstream report, archived threads included, by meaning as well as by words, and returns top-level threads best-first with the sub-thread and the kind of text that matched. A short phrase in the words the thread would have used finds more than a long keyword bag; a ticket, file or PR name matches exactly.",
     promptSnippet:
       "find the past thread where something was discussed or decided, by meaning or exact identifier, archived included; hits carry the matched thread's report path.",
     promptGuidelines: "",
