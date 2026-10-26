@@ -221,11 +221,11 @@ export const workstreamScaffold = Effect.fn("LoomToolkit.workstreamScaffold")(fu
       .join(", ")}.${
       unbriefedKeys.length === 0
         ? ""
-        : ` Each of ${unbriefedKeys.join(", ")} awaits a brief (${t("workstream_brief")}) before it can launch.`
+        : ` Awaiting a brief (${t("workstream_brief")}) before launch: ${unbriefedKeys.join(", ")}.`
     }${
       gateKeys.length === 0
         ? ""
-        : ` Gate nodes (${gateKeys.join(", ")}) launch on their purpose when their target hands back; replace it with ${t("workstream_brief")}, or add to it with ${t("workstream_prompt")}, before then.`
+        : ` Gate nodes (${gateKeys.join(", ")}) launch on their purpose when their target hands back.`
     }`,
     [
       ...modelWarnings,

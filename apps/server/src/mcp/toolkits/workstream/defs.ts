@@ -217,7 +217,7 @@ const LOOM_TOOL_SPECS = {
             ...scaffoldNodeFields,
           }),
         ),
-        "The nodes to create, or to add in a delta call: a key plus the fields of a spawn, minus its brief. A gate node's purpose is its brief until you replace it, so it launches when the thread it gates hands back.",
+        "The nodes to create, or to add in a delta call: a key plus the fields of a spawn, minus its brief.",
       ),
       clientRequestId,
     }),
