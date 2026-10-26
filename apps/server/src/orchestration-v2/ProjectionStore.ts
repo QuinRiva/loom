@@ -97,6 +97,7 @@ import { applyLoomProjectionEvent } from "../loom/projection/loomProjection.ts";
 
 import { MCP_APP_OUTPUT_KEY } from "@t3tools/shared/mcpApp";
 import { threadHtmlRenderAttachmentIds } from "../attachmentStore.ts";
+import { threadToolOutputImageAttachmentIds } from "./ToolOutputImageStore.loom.ts"; // loom: tool output images
 import {
   isThreadHistoryUserTurn,
   isConversationHistoryItem,
@@ -5373,7 +5374,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       FROM orchestration_v2_projection_turn_items
       WHERE thread_id = ${threadId}
         AND type = 'dynamic_tool'
-        AND (payload_json LIKE '%htmlRender%' OR payload_json LIKE ${`%${MCP_APP_OUTPUT_KEY}%`})
+        AND (payload_json LIKE '%htmlRender%' OR payload_json LIKE ${`%${MCP_APP_OUTPUT_KEY}%`}
+          OR payload_json LIKE '%"attachmentId"%') -- loom: tool output images
     `,
         // A guest's waiting files are pending uploads that no message row holds yet.
         sql<{ id: string }>`
@@ -5385,22 +5387,23 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         AND json_extract(message.value, '$.status') = 'pending'
     `,
       ]).pipe(
-        Effect.map(([messages, renders, guestFiles]) => [
-          ...new Set([
-            ...messages.map((row) => row.id),
-            ...guestFiles.map((row) => row.id),
-            ...threadHtmlRenderAttachmentIds(
-              threadId,
-              renders.map((row) => {
-                const item = parseEncodedPayload(row.payload_json);
-                return {
-                  toolName: typeof item.toolName === "string" ? item.toolName : null,
-                  output: item.output,
-                };
-              }),
-            ),
-          ]),
-        ]),
+        Effect.map(([messages, rows, guestFiles]) => {
+          const renders = rows.map((row) => {
+            const item = parseEncodedPayload(row.payload_json);
+            return {
+              toolName: typeof item.toolName === "string" ? item.toolName : null,
+              output: item.output,
+            };
+          });
+          return [
+            ...new Set([
+              ...messages.map((row) => row.id),
+              ...guestFiles.map((row) => row.id),
+              ...threadHtmlRenderAttachmentIds(threadId, renders),
+              ...threadToolOutputImageAttachmentIds(threadId, renders), // loom: tool output images
+            ]),
+          ];
+        }),
         Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause })),
       );
 
@@ -7251,6 +7254,13 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                   : [],
               ),
               ...threadHtmlRenderAttachmentIds(
+                threadId,
+                projection.turnItems.flatMap((item) =>
+                  item.type === "dynamic_tool" ? [item] : [],
+                ),
+              ),
+              // loom: tool output images
+              ...threadToolOutputImageAttachmentIds(
                 threadId,
                 projection.turnItems.flatMap((item) =>
                   item.type === "dynamic_tool" ? [item] : [],

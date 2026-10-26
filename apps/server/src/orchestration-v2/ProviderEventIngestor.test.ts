@@ -46,6 +46,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
+import * as ToolOutputImageStore from "./ToolOutputImageStore.loom.ts";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import {
   makeProviderEventRoutingState,
@@ -1450,13 +1451,19 @@ layer("ProviderEventIngestorV2", (it) => {
     }),
   );
 
-  it.effect("stores tool image bytes only where a tool-output-image asset serves them", () =>
+  it.effect("stores served tool image bytes as attachment files, not in events or projections", () =>
     Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const { attachmentsDir } = yield* ServerConfig.ServerConfig;
       const now = yield* DateTime.now;
       const eventSink = yield* EventSink.EventSinkV2;
       const eventStore = yield* EventStore.EventStoreV2;
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
-      const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
+      const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2.pipe(
+        Effect.provide(
+          Layer.fresh(ProviderEventIngestor.layer).pipe(Layer.provide(ToolOutputImageStore.layer)),
+        ),
+      );
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const threadEvent = yield* threadCreatedEvent(now);
       const providerSessionId = yield* idAllocator.allocate.providerSession({
@@ -1527,18 +1534,29 @@ layer("ProviderEventIngestorV2", (it) => {
       });
 
       assert.equal(storedJson.includes(readBase64), false);
-      assert.equal(storedJson.includes(screenshotBase64), true);
+      assert.equal(storedJson.includes(screenshotBase64), false);
       assert.deepEqual(projectedRead?.type === "dynamic_tool" ? projectedRead.output : null, {
         type: "image",
         file: { type: "image/png", originalSize: 30_000, sizeBytes: 30_000 },
       });
-      assert.deepEqual(
-        toolOutputImages(
-          projectedScreenshot?.type === "dynamic_tool" ? projectedScreenshot.output : null,
-        ),
-        [{ mimeType: "image/png", data: screenshotBase64 }],
+      const [image, ...rest] = toolOutputImages(
+        projectedScreenshot?.type === "dynamic_tool" ? projectedScreenshot.output : null,
       );
-    }),
+      assert.deepEqual(rest, []);
+      assert.equal(image?.data, undefined);
+      const attachmentId = image?.attachmentId;
+      assert.ok(attachmentId);
+      assert.ok(storedJson.includes(attachmentId));
+      assert.deepEqual(
+        Buffer.from(yield* fileSystem.readFile(`${attachmentsDir}/${attachmentId}.png`)),
+        Buffer.from(screenshotBase64, "base64"),
+      );
+      assert.ok(
+        (yield* projectionStore.getThreadAttachmentIds(threadEvent.threadId)).includes(
+          attachmentId,
+        ),
+      );
+    }).pipe(Effect.provide(ServerConfig.layerTest(process.cwd(), { prefix: "ingestor-images-" }))),
   );
 
   it.effect("stores a bounded copy of a large file-change diff in both SQLite tables", () =>

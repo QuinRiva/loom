@@ -41,6 +41,7 @@ import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter"
 import { makeProviderFailureTurnItem } from "@t3tools/provider-core/server/failure";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { stripUnservedToolOutputImageBytes } from "./toolOutputImageBytes.ts";
+import { ToolOutputImageStore } from "./ToolOutputImageStore.loom.ts"; // loom: tool images as attachment files
 import { boundFileChangeForStorage } from "./WireProjection.ts";
 
 export class ProviderEventNormalizeError extends Schema.TaggedError<ProviderEventNormalizeError>()(
@@ -332,6 +333,7 @@ export const layer: Layer.Layer<
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
     const analytics = yield* ProviderTurnAnalytics;
+    const toolOutputImageStore = yield* ToolOutputImageStore; // loom: tool images as attachment files
     const agentScope = yield* AgentScope;
     const completedTurnAnalytics = new Set<string>();
 
@@ -652,7 +654,10 @@ export const layer: Layer.Layer<
                   type: "turn-item.updated",
                   threadId: input.event.turnItem.threadId,
                   payload: boundFileChangeForStorage(
-                    stripUnservedToolOutputImageBytes(input.event.turnItem),
+                    // loom: served image bytes move to attachment files
+                    yield* toolOutputImageStore.persist(
+                      stripUnservedToolOutputImageBytes(input.event.turnItem),
+                    ),
                   ),
                   runId: input.event.turnItem.runId,
                   nodeId: input.event.turnItem.nodeId,
