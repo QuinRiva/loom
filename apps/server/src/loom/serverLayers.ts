@@ -44,6 +44,7 @@ import * as LoomThreadConsult from "./workstream/consult.ts";
 import { LoomSessionComposerRealLive } from "./prompt/sessionComposerLive.ts";
 import { SubscriptionUsagePollerLive } from "../provider/SubscriptionUsagePoller.ts";
 import { LoomAskReactorLive } from "./userInput/askUserQuestion.ts";
+import { LoomStateDirRetentionLive } from "./stateDirRetention.ts";
 
 /**
  * Reroute sweep, usage-ledger reactor and spend queries, plus the Loom sidecar store. The pi adapter
@@ -139,7 +140,8 @@ export const LoomGoalBroadcastLive = EmergentGoalsLive.pipe(
 
 /**
  * The workstream control plane, every worker started after activation: dispatcher pass, liveness
- * sweep, emergent-goal, `/handoff` drafter and review-snapshot reactors. The startup pass is
+ * sweep, emergent-goal, `/handoff` drafter and review-snapshot reactors, and the state-dir
+ * retention sweep. The startup pass is
  * `loomStartupRecovery`'s.
  */
 export const LoomControlPlaneLive = Layer.mergeAll(
@@ -148,6 +150,7 @@ export const LoomControlPlaneLive = Layer.mergeAll(
   EmergentGoalReactorLive.pipe(Layer.provide(LoomGoalBroadcastLive)),
   HandoffDrafterReactorLive, // loom: 3b-5 — archives a drafter once its handoff is recorded
   ReviewSnapshotReactorLive,
+  LoomStateDirRetentionLive,
 ).pipe(
   Layer.provideMerge(WorkstreamDispatcherStartedLive),
   Layer.provide([CommandReceiptStore.layer, LoomStore.layer]),
