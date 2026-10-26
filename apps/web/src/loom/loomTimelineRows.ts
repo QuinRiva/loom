@@ -22,7 +22,7 @@ export type LoomReceiptState = "waiting" | "drafting" | "failed" | "handed-off";
 
 export interface LoomHandoffDestination {
   readonly threadId: ThreadId;
-  /** Null when the destination is not in the snapshot (archived, deleted). */
+  /** Null when the destination is not in the snapshot (older settled, archived, deleted). */
   readonly title: string | null;
   readonly state: LoomHandoffState | null;
 }

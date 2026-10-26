@@ -61,3 +61,25 @@ export const keepsLoomChildInColdShell = (
         (workstream.parentThreadId !== null && workstream.kickoffAt === null && !workstream.held)))
   );
 };
+
+type GoalRootFields = Pick<
+  OrchestrationV2ThreadShell,
+  "workstream" | "lineage" | "settledOverride"
+>;
+
+/**
+ * Whether a thread belongs to a goal with an unsettled top-level thread: such a goal keeps its older
+ * settled roots in the cold shell, so the goal panel lists every session and a source's timeline
+ * keeps its "continued in" receipt.
+ */
+export const inLiveLoomGoal = (threads: ReadonlyArray<GoalRootFields>) => {
+  const live = new Set(
+    threads.flatMap((thread) =>
+      thread.lineage.relationshipToParent !== "subagent" && thread.settledOverride !== "settled"
+        ? [thread.workstream?.goalId ?? null]
+        : [],
+    ),
+  );
+  live.delete(null);
+  return (thread: GoalRootFields) => live.has(thread.workstream?.goalId ?? null);
+};

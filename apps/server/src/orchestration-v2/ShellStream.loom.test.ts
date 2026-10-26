@@ -104,4 +104,29 @@ describe("cold shell keeps what Loom's rollup reads", () => {
     expect(result.threads.map((thread) => thread.id).slice(25)).toEqual(["old-flagged"]);
     expect(result.olderSettled.counts).toEqual([{ projectId: "project", count: 2 }]);
   });
+
+  it("keeps an older settled root while its goal has an unsettled root", () => {
+    const newest = Array.from({ length: 25 }, (_, index) =>
+      row(`new-${index}`, null, `new-${index}`, {
+        settledOverride: "settled",
+        settledAt: DateTime.makeUnsafe(90 * DAY + index),
+      }),
+    );
+    const goal = (goalId: string) => ({ goalId }) as Partial<LoomThreadShellFields>;
+    const result = omitOlderSettledShells({
+      threads: [
+        ...newest,
+        row("live-goal-root", null, "live-goal-root", {}, goal("live")),
+        row("old-live-goal", null, "old-live-goal", settled, goal("live")),
+        row("old-settled-goal", null, "old-settled-goal", settled, goal("settled")),
+        row("old-settled-goal-2", null, "old-settled-goal-2", settled, goal("settled")),
+      ],
+      snapshotSequence: 1,
+      now: DateTime.makeUnsafe(100 * DAY),
+    });
+    expect(result.threads.map((thread) => thread.id).slice(25)).toEqual([
+      "live-goal-root",
+      "old-live-goal",
+    ]);
+  });
 });

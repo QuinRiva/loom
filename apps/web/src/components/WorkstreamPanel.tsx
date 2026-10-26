@@ -106,7 +106,7 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   const workstream = node ? subtreeOf(rootOf(node.id, all), all).map((member) => member.id) : [];
   const startedBy = startOrigin && {
     ...startOrigin,
-    title: nodes.get(startOrigin.threadId)?.title ?? originTitle ?? "an archived thread",
+    title: nodes.get(startOrigin.threadId)?.title ?? originTitle ?? "an earlier thread",
   };
 
   // Right-click / keyboard menu on a node: the app's canonical context menu.

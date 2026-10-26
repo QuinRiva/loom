@@ -21,11 +21,11 @@ export interface LoomUsageLedgerShape {
   readonly threadSpend: (
     threadIds: ReadonlyArray<ThreadId>,
   ) => Effect.Effect<Map<ThreadId, ThreadSpend>>;
-  /** The `limit` costliest threads since `since`, most expensive first. */
+  /** The `limit` costliest threads since `since`, most expensive first, titled from the projection. */
   readonly topSpend: (
     limit: number,
     since: IsoDateTime,
-  ) => Effect.Effect<ReadonlyArray<ThreadSpend & { readonly threadId: ThreadId }>>;
+  ) => Effect.Effect<ReadonlyArray<TopSpendRow>>;
 }
 
 export class LoomUsageLedger extends Context.Service<LoomUsageLedger, LoomUsageLedgerShape>()(
@@ -33,6 +33,7 @@ export class LoomUsageLedger extends Context.Service<LoomUsageLedger, LoomUsageL
 ) {}
 
 type SpendRow = ThreadSpend & { readonly threadId: ThreadId };
+type TopSpendRow = SpendRow & { readonly title: string | null };
 
 const spendColumns = (sql: SqlClient.SqlClient) => sql`
   thread_id AS "threadId",
@@ -69,12 +70,16 @@ export const layer = Layer.effect(
               Effect.orDie,
             ),
       topSpend: (limit, since) =>
-        sql<SpendRow>`
-          SELECT ${spendColumns(sql)} FROM loom_usage_ledger
-          WHERE created_at >= ${since}
-          GROUP BY thread_id
-          ORDER BY "costUsd" DESC
-          LIMIT ${limit}`.pipe(Effect.orDie),
+        sql<TopSpendRow>`
+          SELECT spend.*, t.title FROM (
+            SELECT ${spendColumns(sql)} FROM loom_usage_ledger
+            WHERE created_at >= ${since}
+            GROUP BY thread_id
+            ORDER BY "costUsd" DESC
+            LIMIT ${limit}
+          ) spend
+          LEFT JOIN orchestration_v2_projection_threads t ON t.thread_id = spend."threadId"
+          ORDER BY spend."costUsd" DESC`.pipe(Effect.orDie),
     } satisfies LoomUsageLedgerShape;
   }),
 );

@@ -169,7 +169,12 @@ export const LoomTopSpendInput = Schema.Struct({
 });
 export type LoomTopSpendInput = typeof LoomTopSpendInput.Type;
 
-export const LoomTopSpendRow = Schema.Struct({ threadId: ThreadId, ...LoomThreadSpend.fields });
+/** `title` is null only for a thread with no projection row. */
+export const LoomTopSpendRow = Schema.Struct({
+  threadId: ThreadId,
+  title: Schema.NullOr(Schema.String),
+  ...LoomThreadSpend.fields,
+});
 export type LoomTopSpendRow = typeof LoomTopSpendRow.Type;
 
 export const LoomTopSpendResult = Schema.Struct({ threads: Schema.Array(LoomTopSpendRow) });

@@ -37,7 +37,7 @@ export function DocumentQueryHeaderChip({
         style={{ "--label": "var(--color-primary)" } as CSSProperties}
       >
         <GitForkIcon />
-        read-only fork of “{truncateLabel(authorTitle ?? "an archived thread", 36)}”
+        read-only fork of “{truncateLabel(authorTitle ?? "an earlier thread", 36)}”
       </Badge>
       {filePath ? (
         <Button

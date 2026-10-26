@@ -31,7 +31,7 @@ import * as Schema from "effect/Schema";
 import type * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
-import { keepsLoomChildInColdShell } from "../loom/projection/loomShellJoin.ts"; // loom: DL-1404
+import { inLiveLoomGoal, keepsLoomChildInColdShell } from "../loom/projection/loomShellJoin.ts"; // loom: DL-1404
 import { bufferLatestLiveStream } from "./LiveStreamBudget.ts";
 
 type ShellDelta = Extract<OrchestrationV2ShellStreamItem, { readonly sequence: number }>;
@@ -150,6 +150,7 @@ export function omitOlderSettledShells(input: {
     if (thread.lineage.parentThreadId !== null) ancestorIds.add(thread.lineage.parentThreadId);
     ancestorIds.add(thread.lineage.rootThreadId);
   }
+  const inLiveGoal = inLiveLoomGoal(input.threads); // loom: a live goal keeps its older roots
   const counts = new Map<ProjectId, number>();
   const threads = input.threads.filter((thread) => {
     if (!isOlderSettledThreadShell(thread, beforeMs)) return true;
@@ -159,6 +160,7 @@ export function omitOlderSettledShells(input: {
       (thread.snoozedUntil != null && DateTime.toEpochMillis(thread.snoozedUntil) > nowMs) ||
       isLiveSubagentShell(thread) ||
       keepsLoomChildInColdShell(thread, new Map()) || // loom: a flagged Loom root stays (DL-1404)
+      inLiveGoal(thread) || // loom: so does a live goal's root
       ancestorIds.has(thread.id)
     );
   });

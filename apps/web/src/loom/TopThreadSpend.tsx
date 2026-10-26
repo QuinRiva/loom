@@ -1,14 +1,14 @@
 /**
  * loom: "Top threads by cost" on the Usage page's Cost tab, from Loom's usage ledger
  * (`loom.topSpend`), so it covers only turns Loom drove; the transcript scan above also counts pi
- * runs outside Loom and reads higher. A thread the client no longer holds renders by id, unlinked.
+ * runs outside Loom and reads higher. Titles come with the rows: most costly threads are settled and
+ * absent from the cold shell, and the route opens them by id.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, UsageSummaryInput } from "@t3tools/contracts";
 import { formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import { useNavigate } from "@tanstack/react-router";
 
-import { useThreadShells } from "../state/entities";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { TOP_THREAD_COUNT, useTopSpend } from "./threadSpend";
 
@@ -28,10 +28,6 @@ export function TopThreadSpend({
 }) {
   const navigate = useNavigate();
   const { threads, isPending, failed } = useTopSpend(windowSince(window));
-  const shells = useThreadShells();
-  const titles = new Map(
-    shells.map((shell) => [`${shell.environmentId}:${shell.id}`, shell.title]),
-  );
   // Selection narrows before the top-N cut.
   const rows = threads
     .filter(
@@ -69,47 +65,38 @@ export function TopThreadSpend({
               </td>
             </tr>
           ) : (
-            rows.map((row) => {
-              const title = titles.get(`${row.environmentId}:${row.threadId}`);
-              return (
-                <tr
-                  key={`${row.environmentId}:${row.threadId}`}
-                  className="border-b border-border/50 transition-colors hover:bg-muted/50"
-                >
-                  <td className="min-w-0 py-2 text-foreground">
-                    {title === undefined ? (
-                      <span className="block truncate font-mono text-xs text-muted-foreground">
-                        {row.threadId}
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="block w-full cursor-pointer truncate text-left hover:underline"
-                        onClick={() =>
-                          void navigate({
-                            to: "/$environmentId/$threadId",
-                            params: buildThreadRouteParams(
-                              scopeThreadRef(row.environmentId, row.threadId),
-                            ),
-                          })
-                        }
-                      >
-                        {title}
-                      </button>
-                    )}
-                  </td>
-                  <td className="py-2 text-right text-foreground tabular-nums">
-                    {formatUsd(row.costUsd)}
-                  </td>
-                  <td className="py-2 text-right text-muted-foreground tabular-nums">
-                    {formatTokens(row.inputTokens)} · {formatTokens(row.outputTokens)}
-                  </td>
-                  <td className="py-2 text-right text-muted-foreground tabular-nums">
-                    {formatTokens(row.cachedTokens)}
-                  </td>
-                </tr>
-              );
-            })
+            rows.map((row) => (
+              <tr
+                key={`${row.environmentId}:${row.threadId}`}
+                className="border-b border-border/50 transition-colors hover:bg-muted/50"
+              >
+                <td className="min-w-0 py-2 text-foreground">
+                  <button
+                    type="button"
+                    className="block w-full cursor-pointer truncate text-left hover:underline"
+                    onClick={() =>
+                      void navigate({
+                        to: "/$environmentId/$threadId",
+                        params: buildThreadRouteParams(
+                          scopeThreadRef(row.environmentId, row.threadId),
+                        ),
+                      })
+                    }
+                  >
+                    {row.title ?? row.threadId}
+                  </button>
+                </td>
+                <td className="py-2 text-right text-foreground tabular-nums">
+                  {formatUsd(row.costUsd)}
+                </td>
+                <td className="py-2 text-right text-muted-foreground tabular-nums">
+                  {formatTokens(row.inputTokens)} · {formatTokens(row.outputTokens)}
+                </td>
+                <td className="py-2 text-right text-muted-foreground tabular-nums">
+                  {formatTokens(row.cachedTokens)}
+                </td>
+              </tr>
+            ))
           )}
         </tbody>
       </table>
