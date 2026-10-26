@@ -131,6 +131,12 @@ export interface RunMigrateDevDbOptions {
   readonly sharedHome?: string | undefined;
 }
 
+/** JSON arrays of the kept ids, as SQLite's json_group_array builds them. */
+interface KeptSlice {
+  readonly threadIds: string;
+  readonly projectIds: string;
+}
+
 interface KeptProject {
   readonly title: string;
   readonly threads: number;
@@ -232,10 +238,10 @@ const rootIsCopied = (sql: SqlClient.SqlClient, root: string | undefined) =>
     ? rootIsVisible(sql)
     : sql`(${rootIsVisible(sql)} OR root.thread_id = ${root})`;
 
-// A single read transaction keeps the copy consistent with concurrent server writes.
+// A single read transaction keeps the selection and copy consistent with concurrent server writes.
 const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (
   sourcePath: string,
-  root: string | undefined, // loom: --root
+  input: RunMigrateDevDbInput,
 ) {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`ATTACH DATABASE ${`${NodeURL.pathToFileURL(sourcePath).href}?mode=ro`} AS src`;
@@ -274,16 +280,45 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (
     }
   }
 
-  yield* sql.withTransaction(
+  // loom: empty temp tables shadow the cleared ones, so selecting on the source sees what the snapshot will.
+  const shadowed = tables.filter((table) => cleared.has(table.name)).map((table) => table.name);
+
+  const selected = yield* sql.withTransaction(
     Effect.gen(function* () {
+      // loom: selecting first copies only the kept slice, not every visible thread (GBs on a real home).
+      const selected = filtered
+        ? yield* Effect.gen(function* () {
+            for (const name of shadowed) {
+              yield* sql.unsafe(
+                `CREATE TEMP TABLE "${name}" AS SELECT * FROM src."${name}" WHERE 0`,
+              ).unprepared;
+            }
+            return yield* selectKeptSlice(input);
+          }).pipe(
+            Effect.ensuring(
+              Effect.forEach(shadowed, (name) =>
+                sql.unsafe(`DROP TABLE IF EXISTS temp."${name}"`).unprepared.pipe(Effect.ignore),
+              ),
+            ),
+            Effect.tapError((cause) =>
+              Console.log(
+                `Source schema cannot answer the selection (${String(cause)}); copying every visible thread before pruning.`,
+              ),
+            ),
+            Effect.orElseSucceed(() => undefined),
+          )
+        : undefined;
       for (const table of tables) yield* sql.unsafe(table.sql).unprepared;
       if (filtered) {
         yield* sql`CREATE TEMP TABLE copied_threads (thread_id TEXT PRIMARY KEY)`;
-        yield* sql`INSERT OR IGNORE INTO copied_threads
-          SELECT family.thread_id FROM src.orchestration_v2_projection_threads family
-          JOIN src.orchestration_v2_projection_threads root ON root.thread_id =
-            COALESCE(json_extract(family.payload_json, '$.lineage.rootThreadId'), family.thread_id)
-          WHERE ${rootIsCopied(sql, root)}`; // loom: --root
+        yield* selected === undefined
+          ? sql`INSERT OR IGNORE INTO copied_threads
+              SELECT family.thread_id FROM src.orchestration_v2_projection_threads family
+              JOIN src.orchestration_v2_projection_threads root ON root.thread_id =
+                COALESCE(json_extract(family.payload_json, '$.lineage.rootThreadId'), family.thread_id)
+              WHERE ${rootIsCopied(sql, input.root)}` // loom: --root
+          : sql`INSERT INTO copied_threads
+              SELECT DISTINCT value FROM json_each(${selected.threadIds})`;
       }
       for (const { name } of tables) {
         if (cleared.has(name) || virtualTables.includes(name)) continue;
@@ -306,12 +341,16 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (
         if (entry.type !== "table") yield* sql.unsafe(entry.sql).unprepared;
       }
       yield* rebuildMessageSearch(sql);
+      return selected;
     }),
   );
   yield* sql`DETACH DATABASE src`;
+  return selected;
 });
 
-const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigrateDevDbInput) {
+// loom: reads unqualified table names, so it runs against the attached source before the snapshot has
+// tables of its own, or against a migrated snapshot when the source schema cannot answer it.
+const selectKeptSlice = Effect.fn("selectDevDbKeptSlice")(function* (input: RunMigrateDevDbInput) {
   const sql = yield* SqlClient.SqlClient;
 
   // Usage-limit recovery also depends on settings; exclude latest-run failures and recovery choices.
@@ -383,6 +422,26 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
       SELECT project_id FROM orchestration_v2_projection_threads WHERE thread_id = ${input.root}`;
     yield* sql`INSERT INTO kept_threads
       SELECT thread_id FROM thread_families WHERE root_id = ${input.root}`;
+  }
+  const [slice] = yield* sql<KeptSlice>`SELECT
+    (SELECT json_group_array(thread_id) FROM kept_threads) AS "threadIds",
+    (SELECT json_group_array(project_id) FROM kept_projects) AS "projectIds"`;
+  return slice!;
+});
+
+const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (
+  input: RunMigrateDevDbInput,
+  selected: KeptSlice | undefined,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  // loom: reuse the source's selection; reselecting on the already-cut slice would rank projects differently.
+  if (selected === undefined) {
+    yield* selectKeptSlice(input);
+  } else {
+    yield* sql`CREATE TEMP TABLE kept_threads AS
+      SELECT value AS thread_id FROM json_each(${selected.threadIds})`;
+    yield* sql`CREATE TEMP TABLE kept_projects AS
+      SELECT value AS project_id FROM json_each(${selected.projectIds})`;
   }
 
   const threadTables = yield* sql<{ name: string }>`
@@ -516,10 +575,14 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
 
   yield* removeDatabaseFiles(snapshotPath);
   const { executedMigrations, pruned } = yield* Effect.gen(function* () {
-    yield* Console.log(`Copying visible threads from ${sourcePath} (read-only)...`);
-    yield* copySourceSlice(sourcePath, input.root).pipe(
-      // loom: --root
-      Effect.provide(NodeSqliteClient.layer({ filename: snapshotPath })),
+    yield* Console.log(`Copying the kept slice from ${sourcePath} (read-only)...`);
+    // loom: the selection runs on the source, so it needs the projection store here.
+    const selected = yield* copySourceSlice(sourcePath, input).pipe(
+      Effect.provide(
+        ProjectionStore.layer.pipe(
+          Layer.provideMerge(NodeSqliteClient.layer({ filename: snapshotPath })),
+        ),
+      ),
       wrapPhase("snapshot", sourcePath),
     );
 
@@ -548,7 +611,7 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
     yield* Console.log(
       `Pruning to ${input.projects} projects, ${input.threadsPerProject} stopped threads each...`,
     );
-    const result = yield* pruneSnapshot(input).pipe(
+    const result = yield* pruneSnapshot(input, selected).pipe(
       Effect.provide(
         ProjectionStore.layer.pipe(
           Layer.provideMerge(NodeSqliteClient.layer({ filename: snapshotPath })),

@@ -93,6 +93,11 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
       yield* sql`INSERT INTO scheduled_task_webhook_pending
         (delivery_id, task_id, coalesce_key, due_at, task_json, request_json, delivery_ids_json)
         VALUES ('delivery-1', 'task-1', 'key-1', 1900000000000, '{}', '{}', '[]')`;
+      // The slice is selected on the source, where pending work still exists; it must read as
+      // cleared, as it will in the dev database, so this family still counts as stopped.
+      yield* sql`INSERT INTO orchestration_v2_effect_outbox
+        (effect_id, command_id, thread_id, effect_type, payload_json, status, available_at, created_at, updated_at)
+        VALUES ('effect-1', 'command-1', 'stopped-thread', 'run.start', '{}', 'pending', '2026-08-01', '2026-08-01', '2026-08-01')`;
       yield* sql`INSERT INTO auth_sessions (session_id, subject, scopes, method, issued_at, expires_at)
         VALUES ('session-1', 'user', '[]', 'pairing', '2026-08-01', '2027-08-01')`;
     }),
