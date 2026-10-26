@@ -1,21 +1,10 @@
 import type { PlanCommentAnchor, PlanCommentTargetKind } from "@t3tools/contracts";
 
 /**
- * Rendered-MDX anchoring engine — serialise a DOM `Range` into a portable
- * {@link PlanCommentAnchor} and re-resolve that anchor back to a live `Range`
- * after a re-render (or to `null` when the target is gone / "detached").
- *
- * Ported to TypeScript from the validated spike (`scratch-mdx-spike/anchoring.mjs`,
- * 7/7). Two things the port adds over the spike:
- *   1. Section is derived from the nearest preceding heading (the MDX render is a
- *      flat sibling list under `[data-plan-root]`, so there is no ancestor
- *      `data-plan-section-id` element to climb to).
- *   2. A tagged union over `anchorKind`: prose selections resolve via text-quote
- *      + context disambiguation (`"text"`); selections inside a structured,
- *      non-prose block fall back to a whole-block anchor keyed on the rendered
- *      `data-plan-block-id` (`"visual"`). The resolver dispatches on
- *      `anchorKind`, so Phase 4 can add `wireframe`/`canvas` kinds without a
- *      rewrite of the text path.
+ * Serialises a DOM `Range` into a portable {@link PlanCommentAnchor} and re-resolves
+ * it to a live `Range` after a re-render (`null` when detached). Sections come from
+ * the nearest preceding heading: the MDX render is a flat sibling list under
+ * `[data-plan-root]`, so there is no section ancestor to climb to.
  */
 
 const CTX = 32; // chars of context captured either side for disambiguation
@@ -47,11 +36,9 @@ export interface AnchorBox {
   height: number;
 }
 
-/** Board→pixel transform the canvas layout renderer (a later wave) owns and
- * hands this branch. Board units are the free-floating coordinate space canvas
- * notes are authored in; the renderer maps them to on-screen pixels relative to
- * the board container (accounting for pan/zoom). This is the contract the canvas
- * renderer must provide for `anchorKind:"canvas"` resolution. */
+/** Board→pixel transform the canvas renderer provides for `anchorKind:"canvas"`
+ * resolution: maps free-floating board units to pixels relative to the board
+ * container, accounting for pan/zoom. */
 export interface CanvasTransform {
   /** Map a board-space point to a pixel point relative to the board container. */
   boardToPixel(point: { x: number; y: number }): { x: number; y: number };
@@ -71,24 +58,10 @@ const countOccurrences = (haystack: string, needle: string): number => {
   return count;
 };
 
-/** Block types with no host text a `Range` can meaningfully quote — a selection
- * anywhere inside one of these always yields a whole-block anchor:
- *
- *  - `diagram` / `mermaid`: absolutely-positioned boxes and generated SVG, so
- *    DOM text order is not visual order — a drag across them serialises to a
- *    scrambled quote that resolves to the wrong glyphs after a re-layout.
- *  - `prototype` / `html`: sandboxed iframes. A `Range` in the HOST document
- *    can never reach into them, so a host-side selection there is whole-block.
- *    (`html` frames are same-origin, so a selection made INSIDE the frame's own
- *    document is pinned by {@link anchorForFrameRange} — the prototype's
- *    opaque-origin frame stays whole-block only.)
- *
- * Every OTHER block type renders real, stable, human-meaningful text (table
- * cells, checklist items, code lines, JSON keys, data-model descriptions), so an
- * intra-block selection anchors to exactly what was highlighted rather than
- * swallowing the whole block. Commenting on a block as a whole stays one click
- * away via the per-block hover affordance ({@link anchorForBlockElement}), and
- * a selection that captures no text still degrades to the whole block. */
+/** Block types whose DOM text order is not visual order (`diagram`, `mermaid`) or
+ * that a host-document `Range` cannot reach (`prototype`, `html` iframes), so any
+ * selection inside them anchors to the whole block. Every other block anchors to
+ * exactly the selected text. */
 const OPAQUE_BLOCK_TYPES = new Set(["diagram", "mermaid", "prototype", "html"]);
 
 /** Map a plan block type to the anchor's coarse `targetKind`. */
@@ -137,14 +110,9 @@ export interface FlattenedDocument {
   spans: TextSpan[];
 }
 
-/** Tags whose start opens a new line box, so the text inside them must not run
- * on from the text before them. Adjacent text nodes are otherwise concatenated
- * bare, which is what made a selection across two table cells serialise as the
- * unreadable `"budget120"`. The separator is inserted by
- * {@link flattenDocument}, which is the SAME function used to capture a quote
- * and to re-resolve it — so the round-trip holds exactly while the quote the
- * reviewer (and the agent consuming the comment) sees reads as separate cells,
- * rows and lines. */
+/** Tags that open a new line box. {@link flattenDocument} inserts a separator
+ * before them so a selection across two table cells does not read as `"budget120"`;
+ * the same function captures and re-resolves quotes, so the round-trip holds. */
 const BOUNDARY_TAGS = new Set([
   "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BR", "DD", "DETAILS", "DIV", "DL", "DT",
   "FIELDSET", "FIGCAPTION", "FIGURE", "FOOTER", "FORM", "H1", "H2", "H3", "H4", "H5", "H6",
@@ -193,11 +161,9 @@ function asElement(node: Node): Element | null {
   return node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
 }
 
-/** The custom plan block ([data-plan-block-type]) enclosing a node, if any. For a
- * selection inside a block nested in a container (`Columns`/`Tabs`), `closest`
- * returns the *nearest* block ancestor — the nested block, not the container — so
- * whole-block anchoring keys on the nested block (which `assignBlockIds` gives a
- * unique id). */
+/** The plan block ([data-plan-block-type]) enclosing a node. Inside a container
+ * (`Columns`/`Tabs`), `closest` returns the nested block, not the container, so
+ * whole-block anchors key on the nested block's unique id. */
 export function enclosingBlock(node: Node): { element: Element; id: string; type: string } | null {
   const element = asElement(node)?.closest("[data-plan-block-type]");
   if (!element) return null;
@@ -208,16 +174,10 @@ export function enclosingBlock(node: Node): { element: Element; id: string; type
   };
 }
 
-/** The visible surface + collapse actions for a node whose overlay geometry is
- * hidden inside a closed `<details>` / hidden tab panel. Walks the ancestor chain
- * collecting every closed disclosure and hidden tab panel enclosing the node; the
- * badge is placed on the OUTERMOST such surface's visible handle (a closed
- * details' `<summary>`, or the tab button controlling a hidden panel), since an
- * inner surface's own handle is itself hidden by the outer one. Returns `null`
- * when the node is not enclosed by any collapsed surface — i.e. genuinely detached
- * (or clipped for another reason, which stays out of scope). The layer uses this
- * to classify a zero-rects annotation as `collapsed` (discoverable) rather than
- * `detached`, and to open the enclosing surfaces on navigate. */
+/** The visible handle and collapse actions for a node hidden inside closed
+ * `<details>` or hidden tab panels. The badge goes on the OUTERMOST surface's handle,
+ * since inner handles are hidden by the outer one. `null` means not collapsed: the
+ * layer classifies a zero-rects annotation as `collapsed` only when this is set. */
 export interface CollapsedSurface {
   /** Nearest VISIBLE element to badge on (outermost surface's handle). */
   badgeElement: Element;
@@ -289,14 +249,10 @@ const prefixOverlap = (a: string, b: string): number => {
   return n;
 };
 
-/** Serialise a selection into an anchor + the passage/preview it evidences.
- *
- * A text-quote (`"text"`) anchor is the default — including *inside* structured
- * blocks, so highlighting a phrase in a table cell comments on that phrase. A
- * whole-block (`"visual"`) anchor is used only when the enclosing block is
- * {@link OPAQUE_BLOCK_TYPES opaque} or the selection captured no text (a click,
- * or a drag over non-text chrome). Returns `null` when neither applies — an
- * empty selection outside any block. */
+/** Serialise a selection into an anchor plus the passage it evidences. Text-quote
+ * (`"text"`) is the default, even inside structured blocks; whole-block (`"visual"`)
+ * only for {@link OPAQUE_BLOCK_TYPES opaque} blocks or a selection with no text.
+ * `null` for an empty selection outside any block. */
 export function anchorFromRange(
   range: Range,
   root: Element,
@@ -371,12 +327,9 @@ export function frameDocument(frame: HTMLIFrameElement): Document | null {
   return doc && doc.URL === "about:srcdoc" && doc.readyState !== "loading" ? doc : null;
 }
 
-/** Serialise a selection made INSIDE an HtmlBlock's frame into a node pin —
- * the artboard-pin model (`anchorKind:"wireframe"`) with the frame's `<body>` as
- * the artboard: `targetSelector` = the host block, `targetNodePath` = the
- * element enclosing the selection (the card it was made in), plus a text quote
- * (measured over the whole frame body) so the highlight is the selected words
- * and survives the card moving in the markup. */
+/** Serialise a selection INSIDE an HtmlBlock's frame into a `"wireframe"` node pin
+ * with the frame `<body>` as the artboard: the enclosing element's path plus a text
+ * quote over the whole body, so the highlight survives the card moving in the markup. */
 function anchorForFrameRange(
   range: Range,
   frame: HTMLIFrameElement,
@@ -496,10 +449,8 @@ function resolveWireframeNode(artboard: Element, anchor: PlanCommentAnchor): Ele
 }
 
 /** Serialise a pin on an element inside a wireframe/design artboard into a
- * `"wireframe"` anchor: `targetSelector` = the enclosing artboard,
- * `targetNodeId` = the element's stable `data-wf-node` id (stamped by the
- * wireframe renderer, a later wave), `targetNodePath` = a structural fallback.
- * Returns `null` when the element is not inside an artboard. */
+ * `"wireframe"` anchor: the artboard selector, the element's `data-wf-node` id and a
+ * structural path fallback. `null` when the element is not inside an artboard. */
 export function anchorForWireframeNode(
   target: Element,
   root: Element,
@@ -531,10 +482,8 @@ export function anchorForWireframeNode(
 }
 
 /** Serialise a free-floating board-space point (optionally a region) into a
- * `"canvas"` anchor. The canvas renderer captures a click, inverts its own
- * transform to board units, and calls this; resolution is via
- * {@link resolveCanvasAnchor}. Node-pinned canvas notes use the wireframe
- * branch instead — only truly free-floating markup needs this. */
+ * `"canvas"` anchor, resolved by {@link resolveCanvasAnchor}. Node-pinned canvas
+ * notes use the wireframe branch instead. */
 export function anchorForCanvasPoint(board: {
   x: number;
   y: number;

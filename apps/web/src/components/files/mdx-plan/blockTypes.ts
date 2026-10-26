@@ -2,16 +2,9 @@ import type { FC, ReactNode } from "react";
 import type { ZodType } from "zod";
 
 /**
- * Slim block-registration contract for first-party MDX plan rendering.
- *
- * This is a deliberately trimmed subset of BuilderIO's `BlockSpec`
- * (`@agent-native/core` `client/blocks/types.ts`): we keep only what a
- * read-only renderer + a byte-stable MDX round-trip need — `schema`, `mdx`,
- * `Read` — and drop the editor/container/placement/icon machinery, which is
- * built for their in-app block editor and does not transfer to a read surface.
- * The `tag` names + `mdx` round-trip are the stable wire contract (never rename
- * a tag); everything else here is ours to shape. See `docs/mdx-spike-findings.md`
- * §3.2.
+ * Block-registration contract for MDX plan rendering: a read-only subset of
+ * BuilderIO's `BlockSpec` (`schema`, `mdx`, `Read`). The `tag` names and `mdx`
+ * round-trip are the stable wire contract: never rename a tag.
  */
 
 /**
@@ -54,11 +47,8 @@ export interface BlockMdxConfig<TData> {
   fromAttrs: (attrs: BlockAttrReader, children: string) => TData;
   /** When set, this field is serialized as MDX prose *children*, not a prop. */
   childrenField?: keyof TData & string;
-  /** Structural container blocks (canvas `<DesignBoard>`/`<Section>`, Wave B6
-   * `<Columns>`/`<Tabs>`) render their nested block *children* — already resolved
-   * to React nodes by the MDX evaluate path — without mapping them to a data
-   * field. Set this to forward `children` to `Read` when there is no
-   * `childrenField` prose body. */
+  /** Forward already-rendered nested block `children` to `Read` when there is no
+   * `childrenField` prose body (structural containers such as `<Columns>`). */
   passChildren?: boolean;
   /** An inline (text) element such as `<Badge>`: written inside a sentence, its
    * children are its label, not nested blocks. Documentation only. */

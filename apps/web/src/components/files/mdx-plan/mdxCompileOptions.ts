@@ -13,28 +13,10 @@ import { assertLiteralAttributeExpression, type MdxAttrExpression } from "./mdxA
 import { ALLOWED_HTML_TAGS, PLAN_BLOCK_TAGS } from "./planBlockTags";
 
 /**
- * The single source of truth for the MDX plan compile pipeline: the remark
- * security guards + the option bags for both the main-thread/Node `evaluate`
- * path (linter, tests, SSR) and the Web Worker `compile` path (interactive
- * renderer). Both paths share ONE plugin set here so the security model cannot
- * drift between them — the worker applies the exact same guards during compile,
- * before any executable module exists.
- *
- * Security model (replaces `rehype-sanitize` for `.mdx`), 3 layers:
- *   1. Closed component registry — MDX resolves custom JSX names only from
- *      {@link PLAN_BLOCK_COMPONENTS}; nothing else is reachable.
- *   2. remark guard — rejects `import`/`export` (`mdxjsEsm`) and raw
- *      `{expression}` bodies (`mdxFlow/TextExpression`) at compile time, AND
- *      rejects any *attribute*-value expression that is not a static literal
- *      (`code={fetch(...)}`, sequence/IIFE tricks), so plan source cannot smuggle
- *      executable JS. JSON-literal attribute expressions — `entities={[…]}`,
- *      `data={{…}}`, `code={"…"}` — remain allowed; that is the block wire format.
- *   3. Unknown-component fallback — a remark pass rewrites any capitalized JSX
- *      tag not in the registry, and any lowercase (HTML) tag outside
- *      `ALLOWED_HTML_TAGS`, to the inline `UnknownPlanBlock` error card
- *      (attrs/children dropped), so one bad tag cannot reach MDX's
- *      `_missingMdxReference` throw and kill the whole document, and raw HTML
- *      cannot restyle or overlay the app. Allowed tags lose every attribute.
+ * The one MDX plan compile pipeline, shared by `evaluate` (linter, tests, SSR) and the
+ * worker's `compile` so the security guards cannot drift. Replaces `rehype-sanitize`:
+ * a closed component registry, a code-escape guard, and an unknown-tag fallback so
+ * one bad tag renders an error card instead of killing the document.
  */
 
 const DISALLOWED_MDX_NODES = new Set(["mdxjsEsm", "mdxFlowExpression", "mdxTextExpression"]);
@@ -47,11 +29,9 @@ type GuardNode = {
 };
 
 /**
- * remark plugin: at compile time reject import/export + raw `{expression}`
- * bodies, and reject any attribute-value expression that is not a static literal.
- * The last part is load-bearing for the security model: `code={…}` attribute
- * expressions compile to executable JS and are NOT reached by the body-node walk,
- * so without this an author could run arbitrary browser JS via any `.mdx`.
+ * Reject import/export, raw `{expression}` bodies and any non-literal attribute
+ * expression. Attribute expressions compile to executable JS the body walk never
+ * reaches, so without this any `.mdx` could run arbitrary browser JS.
  */
 function remarkRejectCodeEscapes() {
   return (tree: GuardNode) => {
@@ -84,12 +64,10 @@ function remarkRejectCodeEscapes() {
 const MDX_JSX_NODE_TYPES = new Set(["mdxJsxFlowElement", "mdxJsxTextElement"]);
 
 /**
- * remark plugin: rewrite any capitalized JSX tag that is not in the closed
- * registry, and any lowercase (HTML) tag outside `ALLOWED_HTML_TAGS`, to the
- * `UnknownPlanBlock` error card (original tag preserved as its `tag` attr; other
- * attrs and children dropped); strip every attribute from an allowed HTML tag.
- * Runs AFTER the code-escape guard, so smuggled attribute expressions are still
- * rejected doc-wide rather than silently discarded here.
+ * Rewrite unregistered JSX tags and HTML tags outside `ALLOWED_HTML_TAGS` to the
+ * `UnknownPlanBlock` card (tag kept, attrs and children dropped), and strip every
+ * attribute from allowed HTML tags. Runs after the code-escape guard, so smuggled
+ * attribute expressions are still rejected doc-wide.
  */
 function remarkUnknownBlockFallback() {
   return (tree: GuardNode) => {
@@ -121,11 +99,9 @@ const PLAN_GUARD_PLUGINS = [
   remarkUnknownBlockFallback,
 ];
 
-/** Guards + `remarkHeadingAnchors`, which is not a guard: it stamps heading slug
- * ids and publishes each section's source bounds. It lives here so the worker,
- * the linter and the main-thread render agree both on the anchors a question's
- * `refs` may name and on what "that section" is. `remarkKicker` (vocabulary v2)
- * renders the frontmatter `kicker:` above the title — whole documents only. */
+/** Guards plus `remarkHeadingAnchors` (heading slugs and section bounds, shared so
+ * worker, linter and render agree on what a question's `refs` name) and
+ * `remarkKicker` (frontmatter `kicker:` above the title, whole documents only). */
 const PLAN_REMARK_PLUGINS = [...PLAN_GUARD_PLUGINS, remarkHeadingAnchors, remarkKicker];
 
 export type PlanMdxComponent = React.ComponentType<{ components?: Record<string, unknown> }>;
@@ -202,11 +178,8 @@ export async function compilePlanSection(source: string): Promise<string> {
 }
 
 /**
- * Instantiate a function-body module string (produced by
- * {@link compilePlanDocument}) into a renderable component on the main
- * thread. Cheap relative to compile — the guards already ran during compile, so
- * nothing outside the closed registry is reachable here. Plans carry no imports
- * (the guard rejects them), so no `baseUrl` is needed.
+ * Instantiate a compiled function-body module into a component on the main thread.
+ * The guards already ran during compile, and plans carry no imports, so no `baseUrl`.
  */
 export async function runPlanModule(code: string): Promise<PlanMdxComponent> {
   const module = await run(code, runtime as Parameters<typeof run>[1]);

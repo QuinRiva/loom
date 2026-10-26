@@ -1,14 +1,10 @@
 import { z } from "zod";
 
 /**
- * The one categorical palette every vocabulary-v2 surface shares — `<Badge>`,
- * `<Card>`, `<Stats>`, `<Steps>`, `<Table>` rows/cells, `<Mermaid>` node classes.
- * A tone is a category colour, not a status: meaning rides the text, colour
- * makes it scannable. (`<Callout>` keeps its own five *status* tones.)
- *
- * Colours live in CSS variables (`--plan-tone-<tone>` for text/stroke,
- * `--plan-tone-<tone>-soft` for fills, `index.css`) rather than Tailwind
- * classes, so they also reach a Mermaid SVG `<style>` and a sandboxed iframe.
+ * The categorical palette shared by vocabulary-v2 blocks: colour makes a category
+ * scannable, meaning rides the text (`<Callout>` keeps its own status tones). Colours
+ * are CSS variables (`--plan-tone-<tone>[-soft]`) so they also reach Mermaid SVG
+ * `<style>` and sandboxed iframes.
  */
 export const toneSchema = z.enum(["neutral", "info", "success", "warning", "risk", "accent"]);
 export type Tone = z.infer<typeof toneSchema>;

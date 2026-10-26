@@ -3,11 +3,8 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 /**
- * The frontmatter `kicker:` — the small line above the title that says what the
- * document is (genre, subject, date, the PR), so the title can say what it
- * found. A remark plugin, not a guard: it reads the leading `yaml` node that
- * `remarkFrontmatter` parsed (the same YAML decode the reader-brief lint uses)
- * and inserts a `p.plan-kicker` right after it. An absent, empty or non-string
+ * Remark plugin that inserts the frontmatter `kicker:` (what the document is) as a
+ * `p.plan-kicker` after the leading `yaml` node. An absent, empty or non-string
  * kicker inserts nothing.
  */
 

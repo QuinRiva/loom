@@ -98,11 +98,9 @@ export const PLAN_BLOCKS: RegisteredBlock[] = [
 
 export const planBlockByTag = new Map(PLAN_BLOCKS.map((entry) => [entry.tag, entry]));
 
-/** Error card for a PascalCase tag that is not in the registry, or a lowercase
- * HTML tag outside `ALLOWED_HTML_TAGS`. The renderer's remark pass rewrites such
- * elements to this component (attrs/children dropped) so ONE bad tag degrades to
- * an inline card instead of `_missingMdxReference` killing the whole document at
- * the top-level error boundary — and raw HTML never reaches the page. */
+/** Error card the remark pass substitutes for an unregistered tag or disallowed HTML
+ * tag, so one bad tag degrades inline instead of `_missingMdxReference` killing the
+ * whole document, and raw HTML never reaches the page. */
 function UnknownPlanBlock({ tag }: { tag?: unknown }) {
   const name = typeof tag === "string" ? tag : "?";
   return (
@@ -111,7 +109,7 @@ function UnknownPlanBlock({ tag }: { tag?: unknown }) {
       message={
         /^[a-z]/.test(name)
           ? rawHtmlTagMessage(name)
-          : `Unknown block — available blocks: ${PLAN_BLOCKS.map((entry) => entry.tag).join(", ")}`
+          : `Unknown block. Available blocks: ${PLAN_BLOCKS.map((entry) => entry.tag).join(", ")}`
       }
     />
   );
@@ -133,16 +131,10 @@ function PlanBlockError({ tag, message }: { tag: string; message: string }) {
 }
 
 /**
- * Wrap a block into the React component MDX resolves for its tag: MDX evaluates
- * the element's attributes to props, we validate them with the block's zod
- * schema, then hand clean `data` to its `Read` renderer. Unknown props (`id`,
- * `title`, `children`, …) are stripped by the schema. `id` becomes the block's
- * stable `data-plan-block-id`; when absent we pass `undefined` so the block emits
- * NO attribute and the renderer's `assignBlockIds` fallback fills a unique
- * `plan-block-N` (emitting `data-plan-block-id=""` would collide every un-id'd
- * block onto the first `[…=""]` match).
- * A block with a `childrenField` (e.g. `<Endpoint>`'s description) also receives
- * the MDX prose between its tags as `children`, already resolved to React nodes.
+ * The component MDX resolves for a block tag: validate attributes with the block's zod
+ * schema and hand `data` to `Read`. A missing `id` passes `undefined`, not `""`, so
+ * `assignBlockIds` fills a unique id instead of every un-id'd block colliding on one.
+ * A `childrenField` block also receives the prose between its tags as `children`.
  */
 function makeBlockComponent(entry: RegisteredBlock): FC<Record<string, unknown>> {
   const { block } = entry;

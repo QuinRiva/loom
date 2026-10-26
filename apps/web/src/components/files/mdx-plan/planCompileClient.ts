@@ -11,15 +11,9 @@ import {
 import type { CompileRequest, CompileResponse } from "./compileWorker";
 
 /**
- * Client side of the plan compile worker, shared by the document renderer
- * ({@link ./MdxPlanRenderer}) and the question "peek", which compiles one
- * section's source slice the same way (see {@link ./blocks/questionRefs}).
- *
- * ONE worker for all plans: compile is stateless and request-multiplexed by id,
- * plans open one at a time, and a peek's slice is small. Lazily created on first
- * use and kept for the page's lifetime. Where `Worker` is unavailable (SSR,
- * jsdom tests) it degrades to the same compile on this thread — same module,
- * same plugin set, same guards.
+ * Client of the plan compile worker, shared by the renderer and the question peek.
+ * One lazily created, id-multiplexed worker for the page's lifetime; without
+ * `Worker` (SSR, jsdom) it compiles on this thread with the same guards.
  */
 let sharedWorker: Worker | null = null;
 let workerUnavailable = false;

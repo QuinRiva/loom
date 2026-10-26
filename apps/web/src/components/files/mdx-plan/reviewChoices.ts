@@ -1,22 +1,10 @@
 import { createContext } from "react";
 
 /**
- * The interactive decision surface for `<ReviewChoice>` blocks — the tri-state
- * sibling of `questionAnswers.ts`. A per-item verdict (Accept / Reject /
- * Discuss) + note is captured as a structured choice that rides the SAME channel
- * annotation comments use: each decided item upserts one deterministic-id review
- * comment ({@link reviewChoiceCommentId}) into the composer draft, so decisions
- * appear as removable chips and inject into the review turn on send — no export
- * step (this is where MDX beats the hand-built HTML decision doc).
- *
- * The provider is {@link MdxPlanAnnotationLayer}; `<ReviewChoice>` consumes the
- * context and renders read-only when it is absent (bare renderer / tests),
- * exactly like `<QuestionForm>`.
- *
- * Source-of-truth split (identical to questions): the review comment is the wire
- * truth (its presence gates whether an item counts as decided — removing the
- * composer chip un-decides it), while the structured verdict/note live in the
- * annotation draft store ({@link reviewChoiceDraftKey}).
+ * `<ReviewChoice>` verdicts and notes ride the annotation comment channel like
+ * question answers: each decided item upserts one deterministic-id review comment,
+ * the wire truth (removing its chip un-decides). The structured choice lives in the
+ * draft store. Read-only without a provider.
  */
 export type ReviewVerdict = "accept" | "reject" | "discuss";
 
@@ -64,11 +52,11 @@ export const isReviewChoiceCommentId = (id: string): boolean =>
 
 /** The agent-facing decision prose carried as the comment text. Verdict is always
  * present; a note is appended when non-empty; a note with no verdict serialises
- * with the `comment` verb (e.g. `Review A-1 → comment — "…"`). */
+ * with the `comment` verb (e.g. `Review A-1 → comment: "…"`). */
 export function formatReviewChoiceText(label: string, choice: PlanReviewChoice): string {
   const verb = choice.verdict ?? "comment";
   const note = choice.note.trim();
-  return `Review ${label} → ${verb}${note ? ` — "${note}"` : ""}`;
+  return `Review ${label} → ${verb}${note ? `: "${note}"` : ""}`;
 }
 
 /** Parse a persisted choice draft, degrading to undecided on any malformation. */

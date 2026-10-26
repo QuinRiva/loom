@@ -5,15 +5,10 @@ import remarkParse from "remark-parse";
 import { unified } from "unified";
 
 /**
- * Inline markdown for the string props that want it (a `Card` heading, `Table`
- * cells, `Stats` details, `Step` asides). A string attribute is never parsed as
- * MDX, so this is the one way formatting reaches it: `**bold**`, `*em*`,
- * `` `code` ``, `~~struck~~`, links and hard breaks render; anything else —
- * raw HTML, an image, a second paragraph — renders as its text. No HTML, no
- * JSX: the parser is the one the linter already imports. A string that does
- * not parse as ONE paragraph (`1. step`, `# x`, two paragraphs) renders
- * verbatim, so block syntax never eats characters out of a cell. The wrapper
- * `.plan-inline-md` styles code and links outside `.prose-plan`.
+ * Inline markdown for string props (string attributes are never parsed as MDX): bold,
+ * em, code, strikethrough, links and hard breaks render; anything else renders as text.
+ * A string that is not ONE paragraph (`1. step`, `# x`) renders verbatim, so block
+ * syntax never eats characters out of a cell.
  */
 const processor = unified().use(remarkParse).use(remarkGfm);
 

@@ -22,12 +22,9 @@ import { TabRead, TabsRead } from "./blocks/tabs";
 import { PLAN_BLOCKS, PLAN_BLOCK_COMPONENTS, parsePlanBlock, serializePlanBlock } from "./registry";
 
 /**
- * Wave B6 — container blocks (`Columns`/`TabsBlock`). The load-bearing property is
- * that nesting must NOT break annotation: `assignBlockIds` recurses so every
- * nested block gets a distinct id, and a whole-block/text anchor on a nested
- * block resolves to *that block* — never the container, never the first match
- * (mirrors the A2 nested-anchor test, now against the real components). Also
- * covers the MDX attr round-trip (wire contract) and interactive tab switching.
+ * Nesting in `Columns`/`TabsBlock` must not break annotation: every nested block gets a
+ * distinct id and its anchors resolve to that block, never the container or the first
+ * match. Also covers the MDX attr round-trip and tab switching.
  */
 
 function parse(html: string): HTMLElement {
@@ -171,11 +168,8 @@ describe("containers — Steps nesting + annotation", () => {
 });
 
 /**
- * The reported bug, against the REAL `<Table>` renderer: dragging across a few
- * words in one cell must anchor to those words (not outline the whole table),
- * and must re-resolve to the same cell after a full re-render. A cross-cell drag
- * stays a text anchor too — whole-block is reserved for blocks with no quotable
- * text at all.
+ * Against the real `<Table>`: a drag across words in a cell anchors to those words and
+ * re-resolves after a full re-render. A cross-cell drag stays a text anchor too.
  */
 describe("table — intra-cell selection anchors to the selected text (real render)", () => {
   function renderTable(): HTMLElement {

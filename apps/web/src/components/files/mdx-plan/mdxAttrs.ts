@@ -5,15 +5,9 @@ import { unified } from "unified";
 import type { BlockAttrReader, MdxAttrValue } from "./blockTypes";
 
 /**
- * The MDX attribute round-trip primitives — the byte-stable serialize/parse
- * contract for plan blocks. Ported (kept behaviourally identical) from
- * BuilderIO's `@agent-native/core` `client/blocks/mdx.ts` so authored `.mdx`
- * plans round-trip the same. React-free.
- *
- * Serialize (`prop`): scalars → quoted/short-string or `={n}`/`={bool}` attrs;
- * objects/arrays/long strings → a JSON expression attr `={…}`. Parse
- * (`createAttrReader`): resolves both plain-string attrs and expression attrs
- * (via the estree literal walker, falling back to `JSON.parse`).
+ * Byte-stable MDX attribute serialise/parse contract for plan blocks, ported
+ * behaviour-identical from BuilderIO's `client/blocks/mdx.ts` so authored plans
+ * round-trip the same. React-free.
  */
 
 /* Serialize                                                                  */
@@ -210,13 +204,9 @@ function assertLiteralNode(name: string, node: EstreeNode | null | undefined): v
 }
 
 /**
- * Compile-time guard for the render path: assert that an MDX attribute-value
- * expression (`attr={…}`) is a static literal, not executable JS. Reuses the
- * same estree literal shapes the parse path accepts, so the JSON-literal wire
- * format (`entities={[…]}`, `data={{…}}`, `code={"…"}`, `={123}`, `={true}`)
- * passes while `code={fetch(...)}`, sequence/IIFE tricks, etc. throw. Fails
- * closed: an expression whose estree is missing or is not a single expression
- * statement is rejected.
+ * Assert an MDX attribute-value expression is a static literal (the JSON wire format)
+ * using the parse path's estree shapes, so `code={fetch(...)}` and IIFE tricks throw.
+ * Fails closed: missing estree or anything but one expression statement is rejected.
  */
 export function assertLiteralAttributeExpression(name: string, value: MdxAttrExpression): void {
   const body = (value.data as { estree?: EstreeNode } | undefined)?.estree?.body;

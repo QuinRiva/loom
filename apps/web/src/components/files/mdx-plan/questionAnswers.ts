@@ -3,22 +3,10 @@ import { createContext } from "react";
 import type { PlanQuestion } from "./blocks/questionForm";
 
 /**
- * The interactive answer surface for plan question blocks (`<QuestionForm>` /
- * `<VisualQuestions>`), decision M2: option clicks and write-ins are captured as
- * structured answers that ride the SAME channel annotation comments use — each
- * answered question upserts one deterministic-id review comment
- * ({@link questionAnswerCommentId}) into the composer draft, so answers appear
- * as removable chips and are injected into the review turn on send.
- *
- * The provider is {@link MdxPlanAnnotationLayer} (which owns the composer
- * target); the question blocks consume the context and render read-only when it
- * is absent (e.g. a bare `MdxPlanRenderer` in tests).
- *
- * Source-of-truth split: the review comment is the wire truth (its presence
- * gates whether a question counts as answered — removing the composer chip
- * un-answers it), while the structured option ids live in the annotation draft
- * store ({@link questionAnswerDraftKey}) because the comment's prose is not
- * losslessly parseable back into selections.
+ * Answers to `<QuestionForm>`/`<VisualQuestions>` ride the annotation comment channel:
+ * each answered question upserts one deterministic-id review comment. That comment is
+ * the wire truth (removing its chip un-answers); option ids live in the draft store
+ * because the prose is not losslessly parseable. Read-only without a provider.
  */
 export interface PlanQuestionAnswer {
   /** Selected option ids (0..1 for `mode:"single"`, any number for `"multi"`). */

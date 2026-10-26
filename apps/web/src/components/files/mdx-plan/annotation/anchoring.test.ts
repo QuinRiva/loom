@@ -19,14 +19,9 @@ import {
 } from "./anchoring";
 
 /**
- * Anchoring is the highest-risk logic in the MDX-plan vertical: it serialises a
- * live DOM `Range` into a portable anchor and re-resolves it after a re-render
- * (or to `null` when the quoted text is gone). A silent bug here mis-attaches a
- * reviewer's comment to the wrong passage. This exercises the text-quote
- * round-trip, heading-derived sections, context disambiguation of duplicate
- * quotes, the whole-block (`visual`) fallback for non-prose blocks, the
- * per-block affordance anchor, and detached resolution — ported from the spike
- * validation harness onto a real jsdom DOM.
+ * A silent anchoring bug mis-attaches a reviewer's comment to the wrong passage.
+ * Covers the text-quote round-trip, heading-derived sections, disambiguation of
+ * duplicate quotes, the whole-block fallback and detached resolution on real jsdom.
  */
 
 const HTML = `<div data-plan-root>
@@ -271,12 +266,9 @@ describe("anchoring — un-id'd blocks get distinct anchors (S1)", () => {
 });
 
 /**
- * Wave A2 — container blocks (`Columns`/`Tabs`) nest child blocks. Their renderers
- * don't exist yet (Wave B6), so this uses a throwaway stub whose shape mirrors
- * them: a `data-plan-block-type` container element whose children are themselves
- * plan blocks. It proves id assignment recurses (every nested block gets a
- * distinct id) and that whole-block/section resolution keys on the *nested* block
- * — not the container and not the first matching block.
+ * Container blocks (`Columns`/`Tabs`) nest child blocks: id assignment must recurse,
+ * and whole-block/section resolution must key on the *nested* block, not the
+ * container or the first matching block.
  */
 describe("anchoring — nested blocks in container blocks (A2)", () => {
   const NESTED_HTML = `<div data-plan-root>
@@ -370,13 +362,9 @@ describe("anchoring — detached resolution", () => {
 });
 
 /**
- * Wireframe/design artboards are positioned HTML in the live DOM, annotated by
- * node pin: `targetSelector` = the artboard, `targetNodeId` = a stable
- * `data-wf-node` id (renderer-stamped, a later wave), `targetNodePath` = a
- * structural nth-child fallback. This mirrors the spike's proven round-trip
- * (`wireframe-anchor-proof.html`, §7.2): capture → resolve exact node; survive a
- * re-render that inserts an element above the target via id match; detach when
- * the id is removed AND the path breaks.
+ * Wireframe artboards are annotated by node pin (artboard selector, `data-wf-node`
+ * id, nth-child path fallback): resolve the exact node, survive an insertion above
+ * it via id match, and detach only when the id is removed AND the path breaks.
  */
 const WF_HTML = `<div data-plan-root>
   <figure data-plan-block-id="wf-1" data-plan-block-type="wireframe">

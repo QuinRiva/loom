@@ -28,12 +28,9 @@ import { DesignRead } from "./blocks/screen";
 import { PLAN_BLOCKS, parsePlanBlock, serializePlanBlock } from "./registry";
 
 /**
- * Wave C2/C3 coverage: the board\u2192pixel transform is the single geometry model
- * shared by authored artboard layout AND free-floating canvas review anchors
- * (A1's `resolveCanvasAnchor`), node-pin anchoring works on a positioned canvas
- * artboard exactly as for a standalone `<Screen>`, and the design-fidelity tier
- * preserves branded theme classes while STILL being sanitised (SMIL / on* / the
- * wireframe exploit shapes are stripped the same way).
+ * The board→pixel transform is the one geometry model for artboard layout and canvas
+ * review anchors; node pins work on canvas artboards as on `<Screen>`; and the design
+ * tier keeps branded theme classes while still being sanitised.
  */
 
 function parse(html: string): HTMLElement {

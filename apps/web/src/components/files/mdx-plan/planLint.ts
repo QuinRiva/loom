@@ -19,19 +19,9 @@ import { sanitizeWireframeHtml } from "./sanitizeWireframeHtml";
 import { toneSchema } from "./tones";
 
 /**
- * Agent-facing validator for MDX visual plans (`plans/<slug>/plan.mdx`) — checks
- * that a plan will render BEFORE it is handed to the user. Reuses the REAL
- * renderer modules (compile pipeline, block registry, zod schemas, wireframe
- * sanitiser) so it cannot drift from what the renderer accepts.
- *
- * Severity contract:
- *   - `error`   → the render would break or visibly degrade (whole-document
- *                 failure, per-block error card, invisible authored content).
- *   - `warning` → the render silently degrades (stripped HTML, ragged tables,
- *                 ignored props).
- *
- * Run headless via `apps/web/scripts/lint-plan.mjs` (jsdom + vite SSR module
- * loading); unit-tested under jsdom.
+ * Agent-facing validator for MDX plans, built on the real renderer modules so it
+ * cannot drift from what renders. `error`: the render breaks or hides authored
+ * content; `warning`: it silently degrades. Headless via `apps/web/scripts/lint-plan.mjs`.
  */
 
 export interface PlanLintFinding {
@@ -85,12 +75,12 @@ export function planSizeFinding(source: string): PlanLintFinding | null {
   if (byteLength > PLAN_SIZE_ERROR_BYTES) {
     return {
       severity: "error",
-      message: `Plan source is ${mb} MB, above the 8 MiB transport ceiling — the preview would truncate it before the renderer and fail to open. Split the document or trim embedded evidence.`,
+      message: `Plan source is ${mb} MB, above the 8 MiB transport ceiling. The preview would truncate it before the renderer and fail to open. Split the document or trim embedded evidence.`,
     };
   }
   return {
     severity: "warning",
-    message: `Plan source is ${mb} MB, approaching the 8 MiB transport ceiling — compile stays multi-second even off the main thread. Consider splitting the document or trimming embedded evidence.`,
+    message: `Plan source is ${mb} MB, approaching the 8 MiB transport ceiling. Compile stays multi-second even off the main thread. Consider splitting the document or trimming embedded evidence.`,
   };
 }
 
@@ -118,7 +108,7 @@ function readerBriefFinding(tree: MdastNode): PlanLintFinding | null {
     severity: "warning",
     ...at(yaml),
     message:
-      "No reader brief in frontmatter — declare `reader:` with non-empty `who`, `knows` and `after_first_screen` (see skills/mdx-doc-core/references/document-quality.md §1) so the document is written for a named reader.",
+      "No reader brief in frontmatter. Declare `reader:` with non-empty `who`, `knows` and `after_first_screen` (see skills/mdx-doc-core/references/document-quality.md §1) so the document is written for a named reader.",
   };
 }
 
@@ -144,14 +134,9 @@ const HTML_ENTITIES: Record<string, string> = {
 };
 
 /**
- * Findings for text defects that only exist in the RENDERED output: a build
- * script that wrote `\u2014` into a caption, or a re-encoded file that turned
- * an em dash into `â€”`. The document is structurally perfect, so every other
- * pass is blind to them — only reading the rendered page catches them, which is
- * exactly the expensive manual check this replaces.
- *
- * `<pre>`/`<code>` content is exempt: an escape sequence inside a code sample is
- * usually the subject, not a defect.
+ * Text defects only visible in the RENDERED output (a literal `\u2014` in a caption,
+ * mojibake like `â€”`), which every structural pass misses. `<pre>`/`<code>` is
+ * exempt: an escape sequence in a code sample is usually the subject.
  */
 export function renderedTextFindings(html: string): PlanLintFinding[] {
   const text = html
@@ -166,7 +151,7 @@ export function renderedTextFindings(html: string): PlanLintFinding[] {
     return [
       {
         severity: "error" as const,
-        message: `Rendered text contains ${label} (\`${sample}\`${matches.length > 1 ? `, ${matches.length} occurrences` : ""}) — it displays verbatim to the reader. Context: …${text
+        message: `Rendered text contains ${label} (\`${sample}\`${matches.length > 1 ? `, ${matches.length} occurrences` : ""}). It displays verbatim to the reader. Context: …${text
           .slice(Math.max(0, index - 60), index + 60)
           .replace(/\s+/g, " ")
           .trim()}…`,
@@ -185,11 +170,11 @@ const at = (
 const HINTS: Array<[RegExp, string]> = [
   [
     /acorn|expression/i,
-    "Hint: a raw `{` in prose starts a JS expression — escape it as `\\{`, and keep attribute expressions to literal JSON values.",
+    "Hint: a raw `{` in prose starts a JS expression. Escape it as `\\{`, and keep attribute expressions to literal JSON values.",
   ],
   [
     /end of file|before attribute name|before tag name|closing tag|before name/i,
-    "Hint: check for an unclosed block tag or a stray `<` in prose — escape a literal `<` as `\\<` or `&lt;`.",
+    "Hint: check for an unclosed block tag or a stray `<` in prose. Escape a literal `<` as `\\<` or `&lt;`.",
   ],
 ];
 
@@ -208,11 +193,9 @@ function mdxErrorFinding(cause: unknown): PlanLintFinding {
 // Tag utilities.
 
 /**
- * zod reports a failed union as one `invalid_union` "Invalid input" issue at the
- * union's path. Descend into its branches and keep the one whose failure goes
- * deepest — the shape the author was attempting (a cell object with a bad `tone`
- * beats "expected string") — so the message names the real problem. Branches
- * tied at that depth are all kept.
+ * zod reports a failed union as one "Invalid input" issue. Keep the branch(es) whose
+ * failure goes deepest, the shape the author was attempting, so the message names
+ * the real problem (a cell object's bad `tone`, not "expected string").
  */
 function specificIssues(issue: z.ZodIssue): z.ZodIssue[] {
   if (issue.code !== "invalid_union") return [issue];
@@ -304,7 +287,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
       findings.push({
         severity: "error",
         ...at(node),
-        message: `Disallowed MDX construct (${node.type}): imports/exports and raw {expressions} are rejected — the whole document fails to render. Escape a literal brace as \\{.`,
+        message: `Disallowed MDX construct (${node.type}): imports/exports and raw {expressions} are rejected. The whole document fails to render. Escape a literal brace as \\{.`,
       });
     }
 
@@ -320,7 +303,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         findings.push({
           severity: "warning",
           ...at(node),
-          message: `<${name}> attributes are stripped — raw HTML renders unstyled. For a pill use <Badge tone>.`,
+          message: `<${name}> attributes are stripped. Raw HTML renders unstyled. For a pill use <Badge tone>.`,
         });
       }
     }
@@ -333,7 +316,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
           severity: "error",
           ...at(node),
           message:
-            `Unknown tag <${name}> — it renders as an inline error card in the plan. ` +
+            `Unknown tag <${name}>. It renders as an inline error card in the plan. ` +
             (suggestion
               ? `Did you mean <${suggestion}>?`
               : `Known tags: ${KNOWN_TAGS.join(", ")}.`),
@@ -358,7 +341,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
           findings.push({
             severity: "error",
             ...at(ref.node),
-            message: `<Connector> references "${ref.id}" which is not an authored id on this board — the connector renders nothing. Board ids: ${[...board.ids].join(", ") || "(none)"}.`,
+            message: `<Connector> references "${ref.id}" which is not an authored id on this board. The connector renders nothing. Board ids: ${[...board.ids].join(", ") || "(none)"}.`,
           });
         } else {
           findings.push({
@@ -367,8 +350,8 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
             message:
               `<Annotation targetId="${ref.id}"> does not match an authored id on this board` +
               (ref.hasFallback
-                ? " — it falls back to its x/y coordinates."
-                : " — with no x/y fallback the note stays permanently invisible."),
+                ? ". It falls back to its x/y coordinates."
+                : ". With no x/y fallback the note stays permanently invisible."),
           });
         }
       }
@@ -389,7 +372,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         findings.push({
           severity: "error",
           ...at(attr),
-          message: `<${tag}> uses a spread attribute ({...}) — not permitted in plans; write literal attributes instead.`,
+          message: `<${tag}> uses a spread attribute ({...}), not permitted in plans; write literal attributes instead.`,
         });
         resolvable = false;
         continue;
@@ -431,7 +414,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
           findings.push({
             severity: "warning",
             ...at(node),
-            message: `<${tag}> has unknown prop "${key}" — the renderer silently ignores it. Known props: ${Object.keys(schema.shape).join(", ")}.`,
+            message: `<${tag}> has unknown prop "${key}" . The renderer silently ignores it. Known props: ${Object.keys(schema.shape).join(", ")}.`,
           });
         }
       }
@@ -463,7 +446,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
           findings.push({
             severity: "warning",
             ...at(child),
-            message: `<${child.name}> is not a ${expectedChildren.map((c) => `<${c}>`).join("/")} — direct children of <${tag}> outside that set render as broken phantom UI.`,
+            message: `<${child.name}> is not a ${expectedChildren.map((c) => `<${c}>`).join("/")} . Direct children of <${tag}> outside that set render as broken phantom UI.`,
           });
         }
       }
@@ -478,7 +461,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         findings.push({
           severity: "warning",
           ...at(node),
-          message: `<Columns> mixes <Column> slots with bare blocks — they render at different heights. Use <Column> for every side, or none (a row of <Card>s needs no wrappers).`,
+          message: `<Columns> mixes <Column> slots with bare blocks. They render at different heights. Use <Column> for every side, or none (a row of <Card>s needs no wrappers).`,
         });
       }
     }
@@ -490,7 +473,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         findings.push({
           severity: "error",
           ...at(node),
-          message: `Duplicate block id "${id}" (first used at line ${authoredIds.get(id)?.line ?? "?"}) — annotation anchors and canvas targets resolve to the first match only.`,
+          message: `Duplicate block id "${id}" (first used at line ${authoredIds.get(id)?.line ?? "?"}). Annotation anchors and canvas targets resolve to the first match only.`,
         });
       } else {
         authoredIds.set(id, node.position?.start);
@@ -510,7 +493,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         findings.push({
           severity: "error",
           ...at(node),
-          message: `Duplicate <ReviewChoice itemId="${data.itemId}"> (first used at line ${first?.line ?? "?"}) — both widgets collapse onto one review comment; give each item a unique itemId.`,
+          message: `Duplicate <ReviewChoice itemId="${data.itemId}"> (first used at line ${first?.line ?? "?"}). Both widgets collapse onto one review comment; give each item a unique itemId.`,
         });
       } else {
         reviewChoiceIds.set(data.itemId, node.position?.start);
@@ -526,7 +509,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
           findings.push({
             severity: "error",
             ...at(node),
-            message: `Question "${question.id}" references anchor "${ref.anchor}", which is not a heading in this document — the chip would open an empty peek. An anchor is a heading slug ("## Delivery order" → "delivery-order"); this document has: ${[...headingSlugs].join(", ") || "(none)"}.`,
+            message: `Question "${question.id}" references anchor "${ref.anchor}", which is not a heading in this document. The chip would open an empty peek. An anchor is a heading slug ("## Delivery order" → "delivery-order"); this document has: ${[...headingSlugs].join(", ") || "(none)"}.`,
           });
         }
       }
@@ -563,7 +546,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
             findings.push({
               severity: "error",
               ...at(node),
-              message: `<Diagram> edge endpoint "${end}" does not match any node id — the edge is not drawn. Node ids: ${[...nodeIds].join(", ") || "(none)"}.`,
+              message: `<Diagram> edge endpoint "${end}" does not match any node id. The edge is not drawn. Node ids: ${[...nodeIds].join(", ") || "(none)"}.`,
             });
           }
         }
@@ -589,7 +572,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
           severity: "error",
           ...at(node),
           message: looksLikeYaml
-            ? `<OpenApi> "spec" looks like YAML — the renderer parses JSON only. Convert the spec to JSON.`
+            ? `<OpenApi> "spec" looks like YAML. The renderer parses JSON only. Convert the spec to JSON.`
             : `<OpenApi> "spec" is not valid JSON (renders an error card): ${cause instanceof Error ? cause.message : String(cause)}`,
         });
       }
@@ -599,7 +582,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         findings.push({
           severity: "warning",
           ...at(node),
-          message: `<Mermaid> has an empty source — it renders an "Empty diagram" note.`,
+          message: `<Mermaid> has an empty source. It renders an "Empty diagram" note.`,
         });
       } else {
         mermaidChecks.push({ source: data.source, node });
@@ -635,7 +618,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         findings.push({
           severity: "warning",
           ...at(node),
-          message: `<Table> row${ragged.length > 1 ? "s" : ""} ${ragged.join(", ")} ${ragged.length > 1 ? "do" : "does"} not have ${columns.length} cells to match the columns — the grid renders ragged.`,
+          message: `<Table> row${ragged.length > 1 ? "s" : ""} ${ragged.join(", ")} ${ragged.length > 1 ? "do" : "does"} not have ${columns.length} cells to match the columns. The grid renders ragged.`,
         });
       }
       const empty = cellRows.flatMap((cells, row) =>
@@ -647,14 +630,14 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         findings.push({
           severity: "warning",
           ...at(node),
-          message: `<Table> cell object${empty.length > 1 ? "s" : ""} at row:column ${empty.join(", ")} ${empty.length > 1 ? "have" : "has"} neither "md" nor "badge" — it renders empty.`,
+          message: `<Table> cell object${empty.length > 1 ? "s" : ""} at row:column ${empty.join(", ")} ${empty.length > 1 ? "have" : "has"} neither "md" nor "badge". It renders empty.`,
         });
       }
       if (align && align.length !== columns.length) {
         findings.push({
           severity: "warning",
           ...at(node),
-          message: `<Table> "align" has ${align.length} entr${align.length === 1 ? "y" : "ies"} for ${columns.length} columns — extra entries are ignored and missing ones default to left.`,
+          message: `<Table> "align" has ${align.length} entr${align.length === 1 ? "y" : "ies"} for ${columns.length} columns. Extra entries are ignored and missing ones default to left.`,
         });
       }
     }
@@ -675,7 +658,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
         findings.push({
           severity: "warning",
           ...at(node),
-          message: `<${tag}> html: sanitiser will silently strip — ${message}`,
+          message: `<${tag}> html: sanitiser will silently strip: ${message}`,
         });
       }
     }
