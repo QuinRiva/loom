@@ -30,15 +30,6 @@ term defined here needs no inline gloss at first use (`document-quality.md`
 §3): every occurrence links to the definition, so it reaches a reader who
 lands mid-document, which the inline gloss does not.
 
-```mdx
-<Glossary>
-  <Term name="unit">
-    The span of text the recursion tagged as one thing; a node's reading unit is the unit that
-    contains it.
-  </Term>
-</Glossary>
-```
-
 A term belongs in it when the document uses a word with a meaning the reader
 cannot get from the project's `AGENTS.md`, its glossary (`docs/internals/glossary.md`
 in loom) or general software vocabulary: a word the workstream coined, a
@@ -58,14 +49,14 @@ filled in:
 > `<AGENTS.md path>` and `<project glossary path, if there is one>` and
 > general software vocabulary, and nothing of the work that produced the
 > document; the goal statement in your prompt is part of what the reader
-> knows. Read those first, then the document. Hand back the
-> terms, phrases and labels whose meaning you cannot state from those
-> sources, each with the sentence of its first use quoted and what, if
-> anything, you took it to mean; a glossary entry that itself uses an
-> undefined term counts. A term a later passage makes clear is resolved; say
-> where. An empty list is a valid hand-back. The author will add definitions
-> and change nothing else, so a note on the argument, the structure or the
-> prose has no one to act on it.
+> knows. Read those first, then the document. Hand back the terms, phrases
+> and labels whose meaning you cannot state from those sources or the
+> document itself, its `<Glossary>` included, each with the sentence of its
+> first use quoted and what, if anything, you took it to mean; a glossary
+> entry that itself uses an undefined term counts. A term a later passage
+> makes clear is resolved; say where. An empty list is a valid hand-back. The
+> author will add definitions and change nothing else, so a note on the
+> argument, the structure or the prose has no one to act on it.
 
 The author defines what came back and runs the read once more; what the
 second read still lists is defined without a third. The report that carries
