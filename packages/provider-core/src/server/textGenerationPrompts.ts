@@ -488,7 +488,6 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
 export interface EmergentGoalPromptInput {
   message: string;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
-  policy?: TextGenerationPolicy | undefined;
 }
 
 /**
@@ -512,7 +511,6 @@ export function buildEmergentGoalPrompt(input: EmergentGoalPromptInput) {
     ],
     message: input.message,
     attachments: input.attachments,
-    additionalInstructions: input.policy?.threadTitleInstructions,
   });
   const outputSchema = Schema.Struct({
     goal: Schema.Struct({

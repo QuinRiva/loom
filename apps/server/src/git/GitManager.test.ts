@@ -745,20 +745,20 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         ? rawCommonDir
         : `${repoDir}/${rawCommonDir}`;
 
-      const { manager, ghCalls } = yield* makeManager({
-        ghScenario: {
+      const { manager, providerCalls } = yield* makeManager({
+        providerScenario: {
           prListByHeadSelector: {
-            "feature/fork": JSON.stringify([
+            "feature/fork": [
               {
                 number: 1,
                 title: "Wrong fork",
                 url: "https://github.com/base/repo/pull/1",
                 baseRefName: "main",
                 headRefName: "feature/fork",
-                state: "OPEN",
+                state: "open",
                 isCrossRepository: true,
-                headRepository: { nameWithOwner: "other/repo" },
-                headRepositoryOwner: { login: "other" },
+                headRepositoryNameWithOwner: "other/repo",
+                headRepositoryOwnerLogin: "other",
               },
               {
                 number: 2,
@@ -766,12 +766,12 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
                 url: "https://github.com/base/repo/pull/2",
                 baseRefName: "main",
                 headRefName: "feature/fork",
-                state: "OPEN",
+                state: "open",
                 isCrossRepository: true,
-                headRepository: { nameWithOwner: "fork/repo" },
-                headRepositoryOwner: { login: "fork" },
+                headRepositoryNameWithOwner: "fork/repo",
+                headRepositoryOwnerLogin: "fork",
               },
-            ]),
+            ],
           },
         },
       });
@@ -786,9 +786,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       );
 
       expect(status?.pr?.number).toBe(2);
-      expect(ghCalls.filter((call) => call.startsWith("pr list "))).toEqual([
-        "pr list --head feature/fork --state all --limit 100 --json number,title,url,baseRefName,headRefName,state,isDraft,mergedAt,closedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
-      ]);
+      expect(listedSelectors(providerCalls)).toEqual(["feature/fork"]);
     }),
   );
 

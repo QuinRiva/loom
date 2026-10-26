@@ -6,6 +6,7 @@ import { CodexDriver } from "./Drivers/CodexDriver.ts";
 import { CursorDriver } from "@t3tools/provider-cursor/server";
 import { GrokDriver } from "@t3tools/provider-grok/server";
 import { OpenCodeDriver } from "@t3tools/provider-opencode/server";
+import { MuseDriver } from "@t3tools/provider-muse/server";
 import { PiDriver, type PiDriverEnv } from "@t3tools/provider-pi/server";
 import type {
   AnyProviderDriver,

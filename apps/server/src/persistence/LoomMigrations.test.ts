@@ -15,9 +15,22 @@ import {
   runAllMigrations,
   runLoomMigrations,
 } from "./LoomMigrations.ts";
-import { migrationEntries, runMigrations } from "./Migrations.ts";
+import { migrationManifest, runMigrations } from "./Migrations.ts";
 import * as NodeSqliteClient from "./NodeSqliteClient.ts";
 import * as NodeSqliteWorkerClient from "./NodeSqliteWorkerClient.ts";
+
+type MigrationBody = Effect.Effect<void, SqlError | Schema.SchemaError, SqlClient.SqlClient>;
+
+/** Upstream's lane with bodies: `Migrations.ts` exports only the manifest, so load each module by its file name. */
+const migrationEntries: ReadonlyArray<readonly [id: number, name: string, body: MigrationBody]> =
+  await Promise.all(
+    migrationManifest.map(async ([id, name]) => {
+      const module: { readonly default: MigrationBody } = await import(
+        `./Migrations/${String(id).padStart(3, "0")}_${name}.ts`
+      );
+      return [id, name, module.default] as const;
+    }),
+  );
 
 /**
  * Each test gets its own in-memory database: these tests rewrite ledgers, so a
@@ -115,13 +128,7 @@ const PRODUCTION_FORK_TAIL: ReadonlyArray<readonly [id: number, name: string]> =
  * Deliberately capped at fork `1032`: this is a historical fact, and it must not
  * grow when a new fork migration is added.
  */
-const historicalLedger: ReadonlyArray<
-  readonly [
-    id: number,
-    name: string,
-    body: Effect.Effect<void, SqlError | Schema.SchemaError, SqlClient.SqlClient>,
-  ]
-> = [
+const historicalLedger: ReadonlyArray<readonly [id: number, name: string, body: MigrationBody]> = [
   ...migrationEntries.filter(([id]) => id <= 32),
   ...loomMigrationEntries
     .filter(([id]) => id <= LAST_RECONCILED_LOOM_ID)
@@ -138,15 +145,7 @@ const historicalLedger: ReadonlyArray<
  * beyond that history exactly as post-split fork migrations do.
  */
 const runUpstreamThrough = (throughId: number) =>
-  Migrator.make({})({
-    loader: Migrator.fromRecord(
-      Object.fromEntries(
-        migrationEntries
-          .filter(([id]) => id <= throughId)
-          .map(([id, name, body]) => [`${id}_${name}`, body]),
-      ),
-    ),
-  });
+  runMigrations({ toMigrationInclusive: throughId });
 
 /** Replay the historical single-ledger order onto a fresh database. */
 const runHistoricalOrder = (throughId: number) =>
@@ -388,22 +387,22 @@ const withSyntheticFork = () =>
 describe.each([0, 66])(
   "future migrations still run on a reconciled database (historical stop %i)",
   (stoppedAt) => {
-    it.effect("a synthetic next-upstream id and 067 plus a new fork migration all execute", () =>
+    it.effect("a synthetic next-upstream id plus a new fork migration all execute", () =>
       onFreshDb(
         Effect.gen(function* () {
           if (stoppedAt > 0) yield* runHistoricalOrder(stoppedAt);
           yield* runAllMigrations();
 
-          const upstream = yield* withSyntheticUpstream([SYNTHETIC_UPSTREAM_ID, 67]);
+          const upstream = yield* withSyntheticUpstream([SYNTHETIC_UPSTREAM_ID]);
           assert.deepStrictEqual(
             upstream.map(([id]) => id),
-            [SYNTHETIC_UPSTREAM_ID, 67],
+            [SYNTHETIC_UPSTREAM_ID],
             "upstream migrations were skipped — a lane is masking the other's high-water mark",
           );
-          assert.deepStrictEqual(yield* ledgerIds("effect_sql_migrations"), [
-            ...range(1, SYNTHETIC_UPSTREAM_ID),
-            67,
-          ]);
+          assert.deepStrictEqual(
+            yield* ledgerIds("effect_sql_migrations"),
+            range(1, SYNTHETIC_UPSTREAM_ID),
+          );
 
           const fork = yield* withSyntheticFork();
           assert.deepStrictEqual(
@@ -423,7 +422,7 @@ describe.each([0, 66])(
         Effect.gen(function* () {
           if (stoppedAt > 0) yield* runHistoricalOrder(stoppedAt);
           yield* runAllMigrations();
-          yield* withSyntheticUpstream([SYNTHETIC_UPSTREAM_ID, 67]);
+          yield* withSyntheticUpstream([SYNTHETIC_UPSTREAM_ID]);
 
           // The marker must not expire: a healthy, advanced database must not be
           // re-validated against the historical 0..66 layout.
@@ -431,10 +430,10 @@ describe.each([0, 66])(
 
           assert.deepStrictEqual(again.upstream, []);
           assert.deepStrictEqual(again.loom, []);
-          assert.deepStrictEqual(yield* ledgerIds("effect_sql_migrations"), [
-            ...range(1, SYNTHETIC_UPSTREAM_ID),
-            67,
-          ]);
+          assert.deepStrictEqual(
+            yield* ledgerIds("effect_sql_migrations"),
+            range(1, SYNTHETIC_UPSTREAM_ID),
+          );
         }),
       ),
     );

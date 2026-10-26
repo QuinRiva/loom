@@ -6,6 +6,7 @@
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -155,6 +156,7 @@ export const serveMcp = Effect.fn("serveMcp")(function* (
     ),
     Layer.provide(PreviewAutomationBroker.layer),
     Layer.provide(PreviewBrowser.layer),
+    Layer.provide(McpProviderSessions.layer),
     Layer.provide(stubServices(stubs)),
     Layer.build,
   );

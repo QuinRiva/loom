@@ -264,7 +264,7 @@ describe("CLIProxyAPI built-in management API", () => {
         }),
       });
       const api = yield* test.api;
-      const result = yield* api.readAccounts(config);
+      const result = yield* readAll(api, []); // loom: listing moved out of `readAccounts`
       expect(result.map((account) => [account.plan, account.usageLimits.windows[0]?.kind])).toEqual(
         [
           ["ChatGPT Plus Subscription", "session"],

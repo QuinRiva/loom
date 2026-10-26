@@ -117,6 +117,7 @@ import { LoomCacheBroadcast } from "./loom/projection/LoomCacheBroadcast.ts"; //
 import { LoomGoalBroadcast } from "./loom/projection/LoomGoalBroadcast.ts"; // loom:
 import { LoomStoreV2 } from "./loom/projection/LoomStore.ts"; // loom:
 import { LoomThreadConsult } from "./loom/workstream/consult.ts"; // loom:
+import { ProviderHealthRegistry } from "./provider/ProviderHealthRegistry.ts"; // loom:
 import {
   layerWsRpc,
   subscribeOrchestrationV2Shell,
@@ -374,6 +375,11 @@ it.effect("shell snapshots omit idle children and older settled threads only on 
             ),
           ),
         ),
+        // loom: the shell's goal items are opt-in (`loom: true`), so these stay unread.
+        Effect.provideService(LoomStoreV2, {} as never),
+        Effect.provideService(LoomGoalBroadcast, {} as never),
+        Effect.provideService(LoomThreadConsult, {} as never),
+        Effect.provideService(LoomCacheBroadcast, {} as never),
       );
 
     const recent = threads.slice(3, 28).map((thread) => thread.id);
@@ -467,6 +473,12 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(WorkspaceEntries.WorkspaceEntries)({}),
   Layer.mock(WorkspaceFileSystem.WorkspaceFileSystem)({}),
   Layer.mock(WorktreeSetupTracker.WorktreeSetupTracker)({}),
+  // loom: Loom's ws services; the config RPCs read only the exhaustion marks.
+  Layer.succeed(LoomStoreV2, {} as never),
+  Layer.succeed(LoomGoalBroadcast, {} as never),
+  Layer.succeed(LoomThreadConsult, {} as never),
+  Layer.succeed(LoomCacheBroadcast, {} as never),
+  Layer.mock(ProviderHealthRegistry)({ snapshot: Effect.succeed([]), streamChanges: Stream.empty }),
 );
 
 const layerConfigSources = Layer.mergeAll(

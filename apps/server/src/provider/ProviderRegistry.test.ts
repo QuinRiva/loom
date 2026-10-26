@@ -1326,6 +1326,7 @@ it.layer(
               refresh: Effect.succeed(provider),
               streamChanges: Stream.empty,
               applyUsageLimits: () => Effect.void,
+              retractUsageLimits: () => Effect.void, // loom: usage-limit retraction
             },
             snapshotForCwd: () =>
               Ref.update(scans, (count) => count + 1).pipe(

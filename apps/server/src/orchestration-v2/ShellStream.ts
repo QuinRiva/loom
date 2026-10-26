@@ -31,6 +31,7 @@ import * as Schema from "effect/Schema";
 import type * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
+import { keepsLoomChildInColdShell } from "../loom/projection/loomShellJoin.ts"; // loom: DL-1404
 import { bufferLatestLiveStream } from "./LiveStreamBudget.ts";
 
 type ShellDelta = Extract<OrchestrationV2ShellStreamItem, { readonly sequence: number }>;
@@ -85,10 +86,12 @@ export function omitIdleSubagentShells(
       parentIds.add(thread.lineage.parentThreadId);
     }
   }
+  const roots = new Map(threads.map((thread) => [thread.id, thread])); // loom: DL-1404
   return threads.filter(
     (thread) =>
       thread.lineage.relationshipToParent !== "subagent" ||
       isLiveSubagentShell(thread) ||
+      keepsLoomChildInColdShell(thread, roots) || // loom: DL-1404
       parentIds.has(thread.id),
   );
 }
@@ -155,6 +158,7 @@ export function omitOlderSettledShells(input: {
       thread.pinnedAt != null ||
       (thread.snoozedUntil != null && DateTime.toEpochMillis(thread.snoozedUntil) > nowMs) ||
       isLiveSubagentShell(thread) ||
+      keepsLoomChildInColdShell(thread, new Map()) || // loom: a flagged Loom root stays (DL-1404)
       ancestorIds.has(thread.id)
     );
   });

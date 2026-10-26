@@ -909,7 +909,9 @@ const make = Effect.gen(function* () {
         return (
           Object.keys(columns).length === 0
             ? Effect.void
-            : sql`UPDATE loom_thread_cache SET ${sql.update(columns)} WHERE thread_id = ${threadId}`
+            : sql`UPDATE loom_thread_cache SET ${sql.update(columns)} WHERE thread_id = ${threadId}`.pipe(
+                Effect.asVoid,
+              )
         ).pipe(
           Effect.andThen(
             sql`SELECT retention, request_started_at AS "requestStartedAt",

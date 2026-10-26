@@ -18,7 +18,7 @@ import {
   reconcileMigrationLedgers,
   runLoomMigrations,
 } from "./LoomMigrations.ts";
-import { migrationEntries, runMigrations } from "./Migrations.ts";
+import { migrationManifest, runMigrations } from "./Migrations.ts";
 
 const at = "2026-01-01T00:00:00.000Z";
 
@@ -81,7 +81,7 @@ it.effect("migrates a copied V1 database to 1062 with the renamed tables' rows i
         SELECT migration_id AS id, name FROM effect_sql_migrations ORDER BY migration_id`;
       assert.deepEqual(
         upstreamLedger,
-        migrationEntries.map(([id, name]) => ({ id, name })),
+        migrationManifest.map(([id, name]) => ({ id, name })),
       );
 
       assert.deepEqual(yield* sql`SELECT goal_id, title FROM loom_goals`, [

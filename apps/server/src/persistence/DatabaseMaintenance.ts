@@ -12,6 +12,7 @@ import * as EventStore from "../orchestration-v2/EventStore.ts";
 import * as ProjectionMaintenance from "../orchestration-v2/ProjectionMaintenance.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { rebuildMessageSearch } from "../orchestration-v2/messageSearchIndex.ts";
+import { rebuildThreadSearchIndex } from "./threadSearchIndex.loom.ts"; // loom: VACUUM renumbers its rowids
 
 export class DatabaseMissingError extends Schema.TaggedError<DatabaseMissingError>()(
   "DatabaseMissingError",
@@ -190,6 +191,7 @@ const make = Effect.gen(function* () {
         yield* sql`PRAGMA auto_vacuum = INCREMENTAL`;
         yield* sql`VACUUM`;
         yield* rebuildMessageSearch(sql);
+        yield* rebuildThreadSearchIndex; // loom: doc 38 §4.4
         yield* sql`PRAGMA wal_checkpoint(TRUNCATE)`;
         return summary;
       }).pipe(

@@ -42,3 +42,29 @@ export const joinLoomThreadShell =
     shell === null
       ? Effect.succeed(null)
       : joinShells(loomStore)([shell]).pipe(Effect.map((joined) => joined[0]!));
+
+/**
+ * Upstream's cold shell omits idle subagent rows and older settled roots, but Loom's rollup
+ * badge counts every descendant of an active root and raises any thread's stored or derived
+ * reason (doc 38 §6.2, DL-1404). Keeps a Loom child of a live root, and any Loom thread that
+ * carries a reason the rollup reads: a stored flag, a failed unfinished run (`runFailed`),
+ * or an un-started child that may be owed a brief.
+ */
+export const keepsLoomChildInColdShell = (
+  thread: Pick<OrchestrationV2ThreadShell, "workstream" | "status" | "lastErrorClass" | "lineage">,
+  roots: ReadonlyMap<string, Pick<OrchestrationV2ThreadShell, "archivedAt" | "settledOverride">>,
+): boolean => {
+  const workstream = thread.workstream;
+  if (workstream === undefined) return false;
+  const root =
+    workstream.parentThreadId === null ? undefined : roots.get(thread.lineage.rootThreadId);
+  return (
+    (root !== undefined && root.archivedAt === null && root.settledOverride !== "settled") ||
+    workstream.attention.length > 0 ||
+    (workstream.outcome === null &&
+      ((thread.status === "failed" &&
+        thread.lastErrorClass != null &&
+        thread.lastErrorClass !== "usage_limit") ||
+        (workstream.parentThreadId !== null && workstream.kickoffAt === null && !workstream.held)))
+  );
+};
