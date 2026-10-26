@@ -95,7 +95,7 @@ const childFields = {
   taskShape: Schema.optionalKey(
     described(
       Schema.Literals(["explore", "thorough", "mechanical"]),
-      "Server-resolved model hint; omit for most spawns. 'explore' for open-ended work whose plan will change, 'thorough' for edge cases, migrations and review gates, 'mechanical' for bounded high-volume work.",
+      "Omit: a model-class hint ('explore' open-ended, 'thorough' edge cases and review gates, 'mechanical' bounded volume) that resolves only where the server configures workstreamModelProfiles, and none are configured by default.",
     ),
   ),
   sensitive: Schema.optionalKey(
@@ -233,7 +233,7 @@ const LOOM_TOOL_SPECS = {
       threadId: optionalThreadId,
       outcome: described(
         Schema.Literals(["done", "cancelled", "none"]),
-        "'done' releases dependents. 'cancelled' abandons the work without releasing dependents and cascades: every unfinished descendant is cancelled and its in-flight turn interrupted. 'none' clears a done or cancelled outcome.",
+        "'done' releases dependents; how you accept a child that yielded to you. 'cancelled' abandons the work without releasing dependents and cascades: every unfinished descendant is cancelled and its in-flight turn interrupted. 'none' clears a done or cancelled outcome.",
       ),
     }),
     "throw",
