@@ -1,0 +1,17 @@
+role|children|delegated
+researcher|177|1
+coder|170|2
+reviewer|125|1
+planner|73|5
+shipper|60|0
+assessor|8|0
+cold-start trial|7|0
+work-hygiene sweep (eval run)|2|0
+verifier|2|0
+Design and Information Representation|2|0
+writer|1|0
+work-hygiene sweep|1|0
+monitor|1|0
+heartbeat|1|0
+designer|1|0
+benchmark runner|1|0
