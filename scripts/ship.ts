@@ -144,7 +144,9 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
           "create",
           "--base",
           "main",
-          ...(options.title !== undefined ? ["--title", options.title] : []),
+          // gh requires --title whenever --body is given; the commit message is the title's source.
+          "--title",
+          options.title ?? options.message,
           ...(options.body !== undefined ? ["--body", options.body] : []),
         ]
       : ["pr", "create", "--base", "main", "--fill"];

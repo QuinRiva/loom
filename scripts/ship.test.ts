@@ -90,4 +90,20 @@ it("fills the PR from the commit by default and honours explicit title/body", ()
   assert.include(framed?.args ?? [], "Nice title");
   assert.include(framed?.args ?? [], "--body");
   assert.include(framed?.args ?? [], "Explains the change");
+
+  // gh rejects --body without --title, so the commit message stands in.
+  const bodyOnly = planShipSteps({
+    branch: "feature",
+    message: "msg",
+    mergeOnly: false,
+    body: "Explains the change",
+  }).find((step) => step.kind === "pr-create");
+  assert.deepEqual(bodyOnly?.args.slice(0, 6), [
+    "pr",
+    "create",
+    "--base",
+    "main",
+    "--title",
+    "msg",
+  ]);
 });
