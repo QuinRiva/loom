@@ -16,6 +16,7 @@ import {
   type LoomGoalTask,
   type LoomGoalTaskRewriteInput,
   type LoomGoalTaskRewriteNode,
+  type LoomGoalGetInput,
   type LoomGoalUpdateInput,
   type LoomPromptCaptureInput,
   type LoomReviewDiffInput,
@@ -174,6 +175,15 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
       effect.pipe(Effect.mapError((cause) => fail(method, cause.message, cause)));
 
   return {
+    [LOOM_WS_METHODS.goalGet]: (input: LoomGoalGetInput) =>
+      loomStore.goals.get(input.goalId).pipe(
+        Effect.map((goal) => ({
+          goal: goal === null || goal.deletedAt !== null ? null : Struct.omit(goal, ["deletedAt"]),
+        })),
+        Effect.mapError((cause) =>
+          fail(LOOM_WS_METHODS.goalGet, `${LOOM_WS_METHODS.goalGet} failed.`, cause),
+        ),
+      ),
     [LOOM_WS_METHODS.goalUpdate]: (input: LoomGoalUpdateInput) =>
       goalWrite(LOOM_WS_METHODS.goalUpdate, input.goalId, (goal) =>
         input.title === undefined && input.description === undefined && input.slug === undefined

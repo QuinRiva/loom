@@ -9,7 +9,7 @@ import type {
   LoomGoal,
   LoomGoalShell,
   LoomGoalShellStreamItem,
-  OrchestrationProjectShell,
+  OrchestrationV2ShellSnapshot,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -98,11 +98,22 @@ export const layerWithReactor = Layer.effectDiscard(goalCascadeReactor).pipe(
   Layer.provideMerge(layer),
 );
 
-/** The live goals of the given projects, as an authoritative shell snapshot carries them. */
-export const loomSnapshotGoals = (projects: ReadonlyArray<OrchestrationProjectShell>) =>
+type SnapshotThreads = Pick<OrchestrationV2ShellSnapshot, "threads" | "archivedThreads">;
+
+/**
+ * The live goals the snapshot's threads work under. Every other goal stays off the cold connect
+ * (most are long finished): a client asks `loom.goal.get` for one when a thread it opens needs it.
+ */
+export const loomSnapshotGoals = (snapshot: SnapshotThreads) =>
   LoomStoreV2.use((loomStore) =>
-    Effect.forEach(projects, (project) => loomStore.goals.listByProject(project.id)),
-  ).pipe(Effect.map((goals) => ({ goals: goals.flat().map(toGoalShell) })));
+    loomStore.goals.listLive([
+      ...new Set(
+        [...snapshot.threads, ...snapshot.archivedThreads].flatMap(
+          (thread) => thread.workstream?.goalId ?? [],
+        ),
+      ),
+    ]),
+  ).pipe(Effect.map((goals) => ({ goals: goals.map(toGoalShell) })));
 
 /**
  * The `loom: true` shell tail: snapshot `goals`, plus live goal, consult and cache-row items. The
@@ -114,7 +125,7 @@ export const loomShellGoals = Effect.fn("loom.shellGoals")(function* (input: {
 }) {
   if (input.loom !== true) {
     return {
-      snapshotGoals: (_projects: ReadonlyArray<OrchestrationProjectShell>) => Effect.succeed({}),
+      snapshotGoals: (_snapshot: SnapshotThreads) => Effect.succeed({}),
       items: Stream.empty as Stream.Stream<
         LoomGoalShellStreamItem | LoomConsultShellStreamItem | LoomCacheShellStreamItem
       >,
@@ -125,8 +136,8 @@ export const loomShellGoals = Effect.fn("loom.shellGoals")(function* (input: {
   const consults = yield* (yield* LoomThreadConsult).subscribeLive;
   const cacheRows = yield* (yield* LoomCacheBroadcast).subscribe;
   return {
-    snapshotGoals: (projects: ReadonlyArray<OrchestrationProjectShell>) =>
-      loomSnapshotGoals(projects).pipe(Effect.provideService(LoomStoreV2, loomStore)),
+    snapshotGoals: (snapshot: SnapshotThreads) =>
+      loomSnapshotGoals(snapshot).pipe(Effect.provideService(LoomStoreV2, loomStore)),
     items: Stream.fromSubscription(subscription).pipe(
       Stream.merge(consults),
       Stream.merge(Stream.fromSubscription(cacheRows)),

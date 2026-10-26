@@ -341,6 +341,8 @@ export default function GoalTasksPanel({ thread }: { thread: EnvironmentThreadSh
       {thread === null || goalId === null ? (
         // The panel is always the open thread's Loom goal: no goal picker, by design.
         <p className="text-sm text-muted-foreground/70">This thread has no Loom goal.</p>
+      ) : goal === undefined ? (
+        <p className="text-sm text-muted-foreground/70">Loading goal…</p>
       ) : goal === null ? (
         <p className="text-sm text-muted-foreground/70">Missing goal: {goalId}</p>
       ) : (

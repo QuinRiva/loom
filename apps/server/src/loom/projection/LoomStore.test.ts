@@ -425,6 +425,59 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
     }),
   );
 
+  it.effect("batched goal reads give each goal its own ordered tree, an empty one included", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStore.LoomStoreV2;
+      const project = ProjectId.make("project:batch");
+      const ids = ["goal:batch-a", "goal:batch-empty", "goal:batch-b", "goal:batch-gone"].map(
+        (id) => GoalId.make(id),
+      );
+      for (const id of ids) {
+        yield* store.goals.upsert({ id, projectId: project, slug: id, title: id, description: "" });
+      }
+      const task = (id: string, parent: string | null, position: number) => ({
+        id: GoalTaskId.make(id),
+        parentTaskId: parent === null ? null : GoalTaskId.make(parent),
+        text: id,
+        done: false,
+        position,
+      });
+      const [a, empty, b, gone] = ids as [GoalId, GoalId, GoalId, GoalId];
+      yield* store.tasks.replaceTree(a, [
+        task("a2", null, 2),
+        task("a0", null, 0),
+        task("a0x", "a0", 0),
+      ]);
+      yield* store.tasks.replaceTree(b, [task("b1", null, 1), task("b0", null, 0)]);
+      yield* store.tasks.replaceTree(gone, [task("g0", null, 0)]);
+      yield* store.goals.softDelete(gone);
+
+      // Same created_at under the test clock, so goal_id orders them.
+      const single = yield* Effect.forEach([a, b, empty], (id) =>
+        store.goals.get(id).pipe(Effect.map((goal) => goal!)),
+      );
+      assert.deepEqual(yield* store.goals.listByProject(project), single);
+      assert.deepEqual(yield* store.goals.listLive([b, gone, empty, a]), single);
+      assert.deepEqual(
+        single.map((goal) =>
+          goal.tasks.map((node): unknown => [node.id, node.children.map((c) => c.id)]),
+        ),
+        [
+          [
+            ["a0", ["a0x"]],
+            ["a2", []],
+          ],
+          [
+            ["b0", []],
+            ["b1", []],
+          ],
+          [],
+        ],
+      );
+      assert.deepEqual(yield* store.goals.listLive([]), []);
+    }),
+  );
+
   it.effect("folds the thread's history across V1 and V2 events", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

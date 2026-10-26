@@ -2422,7 +2422,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
-        const loomGoal = readLoomGoal(thread.environmentId, thread.source.workstream?.goalId); // loom: 3d-3
+        const loomGoal = await readLoomGoal(thread.environmentId, thread.source.workstream?.goalId); // loom: 3d-3
         const clicked = await settlePromise(() =>
           showWithLoomGoalMenu(api, loomGoal)(
             // loom: 3d-3 — Loom goal entries first

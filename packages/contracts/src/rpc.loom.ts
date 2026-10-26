@@ -48,6 +48,8 @@ import {
 export const LOOM_WS_METHODS = {
   goalUpdate: "loom.goal.update",
   goalTaskRewrite: "loom.goal.task.rewrite",
+  // A goal the cold shell snapshot left out (it carries only its threads' goals).
+  goalGet: "loom.goal.get",
   // 3b — the drafters.
   handoffDraft: "loom.handoffDraft",
   retroDraft: "loom.retroDraft",
@@ -90,6 +92,12 @@ const LoomWsError = Schema.Union([LoomWsMethodError, EnvironmentAuthorizationErr
 /** Every goal write answers with the goal as it now stands (also published on the goal stream). */
 export const LoomGoalWriteResult = Schema.Struct({ goal: LoomGoalShell });
 export type LoomGoalWriteResult = typeof LoomGoalWriteResult.Type;
+
+/** `loom.goal.get`: the goal, or null when it does not exist or was deleted. */
+export const LoomGoalGetInput = Schema.Struct({ goalId: GoalId });
+export type LoomGoalGetInput = typeof LoomGoalGetInput.Type;
+export const LoomGoalGetResult = Schema.Struct({ goal: Schema.NullOr(LoomGoalShell) });
+export type LoomGoalGetResult = typeof LoomGoalGetResult.Type;
 
 /** `loom.goal.update`: at least one field; an empty `description` clears it. */
 export const LoomGoalUpdateInput = Schema.Struct({
@@ -389,6 +397,11 @@ const goalRpc = <Tag extends string, Payload extends Schema.Top>(tag: Tag, paylo
 export const LoomWsRpcs = [
   goalRpc(LOOM_WS_METHODS.goalUpdate, LoomGoalUpdateInput),
   goalRpc(LOOM_WS_METHODS.goalTaskRewrite, LoomGoalTaskRewriteInput),
+  Rpc.make(LOOM_WS_METHODS.goalGet, {
+    payload: LoomGoalGetInput,
+    success: LoomGoalGetResult,
+    error: LoomWsError,
+  }),
   // 3b — the drafters.
   Rpc.make(LOOM_WS_METHODS.handoffDraft, {
     payload: HandoffDraftInput,

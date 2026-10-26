@@ -219,6 +219,7 @@ export const RPC_REQUIRED_SCOPES = {
   // loom: 3d-3 — seam 21 Loom ws methods (rpc.loom.ts); 3d-4's seam-11 spend reads are Read.
   [LOOM_WS_METHODS.goalUpdate]: AuthOrchestrationOperateScope,
   [LOOM_WS_METHODS.goalTaskRewrite]: AuthOrchestrationOperateScope,
+  [LOOM_WS_METHODS.goalGet]: AuthOrchestrationReadScope, // loom: goals off the cold snapshot
   [LOOM_WS_METHODS.handoffDraft]: AuthOrchestrationOperateScope,
   [LOOM_WS_METHODS.retroDraft]: AuthOrchestrationOperateScope,
   [LOOM_WS_METHODS.documentQuery]: AuthOrchestrationOperateScope, // loom: query threads

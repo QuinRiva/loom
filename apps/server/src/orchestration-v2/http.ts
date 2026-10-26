@@ -98,7 +98,7 @@ export const layer = HttpApiBuilder.group(
         });
         const projects = yield* enrichProjectShells(base.projects);
         // loom: Loom goals ride the authoritative snapshot (seam 15); a closed-schema client strips them
-        return { ...snapshot, projects, ...(yield* loomSnapshotGoals(base.projects)) };
+        return { ...snapshot, projects, ...(yield* loomSnapshotGoals(snapshot)) };
       },
     );
 

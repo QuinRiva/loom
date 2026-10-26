@@ -153,7 +153,7 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
       });
-      const loomGoal = readLoomGoal(thread.environmentId, thread.source.workstream?.goalId); // loom
+      const loomGoal = await readLoomGoal(thread.environmentId, thread.source.workstream?.goalId); // loom
       const clicked = await settlePromise(
         () => showWithLoomGoalMenu(api, loomGoal)(items, position), // loom: Goal ▸ first
       );

@@ -649,15 +649,18 @@ it.layer(TestLayer)("Loom projector", (it) => {
         title: "Surface",
         description: "",
       });
-      const project = { id: goal.projectId } as never;
+      const threads = {
+        threads: [{ workstream: { goalId: goal.id } }],
+        archivedThreads: [],
+      } as never;
 
       const plain = yield* LoomGoalBroadcast.loomShellGoals({});
       const opted = yield* LoomGoalBroadcast.loomShellGoals({ loom: true });
       yield* broadcast.publish(LoomGoalBroadcast.goalShellItem(goal));
 
-      assert.deepEqual(yield* plain.snapshotGoals([project]), {});
+      assert.deepEqual(yield* plain.snapshotGoals(threads), {});
       assert.deepEqual(yield* Stream.runCollect(plain.items), []);
-      const snapshot = yield* opted.snapshotGoals([project]);
+      const snapshot = yield* opted.snapshotGoals(threads);
       assert.deepEqual("goals" in snapshot ? snapshot.goals.map((entry) => entry.id) : [], [
         goal.id,
       ]);
