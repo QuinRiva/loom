@@ -1324,6 +1324,35 @@ const mdxQuestionRefsFixture: PreviewFixture = {
 };
 
 /**
+ * loom: `<Glossary>` — three coined terms, each linked in body prose to a
+ * hover/tap card. "node" also sits in a heading and a code span, where it must
+ * stay plain.
+ */
+const MDX_GLOSSARY_FIXTURE_SOURCE = [
+  "# How the recursion tags a document",
+  "",
+  "The parser walks the document tree and gives every node exactly one reading unit. A run is one pass of the recursion over the whole tree; when a run cannot place a node, the node is escalated to the parent run.",
+  "",
+  "## Why a node can be escalated",
+  "",
+  "A node whose text straddles two units has no single reading unit, so the run hands it up. The flag lives on `node.escalated`, and the next run retries every escalated node first.",
+  "",
+  "<Glossary>",
+  '  <Term name="node">One entry in the document tree: a heading, a paragraph or a list item.</Term>',
+  '  <Term name="reading unit">The span of text the recursion tagged as one thing; a node\'s reading unit is the one that contains it.</Term>',
+  '  <Term name="run">One pass of the recursion over the whole tree. Runs are numbered from `1`.</Term>',
+  "</Glossary>",
+].join("\n");
+
+const mdxGlossaryFixture: PreviewFixture = {
+  id: "mdx-glossary",
+  title: "Glossary terms (hover/tap cards)",
+  description:
+    "Every 'node', 'nodes', 'reading unit' and 'run' in body prose has a dotted underline: hover one for its definition card, or click/tap to toggle it (clicking must not navigate). The heading and the `node.escalated` code span stay plain. The glossary renders at the foot. Select a phrase across a term and comment: it must anchor and survive a reload.",
+  render: () => <PlanPanelPreview key="mdx-glossary" source={MDX_GLOSSARY_FIXTURE_SOURCE} />,
+};
+
+/**
  * The usage meter in the sidebar footer's real slot: a 16rem sidebar with the
  * footer's inset, so the axis column is the width the app gives it.
  */
@@ -1359,6 +1388,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
     id: "mdx-annotation",
     title: "MDX plan document",
     fixtures: [
+      mdxGlossaryFixture,
       mdxQuestionRefsFixture,
       mdxWideBlockFixture,
       mdxDiffWordsFixture,

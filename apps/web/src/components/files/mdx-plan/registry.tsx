@@ -23,6 +23,7 @@ import { diffBlock } from "./blocks/diff";
 import { endpointBlock } from "./blocks/endpoint";
 import { fieldDiffBlock } from "./blocks/fieldDiff";
 import { fileTreeBlock } from "./blocks/fileTree";
+import { glossaryBlock, GlossaryScope, GlossaryTerm, termBlock } from "./blocks/glossary";
 import { imageBlock, PlanMarkdownImage } from "./blocks/image";
 import { jsonBlock } from "./blocks/json";
 import { mermaidBlock } from "./blocks/mermaid";
@@ -94,6 +95,8 @@ export const PLAN_BLOCKS: RegisteredBlock[] = [
   { tag: statsBlock.mdx.tag, type: "stats", block: statsBlock },
   { tag: stepsBlock.mdx.tag, type: "steps", block: stepsBlock },
   { tag: stepBlock.mdx.tag, type: "step", block: stepBlock },
+  { tag: glossaryBlock.mdx.tag, type: "glossary", block: glossaryBlock },
+  { tag: termBlock.mdx.tag, type: "glossary-term", block: termBlock },
 ];
 
 export const planBlockByTag = new Map(PLAN_BLOCKS.map((entry) => [entry.tag, entry]));
@@ -173,6 +176,9 @@ export const PLAN_BLOCK_COMPONENTS: Record<string, FC<Record<string, unknown>>> 
   // Markdown code fences: route through `<Code>` for Shiki highlighting.
   pre: PlanMarkdownPre,
   UnknownPlanBlock,
+  // Injected by `remarkGlossary` after the unknown-tag guard, never authored.
+  GlossaryScope,
+  GlossaryTerm,
 };
 
 /* Byte-stable MDX round-trip (authoring / import contract)                   */

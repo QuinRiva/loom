@@ -238,6 +238,7 @@ const REQUIRED_PARENT: Record<string, string[]> = {
   Column: ["Columns"],
   // vocabulary v2: steps
   Step: ["Steps"],
+  Term: ["Glossary"],
   Artboard: ["DesignBoard", "Section"],
   Section: ["DesignBoard"],
   Connector: ["DesignBoard", "Section"],
@@ -249,6 +250,7 @@ const EXPECTED_CHILDREN: Record<string, string[]> = {
   TabsBlock: ["Tab"],
   // vocabulary v2: steps
   Steps: ["Step"],
+  Glossary: ["Term"],
   DesignBoard: ["Artboard", "Section", "Connector", "Annotation"],
   Section: ["Artboard", "Connector", "Annotation"],
 };
