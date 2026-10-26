@@ -15,10 +15,18 @@
  * - `includeArchived: false` drops archived roots (and so their subtrees), and
  *   `projectId` other projects' roots, from both candidate sets before ranking,
  *   so they never take a result slot.
+ * - `scope: "roots"` (the default; Carl's ruling for the human surfaces) ranks a
+ *   root by its own title, purpose, messages and goal plus every report in its
+ *   tree; `"all"` (the agent tool) adds sub-threads' text and goal tasks. The
+ *   semantic side is per root either way.
+ * - `layer` serves upstream's `ThreadSearch` service: `search` is this ranking,
+ *   `searchThreads` its hits for upstream's agent tool, and `searchOlderSettled`
+ *   upstream's own (`make`), forwarded.
  *
  * @module ThreadSearch
  */
 import {
+  MessageId,
   type OrchestrationSearchThreadsInput,
   type OrchestrationSearchThreadsResult,
   type OrchestrationThreadSearchSource,
@@ -26,6 +34,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
 import type { SqlError } from "effect/sql/SqlError";
@@ -33,10 +42,18 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 import { THREAD_SEARCH_KIND_CODES } from "../persistence/threadSearchIndex.loom.ts";
 import { ThreadEmbedder } from "./ThreadEmbedder.loom.ts";
+import {
+  make as makeUpstreamThreadSearch,
+  ThreadSearch,
+  ThreadSearchError,
+} from "./ThreadSearch.ts";
 
 const RRF_K = 60;
 const CANDIDATES = 50;
-const DOC_CANDIDATES = 1000;
+// Under `roots` most documents (sub-threads' text) are dropped after the cut, so it reads more.
+const DOC_CANDIDATES = { all: 1000, roots: 4000 };
+/** A document a `roots` search reads: a root's own text (not a task), or any report. */
+const IN_ROOTS_SCOPE = `(rowid % 8 IN (0, 6) OR (rowid % 8 <> 7 AND thread_id = root_id))`;
 const STOPWORDS = new Set(
   "a an the of in on for to with from and or is are was be this that it at by as over into about".split(
     " ",
@@ -99,7 +116,7 @@ const lexicalSql = (termCount: number, scope: SearchScope) => `
   -- they hold ${CANDIDATES} roots, and attribution is most of the query's cost.
   docs AS MATERIALIZED (
     SELECT rowid, COUNT(DISTINCT term) AS coverage, SUM(score) AS score FROM hits GROUP BY rowid
-    ORDER BY coverage DESC, score LIMIT ${DOC_CANDIDATES}
+    ORDER BY coverage DESC, score LIMIT ${DOC_CANDIDATES[scope.scope ?? "roots"]}
   ),
   owned AS MATERIALIZED (
     SELECT d.*, t.thread_id FROM docs d
@@ -124,7 +141,7 @@ const lexicalSql = (termCount: number, scope: SearchScope) => `
   ),
   ranked AS (
     SELECT *, ROW_NUMBER() OVER (PARTITION BY root_id ORDER BY coverage DESC, score) AS rn
-    FROM attributed
+    FROM attributed${scope.scope === "all" ? "" : ` WHERE ${IN_ROOTS_SCOPE}`}
   )
   SELECT p.root_id AS "rootId", p.rowid AS "rowid", p.thread_id AS "threadId", p.coverage AS "coverage"
   FROM ranked p CROSS JOIN ${THREADS} r ON r.thread_id = p.root_id
@@ -134,7 +151,7 @@ const lexicalSql = (termCount: number, scope: SearchScope) => `
   ORDER BY p.coverage DESC, p.score, r.updated_at DESC
   LIMIT ${CANDIDATES}`;
 
-type SearchScope = Pick<OrchestrationSearchThreadsInput, "includeArchived" | "projectId">;
+type SearchScope = Pick<OrchestrationSearchThreadsInput, "includeArchived" | "projectId" | "scope">;
 
 interface LexicalHit {
   readonly rootId: string;
@@ -249,12 +266,16 @@ export const makeThreadSearch = Effect.gen(function* () {
             readonly rowid: number;
             readonly snippet: string;
             readonly messageCreatedAt: string | null;
+            readonly messageId: string | null;
             readonly matchedTitle: string | null;
           }>`
             SELECT f.rowid AS "rowid", snippet(loom_thread_search, 3, '', '', '…', 32) AS snippet,
               CASE WHEN f.rowid % 8 IN (3, 4, 5) THEN
                 (SELECT created_at FROM orchestration_v2_projection_messages WHERE rowid = f.rowid / 8) END
                 AS "messageCreatedAt",
+              CASE WHEN f.rowid % 8 IN (3, 4, 5) THEN
+                (SELECT message_id FROM orchestration_v2_projection_messages WHERE rowid = f.rowid / 8) END
+                AS "messageId",
               (SELECT title FROM orchestration_v2_projection_threads WHERE thread_id = f.thread_id)
                 AS "matchedTitle"
             FROM loom_thread_search f
@@ -263,7 +284,7 @@ export const makeThreadSearch = Effect.gen(function* () {
             (row) => [row.rowid, row] as const,
           ),
     );
-    const matches = ids.map((id): OrchestrationSearchThreadsResult["matches"][number] => {
+    const matches = ids.map((id, position): OrchestrationSearchThreadsResult["matches"][number] => {
       const root = roots.get(id)!;
       const hit = best.get(id);
       const snippet = hit && snippets.get(hit.rowid);
@@ -275,6 +296,9 @@ export const makeThreadSearch = Effect.gen(function* () {
         title: root.title,
         archivedAt: root.archivedAt,
         updatedAt: root.updatedAt,
+        // The fused rank as upstream's match quality: every hit stays a word match, so the
+        // clients' rankMessageMatches keeps this order and only a palette pick lifts a root.
+        quality: 1 - position / 1000,
         // A root only the semantic side found: its purpose (or title) is a true statement about it.
         ...(snippet
           ? {
@@ -283,6 +307,10 @@ export const makeThreadSearch = Effect.gen(function* () {
               messageCreatedAt: snippet.messageCreatedAt,
               matchedThreadId,
               matchedThreadTitle: matchedThreadId ? snippet.matchedTitle : null,
+              // Only a root's own message: the jump opens the root's timeline.
+              ...(snippet.messageId && !matchedThreadId
+                ? { messageId: MessageId.make(snippet.messageId) }
+                : {}),
             }
           : {
               source: root.purpose ? "purpose" : "title",
@@ -298,3 +326,36 @@ export const makeThreadSearch = Effect.gen(function* () {
 
   return { rank, searchThreads };
 });
+
+/**
+ * Upstream's `ThreadSearch` service over this index. `searchThreads` is upstream's
+ * agent tool (`t3_thread_search`, withheld from Loom roles): its hits, roots only.
+ */
+export const layer = Layer.effect(
+  ThreadSearch,
+  Effect.gen(function* () {
+    const loom = yield* makeThreadSearch;
+    const upstream = yield* makeUpstreamThreadSearch;
+    const search = (input: OrchestrationSearchThreadsInput) =>
+      loom
+        .searchThreads(input)
+        .pipe(Effect.mapError((cause) => new ThreadSearchError({ operation: "query", cause })));
+    return ThreadSearch.of({
+      search,
+      searchThreads: (input) =>
+        search({ ...input, scope: "roots" }).pipe(
+          Effect.map(({ matches }) => ({
+            matches: matches.map((match) => ({
+              threadId: match.threadId,
+              projectId: match.projectId,
+              title: match.title,
+              source: match.source,
+              snippet: match.snippet,
+              messageCreatedAt: match.messageCreatedAt,
+            })),
+          })),
+        ),
+      searchOlderSettled: upstream.searchOlderSettled,
+    });
+  }),
+);

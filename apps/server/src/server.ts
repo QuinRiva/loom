@@ -187,7 +187,7 @@ import * as UsageService from "./usage/UsageService.ts";
 import * as CodexUsageHistory from "./usage/CodexUsageHistory.ts";
 import * as RuntimeLayer from "./orchestration-v2/runtimeLayer.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
-import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
+import * as ThreadSearchLoom from "./orchestration-v2/ThreadSearch.loom.ts"; // loom: Loom's index behind upstream's service
 import { ThreadEmbedderLive } from "./orchestration-v2/ThreadEmbedder.loom.ts"; // loom
 import * as ThreadSettlementService from "./orchestration-v2/ThreadSettlementService.ts";
 import * as IdleCompactionService from "./orchestration-v2/IdleCompactionService.ts";
@@ -635,7 +635,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(
     Layer.merge(
       ProjectStore.layer,
-      ThreadSearch.layer.pipe(Layer.provide(ThreadEmbedderLive)), // loom: semantic half of search
+      ThreadSearchLoom.layer.pipe(Layer.provide(ThreadEmbedderLive)), // loom: semantic half of search
     ),
   ),
   Layer.provideMerge(layerServerSettings),

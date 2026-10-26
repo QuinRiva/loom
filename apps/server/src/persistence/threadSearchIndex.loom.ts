@@ -148,7 +148,8 @@ const triggers = [
   `CREATE TRIGGER loom_ts_messages_ai AFTER INSERT ON orchestration_v2_projection_messages
    WHEN NEW.streaming = 0 BEGIN ${messageRows} END`,
   `CREATE TRIGGER loom_ts_messages_au AFTER UPDATE OF payload_json, streaming ON orchestration_v2_projection_messages
-   WHEN NEW.streaming = 0 AND (OLD.streaming <> 0 OR OLD.payload_json IS NOT NEW.payload_json)
+   WHEN NEW.streaming = 0 AND (OLD.streaming <> 0 OR ${text("OLD")} IS NOT ${text("NEW")}
+     OR ${origin("OLD")} IS NOT ${origin("NEW")})
    BEGIN
      DELETE FROM loom_thread_search WHERE rowid IN (OLD.rowid*8+3, OLD.rowid*8+4, OLD.rowid*8+5);
      ${messageRows}

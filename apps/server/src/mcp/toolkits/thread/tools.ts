@@ -3,6 +3,7 @@ import {
   ScheduledTask,
   OrchestrationSearchThreadsInput,
   OrchestrationThreadSearchMatch,
+  OrchestrationThreadSearchSource, // loom
   OrchestrationV2ThreadForkSourcePoint,
   OrchestrationV2ContextTransfer,
   TrimmedNonEmptyString,
@@ -250,7 +251,8 @@ const ThreadSearchTool = Tool.make("t3_thread_search", {
         projectId: OrchestrationThreadSearchMatch.fields.projectId,
         title: Schema.String,
         link: Schema.optional(Schema.String),
-        source: Schema.Literals(["title", "user", "assistant"]),
+        // loom: Loom's index labels every text kind it holds
+        source: Schema.Union([Schema.Literal("title"), OrchestrationThreadSearchSource]),
         snippet: Schema.optional(OrchestrationThreadSearchMatch.fields.snippet),
         messageCreatedAt: Schema.optional(OrchestrationThreadSearchMatch.fields.messageCreatedAt),
       }),

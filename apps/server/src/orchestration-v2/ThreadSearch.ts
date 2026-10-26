@@ -79,6 +79,9 @@ const SearchRow = Schema.Struct({
   source: OrchestrationThreadSearchSource,
   text: Schema.String,
   messageCreatedAt: Schema.NullOr(IsoDateTime),
+  // loom: the contract's match describes its thread, so a row draws without a shell
+  title: Schema.String,
+  updatedAt: IsoDateTime,
 });
 
 const ThreadOpensRow = Schema.Struct({
@@ -163,7 +166,8 @@ export const messageHitsQuery = (
   { match, substrings, projectId, excludedThreadIds }: typeof SearchRequest.Encoded,
 ) => sql`
     WITH eligible AS MATERIALIZED (
-      SELECT threads.thread_id, threads.project_id
+      SELECT threads.thread_id, threads.project_id,
+        threads.title, threads.updated_at -- loom: the match's thread fields
       FROM orchestration_v2_projection_threads AS threads
       INNER JOIN projection_projects AS projects
         ON projects.project_id = threads.project_id
@@ -185,7 +189,8 @@ export const messageHitsQuery = (
             eligible.project_id AS "projectId",
             messages.role AS source,
             json_extract(messages.payload_json, '$.text') AS text,
-            messages.created_at AS "messageCreatedAt"
+            messages.created_at AS "messageCreatedAt",
+            eligible.title, eligible.updated_at AS "updatedAt" -- loom
           FROM orchestration_v2_projection_messages AS messages
           INNER JOIN eligible ON eligible.thread_id = messages.thread_id
           WHERE ${indexedMessageCondition(sql)}
@@ -202,7 +207,8 @@ export const messageHitsQuery = (
             eligible.project_id AS "projectId",
             messages.role AS source,
             json_extract(messages.payload_json, '$.text') AS text,
-            messages.created_at AS "messageCreatedAt"
+            messages.created_at AS "messageCreatedAt",
+            eligible.title, eligible.updated_at AS "updatedAt" -- loom
           FROM orchestration_v2_message_search
           INNER JOIN orchestration_v2_projection_messages AS messages
             ON messages.rowid = orchestration_v2_message_search.rowid
@@ -405,7 +411,8 @@ export const make = Effect.gen(function* () {
   // A project scope applies before ranking, so other projects' stronger hits
   // cannot use up the limit.
   const searchMessages = Effect.fn("ThreadSearch.search")(function* (
-    input: OrchestrationSearchThreadsInput & {
+    input: Omit<OrchestrationSearchThreadsInput, "projectId"> & {
+      // loom: Omit (contract has projectId)
       readonly projectId: ProjectId | null;
       /** Threads the caller already lists, which must not use up the limit. */
       readonly excludedThreadIds?: ReadonlySet<ThreadId>;
@@ -501,6 +508,12 @@ export const make = Effect.gen(function* () {
         snippet: buildSearchSnippet(text, offset),
         messageCreatedAt: row.messageCreatedAt,
         quality,
+        // loom: upstream's index holds active, non-subagent threads' own messages only
+        title: row.title,
+        archivedAt: null,
+        updatedAt: row.updatedAt,
+        matchedThreadId: null,
+        matchedThreadTitle: null,
       })),
     };
   });

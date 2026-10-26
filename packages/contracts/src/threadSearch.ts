@@ -22,6 +22,10 @@ export const OrchestrationThreadSearchSource = Schema.Literals([
 ]);
 export type OrchestrationThreadSearchSource = typeof OrchestrationThreadSearchSource.Type;
 
+// loom: how much of a workstream tree a search reads (ThreadSearch.loom.ts).
+export const OrchestrationThreadSearchScope = Schema.Literals(["roots", "all"]);
+export type OrchestrationThreadSearchScope = typeof OrchestrationThreadSearchScope.Type;
+
 /** Longer queries are cut to this before they are sent. */
 export const THREAD_SEARCH_QUERY_MAX_LENGTH = 200;
 
@@ -36,7 +40,10 @@ export const OrchestrationSearchThreadsInput = Schema.Struct({
   // loom: archived roots are searched unless this is false (default true).
   includeArchived: Schema.optionalKey(Schema.Boolean),
   // loom: one project's roots only; omitted, every project.
-  projectId: Schema.optionalKey(ProjectId),
+  projectId: Schema.optional(ProjectId),
+  // loom: `roots` (default): each root's own title, purpose, goal and messages plus every
+  // report in its tree; `all` adds sub-threads' messages, titles, purposes and briefs, and tasks.
+  scope: Schema.optionalKey(OrchestrationThreadSearchScope),
 });
 export type OrchestrationSearchThreadsInput = typeof OrchestrationSearchThreadsInput.Type;
 

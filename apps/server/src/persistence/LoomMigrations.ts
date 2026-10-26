@@ -93,6 +93,7 @@ import Migration1059 from "./Migrations/1059_LoomThreadSnoozeRequests.ts";
 import Migration1060 from "./Migrations/1060_DropThreadSearchMessageTriggers.ts";
 import Migration1061 from "./Migrations/1061_LoomReviewSnapshots.ts";
 import Migration1062 from "./Migrations/1062_ThreadSearchIndexV2.ts";
+import Migration1063 from "./Migrations/1063_ThreadSearchTextGuard.ts";
 
 /** Ledger table for the fork lane. Its existence is also the reconciliation marker. */
 export const loomMigrationsTable = "loom_sql_migrations";
@@ -160,6 +161,7 @@ export const loomMigrationEntries = [
   [1060, "DropThreadSearchMessageTriggers", Migration1060],
   [1061, "LoomReviewSnapshots", Migration1061],
   [1062, "ThreadSearchIndexV2", Migration1062],
+  [1063, "ThreadSearchTextGuard", Migration1063],
 ] as const;
 
 const makeLoomMigrationLoader = (throughId?: number) =>

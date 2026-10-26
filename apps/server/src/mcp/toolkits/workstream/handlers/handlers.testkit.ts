@@ -18,7 +18,7 @@ import * as LoomGoalBroadcast from "../../../../loom/projection/LoomGoalBroadcas
 import { LoomOrchestratorTestLayer } from "../../../../loom/testkit/loomOrchestratorLayer.ts";
 import { LoomThreadConsult } from "../../../../loom/workstream/consult.ts";
 import * as ThreadLaunchService from "../../../../orchestration-v2/ThreadLaunchService.ts";
-import * as ThreadSearch from "../../../../orchestration-v2/ThreadSearch.ts";
+import * as ThreadSearchLoom from "../../../../orchestration-v2/ThreadSearch.loom.ts";
 import { ProviderHealthRegistry } from "../../../../provider/ProviderHealthRegistry.ts";
 import { ProviderRegistry } from "../../../../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../../../../serverSettings.ts";
@@ -55,7 +55,7 @@ export const makeHandlerTestLayer = <E, R>(stubs: Layer.Layer<StubbedServices, E
     // A goal-less root stays goal-less: no model behind the emergent goal here.
     Layer.succeed(EmergentGoals, { derive: () => Effect.void }),
     // Lexical-only: no embedder in tests.
-    ThreadSearch.layer,
+    ThreadSearchLoom.layer,
     stubs,
   ).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(NodeServices.layer));
 
