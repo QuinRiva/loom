@@ -9,7 +9,7 @@
  *
  * @module loom/http/loomAgentRoutes
  */
-import { LoomCacheWarming, type ThreadId } from "@t3tools/contracts";
+import { DOCUMENT_QUERY_ROLE, LoomCacheWarming, type ThreadId } from "@t3tools/contracts";
 import { gateKeepAliveCounterpart } from "@t3tools/shared/workstreamGraph";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -32,6 +32,7 @@ import { readLaunchIdentity } from "../workstream/launchIdentity.ts";
 import { LoomCacheBroadcast } from "../projection/LoomCacheBroadcast.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import { loadRoleOverlay } from "../prompt/roleOverlay.ts";
+import { DOCUMENT_QUERY_CLIENT_LABEL } from "../query/queryPosture.ts";
 import { ASK_COULD_NOT_PRESENT, openAskUserQuestion } from "../userInput/askUserQuestion.ts";
 import { LoomAskWaiters } from "../userInput/askWaiters.ts";
 
@@ -68,6 +69,27 @@ const asWritingCaller = <E, R>(
       : handle(caller),
   );
 
+/** Who reads the thread: whether it is a child, and whether a human has engaged it. */
+const readership = Effect.fn("loom.sessionReadership")(function* (threadId: ThreadId) {
+  const { thread, messages } = yield* (yield* OrchestratorV2).getThreadRecords(
+    threadId,
+    ["messages"],
+    { messageRoles: ["user"] },
+  );
+  const workstream = yield* (yield* LoomStoreV2).getWorkstream(threadId);
+  return {
+    thread,
+    workstream,
+    // The human's Launch of a goal_continue brief engages them though the words are the agent's.
+    humanEngaged: messages.some(
+      (message) =>
+        message.loom?.humanAuthored === true || isContinueLaunch(message, message.loom, workstream),
+    ),
+    // A V2 `fork` (thread_fork) is a root the human drives, not a child.
+    hasParent: thread.lineage.relationshipToParent === "subagent",
+  };
+});
+
 /**
  * The thread's profile. `humanEngaged` is seam 14's stamp on any user-role
  * message (or the human's Launch of a staged continuation) — never the shell's
@@ -78,19 +100,13 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (
   threadId: ThreadId,
   readOnly = false,
 ) {
-  const { thread, messages } = yield* (yield* OrchestratorV2).getThreadRecords(
-    threadId,
-    ["messages"],
-    { messageRoles: ["user"] },
-  );
-  const workstream = yield* (yield* LoomStoreV2).getWorkstream(threadId);
-  // The human's Launch of a goal_continue brief engages them though the words are the agent's.
-  const humanEngaged = messages.some(
-    (message) =>
-      message.loom?.humanAuthored === true || isContinueLaunch(message, message.loom, workstream),
-  );
-  // A V2 `fork` (thread_fork) is a root the human drives, not a child.
-  const hasParent = thread.lineage.relationshipToParent === "subagent";
+  const own = yield* readership(threadId);
+  const { thread, workstream } = own;
+  // A query thread declares its author's tools, human input included, or its first request
+  // misses the author's warm cache (plan query-threads §2.3); its ask route is refused anyway.
+  const author = workstream?.role === DOCUMENT_QUERY_ROLE ? workstream.forkFromThreadId : null;
+  const { humanEngaged, hasParent } =
+    author === null ? own : yield* readership(author).pipe(Effect.orElseSucceed(() => own));
   const config = yield* ServerConfig.ServerConfig;
   const promptDebugDir = loomPaths(config).workstreamPromptDebugDir;
   // The prompt-debug part writes with plain fs and swallows every failure, so the directory exists first.
@@ -126,7 +142,11 @@ const profileRoute = HttpRouter.route(
   "GET",
   `${LOOM_AGENT_ROUTE_PREFIX}/session-profile`,
   asCaller((caller) =>
-    sessionProfile(caller.threadId, isReadOnlyCaller(caller.scope)).pipe(
+    // A consult fork answers as its target; a query thread is its own thread and keeps its capture.
+    sessionProfile(
+      caller.threadId,
+      isReadOnlyCaller(caller.scope) && caller.scope.client?.label !== DOCUMENT_QUERY_CLIENT_LABEL,
+    ).pipe(
       Effect.map((profile) => HttpServerResponse.jsonUnsafe(profile)),
       Effect.catch((error) => Effect.succeed(reply(500, error.message))),
     ),

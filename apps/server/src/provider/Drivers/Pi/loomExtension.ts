@@ -13,7 +13,8 @@
  * `prompt-debug`, and `cacheWarmingGate` (no idle cache
  * warming after a successful submit; a 1-hour root's idle keep-alive ping always warms;
  * the resulting plan is reported to `/cache-warming` for the sidebar's cache gauge) and
- * `consultGuard` (a consult fork refuses `edit` / `write`) and `systemHead` (pi's system message
+ * `consultGuard` (a consult fork refuses `edit` / `write`), `queryGuard` (so does a query
+ * thread) and `systemHead` (pi's system message
  * moved to the head of each request, so a `tool_search` load appends instead of rewriting the
  * prompt cache) and `backgroundJobs` (`bg_start` / `bg_wait`, a wake when a job exits, the
  * `loom-jobs` status line the adapter reads as a session pin, and a refused submit while a job runs)
@@ -42,6 +43,7 @@ import { commandGuardsPart } from "./loomExtensionParts/commandGuards.ts";
 import { consultGuardPart } from "./loomExtensionParts/consultGuard.ts";
 import { pgrepSelfMatchPart } from "./loomExtensionParts/pgrepSelfMatch.ts";
 import { promptDebugPart } from "./loomExtensionParts/promptDebug.ts";
+import { queryGuardPart } from "./loomExtensionParts/queryGuard.ts";
 import { searchGuardPart } from "./loomExtensionParts/searchGuard.ts";
 import { systemHeadPart } from "./loomExtensionParts/systemHead.ts";
 import { T3_MCP_BEARER_ENV, T3_MCP_URL_ENV } from "@t3tools/provider-pi/server/mcpExtensionSource";
@@ -217,6 +219,7 @@ export const LOOM_EXTENSION_PARTS: ReadonlyArray<LoomExtensionPart> = [
   promptDebugPart,
   cacheWarmingGatePart,
   consultGuardPart,
+  queryGuardPart,
   systemHeadPart,
   backgroundJobsPart,
 ];

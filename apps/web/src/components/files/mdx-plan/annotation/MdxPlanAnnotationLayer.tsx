@@ -1,12 +1,23 @@
-import type { PlanCommentAnchor } from "@t3tools/contracts";
-import { Eye, GripVertical, MessageCircle, Pencil, Trash2, Unlink } from "lucide-react";
+import type { DocumentQueryInput, PlanCommentAnchor } from "@t3tools/contracts";
+import {
+  Eye,
+  GripVertical,
+  MessageCircle,
+  MessageCircleQuestion,
+  Pencil,
+  Trash2,
+  Unlink,
+} from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { observeResize } from "~/lib/observeResize";
+import { cn } from "~/lib/utils";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
+import type { DocumentQueryPin } from "~/loom/documentQueryPins";
 import {
   annotationDraftKey,
   questionAnswerDraftKey,
@@ -72,10 +83,27 @@ import {
  * wrapper, so they are scroll-invariant and only recomputed on layout changes.
  */
 
+/**
+ * Query threads (plans/plan-query-threads/plan.mdx §5 steps 9-10): Query beside
+ * Comment forks the document's author into a read-only query thread, and every
+ * question already asked draws a pin on its passage. Supplied only when the
+ * viewing thread exists on the server (`LoomMdxAnnotationLayer`).
+ */
+export interface PlanQueryBinding {
+  readonly pins: ReadonlyArray<DocumentQueryPin>;
+  /** The Query card's title and the line under it: whose fork a question goes to, and why. */
+  readonly label: string;
+  readonly detail: string;
+  /** Ask, then open the query thread; resolves to an error message, or null on success. */
+  readonly ask: (input: Omit<DocumentQueryInput, "sourceThreadId">) => Promise<string | null>;
+  readonly openPin: (pin: DocumentQueryPin) => void;
+}
+
 interface MdxPlanAnnotationLayerProps {
   source: string;
   filePath: string;
   composerDraftTarget: ScopedThreadRef | DraftId;
+  query?: PlanQueryBinding | undefined;
 }
 
 interface Box {
@@ -105,8 +133,12 @@ interface Overlay {
 const clampCardLeft = (left: number, wrapperWidth: number) =>
   Math.max(8, Math.min(left, wrapperWidth - CARD_WIDTH - 8));
 
+type ComposerMode = "comment" | "query";
+
 interface ComposerState {
   id: string;
+  /** `query` asks the author's fork instead of adding a review comment. */
+  mode: ComposerMode;
   anchor: PlanCommentAnchor;
   quotedText: string;
   initialText: string;
@@ -227,16 +259,30 @@ function groupCollapsedOverlays(overlays: ReadonlyArray<Overlay>) {
   return groups;
 }
 
+/** A resolved question pin: hollow accent badge, dashed underline, no fill. */
+interface PinOverlay {
+  id: string;
+  pin: DocumentQueryPin;
+  boxes: Box[];
+  badge: { top: number; left: number };
+  variant: "fill" | "ring";
+}
+
+const BADGE_STEP = 22;
+const NO_PINS: ReadonlyArray<DocumentQueryPin> = [];
+
 export function MdxPlanAnnotationLayer({
   source,
   filePath,
   composerDraftTarget,
+  query,
 }: MdxPlanAnnotationLayerProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const pendingRangeRef = useRef<Range | null>(null);
   const hoverBlockIdRef = useRef<string | null>(null);
   const [root, setRoot] = useState<Element | null>(null);
   const [overlays, setOverlays] = useState<Overlay[]>([]);
+  const [pinOverlays, setPinOverlays] = useState<PinOverlay[]>([]);
   const [composer, setComposer] = useState<ComposerState | null>(null);
   const [selectionAffordance, setSelectionAffordance] = useState<{
     top: number;
@@ -271,6 +317,7 @@ export function MdxPlanAnnotationLayer({
   const comments = fileComments.filter(
     (c) => !isQuestionAnswerCommentId(c.id) && !isReviewChoiceCommentId(c.id),
   );
+  const pins = query?.pins ?? NO_PINS;
 
   // Interactive answer surface for `<QuestionForm>`/`<VisualQuestions>` blocks:
   // answers upsert a deterministic-id review comment (the wire truth — removing
@@ -374,6 +421,7 @@ export function MdxPlanAnnotationLayer({
     const wrapper = wrapperRef.current;
     if (!wrapper || !root) {
       setOverlays([]);
+      setPinOverlays([]);
       return;
     }
     const wrapperRect = wrapper.getBoundingClientRect();
@@ -416,117 +464,145 @@ export function MdxPlanAnnotationLayer({
     // resolve, turning an O(comments × document) pass into O(document + comments)
     // — this removes the per-toggle recompute cliff on evidence-heavy docs.
     const flattened = flattenDocument(root);
-    const detachedOverlay = (comment: MdxAnchorReviewCommentContext): Overlay => ({
-      id: comment.id,
-      comment,
+    type Placement = Omit<Overlay, "id" | "comment">;
+    const detachedPlacement: Placement = {
       boxes: [],
       badge: { top: 0, left: 0 },
       variant: "fill",
       state: "detached",
-    });
-    setOverlays(
-      comments.map((comment) => {
-        // Guard per comment: a single malformed anchor degrades to "detached"
-        // instead of throwing during render and taking down the whole layer.
-        let range: Range | null;
-        try {
-          range = comment.anchor ? resolveAnchor(comment.anchor, root, flattened) : null;
-        } catch {
-          return detachedOverlay(comment);
-        }
-        if (!range) return detachedOverlay(comment);
-        // A text-quote range starts in a text node (prose, or a pin inside an
-        // HtmlBlock frame); a block/node anchor `selectNode`s an element.
-        const isText = range.startContainer.nodeType === Node.TEXT_NODE;
-        // Set when the range lives inside an HtmlBlock frame: its rects are
-        // frame-relative, and the frame element (not the in-frame node) is what
-        // a closed <details> / hidden tab hides.
-        const frame = hostFrameOf(range.startContainer, root);
-        const element = anchorElement(range);
-        // Content inside a closed <details> / hidden tab panel is laid out but
-        // NOT painted (current Chromium uses `content-visibility:hidden`, not
-        // `display:none`, so it still reports live, wrongly-placed rects). An
-        // explicit visibility test — not `getClientRects().length === 0`, which
-        // never fires on this browser — both drops those phantom rects and
-        // classifies the anchor as COLLAPSED (badge on the enclosing surface,
-        // revealed on navigate).
-        //
-        // A TEXT anchor spans text nodes, so test BOTH endpoints: flattenDocument
-        // concatenates adjacent text nodes with no separator, so the re-found
-        // start offset can land on the boundary of a preceding VISIBLE node (a
-        // <summary>) while the quote body lives in the following hidden
-        // paragraph — testing the start alone would read it as visible. A BLOCK
-        // anchor is a single element (its range's END offset points at the next
-        // sibling), so only the start element is meaningful.
-        const visible = (el: Element | null): boolean =>
-          !el ||
-          el.checkVisibility({
-            contentVisibilityAuto: true,
-            opacityProperty: true,
-            visibilityProperty: true,
-          });
-        const startEl = frame ?? element;
-        const endEl = frame ?? (isText ? range.endContainer.parentElement : element);
-        if (!visible(startEl) || !visible(endEl)) {
-          const hiddenNode =
-            frame ?? (visible(element) ? range.endContainer : range.startContainer);
-          const surface = collapsedSurfaceFor(hiddenNode, root);
-          if (surface) {
-            const rect = surface.badgeElement.getBoundingClientRect();
-            return {
-              id: comment.id,
-              comment,
-              boxes: [],
-              badge: { top: rect.top - wrapperRect.top, left: rect.right - wrapperRect.left - 8 },
-              variant: "ring",
-              state: "collapsed",
-              collapsed: surface,
-            };
-          }
-          return detachedOverlay(comment);
-        }
-        // Split the paint by anchor kind. A TEXT anchor is a genuine multi-line
-        // prose selection → one rect per line box (`getClientRects()`). A BLOCK
-        // anchor (`visual`/`wireframe`) selects a whole element; painting its
-        // range's rects draws the element's border box PLUS a line box per
-        // descendant text node (20 rects for a Card, 13 for a 12-cell Table). It
-        // wants ONE box from the element, drawn as a ring so it reads as "this
-        // block is annotated", not "everything here is selected".
-        // An in-frame highlight clips to the frame (its text can scroll inside it).
-        const port = isText ? (frame ?? scrollportOf(range.startContainer, root)) : null;
-        const portRect = port?.getBoundingClientRect();
-        const boxes = (
-          isText
-            ? Array.from(range.getClientRects(), (rect) =>
-                clipToBox(toHostRect(rect, frame), portRect),
-              )
-            : element
-              ? [toBox(element.getBoundingClientRect())]
-              : []
-        ).filter((box): box is Box => box !== null && box.width > 0 && box.height > 0);
-        if (boxes.length === 0) {
-          // Nothing to paint. Inside a scrollport that means the quoted text is
-          // simply scrolled out of view — still resolved, so keep the badge on
-          // the block so the comment stays reachable. Anywhere else it is a
-          // genuinely geometry-less anchor: detached.
-          if (!portRect) return detachedOverlay(comment);
+    };
+    // One geometry pass per anchor, shared by comments and query pins.
+    const place = (anchor: PlanCommentAnchor | undefined): Placement => {
+      // Guard per anchor: a single malformed anchor degrades to "detached"
+      // instead of throwing during render and taking down the whole layer.
+      let range: Range | null;
+      try {
+        range = anchor ? resolveAnchor(anchor, root, flattened) : null;
+      } catch {
+        return detachedPlacement;
+      }
+      if (!range) return detachedPlacement;
+      // A text-quote range starts in a text node (prose, or a pin inside an
+      // HtmlBlock frame); a block/node anchor `selectNode`s an element.
+      const isText = range.startContainer.nodeType === Node.TEXT_NODE;
+      // Set when the range lives inside an HtmlBlock frame: its rects are
+      // frame-relative, and the frame element (not the in-frame node) is what
+      // a closed <details> / hidden tab hides.
+      const frame = hostFrameOf(range.startContainer, root);
+      const element = anchorElement(range);
+      // Content inside a closed <details> / hidden tab panel is laid out but
+      // NOT painted (current Chromium uses `content-visibility:hidden`, not
+      // `display:none`, so it still reports live, wrongly-placed rects). An
+      // explicit visibility test — not `getClientRects().length === 0`, which
+      // never fires on this browser — both drops those phantom rects and
+      // classifies the anchor as COLLAPSED (badge on the enclosing surface,
+      // revealed on navigate).
+      //
+      // A TEXT anchor spans text nodes, so test BOTH endpoints: flattenDocument
+      // concatenates adjacent text nodes with no separator, so the re-found
+      // start offset can land on the boundary of a preceding VISIBLE node (a
+      // <summary>) while the quote body lives in the following hidden
+      // paragraph — testing the start alone would read it as visible. A BLOCK
+      // anchor is a single element (its range's END offset points at the next
+      // sibling), so only the start element is meaningful.
+      const visible = (el: Element | null): boolean =>
+        !el ||
+        el.checkVisibility({
+          contentVisibilityAuto: true,
+          opacityProperty: true,
+          visibilityProperty: true,
+        });
+      const startEl = frame ?? element;
+      const endEl = frame ?? (isText ? range.endContainer.parentElement : element);
+      if (!visible(startEl) || !visible(endEl)) {
+        const hiddenNode = frame ?? (visible(element) ? range.endContainer : range.startContainer);
+        const surface = collapsedSurfaceFor(hiddenNode, root);
+        if (surface) {
+          const rect = surface.badgeElement.getBoundingClientRect();
           return {
-            id: comment.id,
-            comment,
             boxes: [],
-            badge: { top: portRect.top - wrapperRect.top, left: gutterLeft },
-            variant: "fill",
-            state: "resolved",
+            badge: { top: rect.top - wrapperRect.top, left: rect.right - wrapperRect.left - 8 },
+            variant: "ring",
+            state: "collapsed",
+            collapsed: surface,
           };
         }
+        return detachedPlacement;
+      }
+      // Split the paint by anchor kind. A TEXT anchor is a genuine multi-line
+      // prose selection → one rect per line box (`getClientRects()`). A BLOCK
+      // anchor (`visual`/`wireframe`) selects a whole element; painting its
+      // range's rects draws the element's border box PLUS a line box per
+      // descendant text node (20 rects for a Card, 13 for a 12-cell Table). It
+      // wants ONE box from the element, drawn as a ring so it reads as "this
+      // block is annotated", not "everything here is selected".
+      // An in-frame highlight clips to the frame (its text can scroll inside it).
+      const port = isText ? (frame ?? scrollportOf(range.startContainer, root)) : null;
+      const portRect = port?.getBoundingClientRect();
+      const boxes = (
+        isText
+          ? Array.from(range.getClientRects(), (rect) =>
+              clipToBox(toHostRect(rect, frame), portRect),
+            )
+          : element
+            ? [toBox(element.getBoundingClientRect())]
+            : []
+      ).filter((box): box is Box => box !== null && box.width > 0 && box.height > 0);
+      if (boxes.length === 0) {
+        // Nothing to paint. Inside a scrollport that means the quoted text is
+        // simply scrolled out of view — still resolved, so keep the badge on
+        // the block so the comment stays reachable. Anywhere else it is a
+        // genuinely geometry-less anchor: detached.
+        if (!portRect) return detachedPlacement;
         return {
-          id: comment.id,
-          comment,
-          boxes,
-          badge: { top: boxes[0]!.top, left: gutterLeft },
-          variant: isText ? "fill" : "ring",
+          boxes: [],
+          badge: { top: portRect.top - wrapperRect.top, left: gutterLeft },
+          variant: "fill",
           state: "resolved",
         };
+      }
+      return {
+        boxes,
+        badge: { top: boxes[0]!.top, left: gutterLeft },
+        variant: isText ? "fill" : "ring",
+        state: "resolved",
+      };
+    };
+    const placedComments = comments.map((comment) => ({
+      id: comment.id,
+      comment,
+      ...place(comment.anchor),
+    }));
+    setOverlays(placedComments);
+    // A pin draws only on a passage it still resolves to: a hidden or rewritten
+    // passage has no question to point at here (the query thread still holds it).
+    // Its badge steps right past any comment or earlier pin badge on the same line.
+    const taken = placedComments.flatMap((overlay) =>
+      overlay.state === "resolved" ? [overlay.badge] : [],
+    );
+    setPinOverlays(
+      pins.flatMap((pin) => {
+        const placed = place(pin.anchor);
+        if (placed.state !== "resolved") return [];
+        const left =
+          placed.badge.left +
+          BADGE_STEP *
+            taken.filter(
+              (badge) =>
+                Math.abs(badge.top - placed.badge.top) < BADGE_STEP &&
+                badge.left >= placed.badge.left,
+            ).length;
+        const badge = { top: placed.badge.top, left };
+        taken.push(badge);
+        return [
+          {
+            id: `${pin.queryThreadId}:${pin.askedAt}`,
+            pin,
+            boxes: placed.boxes,
+            badge,
+            variant: placed.variant,
+          },
+        ];
       }),
     );
   };
@@ -739,7 +815,13 @@ export function MdxPlanAnnotationLayer({
     };
   }, [root, recompute, handleMouseUp, hoverOver, hoverBlockIdRef]);
 
-  const openComposerFromSelection = () => {
+  // A query's in-progress question caches apart from a comment on the same passage.
+  const draftKeyFor = (anchor: PlanCommentAnchor, mode: ComposerMode) => {
+    const key = annotationDraftKey(composerDraftTarget, { anchor });
+    return mode === "query" ? `${key}:query` : key;
+  };
+
+  const openComposerFromSelection = (mode: ComposerMode) => {
     const range = pendingRangeRef.current;
     if (!range || !root) return;
     const result = anchorFromRange(range, root);
@@ -748,9 +830,10 @@ export function MdxPlanAnnotationLayer({
       toHostRect(range.getBoundingClientRect(), hostFrameOf(range.startContainer, root)),
       wrapperRectNow(),
     );
-    const draftKey = annotationDraftKey(composerDraftTarget, { anchor: result.anchor });
+    const draftKey = draftKeyFor(result.anchor, mode);
     setComposer({
       id: newCommentId(),
+      mode,
       anchor: result.anchor,
       quotedText: result.quotedText,
       initialText: getAnnotationDraft(draftKey) ?? "",
@@ -764,15 +847,16 @@ export function MdxPlanAnnotationLayer({
     range.startContainer.ownerDocument?.getSelection()?.removeAllRanges();
   };
 
-  const openComposerForBlock = (blockId: string) => {
+  const openComposerForBlock = (blockId: string, mode: ComposerMode) => {
     if (!root) return;
     const element = root.querySelector(blockSelector(blockId));
     if (!element) return;
     const result = anchorForBlockElement(element, root);
     const { top, left } = placeBeside(element.getBoundingClientRect(), wrapperRectNow());
-    const draftKey = annotationDraftKey(composerDraftTarget, { anchor: result.anchor });
+    const draftKey = draftKeyFor(result.anchor, mode);
     setComposer({
       id: newCommentId(),
+      mode,
       anchor: result.anchor,
       quotedText: result.quotedText,
       initialText: getAnnotationDraft(draftKey) ?? "",
@@ -789,6 +873,7 @@ export function MdxPlanAnnotationLayer({
     const draftKey = annotationDraftKey(composerDraftTarget, { commentId: comment.id });
     setComposer({
       id: comment.id,
+      mode: "comment",
       anchor: comment.anchor,
       quotedText: comment.quotedText,
       initialText: getAnnotationDraft(draftKey) ?? comment.text,
@@ -800,17 +885,17 @@ export function MdxPlanAnnotationLayer({
     setOpenCardId(null);
   };
 
-  const submitComposer = (text: string) => {
-    if (!composer) return;
+  /** Comment: add the review chip. Query: ask the author's fork and resolve to
+   * an error message (the card stays open with it) or null once it is open.
+   * Nothing a query does reaches the author's composer. */
+  const submitComposer = async (text: string): Promise<string | null> => {
+    if (!composer) return null;
     const anchor: PlanCommentAnchor = {
       ...composer.anchor,
       sectionId: composer.anchor.sectionId ?? `file:${filePath}`,
       sectionTitle: composer.anchor.sectionTitle ?? fileNameOf(filePath),
     };
-    const comment: MdxAnchorReviewCommentContext = {
-      kind: "mdx-anchor",
-      id: composer.id,
-      filePath,
+    const location = {
       sectionId: anchor.sectionId ?? `file:${filePath}`,
       sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
       rangeLabel:
@@ -818,13 +903,26 @@ export function MdxPlanAnnotationLayer({
         (anchor.anchorKind === "text"
           ? "annotation"
           : `${anchor.blockType ? `${anchor.blockType} ` : ""}block`),
-      text,
       anchor,
       quotedText: composer.quotedText,
     };
-    addReviewComment(composerDraftTarget, comment);
+    if (composer.mode === "query") {
+      if (!query) return "Query is not available for this document.";
+      const error = await query.ask({ filePath, question: text, ...location });
+      if (error !== null) return error;
+    } else {
+      addReviewComment(composerDraftTarget, {
+        kind: "mdx-anchor",
+        id: composer.id,
+        filePath,
+        text,
+        ...location,
+      });
+    }
     clearAnnotationDraft(composer.draftKey);
-    setComposer(null);
+    // A query resolves later: close only the card it was asked from.
+    setComposer((current) => (current?.id === composer.id ? null : current));
+    return null;
   };
 
   const discardComposer = () => {
@@ -935,6 +1033,38 @@ export function MdxPlanAnnotationLayer({
         )}
       </div>
 
+      {/* Query pins: a dashed accent underline (a dashed ring on a block), no fill. */}
+      <div className="pointer-events-none absolute inset-0 z-10">
+        {pinOverlays.flatMap((overlay) =>
+          overlay.boxes.map((box) => (
+            <div
+              key={`${overlay.id}:${box.top}:${box.left}:${box.width}:${box.height}`}
+              className={
+                overlay.variant === "ring"
+                  ? "absolute rounded-md border border-dashed border-primary/60"
+                  : "absolute border-b-2 border-dashed border-primary/70"
+              }
+              style={{ top: box.top, left: box.left, width: box.width, height: box.height }}
+            />
+          )),
+        )}
+      </div>
+
+      {/* Hollow "?" badges — click to open the query thread at that question. */}
+      {pinOverlays.map((overlay) => (
+        <button
+          key={overlay.id}
+          type="button"
+          data-plan-query-pin=""
+          aria-label="Open the query about this passage"
+          className="absolute z-20 grid size-5 -translate-y-1 place-items-center rounded-full border-2 border-primary bg-background text-3xs font-bold text-primary shadow ring-2 ring-background hover:bg-primary/10"
+          style={{ top: overlay.badge.top, left: overlay.badge.left + 2 }}
+          onClick={() => query?.openPin(overlay.pin)}
+        >
+          ?
+        </button>
+      ))}
+
       {/* Numbered badges — click to open a comment card. */}
       {overlays.map((overlay, index) =>
         overlay.state !== "resolved" ? null : (
@@ -984,18 +1114,35 @@ export function MdxPlanAnnotationLayer({
         ) : null,
       )}
 
-      {/* Floating "Comment" affordance for the current text selection. */}
+      {/* Floating "Comment" (and, with a server thread, "Query") affordance for
+          the current text selection. */}
       {selectionAffordance && !composer ? (
-        <button
-          type="button"
-          className="absolute z-30 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium shadow-lg hover:text-foreground hover:ring-2 hover:ring-warning/60"
+        <div
+          className="absolute z-30 flex items-center gap-1.5"
           style={{ top: selectionAffordance.top, left: selectionAffordance.left }}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={openComposerFromSelection}
         >
-          <MessageCircle className="size-3.5" />
-          Comment
-        </button>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium shadow-lg hover:text-foreground hover:ring-2 hover:ring-warning/60"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => openComposerFromSelection("comment")}
+          >
+            <MessageCircle className="size-3.5" />
+            Comment
+          </button>
+          {query ? (
+            <button
+              type="button"
+              data-plan-query-affordance=""
+              className="inline-flex items-center gap-1 rounded-md border border-primary/60 bg-background px-2 py-1 text-xs font-medium text-primary shadow-lg hover:ring-2 hover:ring-primary/50"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => openComposerFromSelection("query")}
+            >
+              <MessageCircleQuestion className="size-3.5" />
+              Query
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       {/* Per-block "comment" affordance (covers non-selectable / non-prose blocks).
@@ -1003,23 +1150,44 @@ export function MdxPlanAnnotationLayer({
           changes) + a generous hit target, and it stays shown while hovered —
           no flicker, trivially clickable (issues 3/4). */}
       {hoverBlock && !composer && !selectionAffordance ? (
-        <button
-          type="button"
+        <div
           data-plan-comment-affordance=""
-          aria-label="Comment on this block"
-          className="absolute z-20 grid size-7 place-items-center rounded-md border border-border bg-background text-muted-foreground shadow-sm hover:text-foreground hover:ring-2 hover:ring-warning/60"
-          style={{ top: hoverBlock.top, left: hoverBlock.left }}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => openComposerForBlock(hoverBlock.id)}
+          className="absolute z-20 flex gap-1"
+          // Right-aligned to the block's corner, however many buttons it holds.
+          style={{ top: hoverBlock.top, left: hoverBlock.left + 28, translate: "-100% 0" }}
         >
-          <MessageCircle className="size-4" />
-        </button>
+          {query ? (
+            <button
+              type="button"
+              data-plan-query-affordance=""
+              aria-label="Query the author about this block"
+              className="grid size-7 place-items-center rounded-md border border-primary/60 bg-background text-primary shadow-sm hover:ring-2 hover:ring-primary/50"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => openComposerForBlock(hoverBlock.id, "query")}
+            >
+              <MessageCircleQuestion className="size-4" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            aria-label="Comment on this block"
+            className="grid size-7 place-items-center rounded-md border border-border bg-background text-muted-foreground shadow-sm hover:text-foreground hover:ring-2 hover:ring-warning/60"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => openComposerForBlock(hoverBlock.id, "comment")}
+          >
+            <MessageCircle className="size-4" />
+          </button>
+        </div>
       ) : null}
 
       {/* Comment composer (new comment or edit). */}
       {composer ? (
         <AnnotationComposer
           key={composer.id}
+          mode={composer.mode}
+          queryLabel={query?.label ?? "Ask the author's fork"}
+          queryDetail={query?.detail ?? null}
+          fileName={fileNameOf(filePath)}
           draftKey={composer.draftKey}
           top={composer.top}
           left={composer.left}
@@ -1132,6 +1300,10 @@ function AnnotationCard({
 }
 
 interface AnnotationComposerProps {
+  mode: ComposerMode;
+  queryLabel: string;
+  queryDetail: string | null;
+  fileName: string;
   draftKey: string;
   top: number;
   left: number;
@@ -1140,10 +1312,15 @@ interface AnnotationComposerProps {
   onCacheDraft: (key: string, text: string) => void;
   onDismiss: () => void;
   onDiscard: () => void;
-  onSubmit: (text: string) => void;
+  /** Resolves to an error to show in the card, or null once it is done. */
+  onSubmit: (text: string) => Promise<string | null>;
 }
 
 function AnnotationComposer({
+  mode,
+  queryLabel,
+  queryDetail,
+  fileName,
   draftKey,
   top,
   left,
@@ -1156,6 +1333,19 @@ function AnnotationComposer({
 }: AnnotationComposerProps) {
   const [text, setText] = useState(initialText);
   const [pos, setPos] = useState({ top, left });
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const querying = mode === "query";
+  const canSubmit = text.trim().length > 0 && !pending;
+  const submit = () => {
+    if (!canSubmit) return;
+    setPending(true);
+    setError(null);
+    void onSubmit(text.trim()).then((failure) => {
+      setPending(false);
+      setError(failure);
+    });
+  };
 
   // Persist the in-progress draft as it changes so dismiss→reopen and reloads
   // both restore it (issue 6). Submit/discard clear it via the parent.
@@ -1204,11 +1394,29 @@ function AnnotationComposer({
           window.addEventListener("pointerup", onDragEnd);
         }}
       >
-        <GripVertical className="size-4 text-muted-foreground" />
-        <span className="text-sm font-medium">Comment on plan</span>
+        <GripVertical className="size-4 shrink-0 text-muted-foreground" />
+        {querying ? (
+          <>
+            <span className="truncate text-sm font-medium">{queryLabel}</span>
+            <Badge variant="outline" size="sm">
+              {fileName}
+            </Badge>
+            <span className="ml-auto shrink-0 text-2xs text-muted-foreground">read-only</span>
+          </>
+        ) : (
+          <span className="text-sm font-medium">Comment on plan</span>
+        )}
       </div>
+      {querying && queryDetail ? (
+        <p className="mt-1 truncate text-2xs text-muted-foreground">{queryDetail}</p>
+      ) : null}
       {quotedText ? (
-        <p className="mt-2 line-clamp-3 border-l-2 border-warning/60 pl-2 text-2xs italic text-muted-foreground">
+        <p
+          className={cn(
+            "mt-2 line-clamp-3 border-l-2 pl-2 text-2xs italic text-muted-foreground",
+            querying ? "border-primary/70" : "border-warning/60",
+          )}
+        >
           {quotedText}
         </p>
       ) : null}
@@ -1217,26 +1425,27 @@ function AnnotationComposer({
         className="mt-3"
         size="sm"
         value={text}
-        placeholder="Request change"
-        aria-label="Comment on plan"
+        placeholder={querying ? "Ask about this passage" : "Request change"}
+        aria-label={querying ? "Question for the author's fork" : "Comment on plan"}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
             onDismiss();
           }
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && text.trim()) {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();
-            onSubmit(text.trim());
+            submit();
           }
         }}
       />
+      {error ? <p className="mt-2 text-xs text-destructive-foreground">{error}</p> : null}
       <div className="mt-3 flex items-center justify-end gap-2">
-        <Button variant="ghost" size="sm" disabled={!text.trim()} onClick={onDiscard}>
+        <Button variant="ghost" size="sm" disabled={!text.trim() || pending} onClick={onDiscard}>
           Discard
         </Button>
-        <Button size="sm" disabled={!text.trim()} onClick={() => onSubmit(text.trim())}>
-          Comment
+        <Button size="sm" disabled={!canSubmit} onClick={submit}>
+          {querying ? (pending ? "Asking…" : "Query") : "Comment"}
         </Button>
       </div>
     </div>

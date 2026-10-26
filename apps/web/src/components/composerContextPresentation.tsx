@@ -32,6 +32,7 @@ import type { TerminalContextDraft } from "~/lib/terminalContext";
 import type { LineReviewCommentContext, ReviewCommentContext } from "~/reviewCommentContext"; // loom: line | mdx-anchor union
 import { ComposerPendingTerminalContextChip } from "./chat/ComposerPendingTerminalContexts";
 import { ThreadContextChip } from "./ThreadContextChip";
+import { PromotedFromQuery } from "~/loom/PromotedFromQuery"; // loom: query threads
 import {
   createContextPresentationRegistry,
   type ContextPresentationCapability,
@@ -279,6 +280,7 @@ function previewAnnotationTooltip(annotation: PreviewAnnotationPayload): string 
 }
 
 function ComposerReviewCommentDetails({ comment }: { comment: ReviewCommentContext }) {
+  const { environmentId } = use(ComposerContextActionsContext); // loom: promoted link back
   return (
     <div className="space-y-2 overflow-hidden rounded-lg border border-border/70 bg-background/70 p-3">
       <div className="space-y-1">
@@ -286,6 +288,14 @@ function ComposerReviewCommentDetails({ comment }: { comment: ReviewCommentConte
         <div className="text-secondary-label text-2xs">
           {comment.sectionTitle} · {comment.rangeLabel}
         </div>
+        {/* loom: a comment promoted from a query thread links back to it */}
+        {comment.kind === "mdx-anchor" && comment.queryThreadId ? (
+          <PromotedFromQuery
+            environmentId={environmentId}
+            queryThreadId={comment.queryThreadId}
+            filePath={comment.filePath}
+          />
+        ) : null}
       </div>
       {comment.text.trim() ? <ChatMarkdown text={comment.text.trim()} cwd={undefined} /> : null}
       {/* loom: only the `line` arm carries a diff */}

@@ -56,6 +56,12 @@ export const DELEGATION = prefixed([
 /** Search over every thread's content, for the roles that look up past decisions. */
 export const HISTORY = prefixed(["thread_search"] as const);
 
+/**
+ * A query thread's one write (`plans/plan-query-threads/plan.mdx` §2.3). No role lists it: a
+ * query thread declares its author's tools (the prompt-cache key) and reaches it by `tool_search`.
+ */
+export const DOCUMENT_QUERY = prefixed(["document_query_promote"] as const);
+
 /** The structured-question surface, registered by Loom's extension rather than /mcp. */
 export const HUMAN_INPUT = prefixed(["ask_user_question"] as const);
 

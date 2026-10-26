@@ -36,6 +36,7 @@ import {
 import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 import { SubscriptionMeterChip } from "~/loom/SubscriptionMeter"; // loom:
+import { DocumentQueryHeaderChip } from "~/loom/DocumentQueryHeader"; // loom: query threads
 import { useClientSettings } from "../../hooks/useSettings";
 
 interface ChatHeaderProps {
@@ -399,6 +400,10 @@ export const ChatHeader = memo(function ChatHeader({
           )}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      {/* loom: a query thread names the author it is a read-only fork of. */}
+      {isServerThread ? (
+        <DocumentQueryHeaderChip threadRef={activeThreadRef} onOpenThread={onOpenThread} />
+      ) : null}
       {/* loom: the sidebar footer meter, mirrored here while the sidebar is
           closed; it renders nothing when the sidebar is on screen. */}
       <SubscriptionMeterChip />

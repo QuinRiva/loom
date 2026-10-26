@@ -19,6 +19,7 @@
  */
 import {
   CommandId,
+  DOCUMENT_QUERY_ROLE,
   type LoomAttentionReason,
   type LoomCommand,
   type LoomDomainEvent,
@@ -1483,6 +1484,42 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
         createdAt: command.createdAt,
       });
       return {};
+
+    case "thread.document-query.ask": {
+      yield* requireThread(command.threadId);
+      const row = yield* requireWorkstream(command.threadId);
+      if (row.role !== DOCUMENT_QUERY_ROLE)
+        return yield* fail(`Thread ${command.threadId} is not a query thread.`);
+      const query = row.documentQuery;
+      if (
+        query !== null &&
+        (query.filePath !== command.filePath || query.revision !== command.revision)
+      )
+        return yield* fail(
+          `Query thread ${command.threadId} is on ${query.filePath} @ ${query.revision}; a question on another revision forks a new one.`,
+        );
+      yield* on("thread.document-query-asked", command.threadId, {
+        filePath: command.filePath,
+        revision: command.revision,
+        authorSource: command.authorSource,
+        question: command.question,
+      });
+      return {};
+    }
+
+    case "thread.document-query.promote": {
+      yield* requireThread(command.threadId);
+      const row = yield* requireWorkstream(command.threadId);
+      if (row.role !== DOCUMENT_QUERY_ROLE)
+        return yield* fail(`Thread ${command.threadId} is not a query thread.`);
+      const { exchangeAt } = command.promotion;
+      if (!row.documentQuery?.questions.some((question) => question.askedAt === exchangeAt))
+        return yield* fail(`Query thread ${command.threadId} has no question at ${exchangeAt}.`);
+      yield* on("thread.document-query-promoted", command.threadId, {
+        promotion: command.promotion,
+      });
+      return {};
+    }
 
     case "thread.fork.prepare":
       yield* forkPrepare(command);

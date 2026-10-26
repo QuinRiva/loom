@@ -24,6 +24,8 @@ import {
 } from "./keybindings.ts";
 import { EditorId, FileManagerRevealKind, RemoteOpenTarget } from "./editor.ts";
 import { ModelCapabilities } from "./model.ts";
+import { DocumentQueryAuthorSource } from "./orchestrationV2.loom.ts"; // loom: query threads
+import { PlanCommentAnchor } from "./plan.ts"; // loom: query threads
 import { RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { ServerProviderUsageLimits, UsageLimitSourceSnapshots } from "./providerUsageLimits.ts";
@@ -543,6 +545,60 @@ export const RetroDraftResult = Schema.Struct({
   reviewerThreadId: ThreadId,
 });
 export type RetroDraftResult = typeof RetroDraftResult.Type;
+
+// loom: query threads (plans/plan-query-threads/plan.mdx §2.4). The MDX viewer's Query
+// asks about a passage in a read-only fork of the document's author: the thread that
+// signed it, else the viewing thread (`sourceThreadId`). It creates the query thread or
+// reuses the live one for this revision; the question becomes a human turn there.
+export const DocumentQueryInput = Schema.Struct({
+  sourceThreadId: ThreadId,
+  filePath: TrimmedNonEmptyString,
+  anchor: PlanCommentAnchor,
+  quotedText: Schema.String,
+  sectionId: Schema.String,
+  sectionTitle: Schema.String,
+  rangeLabel: Schema.String,
+  question: TrimmedNonEmptyString,
+});
+export type DocumentQueryInput = typeof DocumentQueryInput.Type;
+
+export const DocumentQueryResult = Schema.Struct({
+  queryThreadId: ThreadId,
+  /** False when the question landed in the live query thread for this revision. */
+  created: Schema.Boolean,
+  askedAt: IsoDateTime,
+  authorThreadId: ThreadId,
+  authorSource: DocumentQueryAuthorSource,
+});
+export type DocumentQueryResult = typeof DocumentQueryResult.Type;
+
+// loom: the Query card's pre-flight: which thread a Query on `filePath` from
+// `sourceThreadId` would fork, read once per document, never per selection.
+export const DocumentQueryAuthorInput = Schema.Struct({
+  sourceThreadId: ThreadId,
+  filePath: TrimmedNonEmptyString,
+});
+export type DocumentQueryAuthorInput = typeof DocumentQueryAuthorInput.Type;
+
+export const DocumentQueryAuthorResult = Schema.Struct({
+  authorThreadId: ThreadId,
+  authorTitle: Schema.String,
+  authorSource: DocumentQueryAuthorSource,
+  /** The document as the author names it (author-relative when it lies in its workspace). */
+  filePath: TrimmedNonEmptyString,
+});
+export type DocumentQueryAuthorResult = typeof DocumentQueryAuthorResult.Type;
+
+// loom: Promote on a query thread's answer: queues a human turn asking the fork to
+// distil the exchange at `exchangeAt` into one anchored comment for the author.
+export const DocumentQueryPromoteInput = Schema.Struct({
+  queryThreadId: ThreadId,
+  exchangeAt: IsoDateTime,
+});
+export type DocumentQueryPromoteInput = typeof DocumentQueryPromoteInput.Type;
+
+export const DocumentQueryPromoteResult = Schema.Struct({ dispatched: Schema.Literal(true) });
+export type DocumentQueryPromoteResult = typeof DocumentQueryPromoteResult.Type;
 
 export const EnvironmentThemeColor = Schema.String.check(
   Schema.isPattern(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/),

@@ -7,8 +7,10 @@ import {
   computeForkJoinLayout,
   computeForkJoinViewBox,
   deriveConsultOverlay,
+  deriveQueryOverlay,
   NODE_W,
   roundedPath,
+  SATELLITE_W,
   type LaidNode,
 } from "./forkJoinLayout";
 
@@ -667,3 +669,91 @@ function computeForkJoinLayoutWith(threads: ReadonlyArray<WorkstreamNode>): {
   const { nodes } = computeForkJoinLayout(threads);
   return { nodes: { all: nodes, byId: new Map(threads.map((t) => [t.id, t])) } };
 }
+
+describe("deriveQueryOverlay", () => {
+  // R dispatches coderA (which spawns grandG) and a leaf planner P.
+  const structure = [
+    thread({ id: "R", parentThreadId: null, spawnGeneration: null, createdAt: "0" }),
+    thread({ id: "coderA", parentThreadId: "R", spawnGeneration: "g1", createdAt: "1" }),
+    thread({ id: "grandG", parentThreadId: "coderA", spawnGeneration: "g2", createdAt: "2" }),
+    thread({ id: "P", parentThreadId: "R", spawnGeneration: "g1", createdAt: "3" }),
+  ];
+  const query = (id: string, authorId: string, createdAt: string, archived = false) =>
+    ({
+      ...thread({ id, parentThreadId: null, spawnGeneration: null, createdAt }),
+      forkFromThreadId: tid(authorId),
+      archived,
+    }) as WorkstreamNode;
+  const satellites = [
+    query("qA", "coderA", "9"),
+    query("qP2", "P", "8"),
+    query("qP1", "P", "7", true),
+    query("qR", "R", "6"),
+    query("qGone", "not-in-graph", "5"),
+  ];
+  const counts = new Map([
+    [tid("coderA"), 1],
+    [tid("P"), 2],
+  ]);
+  const { nodes } = computeForkJoinLayout(structure, counts);
+  const overlay = deriveQueryOverlay(nodes, satellites);
+  const sat = (id: string) => overlay.nodes.find((n) => n.thread.id === tid(id))!;
+  const card = (id: string) => byId(nodes, id) as Extract<LaidNode, { kind: "thread" }>;
+
+  it("stacks an author's satellites under its card, oldest first, in reserved room", () => {
+    const planner = card("P");
+    const [first, second] = [sat("qP1"), sat("qP2")];
+    expect(first.y).toBeGreaterThanOrEqual(planner.y + planner.h);
+    expect(second.y).toBeGreaterThanOrEqual(first.y + first.h);
+    expect(first.x).toBeGreaterThanOrEqual(planner.x);
+    expect(first.x + first.w).toBeLessThanOrEqual(planner.x + planner.w);
+    expect(first.w).toBe(SATELLITE_W);
+    // The reserved room means no structural card overlaps any satellite.
+    const structuralCards = nodes.filter(
+      (n): n is Extract<LaidNode, { kind: "thread" }> => n.kind === "thread",
+    );
+    for (const satellite of overlay.nodes)
+      for (const other of structuralCards)
+        expect(
+          satellite.x < other.x + other.w &&
+            satellite.x + satellite.w > other.x &&
+            satellite.y < other.y + other.h &&
+            satellite.y + satellite.h > other.y,
+        ).toBe(false);
+  });
+
+  it("pushes a sub-orchestrator's nested block below its satellites", () => {
+    const satellite = sat("qA");
+    const grand = card("grandG");
+    expect(satellite.y).toBeGreaterThan(card("coderA").y);
+    expect(grand.y).toBeGreaterThan(satellite.y + satellite.h);
+  });
+
+  it("places a bridge-only root's satellite left of its first bridge", () => {
+    const bridge = nodes.find((n) => n.kind === "bridge" && n.orchestratorId === tid("R"))!;
+    const satellite = sat("qR");
+    expect(satellite.x + satellite.w).toBeLessThan(bridge.x);
+    expect(satellite.y + satellite.h / 2).toBe(bridge.y + bridge.h / 2);
+  });
+
+  it("draws one dashed query edge per satellite and ignores authors outside the graph", () => {
+    expect(overlay.nodes.map((n) => n.thread.id).toSorted()).toEqual(
+      ["qA", "qP1", "qP2", "qR"].map(tid),
+    );
+    expect(overlay.edges.every((edge) => edge.kind === "query")).toBe(true);
+    expect(overlay.edges.map((edge) => edge.toKey).toSorted()).toEqual(["qA", "qP1", "qP2", "qR"]);
+    expect(overlay.edges.find((edge) => edge.toKey === "qP1")?.fromKey).toBe("P");
+  });
+
+  it("stacks a childless root's satellites in the otherwise empty graph", () => {
+    const root = thread({ id: "R", parentThreadId: null, spawnGeneration: null, createdAt: "0" });
+    const lone = deriveQueryOverlay(computeForkJoinLayout([root]).nodes, [
+      query("q2", "R", "2"),
+      query("q1", "R", "1", true),
+    ]);
+    expect(lone.nodes.map((n) => [n.thread.id, n.y])).toEqual([
+      [tid("q1"), 0],
+      [tid("q2"), lone.nodes[0]!.h + 14],
+    ]);
+  });
+});

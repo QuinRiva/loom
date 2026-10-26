@@ -318,7 +318,10 @@ import {
 import { ConsultCardRow } from "../../loom/ConsultCardRow";
 import { isConsultToolItem } from "../../loom/consultTool";
 import { ControlDigestRow } from "../../loom/ControlDigestRow";
-import { CHANNEL_CLASSES, type ControlBubble } from "../../loom/controlMessages"; // loom: 3d-3
+import { CHANNEL_CLASSES, type ControlBubble, KICKOFF_BUBBLE } from "../../loom/controlMessages"; // loom: 3d-3
+import { splitDocumentQueryKickoff } from "@t3tools/shared/documentQuery.loom"; // loom: query threads
+import { DocumentQueryPromoteButton } from "../../loom/DocumentQueryPromoteButton"; // loom: query threads
+import { PromotedFromQuery } from "../../loom/PromotedFromQuery"; // loom: query threads
 import { LoomTimelineRow } from "../../loom/LoomTimelineRow";
 import { insertLoomTimelineRows, useLoomTimelineRows } from "../../loom/loomTimelineRows";
 import { ModelChangeDivider } from "../../loom/ModelChangeDivider"; // loom: model-change divider
@@ -2011,7 +2014,22 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         <ControlDigestRow
           messageId={row.message.id}
           text={row.message.text}
-          fallback={(bubble) => <UserMessageRow row={row} loomBubble={bubble} />}
+          fallback={(bubble) => {
+            // loom: a query thread's first message is its overlay and first question in one
+            // turn; the overlay renders as the kickoff bubble, the question as the human's.
+            const kickoff = splitDocumentQueryKickoff(row.message.id, row.message.text);
+            if (kickoff === null) return <UserMessageRow row={row} loomBubble={bubble} />;
+            const part = (text: string) => ({ ...row, message: { ...row.message, text } });
+            return (
+              <div className="flex flex-col gap-3">
+                <UserMessageRow
+                  row={{ ...part(kickoff.overlay), revertTurnCount: undefined }}
+                  loomBubble={KICKOFF_BUBBLE}
+                />
+                <UserMessageRow row={part(kickoff.question)} loomBubble={null} />
+              </div>
+            );
+          }}
         />
       ) : null}
       {row.kind === "loom-handoff" ? (
@@ -2855,6 +2873,14 @@ function AssistantMessageMeta({
       />
       {projectedItem?.item.type === "assistant_message" ? (
         <AssistantForkButton projectedItem={projectedItem} />
+      ) : null}
+      {/* loom: Promote on a query thread's answer (renders nothing elsewhere) */}
+      {projectedItem?.item.type === "assistant_message" && projectedItem.item.runId !== null ? (
+        <DocumentQueryPromoteButton
+          environmentId={ctx.activeThreadEnvironmentId}
+          threadId={projectedItem.sourceThreadId}
+          runId={projectedItem.item.runId}
+        />
       ) : null}
       {!message.streaming && (
         <Tooltip>
@@ -4566,6 +4592,7 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
                   : {}),
                 ...(record.pullRequest !== undefined ? { pullRequest: record.pullRequest } : {}),
               }}
+              queryThreadId={record.mdxAnchor?.queryThreadId} // loom: promoted link back
             />
           </UserMessageContextPopover>
         );
@@ -4723,7 +4750,13 @@ const UserMessageBody = memo(function UserMessageBody(props: {
 });
 
 // loom: the card renders line comments; mdx-anchor ones have no diff to show.
-function UserMessageReviewCommentCard({ comment }: { comment: LineReviewCommentContext }) {
+function UserMessageReviewCommentCard({
+  comment,
+  queryThreadId, // loom: set on a comment promoted from a query thread
+}: {
+  comment: LineReviewCommentContext;
+  queryThreadId?: ThreadId | undefined; // loom:
+}) {
   const ctx = use(TimelineRowCtx);
   const fenceLanguage = comment.fenceLanguage ?? "diff";
   const renderablePatch = getRenderablePatch(
@@ -4740,6 +4773,14 @@ function UserMessageReviewCommentCard({ comment }: { comment: LineReviewCommentC
         <div className="text-2xs text-muted-foreground">
           {comment.sectionTitle} · {comment.rangeLabel}
         </div>
+        {queryThreadId ? ( // loom: the link back to the query thread
+          <PromotedFromQuery
+            environmentId={ctx.activeThreadEnvironmentId}
+            queryThreadId={queryThreadId}
+            filePath={comment.filePath}
+            fromThreadRef={ctx.threadRef ?? undefined}
+          />
+        ) : null}
       </div>
       {comment.text.length > 0 && (
         <div className="whitespace-pre-wrap wrap-break-word text-sm">

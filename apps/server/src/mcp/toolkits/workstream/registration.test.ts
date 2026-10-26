@@ -9,6 +9,7 @@ import * as McpOAuth from "../../../auth/McpOAuth.ts";
 import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
 import * as McpHttpServer from "../../McpHttpServer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import { documentQueryClient } from "../../../loom/query/queryPosture.ts";
 import type { WorkstreamCaller } from "./authorisation.ts";
 import { LOOM_TOOL_DEFS, LoomToolError, type LoomToolHandlers } from "./defs.ts";
 import { LOOM_TEST_THREAD, mcpTestLayer, serveMcp } from "./mcpHttp.testkit.ts";
@@ -153,7 +154,7 @@ it.effect("an OAuth-signed outside agent is refused by every Loom tool before it
     const scope = yield* oauthScope;
     expect(scope.capabilities.has("workstream")).toBe(false);
     const { ran, results } = yield* callEveryTool(scope);
-    expect(results).toHaveLength(23);
+    expect(results).toHaveLength(24);
     for (const { def, result } of results) {
       // A soft-mode tool refuses as plain text; only throw-mode tools set isError.
       expect(result.isError, def.name).toBe(def.errorMode === "throw");
@@ -189,7 +190,7 @@ it.effect("a read-only consult fork reaches only workstream_list and goal_task_l
       ...scope(["workstream", "pull-requests"]),
       client: { sessionId: "consult-1", label: "consult fork", access: "read-only" },
     });
-    expect(results).toHaveLength(23);
+    expect(results).toHaveLength(24);
     for (const { def, result } of results) {
       if (def.name === "workstream_list" || def.name === "goal_task_list") {
         expect(result.content, def.name).toEqual([{ type: "text", text: "ran" }]);
@@ -207,6 +208,42 @@ it.effect("a read-only consult fork reaches only workstream_list and goal_task_l
   }),
 );
 
+// A query thread is its own thread under a read-only client: it may also consult the live author,
+// retitle itself and promote an exchange, and every other write is refused with the query thread's own refusal.
+it.effect(
+  "a query thread reaches the reads, consult_thread, set_thread_title and promote only",
+  () =>
+    Effect.gen(function* () {
+      const { ran, results } = yield* callEveryTool({
+        ...scope(["workstream", "pull-requests"]),
+        client: documentQueryClient(ThreadId.make("thread-caller")),
+      });
+      const allowed = [
+        "consult_thread",
+        "document_query_promote",
+        "goal_task_list",
+        "set_thread_title",
+        "workstream_list",
+      ];
+      for (const { def, result } of results) {
+        // The ones with required parameters get past the gate and fail decoding the empty payload.
+        if (allowed.includes(def.name)) {
+          expect(result.content[0], def.name).not.toMatchObject({
+            text: expect.stringContaining("read-only"),
+          });
+          continue;
+        }
+        expect(result.content, def.name).toEqual([
+          {
+            type: "text",
+            text: `This is a read-only query thread: ${def.name} changes workstream state and was refused. The author is the document's only writer; the human promotes an exchange to it as a comment. workstream_list, goal_task_list, consult_thread and set_thread_title still work.`,
+          },
+        ]);
+      }
+      expect(ran.toSorted()).toEqual(["goal_task_list", "workstream_list"]);
+    }),
+);
+
 it.effect("unknown or mistyped parameters are refused, closed like the JSON schema", () =>
   Effect.gen(function* () {
     const extra = yield* call("workstream_stop", { threadId: "t", staged: true });
@@ -217,7 +254,7 @@ it.effect("unknown or mistyped parameters are refused, closed like the JSON sche
   }),
 );
 
-it.effect("/mcp lists exactly the 23 Loom tools with _meta prose, object schemas and hints", () =>
+it.effect("/mcp lists exactly the 24 Loom tools with _meta prose, object schemas and hints", () =>
   Effect.gen(function* () {
     const mcp = yield* serveMcp({}, { threadId: LOOM_TEST_THREAD, capabilities: ["workstream"] });
     const tools = yield* mcp.listTools;
@@ -225,7 +262,7 @@ it.effect("/mcp lists exactly the 23 Loom tools with _meta prose, object schemas
     expect(loom.map((tool) => tool.name).toSorted()).toEqual(
       LOOM_TOOL_DEFS.map((def) => def.name).toSorted(),
     );
-    expect(loom).toHaveLength(23);
+    expect(loom).toHaveLength(24);
     for (const tool of loom) {
       const prose = LOOM_TOOL_PROSE[tool.name as keyof typeof LOOM_TOOL_PROSE];
       expect(tool.description).toBe(prose.description);

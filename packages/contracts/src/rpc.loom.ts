@@ -36,6 +36,12 @@ import {
 } from "./providerUsageLimits.ts";
 import { ReviewDiffFileContentsInput, ReviewDiffFileContentsResult } from "./review.ts";
 import {
+  DocumentQueryAuthorInput,
+  DocumentQueryAuthorResult,
+  DocumentQueryInput,
+  DocumentQueryPromoteInput,
+  DocumentQueryPromoteResult,
+  DocumentQueryResult,
   HandoffDraftInput,
   HandoffDraftResult,
   RetroDraftInput,
@@ -48,6 +54,10 @@ export const LOOM_WS_METHODS = {
   // 3b — the drafters.
   handoffDraft: "loom.handoffDraft",
   retroDraft: "loom.retroDraft",
+  // Query threads: ask the document's author's read-only fork; promote an exchange to it.
+  documentQuery: "loom.documentQuery",
+  documentQueryAuthor: "loom.documentQueryAuthor",
+  documentQueryPromote: "loom.documentQueryPromote",
   // 3d-4 — seam 11's spend reads (DL-438).
   threadSpend: "loom.threadSpend",
   topSpend: "loom.topSpend",
@@ -386,6 +396,21 @@ export const LoomWsRpcs = [
   Rpc.make(LOOM_WS_METHODS.retroDraft, {
     payload: RetroDraftInput,
     success: RetroDraftResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.documentQuery, {
+    payload: DocumentQueryInput,
+    success: DocumentQueryResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.documentQueryAuthor, {
+    payload: DocumentQueryAuthorInput,
+    success: DocumentQueryAuthorResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.documentQueryPromote, {
+    payload: DocumentQueryPromoteInput,
+    success: DocumentQueryPromoteResult,
     error: LoomWsError,
   }),
   // 3d-4 — seam 11 (DL-438).

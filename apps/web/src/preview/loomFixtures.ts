@@ -120,6 +120,7 @@ export const workstream = (
   reportPath: null,
   handoffDestinations: [],
   handoffOrigin: null,
+  documentQuery: null,
   archivedAt: null,
   deletedAt: null,
   createdAt: AT,

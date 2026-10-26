@@ -1,0 +1,469 @@
+---
+kicker: "Plan · query threads for plan and recap review · 21 Oct 2026"
+reader:
+  who: loom's owner, opening this in the MDX viewer to approve or redirect it before any code is written
+  knows: loom's thread model (forks, consults, annotations, the workstream graph) intimately, and the design conversation that settled the shape; none of the code named here
+  after_first_screen: that a query thread is a visible, read-only, live fork of the document's author that he chats with in the main window, pinned to the passage he asked about and hung off the author on the graph; that Promote turns an exchange into one anchored comment in the author's composer; and that he is approving the identity, revision and promote contracts plus a two-slice build
+manager_sessions:
+  - id: 01a15c20-6744-7192-ba4d-ee2415c0b3e4
+    name: Query-threads plan with UI mockups
+    role: plan
+    authored_at: 2026-10-21T02:02:13.710Z
+---
+
+# Query threads: ask the author's fork, not the author
+
+**Recommendation: a "Query" button beside "Comment" in the MDX viewer that forks the document's author into a live, read-only query thread and sends your question there, in the main window, with the passage you selected attached.** The fork carries the author's whole reasoning, so it answers the questions the document alone cannot; it cannot edit, commit, spawn or route, so the author stays the document's single writer and its context stays clean. One query thread serves one revision of one document: later questions on the same revision land in it as new turns, each pinned to its passage; after the author rewrites, the next question forks afresh. **Promote** on an exchange makes the query thread write one anchored reviewer's comment that lands as a chip in the author's composer, beside your own annotations, for you to send with the rest of the review. On the graph the query thread hangs off the author on a dashed edge, labelled by document and counts, never a dependency and never a flag.
+
+**About four days, in two slices**: query + read-only posture + pins + graph leaf first (two and a half days), Promote second (a day and a half). The two bets are **where the query thread's identity lives** (a Loom root with a server-owned role and a new sidecar field, not a new upstream lineage kind) and **how the author's warm prompt cache is kept** (the overlay rides the first turn, as a consult's framing does, so the fork re-reads the author's context at cache price rather than rewriting it).
+
+<Columns>
+  <Column label="Before">
+<Screen
+  surface="panel"
+  caption="Selecting a passage offers Comment; a comment becomes a turn in the author's thread"
+  html={"<div style='display:flex;flex-direction:column;height:100%;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1.4px solid var(--wf-line);white-space:nowrap;width:100%;box-sizing:border-box'><span class='wf-pill'>plan.mdx</span><span style='flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;color:var(--wf-muted)'>plans/sqlite-read-lane-v2/plan.mdx</span><small>1 comment</small></div><div style='flex:1;padding:14px 16px 14px 30px;display:flex;flex-direction:column;gap:10px'><h3 style='margin:0'>2. One reader lane, not two</h3><div style='display:flex;gap:8px;align-items:flex-start'><span style='width:18px;height:18px;flex:none;margin-left:-26px;border-radius:999px;background:var(--wf-warn);color:var(--wf-paper);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center'>1</span><p style='margin:0;font-size:12.5px;line-height:1.55'>The projection reader moves to the worker thread. <span style='background:var(--wf-accent-soft);border-radius:2px'>Every read that used to block the event loop now crosses one message port</span>, so a 40 ms query no longer stalls a turn.</p></div><div style='display:flex;gap:6px;white-space:nowrap'><span class='wf-btn' style='font-size:11px;padding:3px 9px'>Comment</span></div><p style='margin:0;font-size:12.5px;line-height:1.55;color:var(--wf-muted)'>The writer stays in-process: a write that crossed the port would lose the transaction it sits in, and the orchestrator commits events, projections and outbox in one.</p><p style='margin:0;font-size:12.5px;line-height:1.55;color:var(--wf-muted)'>Costs: one serialisation per read, measured at 0.3 ms on the seeded database.</p></div></div>"}
+/>
+  </Column>
+  <Column label="After">
+<Screen
+  surface="panel"
+  caption="Query joins Comment; a query pin marks a passage already asked about"
+  html={"<div style='display:flex;flex-direction:column;height:100%;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1.4px solid var(--wf-line);white-space:nowrap;width:100%;box-sizing:border-box'><span class='wf-pill'>plan.mdx</span><span style='flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;color:var(--wf-muted)'>plans/sqlite-read-lane-v2/plan.mdx</span><small>1 comment · 2 queries</small></div><div style='flex:1;padding:14px 16px 14px 30px;display:flex;flex-direction:column;gap:10px'><h3 style='margin:0'>2. One reader lane, not two</h3><div style='display:flex;gap:8px;align-items:flex-start'><span style='width:18px;height:18px;flex:none;margin-left:-26px;border-radius:999px;background:var(--wf-warn);color:var(--wf-paper);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center'>1</span><p style='margin:0;font-size:12.5px;line-height:1.55'>The projection reader moves to the worker thread. <span style='background:var(--wf-accent-soft);border-radius:2px'>Every read that used to block the event loop now crosses one message port</span>, so a 40 ms query no longer stalls a turn.</p></div><div style='display:flex;gap:6px;white-space:nowrap'><span class='wf-btn' style='font-size:11px;padding:3px 9px'>Comment</span><span class='wf-btn' style='font-size:11px;padding:3px 9px;border-color:var(--wf-accent);color:var(--wf-accent)'>Query</span></div><div style='display:flex;gap:8px;align-items:flex-start'><span style='width:18px;height:18px;flex:none;margin-left:-26px;border-radius:999px;border:1.6px solid var(--wf-accent);color:var(--wf-accent);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center'>?</span><p style='margin:0;font-size:12.5px;line-height:1.55;color:var(--wf-muted)'>The writer stays in-process: <span style='border-bottom:1.6px dashed var(--wf-accent);color:var(--wf-ink)'>a write that crossed the port would lose the transaction it sits in</span>, and the orchestrator commits events, projections and outbox in one.</p></div><p style='margin:0;font-size:12.5px;line-height:1.55;color:var(--wf-muted)'>Costs: one serialisation per read, measured at 0.3 ms on the seeded database.</p></div></div>"}
+/>
+  </Column>
+</Columns>
+
+The same document both sides, open in the right panel of the thread that wrote it. Today a selection offers Comment, and the comment becomes a review turn in that thread. After, it also offers Query; a passage already queried carries a hollow accent pin that opens the query thread at that question, beside the solid amber badge a pending comment already draws.
+
+**What this covers.** The Query affordance and pins in the MDX viewer; the query thread (fork, read-only posture, overlay, one per revision); its place on the graph; Promote into the author's composer and the link back from the author's transcript. **Deferred:** a Query affordance on mobile (query threads are ordinary threads, so chatting in one works there already); resolving the author from the document's signature when the viewing thread is not the author; a "close review" that archives every query thread of a document at once. **Done means:** on a seeded dev instance you select a passage of a plan in its author's right panel, press Query, type a question, and the answer streams in the main window with the passage attached; the thread refuses an edit; a second question lands in the same thread with its own pin; the graph shows the leaf under the author with "2 questions"; Promote puts one anchored comment in the author's composer and, once sent, the author's transcript links back to the query thread. **Two questions at the end:** whether the Query button sends the question or only prefills it, and whether promoting ends the query thread.
+
+## 1. One review pass, start to finish
+
+<Steps>
+  <Step at="select" title="You select a passage and press Query.">
+    The floating affordance that offers Comment now offers Query beside it. Query opens the same card in query mode: the quoted passage, a question box, a Query button. Nothing touches the author's composer.
+  </Step>
+  <Step at="fork" title="The server forks the author into a query thread.">
+    One RPC (`loom.documentQuery`) spawns a Loom root with role `document-query`, prepares the native session fork from the author's latest finished run (the `/handoff` drafter's exact mechanism), writes the overlay as the kickoff, and dispatches your question as your own first message with the passage attached as a review chip. The main window navigates to the new thread. A mid-turn author defers the fork until its turn ends; the thread shows that it is waiting.
+  </Step>
+  <Step at="answer" title="The fork answers from the author's reasoning and the code.">
+    It has read, search and bash; `edit` and `write` are refused by the same hook a consult fork uses; every state-changing workstream tool is refused server-side. It may consult the live author for anything after its fork point. The overlay tells it to flag a mistake rather than defend the text.
+  </Step>
+  <Step at="again" title="More questions on the same revision land in the same thread.">
+    A second Query on the document, while its content is unchanged, reuses the live query thread: a new turn, its own pin. The pin opens the query thread scrolled to that question.
+  </Step>
+  <Step at="promote" title="Promote turns an exchange into one anchored comment." badge="slice 2">
+    An action on the answer sends a promote turn; the fork writes ONE reviewer's comment, anchored to the passage, with `mcp__t3-code__document_query_promote`. The comment appears as a chip in the author's composer, beside your own annotations and form answers. You send the review turn as you do today. The author's transcript shows the chip with a link back to the query thread.
+  </Step>
+  <Step at="rewrite" title="The author rewrites; the next question forks afresh." dashed>
+    When the document's content changes, the query thread for the old revision is superseded: the next Query archives it (outcome done) and forks a new one. The old thread stays on the graph, receded, and reachable.
+  </Step>
+</Steps>
+
+<Mermaid
+  caption="Three threads and the two edges between them: the fork (solid) and, only when needed, a consult back to the live author (dotted)"
+  legend={[{ tone: "accent", label: "the query thread: read-only, visible, yours to chat with" }, { tone: "neutral", label: "unchanged threads" }]}
+  source={"flowchart LR\n  A[\"author thread<br/>writes plan.mdx\"]\n  Q[\"query thread<br/>fork · document-query\"]:::tone-accent\n  C[\"author composer<br/>promoted chip\"]\n  A -->|fork at latest run| Q\n  Q -.->|consult_thread| A\n  Q -->|promote| C\n  C -->|you send the review| A\n"}
+/>
+
+Read it left to right: the author is forked once per revision; the query thread talks back to the live author only through a read-only consult; a promotion reaches the author only through your composer, so nothing the fork says becomes the author's work until you send it.
+
+## 2. The bets this plan settles
+
+<Table
+  density="compact"
+  columns={["Decision", "Settled as", "Why it is hard to reverse"]}
+  rows={[
+    ["What a query thread is", { badge: { label: "Loom root", tone: "accent" }, md: "role `document-query`, `forkFromThreadId` = author, sidecar field `documentQuery`" }, "The graph, sidebar, reactor and tool authorisation all key on it"],
+    ["Which thread is the author", "The thread whose composer a Comment would reach (the viewing thread)", "Changing it later re-homes every existing query thread"],
+    ["What a revision is", "SHA-256 of the file's bytes, read server-side when the question is asked", "Decides reuse vs fork afresh; stored on every query thread"],
+    ["How the fork stays read-only", "Author's launch identity replayed verbatim + an env flag the pi extension honours + a read-only MCP credential + a role allow-list for Loom tools", "The tool declaration is the prompt-cache key"],
+    ["Where the overlay lives", "The kickoff turn, not the system prompt", "Moving it into the system prompt breaks the author's cache prefix"],
+    ["How Promote reaches the author", "A `thread.document-query-promoted` event; the client seeds one chip into the author's composer; the chip carries `queryThreadId`", "The chip's wire shape rides upstream's review-comment record"],
+  ]}
+/>
+
+### 2.1 Identity: a Loom root with a server-owned role, not a new upstream lineage kind
+
+<Callout tone="decision" title="A query thread is a Loom root: role document-query, forkFromThreadId = the author, plus one sidecar field">
+  It is created exactly as a `/handoff` drafter is (`buildDraftForkCommands` in `apps/server/src/loom/handoff/handoffDraft.ts`: `thread.spawn` with `parentThreadId: null`, the author's project, worktree, branch, modes and model, `forkFromThreadId` = the author; then `thread.fork.prepare`; then the kickoff). Its `role` is the discriminator every surface reads, as `handoff-drafter` and `retro-reviewer` already are. It has **no goal** and **no parent**, so it is outside every join barrier, dependency rail, rollup and attention cascade by construction. The "lineage kind" the design asked for lives in the sidecar: `role` plus a new `documentQuery` field naming the document, the revision, the questions and the promotions.
+</Callout>
+
+<Columns>
+  <Card heading="Rejected: a third upstream lineage literal" tone="neutral" badge="REJECTED" meta={["touches upstream contract", "every fork reader misreads it"]}>
+    `relationshipToParent` in `packages/contracts/src/orchestrationV2.ts` is upstream's `fork | subagent`. Adding `query` there is an unmarked hunk on an upstream file, and every upstream reader of that field (sidebar nesting, the lineage panel, the fork-from-run badge) would have to learn it. The sidecar already carries `forkFromThreadId` for exactly this relation.
+  </Card>
+  <Card heading="Rejected: a child (subagent lineage) of the author" tone="neutral" badge="REJECTED" meta={["joins the parent's wave", "wakes the parent on submit"]}>
+    A child enters the author's spawn generation, gates the join barrier, appears in `workstream_list`, and its outcome wakes the parent. Every one of those is the opposite of a side-channel. Keeping it out would mean special-casing the role in the dispatcher, the rollup and the graph.
+  </Card>
+</Columns>
+
+The sidecar gains one JSON column (`loom_thread_workstream.document_query`, Loom migration 1061 beside `handoff_destinations`), decoded by the row codec in `apps/server/src/loom/projection/LoomStore.ts`:
+
+<DataModel
+  entities={[
+    {
+      id: "ws",
+      name: "LoomThreadWorkstream",
+      change: "modified",
+      fields: [
+        { name: "threadId", type: "ThreadId", pk: true },
+        { name: "role", type: "string | null", note: "\"document-query\" on a query thread" },
+        { name: "forkFromThreadId", type: "ThreadId | null", note: "the author" },
+        { name: "goalId", type: "GoalId | null", note: "null: not a goal root" },
+        { name: "documentQuery", type: "LoomDocumentQuery | null", change: "added" },
+      ],
+    },
+    {
+      id: "dq",
+      name: "LoomDocumentQuery",
+      change: "added",
+      fields: [
+        { name: "filePath", type: "string", note: "workspace-relative, as the annotation layer names it" },
+        { name: "revision", type: "string", note: "sha256 of the file bytes, 12 hex" },
+        { name: "questions", type: "LoomDocumentQueryQuestion[]" },
+        { name: "promotions", type: "LoomDocumentQueryPromotion[]" },
+      ],
+    },
+    {
+      id: "q",
+      name: "LoomDocumentQueryQuestion",
+      change: "added",
+      fields: [
+        { name: "messageId", type: "MessageId", note: "the human message carrying the question" },
+        { name: "askedAt", type: "IsoDateTime", note: "the conversation-jump anchor" },
+        { name: "anchor", type: "PlanCommentAnchor" },
+        { name: "quotedText", type: "string" },
+        { name: "sectionTitle", type: "string" },
+      ],
+    },
+    {
+      id: "p",
+      name: "LoomDocumentQueryPromotion",
+      change: "added",
+      fields: [
+        { name: "promotionId", type: "string", pk: true, note: "the chip id in the author's composer" },
+        { name: "promotedAt", type: "IsoDateTime" },
+        { name: "exchangeAt", type: "IsoDateTime", note: "the question turn it distils" },
+        { name: "comment", type: "MdxAnchorReviewComment", note: "text, anchor, quotedText, sectionId/Title, rangeLabel" },
+      ],
+    },
+    {
+      id: "mdx",
+      name: "LoomMdxAnchorReviewContext",
+      change: "modified",
+      fields: [
+        { name: "anchor", type: "PlanCommentAnchor" },
+        { name: "quotedText", type: "string" },
+        { name: "queryThreadId", type: "ThreadId", nullable: true, change: "added", note: "set on a promoted chip: the transcript's link back" },
+        { name: "promotionId", type: "string", nullable: true, change: "added" },
+      ],
+    },
+  ]}
+  relations={[
+    { from: "ws", to: "dq", kind: "1-1", label: "documentQuery" },
+    { from: "dq", to: "q", kind: "1-n", label: "questions" },
+    { from: "dq", to: "p", kind: "1-n", label: "promotions" },
+  ]}
+/>
+
+Two Loom domain events write it, replay-safe like `thread.handoff-recorded`: `thread.document-query-asked` (appends a question; the first one also sets `filePath` and `revision`) and `thread.document-query-promoted` (appends a promotion). Both are reducers in `apps/server/src/loom/projection/loomProjection.ts`; their commands are `thread.document-query.ask` and `thread.document-query.promote` in `packages/contracts/src/orchestrationV2.loom.ts`.
+
+### 2.2 The author is the viewing thread; a revision is the content hash
+
+The annotation layer already answers "whose thread does this comment reach": `FilePreviewPanel.tsx` passes the viewing thread as `composerDraftTarget`, and `PlanDocumentContext` carries its `threadRef`. Query forks that same thread. In the flow you described, that is the drafter, because you review a plan in the thread that wrote it. When a plan is opened from another thread (a parent reading a child's plan), Query forks the parent, which is the thread a Comment would have reached too; resolving the true author from the document's `manager_sessions` signature (a pi session id the server can map to a thread) is a later refinement, and the sidecar shape does not foreclose it.
+
+The revision is the SHA-256 of the file's bytes as the server reads them (via `WorkspaceFileSystem.readFile`) at the moment of the question, stored as 12 hex characters. The reuse rule, pure and unit-testable:
+
+<Code
+  language="ts"
+  filename="apps/server/src/loom/query/documentQuery.ts (new)"
+  code={"/** The live query thread to reuse for (author, file, revision), else null: fork afresh. */\nexport const reusableQueryThread = (\n  candidates: ReadonlyArray<LoomThreadWorkstream>,\n  input: { authorThreadId: ThreadId; filePath: string; revision: string },\n) =>\n  candidates.find(\n    (row) =>\n      row.role === DOCUMENT_QUERY_ROLE &&\n      row.forkFromThreadId === input.authorThreadId &&\n      row.documentQuery?.filePath === input.filePath &&\n      row.archivedAt === null &&\n      row.deletedAt === null &&\n      row.outcome === null &&\n      row.documentQuery.revision === input.revision,\n  ) ?? null;\n\n/** Live query threads on the same document whose revision is stale: superseded by this ask. */\nexport const supersededQueryThreads = (candidates, input) =>\n  candidates.filter((row) => /* same author, file, live */ row.documentQuery?.revision !== input.revision);\n"}
+/>
+
+A superseded thread gets `thread.outcome.set done` and `thread.archive` in the same RPC that forks the new one, so the graph shows it receded (done cards fade) and the sidebar drops it; it is never deleted. A content hash means a one-character edit by the author forks afresh; that is the agreed rule ("one query thread per document revision"), and the fork is cheap because of §2.3.
+
+### 2.3 Read-only posture without breaking the author's prompt cache
+
+<Callout tone="decision" title="Replay the author's identity verbatim; enforce read-only by hook, credential and allow-list; overlay in the kickoff">
+  A consult fork is launched exactly as its target was so pi declares the same tools and the request prefix stays byte-identical to the target's: a warm cache is read, not rewritten (`apps/server/src/loom/workstream/consult.ts`, DL-634). The query thread does the same. The composer's fork replay (`launchIdentity` in `apps/server/src/loom/prompt/sessionComposerLive.ts`) already replays the source's record on a fork's first launch; for role `document-query` it replays on every launch and adds one env var, `T3_LOOM_QUERY_FORK=1`, which a new part beside `consultGuard.ts` honours by refusing `edit` and `write` with a query-specific reason. The thread's MCP credential is issued with a read-only client (`ProviderSessionManager.ts`, one marked hunk keyed on the role), so upstream's `McpToolAccess` refuses every environment write; `callLoomTool` in `registration.ts` widens the read-only allow-list for this role to `workstream_list`, `goal_task_list`, `consult_thread`, `set_thread_title` and the new `document_query_promote`. The overlay (§3) is the kickoff turn, as a consult's framing is the question turn: the most recent text wins over the replayed transcript, and the prefix is untouched.
+</Callout>
+
+What this buys: a 150k-token author context re-read at cache price (about a tenth of the write price) on the fork's first turn, every time a revision forks afresh. What it costs: the query thread's tool list is the author's, so `document_query_promote` is reached through `tool_search` at promote time (one declared-tool change, one cache miss, at the end of an exchange), which is the retro reviewer's precedent for `goal_handoff`.
+
+<Columns>
+  <Card heading="Rejected: a narrowed tool set and a role overlay in the system prompt" tone="neutral" badge="REJECTED" meta={["full-price re-read per fork", "the retro reviewer's shape"]}>
+    Clean on paper: compose the query thread fresh with `RETRO_REVIEWER_TOOLS`-style resident tools and a server-owned overlay. But a different system prompt and tool list is a different cache prefix, so every fresh fork re-reads the author's whole context at write price. For the "many simple questions" case this is the dominant cost of the feature.
+  </Card>
+  <Card heading="Rejected: reuse T3_LOOM_CONSULT_FORK as the flag" tone="neutral" badge="REJECTED" meta={["wrong refusal text", "wrong HTTP posture"]}>
+    The consult guard's refusal says "this fork is discarded once you have answered", which is false here, and `loomAgentRoutes.ts` 403s a consult fork's ask and cache-gauge routes by its read-only client. The query thread wants the ask route refused too (it talks to the human in chat), so the credential is read-only, but the pi-side message must say what a query thread is and point at Promote.
+  </Card>
+</Columns>
+
+### 2.4 The two RPCs and the one tool
+
+<Endpoint
+  method="POST"
+  path="loom.documentQuery"
+  summary="Ask a question about a document passage in its author's query thread (creating or reusing the thread)"
+  change="added"
+  params={[
+    { name: "sourceThreadId", in: "body", type: "ThreadId", required: true, description: "the viewing thread: the author to fork" },
+    { name: "filePath", in: "body", type: "string", required: true, description: "workspace-relative, as the annotation layer names it" },
+    { name: "anchor", in: "body", type: "PlanCommentAnchor", required: true },
+    { name: "quotedText", in: "body", type: "string", required: true },
+    { name: "sectionId", in: "body", type: "string", required: true },
+    { name: "sectionTitle", in: "body", type: "string", required: true },
+    { name: "rangeLabel", in: "body", type: "string", required: true },
+    { name: "question", in: "body", type: "string", required: true },
+  ]}
+  responses={[
+    { status: "200", description: "{ queryThreadId, created: boolean, askedAt }" },
+    { status: "LoomWsMethodError", description: "the source is not pi-backed, has no forkable session, or the file cannot be read" },
+  ]}
+>
+  A WebSocket RPC in `packages/contracts/src/rpc.loom.ts` beside `loom.handoffDraft`, handled in `apps/server/src/loom/wsMethods.ts`. The handler hashes the file, finds or forks the query thread (§2.2; the fork path is `launchDraftFork` with a `build` that supplies role, title `Query: plan.mdx`, purpose, and the overlay kickoff from §3), supersedes stale threads, dispatches the question as a human-authored `message.dispatch` (`createdBy: "user"`, `creationSource: "server"`, the same pairing the drafter spawn uses) whose `context` holds one `review-comment` record with `mdxAnchor` and whose text carries the inline context reference, exactly as `buildMessageContext` would have built it in the client, and records `thread.document-query.ask`. The question's message id is deterministic (`message:server:loom:query:<thread>:<n>`), so the sidecar can name it and a retry lands as the same message. When the author is mid-turn the fork defers; a new leg of `HandoffDrafterReactor` (role-keyed, launch only, no settlement) re-sends the fork, kickoff and queued question once the author's run ends, reading them from the thread's `kickoffBriefPath` brief written at spawn.
+</Endpoint>
+
+<Endpoint
+  method="POST"
+  path="loom.documentQueryPromote"
+  summary="Ask the query thread to distil one exchange into an anchored comment for the author"
+  change="added"
+  params={[
+    { name: "queryThreadId", in: "body", type: "ThreadId", required: true },
+    { name: "exchangeAt", in: "body", type: "IsoDateTime", required: true, description: "the question turn whose answer carries the Promote action" },
+  ]}
+  responses={[{ status: "200", description: "{ dispatched: true }: the promote turn was queued" }]}
+>
+  Dispatches a human-authored turn on the query thread: "Promote the exchange above (my question at exchangeAt and your answer): write one anchored comment for the author with `mcp__t3-code__document_query_promote`; nothing else reaches the author." The result is the tool call, not this RPC.
+</Endpoint>
+
+<Endpoint
+  method="POST"
+  path="mcp__t3-code__document_query_promote"
+  summary="(Loom tool, query threads only) record one anchored comment for the author"
+  change="added"
+  params={[
+    { name: "text", in: "body", type: "string", required: true, description: "the comment, in the author's terms, as a reviewer's request" },
+    { name: "exchangeAt", in: "body", type: "IsoDateTime", required: true, description: "copied from the promote turn; the handler resolves the anchor from the matching question" },
+  ]}
+  responses={[{ status: "ok", description: "\"Recorded. The comment will appear in the author's composer; the human sends it.\"" }]}
+>
+  Defined in `apps/server/src/mcp/toolkits/workstream/defs.ts`, handled in a new `handlers/documentQuery.ts`. Refused for any caller whose sidecar role is not `document-query`. It copies the anchor, quoted text and section from the question record (the model never re-types an anchor), records `thread.document-query.promote`, and returns. The event is what the client watches.
+</Endpoint>
+
+### 2.5 Promote lands as a chip in the author's composer, and the chip links back
+
+<Callout tone="decision" title="A promotion is an event on the query thread, seeded once into the author's composer as a chip naming its source">
+  The composer draft store is client state (`apps/web/src/composerDraftStore.ts`, persisted per thread), so a server-written comment reaches it the way an auto-opened surface reaches the right panel: a seed, never an override (`docs/architecture/loom-ui-state-tiers.md`). A loom hook mounted by the author's ChatView (`useSeedPromotedQueryComments` in `apps/web/src/loom/`) watches the environment's shells for query threads with `forkFromThreadId` = this thread and, for each promotion id not yet in `workstreamUiStore.seededPromotionIds` (tier 1, durable per thread), calls `addReviewComment(authorRef, chip)` once and records the id. The chip is an ordinary `mdx-anchor` review comment whose `mdxAnchor` carries `queryThreadId` and `promotionId`: deleting it from the composer is the dismissal (the id stays recorded, so it never reseeds), editing it is yours, and sending it rides the review turn as every annotation does. In the author's transcript the chip renders "Promoted from Query: plan.mdx" as a thread link; in the author's prompt the review-comment rendering in `packages/shared/src/composerContextReferences.ts` (loom hunk) adds one line: "promoted from a query thread: the human and a read-only fork of you discussed this passage; this comment distils that exchange".
+</Callout>
+
+Why not deliver the promotion straight to the author as a turn (the `notify_thread` shape): the author would start rewriting on the first promotion, changing the revision and superseding the query thread while you are still mid-review. Batching in your composer keeps one review pass as one author turn, and lets you read and edit the fork's wording before the author sees it.
+
+<Columns>
+  <Card heading="Known edge: two clients open on the author" tone="warning" badge="ACCEPTED" meta={["same as any composer draft today"]}>
+    Each client seeds the chip once. Sending from one leaves a stale chip in the other, which the human sees and deletes. A composer draft is already client-local; this adds no new class of drift.
+  </Card>
+  <Card heading="Known edge: the author is archived or deleted" tone="neutral" badge="HANDLED" meta={["promote still records"]}>
+    The promotion is recorded on the query thread regardless; the chip seeds whenever the author is next opened. If the author is gone for good the promotion stays visible in the query thread's transcript as the tool call's text.
+  </Card>
+</Columns>
+
+## 3. The overlay the query thread receives
+
+Model-facing text, sent as the kickoff control message (`origin: "kickoff"`, tier steered, so it renders as the "Kickoff brief" bubble a drafter's kickoff does) on the query thread's first turn, followed in the same dispatch batch by your first question as your own message. The fork sees both before it answers. Edit the wording here; it lives in `apps/server/src/loom/query/documentQueryOverlay.ts` as one constant with two substitutions.
+
+<AnnotatedCode
+  language="text"
+  filename="apps/server/src/loom/query/documentQueryOverlay.ts (new)"
+  wrap
+  code={"You are a query thread: a read-only fork of the thread that wrote `{filePath}` (the author, thread {authorThreadId}), carrying its full reasoning up to the fork. The human is reviewing that document and asks about its content and reasoning here so the author's context stays clean. Each question arrives with the passage it was asked about.\n\n- Answer from what this session already knows and from the files in this worktree. Read freely. Never edit, write or commit, and never spawn, prompt, stop or route a thread: the author is the document's only writer, and those tools are refused here.\n- The document may have moved on since the fork. Read it from disk before answering about its current text. If a question concerns something the author did after this fork, consult the live author with `mcp__t3-code__consult_thread` (thread {authorThreadId}) rather than guess.\n- You wrote this document, but you answer as its critic as much as its author. Where a question exposes a mistake, a gap or a weaker choice, say so plainly and say what you would change. Do not defend the text because you wrote it, and do not soften a disagreement into agreement.\n- Keep answers short and specific: the passage, the reason, the evidence. The human reads them in the main window.\n- When the human promotes an exchange, write ONE anchored comment for the author with `mcp__t3-code__document_query_promote` (load it with `tool_search` if it is not in your tool list): what the exchange concluded and the change it implies, in the author's terms, as a reviewer's request rather than a transcript. Nothing else you say reaches the author.\n- Never call `mcp__t3-code__workstream_submit` or `mcp__t3-code__workstream_request_attention`: there is no parent, and this thread ends when the review moves on.\n\nThis brief needs no reply of its own; the human's first question follows."}
+  annotations={[
+    { lines: "1", label: "identity", note: "Names the document and the author's id, so a consult needs no lookup." },
+    { lines: "4", label: "staleness", note: "The fork is frozen at the author's last run; the file on disk is the truth about the text." },
+    { lines: "5", label: "disagreement", note: "The clause you asked for: a fork of the author will otherwise defend its own prose." },
+    { lines: "7", label: "promote", note: "One comment, reviewer's register, loaded on demand so the resident tool list stays the author's (the cache key)." },
+    { lines: "10", label: "no reply", note: "The question is dispatched right behind this brief and is steered into the same turn when the turn is already running; this line stops a 'ready' reply if it is not." },
+  ]}
+/>
+
+## 4. The screens
+
+<Screen
+  surface="popover"
+  caption="The query card (the Comment card in query mode)"
+  html={"<div style='display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px;white-space:nowrap'><strong style='font-size:12.5px'>Ask the author's fork</strong><span class='wf-pill'>plan.mdx</span><span style='flex:1'></span><small>read-only</small></div><div style='border-left:3px solid var(--wf-accent);padding:4px 8px;font-size:11.5px;line-height:1.45;color:var(--wf-muted)'>a write that crossed the port would lose the transaction it sits in</div><textarea rows='3' style='font-size:12px'>Why does a write have to stay in-process? Could the worker open its own transaction?</textarea><div style='display:flex;gap:8px;justify-content:flex-end;white-space:nowrap'><button>Cancel</button><button class='primary'>Query</button></div></div>"}
+/>
+
+The Comment card in query mode: the same card, the same quoted passage, a question box instead of a request box, and Query as the primary action. Nothing is written to the author's composer.
+
+<Screen
+  surface="desktop"
+  caption="The main window after Query: the query thread"
+  html={"<div style='display:flex;flex-direction:column;height:100%;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1.4px solid var(--wf-line);white-space:nowrap;width:100%;box-sizing:border-box'><strong style='font-size:13px'>Query: plan.mdx</strong><span class='wf-pill' style='border-color:var(--wf-accent);color:var(--wf-accent)'>read-only fork of “Plan: sqlite read lane v2”</span><div style='flex:1'></div><span class='wf-btn' style='font-size:11px;padding:3px 9px'>Open document</span><span class='wf-btn' style='font-size:11px;padding:3px 9px'>Author thread</span></div><div style='flex:1;display:flex;flex-direction:column;gap:12px;padding:14px 18px;min-height:0'><div style='align-self:stretch;border:1.4px solid var(--wf-line);background:var(--wf-card);border-radius:var(--wf-radius);padding:8px 12px;display:flex;align-items:center;gap:8px;white-space:nowrap;font-size:11.5px'><span class='wf-pill'>Kickoff brief</span><span style='flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--wf-muted)'>You are a query thread: a read-only fork of the thread that wrote plan.mdx…</span><span style='color:var(--wf-muted)'>▸</span></div><div style='align-self:flex-end;max-width:72%;border:1.4px solid var(--wf-line);background:var(--wf-card);border-radius:var(--wf-radius);padding:10px 12px;display:flex;flex-direction:column;gap:6px'><div style='display:flex;gap:6px;white-space:nowrap'><span class='wf-pill' style='font-size:10.5px;border-color:var(--wf-accent);color:var(--wf-accent)'>plan.mdx · §2 One reader lane · “a write that crossed the port…”</span></div><p style='margin:0;font-size:12.5px;line-height:1.5'>Why does a write have to stay in-process? Could the worker open its own transaction?</p></div><div style='align-self:flex-start;max-width:78%;display:flex;flex-direction:column;gap:6px'><p style='margin:0;font-size:12.5px;line-height:1.55'>Because the write is one of three in the same SQLite transaction: the orchestrator commits events, the projection rows and the outbox row together in <code>EventSinkV2.commit</code>. A worker-side transaction would be a second connection; SQLite serialises writers, so the second one would either block the first or split the commit, and a split commit is the duplicate-reminder bug this plan exists to remove. The worker can read mid-transaction state only because reads use a separate read-only connection.</p><p style='margin:0;font-size:12.5px;line-height:1.55'>One thing the plan does not say and should: the read lane sees a snapshot, so a read issued in the same tick as a commit may be one event behind. I would add that sentence to §2.</p><div style='display:flex;gap:10px;align-items:center;white-space:nowrap;font-size:11px;color:var(--wf-muted)'><span>copy</span><span>fork</span><span class='wf-btn' style='font-size:11px;padding:2px 8px;border-color:var(--wf-accent);color:var(--wf-accent)'>↑ Promote to author</span></div></div></div><div style='display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1.4px solid var(--wf-line);white-space:nowrap;width:100%;box-sizing:border-box'><input style='flex:1;min-width:0' placeholder='Ask a follow-up…' /><button class='primary'>Send</button></div></div>"}
+/>
+
+The kickoff brief is the overlay (§3), collapsed as any kickoff bubble is. Your question is your own bubble with the passage as a review chip, exactly as an annotation renders on the author today. The answer's action row gains Promote to author, on query threads only.
+
+<Screen
+  surface="panel"
+  caption="The author's composer after Promote: the promoted chip beside your own annotation"
+  html={"<div style='display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px;white-space:nowrap'><strong style='font-size:12.5px'>Plan: sqlite read lane v2</strong><span style='flex:1'></span><small>composer</small></div><div style='display:flex;flex-wrap:wrap;gap:6px'><span class='wf-pill' style='font-size:10.5px;border-color:var(--wf-accent);color:var(--wf-accent)'>plan.mdx · §2 · promoted from Query: plan.mdx ×</span><span class='wf-pill' style='font-size:10.5px;border-color:var(--wf-warn)'>plan.mdx · §4 · annotation ×</span><span class='wf-pill' style='font-size:10.5px'>Q: rollout order → chose: lane first ×</span></div><div class='wf-card' style='padding:8px 10px;font-size:11.5px;line-height:1.45;border-left:3px solid var(--wf-accent)'><div style='display:flex;gap:6px;white-space:nowrap;margin-bottom:4px'><small>§2 One reader lane · “a write that crossed the port…”</small></div>State that the read lane sees a snapshot and may trail a same-tick commit by one event, and say why the writer must stay in-process (one transaction for events, projection and outbox). The reasoning is in the author's context; the text leaves the reader to infer it.</div><textarea rows='2' style='font-size:12px'>Apply these and re-render.</textarea><div style='display:flex;gap:8px;justify-content:flex-end;white-space:nowrap'><button class='primary'>Send</button></div></div>"}
+/>
+
+The promoted chip is an ordinary review chip: delete it to dismiss, edit the text, send it with the rest of the review. Sent, it reaches the author as a review-comment record carrying the query thread's id.
+
+<Columns>
+  <Column label="Workstream graph: the query leaf under the author">
+<Screen
+  surface="panel"
+  caption="A dashed edge from the author's card to a smaller leaf labelled by document and counts; no column, no dependency, no flag"
+  html={"<div style='display:flex;flex-direction:column;gap:0;padding:14px;height:100%;box-sizing:border-box;align-items:center'><div style='width:100%;display:flex;align-items:center;gap:8px;white-space:nowrap;margin-bottom:10px'><strong style='font-size:12px'>Workstream</strong><small style='flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis'>· Plan query threads</small><span class='wf-pill' style='font-size:10px'>2/4 settled</span></div><div style='width:86%;border:1.4px solid var(--wf-line);border-radius:4px;padding:5px 10px;font-size:10.5px;color:var(--wf-muted);text-align:center;white-space:nowrap'>orchestrator · wave 1 · 2 threads</div><div style='width:1.4px;height:14px;background:var(--wf-line)'></div><div style='display:flex;gap:18px;align-items:flex-start'><div style='display:flex;flex-direction:column;align-items:center'><div style='width:150px;border:1.6px solid var(--wf-ok);border-radius:6px;padding:7px 9px;font-size:11px;line-height:1.3'><div style='font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>Plan: sqlite read lane v2</div><div style='color:var(--wf-muted);white-space:nowrap'>planner · done · 2h</div></div><div style='width:0;height:16px;border-left:1.6px dashed var(--wf-accent)'></div><div style='width:132px;border:1.4px dashed var(--wf-accent);border-radius:6px;padding:6px 8px;font-size:10.5px;line-height:1.3;color:var(--wf-ink)'><div style='font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>? plan.mdx</div><div style='color:var(--wf-muted);white-space:nowrap'>2 questions · 1 promoted</div></div></div><div style='width:150px;border:1.6px solid var(--wf-accent);border-radius:6px;padding:7px 9px;font-size:11px;line-height:1.3'><div style='font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>Implement read lane</div><div style='color:var(--wf-muted);white-space:nowrap'>coder · working · 12m</div></div></div><div style='width:1.4px;height:14px;background:var(--wf-line)'></div><div style='width:86%;border:1.4px solid var(--wf-line);border-radius:4px;padding:5px 10px;font-size:10.5px;color:var(--wf-muted);text-align:center;white-space:nowrap'>orchestrator · wave 2 · 1 thread</div><div style='width:1.4px;height:14px;background:var(--wf-line)'></div><div style='width:150px;border:1.6px solid var(--wf-line);border-radius:6px;padding:7px 9px;font-size:11px;line-height:1.3;color:var(--wf-muted)'><div style='font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>Review read lane</div><div style='white-space:nowrap'>reviewer · blocked</div></div><div style='flex:1'></div><div style='width:100%;display:flex;gap:10px;font-size:10px;color:var(--wf-muted);white-space:nowrap;border-top:1.4px solid var(--wf-line);padding-top:8px'><span>— spine</span><span style='color:var(--wf-accent)'>┄ query</span><span>⟲ gate</span></div></div>"}
+/>
+  </Column>
+  <Column label="Author's transcript: the promoted comment, linked back">
+<Screen
+  surface="panel"
+  caption="Your review turn on the author carries the promoted chip with a link to the query thread; the author edits and reports"
+  html={"<div style='display:flex;flex-direction:column;gap:12px;padding:14px;height:100%;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px;white-space:nowrap'><strong style='font-size:12.5px'>Plan: sqlite read lane v2</strong><span style='flex:1'></span><small>planner · done</small></div><div style='align-self:flex-end;max-width:92%;border:1.4px solid var(--wf-line);background:var(--wf-card);border-radius:var(--wf-radius);padding:9px 11px;display:flex;flex-direction:column;gap:6px'><div style='display:flex;flex-wrap:wrap;gap:5px'><span class='wf-pill' style='font-size:10px;border-color:var(--wf-accent);color:var(--wf-accent)'>plan.mdx · §2 · promoted from Query: plan.mdx ↗</span><span class='wf-pill' style='font-size:10px;border-color:var(--wf-warn)'>plan.mdx · §4 · annotation</span></div><p style='margin:0;font-size:12px;line-height:1.5'>Apply these and re-render.</p></div><div style='align-self:flex-start;max-width:92%;display:flex;flex-direction:column;gap:6px'><div style='display:flex;gap:6px;white-space:nowrap;font-size:10.5px;color:var(--wf-muted)'><span class='wf-pill' style='font-size:10px'>edit · plans/sqlite-read-lane-v2/plan.mdx</span><span class='wf-pill' style='font-size:10px'>bash · lint-plan</span></div><p style='margin:0;font-size:12px;line-height:1.5'>Updated §2 with the snapshot caveat and the one-transaction reason, and §4 per your note. Render check passes; the revision is new, so any further question forks a fresh query thread.</p></div><div style='flex:1'></div><div style='display:flex;align-items:center;gap:8px;white-space:nowrap;border-top:1.4px solid var(--wf-line);padding-top:10px'><input style='flex:1;min-width:0' placeholder='Message…' /><button class='primary'>Send</button></div></div>"}
+/>
+  </Column>
+</Columns>
+
+Two states the board does not draw: **waiting**, when the author is mid-turn (the query thread opens at once with a single muted row, "Forking the author once its turn ends", the receipt row the `/handoff` drafter already shows on its source); and **superseded**, when the author has rewritten (the old leaf fades to the done opacity and its sidebar row is archived; its pins no longer draw on the new revision).
+
+## 5. The changes, in order
+
+### Slice 1: query, read-only posture, pins, graph leaf
+
+1. **Contracts** (`packages/contracts/src/orchestrationV2.loom.ts`, `rpc.loom.ts`, `server.ts`): `LoomDocumentQuery` and its two records on `LoomThreadWorkstream`; commands `thread.document-query.ask` and event `thread.document-query-asked`; `DocumentQueryInput` / `DocumentQueryResult` and `LOOM_WS_METHODS.documentQuery`; the RPC scope beside `handoffDraft` in `apps/server/src/auth/RpcAuthorization.ts`.
+2. **Sidecar** (`apps/server/src/persistence/LoomMigrations.ts` migration 1061 `LoomThreadDocumentQuery`; `LoomStore.ts` row codec and `WORKSTREAM_COLUMNS`; `loomProjection.ts` reducer for the asked event). `emptyWorkstream` sets `documentQuery: null`.
+3. **Server service** (`apps/server/src/loom/query/documentQuery.ts`, new): `DOCUMENT_QUERY_ROLE`, `reusableQueryThread`, `supersededQueryThreads`, `hashDocumentRevision` (reads through `WorkspaceFileSystem`), `buildDocumentQueryCommands` (the `launchDraftFork` `build` callback: spawn with role, title `Query: <basename>`, purpose `Query thread on <filePath> @ <revision>`, `kickoffBriefPath` holding the overlay and the first question for the reactor's deferred leg), `buildQuestionDispatch` (the human-authored `message.dispatch` with the `review-comment` context record and inline reference, built with the same helpers `composerContextReferences.ts` exposes), and `askDocumentQuery` (the RPC body).
+4. **Overlay** (`apps/server/src/loom/query/documentQueryOverlay.ts`, new): §3's constant; edited under the `llm-instruction-change` rules.
+5. **Composer** (`sessionComposerLive.ts`): in `launchIdentity`, a `document-query` role replays `forkFromThreadId`'s record on every launch (never composes fresh) and adds `T3_LOOM_QUERY_FORK: "1"` to `env`. The `LoomForkSourceIdentityMissing` refusal stays: a query thread of a never-launched author is refused at the RPC, where `launchDraftFork` already refuses a source without a strong session ref.
+6. **Read-only posture**: `loomExtensionParts/queryGuard.ts` (new part beside `consultGuard.ts`, keyed on the new env var, refusal text naming the author as the writer and Promote as the path); `ProviderSessionManager.ts` one marked hunk issuing the credential with `client: { access: "read-only", label: "document query" }` when the sidecar role is `document-query`; `authorisation.ts` gains `DOCUMENT_QUERY_TOOLS` and `callLoomTool` in `registration.ts` picks the allow-list by role.
+7. **Deferred launch** (`HandoffDrafterReactor.ts`): the `pendingLaunch` leg runs for both roles; for `document-query` it re-sends `thread.fork.prepare`, the kickoff and the first question read from the brief, and never settles or archives. Rename to `DraftForkReactor` if the diff stays small; otherwise a sibling module sharing `dispatchDraftFork`.
+8. **WS method** (`wsMethods.ts`): `[LOOM_WS_METHODS.documentQuery]` calling `askDocumentQuery`.
+9. **Web: Query affordance** (`MdxPlanAnnotationLayer.tsx`): the selection affordance renders two buttons when `PlanDocumentContext.threadRef` is a server thread; `ComposerState` gains `mode: "comment" | "query"`; the card's header, placeholder and submit label follow the mode; query submit calls `loomCommands.documentQuery` (new command in `packages/client-runtime/src/state/loom/goalCommands.ts`) then navigates after `waitForThreadShell`, as `/retro` does in `useLoomDraftIntercepts.ts`. Block-level affordance (hover on a non-prose block) gets the same second button.
+10. **Web: pins** (`apps/web/src/loom/documentQueryPins.ts`, new, a derived atom over `environmentThreadShells` as `loomChildren.ts` is): live query threads of (viewing thread, filePath) flattened to `{ queryThreadId, askedAt, anchor, quotedText }`; the annotation layer resolves them through the existing `resolveAnchor` pipeline as a third overlay source with variant `pin` (hollow accent badge, no fill), click → `useConversationJumpStore.setRequest({ threadId, at: askedAt })` then navigate.
+11. **Web: graph leaf** (`apps/web/src/lib/forkJoinLayout.ts` `deriveQueryOverlay`, `WorkstreamGraph.tsx`): after the structural layout, every node in the environment with role `document-query` whose `forkFromThreadId` is a laid thread is placed as a satellite below its author's card (or beside the root's first bridge when the author is a bridge-only root), 132 px wide, dashed accent border, label `? <basename>` and `n questions · m promoted`, dashed edge of kind `query`; archived satellites recede at `RECEDE_OPACITY`. `WorkstreamPanel.tsx` includes satellites in the `nodes` it hands the graph but not in `rollupOf` or `subtreeOf`. The quick-facts hover names the author and the document.
+12. **Web: thread header** (`ChatView.tsx` one marked branch, or `LoomStagedCards.tsx`): a `document-query` thread shows the "read-only fork of ‹author title›" chip with Open document and Author thread actions; the waiting row while the fork is deferred.
+13. **Sidebar**: nothing to hide; `isVisibleHandoffDrafter` is untouched. The row's start-origin rail (if that plan ships) treats a query thread as one you started.
+
+### Slice 2: Promote
+
+14. **Contracts**: `LoomDocumentQueryPromotion`; command `thread.document-query.promote`, event `thread.document-query-promoted`; `queryThreadId` and `promotionId` on `LoomMdxAnchorReviewContext` (`packages/contracts/src/composerContext.loom.ts`) and on the web's `MdxAnchorReviewCommentContextSchema` (`reviewCommentContext.ts`); `LOOM_WS_METHODS.documentQueryPromote`.
+15. **Tool** (`defs.ts` + `handlers/documentQuery.ts`): `document_query_promote` as in §2.4; registered in `families.ts` as a workstream-family tool that no role lists (reached by `tool_search`); the role check in the handler.
+16. **WS method**: `documentQueryPromote` dispatching the promote turn.
+17. **Web: Promote action** (`MessagesTimeline.tsx`, the assistant-meta action row, one marked branch): on a `document-query` thread, an `ArrowUpFromLine` button "Promote to author" calling `loomCommands.documentQueryPromote` with the preceding question's `askedAt`.
+18. **Web: seeding** (`apps/web/src/loom/useSeedPromotedQueryComments.ts`, new; `workstreamUiStore.ts` gains `seededPromotionIds` keyed by `scopedThreadKey`, migrated): §2.5. The chip's `rangeLabel` is `promoted`; the composer chip and the transcript chip render the query thread link via `ThreadMention`.
+19. **Prompt rendering** (`packages/shared/src/composerContextReferences.ts`, loom hunk in the `review-comment` case): the one "promoted from a query thread" line when `mdxAnchor.queryThreadId` is set.
+20. **Graph counts**: the leaf's `m promoted` and the quick facts' "last promoted 3m ago".
+
+<Details summary="All touched files">
+<FileTree
+  title="Query threads: change map"
+  entries={[
+    { path: "packages/contracts/src/orchestrationV2.loom.ts", change: "modified", note: "LoomDocumentQuery records on the sidecar; ask/promote commands and events" },
+    { path: "packages/contracts/src/rpc.loom.ts", change: "modified", note: "loom.documentQuery, loom.documentQueryPromote" },
+    { path: "packages/contracts/src/server.ts", change: "modified", note: "DocumentQueryInput/Result, DocumentQueryPromoteInput/Result" },
+    { path: "packages/contracts/src/composerContext.loom.ts", change: "modified", note: "queryThreadId, promotionId on the mdx anchor review context" },
+    { path: "packages/shared/src/composerContextReferences.ts", change: "modified", note: "the 'promoted from a query thread' line (loom hunk)" },
+    { path: "apps/server/src/persistence/LoomMigrations.ts", change: "modified", note: "1061 LoomThreadDocumentQuery: document_query JSON column" },
+    { path: "apps/server/src/loom/projection/LoomStore.ts", change: "modified", note: "row codec + column" },
+    { path: "apps/server/src/loom/projection/loomProjection.ts", change: "modified", note: "reducers for the two events" },
+    { path: "apps/server/src/loom/query/", change: "added", note: "documentQuery.ts (service, reuse rule, hashing, commands), documentQueryOverlay.ts" },
+    { path: "apps/server/src/loom/prompt/sessionComposerLive.ts", change: "modified", note: "document-query replays the author's identity every launch + env flag" },
+    { path: "apps/server/src/provider/Drivers/Pi/loomExtensionParts/queryGuard.ts", change: "added", note: "refuses edit/write under T3_LOOM_QUERY_FORK" },
+    { path: "apps/server/src/orchestration-v2/ProviderSessionManager.ts", change: "modified", note: "read-only client on the credential for the role (marked hunk)" },
+    { path: "apps/server/src/mcp/toolkits/workstream/authorisation.ts", change: "modified", note: "DOCUMENT_QUERY_TOOLS allow-list" },
+    { path: "apps/server/src/mcp/toolkits/workstream/registration.ts", change: "modified", note: "allow-list by role in callLoomTool" },
+    { path: "apps/server/src/mcp/toolkits/workstream/defs.ts", change: "modified", note: "document_query_promote" },
+    { path: "apps/server/src/mcp/toolkits/workstream/handlers/documentQuery.ts", change: "added", note: "the promote tool handler" },
+    { path: "apps/server/src/loom/handoff/HandoffDrafterReactor.ts", change: "modified", note: "deferred-launch leg for the query role" },
+    { path: "apps/server/src/loom/wsMethods.ts", change: "modified", note: "the two methods" },
+    { path: "apps/server/src/auth/RpcAuthorization.ts", change: "modified", note: "scopes for the two methods (marked block)" },
+    { path: "packages/client-runtime/src/state/loom/goalCommands.ts", change: "modified", note: "documentQuery, documentQueryPromote commands" },
+    { path: "apps/web/src/components/files/mdx-plan/annotation/MdxPlanAnnotationLayer.tsx", change: "modified", note: "Query affordance, query-mode card, pin overlays" },
+    { path: "apps/web/src/loom/documentQueryPins.ts", change: "added", note: "derived pins per (viewing thread, file)" },
+    { path: "apps/web/src/loom/useSeedPromotedQueryComments.ts", change: "added", note: "seed-once chip into the author's composer" },
+    { path: "apps/web/src/loom/workstreamUiStore.ts", change: "modified", note: "seededPromotionIds (tier 1)" },
+    { path: "apps/web/src/lib/forkJoinLayout.ts", change: "modified", note: "deriveQueryOverlay: satellites + query edges" },
+    { path: "apps/web/src/components/WorkstreamGraph.tsx", change: "modified", note: "draw satellites, dashed accent edge, counts" },
+    { path: "apps/web/src/components/WorkstreamPanel.tsx", change: "modified", note: "satellites in nodes, out of rollup/subtree" },
+    { path: "apps/web/src/components/chat/MessagesTimeline.tsx", change: "modified", note: "Promote to author in the assistant action row (marked)" },
+    { path: "apps/web/src/components/ChatView.tsx", change: "modified", note: "query thread header chip + waiting row (one marked branch)" },
+    { path: "apps/web/src/reviewCommentContext.ts", change: "modified", note: "queryThreadId on the mdx-anchor comment" },
+    { path: "docs/user/", change: "modified", note: "one section: Querying a plan or recap" },
+  ]}
+/>
+</Details>
+
+**Every surface, named.** Entry points: the MDX viewer's selection and block affordances only; no command palette or keybinding (a query is always about a passage). Clients: web and desktop get the affordance; mobile opens and chats in a query thread as any thread, with no Query button and no pins. Providers: pi only, as `/handoff` is (the fork relies on pi's native session; the RPC refuses otherwise). Agents: `document_query_promote` is the one tool, refused outside the role. Contracts: all in `packages/contracts`. Reverse states: archive a query thread as any thread (its pins vanish, its leaf recedes); unarchive restores both; delete the composer chip to dismiss a promotion; a superseded thread is archived, never deleted. Connection modes: two RPCs over the existing WS; nothing client-local but the seed flag. Docs: one user-guide section.
+
+## 6. Verification
+
+Unit, on the pure pieces: `reusableQueryThread` / `supersededQueryThreads` (same author and file, revision match vs mismatch, archived and done candidates ignored); `callLoomTool`'s allow-list for the role (promote and consult run, spawn and submit refused with the query-specific message); the reactor's deferred leg (a mid-turn author: nothing dispatched until its run ends, then fork, kickoff and question in order, idempotent on a second pass); `deriveQueryOverlay` placement (satellite under its author, beside a bridge-only root, receded when archived).
+
+End to end, with the dev-verify recipe (`docs/dev-site-testing.md`) on a seeded instance: open a planner thread that wrote a plan, open the plan in its right panel, select a sentence in §2, press Query, ask "why X"; assert the main window is now on `Query: plan.mdx`, the kickoff bubble reads the overlay, your question is your bubble with the passage chip, and the answer streams. Ask it to "change the sentence to Y" and assert the refusal names the author as the writer. Ask "what has the author done since?" and assert a consult card appears and a consult edge draws on the graph from the leaf to the author. Select a second passage, Query again, assert no new thread (sidebar count unchanged), a second pin, and that clicking the first pin lands on the first question. Open the graph: the leaf under the planner reads "2 questions". Slice 2: press Promote on the second answer, assert the tool call in the query transcript, then open the author: one chip in its composer with the query thread link; delete and reload (no reseed); promote again, send with a hand-written annotation; assert the author's transcript shows both chips, the promoted one linking to the query thread, and the agent's prompt capture (`PromptCaptureMenu`) shows the "promoted from a query thread" line. Edit the plan by hand, Query a third time: the old thread is archived, the leaf receded, a new thread forks.
+
+## 7. Risks and what the code contradicted in the brief
+
+<Callout tone="risk" title="Where the design as discussed meets the code">
+  - **"The consult-style read-only tool set and no edit tools."** A consult fork does not narrow its tools; it declares the author's and blocks `edit`/`write` by hook, because the declaration is the cache key. The plan keeps that (§2.3). The posture is the one asked for; the mechanism is enforcement, not declaration.
+  - **"A new lineage kind beside subagent and fork."** Upstream's `relationshipToParent` literal is left alone; the kind is the sidecar's role plus `documentQuery` (§2.1).
+  - **"Composer prefilled with the anchored quote plus the question."** The plan has the Query button send the question (a fork whose first run precedes `thread.fork.prepare` would start as a fresh session, so the server must sequence the first turn; and a prefill is a second send of text already typed). Question 1 at the end.
+  - **"Promotion supersedes the query thread."** The plan supersedes on revision change instead, so several exchanges can be promoted from one thread before the author rewrites; promoting does not archive. Question 2 at the end.
+  - **The `thread_fork` tool is not the path.** It is agent-called, pins to `latest_stable`, refuses a thread with no completed run and cannot defer behind a mid-turn source; `launchDraftFork` does all of that and is what `/handoff` ships on.
+  - **One kickoff-then-question ordering risk.** The question is dispatched right after the kickoff with `queue_after_active`; when the kickoff turn is already running it is steered in and answered in the same turn, otherwise it starts the next turn and the overlay's last line keeps the kickoff turn silent. If a model still answers the brief alone, the fallback is one combined message (overlay then question) and a human-bubble rendering keyed on a new `query-question` origin; neither changes a contract.
+  - **The promoted tool is reached through `tool_search`.** One cache miss at promote time per thread. If that proves annoying, the author's identity can declare the tool for every role (one entry in `families.ts`), which keeps the declaration identical between author and fork.
+</Callout>
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "first-send",
+      title: "Does pressing Query send the question, or only prefill the query thread's composer?",
+      refs: [{ label: "2.4 The two RPCs and the one tool", anchor: "2-4-the-two-rpcs-and-the-one-tool" }],
+      subtitle: "The server has to fork the author before the first turn runs, so it either sends the question itself or the client must wait and then prefill.",
+      mode: "single",
+      options: [
+        {
+          id: "send",
+          label: "Query sends: the question becomes the thread's first turn and the answer streams as the window opens",
+          recommended: true,
+          detail: "One press per question; later questions on the same revision behave identically.",
+        },
+        {
+          id: "prefill",
+          label: "Query prefills: the window opens on the forked thread with the quote and question in the composer, and you press Send",
+          detail: "Lets you edit before sending; costs a second send and a client-side wait for the fork to prepare.",
+        },
+      ],
+    },
+    {
+      id: "promote-end",
+      title: "Does promoting an exchange end the query thread, or can you keep asking and promote again?",
+      refs: [{ label: "2.2 The author and the revision", anchor: "2-2-the-author-is-the-viewing-thread-a-revision-is-the-content-hash" }],
+      subtitle: "Either way the thread is superseded when the author rewrites the document; this is only about what Promote itself does.",
+      mode: "single",
+      options: [
+        {
+          id: "stay",
+          label: "Promote records a comment and the thread stays open; one review pass can promote several exchanges",
+          recommended: true,
+          detail: "Supersession is driven by the document's revision changing, as the plan is written.",
+        },
+        {
+          id: "archive",
+          label: "Promote records the comment and archives the thread; a further question on the same revision forks afresh",
+          detail: "Matches the wording from the design conversation; a second promotion costs a new fork (cheap, but a new leaf on the graph).",
+        },
+      ],
+    },
+  ]}
+/>

@@ -32,6 +32,18 @@ export const CONSULT_READ_TOOLS: ReadonlySet<string> = new Set([
   "goal_task_list",
 ]);
 
+/**
+ * A query thread's Loom tools: the reads, a consult of the live author, its own title, and the
+ * one write it exists for, `document_query_promote` (slice 2; listing it before it is registered
+ * is harmless). Everything else is the author's to do.
+ */
+export const DOCUMENT_QUERY_TOOLS: ReadonlySet<string> = new Set([
+  ...CONSULT_READ_TOOLS,
+  "consult_thread",
+  "set_thread_title",
+  "document_query_promote",
+]);
+
 /** The `workstream` capability and a thread caller, or the error the agent reads. */
 export const requireWorkstreamCaller = Effect.fn("LoomToolkit.requireWorkstreamCaller")(
   function* () {

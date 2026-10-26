@@ -174,6 +174,30 @@ const foldWorkstream = (
         ],
       });
     }
+    // Appends keyed by message / promotion id, so a replay is a no-op. The first question
+    // names the document; a later one never re-points it (a rewrite forks a new thread).
+    case "thread.document-query-asked": {
+      const { filePath, revision, authorSource, question } = event.payload;
+      const query = row.documentQuery ?? {
+        filePath,
+        revision,
+        authorSource,
+        questions: [],
+        promotions: [],
+      };
+      if (query.questions.some((entry) => entry.messageId === question.messageId)) return undefined;
+      return next({ documentQuery: { ...query, questions: [...query.questions, question] } });
+    }
+    case "thread.document-query-promoted": {
+      const { promotion } = event.payload;
+      const query = row.documentQuery;
+      if (
+        query === null ||
+        query.promotions.some((entry) => entry.promotionId === promotion.promotionId)
+      )
+        return undefined;
+      return next({ documentQuery: { ...query, promotions: [...query.promotions, promotion] } });
+    }
     // Edge tables only, or (gate-warning) nothing: Phase 3b surfaces it.
     case "thread.gate-warning":
     case "thread.consult-recorded":
