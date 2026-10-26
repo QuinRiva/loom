@@ -61,10 +61,17 @@ vi.mock("../state/entities", () => ({
     worktreePath: null,
     runtime: null,
     latestRun: null,
+    source: {}, // loom: the goal submenu reads source.workstream
   }),
   useProjects: () => [{ id: "project", environmentId: "secondary" }],
 }));
 vi.mock("../state/environments", () => ({ usePrimaryEnvironmentId: () => "primary" }));
+vi.mock("../loom/loomGoalState", () => ({ readLoomGoal: () => null })); // loom: goal submenu
+vi.mock("../loom/sidebarGoalActions", () => ({
+  // loom: no goal, so the menu is upstream's
+  showWithLoomGoalMenu: (api: { contextMenu: { show: unknown } }) => api.contextMenu.show,
+  useLoomGoalActions: () => ({ runGoalMenuAction: () => false }),
+}));
 vi.mock("../state/threads", () => ({ threadEnvironment: { updateMetadata: "metadata" } }));
 vi.mock("../state/use-atom-command", () => ({
   useAtomCommand: () => async () => {
