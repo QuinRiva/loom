@@ -401,7 +401,7 @@ describe("makeManagedServerProvider", () => {
           streamSettings: Stream.empty,
           haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
           initialSnapshot: () => Effect.succeed(initialSnapshot),
-          // Stands in for an enrichment-owning driver (Loom's quarantined pi
+          // Stands in for an enrichment-owning driver (Loom's deleted V1 pi
           // driver, DT-23): a cheap probe that knows nothing about the live
           // catalogue or command palette.
           checkProvider: Deferred.await(releaseInitialCheck).pipe(Effect.as(refreshedSnapshot)),

@@ -11,7 +11,7 @@ import * as Effect from "effect/Effect";
 
 import type { DrainableWorker } from "@t3tools/shared/DrainableWorker";
 
-// loom: pi stdout backpressure detached in pull 9 (ledger DT-83): its source, Loom's pi RpcProcess, is quarantined.
+// loom: pi stdout backpressure detached in pull 9 (ledger DT-83): its source, Loom's V1 pi RpcProcess, is deleted.
 
 const INTERVAL_MS = 60_000;
 // Five once-a-minute stalled checks before exit: far beyond any legitimate single event, shorter
