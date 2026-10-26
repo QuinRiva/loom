@@ -3,10 +3,10 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { runAllMigrations } from "../LoomMigrations.ts";
-import * as NodeSqliteClient from "../NodeSqliteClient.ts";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import Migration1065 from "./1065_DropUpstreamMessageSearch.ts";
 
-const layer = it.layer(NodeSqliteClient.layerMemory());
+const layer = it.layer(NodeSqliteClient.layer({ filename: ":memory:" }));
 
 const searchObjects = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
