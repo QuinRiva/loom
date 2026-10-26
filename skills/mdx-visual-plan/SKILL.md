@@ -1,40 +1,102 @@
 ---
 name: mdx-visual-plan
 description: >-
-  Author an implementation plan, a proposal for work that does not yet exist,
-  as a reviewable MDX document. Use when a plan is worth reviewing and
-  annotating in-app and the work is approval-gated. For a recap of work already
-  done or a decision batch use mdx-visual-recap; to explain, orient or diagnose
-  without asking for a decision use mdx-visual-explainer.
+  Author an intent brief or an implementation plan as a reviewable MDX
+  document. Use when a request is for something its owner will judge in use
+  rather than by a defect being gone (a feature or a change in behaviour; the
+  brief comes first), and whenever work needs a plan.
+  For a recap of work already done or a decision batch use mdx-visual-recap;
+  to explain, orient or diagnose without asking for a decision use
+  mdx-visual-explainer.
 pi_global: true
 pi_global_requires: [mdx-doc-core]
 ---
 
 # MDX Visual Plans
 
-**Genre: the implementation plan** — a proposal for work that does not yet
-exist, read by someone who decides whether it goes ahead. The plan is the
-approval gate: you surface it, the reader reviews and annotates it in-app, and
-implementation starts after they approve. For a change that already exists, or
-a batch of verdicts, use **`mdx-visual-recap`**; for a document whose job is
-understanding rather than approval, use **`mdx-visual-explainer`**.
+**Two genres, one lifecycle.** The **intent brief** is the owner's approval
+gate for feature work: one screen on what the feature is for and how they will
+know it works, drafted from the request and corrected by them in-app. The
+**implementation plan** is the proposal for how, written under an approved
+brief and reviewed by an agent against it; the owner sees a plan only where it
+reopens the brief. For a change that already exists, or a batch of verdicts,
+use **`mdx-visual-recap`**; for a document whose job is understanding rather
+than approval, use **`mdx-visual-explainer`**.
 
-A plan is an `.mdx` file in the workspace that T3 Code renders in its document
+Either is an `.mdx` file in the workspace that T3 Code renders in its document
 panel. Any span can be annotated; a selection leaves an anchored comment that
 comes back to you as a normal turn, and the bottom `<QuestionForm>` comes back
 as answers. There is no hosted app, connector or account: you write the file.
 
-## When to write one
+## Which to write
 
-Whenever the plan is a better reviewable artefact than a chat paragraph:
-multi-file or ambiguous work, a data-model, API or schema decision that needs
-alignment, a refactor with real risk, anything where the reader should react to
-a direction before you build it. A modest change still qualifies when the
-reader needs to see the shape first. Truly trivial, unambiguous work — a typo,
-a one-line fix, a single well-specified function — is better just done; a
-single-step plan costs the reader more than the change.
+A defect fix, a typo, a one-line change: neither, just do it. A feature or a
+change in behaviour, anything whose result the owner will judge in use rather
+than by a defect being gone: an intent brief first, however small; a small
+feature then goes straight to a coder whose reviewer judges against the brief.
+Medium or larger work (multi-file or ambiguous, a data-model, API or schema
+decision, a refactor with real risk): a plan as well, once the brief is
+approved.
 
-## Where it goes
+## The intent brief
+
+`plans/<slug>/intent.mdx`, beside the plan it governs, committed with the work
+and signed `role: intent` (a worked skeleton is in
+[`exemplar.md`](../mdx-doc-core/references/exemplar.md)). Its owner reads it
+in about a minute, so it states outcomes rather than mechanisms and fits one
+screen; when it runs long, cut prose before cutting questions. Its parts:
+
+- **Goal.** What the owner is trying to achieve or find out, opening with
+  their literal ask quoted: the semantic goal, which may be a question ("can X
+  make Y effortless?") rather than a deliverable.
+- **You'll know it works when.** A few lines of what the owner does and sees
+  in the running software, each checkable by an agent at review and by the
+  owner at near-done, and what it **must not** do or cost (what has to keep
+  working; a cost the approach may not incur). No tool probes here; the plan
+  derives them.
+- **Approaches in play.** The owner's idea as one candidate, plus the
+  alternatives worth trying, each with "wins if …"; agents move among these
+  without asking, a throwaway spike decides where that is cheap, and a dropped
+  approach stays listed with its reason so no later round retries it.
+- **Decided.** The owner's words, quoted: the lines a plan may not cross. A
+  low-stakes fork is an **Assumed** line here ("picking X over Y because R;
+  redirect if wrong"), not a question.
+- **Not doing.** Scope only; hard lines.
+- **Questions for you.** A `<QuestionForm>` of the questions that gate
+  approval, each with why it matters and a `recommended` answer, answerable
+  with yes, no or a correction; a bare "go" accepts every recommended answer.
+- **Still unknown.** Questions nobody can answer yet, each stated precisely
+  with what settles it. These do not gate approval; by near-done each is a check, a
+  decision or a dropped approach.
+
+Depth follows how well-defined the request is. Draft first, from the request
+and what the codebase settles, and ask inside the form. Interview beforehand,
+one question at a time with a recommended answer, when Goal or the checks
+cannot be drafted without guessing. For a bigger-picture or comprehensive
+effort, one that spans sessions or whose decisions depend on each other,
+`read` the wayfinder skill at
+`~/pi-craft/plugins/pi-craft/skills/mattpocock/wayfinder/SKILL.md` (it is
+`disable-model-invocation`, so it is not in your catalogue) and let its map
+drive the questions; the brief is its destination.
+
+The brief is rewritten in place as the work teaches, never appended to as a
+log; git is its history, and `status` moves `draft` → `approved` → `done`, or
+`dropped`. Agents may settle an unknown into a check or a dropped approach,
+record a chosen or dropped approach with its reason, tighten a check's wording
+without changing what passes it, and add or revise Assumed lines. Only the
+owner may change the Goal, their quoted words, what a check means, a must-not
+or a Decided line that is not Assumed; needing one of those changed, or finding
+one no longer clear, goes to the owner as one question, as does a new decision
+that is theirs (a product trade-off, deleting data or artefacts, overriding a
+design document), such as a choice between approaches that differ only on
+something the owner alone can judge ("try A and B", with cheap spikes to try).
+Wrong code never reaches the owner. At near-done the owner tries their checks
+and reacts; the reaction becomes changed or new checks in the same brief,
+beside the passed checks and must-not lines every later round is still held
+to, and the build goes again until the owner says it works and `status` is
+`done`.
+
+## Where the plan goes
 
 ```
 plans/<slug>/plan.mdx
@@ -134,6 +196,8 @@ reader the plan is ready:
 ```
 node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx --out plans/<slug>/render.html --png
 ```
+
+The same check runs on `intent.mdx`.
 
 Two stages against the real renderer modules: **lint** (compile gate, block
 registry, zod schemas, mermaid parser, wireframe sanitiser) reporting
