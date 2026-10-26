@@ -9,6 +9,7 @@ import "../index.css";
 import { filesystemEnvironment } from "../state/filesystem";
 import { useRightPanelStore } from "../rightPanelStore";
 import { setMarkdownTaskChecked } from "./files/filePreviewMode";
+import { __setMetadataFetcherForTests } from "./chat/usePathExistence"; // loom:
 
 const { workspaceSearch, filesystemMetadata } = vi.hoisted(() => ({
   workspaceSearch: vi.fn(),
@@ -101,6 +102,12 @@ function setup() {
   renderDiagram.mockReset();
   workspaceSearch.mockReset().mockResolvedValue(AsyncResult.success({ entries: [] }));
   filesystemMetadata.mockReset().mockResolvedValue(AsyncResult.success({ entries: [null] }));
+}
+
+// loom: Loom's click-time chip re-verify, held unverifiable so it always lets the open through.
+function unverifiedChipTargets(): Disposable {
+  __setMetadataFetcherForTests(() => Promise.resolve(new Map()));
+  return { [Symbol.dispose]: () => __setMetadataFetcherForTests(null) };
 }
 
 function renderText(text: string, props: Partial<Parameters<typeof ChatMarkdown>[0]> = {}) {
@@ -248,11 +255,14 @@ describe("ChatMarkdown workspace file opens", () => {
     );
     const { container } = screen;
     const [notes, other] = container.querySelectorAll("a");
+    // loom: a click re-verifies its target first (unverifiable here), so each open lands a tick later.
+    using _verify = unverifiedChipTargets();
     await act(async () => notes!.click());
-    expect(workspaceSearch).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(workspaceSearch).toHaveBeenCalledOnce()); // loom:
     expect(openFile).not.toHaveBeenCalled();
 
     await act(async () => other!.click());
+    await vi.waitFor(() => expect(openFile).toHaveBeenCalledOnce()); // loom:
     await act(async () => resolvePending(result));
 
     expect(openFile).toHaveBeenCalledExactlyOnceWith(threadRef, "/elsewhere/b.md", 9);
