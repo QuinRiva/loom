@@ -19,11 +19,11 @@ pnpm ship -m "<concise summary>" --merge-only # upstream-sync branch (see below)
 pnpm ship -m "<concise summary>" --dry-run    # preview the exact steps
 ```
 
-It pins the PR target (`gh repo set-default QuinRiva/loom`), commits the whole
-tree, rebases onto current `origin/main`, runs the gate (`vp check`,
-`vp run typecheck`, the unmarked-delta sweep), pushes, opens the PR into `main`,
-merges, confirms the merged state and deletes the remote branch explicitly. Run
-`vp run lint:mobile` yourself when you touched native mobile code.
+It pins the PR target (`gh repo set-default QuinRiva/loom`), commits, rebases
+onto current `origin/main`, runs the gate (`vp check`, `vp run typecheck`, the
+unmarked-delta sweep), pushes, opens the PR into `main`, merges, confirms the
+merged state and deletes the remote branch explicitly. Run `vp run lint:mobile`
+yourself when you touched native mobile code.
 
 Merge authority is per-project. loom is `agent` (`.t3code/ship.json`), so the
 script carries through the merge. Under the platform default `human`, an
@@ -36,8 +36,7 @@ honour it however you ship.
 [`docs/operations/shipping.md`](../../docs/operations/shipping.md) is the
 source of truth; its "Judgement calls" section has the detail. In short:
 
-- Ship only after approval, with a tree that holds only the work you mean to
-  ship: the script commits everything, untracked files included.
+- Ship only after approval, with only your work in the tree.
 - PR framing: pass `--title` / `--body` when `--fill` (the commit message)
   would not tell a reviewer enough. Write a body or comment one line per
   paragraph; GitHub renders every newline as a line break.

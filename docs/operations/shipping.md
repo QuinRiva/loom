@@ -55,8 +55,9 @@ to this repo's issues (GitHub redirects a PR number to the PR).
 - **Honour the project's merge authority** (above).
 - **The work must be ready.** If the checks fail, or the working tree carries
   changes beyond what you are shipping, stop and report that rather than
-  shipping around it. The script commits the whole tree (`git add -A`), so a
-  stray untracked file ships with you.
+  shipping around it. The script commits every pending change (`git add -A`),
+  but before any step, `--dry-run` included, it refuses while untracked (not
+  gitignored) files exist, naming them and the ways out.
 - **Agent commits are marked as such, automatically.** A pi process Loom launches
   commits as author `Loom agent` (the configured email, so GitHub credit is
   unchanged); its `git commit` calls add `Loom-Thread:` and `Pi-Session:`
@@ -78,7 +79,8 @@ yourself when you have touched native mobile code.
 ## The sequence (what `scripts/ship.ts` does)
 
 Run `pnpm ship -m "<concise summary>"`; add `--merge-only` for an upstream-sync
-branch (below) and `--dry-run` to preview the steps. In order, the script:
+branch (below), `--dry-run` to preview the steps and `--include-untracked` to
+commit untracked files too (above). In order, the script:
 
 1. `gh repo set-default QuinRiva/loom`: pins the PR target to `origin`, not the
    upstream fork parent (see the gotcha below).
