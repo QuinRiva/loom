@@ -30,7 +30,7 @@ export type ParsedGoalTaskMarkdown =
 /** Validates text written by add/update, where every supplied text is new. */
 export const validateGoalTaskText = (text: string): string | undefined =>
   text.length > MAX_GOAL_TASK_TEXT_LENGTH
-    ? `Task text is ${text.length.toLocaleString("en-US")} characters; the limit is ${MAX_GOAL_TASK_TEXT_LENGTH}. The tree is the human's at-a-glance view of the plan: a task records THAT work exists, never its details. State the work as a short plain-language item (e.g. "Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101)"); put coordinates in the task's thread, findings and verdicts in a report or memo, and draft content in its artefact. Keep the goal description a short objective, not a journal.`
+    ? `Task text is ${text.length.toLocaleString("en-US")} characters; the limit is ${MAX_GOAL_TASK_TEXT_LENGTH}. The tree is the human's at-a-glance view of the plan: a task records THAT work exists, never its details. State the work as a short plain-language item naming the outcome; put coordinates in the task's thread, findings and verdicts in a report, and draft content in its artefact. Keep the goal description a short objective, not a journal.`
     : undefined;
 
 /**
