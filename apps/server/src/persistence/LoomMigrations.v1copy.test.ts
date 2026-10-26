@@ -66,7 +66,6 @@ it.effect("migrates a copied V1 database to 1063 with the renamed tables' rows i
       const loomLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM ${sql(loomMigrationsTable)} ORDER BY migration_id`;
       assert.deepEqual(loomLedger.slice(-10), [
-        { id: 1053, name: "LoomCardMetrics" },
         { id: 1054, name: "LoomImportedConsultItems" },
         { id: 1055, name: "LoomHandoffOrigin" },
         { id: 1056, name: "LoomThreadCache" },
