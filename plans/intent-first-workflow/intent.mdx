@@ -1,0 +1,40 @@
+---
+reader:
+  who: Carl, who asked for this feature and approves its intent before anything is built
+  knows: his own request; nothing of the research, the plan or the file names
+  after_first_screen: he can correct a line or say "go"; his two answers are folded into Decided
+kicker: "Intent brief · approved 26 Oct 2026"
+status: approved
+manager_sessions:
+  - id: 01a176e9-7cb7-70e3-aa65-d4930a5ef707
+    name: Intent-brief-first workflow for features
+    role: intent
+    authored_at: 2026-10-26T07:47:50.474Z
+---
+
+# Feature work starts from a brief like this one, then runs without you until it is nearly done
+
+**Goal.** "once I've sort of nailed down what my intent is, have the rest of the process automated." Today feature work skips this step and hands you long plans that you skip ("I tend to basically just not review them at all"). A one-screen brief becomes the only thing you approve.
+
+**You'll know it works when.**
+- Your next feature request comes back as a brief like this one, before any plan or code exists, and you correct it or say "go".
+- For medium or larger work, a plan is written and reviewed by an agent against the brief. You never see it unless it collides with the brief.
+- Between "go" and nearly done, a thread only comes back to you when the brief is contradicted, a decision in it stops being clear, or a new decision is genuinely yours.
+- Near done, you get the brief's checks back with evidence, and the ones only you can judge are marked "yours to try". Your reaction changes the checks and the build goes again.
+- **Must not:** undo your recent prompt trim (the always-on prompts grow by a sentence or two at most), or let briefs outgrow what you can read in about a minute (the last two filled several screens and went unread).
+
+**Approaches in play.**
+- Amend what exists: the plan skill gains the brief, the orchestrator and planner roles make it the hold, and the review gate checks against it. Wins if agents then write briefs unprompted. *My pick.*
+- A separate intent skill. Wins if the plan skill cannot carry the trigger. It costs a new catalogue entry.
+- Dropped: grill-me's twelve-section brief as the default. It produced the briefs nobody read.
+
+**Decided.** "any sort of work that is more than just a bug fix, any sort of new feature". Plans stay, "certainly for medium-size or larger features", "reviewed by an agent to ensure that it aligns with the intent". You are re-engaged "only if there's something the plan uncovers that contradicts something I've said in the intent brief or makes something in the decision that I've made in the intent no longer clear (or is something that's important for me to make a new decision on)".
+A brief is earned by anything you would judge by using it, rather than by a defect being gone. For bigger-picture work the agent loads wayfinder itself, now, before it is tailored to Loom: "Let's test, we can always revert if it isn't working. We can treat this as experimental."
+*Assumed:* briefs and plans are committed under `plans/<slug>/` beside the work; redirect if wrong.
+
+**Not doing.** New code or tooling. Tailoring wayfinder to Loom, which is later work and depends on how the experiment goes.
+
+**Still unknown.**
+- Does wayfinder, untailored, help on bigger-picture work or get in the way? The first bigger-picture request will show it; revert if it gets in the way.
+- Will agents write a brief without being told to? The first few feature requests after this lands will show it. If they don't, the fix is a stronger trigger, not more text.
+- Does "is the check wrong, or the code wrong?" keep mid-build rulings away from you in practice? The first feature to go the whole loop will show it.
