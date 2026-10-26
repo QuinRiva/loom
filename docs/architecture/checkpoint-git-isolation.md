@@ -61,17 +61,9 @@ Consequences worth stating plainly:
 ## If you _did_ hit an `index.lock` failure
 
 The checkpointer is not the culprit. `fatal: Unable to create '…/index.lock':
-File exists.` (exit 128) comes from a real-index writer. The candidates are:
-
-- **`commitAll`** (`apps/server/src/vcs/GitVcsDriverCore.ts`) — the recognisable
-  triple `git add -A`; `git diff --cached --quiet`; `git rev-parse HEAD`. This is
-  the real-index path. Its V1 callers (per-child worktree provisioning and the
-  merge-back of a finished child) were not ported in pull 9 — every workstream
-  thread now shares its parent's checkout — so the primitive is orphaned until
-  Phase 4 deletes it; while it exists it absorbs cross-process contention with
-  the shared bounded retry `GIT_LOCK_RETRY` (`apps/server/src/git/gitLockRetry.ts`).
-- **The commit-panel UI action**, which deliberately stages everything — but only
-  when a user clicks it.
+File exists.` (exit 128) comes from a real-index writer: the agent's own git in
+the same worktree, or the commit-panel UI action, which deliberately stages
+everything but only when a user clicks it.
 
 Nothing commits _your staging_ automatically: checkpoint captures are
 `commit-tree` objects that no branch points at, so an unexplained commit on your
