@@ -22,14 +22,9 @@ import { gateSourceFor, isWaitingInGate } from "@t3tools/shared/workstreamGraph"
 import * as DateTime from "effect/DateTime";
 
 /**
- * Pure presentation logic for the Workstream graph, timeline, quick facts and
- * active strip (Phase 3 track 3d-2: the V1 module re-hung on the V2 shell).
- * JSX-free so the lazily-loaded graph chunk and the panel share one
- * vocabulary.
- *
- * Three axes, never fused: a thread sits in ONE derived plan column
- * (`deriveBoardColumn`); activity (`activityRunStatus`) and attention (stored ∪
- * derived reasons) are overlays. Colours are upstream theme tokens only.
+ * JSX-free so the lazily loaded graph chunk and the panel share one vocabulary. Three axes,
+ * never fused: a thread sits in ONE derived plan column (`deriveBoardColumn`); activity and
+ * attention (stored ∪ derived reasons) are overlays. Colours are upstream theme tokens only.
  */
 
 /**
@@ -701,12 +696,8 @@ function outcomeRowBody(
 }
 
 /**
- * A thread's timeline, oldest first: from its sidecar, created (linking the
- * parent's dispatch), held, dependencies set and kicked off; then its event
- * history (`loom.threadHistory`) — every outcome with the report it wrote,
- * every flag raised and cleared (yield and resume included), each gate route
- * and rework round, and each plan outcome set or reopened. Until the history
- * arrives, the sidecar's latest outcome and plan outcome stand in.
+ * Oldest first: the sidecar's milestones, then the `loom.threadHistory` events. Until the
+ * history arrives, the sidecar's latest outcome and plan outcome stand in.
  */
 export function buildTimelineRows(
   node: WorkstreamNode,

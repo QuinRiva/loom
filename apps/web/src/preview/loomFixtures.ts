@@ -1,10 +1,6 @@
 /**
- * Loom preview fixture data (Phase 3 track 3d-1): V2 shell and message shapes
- * for the workstream graph (`WorkstreamPanel`, one thread per derived column),
- * the goal panel (`GoalTasksPanel`, a nested tree with an anchored thread) and
- * the control cards (`ControlDigestCard`, every seam-6 kind — the same payloads
- * the dev seed writes). 3d-2/3d-3 register fixtures in `fixtures.tsx` that
- * render their components against this data; nothing here renders.
+ * V2 shell and message shapes for the workstream graph, goal panel and control cards (the
+ * same payloads the dev seed writes). Data only; nothing here renders.
  *
  * @module preview/loomFixtures
  */

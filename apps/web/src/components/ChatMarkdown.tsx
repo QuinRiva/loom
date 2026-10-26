@@ -917,11 +917,9 @@ function useChatMarkdownState({
     );
   };
 
-  // loom: paths agents write as bare prose or dump inside a fenced block are
-  // references too. Both are scanned loosely and only become clickable once the
-  // server confirms the file is there — and neither rewrites the text: the
-  // sentence and the fence read exactly as written, with the path substring
-  // itself the clickable span.
+  // loom: bare prose and in-fence paths are scanned loosely and only become clickable once
+  // the server confirms the file is there. Neither rewrites the text: the path substring
+  // itself is the clickable span.
   const scannedPaths = useScannedPathTargets({
     environmentId,
     text,
@@ -1018,11 +1016,9 @@ const ChatMarkdownRendererContext = React.createContext<
 // Isolate streamed source text from the renderer context; only offset-based renderers need it.
 const ChatMarkdownTextContext = React.createContext("");
 
-// loom: a path found in plain prose by `rehypeChatFilePaths`. The sentence keeps
-// the path exactly as written and the path itself is the clickable span — the
-// same treatment the fence decorator gives an in-fence hit, and the reason this
-// is an anchor rather than upstream's basename chip. `data-markdown-copy` keeps
-// a copied selection carrying the raw path instead of a `[text](href)` link.
+// loom: an anchor rather than upstream's basename chip so the sentence keeps the path as
+// written, matching the fence decorator. `data-markdown-copy` keeps a copied selection
+// carrying the raw path instead of a `[text](href)` link.
 function ProseFilePath({ node, children }: ReactMarkdownExtraProps & { children?: ReactNode }) {
   const { environmentId, scannedPaths, openScannedPath } = use(ChatMarkdownRendererContext);
   const rawText = plainHastText(node) || nodeToPlainText(children);

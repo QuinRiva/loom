@@ -114,10 +114,8 @@ function tokenStartForCursor(text: string, cursor: number): number {
 }
 
 /**
- * loom: the `!` that opens the thread query the cursor sits inside (DL-750), or
- * null. Thread titles are multi-word, so unlike `@`/`#`/`$` the query spans
- * spaces: scan the current line back to the nearest `!` that starts a token
- * (line start or after whitespace). The menu closes once nothing matches, so a
+ * loom: thread titles are multi-word, so unlike `@`/`#`/`$` the query spans spaces back to
+ * the nearest token-starting `!` on the line. The menu closes once nothing matches, so a
  * stray `!` in prose never leaves a menu hanging.
  */
 function threadTriggerStart(text: string, lineStart: number, cursor: number): number | null {

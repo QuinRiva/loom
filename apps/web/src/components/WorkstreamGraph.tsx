@@ -1,14 +1,7 @@
-// Workstream fork–join graph — a READ-ONLY "dispatch episode" view. The
-// orchestrator recurs as one BRIDGE node per wave (the children of one
-// (parent, spawnGeneration)); waves stack down a neutral spine; within a wave,
-// children sit in dependency columns; real `blockedBy` (within or across
-// waves) draws as dashed cross-edges; a gated pair carries its loop edge with a ⟲ rounds/cap badge.
-// Position encodes dispatch order; status is colour only (theme tokens).
-//
-// Gestures: click a node to enter its thread (a consult edge or badge: the
-// asker's thread at that consult); hover (~300ms) for quick facts
-// and a dependency highlight; middle-click for its timeline; right-click (or
-// Shift+F10 / ContextMenu on a focused node) for actions. No animation loops.
+// Read-only fork-join graph of dispatch episodes: the orchestrator recurs as one bridge node
+// per wave (the children of one (parent, spawnGeneration)), children sit in dependency columns,
+// and `blockedBy` draws as dashed cross-edges. Position encodes dispatch order; status is
+// colour only (theme tokens). No animation loops.
 
 import type { WorkstreamRollup } from "@t3tools/client-runtime/state/loom/rollup";
 import type { ThreadId } from "@t3tools/contracts";

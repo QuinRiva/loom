@@ -28,11 +28,9 @@ type ArtifactViewState =
   | { status: "error"; message: string };
 
 /**
- * Renders one agent-produced HTML artefact in a sandboxed iframe pointed at the
- * signed asset URL (`GET /api/assets/:token/:file`). Omitting `allow-same-origin`
- * runs the artefact in an opaque origin, so its code cannot reach the app, its
- * RPC, or the session cookie; relative subresources still resolve through the
- * asset route's `baseRelativePath` claim. Available in the web runtime only.
+ * Omitting `allow-same-origin` runs the artefact in an opaque origin, so its code cannot
+ * reach the app, its RPC, or the session cookie; relative subresources still resolve
+ * through the asset route's `baseRelativePath` claim. Available in the web runtime only.
  */
 export default function ArtifactViewPanel({
   environmentId,

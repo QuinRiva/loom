@@ -294,19 +294,9 @@ const CONSULT_REPORT_CODE_BLOCKS_MARKDOWN = `To the reviewer:
    Together, the ancestor check, absence of \`--force\`, normal \`old..new\` push output, and matching PR head establish a fast-forward push.`;
 
 /**
- * Minimal repro for the empty-code-block defect (#: fenced blocks nested inside
- * a list item render chrome only — language badge, wrap/copy buttons, rounded
- * container — with a completely empty body, and the copy button yields "").
- *
- * The five cases below are a discriminator, not decoration: the two OUTSIDE a
- * list item (top level, blockquote) render their body correctly, and the three
- * INSIDE a list item render empty. That isolates the trigger to the `p`/`li`
- * component overrides' `renderSkillInlineMarkdownChildren` pass rewriting the
- * nested `code` element's string child into a `<SkillInlineText>` element, which
- * `extractCodeBlock`/`nodeToPlainText` cannot read (the text lives in a `text`
- * prop, not `children`), so Shiki is handed "".
- *
- * A correct fix shows the body text in ALL FIVE blocks.
+ * Fenced blocks nested in a list item once rendered an empty body: the `p`/`li` overrides turned
+ * the code string into a `<SkillInlineText>` whose `text` prop `extractCodeBlock` cannot read.
+ * The two blocks outside a list item are the control; all five must show their body text.
  */
 const LIST_NESTED_CODE_BLOCK_MARKDOWN = `A: top level (renders correctly today):
 
@@ -372,11 +362,9 @@ Inline code must stay literal: \`use $probe now\`: no chip, and it copies verbat
 `;
 
 /**
- * The three chip states loom's verification seam produces, in one message:
- * a file that exists (upstream's live chip), one the server reports as gone
- * (the muted "missing?" chip, not a dead link), and a non-file link (untouched
- * by the seam). The harness has no backend, so the fixture drives the shared
- * existence store directly — the same injection point its unit tests use.
+ * The three chip states loom's verification seam produces: an existing file, one the server
+ * reports gone (muted, not a dead link), and a non-file link. With no backend, the fixture
+ * drives the shared existence store directly, as its unit tests do.
  */
 const FILE_CHIP_STATES_CWD = "/Users/julius/project";
 const FILE_CHIP_STATES_PRESENT = `${FILE_CHIP_STATES_CWD}/src/main.ts`;
@@ -524,11 +512,8 @@ ${SCANNED_PATH_MISSING}
 `;
 
 /**
- * The harness has no backend, so the existence fixtures drive the shared
- * existence store directly — the same injection point their unit tests use. Installed once
- * at module load (this module is DEV-only and tree-shaken out of a production
- * build): installing the stub *resets* the store, so doing it per mount would
- * race a mounted subject's path registration.
+ * Installed once at module load (this module is DEV-only): installing the stub *resets* the
+ * existence store, so doing it per mount would race a mounted subject's path registration.
  */
 const PREVIEW_PATH_METADATA: Record<string, FilesystemEntryMetadata | null> = {
   [FILE_CHIP_STATES_PRESENT]: { kind: "file" },
@@ -655,11 +640,9 @@ const PENDING_USER_INPUT_WIZARD: ReadonlyArray<UserInputQuestion> = [
 ];
 
 /**
- * The panel wired to real answer state through the shared transition, the way
- * `ChatView` wires it. Advancing is the whole of the wizard's behaviour, so a
- * fixture holding a frozen `answers={{}}` could never show Next enabling or the
- * next question opening. Dismiss and submit are inert: the harness has no
- * backend, and dispatch is not what these fixtures are for.
+ * Wired to real answer state the way `ChatView` wires it, since a frozen `answers={{}}` could
+ * never show Next enabling or the next question opening. Dismiss and submit are inert: the
+ * harness has no backend.
  */
 function PendingUserInputPreview({
   questions,
@@ -760,18 +743,9 @@ function pendingUserInputFixture(
 }
 
 /**
- * The annotation-layer defect case: a `<Card>` wrapping a **closed** `<Details>`
- * wrapping a 12-cell `<Table>`, with wrapping prose before and after. It
- * exercises all four MDX-annotation rendering defects at once:
- *  - **A** — toggle the panel button (container width changes while the viewport
- *    stays wide, so the capped `max-w-4xl` root only re-centres); highlights must
- *    track, not drift into the gutter.
- *  - **B** — hover the card / table and "Comment on this block": a block anchor
- *    must draw ONE outline ring, not a card-sized fill plus a pill per cell.
- *  - **C** — comment on content inside the closed `<Details>`: it must collapse
- *    to a badge on the summary, never paint phantom pills over the prose below.
- *  - **D** — add `dark` to `<html>` and hover the floating "Comment" button: it
- *    must stay opaque, not go transparent.
+ * A: toggle the panel and highlights must track. B: a block comment draws ONE outline ring, not
+ * a pill per cell. C: a comment inside the closed `<Details>` collapses to a badge on its
+ * summary. D: with `dark` on `<html>`, the floating "Comment" button stays opaque.
  */
 const MDX_ANNOTATION_FIXTURE_SOURCE = [
   "# Annotation layer defect fixture",
@@ -796,14 +770,9 @@ const MDX_ANNOTATION_FIXTURE_SOURCE = [
 ].join("\n");
 
 /**
- * A plan document exercising wide-block bleed: a split `<Diff>` with lines far
- * longer than the prose measure, a narrow `<Table>`, a short `<Code>` block, and
- * the same wide diff nested inside `<Columns>` and a `<Details>`.
- *
- * Expected: the top-level diff bleeds past the `max-w-4xl` measure up to the
- * panel budget; prose, the narrow table, and the short code block stay at the
- * measure; and the nested diffs stay inside their container, scrolling
- * internally.
+ * Expected: the top-level diff bleeds past the `max-w-4xl` measure up to the panel budget;
+ * prose, the narrow table and the short code block stay at the measure; the diffs nested in
+ * `<Columns>` and `<Details>` stay inside their container, scrolling internally.
  */
 const MDX_WIDE_BLOCK_FIXTURE_SOURCE = [
   "# Wide-block bleed in a plan document",
@@ -878,16 +847,9 @@ const MDX_WIDE_BLOCK_FIXTURE_SOURCE = [
 ].join("\n");
 
 /**
- * Reproduces the file-preview panel's layout chain for a plan document: a
- * viewport publishing `--timeline-available-width` from a ResizeObserver
- * (`FilePreviewPanel`'s `BleedFrame`, via the shared
- * {@link useTimelineAvailableWidthVar}) wrapping the annotation layer. Rendering
- * the plan bare would misreport wide-block bleed.
- *
- * The side-panel toggle changes the document container width without narrowing
- * the viewport (annotation defect A); the narrow toggle squeezes the panel to a
- * phone-ish width, where the bleed must collapse back to the measure rather than
- * overflow.
+ * Reproduces `FilePreviewPanel`'s `BleedFrame` chain ({@link useTimelineAvailableWidthVar}), since
+ * a bare plan would misreport wide-block bleed. The side-panel toggle narrows the container but
+ * not the viewport; the narrow toggle must collapse the bleed back to the measure.
  */
 function PlanPanelPreview({ source }: { source: string }) {
   const [panelOpen, setPanelOpen] = useState(false);
@@ -931,11 +893,9 @@ function PlanPanelPreview({ source }: { source: string }) {
 }
 
 /**
- * A table wide enough to overflow its own `overflow-x-auto` scroller inside a
- * capped panel, for the intra-block text-selection + scroller-drift case: select
- * a phrase in a cell → it anchors to that phrase (fill highlight, not a whole-
- * table ring); scroll the table sideways → the highlight tracks the words and is
- * clipped to the scrollport instead of drifting across the page.
+ * Overflows its own `overflow-x-auto` scroller: a phrase selected in a cell anchors to that
+ * phrase, not the whole table, and scrolling sideways keeps the highlight on the words,
+ * clipped to the scrollport.
  */
 const MDX_SCROLLING_TABLE_FIXTURE_SOURCE = [
   "# Intra-cell selection in a horizontally scrolling table",
@@ -979,11 +939,9 @@ const mdxScrollingTableFixture: PreviewFixture = {
 };
 
 /**
- * A stylesheet-driven mockup grid inside one `<HtmlBlock>` — the shape plan
- * authors use to compare options side by side. The frame is same-origin with
- * scripts off, so selecting text in ONE card pins a comment to that card (a
- * highlight inside the frame that tracks in-frame scroll and panel resizes),
- * while hovering anywhere over the frame still offers the whole-block comment.
+ * The frame is same-origin with scripts off, so selecting text in ONE card pins a comment to
+ * that card (tracking in-frame scroll and panel resizes), while hovering the frame still offers
+ * the whole-block comment.
  */
 const MDX_HTML_BLOCK_CARDS_HTML = [
   "<!doctype html><html><head><style>",

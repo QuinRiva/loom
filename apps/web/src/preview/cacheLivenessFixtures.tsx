@@ -1,9 +1,6 @@
 /**
- * loom: preview fixtures for the prompt-cache fuel ring and the hover card's
- * "Prompt cache" block — every ring state on both arms (keep-alive ping
- * pending, landed, missed; undecided; stopped; past the horizon; cold), plus an
- * unpriced model, no call on record and a working thread. Times are relative to
- * when the fixture renders.
+ * loom: every prompt-cache fuel ring state on both arms, plus an unpriced model, no call on
+ * record and a working thread. Times are relative to when the fixture renders.
  */
 import { cacheLiveness } from "@t3tools/client-runtime/state/loom/cacheLiveness";
 import type { LoomCacheRetention, LoomCacheWarming } from "@t3tools/contracts";

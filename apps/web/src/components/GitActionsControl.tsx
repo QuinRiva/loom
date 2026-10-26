@@ -1116,16 +1116,10 @@ export default function GitActionsControl({
       return;
     }
 
-    // loom: only ever "correct" the thread branch from git status that provably comes
-    // from the thread's own checkout. The observed status is strictly cwd-keyed,
-    // and for a server thread the only checkout that is provably its own is its
-    // bound worktree. When worktreePath is null the status describes the shared
-    // project root — either a local-mode thread (the toolbar reads live git
-    // status directly, so persisting the sync is cosmetic at best) or the
-    // bootstrap window in which the server has just provisioned a worktree the
-    // client hasn't learned about yet. Syncing in that window has corrupted
-    // thread state twice (58750e2a9 and the incident behind this guard), so the
-    // project root is never treated as authoritative for a server thread.
+    // loom: only sync the thread branch from git status of the thread's own checkout, which for
+    // a server thread is its bound worktree. With worktreePath null the status is the shared
+    // project root, possibly during the window before the client learns of a just-provisioned
+    // worktree; syncing then has corrupted thread state, so the root is never authoritative.
     if (activeServerThread) {
       if (activeServerThread.worktreePath === null || activeServerThread.worktreePath !== gitCwd) {
         return;

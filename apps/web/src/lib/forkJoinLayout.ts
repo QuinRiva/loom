@@ -1,14 +1,7 @@
-// Pure fork–join band layout for the Workstream graph. No JSX, no React — the
-// SVG renderer (WorkstreamGraph.tsx) consumes the positioned nodes/edges this
-// produces. Kept separate so the geometry (the one non-trivial, recursive piece)
-// is unit-testable without mounting a component.
-//
-// Model: an orchestrator recurs as one BRIDGE node per wave, where a wave = the
-// children sharing one (parentThreadId, spawnGeneration). Waves stack down a
-// neutral spine ordered by each wave's earliest child; a wave's children sit in
-// dependency columns to its right, with real `blockedBy` as waits-on
-// cross-edges (within and across waves). A child that itself spawns is the same layout applied recursively
-// and packed as a measured (w×h) block under its card.
+// An orchestrator recurs as one bridge node per wave (the children sharing one
+// (parentThreadId, spawnGeneration)); waves stack down a spine ordered by earliest child, and
+// a wave's children sit in dependency columns to its right. A child that itself spawns gets
+// the same layout recursively, packed as a measured (w×h) block under its card.
 
 import type { ThreadId } from "@t3tools/contracts";
 
@@ -16,12 +9,9 @@ import type { WorkstreamNode } from "./workstreamPresentation";
 
 const BRIDGE_W = 150;
 const BRIDGE_H = 46;
-// 172×74 (header-band card, docs/design/workstream-graph-node-redesign.html
-// design C2): a role/state header strip, a two-line wrapped title, and a
-// metrics band. Uniform (not per-state) so node geometry stays a function of
-// STRUCTURE only — the layout is memoised on a status-excluding key, so a
-// per-state height would re-run the whole fork–join layout on every lane/turn
-// transition. Every port/centre/viewBox derives from these constants.
+// Uniform, not per-state: the layout is memoised on a status-excluding key, so a per-state
+// height would re-run the whole layout on every lane or turn transition. Every port, centre
+// and viewBox derives from these constants.
 export const NODE_W = 172;
 const NODE_H = 74;
 const FORK_GAP = 54; // bridge right edge → first child column
@@ -324,11 +314,9 @@ function layoutOrchestrator(
         y2: center.y,
       });
     }
-    // Within-wave dependencies.
-    // These are ALWAYS forward (a dependency sits in an earlier column by the
-    // depth assignment in `dependencyColumns`), so a blocked edge never flows
-    // right-to-left and needs no orthogonal back-edge routing. Cross-wave deps
-    // are routed after the wave loop (they need every wave's positions).
+    // Within-wave dependencies are always forward (`dependencyColumns` puts a dependency in an
+    // earlier column), so they need no back-edge routing. Cross-wave deps are routed after the
+    // wave loop, once every wave has positions.
     for (const member of members) {
       const target = memberCardCenter.get(member.id)!;
       for (const dep of member.blockedBy) {
@@ -356,12 +344,9 @@ function layoutOrchestrator(
         if (route.kind !== "loop" || route.to === undefined || route.to === member.id) continue;
         const loopTarget = memberIds.has(route.to) ? memberCardCenter.get(route.to) : undefined;
         if (!loopTarget) continue;
-        // Rounded orthogonal loop routed through the channel BELOW the gate pair
-        // (mockup's review-loop shape): exit the source's bottom port, run the
-        // horizontal channel, rise into the target's bottom port so the arrow
-        // lands perpendicular. Endpoints (x1/y1..x2/y2) stay the two ports; the
-        // waypoints carry the actual path. Ports sit at distinct offsets so the
-        // two vertical drops never overlap.
+        // Loop through the channel below the gate pair, bottom port to bottom port, so the arrow
+        // lands perpendicular. Endpoints stay the two ports and the waypoints carry the path;
+        // ports sit at distinct offsets so the two vertical drops never overlap.
         const srcBottom = source.y + NODE_H / 2;
         const tgtBottom = loopTarget.y + NODE_H / 2;
         // Route obstacle-aware (channel pushed below every node its span
@@ -396,15 +381,10 @@ function layoutOrchestrator(
     y += waveH + WAVE_GAP;
   });
 
-  // loom: cross-wave waits-on edges. Every dependency on a sibling in another
-  // wave is drawn (the spine only orders waves; it cannot say WHICH earlier node
-  // a later one waits on), deconflicted against the loop lanes via the shared
-  // registry. Forward (dep in an EARLIER wave, above): out of the dep's bottom
-  // port, along a clear channel in the gap below it, down the gutter just left
-  // of the waiting card into its left port — the same port a same-wave edge
-  // uses. Inversion (dep in a LATER wave, below — a node re-gated after spawn
-  // onto a later replacement): left-side ports joined by a vertical run in the
-  // nearest clear gutter left of both cards.
+  // loom: cross-wave waits-on edges are all drawn, since the spine cannot say WHICH earlier
+  // node a later one waits on. Forward (dep in an earlier wave) enters the waiting card's left
+  // port like a same-wave edge; an inversion (a node re-gated onto a later replacement) joins
+  // left-side ports through the nearest clear gutter. Lanes come from the shared registry.
   let blockH = Math.max(0, y - WAVE_GAP);
   for (const child of children) {
     const target = centreByMember.get(child.id);
@@ -528,11 +508,9 @@ export function computeForkJoinLayout(threads: ReadonlyArray<WorkstreamNode>): {
   return layoutOrchestrator(root.id, root.title, childrenByParent);
 }
 
-// mcp__t3-code__consult_thread observability: cross-edges + out-of-tree annotations derived
-// from thread shells' consult summaries. Kept OUT of the memoised structural
-// layout (consults change at runtime and are additive) and resolved live from
-// the laid-out node positions — the same live-overlay pattern the renderer uses
-// for loop-edge rounds.
+// Consult edges and annotations stay out of the memoised structural layout (consults change
+// at runtime and are additive) and resolve live from the laid-out positions, like loop-edge
+// rounds.
 
 /** A directed asker→target consult edge whose endpoints are both in the graph. */
 export interface ConsultEdge {
@@ -570,12 +548,9 @@ export interface ExternalConsult {
   readonly anchorAtIso: string;
 }
 
-// Obstacle-aware back-edge routing (loops + backward consults). A back-edge
-// exits a bottom port, runs a horizontal channel BELOW every node its span
-// crosses, and rises into the target's bottom port. Vertical drops use the
-// nearest CLEAR lane (the port's own x when nothing sits below it — the common
-// shallow case — else a jog into a clear gutter), so no segment ever crosses a
-// node body on a dense or nested graph.
+// Back-edges (loops and backward consults) run a channel below every node their span crosses,
+// and vertical drops jog into the nearest clear gutter when something sits below the port, so
+// no segment crosses a node body on a dense or nested graph.
 
 // A vertical segment at `x` spanning [yTop, yBot] is clear when no node
 // rectangle straddles it.
@@ -641,13 +616,10 @@ function clearChannelBelow(
 }
 
 /**
- * Post-clearance lane registry shared by EVERY back-edge (loops + consults,
- * horizontal channels + vertical gutters). A back-edge first clears obstacles,
- * then claims its FINAL routed lane here; a claim that would coincide with an
- * already-taken lane (overlapping perpendicular span, within one step) is bumped
- * to the next free slot. This deconflicts routes that obstacle-pushing collapsed
- * onto the same coordinate — which per-branch counters keyed on the PRELIMINARY
- * band cannot catch.
+ * Every back-edge claims its FINAL lane here after clearing obstacles; a claim within one step
+ * of a taken lane with an overlapping span is bumped to the next free slot. This separates
+ * routes that obstacle-pushing collapsed onto one coordinate, which counters keyed on the
+ * preliminary band cannot catch.
  */
 export class BackEdgeLanes {
   private readonly horizontal: Array<{ coord: number; lo: number; hi: number }> = [];
@@ -708,11 +680,8 @@ function findFreeVerticalLane(
   return startX - 80 * LANE_STEP;
 }
 
-// Route a back-edge from one bottom port to another through a clear channel
-// below all obstacles, with clear-lane drops. The FINAL channel Y is claimed
-// from the shared lane registry so obstacle-collapsed routes stay distinct.
-// `ignore` excludes the two endpoint cards from lane checks (a port legitimately
-// sits on its own card).
+// The final channel Y is claimed from the shared lane registry so obstacle-collapsed routes
+// stay distinct. `ignore` excludes the two endpoint cards, since a port sits on its own card.
 function routeUnderChannel(
   nodes: ReadonlyArray<LaidNode>,
   lanes: BackEdgeLanes,
@@ -982,11 +951,9 @@ function edgeExtentPoints(
 }
 
 /**
- * Content bounds for the graph. Includes node rectangles AND all routed edge
- * geometry (loop channels, backward-consult channels, count badges) so a
- * back-edge that dips into the gutter below the last row is never clipped out of
- * the SVG, and its click hit-target stays reachable. `extraEdges` carries the
- * live consult overlay, which is not part of the memoised structural layout.
+ * Includes all routed edge geometry, not just nodes, so a back-edge dipping below the last row
+ * is never clipped and its hit target stays reachable. `extraEdges` carries the live consult
+ * overlay, which is not part of the memoised structural layout.
  */
 export function computeForkJoinViewBox(
   nodes: ReadonlyArray<LaidNode>,

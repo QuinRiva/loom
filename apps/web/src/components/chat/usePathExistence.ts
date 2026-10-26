@@ -10,12 +10,9 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
 
 /**
- * Verified existence of a resolved chip target. `exists` gates whether a chip
- * becomes a clickable link at all; `isDirectory` routes directory targets to a
- * non-file click behaviour. Only regular, readable files and directories are
- * ever `exists: true` — FIFOs/sockets/devices (kind `other`) and missing or
- * unreadable files (null metadata) are inert so no chip can click into a read
- * error.
+ * Only regular, readable files and directories are ever `exists: true`. FIFOs, sockets and
+ * devices (kind `other`) and missing or unreadable files (null metadata) stay inert, so no
+ * chip can click into a read error.
  */
 export interface PathExistence {
   readonly exists: boolean;

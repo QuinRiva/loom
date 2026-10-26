@@ -20,13 +20,9 @@ import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 /**
- * The inspected thread's event history (`loom.threadHistory`): outcomes with
- * their round's report, flags (yield and resume included), gate routes and
- * plan outcomes, as V1's lifecycle drawer showed. Lives in the panel, not the
- * drawer; refetched when the thread or its sidecar changes (`updatedAt` moves
- * with every Loom event of the thread), keeping the last answer for the same
- * thread meanwhile. Null until the first answer for the thread (the drawer then
- * shows the sidecar's milestones). Nothing polls.
+ * Refetched when the thread or its sidecar changes (`updatedAt` moves with every Loom event
+ * of the thread), keeping the last answer for the same thread meanwhile; nothing polls. Null
+ * until the first answer, when the drawer shows the sidecar's milestones.
  */
 export function useThreadHistory(
   environmentId: EnvironmentId,
@@ -55,11 +51,8 @@ export function useThreadHistory(
 }
 
 /**
- * A thread's timeline drawer: the milestones its sidecar records (created,
- * held, dependencies, kickoff), its event history (`buildTimelineRows`) with
- * each outcome's report, and its gate routes. A row that happened in a
- * conversation jumps to it (the spawn row to the parent's dispatch). Reads the
- * shell and updates live. Overlays the panel; Esc or the backdrop dismisses it.
+ * A thread's sidecar milestones, event history with each outcome's report, and gate routes.
+ * A row that happened in a conversation jumps to it (the spawn row to the parent's dispatch).
  */
 export function WorkstreamTimelineDrawer({
   node,

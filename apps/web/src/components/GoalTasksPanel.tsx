@@ -1,13 +1,7 @@
 /**
- * loom: the Goal surface (3d-3) — the single place a Loom goal is managed,
- * always anchored to the open thread's goal (`workstream.goalId`; never the
- * provider-native `/goal`, which upstream shows as its own status chip).
- *
- * It renders the goal's edit-in-place title/description, the task tree with
- * each anchored thread's chip on its task row, and the goal's root threads in
- * handoff order. Every write goes through a `loom.goal.*` ws method that
- * writes `LoomStoreV2` and publishes on the goal stream, so the panel never
- * patches local state: the edit round-trips and arrives like an agent's.
+ * loom: anchored to the open thread's Loom goal (`workstream.goalId`), never the provider-native
+ * `/goal`. Every write goes through a `loom.goal.*` ws method and arrives back on the goal
+ * stream, so the panel never patches local state: an edit round-trips like an agent's.
  */
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, LoomGoalShell, LoomGoalTask } from "@t3tools/contracts";

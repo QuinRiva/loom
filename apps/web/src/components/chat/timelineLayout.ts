@@ -3,11 +3,9 @@ import { useEffect } from "react";
 import { observeResize } from "~/lib/observeResize";
 
 /**
- * CSS custom property the timeline publishes with the true content width its
- * viewport offers. Wide markdown blocks (tables, etc.) key their bleed budget
- * off this so they can escape the prose measure up to what the viewport
- * actually has, rather than being stranded in a narrow column on wide displays
- * (see the `.chat-markdown-table-container` rules in `index.css`).
+ * The true content width the timeline viewport offers. Wide markdown blocks key their bleed
+ * budget off it to escape the prose measure on wide displays (see the
+ * `.chat-markdown-table-container` rules in `index.css`).
  */
 export const TIMELINE_AVAILABLE_WIDTH_VAR = "--timeline-available-width";
 

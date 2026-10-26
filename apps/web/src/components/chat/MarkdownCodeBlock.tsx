@@ -293,12 +293,9 @@ export function MarkdownCodeBlock({
 }
 
 /**
- * loom: decorate the highlighted block's DOM after paint, turning every
- * existence-verified path substring into a clickable anchor. Text-preserving
- * (see `decorateCodeBlockPaths`), so the fence's copy payload and Shiki's token
- * spans are untouched. Re-runs when the rendered content changes and when
- * verification resolves (`decorateCodeBlock`'s identity), and stays off while
- * streaming — the block is re-highlighted on every token.
+ * loom: decorates after paint, text-preserving, so the fence's copy payload and Shiki's
+ * token spans are untouched. Re-runs when verification resolves (`decorateCodeBlock`'s
+ * identity) and stays off while streaming, since the block re-highlights on every token.
  */
 function useCodePathDecoration(
   content: unknown,

@@ -23,11 +23,8 @@ import { WorkstreamEnvironmentContext, WorkstreamSpendSlot } from "../loom/Works
 import { WorkstreamModelPill } from "./WorkstreamModelPill";
 
 /**
- * Quick-facts hover card for a graph node: the glance before a click. Each fact
- * appears once, unlabelled: title and purpose; a status line (attention, plan
- * column or gate leg, age, tool count); the model; cost │ tokens; a parent's
- * subtree rollups. The footer is the current step with live seconds and its
- * command, or — when nothing runs — the last outcome. The graph positions it
+ * Hover card for a graph node: each fact appears once, unlabelled. The footer is the current
+ * step with live seconds, or the last outcome when nothing runs. The graph positions it
  * imperatively via the ref.
  */
 export const WorkstreamQuickFacts = forwardRef<

@@ -60,11 +60,8 @@ export interface AppModelOption {
   badge?: "new";
   isCustom: boolean;
   /**
-   * Excluded from casual browsing by the instance's model preferences
-   * (hide-list, or not selected while allow-list mode is on). Excluded
-   * options stay in the list so an explicit selection (picker search
-   * escape hatch, persisted thread model) still resolves; the picker
-   * simply keeps them out of the default views.
+   * loom: hidden by the instance's model preferences but kept in the list, so an explicit
+   * selection (picker search, a persisted thread model) still resolves.
    */
   excluded?: boolean;
   isDefault?: boolean;
@@ -208,14 +205,9 @@ export function getAppModelOptionsForInstance(
   entry: ProviderInstanceEntry,
   selectedModel?: string | null,
 ): AppModelOption[] {
-  // Custom rows are sourced canonically from the instance's config bucket
-  // (readInstanceCustomModels), NOT from the server snapshot. Drivers such
-  // as pi echo `config.customModels` back into their live catalogue as
-  // `isCustom` models; that echo lags behind settings writes, so a removed
-  // slug would otherwise linger in the picker after the settings list
-  // dropped it. Filtering server `isCustom` models here keeps the config
-  // bucket the single source of truth — matching the settings card's
-  // `deriveProviderModelsForDisplay`.
+  // loom: custom rows come from the config bucket, not the server snapshot: pi echoes
+  // `config.customModels` back as `isCustom` models, and that echo lags settings writes, so a
+  // removed slug would linger. Matches the settings card's `deriveProviderModelsForDisplay`.
   const builtInServerModels = entry.models.filter((model) => !model.isCustom);
   const options: AppModelOption[] = builtInServerModels.map(toAppModelOption);
   const seen = new Set(options.map((option) => option.slug));

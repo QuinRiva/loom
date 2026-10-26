@@ -943,12 +943,9 @@ function EditableFileSurface({
 
 // loom: wide-block bleed in file previews.
 /**
- * Publishes `--timeline-available-width` (from a ResizeObserver on the panel's
- * scroll viewport) around file-preview markdown AND `.mdx` plans, so wide-block
- * bleed keys off the panel width the way it does in the chat timeline. Without
- * it, tables and non-prose plan blocks fall back to the `max-w-4xl` prose
- * measure and get stranded in a narrow column with whitespace beside them (see
- * the wide-block bleed rules in `index.css`).
+ * loom: publishes `--timeline-available-width` around file-preview markdown and `.mdx`
+ * plans; without it, tables and non-prose plan blocks fall back to the `max-w-4xl` prose
+ * measure (see the wide-block bleed rules in `index.css`).
  */
 function BleedFrame({ children }: { children: ReactNode }) {
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
@@ -987,13 +984,10 @@ function RenderedMarkdownSurface({
   // loom: the directory this document's own relative paths resolve against.
   const documentLocation = { baseDir: documentBaseDir(relativePath, cwd), cwd, threadRef };
 
-  // loom: `.mdx` always goes through the MDX renderer — the plain-markdown surface
-  // escapes every JSX block as raw text, so falling back to it silently presents
-  // a healthy document as broken. It always gets the annotation layer, including
-  // out-of-workspace (absolute-path) previews: the layer never writes the file —
-  // comments, answers and verdicts become review chips in the VIEWING thread's
-  // composer — so a review doc handed to another worktree's thread stays
-  // triageable there while the file itself stays read-only.
+  // loom: `.mdx` always uses the MDX renderer; plain markdown shows its JSX as raw text, so a
+  // healthy document looks broken. The annotation layer applies even outside the workspace:
+  // it never writes the file (comments become review chips in the VIEWING thread's composer),
+  // so another worktree's review doc stays triageable while the file stays read-only.
   if (isMdxPreviewFile(relativePath)) {
     return (
       <ScrollArea className="min-h-0 flex-1">
@@ -1202,11 +1196,9 @@ export default function FilePreviewPanel({
   // source throws and shows a content-less error card over the truncation
   // banner. Force the source view until the full-budget read lands.
   const mdxTruncated = isMdx && (file.data?.truncated ?? false);
-  // loom: a file with lines far longer than any hand-written source defeats the
-  // renderer's line virtualization — it paints whole lines, so a handful of them
-  // puts the entire file in the DOM. Such a file renders elided and read-only:
-  // the editable surface saves whatever it holds, so elided text must never
-  // reach it.
+  // loom: lines far longer than any hand-written source defeat the renderer's line
+  // virtualization, so such a file renders elided and read-only. The editable surface saves
+  // whatever it holds, so elided text must never reach it.
   const contents = file.data?.contents ?? null;
   const unboundedLines = contents === null ? false : hasUnboundedLines(contents);
   /** The elided stand-in, or null when the file renders as it is. */
@@ -1230,13 +1222,10 @@ export default function FilePreviewPanel({
     !(isMarkdown && renderMarkdown) &&
     !(tableDelimiter && renderTable) &&
     !renderBrowserFile;
-  // loom: the two independent reasons the preview can show less than the file
-  // holds, so a file that is both truncated and long-lined explains both rather
-  // than only whichever matched first. The read cap is per-request (8 MB with an
-  // explicit maxBytes) and applies to every surface, because the server truncates
-  // the contents themselves. The line cap is this panel's and reaches only the raw
-  // text surface, so a rendered markdown, MDX or table view of the same file must
-  // not claim to be elided or read-only — it is neither.
+  // loom: two independent reasons the preview can show less than the file holds. The server's
+  // read cap (8 MB with an explicit maxBytes) truncates every surface; the line cap is this
+  // panel's and reaches only the raw text surface, so a rendered markdown, MDX or table view
+  // must not claim to be elided or read-only.
   const previewNotices = [
     file.data?.truncated
       ? `Preview limited to the first ${readMaxBytes ? "8 MB" : "1 MB"} of a ${file.data.byteLength.toLocaleString()} byte file.`
@@ -1281,11 +1270,10 @@ export default function FilePreviewPanel({
     !isPreviewSupportedInRuntime() &&
     isArtifactViewerPath(previewPath);
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
-  // loom: change review — a file the baseline marks opens whole, side by side, unless it is a
-  // document that renders (markdown, MDX, HTML, tables): one the agent just wrote is always
-  // changed, so it opens as a document (rendered or source, as preferred) and its changes are
-  // opt-in. Keyed on the file type, not `rendered`, so the source toggle never lands in the diff.
-  // An explicit choice holds while the file stays open.
+  // loom: a baseline-marked file opens whole, side by side, unless it is a document that
+  // renders (markdown, MDX, HTML, tables), which opens as a document with its changes opt-in.
+  // Keyed on the file type, not `rendered`, so the source toggle never lands in the diff. An
+  // explicit choice holds while the file stays open.
   const loomMarks = useLoomChangeMarks({
     threadRef,
     cwd,

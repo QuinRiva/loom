@@ -1,9 +1,6 @@
 /**
- * loom: 3d-3's preview groups — the control cards (every seam-6 kind plus the
- * raw-text fallback), the consult row and handoff receipt, and the goal tasks
- * panel — rendered against `loomFixtures.ts` (the dev seed's payloads); and
- * 3d-4's user-input panel additions (DT-36).
- * Registered by one line in `fixtures.tsx`.
+ * loom: control cards, consult row, handoff receipt, goal tasks panel and user-input panel
+ * additions, rendered against `loomFixtures.ts`. Registered by one line in `fixtures.tsx`.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/models";

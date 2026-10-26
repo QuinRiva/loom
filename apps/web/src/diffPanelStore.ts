@@ -118,11 +118,8 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     }),
     {
       name: "t3code:diff-panel-state:v1",
-      // loom: Loom shipped its own v2 (a `coder` selection kind, TurnId turn
-      // selections), which upstream's v2 would load unmigrated; v3 reset it.
-      // v4 (3d-4) re-added `coder`; v5 removes it for good (change review
-      // replaced By coder): a stored `coder` selection falls back to the
-      // default, the rest of v3/v4 state carries over, anything older resets.
+      // loom: Loom's own v2 differs from upstream's v2, so anything below v3 resets. A stored
+      // `coder` selection (v4 only) falls back to the default; the rest of v3/v4 carries over.
       version: 5,
       migrate: migrateDiffPanelState, // loom:
       storage: createJSONStorage(() =>
