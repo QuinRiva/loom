@@ -125,12 +125,12 @@ const STATUS_LABELS = {
 } satisfies Record<ThreadMentionStatus, string>;
 
 const UNAVAILABLE =
-  "Not in this thread list: archived, deleted, or in another environment. The label is what the message wrote.";
+  "Not loaded in this thread list: an older or archived thread, or one in another environment. The label is what the message wrote.";
 
 /**
  * The rendered mention, from resolved facts (the preview renders it directly).
  * An unresolved one is the written label, muted, and still a link: the live
- * index omits archived threads, but an archived thread opens.
+ * index omits older settled and archived threads, but both open.
  */
 export function ThreadMentionView(props: {
   readonly environmentId: EnvironmentId;

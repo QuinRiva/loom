@@ -68,14 +68,15 @@ Per-thread UI stores — both upstream's (`rightPanelStore`, `terminalUiStateSto
 longer exist. This is accepted: the residue is tiny (a view enum, a thread id, a short form
 draft, a boolean flag), and upstream already tolerates it.
 
-Absence of a thread from client state is a safe deletion signal only after catch-up has
-completed: a stream that has not caught up can omit a thread whose replay simply has not
-arrived, and deleting on that risks destroying valid state.
+Absence of a thread from client state is never a deletion signal. A stream that has not caught
+up can omit a thread whose replay has not arrived, and even a caught-up V2 shell snapshot omits
+idle subagents and settled roots older than the newest 25 (`omitOlderSettledShells` in
+`apps/server/src/orchestration-v2/ShellStream.ts`), which still open by id.
 
-A sweep is only safe against a genuine **catch-up-complete signal**. V2 has one: the shell
-stream's `synchronized` marker (`shellResumeCompletionMarker`), after which the environment's
-shell status is `"live"`, and a V2 shell snapshot carries every unarchived thread. The thread
-tab strip uses it: a tab whose thread is missing from a live snapshot was archived or deleted,
-and `removeThread` drops it (`apps/web/src/loom/threadTabGroups.ts`); a cached snapshot never
-prunes. The per-thread stores still do not sweep, because their residue is harmless and
-invisible, whereas a dead tab shows a raw thread id in the strip.
+A sweep is only safe against a positive removal signal. The thread tab strip uses one: the
+shell's `removedAt`, the threads it saw archived or deleted since its latest authoritative
+snapshot. A tab is pruned only when its thread is in `removedAt` and has not come back
+(`isThreadGone` in `apps/web/src/loom/threadTabGroups.ts`); a thread that is merely absent
+keeps its tab, and a cached snapshot never prunes. The per-thread stores still do not sweep,
+because their residue is harmless and invisible, whereas a dead tab shows a raw thread id in
+the strip.

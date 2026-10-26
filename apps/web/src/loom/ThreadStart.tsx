@@ -108,17 +108,16 @@ function OriginText({
 }) {
   const title = useThreadShell(scopeThreadRef(environmentId, originId))?.title;
   const openOrigin = useOpenHandoffOrigin(environmentId);
-  const lead = THREAD_START_LEAD[start];
-  if (title === undefined) return `${lead} an archived thread`;
   return (
     <>
-      {lead}{" "}
+      {THREAD_START_LEAD[start]}{" "}
       <button
         type="button"
         className="cursor-pointer text-left text-foreground underline decoration-foreground/30 underline-offset-2 hover:decoration-foreground"
         onClick={() => openOrigin(originId, destinationId)}
       >
-        {title || "Untitled thread"}
+        {/* An older settled origin is not in the cold shell; it still opens. */}
+        {title === undefined ? "an earlier thread" : title || "Untitled thread"}
       </button>
     </>
   );

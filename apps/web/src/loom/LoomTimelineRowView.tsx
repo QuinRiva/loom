@@ -85,7 +85,7 @@ export function LoomTimelineRowView({
           <span key={destination.threadId} className="flex min-w-0 items-center gap-1.5">
             <span className="min-w-0 truncate">
               <ThreadLinkChip
-                label={destination.title ?? "an archived goal"}
+                label={destination.title ?? "another thread"}
                 threadId={destination.threadId}
                 environmentId={environmentId}
               />

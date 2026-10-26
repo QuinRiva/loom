@@ -330,13 +330,12 @@ export function useScannedPathTargets(input: {
 }
 
 /**
- * Thread chip for Loom's workstream rows. It navigates only when the id resolves
- * to a live thread in the message's own environment: shell and detail reads skip
- * archived rows, so an archived, deleted or foreign thread stays inert and says
- * so on hover. With no environment at all nothing was looked up, hence other copy.
+ * Thread chip for Loom's workstream rows. It navigates whenever it has an environment: the route
+ * opens a thread the shell does not hold (an older settled or archived one), so only the title and
+ * tooltip depend on the shell. With no environment nothing was looked up, hence other copy.
  */
-const UNRESOLVED_THREAD_CHIP_TITLE =
-  "Not found here: this thread is archived, deleted, or in another environment.";
+const UNLOADED_THREAD_CHIP_TITLE =
+  "Not loaded in this thread list: an older or archived thread, or one in another environment.";
 
 const UNSCOPED_THREAD_CHIP_TITLE =
   "Not linkable here: this view is not tied to an environment, so the thread cannot be opened.";
@@ -356,8 +355,7 @@ export function ThreadLinkChip({
       ? null
       : scopeThreadRef(environmentId, threadId as ThreadId);
   const shell = useThreadShell(ref);
-  if (shell === null) {
-    const inertTitle = ref === null ? UNSCOPED_THREAD_CHIP_TITLE : UNRESOLVED_THREAD_CHIP_TITLE;
+  if (ref === null) {
     return (
       <Tooltip>
         <TooltipTrigger
@@ -365,20 +363,21 @@ export function ThreadLinkChip({
             <ContextChip
               kind="mention"
               className="cursor-help opacity-70"
-              aria-label={`${label}: ${inertTitle}`}
+              aria-label={`${label}: ${UNSCOPED_THREAD_CHIP_TITLE}`}
             />
           }
         >
           <ThreadTagChipContent label={label} />
         </TooltipTrigger>
         <TooltipPopup side="top" className="max-w-[min(30rem,calc(100vw-2rem))]">
-          {inertTitle}
+          {UNSCOPED_THREAD_CHIP_TITLE}
         </TooltipPopup>
       </Tooltip>
     );
   }
   // The tooltip carries the thread's OWN title: the chip's label is whatever the
   // author wrote, which is often not what the thread is called.
+  const tooltip = shell?.title ?? UNLOADED_THREAD_CHIP_TITLE;
   return (
     <Tooltip>
       <TooltipTrigger
@@ -386,12 +385,12 @@ export function ThreadLinkChip({
           <ContextChip
             kind="mention"
             render={<button type="button" />}
-            aria-label={`Open ${shell.title}`}
-            className="hover:underline"
+            aria-label={shell ? `Open ${shell.title}` : `Open ${label}`}
+            className={cn("hover:underline", shell === null && "opacity-70")}
             onClick={() =>
               void navigate({
                 to: "/$environmentId/$threadId",
-                params: buildThreadRouteParams(scopeThreadRef(shell.environmentId, shell.id)),
+                params: buildThreadRouteParams(ref),
               })
             }
           />
@@ -400,7 +399,7 @@ export function ThreadLinkChip({
         <ThreadTagChipContent label={label} />
       </TooltipTrigger>
       <TooltipPopup side="top" className="max-w-[min(30rem,calc(100vw-2rem))]">
-        {shell.title}
+        {tooltip}
       </TooltipPopup>
     </Tooltip>
   );

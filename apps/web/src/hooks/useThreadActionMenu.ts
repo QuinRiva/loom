@@ -36,6 +36,8 @@ import {
 } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { readLocalApi } from "../localApi";
+import { readLoomGoal } from "../loom/loomGoalState"; // loom: goal submenu
+import { showWithLoomGoalMenu, useLoomGoalActions } from "../loom/sidebarGoalActions"; // loom
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKey,
@@ -86,6 +88,7 @@ export function useThreadActionMenu(input: {
     deleteThread,
     markThreadUnread,
   } = useThreadActions();
+  const { runGoalMenuAction } = useLoomGoalActions(); // loom: goal submenu, as the sidebar's
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -145,8 +148,12 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
       });
-      const clicked = await settlePromise(() => api.contextMenu.show(items, position));
+      const loomGoal = readLoomGoal(thread.environmentId, thread.source.workstream?.goalId); // loom
+      const clicked = await settlePromise(
+        () => showWithLoomGoalMenu(api, loomGoal)(items, position), // loom: Goal ▸ first
+      );
       if (clicked._tag === "Failure" || clicked.value === null) return;
+      if (runGoalMenuAction(clicked.value, loomGoal, threadRef)) return; // loom
       const action: ThreadActionMenuId = clicked.value;
       if (
         threadActionRequiresOperate(action) &&
