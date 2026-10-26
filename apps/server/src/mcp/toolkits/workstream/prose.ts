@@ -179,7 +179,7 @@ export const LOOM_TOOL_PROSE = {
   },
   ask_user_question: {
     description:
-      "Ask the person reading this thread a structured question; it is available because a human has written here. For an irreversible, destructive or preference-only decision the request, codebase and prior context do not settle; otherwise state an assumption and proceed, and do not ask to reconfirm scope or for approval you do not need. Coupled decisions and plan or design sign-offs go in an MDX decision document (the mdx-visual-recap skill), with the question a pointer to it. What your parent could answer goes to mcp__t3-code__consult_thread; guidance you cannot frame as options is mcp__t3-code__workstream_request_attention with needs_guidance.",
+      "Ask the person reading this thread a structured question. For an irreversible, destructive or preference-only decision the request, codebase and prior context do not settle; otherwise state an assumption and proceed, and do not ask to reconfirm scope or for approval you do not need. Never ask whether to ship: once nothing else is pending, say the work is ready to ship and wait for 'ship it'. A document with its own form is answered there, not here. What your parent could answer goes to mcp__t3-code__consult_thread; guidance you cannot frame as options is mcp__t3-code__workstream_request_attention with needs_guidance.",
     promptSnippet:
       "a person has written to this thread, so you can put an irreversible, destructive or preference-only decision to them as a structured question; otherwise proceed.",
     promptGuidelines: "",
