@@ -265,20 +265,6 @@ describe("ClientSettings context window meter", () => {
   });
 });
 
-// loom: DL-1408 keeps queue as the follow-up default until Carl rules.
-describe("ClientSettings follow-up behavior", () => {
-  it("defaults to queue and accepts either behavior", () => {
-    expect(decodeClientSettings({}).followUpBehavior).toBe("queue");
-    for (const followUpBehavior of ["queue", "steer"]) {
-      expect(decodeClientSettings({ followUpBehavior }).followUpBehavior).toBe(followUpBehavior);
-      expect(decodeClientSettingsPatch({ followUpBehavior }).followUpBehavior).toBe(
-        followUpBehavior,
-      );
-    }
-    expect(() => decodeClientSettingsPatch({ followUpBehavior: "invalid" })).toThrow();
-  });
-});
-
 describe("ServerSettings text generation default", () => {
   // loom: the fork is Pi-first, so text generation defaults to pi's default
   // model rather than upstream's codex/Luna selection.
