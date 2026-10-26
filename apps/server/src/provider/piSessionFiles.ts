@@ -38,7 +38,7 @@ export const piSessionsRoot = (env: NodeJS.ProcessEnv = process.env): string =>
  * project dir of the sessions root (never wider); the `_` boundary and UUID-shaped id rule out
  * false positives. Undefined when none exists, and the caller falls back to the bare id.
  */
-export const resolveSessionFilePath = (
+const resolveSessionFilePath = (
   sessionId: string,
   root: string = piSessionsRoot(),
 ): string | undefined => {
@@ -129,55 +129,4 @@ export const resolveResumableSessionFile = (
   const path = resolveSessionFilePath(sessionId, root);
   if (path === undefined) return undefined;
   return readSessionHeaderId(path) === sessionId ? path : undefined;
-};
-
-/** A conversation rewind computed from a session file, ready to be written. */
-export interface PiSessionRewindPlan {
-  /** Full file content to write, i.e. the retained prefix of the branch. */
-  readonly retainedText: string;
-  /** User messages that survive the rewind. */
-  readonly retainedUserMessages: number;
-  /** User messages the rewind drops (with everything that followed them). */
-  readonly removedUserMessages: number;
-}
-
-/**
- * Plans a rewind of the last `turns` prompts by truncating the session's active path, as pi's fork
- * does, but keeping the same file and header id the driver resumes by. Turns are user-role entries,
- * so a steer or retry re-prompt inside one server turn makes a rewind spanning it stop one short.
- * Throws on an unreadable or branched session (the driver never branches; refuse, do not guess).
- */
-export const planPiSessionRewind = (path: string, turns: number): PiSessionRewindPlan => {
-  const lines = NodeFS.readFileSync(path, "utf8")
-    .split("\n")
-    .filter((line) => line.trim().length > 0);
-  const entries = lines.map(
-    (line) =>
-      JSON.parse(line) as {
-        readonly type?: string;
-        readonly id?: string;
-        readonly parentId?: string | null;
-        readonly message?: { readonly role?: string };
-      },
-  );
-  if (entries[0]?.type !== "session") throw new Error(`${path} is not a pi session file.`);
-  let parent: string | null = null;
-  for (const entry of entries.slice(1)) {
-    if ((entry.parentId ?? null) !== parent) {
-      throw new Error(`${path} holds a branched pi session, which cannot be rewound in place.`);
-    }
-    parent = entry.id ?? null;
-  }
-  const promptLines = entries.flatMap((entry, index) =>
-    index > 0 && entry.type === "message" && entry.message?.role === "user" ? [index] : [],
-  );
-  const retainedUserMessages = Math.max(0, promptLines.length - turns);
-  // Rewinding every prompt leaves the bare header: the same conversation, with
-  // nothing in it — which is what reverting to turn zero means.
-  const cut = retainedUserMessages === 0 ? 1 : promptLines[retainedUserMessages]!;
-  return {
-    retainedText: lines.slice(0, cut).join("\n") + "\n",
-    retainedUserMessages,
-    removedUserMessages: promptLines.length - retainedUserMessages,
-  };
 };

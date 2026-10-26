@@ -70,7 +70,7 @@ export const callLoomTool = Effect.fn("registration.callLoomTool")(
     ),
 );
 
-export const registerLoomToolkit = Effect.fn("LoomToolkit.register")(function* (
+const registerLoomToolkit = Effect.fn("LoomToolkit.register")(function* (
   defs: ReadonlyArray<LoomToolDef>,
   handlers: LoomToolHandlers,
 ) {

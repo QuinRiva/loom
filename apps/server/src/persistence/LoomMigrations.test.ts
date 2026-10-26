@@ -7,6 +7,7 @@ import type * as Schema from "effect/Schema";
 import * as Migrator from "effect/sql/Migrator";
 import * as SqlClient from "effect/sql/SqlClient";
 import type { SqlError } from "effect/sql/SqlError";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 import {
   loomMigrationEntries,
@@ -16,8 +17,6 @@ import {
   runLoomMigrations,
 } from "./LoomMigrations.ts";
 import { migrationManifest, runMigrations } from "./Migrations.ts";
-import * as NodeSqliteClient from "./NodeSqliteClient.ts";
-import * as NodeSqliteWorkerClient from "./NodeSqliteWorkerClient.ts";
 
 type MigrationBody = Effect.Effect<void, SqlError | Schema.SchemaError, SqlClient.SqlClient>;
 
@@ -38,7 +37,7 @@ const migrationEntries: ReadonlyArray<readonly [id: number, name: string, body: 
  * next one's "historical" starting state.
  */
 const onFreshDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
-  Effect.provide(effect, NodeSqliteClient.layerMemory());
+  Effect.provide(effect, NodeSqliteClient.layer({ filename: ":memory:" }));
 
 /**
  * The lane split reconciled fork ids up to `1032`; anything above that was added
@@ -512,7 +511,11 @@ it.live(
         yield* seedLedger([...historicalRows.slice(0, 40), [41, "SomethingNobodyShipped"]]);
         const failure = yield* Effect.flip(runAllMigrations());
         assert.strictEqual(failure._tag, "LoomLedgerReconciliationError");
-      }).pipe(Effect.provide(NodeSqliteWorkerClient.layer({ filename: dbPath })));
+      }).pipe(
+        Effect.provide(
+          NodeSqliteClient.layer({ filename: dbPath, readerWorker: true, checkpointWorker: true }),
+        ),
+      );
 
       // Reopen the file in a second connection: the rollback must be durable on
       // disk, not merely absent from the failed connection's view.
@@ -528,7 +531,11 @@ it.live(
           [...historicalRows.slice(0, 40).map(([id]) => id), 41],
           "historical ledger was mutated by a rolled-back reconciliation",
         );
-      }).pipe(Effect.provide(NodeSqliteWorkerClient.layer({ filename: dbPath })));
+      }).pipe(
+        Effect.provide(
+          NodeSqliteClient.layer({ filename: dbPath, readerWorker: true, checkpointWorker: true }),
+        ),
+      );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
@@ -552,7 +559,11 @@ it.live("both lanes migrate and are idempotent on the worker-backed file path", 
         yield* ledgerIds(loomMigrationsTable),
         range(1001, CURRENT_LOOM_LANE_END),
       );
-    }).pipe(Effect.provide(NodeSqliteWorkerClient.layer({ filename: dbPath })));
+    }).pipe(
+      Effect.provide(
+        NodeSqliteClient.layer({ filename: dbPath, readerWorker: true, checkpointWorker: true }),
+      ),
+    );
 
     yield* Effect.gen(function* () {
       const second = yield* runAllMigrations();
@@ -565,7 +576,11 @@ it.live("both lanes migrate and are idempotent on the worker-backed file path", 
         executed.map(([id]) => id),
         [SYNTHETIC_UPSTREAM_ID],
       );
-    }).pipe(Effect.provide(NodeSqliteWorkerClient.layer({ filename: dbPath })));
+    }).pipe(
+      Effect.provide(
+        NodeSqliteClient.layer({ filename: dbPath, readerWorker: true, checkpointWorker: true }),
+      ),
+    );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 

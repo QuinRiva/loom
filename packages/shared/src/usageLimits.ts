@@ -542,7 +542,7 @@ export function limitsNotice(limits: ServerProviderUsageLimits): string | null {
  * loom: one line for an account whose hub login is failing or dead: what
  * happens and when, and that it needs logging in again.
  */
-export function loginAlertText(login: UsageLimitSourceLogin, now: number): string {
+function loginAlertText(login: UsageLimitSourceLogin, now: number): string {
   const at = login.expiresAt ? Date.parse(login.expiresAt) : Number.NaN;
   if (login.status === "dead") {
     const since = Number.isFinite(at) && at <= now ? ` ${formatDuration(now - at)} ago` : "";

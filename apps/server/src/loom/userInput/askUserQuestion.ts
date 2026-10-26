@@ -40,7 +40,7 @@ const text = (value: unknown) =>
  * label). V2's question has no `recommended` slot, so the pick is shown in its
  * label and its `value` stays the plain label the answer carries.
  */
-export const validateAskQuestions = (
+const validateAskQuestions = (
   value: unknown,
 ): { readonly questions: ReadonlyArray<AskQuestion> } | { readonly error: string } => {
   if (!Array.isArray(value) || value.length < 1 || value.length > 4)
@@ -108,7 +108,7 @@ const answerText = (answer: unknown) =>
       : JSON.stringify(answer);
 
 /** The tool result for a request that is no longer pending. */
-export const renderAskOutcome = (
+const renderAskOutcome = (
   request: Pick<OrchestrationV2RuntimeRequest, "status" | "answers" | "decision">,
   questions: ReadonlyArray<OrchestrationV2UserInputQuestion>,
   closing: LoomAskClosing | undefined,

@@ -49,6 +49,8 @@
         "scripts/update-test-shard-weights.ts",
         "scripts/verify-background-live.ts",
         "src/provider/testFixtures/*.mjs",
+        // loom: the thread-search ranker eval, run by hand.
+        "src/dev/threadSearchEval.loom.ts",
         // graphqlgen reads its config.
         "graphql.config.ts",
       ],
@@ -58,7 +60,13 @@
       // The Vite+ web build prerequisite.
       // Native and disk-loaded provider packages stay external to the bundle; the
       // CLI archive and desktop sidecar stage them from this manifest.
-      "ignoreDependencies": ["@effect/platform-node-shared", "@t3tools/web", "@napi-rs/keyring"],
+      // loom: bundledPi.loom.ts resolves the bundled pi package by string.
+      "ignoreDependencies": [
+        "@effect/platform-node-shared",
+        "@t3tools/web",
+        "@napi-rs/keyring",
+        "@earendil-works/pi-coding-agent",
+      ],
     },
     "apps/desktop": {
       // Electron loads these bundles by filename rather than importing them.
@@ -135,6 +143,16 @@
     "packages/*": {
       // These workspace packages are private to this monorepo.
       "includeEntryExports": true,
+    },
+    "packages/provider-pi": {
+      "includeEntryExports": true,
+      // loom: bundledPi.loom.ts resolves the bundled pi package by string.
+      "ignoreDependencies": ["@earendil-works/pi-coding-agent"],
+    },
+    "packages/provider-acp-registry": {
+      "includeEntryExports": true,
+      // loom: the fork's driver registry is Pi-only, so nothing registers this driver.
+      "ignoreIssues": { "src/server.ts": ["exports"], "src/server/driver.ts": ["exports"] },
     },
     "packages/effect-acp": {
       "includeEntryExports": true,

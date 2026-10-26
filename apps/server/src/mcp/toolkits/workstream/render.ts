@@ -50,10 +50,7 @@ type StatusNode = LoomThreadShellFields & { readonly id: ThreadId };
  * (in_progress), waiting on a sibling (blocked), waiting for its brief
  * (needs_brief) or ready.
  */
-export const workstreamStatus = (
-  node: StatusNode,
-  byId: ReadonlyMap<ThreadId, StatusNode>,
-): string =>
+const workstreamStatus = (node: StatusNode, byId: ReadonlyMap<ThreadId, StatusNode>): string =>
   node.outcome ??
   (node.held
     ? "held"
@@ -170,15 +167,6 @@ export const renderSubmitOutcome = (view: SubmitOutcomeView): string => {
       return `${withOutcome}: no route matched, so you YIELDED to your parent orchestrator: you are NOT done; it will be woken with your report and decides what happens next.`;
   }
 };
-
-// mcp__t3-code__workstream_scaffold rejections
-
-/**
- * A graph-validation message (spawn dialect, "Nothing was spawned.") relabelled
- * for one scaffold node with the scaffold's "Nothing was created." suffix.
- */
-export const scaffoldNodeRejectionMessage = (nodeKey: string, graphMessage: string): string =>
-  `node "${nodeKey}": ${graphMessage.replace(/Nothing was spawned\.$/, "Nothing was created.")}`;
 
 // mcp__t3-code__consult_thread / mcp__t3-code__notify_thread
 

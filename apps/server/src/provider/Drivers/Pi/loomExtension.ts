@@ -58,7 +58,7 @@ const proseOf = (tool: "ask_user_question") => {
  * directly and the rest is reached through pi's `tool_search`. Every turn re-asserts the profile
  * and must keep `tool_search` and every tool a search activated, or discovery is undone.
  */
-export const toolProfilePart: LoomExtensionPart = {
+const toolProfilePart: LoomExtensionPart = {
   name: "toolProfile",
   source: `
 const HUMAN_INPUT = ${json(HUMAN_INPUT)};
@@ -109,7 +109,7 @@ pi.on("before_agent_start", async (event, ext) => {
 };
 
 /** `mcp__t3-code__ask_user_question` over `POST …/ask` + `GET …/wait` (25 s slices; a dropped poll re-attaches). */
-export const askUserQuestionPart: LoomExtensionPart = {
+const askUserQuestionPart: LoomExtensionPart = {
   name: "askUserQuestion",
   source: `
 const prose = ${json(proseOf("ask_user_question"))};
@@ -257,7 +257,7 @@ export default function loomExtension(pi) {
 `;
 
 /** Writes the assembled extension to `<cacheDir>/pi-loom-extension.ts` when its content changed. */
-export const materializeLoomExtension = Effect.fn("materializeLoomExtension")(function* (
+const materializeLoomExtension = Effect.fn("materializeLoomExtension")(function* (
   cacheDir: string,
   parts: ReadonlyArray<LoomExtensionPart> = LOOM_EXTENSION_PARTS,
 ) {

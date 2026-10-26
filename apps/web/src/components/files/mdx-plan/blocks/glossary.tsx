@@ -87,7 +87,7 @@ const termSchema = z.object({
   definition: z.string().trim().max(2_000).optional(),
 }) as unknown as z.ZodType<TermData>;
 
-export function TermRead({ data, children }: PlanBlockReadProps<TermData>) {
+function TermRead({ data, children }: PlanBlockReadProps<TermData>) {
   const store = useContext(GlossaryContext);
   // The glossary renders after the prose linking to it, so definitions cannot
   // flow down as context; a card reads this map only when it opens.
@@ -118,7 +118,7 @@ export const termBlock: PlanBlock<TermData> = {
 
 const glossarySchema = z.object({}) as unknown as z.ZodType<Record<string, never>>;
 
-export function GlossaryRead({ blockId, children }: PlanBlockReadProps<Record<string, never>>) {
+function GlossaryRead({ blockId, children }: PlanBlockReadProps<Record<string, never>>) {
   return (
     <section
       data-plan-block-id={blockId}

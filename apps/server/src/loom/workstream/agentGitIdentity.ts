@@ -9,14 +9,14 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
 /** The author and committer name of every agent commit. */
-export const AGENT_GIT_NAME = "Loom agent";
+const AGENT_GIT_NAME = "Loom agent";
 
 /**
  * Drops every PATH entry resolving to itself (so git never re-enters it), finds the subcommand past
  * git's global options, and only on `commit` under git 2.32+ (`--trailer`) inserts the trailers
  * before any `--` pathspec. A no-op without `LOOM_THREAD_ID`.
  */
-export const GIT_SHIM_SOURCE = `#!/bin/sh
+const GIT_SHIM_SOURCE = `#!/bin/sh
 # Loom's git shim (apps/server/src/loom/workstream/agentGitIdentity.ts): on \`git commit\` in a
 # Loom agent's session, adds Loom-Thread and Pi-Session trailers; every other call passes through.
 self=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)/git

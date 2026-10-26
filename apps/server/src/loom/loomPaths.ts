@@ -4,8 +4,6 @@
  * stays untouched. The names are V1's exactly, so the importer finds existing reports, briefs and
  * launch identities where V1 left them.
  */
-import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
 import * as NodePath from "node:path";
 
 import type { ServerDerivedPaths } from "../config.ts";
@@ -35,16 +33,3 @@ export const promptCapturePathsOf = (
   );
   return { latest: `${stem}.md`, first: `${stem}.first.md` };
 };
-
-/** Creates every Loom directory (idempotent); later sessions call it from their layers. */
-export const ensureLoomDirectories = Effect.fn("loomPaths.ensureLoomDirectories")(function* (
-  config: Pick<ServerDerivedPaths, "stateDir">,
-) {
-  const fileSystem = yield* FileSystem.FileSystem;
-  yield* Effect.forEach(
-    Object.values(loomPaths(config)),
-    (directory) => fileSystem.makeDirectory(directory, { recursive: true }),
-    { discard: true },
-  );
-  return loomPaths(config);
-});

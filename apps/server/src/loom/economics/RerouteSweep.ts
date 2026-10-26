@@ -36,7 +36,7 @@ import {
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import { deleteReroute, insertReroute, listReroutes } from "./rerouteRecord.ts";
 
-export const rerouteResumeText = (fallbackModel?: string): string =>
+const rerouteResumeText = (fallbackModel?: string): string =>
   [
     "[T3 Code control plane: automated resume after a provider usage limit; not a message from the user]",
     "",

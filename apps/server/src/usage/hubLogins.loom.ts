@@ -13,7 +13,7 @@ import * as Schema from "effect/Schema";
 
 const DAY_MS = 86_400_000;
 /** The shortest observed browser-login lifetime: an account may expire from here. */
-export const OAUTH_LIFETIME_DAYS = 27;
+const OAUTH_LIFETIME_DAYS = 27;
 /** `claude setup-token` tokens live a year. */
 const TOKEN_LIFETIME_DAYS = 365;
 /** Anything that outlives this without a refresh token is a long-lived token, not a login. */

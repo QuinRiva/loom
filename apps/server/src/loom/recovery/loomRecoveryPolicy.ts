@@ -36,7 +36,7 @@ import * as PendingSteering from "../steering/pendingSteering.ts";
  * live Loom thread with no outcome that owes no human an action (the §3 table
  * plus `outcome done`, DL-195). Rule 0 reads the same predicate.
  */
-export const isContinued = (
+const isContinued = (
   workstream: LoomThreadWorkstream | null,
   projection: Pick<OrchestrationV2ThreadProjection, "runtimeRequests">,
 ) =>

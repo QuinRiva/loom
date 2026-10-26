@@ -23,7 +23,7 @@ import { selectSeededPromotionIds, useWorkstreamUiStore } from "./workstreamUiSt
  * Every promotion on `authorId`'s query threads as the chip it seeds, oldest first. Archived or
  * settled query threads still count: a promotion outlives the review.
  */
-export function promotedQueryComments(
+function promotedQueryComments(
   threads: ReadonlyArray<OrchestrationV2ThreadShell>,
   authorId: ThreadId,
 ): ReadonlyArray<MdxAnchorReviewCommentContext> {

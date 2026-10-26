@@ -33,7 +33,7 @@ const CONSULT_LANE_STEP = 9; // per-edge offset so shared consult channels never
 // Query-thread satellites (plans/plan-query-threads/plan.mdx §5 step 11): a smaller
 // card hung under its author, indented like a nested block.
 export const SATELLITE_W = 132;
-export const SATELLITE_H = 40;
+const SATELLITE_H = 40;
 const SATELLITE_GAP = 14; // card → first satellite, and between stacked satellites
 const SATELLITE_ROOT_GAP = 28; // a bridge-only root's satellites sit this far left of its first bridge
 const satelliteStackH = (count: number) => count * (SATELLITE_H + SATELLITE_GAP);

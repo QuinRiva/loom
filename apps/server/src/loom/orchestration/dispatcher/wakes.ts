@@ -60,7 +60,7 @@ const responseOf = (report: string | null | undefined) =>
   report == null || report.trim() === "" ? undefined : reportResponse(report);
 
 /** The same excerpt un-framed, for a payload item — so a card and the text carry identical report content. */
-export const boundedExcerpt = (report: string | null | undefined): string | undefined =>
+const boundedExcerpt = (report: string | null | undefined): string | undefined =>
   responseOf(report)?.text;
 
 // A backticked span or a markdown link target, in report order.
@@ -279,7 +279,7 @@ const SLOW_TOOL_NOTICE_REPEAT_MS = 1_800_000;
 /** A declared estimate defers the ladder to `estimate × 1.2`. */
 const SLOW_TOOL_DEFERRAL_BUFFER = 1.2;
 /** Cap on an honoured estimate, so a child cannot self-silence indefinitely. */
-export const SLOW_TOOL_ESTIMATE_CAP_MS = 7_200_000;
+const SLOW_TOOL_ESTIMATE_CAP_MS = 7_200_000;
 
 /**
  * Parses an intentional `# eta: <n>[m|h]` shell-comment marker from a command

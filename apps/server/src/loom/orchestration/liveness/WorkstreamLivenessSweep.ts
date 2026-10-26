@@ -57,13 +57,6 @@ import {
 import { readStallContext, renderStallContext, type StallContext } from "./stallContext.ts";
 
 /**
- * State D ("possibly spinning") kill switch. State D is the highest
- * false-positive risk, so flipping this to `false` short-circuits the whole
- * branch with no other edit; everything tagged "State D" is deletable as one unit.
- */
-const ENABLE_STATE_D = true;
-
-/**
  * Liveness thresholds, generous on purpose: `startupGraceMs` keeps a slow first tool call from
  * reading as a stall, `stallNudgeGraceMs` must outlast a steer folding in between model rounds, and
  * State D needs `noProgressWindowMs` of flat work product over the last `progressInputSampleSize`
@@ -107,7 +100,7 @@ export interface LivenessVerdict {
  * is no kind named `approval`; `user_input` is a question and is NOT exempt — a
  * questioning thread can still die or wedge.
  */
-export const WAITING_REQUEST_KINDS: ReadonlySet<string> = new Set([
+const WAITING_REQUEST_KINDS: ReadonlySet<string> = new Set([
   "command",
   "file-read",
   "file-change",
@@ -228,14 +221,14 @@ const hashSource = (source: string): string => {
  * hashing the content, not a display string, is load-bearing. V2 has no
  * within-turn checkpoint source, so the sweep passes `checkpointSource: null`.
  */
-export const computeProgressFingerprint = (signal: {
+const computeProgressFingerprint = (signal: {
   readonly recentInputsSource: string | null;
   readonly checkpointSource: string | null;
 }): string =>
   hashSource(`${signal.checkpointSource ?? ""}\u0000${signal.recentInputsSource ?? ""}`);
 
 /** A completed tool call's content for the fingerprint: what it ran or wrote. */
-export const toolInputSource = (item: ToolTurnItem): string =>
+const toolInputSource = (item: ToolTurnItem): string =>
   item.type === "command_execution"
     ? `command:${item.input}`
     : item.type === "file_change"
@@ -253,7 +246,7 @@ export interface ProgressLoopState {
  * Pure State-D decision: re-arm on a changed fingerprint (or first sight);
  * advise exactly once when it stayed flat for `noProgressWindowMs`.
  */
-export const decideProgressLoop = (input: {
+const decideProgressLoop = (input: {
   readonly prior: ProgressLoopState | null;
   readonly fingerprint: string;
   readonly now: number;
@@ -270,10 +263,7 @@ export const decideProgressLoop = (input: {
 };
 
 /** The informed recovery nudge steered into a stalled child's running turn. */
-export const buildStallNudgeMessage = (
-  verdict: LivenessVerdict,
-  context: StallContext | null,
-): string =>
+const buildStallNudgeMessage = (verdict: LivenessVerdict, context: StallContext | null): string =>
   [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
@@ -485,7 +475,6 @@ const make = Effect.fn("WorkstreamLivenessSweep.make")(function* (
   ) {
     const startedAtMs = msOf(shell.activityRunStartedAt);
     const busy =
-      ENABLE_STATE_D &&
       shell.activityRunStatus === "running" &&
       shell.activeRunId !== null &&
       startedAtMs !== null &&
@@ -669,7 +658,7 @@ const make = Effect.fn("WorkstreamLivenessSweep.make")(function* (
   return {
     start: forkParked(
       Effect.gen(function* () {
-        yield* Effect.logInfo("workstream.liveness.started", { ...thresholds, ENABLE_STATE_D });
+        yield* Effect.logInfo("workstream.liveness.started", thresholds);
         yield* sweep.pipe(
           Effect.repeat(Schedule.spaced(Duration.millis(thresholds.sweepIntervalMs))),
         );

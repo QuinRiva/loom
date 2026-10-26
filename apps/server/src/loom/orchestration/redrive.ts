@@ -320,7 +320,7 @@ const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
   "rolled_back",
 ]);
 /** The events that enqueue a control-plane pass (besides a terminal `run.updated`). */
-export const PASS_TRIGGER_EVENT_TYPES: ReadonlySet<string> = new Set([
+const PASS_TRIGGER_EVENT_TYPES: ReadonlySet<string> = new Set([
   // Loom graph and wake events
   "thread.workstream-created",
   "thread.outcome-set",

@@ -68,7 +68,7 @@ import {
 import { buildYieldPayload, buildYieldWakeMessage, type YieldGateContext } from "./yield.ts";
 
 /** Attention reasons whose raise steers a notice to the parent; `awaiting_orchestrator` is the yield rail's. */
-export const ATTENTION_NOTICE_REASONS = [
+const ATTENTION_NOTICE_REASONS = [
   "needs_guidance",
   "awaiting_acceptance",
   "error",
@@ -79,10 +79,10 @@ export const ATTENTION_NOTICE_REASONS = [
  * until idle): the parent is usually mid-scaffold or mid-replan, and a steer
  * then is noise; an idle parent hears at once.
  */
-export const PARENT_BUSY_GRACE_MS = 600_000;
+const PARENT_BUSY_GRACE_MS = 600_000;
 
 /** How long a busy parent may show no activity while FYI wakes wait on it before a human is pulled in. */
-export const DEFERRED_WAKE_SILENCE_MS = 600_000;
+const DEFERRED_WAKE_SILENCE_MS = 600_000;
 
 const nowMs = (ctx: PassContext) => DateTime.toEpochMillis(ctx.now);
 const createdAt = (ctx: PassContext) => DateTime.formatIso(ctx.now);

@@ -35,8 +35,7 @@ import {
 } from "@t3tools/contracts";
 import { isMissingExecutable } from "@t3tools/source-control-core/server/discovery";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-// loom: git lock retry, batched remote status, --no-verify commits and the
-// commit-all result shape.
+// loom: git lock retry, batched remote status and --no-verify commits.
 import { GIT_LOCK_RETRY } from "../git/gitLockRetry.ts";
 import {
   makeGitVcsDriverCore,
@@ -294,57 +293,6 @@ export interface GitRemoteStatusBatchInput {
   readonly branches: ReadonlyArray<string | null>;
 }
 
-export interface GitCommitAllResult {
-  /** False when the working tree was already clean (nothing to commit). */
-  readonly committed: boolean;
-  /**
-   * The resulting HEAD commit after the call — the new commit when `committed`,
-   * otherwise the existing tip of a clean tree. Null only when the repo has no
-   * HEAD to resolve (unborn branch). Callers wanting the branch tip (e.g. the
-   * fan-in `finalCommitSha` marker) can read it regardless of `committed`.
-   */
-  readonly commitSha: string | null;
-}
-
-export interface GitMergeWorktreeBranchInput {
-  readonly cwd: string;
-  readonly branch: string;
-  readonly subject: string;
-}
-
-export interface GitMergeWorktreeBranchResult {
-  // `merged` = a --no-ff merge commit was created; `up-to-date` = nothing to
-  // merge (branch already contained); `conflict` = merge aborted, paths listed.
-  readonly status: "merged" | "up-to-date" | "conflict";
-  readonly conflictPaths: ReadonlyArray<string>;
-}
-
-export interface GitDeleteBranchInput {
-  readonly cwd: string;
-  readonly branch: string;
-  readonly force?: boolean;
-}
-
-// One entry of `git worktree list --porcelain` (worktree reaper / visibility
-// surface). `branch` is null for a detached HEAD; `isMain` marks the primary
-// worktree (always listed first by git).
-export interface GitWorktreeListEntry {
-  readonly path: string;
-  readonly branch: string | null;
-  readonly head: string | null;
-  readonly isMain: boolean;
-  readonly locked: boolean;
-  readonly prunable: boolean;
-}
-
-export interface GitIsAncestorInput {
-  readonly cwd: string;
-  /** The ref that must be contained (e.g. the child branch). */
-  readonly ancestor: string;
-  /** The ref that must contain it (e.g. the parent branch). */
-  readonly descendant: string;
-}
-
 export class GitVcsDriver extends Context.Service<
   GitVcsDriver,
   {
@@ -374,28 +322,6 @@ export class GitVcsDriver extends Context.Service<
       body: string,
       options?: GitCommitOptions,
     ) => Effect.Effect<{ commitSha: string }, GitCommandError>;
-    // Worktree isolation (design §3): stage every change and commit it, or
-    // report the tree was already clean. Used for the fan-in wip snapshots.
-    readonly commitAll: (
-      cwd: string,
-      subject: string,
-      body: string,
-    ) => Effect.Effect<GitCommitAllResult, GitCommandError>;
-    // Worktree isolation (design §3): merge a child branch back into the branch
-    // checked out in `cwd` with `--no-ff`, aborting (and listing conflict
-    // paths) rather than leaving a conflicted tree behind.
-    readonly mergeWorktreeBranch: (
-      input: GitMergeWorktreeBranchInput,
-    ) => Effect.Effect<GitMergeWorktreeBranchResult, GitCommandError>;
-    readonly deleteBranch: (input: GitDeleteBranchInput) => Effect.Effect<void, GitCommandError>;
-    // Worktree reaper (phase 3): enumerate this repo's worktrees.
-    readonly listWorktrees: (
-      cwd: string,
-    ) => Effect.Effect<ReadonlyArray<GitWorktreeListEntry>, GitCommandError>;
-    // Worktree reaper (phase 3): is `ancestor` fully contained in `descendant`?
-    readonly isAncestor: (input: GitIsAncestorInput) => Effect.Effect<boolean, GitCommandError>;
-    // Worktree reaper (phase 3): lightweight dirty check (`status --porcelain`).
-    readonly hasWorkingTreeChanges: (cwd: string) => Effect.Effect<boolean, GitCommandError>;
     readonly pushCurrentBranch: (
       cwd: string,
       fallbackBranch: string | null,

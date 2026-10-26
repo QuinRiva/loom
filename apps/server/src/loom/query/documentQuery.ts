@@ -93,7 +93,7 @@ export type DocumentQueryQuestionInput = Omit<DocumentQueryInput, "sourceThreadI
  * (`mdxAnchor`) with empty comment text, referenced ahead of the question body so the agent
  * reads it once. The first question carries the overlay ahead of it.
  */
-export const buildQuestionDispatch = (input: {
+const buildQuestionDispatch = (input: {
   readonly threadId: ThreadId;
   readonly n: number;
   readonly question: DocumentQueryQuestionInput;
@@ -190,7 +190,7 @@ export const buildQueryForkLaunch = (input: {
  * The `launchDraftFork` build: the drafter fork's spawn as a goal-less `document-query` root
  * carrying the brief, then `buildQueryForkLaunch` (no separate kickoff message).
  */
-export const buildDocumentQueryCommands = (
+const buildDocumentQueryCommands = (
   fork: Parameters<Parameters<typeof launchDraftFork>[0]["build"]>[0],
   input: {
     readonly question: DocumentQueryInput;

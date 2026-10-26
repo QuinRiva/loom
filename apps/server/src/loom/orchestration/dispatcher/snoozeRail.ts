@@ -14,7 +14,7 @@ import { type PassContext, type PassStep, perThread } from "./WorkstreamDispatch
 const millis = (time: DateTime.DateTime | null | undefined) =>
   time == null ? null : DateTime.toEpochMillis(time);
 
-export const snoozeCommandId = (threadId: string, requestedAt: string) =>
+const snoozeCommandId = (threadId: string, requestedAt: string) =>
   `server:loom:snooze:${threadId}:${requestedAt}`;
 
 export const snoozeRail: PassStep = {

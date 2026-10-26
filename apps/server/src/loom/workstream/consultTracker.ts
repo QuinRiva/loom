@@ -18,7 +18,7 @@ const clip = (text: string | undefined, max: number) => {
 };
 
 /** A step's argument: a bash command's first line, an rg/grep pattern and path, a path, a URL or query. */
-export const describeForkStep = (args: unknown): string | null => {
+const describeForkStep = (args: unknown): string | null => {
   const arg = (key: string) => piRecordString(args, key)?.trim() || undefined;
   const pattern = arg("pattern");
   return clip(

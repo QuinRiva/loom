@@ -7,7 +7,7 @@
  */
 
 /** The vendor part of a pi slug (`openai-codex/gpt-…` → `openai-codex`). */
-export const slugNamespace = (slug: string): string => {
+const slugNamespace = (slug: string): string => {
   const slash = slug.indexOf("/");
   return slash === -1 ? slug : slug.slice(0, slash);
 };

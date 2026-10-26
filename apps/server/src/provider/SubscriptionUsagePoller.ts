@@ -151,7 +151,7 @@ export const anthropicAccountPrefixes = (
  * shape, as `fetchAnthropicUsage` would have read them: the model carve-out's
  * display name rides the `Weekly · <name>` label.
  */
-export const hubLimitsToWindows = (
+const hubLimitsToWindows = (
   limits: ServerProviderUsageLimits,
   modelSlugs: ReadonlyArray<string>,
 ): ReadonlyArray<AccountUsageWindow> =>

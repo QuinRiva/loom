@@ -37,7 +37,7 @@ export const submitSupersedesFailure = (
     DateTime.toEpochMillis(shell.latestRunCompletedAt ?? shell.updatedAt);
 
 /** `message:` + `errorResumeCommandId` (`controlMessage.ts`): the run such a resume started. */
-export const ERROR_RESUME_MESSAGE_ID = /^message:server:loom:error-resume:/;
+const ERROR_RESUME_MESSAGE_ID = /^message:server:loom:error-resume:/;
 
 /**
  * The latest run failed on a provider error and still owes its one resume: it was not itself a

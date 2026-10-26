@@ -97,7 +97,7 @@ const stubServices = (stubs: McpServiceStubs) =>
   );
 
 /** Every service Loom's toolkit captures when `/mcp` builds, stubbed (one line in upstream's tests). */
-export const loomToolkitServiceStubs = (
+const loomToolkitServiceStubs = (
   loomStore: McpServiceStubs["loomStore"] = {},
   consult: NonNullable<McpServiceStubs["consult"]> = Layer.mock(LoomThreadConsult)({}),
 ) =>

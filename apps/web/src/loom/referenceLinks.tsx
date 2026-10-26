@@ -29,7 +29,7 @@ export function useReferenceLinkRules(): ReadonlyArray<ReferenceLinkRule> | unde
   return use(ReferenceLinksContext);
 }
 
-export function useReferenceLinker(): ReferenceLinker | null {
+function useReferenceLinker(): ReferenceLinker | null {
   return compileReferenceLinks(use(ReferenceLinksContext));
 }
 

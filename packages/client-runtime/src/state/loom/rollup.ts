@@ -158,7 +158,7 @@ export interface WorkstreamRollup {
 const liveOf = <T extends WorkstreamRollupThread>(threads: ReadonlyArray<T>) =>
   threads.filter((thread) => thread.archivedAt === null && thread.workstream !== undefined);
 
-export function planRollup(
+function planRollup(
   descendants: ReadonlyArray<WorkstreamRollupThread>,
   byId: WorkstreamIndex,
 ): PlanRollup {
@@ -177,7 +177,7 @@ export function planRollup(
   };
 }
 
-export function activityRollup(descendants: ReadonlyArray<WorkstreamRollupThread>): ActivityRollup {
+function activityRollup(descendants: ReadonlyArray<WorkstreamRollupThread>): ActivityRollup {
   const nodes = liveOf(descendants);
   return {
     running: nodes.filter((thread) => thread.activityRunStatus === "running").length,
@@ -245,7 +245,7 @@ function withAgents(
   return since !== null && (answeredAt === null || DateTime.toEpochMillis(answeredAt) < since);
 }
 
-export function attentionRollup(
+function attentionRollup(
   descendants: ReadonlyArray<WorkstreamRollupThread>,
   byId: WorkstreamIndex,
   threadsById: ReadonlyMap<ThreadId, WorkstreamRollupThread>,

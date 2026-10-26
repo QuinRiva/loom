@@ -56,7 +56,7 @@ const task = (
 });
 
 /** The task a thread is anchored to (`loomPreviewAnchoredThreadId`). */
-export const loomPreviewAnchorTaskId = GoalTaskId.make("00000000-0000-4000-8000-000000000004");
+const loomPreviewAnchorTaskId = GoalTaskId.make("00000000-0000-4000-8000-000000000004");
 
 export const loomPreviewGoal: LoomGoalShell = {
   id: LOOM_SEED.goalId,
@@ -367,7 +367,7 @@ export const loomPreviewThreads = {
   ),
 } satisfies Record<string, OrchestrationV2ThreadShell>;
 
-export const loomPreviewShellSnapshot: OrchestrationV2ShellSnapshot = {
+const loomPreviewShellSnapshot: OrchestrationV2ShellSnapshot = {
   schemaVersion: 1,
   snapshotSequence: 1,
   projects: [

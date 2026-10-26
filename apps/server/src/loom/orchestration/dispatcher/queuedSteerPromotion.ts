@@ -12,8 +12,7 @@ import { OrchestratorV2 } from "../../../orchestration-v2/Orchestrator.ts";
 import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
 import { type PassStep, perThread } from "./WorkstreamDispatcher.ts";
 
-export const promoteSteerCommandId = (queuedRunId: string) =>
-  `server:loom:promote-steer:${queuedRunId}`;
+const promoteSteerCommandId = (queuedRunId: string) => `server:loom:promote-steer:${queuedRunId}`;
 
 export const queuedSteerPromotion: PassStep = {
   name: "queuedSteerPromotion",

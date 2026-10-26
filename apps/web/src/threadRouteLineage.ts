@@ -17,9 +17,6 @@ export interface LineageSegment {
   isRoot: boolean;
 }
 
-/** Stable empty-lineage reference so consumers' memo/identity checks don't churn. */
-export const EMPTY_LINEAGE: ReadonlyArray<LineageSegment> = [];
-
 /**
  * Walk the lineage parent upward from `childThreadId`, returning the ancestor
  * chain ordered root → immediate parent. Bounded: a `visited` set breaks

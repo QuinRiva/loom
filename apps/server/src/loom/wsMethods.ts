@@ -79,7 +79,7 @@ const collectIds = (nodes: ReadonlyArray<TaskNode>): string[] =>
  * tree with the branch node replaced by the single submitted root. Returns an
  * error message when the submission is not a legal rewrite of `goal`.
  */
-export const resolveTaskRewrite = (
+const resolveTaskRewrite = (
   goal: Pick<LoomGoal, "tasks">,
   input: Pick<LoomGoalTaskRewriteInput, "branchTaskId" | "tasks">,
 ): ReadonlyArray<LoomGoalTaskRewriteNode> | string => {

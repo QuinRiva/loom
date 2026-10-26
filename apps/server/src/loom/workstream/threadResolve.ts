@@ -56,7 +56,7 @@ const SUBSEQUENCE = 40;
 /** Margin by which the top match must beat the runner-up to act without confirming. */
 const UNAMBIGUOUS_MARGIN = 20;
 /** Candidates surfaced on an ambiguous name: a focused set, not the server's whole list. */
-export const CANDIDATE_LIMIT = 8;
+const CANDIDATE_LIMIT = 8;
 
 const isSubsequence = (query: string, text: string): boolean => {
   let index = 0;

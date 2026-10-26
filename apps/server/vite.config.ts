@@ -79,10 +79,7 @@ export default mergeConfig(
     },
     pack: {
       // SEA embeds one entry; expose the history worker as a hidden subcommand.
-      // loom: `SqliteWorker.ts` is a second sibling entry (worker-backed sqlite client).
-      entry: packExecutable
-        ? ["src/bin.ts"]
-        : ["src/bin.ts", "src/claude-history-worker.ts", "src/persistence/SqliteWorker.ts"],
+      entry: packExecutable ? ["src/bin.ts"] : ["src/bin.ts", "src/claude-history-worker.ts"],
       outDir: packExecutable ? "dist-exe" : "dist",
       sourcemap: !packExecutable,
       clean: true,

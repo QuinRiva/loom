@@ -50,7 +50,7 @@ import { LoomAskReactorLive } from "./userInput/askUserQuestion.ts";
  * hooks cannot sit here: drivers are built inside the provider-instance registry, which captures its
  * context below this position, so they ride {@link LoomProviderHealthLive}.
  */
-export const LoomDriverEconomicsLive = Layer.mergeAll(
+const LoomDriverEconomicsLive = Layer.mergeAll(
   RerouteSweepLive,
   UsageLedgerReactorLive,
   LoomUsageLedger.layer,
@@ -67,7 +67,7 @@ export const LoomProviderRuntimeLive = Layer.mergeAll(
  * reroute sweep waits on; the sanitiser rewrites codex tool ids before an Anthropic resume; the steer
  * stash keeps accepted steers until their turn ends; cache touches go to {@link LoomCacheBroadcast}.
  */
-export const LoomPiAdapterHooksLive = Layer.effect(
+const LoomPiAdapterHooksLive = Layer.effect(
   LoomPiAdapterHooks,
   Effect.gen(function* () {
     const health = yield* ProviderHealthRegistry;

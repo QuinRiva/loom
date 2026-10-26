@@ -3,7 +3,7 @@
  * one it directly parents. Registration requires the caller for every tool, so a handler cannot
  * forget it. Goal-tool branch scoping lives in `loom/goals/goalTaskTree.ts`.
  */
-import type { LoomThreadWorkstream, ThreadId } from "@t3tools/contracts";
+import type { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import * as LoomStore from "../../../loom/projection/LoomStore.ts";
@@ -93,23 +93,3 @@ export const authoriseTarget = Effect.fn("LoomToolkit.authoriseTarget")(function
         `Thread ${targetThreadId} is neither this thread nor a thread it directly parents; a workstream tool may only act on those.`,
       );
 });
-
-/**
- * The parent's children keyed by id, archived rows included (DL-211), for
- * blockedBy / gate / forkFrom validation. Pass `includeDeleted` when checking a
- * graphKey, which stays reserved after deletion (DL-223).
- */
-export const siblingMap = (
-  parentThreadId: ThreadId,
-  options: { readonly includeDeleted?: boolean } = {},
-) =>
-  LoomStore.LoomStoreV2.pipe(
-    Effect.flatMap((store) =>
-      store.listChildren(parentThreadId, { includeArchived: true, ...options }),
-    ),
-    mapStoreError,
-    Effect.map(
-      (rows): ReadonlyMap<ThreadId, LoomThreadWorkstream> =>
-        new Map(rows.map((row) => [row.threadId, row])),
-    ),
-  );

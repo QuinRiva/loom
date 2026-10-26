@@ -386,10 +386,10 @@ export const routeWorkSubmit = <T extends GateNode>(
  * `error` and `awaiting_orchestrator` are server-only — the arm rejects them
  * without a `server:` command id.
  */
-export const RAISABLE_ATTENTION_REASONS: ReadonlyArray<LoomAttentionReason> = [
+const RAISABLE_ATTENTION_REASONS: ReadonlySet<LoomAttentionReason> = new Set([
   "awaiting_acceptance",
   "needs_guidance",
-];
+]);
 
 /**
  * The standing attention reason a COMPLETING submit (`terminal`/`resolve`, landing in `done`) would
@@ -402,5 +402,5 @@ export const holdErasedByCompletion = (input: {
   readonly decision: WorkOutcomeDecision;
 }): LoomAttentionReason | null =>
   input.decision === "terminal" || input.decision === "resolve"
-    ? (input.attention.find((reason) => RAISABLE_ATTENTION_REASONS.includes(reason)) ?? null)
+    ? (input.attention.find((reason) => RAISABLE_ATTENTION_REASONS.has(reason)) ?? null)
     : null;

@@ -46,7 +46,7 @@ import {
 const MESSAGE_MAX_CHARS = 16_000;
 
 /** The ids one record's lifecycle shares with 3b's notify-delivery rail (seam 6). */
-export const notifyIds = (recordId: string) => ({
+const notifyIds = (recordId: string) => ({
   record: CommandId.make(`server:workstream-notify-record:${recordId}`),
   deliver: CommandId.make(notifyCommandId(recordId)),
   message: MessageId.make(`message:${notifyCommandId(recordId)}`),

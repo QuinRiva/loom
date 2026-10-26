@@ -15,7 +15,7 @@ const PI_SLUG_NAMESPACE_TO_ACCOUNT_KEY: Record<string, string> = {
 };
 
 /** Subscription account key for a pi model slug, or null when API-billed. */
-export function accountKeyForModelSlug(slug: string): string | null {
+function accountKeyForModelSlug(slug: string): string | null {
   const slash = slug.indexOf("/");
   const namespace = slash === -1 ? slug : slug.slice(0, slash);
   return PI_SLUG_NAMESPACE_TO_ACCOUNT_KEY[namespace] ?? null;

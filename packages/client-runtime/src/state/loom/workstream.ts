@@ -21,9 +21,6 @@ export type WorkstreamBoardColumn =
 /** Every sidecar by thread id, as start nodes that keep the sidecar's other fields. */
 export type WorkstreamIndex = ReadonlyMap<ThreadId, StartNode & LoomThreadShellFields>;
 
-export const workstreamOf = (thread: Pick<OrchestrationV2ThreadShell, "workstream">) =>
-  thread.workstream ?? null;
-
 /** Direct children by V2 lineage (authoritative; equals `workstream.parentThreadId`). */
 export const childrenOf = <T extends Pick<OrchestrationV2ThreadShell, "lineage">>(
   parentThreadId: ThreadId,

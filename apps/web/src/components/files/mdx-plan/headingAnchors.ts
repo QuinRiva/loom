@@ -18,7 +18,7 @@ const textOf = (node: HeadingNode): string =>
   node.value ?? (node.children ?? []).map(textOf).join("");
 
 /** `"Delivery order & slices"` → `"delivery-order-slices"`. */
-export const slugifyHeading = (text: string): string =>
+const slugifyHeading = (text: string): string =>
   text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

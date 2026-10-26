@@ -74,7 +74,7 @@ import { steerRedelivery } from "./steerRedelivery.ts";
 import type { WakeMember } from "./wakes.ts";
 
 /** How often the pass re-runs with no trigger (time-based rails: grace windows, rungs, flush ages). */
-export const PASS_TICK_INTERVAL = "60 seconds";
+const PASS_TICK_INTERVAL = "60 seconds";
 
 /** A sidecar row as a graph node (`id` = `threadId`) for the shared start and dependency predicates. */
 export type WorkstreamNode = LoomThreadWorkstream & { readonly id: ThreadId };
@@ -313,7 +313,7 @@ const promotion: PassStep = {
  * step changed (a quiescent submit, a gate resolve) emits a trigger event, so
  * the next pass sees it.
  */
-export const PASS_STEPS: ReadonlyArray<PassStep> = [
+const PASS_STEPS: ReadonlyArray<PassStep> = [
   reDrive,
   promotion,
   snoozeRail,

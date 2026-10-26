@@ -50,7 +50,7 @@ const KIND_NAMES = Object.fromEntries(
  * Lowercased word terms; stopwords and single letters (the "s" of "building's")
  * dropped unless that empties the query.
  */
-export const toTerms = (query: string) => {
+const toTerms = (query: string) => {
   const all = query
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)

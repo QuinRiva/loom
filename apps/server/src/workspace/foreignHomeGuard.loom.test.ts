@@ -68,8 +68,8 @@ describe("foreign-home guard", () => {
     }),
   );
 
-  it.layer(TestLayer)("git worktree and branch mutations", (it) => {
-    it.effect("refuses every worktree and branch mutation on a foreign database", () =>
+  it.layer(TestLayer)("git worktree mutations", (it) => {
+    it.effect("refuses every worktree mutation on a foreign database", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
         const driver = yield* GitVcsDriver.GitVcsDriver;
@@ -90,19 +90,11 @@ describe("foreign-home guard", () => {
           .removeWorktree({ cwd: repo, path: owned.worktree.path })
           .pipe(Effect.flip);
         assert.include(removal.detail ?? "", "foreign-home guard");
-        yield* driver.deleteBranch({ cwd: repo, branch: "doomed-branch", force: false });
         yield* driver.pruneWorktrees({ cwd: repo });
         setForeignDatabaseForTest(null);
 
-        // Nothing moved: the checkout is still registered and the branch still exists.
+        // Nothing moved: the checkout is still registered.
         assert.isTrue(yield* fileSystem.exists(owned.worktree.path));
-        const branches = yield* driver.execute({
-          operation: "foreign-home-guard.test",
-          cwd: repo,
-          args: ["branch", "--list", "doomed-branch"],
-          timeoutMs: 10_000,
-        });
-        assert.include(branches.stdout, "doomed-branch");
       }),
     );
   });

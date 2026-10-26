@@ -66,7 +66,7 @@ const decodeConsultPayload = Schema.decodeUnknownSync(
   ),
 );
 
-export const legacyConsultTurnItemId = (eventId: string) =>
+const legacyConsultTurnItemId = (eventId: string) =>
   TurnItemId.make(`migration:v1:turn-item:consult:${eventId}`);
 
 export function importedConsultTurnItem(
