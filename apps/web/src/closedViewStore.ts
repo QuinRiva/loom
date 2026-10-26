@@ -66,16 +66,10 @@ const isClosedViewEntry = (entry: unknown): entry is ClosedViewEntry => {
     case "tasks": // loom: Loom's singleton tabs
     case "workstream": // loom:
       return surface.id === surface.kind;
-    // loom: out-of-workspace directory and HTML artefact tabs
+    // loom: out-of-workspace directory tabs
     case "dir":
       return (
         typeof surface.absolutePath === "string" && surface.id === `dir:${surface.absolutePath}`
-      );
-    case "artifact":
-      return (
-        typeof surface.relativePath === "string" &&
-        surface.id === `artifact:${surface.relativePath}` &&
-        Number.isSafeInteger(surface.reloadRequestId)
       );
     case "preview":
       return surface.resourceId === null || typeof surface.resourceId === "string";

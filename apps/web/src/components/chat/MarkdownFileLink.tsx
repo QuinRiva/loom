@@ -41,10 +41,6 @@ interface MarkdownFileLinkProps {
   openInEditorMenuLabel: string;
   onOpenInBrowser?: (() => Promise<AtomCommandResult<unknown, unknown>>) | undefined;
   onOpenMedia?: (() => void) | undefined;
-  // loom: primary-action override for an in-workspace `.html` artifact on a
-  // runtime with no integrated browser — the chip stays upstream's link (same
-  // context menu), only the click opens the sandboxed artifact viewer.
-  onOpenArtifact?: (() => void) | undefined;
   // loom: re-stat the target on click and resolve false when it has gone since
   // render, so a stale chip says so instead of opening nothing.
   onVerifyBeforeOpen?: ((filePath: string) => Promise<boolean>) | undefined;
@@ -71,7 +67,6 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
   openInEditorMenuLabel,
   onOpenInBrowser,
   onOpenMedia,
-  onOpenArtifact, // loom
   onVerifyBeforeOpen, // loom
   onReveal,
   revealLabel,
@@ -351,11 +346,6 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
                     handleOpenInEditor();
                     return;
                   }
-                  // loom: artifact viewer wins the plain click; see onOpenArtifact.
-                  if (onOpenArtifact) {
-                    onOpenArtifact();
-                    return;
-                  }
                   if (useBrowserPrimaryAction) {
                     handleOpenInBrowser();
                     return;
@@ -430,8 +420,7 @@ function areMarkdownFileLinkPropsEqual(
     previous.openInEditorMenuLabel === next.openInEditorMenuLabel &&
     previous.onOpenInBrowser === next.onOpenInBrowser &&
     previous.onOpenMedia === next.onOpenMedia &&
-    // loom: artifact-viewer primary action and click-time re-verification.
-    previous.onOpenArtifact === next.onOpenArtifact &&
+    // loom: click-time re-verification.
     previous.onVerifyBeforeOpen === next.onVerifyBeforeOpen &&
     previous.onReveal === next.onReveal &&
     previous.resolveCopyPaths === next.resolveCopyPaths &&

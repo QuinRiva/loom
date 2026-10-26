@@ -33,12 +33,11 @@ const DevicePanel = lazy(() =>
 );
 const FilePreviewPanel = lazy(() => import("../files/FilePreviewPanel"));
 // loom: the fork-only right-panel surfaces — goal tasks (3d-3), the Workstream graph
-// (3d-2 seam 18), the sandboxed `.artifacts/` HTML viewer and the absolute-directory browser.
+// (3d-2 seam 18) and the absolute-directory browser.
 const GoalTasksPanel = lazy(() => import("../GoalTasksPanel"));
 const WorkstreamPanel = lazy(() =>
   import("../WorkstreamPanel").then((module) => ({ default: module.WorkstreamPanel })),
 );
-const ArtifactViewPanel = lazy(() => import("../artifact/ArtifactViewPanel"));
 const AbsoluteDirectoryPanel = lazy(() => import("../files/AbsoluteDirectoryPanel"));
 
 export type RightPanelTerminalProps = Omit<
@@ -202,20 +201,6 @@ export function RightPanelSurfaceContent(props: {
       return (
         <Suspense fallback={null}>
           <WorkstreamPanel threadRef={threadRef} />
-        </Suspense>
-      );
-    case "artifact":
-      if (props.files.projectName === null) return null;
-      return (
-        <Suspense fallback={null}>
-          <ArtifactViewPanel
-            key={surface.id}
-            environmentId={props.environmentId}
-            threadRef={threadRef}
-            relativePath={surface.relativePath}
-            reloadRequestId={surface.reloadRequestId}
-            onOpenSource={props.files.onOpenFile}
-          />
         </Suspense>
       );
     case "dir":

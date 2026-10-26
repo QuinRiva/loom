@@ -73,7 +73,6 @@ describe("closedViewStore", () => {
       { kind: "tasks", id: "tasks" },
       { kind: "workstream", id: "workstream" },
       { kind: "dir", id: "dir:/tmp/out", absolutePath: "/tmp/out" },
-      { kind: "artifact", id: "artifact:a.html", relativePath: "a.html", reloadRequestId: 2 },
     ];
     const entries = surfaces.map((surface, index) => ({
       id: String(index),

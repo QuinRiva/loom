@@ -57,7 +57,7 @@ Standalone HTML produced for a human to view — a mockup, a visual report, an
 explainer — goes in the gitignored `.artifacts/` directory at the worktree
 root: write it with the ordinary file-write tool and cite the
 workspace-relative path (e.g. `.artifacts/quota-mockup.html`) in chat, which
-renders it in-app via the file chip's View affordance. Relative subresources
+renders it in-app when its file chip is opened. Relative subresources
 resolve, so a multi-file artefact works — keep all its files under one
 subdirectory of `.artifacts/`. Pick a fresh descriptive filename and never
 overwrite an existing artefact — the worktree may be shared with other

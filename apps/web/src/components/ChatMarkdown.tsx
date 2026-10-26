@@ -180,7 +180,6 @@ import { useOpenChangeRequestLink } from "~/lib/openPullRequestLink";
 import { useOpenLink } from "../browser/useOpenLink";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { isPreviewAvailableFor } from "../browser/previewRuntime";
-import { isPreviewSupportedInRuntime } from "../previewStateStore"; // loom: artifact-viewer gate
 import {
   isBrowserPreviewFile,
   openFileInPreview,
@@ -218,8 +217,6 @@ import {
   nodeToPlainText,
 } from "./chat/MarkdownCodeBlock.logic";
 import { reportMarkdownActionFailure } from "./chat/markdownActionFailure";
-// loom: artifact-viewer routing for `.html` chips.
-import { isArtifactViewerPath } from "./artifact/artifactView";
 // loom: file-chip existence verification.
 import {
   useScannedPathTargets,
@@ -841,15 +838,6 @@ function useChatMarkdownState({
     const panelPath =
       fileLinkMeta.workspaceRelativePath ??
       (!canPreviewMedia && isHostPath(fileLinkMeta.filePath) ? fileLinkMeta.filePath : null);
-    // loom: an in-workspace `.html` artifact opens the sandboxed viewer panel
-    // on a runtime with no integrated browser to open it in.
-    const artifactTarget =
-      threadRef &&
-      fileLinkMeta.workspaceRelativePath !== null &&
-      isArtifactViewerPath(fileLinkMeta.filePath) &&
-      !isPreviewSupportedInRuntime()
-        ? { threadRef, relativePath: fileLinkMeta.workspaceRelativePath }
-        : null;
 
     return (
       <MarkdownFileLink
@@ -891,15 +879,6 @@ function useChatMarkdownState({
         // loom: see verifyChipTarget.
         onVerifyBeforeOpen={
           upstreamResolvesAtOpen(fileLinkMeta, cwd) ? undefined : verifyChipTarget
-        }
-        // loom: see artifactTarget above.
-        onOpenArtifact={
-          artifactTarget
-            ? () =>
-                useRightPanelStore
-                  .getState()
-                  .openArtifact(artifactTarget.threadRef, artifactTarget.relativePath)
-            : undefined
         }
         openInEditorMenuLabel={preferredEditorMenuLabel}
         onReveal={

@@ -21,7 +21,6 @@ const RIGHT_PANEL_KINDS = [
   "preview",
   "device",
   "terminal",
-  "artifact", // loom: HTML artefact viewer
   "tasks", // loom: 3d-2 seam 18 — goal tasks (3d-3 mounts it)
   "workstream", // loom: 3d-2 seam 18 — workstream graph
   "pull-request",
@@ -54,7 +53,7 @@ export type RightPanelSurface =
   // loom: 3d-2 seam 18 — the Loom singleton surfaces (seeded by `seedWorkstream`)
   | { id: "tasks"; kind: "tasks" }
   | { id: "workstream"; kind: "workstream" }
-  // loom: files reveal fields, `dir` and `artifact` surfaces, absolute file paths
+  // loom: files reveal fields, `dir` surfaces, absolute file paths
   | {
       id: "files";
       kind: "files";
@@ -95,22 +94,6 @@ export type RightPanelSurface =
       folderTrail?: string;
     }
   | {
-      /**
-       * A single agent-produced HTML artefact rendered in a sandboxed iframe
-       * (web runtime only). `id = artifact:${relativePath}` — one tab per
-       * artefact, like file surfaces.
-       */
-      id: `artifact:${string}`;
-      kind: "artifact";
-      relativePath: string;
-      /**
-       * Bumped when `openArtifact` hits an existing surface — the viewer
-       * re-mints and reloads the iframe, mirroring `revealRequestId` semantics
-       * on file surfaces.
-       */
-      reloadRequestId: number;
-    }
-  | {
       id: `pull-request:${string}`;
       kind: "pull-request";
       /** Cross-environment lists can repeat project ids; thread panels inherit their ref's environment. */
@@ -125,9 +108,9 @@ export type RightPanelSurface =
   | { id: "pull-requests"; kind: "pull-requests" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
-// loom: v15 removes the workstream "graph" surface; the "workstream" surface is the graph
-// (the next upstream bump takes 16).
-const RIGHT_PANEL_STORAGE_VERSION = 15;
+// loom: v15 removes the workstream "graph" surface; the "workstream" surface is the graph.
+// v16 drops the retired "artifact" surface (the next upstream bump takes 17).
+const RIGHT_PANEL_STORAGE_VERSION = 16;
 
 export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
   EnvironmentId.make("pull-requests-panel"),
@@ -175,14 +158,12 @@ interface RightPanelStoreState {
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
-  // loom: out-of-workspace files/dirs, explorer reveal, artefact viewer
+  // loom: out-of-workspace files/dirs, explorer reveal
   openFileAbsolute: (ref: ScopedThreadRef, absolutePath: string, line?: number) => void;
   /** Open the workspace explorer and reveal an in-workspace directory. */
   openFilesAt: (ref: ScopedThreadRef, relativePath: string) => void;
   /** Open a read-only explorer rooted at an out-of-workspace absolute directory. */
   openDirectoryAbsolute: (ref: ScopedThreadRef, absolutePath: string) => void;
-  /** Open (or reload) the sandboxed HTML artefact viewer for a workspace file. */
-  openArtifact: (ref: ScopedThreadRef, relativePath: string) => void;
   /** Moves in place; "" opens the root explorer. folderTrail keeps the return path; keepSource opens beside the source. */
   navigateFolder: (
     ref: ScopedThreadRef,
@@ -250,7 +231,7 @@ const EMPTY_THREAD_STATE: ThreadRightPanelState = {
   surfaces: [],
 };
 
-// loom: files reveal / out-of-workspace dir / HTML artefact surfaces (PR-21 seams).
+// loom: files reveal / out-of-workspace dir surfaces (PR-21 seams).
 const filesSurface = (
   revealPath: string | null = null,
   revealRequestId = 0,
@@ -267,19 +248,9 @@ const directorySurface = (absolutePath: string): Extract<RightPanelSurface, { ki
   absolutePath,
 });
 
-const artifactSurface = (
-  relativePath: string,
-  reloadRequestId: number,
-): Extract<RightPanelSurface, { kind: "artifact" }> => ({
-  id: `artifact:${relativePath}`,
-  kind: "artifact",
-  relativePath,
-  reloadRequestId,
-});
-
 export type SingletonSurfaceKind = Exclude<
   RightPanelKind,
-  "file" | "dir" | "preview" | "terminal" | "artifact" | "pull-request"
+  "file" | "dir" | "preview" | "terminal" | "pull-request"
 >;
 
 // loom: end
@@ -578,6 +549,7 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 ? validThreadState.surfaces.flatMap<RightPanelSurface>((surface) => {
                     const kind = (surface as { kind?: string }).kind;
                     if (kind === "plan" || kind === "agents") return [];
+                    if (kind === "artifact") return []; // loom: retired HTML artefact tabs
                     // loom: the old "graph" tab becomes the workstream tab, which is now the graph.
                     if (kind === "graph")
                       return validThreadState.surfaces.some((other) => other.kind === "workstream")
@@ -603,7 +575,7 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                         surface.revealRequestId >= 0
                           ? surface.revealRequestId
                           : 0;
-                      // loom: absolutePath, files reveal, dir and artifact surfaces
+                      // loom: absolutePath, files reveal and dir surfaces
                       const absolutePath =
                         typeof surface.absolutePath === "string" && surface.absolutePath.length > 0
                           ? surface.absolutePath
@@ -644,29 +616,6 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                         return [];
                       }
                       return [{ id: surface.id, kind: "dir", absolutePath: surface.absolutePath }];
-                    }
-                    if (surface.kind === "artifact") {
-                      if (
-                        typeof surface.relativePath !== "string" ||
-                        surface.relativePath.length === 0 ||
-                        surface.id !== `artifact:${surface.relativePath}`
-                      ) {
-                        return [];
-                      }
-                      const reloadRequestId =
-                        typeof surface.reloadRequestId === "number" &&
-                        Number.isSafeInteger(surface.reloadRequestId) &&
-                        surface.reloadRequestId >= 0
-                          ? surface.reloadRequestId
-                          : 0;
-                      return [
-                        {
-                          id: surface.id,
-                          kind: "artifact",
-                          relativePath: surface.relativePath,
-                          reloadRequestId,
-                        },
-                      ];
                     }
                     if (surface.kind === "pull-request") {
                       if (
@@ -969,25 +918,6 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           userAction(state, scopedThreadKey(ref), (current) =>
             upsertSurface(current, directorySurface(absolutePath)),
           ),
-        ),
-      openArtifact: (ref, relativePath) =>
-        set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) => {
-            const surfaceId = `artifact:${relativePath}` as const;
-            const existing = current.surfaces.find(
-              (surface): surface is Extract<RightPanelSurface, { kind: "artifact" }> =>
-                surface.id === surfaceId && surface.kind === "artifact",
-            );
-            const surface = artifactSurface(relativePath, (existing?.reloadRequestId ?? 0) + 1);
-            return {
-              ...current,
-              isOpen: true,
-              activeSurfaceId: surface.id,
-              surfaces: existing
-                ? current.surfaces.map((entry) => (entry.id === surface.id ? surface : entry))
-                : [...current.surfaces, surface],
-            };
-          }),
         ),
       navigateFolder: (ref, surfaceId, relativePath, folderTrail, keepSource = false) =>
         set((state) =>
