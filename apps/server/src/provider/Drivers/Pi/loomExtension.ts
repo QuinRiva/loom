@@ -34,7 +34,8 @@ export const LOOM_EXTENSION_FILENAME = "pi-loom-extension.ts";
 
 /** The session profile `GET /loom/agent/session-profile` returns (seam 5). */
 export interface LoomSessionProfile {
-  /** The role's active set; empty = no role profile (every registered tool minus the deny-list). */
+  /** The role's active set. Empty only in a launch record from before every role had a profile:
+   * every registered tool minus the deny-list. */
   readonly activeTools: ReadonlyArray<string>;
   readonly humanEngaged: boolean;
   readonly hasParent: boolean;

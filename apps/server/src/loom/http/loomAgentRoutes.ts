@@ -114,10 +114,10 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (
   );
   const activeTools = Option.isSome(launched)
     ? launched.value.tools
-    : (loadRoleOverlay({
+    : loadRoleOverlay({
         role: workstream?.role ?? null,
         projectRoot: thread.worktreePath ?? process.cwd(),
-      })?.tools ?? []);
+      }).tools;
   return {
     activeTools:
       hasParent && !humanEngaged

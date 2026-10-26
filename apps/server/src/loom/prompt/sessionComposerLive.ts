@@ -112,14 +112,10 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
             tools: RETRO_REVIEWER_TOOLS,
           }
         : loadRoleOverlay({ role: workstream?.role ?? null, projectRoot });
-    const catalogue =
-      overlay === undefined || overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
+    const catalogue = overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
     const goal = workstream?.goalId == null ? null : yield* loomStore.goals.get(workstream.goalId);
-    // A role without a profile has every tool declared; the retro reviewer's profile is its whole job.
-    const resident =
-      overlay?.tools === undefined || workstream?.role === RETRO_REVIEWER_ROLE
-        ? undefined
-        : new Set(overlay.tools);
+    // The retro reviewer's profile is its whole job: nothing to announce behind tool_search.
+    const resident = workstream?.role === RETRO_REVIEWER_ROLE ? undefined : new Set(overlay.tools);
     const appendSystemPrompt = [
       WORK_MODEL_ADDENDUM,
       resident &&
@@ -132,7 +128,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
         isChild ? thread.lineage.parentThreadId : null,
         loomPaths(config),
       ),
-      overlay?.prompt,
+      overlay.prompt,
       shipPolicyPromptBlock(resolveMergeAuthority(projectRoot)),
       catalogue.length > 0
         ? [
@@ -153,13 +149,13 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
       .join("\n\n");
     return {
       appendSystemPrompt,
-      skills: overlay?.skills ?? [],
+      skills: overlay.skills ?? [],
       extensions: [extensionPath],
       env: {
         PI_CACHE_RETENTION: cacheRetentionForThread(thread.id, !isChild, longShare),
       },
       modelSelection: thread.modelSelection,
-      tools: overlay?.tools ?? [],
+      tools: overlay.tools,
     } satisfies LaunchIdentityRecord;
   });
 

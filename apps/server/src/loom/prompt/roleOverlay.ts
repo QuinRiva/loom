@@ -37,9 +37,9 @@ export interface RoleOverlay {
   readonly skills?: ReadonlyArray<string>;
   /** ACTIVE-tool profile, not an allowlist: unlisted tools stay registered but deferred (reachable via
    * `tool_search`). LEAF_CORE and `toolsets:` families are auto-unioned in, so a role lists only
-   * the tools it works with. Absent means pi's default surface. */
-  readonly tools?: ReadonlyArray<string>;
-  /** Whether this role can spawn children: no tool restriction, or the `delegation` toolset. Gates
+   * the tools it works with. A role that declares no `tools:` takes the orchestrator's, less scheduling. */
+  readonly tools: ReadonlyArray<string>;
+  /** Whether this role can spawn children: its profile keeps the `delegation` toolset. Gates
    * the roles-catalogue block, so a leaf that later finds delegation via `tool_search` sees only the
    * built-in role names on the spawn tools' `role` parameter. */
   readonly delegation: boolean;
@@ -179,33 +179,32 @@ export const listRoleOverlays = (input: RoleLookup): ReadonlyArray<RoleSummary> 
 };
 
 /**
- * Read fresh at session start. Frontmatter may carry `skills`, `tools` and `toolsets`; the body is
- * the prompt overlay. Empty role means the root orchestrator; an unknown role with no file yields
- * `undefined` (no profile, delegation-capable). Slugified to `[a-z0-9-]`, blocking path traversal.
+ * Read fresh at session start; the body is the prompt overlay. No role means the orchestrator. A
+ * role without `tools:` (a project role naming none, a free-text role) takes the orchestrator's
+ * profile less scheduling, or pi declares every registered tool. Slugified to `[a-z0-9-]`, blocking traversal.
  */
 export const loadRoleOverlay = (
   input: RoleLookup & { readonly role: string | null },
-): RoleOverlay | undefined => {
-  const slug = (input.role ?? DEFAULT_ROLE)
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "");
-  if (slug.length === 0) return undefined;
-  const role = composeRole(
-    slug,
-    input.builtinDir ?? BUILTIN_ROLES_DIR,
-    findOverlayDir(input.projectRoot),
-  );
-  if (!role) return undefined;
-  const { prompt, skills, tools, toolsets } = role;
-  if (prompt.length === 0 && skills.length === 0 && tools.length === 0) return undefined;
+): RoleOverlay => {
+  const slug =
+    (input.role ?? DEFAULT_ROLE)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "") || DEFAULT_ROLE;
+  const builtinDir = input.builtinDir ?? BUILTIN_ROLES_DIR;
+  const overlayDir = findOverlayDir(input.projectRoot);
+  const role = composeRole(slug, builtinDir, overlayDir);
+  const own = role?.tools.length ? role : undefined;
+  const { tools, toolsets: declared } = own ?? composeRole(DEFAULT_ROLE, builtinDir, overlayDir)!;
+  // The default withholds scheduling: creating recurring agent runs takes a role that names its tools.
+  const toolsets = own ? declared : declared.filter((name) => name !== "scheduling");
   // Unknown toolset names are ignored: a typo costs the role that family until
   // the frontmatter is fixed, exactly as an unknown tool name does in pi.
   const resident = toolsets.flatMap((name) => TOOLSETS[name as keyof typeof TOOLSETS] ?? []);
   return {
-    ...(prompt.length > 0 ? { prompt } : {}),
-    ...(skills.length > 0 ? { skills } : {}),
-    ...(tools.length > 0 ? { tools: [...new Set([...tools, ...LEAF_CORE, ...resident])] } : {}),
-    delegation: tools.length === 0 || toolsets.includes("delegation"),
+    ...(role?.prompt ? { prompt: role.prompt } : {}),
+    ...(role?.skills.length ? { skills: role.skills } : {}),
+    tools: [...new Set([...tools, ...LEAF_CORE, ...resident])],
+    delegation: toolsets.includes("delegation"),
   };
 };
