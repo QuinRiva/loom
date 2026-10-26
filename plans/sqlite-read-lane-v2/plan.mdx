@@ -143,7 +143,7 @@ This rule is the doc comment on `ProjectionSnapshotQueryLanes`, so it is read wh
 </Card>
 
 <Card heading="Route WS reconnect replay to the reader" tone="neutral" badge="REJECTED" meta={["never actually delivered", "~4 ms per 1,000 events"]}>
-  Intended by the earlier reader/writer-split plan (`docs/plans/db-lane-reader-writer-split.md`, decision D2's second item) but never delivered because of the memo collision; 1,000 replayed events cost 38 ms, 34 ms of it main-thread decode the reader cannot help with. Every reader-routed service is another layer to keep collision-proof. This plan adds one superseding paragraph under that decision in the earlier doc rather than a second account.
+  Intended by the earlier reader/writer-split plan (`plans/2026-07-06-db-lane-reader-writer-split.md`, decision D2's second item) but never delivered because of the memo collision; 1,000 replayed events cost 38 ms, 34 ms of it main-thread decode the reader cannot help with. Every reader-routed service is another layer to keep collision-proof. This plan adds one superseding paragraph under that decision in the earlier doc rather than a second account.
 </Card>
 
 <Card heading="A snapshot cache, a FIFO semaphore, a dedicated read connection" tone="neutral" badge="DEFERRED" meta={["each has a journal trigger in §7"]}>
@@ -167,7 +167,7 @@ Small enough for one PR. Every hunk in an upstream-shared file carries a `// loo
     { path: "apps/server/src/loom/serverLayers.ts", change: "modified", note: "LoomPersistenceLive = ProjectionUsageLedgerReaderLive.pipe(Layer.provideMerge(SqliteReadLayerLive))" },
     { path: "apps/server/src/ws.ts", change: "modified", note: "inside the existing loom hunk: yield ProjectionUsageLedgerReader instead of ProjectionUsageLedgerRepository" },
     { path: "apps/server/src/persistence/Layers/SqliteLanes.test.ts", change: "modified", note: "replace the three existing tests with the one lane test (§6)" },
-    { path: "docs/plans/db-lane-reader-writer-split.md", change: "modified", note: "one paragraph under D2: replay routing and the fresh-based ledger routing superseded by this plan" },
+    { path: "plans/2026-07-06-db-lane-reader-writer-split.md", change: "modified", note: "one paragraph under D2: replay routing and the fresh-based ledger routing superseded by this plan" },
   ]}
 />
 

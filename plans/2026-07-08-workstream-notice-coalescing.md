@@ -3,9 +3,12 @@ manager_sessions:
   - id: 64e6ab8b-47ce-4bc0-b3b6-fd221fd2df64
     role: plan
     authored_at: 2026-07-08T00:18:49.347Z
+status: done
 ---
 
 # Workstream control-plane notice coalescing + two-tier urgency
+
+> V1-era design history (July 2026, before the pull 9 V2 port), moved here from `docs/design/workstream-notice-coalescing.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. The mechanism now lives in `apps/server/src/loom/orchestration/dispatcher/digest.ts`.
 
 **Status:** design (no code in this doc)
 **Author:** planner sub-thread (T3 Code Workstream), 2026-07-08

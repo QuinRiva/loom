@@ -4,9 +4,13 @@ manager_sessions:
     name: workstream-graph-state-rollup-design
     role: architecture
     authored_at: 2026-06-24T10:10:47.921Z
+status: superseded
+superseded_by: plans/sidebar-workstream-badge/plan.mdx
 ---
 
 # Workstream Graph-State Rollup
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `docs/design/workstream-graph-state-rollup.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Superseded by `plans/sidebar-workstream-badge/plan.mdx`; `rollupGraphState` no longer exists.
 
 **Status:** design (paper only — no product code changes in this doc)
 **Author:** researcher sub-thread (T3 Code Workstream), 2026-06-24

@@ -3,9 +3,12 @@ manager_sessions:
   - id: ee68e5ec-38df-406a-9b8d-77020823d408
     role: plan
     authored_at: 2026-07-01T06:13:55.006Z
+status: done
 ---
 
 # MDX Plans — Phase 4 Scoping (full BuilderIO block vocabulary)
+
+> V1-era design history (July 2026, before the pull 9 V2 port), moved here from `docs/mdx-phase4-scoping.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Cited by D8 to D10 in the decision log, `plans/2026-07-01-mdx-plannotator-decisions.md`.
 
 Feasibility + scoping spike for Phase 4: the **rich** BuilderIO `/visual-plan`
 surfaces (wireframe canvas, live prototype, design-fidelity screens) plus the
@@ -18,7 +21,7 @@ model (`anchorKind`/`targetKind`) exists precisely so Phase 4 adds anchor _kinds
 without rewriting the annotation layer.
 
 Grounding (read for context, not re-derived here): `docs/mdx-spike-findings.md`
-(§3.2 remaining tags), `docs/mdx-plannotator-decisions.md` (D1–D7, esp. D2/D4).
+(§3.2 remaining tags), `plans/2026-07-01-mdx-plannotator-decisions.md` (D1–D7, esp. D2/D4).
 BuilderIO authority: `github.com/BuilderIO/agent-native` (MIT) +
 `github.com/BuilderIO/skills` → `skills/visual-plan/references/{wireframe,canvas}.md`.
 
@@ -245,7 +248,7 @@ All mirror the shipped slim `PlanBlock` pattern (zod `schema` + `BlockMdxConfig`
 | Diff            | `<Diff>`            | medium (~400)              | BuilderIO inline **LCS differ, no jsdiff dep** — port the differ + unified/split Read. Self-contained.                                                                                                                                                                                                                                                                  |
 | Mermaid         | `<Mermaid>`         | medium (~150 + lazy dep)   | **Lazy** `await import("mermaid")` only when a Mermaid block renders; heavy dep isolated, never in the base bundle. Confirmed lazy in source.                                                                                                                                                                                                                           |
 | OpenApi         | `<OpenApi>`         | medium–large (~500)        | Rich spec renderer (998 LOC full); port a read subset. No new risk class, just volume.                                                                                                                                                                                                                                                                                  |
-| HtmlBlock       | `<HtmlBlock>`       | medium (~150)              | **Untrusted HTML** — BuilderIO render it in an `sandbox="allow-same-origin"` iframe (no `allow-scripts`) + optional sanitise. Second untrusted surface; shipped the same way — same-origin, no scripts, no sanitiser — behind a no-`'self'` CSP and a link-activation guard, so reviewers can pin comments to text inside it (`docs/mdx-iframe-surfaces-review.md` §4). |
+| HtmlBlock       | `<HtmlBlock>`       | medium (~150)              | **Untrusted HTML** — BuilderIO render it in an `sandbox="allow-same-origin"` iframe (no `allow-scripts`) + optional sanitise. Second untrusted surface; shipped the same way — same-origin, no scripts, no sanitiser — behind a no-`'self'` CSP and a link-activation guard, so reviewers can pin comments to text inside it (`plans/2026-07-01-mdx-iframe-surfaces-review.md` §4). |
 | VisualQuestions | `<VisualQuestions>` | small (~150)               | Variant of the shipped `<QuestionForm>`; near-trivial.                                                                                                                                                                                                                                                                                                                  |
 | Columns         | `<Columns>`         | **medium — new machinery** | **Container block**: nests child blocks (esp. Before/After wireframe pairs).                                                                                                                                                                                                                                                                                            |
 | Tabs            | `<Tabs>`            | **medium — new machinery** | **Container block**: tabbed child blocks.                                                                                                                                                                                                                                                                                                                               |

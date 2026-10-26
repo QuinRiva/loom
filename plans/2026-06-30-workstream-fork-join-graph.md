@@ -3,9 +3,12 @@ manager_sessions:
   - id: 8b6bf51c-6ac6-4334-bf04-b43def926704
     role: plan
     authored_at: 2026-06-29T23:55:58.965Z
+status: done
 ---
 
 # Workstream fork–join graph — implementation plan
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `docs/plans/workstream-fork-join-graph.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Live as `computeForkJoinLayout`.
 
 ## Why we're changing it
 

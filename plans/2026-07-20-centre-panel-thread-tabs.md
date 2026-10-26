@@ -3,9 +3,12 @@ manager_sessions:
   - id: a7e27399-32a6-40f4-a776-d162a6512388
     role: plan
     authored_at: 2026-07-20T02:55:24.132Z
+status: done
 ---
 
 # Centre-panel thread tabs — design
+
+> V1-era design history (July 2026, before the pull 9 V2 port), moved here from `docs/design/centre-panel-thread-tabs.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. The feature is live.
 
 **Status:** shipped (v1, PR #120); **v2 revision** — tabs grouped per orchestration tree.
 **Feature:** threads open as tabs in the centre panel, mirroring how the right panel tabs its

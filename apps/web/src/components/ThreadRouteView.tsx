@@ -218,7 +218,7 @@ export function ThreadRouteView({
       className="h-svh min-h-0 overflow-hidden overscroll-y-none md:h-dvh"
       inert={background}
     >
-      {/* loom: centre-panel thread tabs (no active tab highlighted on a draft) */}
+      {/* loom: centre-panel thread tabs (no active tab highlighted on a draft). Only the routed thread mounts a ChatView, never one per tab: each holds a live thread subscription. */}
       <ThreadTabsStrip activeRouteRef={routeThreadRef} />
       <BackgroundThreadContext value={background}>{view}</BackgroundThreadContext>
     </SidebarInset>

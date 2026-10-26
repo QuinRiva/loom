@@ -3,9 +3,12 @@ manager_sessions:
   - id: fd205f96-eb32-488d-9fa4-742d7383cea8
     role: plan
     authored_at: 2026-07-01T03:41:29.786Z
+status: done
 ---
 
 # MDX Plannotator — Decision Log
+
+> V1-era design history (July 2026, before the pull 9 V2 port), moved here from `docs/mdx-plannotator-decisions.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Decision log, maintained to 2026-10-12.
 
 Running record of decisions taken while building first-party MDX plan support
 (rendering + plannotator-style annotation) in T3 Code. The user gave a green
@@ -165,7 +168,7 @@ second highlighter.
 
 ## D8 — Phase 4 scoped; wireframes are sanitised HTML, not Excalidraw
 
-The Phase 4 scoping spike (`docs/mdx-phase4-scoping.md`, signed) returned GO on
+The Phase 4 scoping spike (`plans/2026-07-01-mdx-phase4-scoping.md`, signed) returned GO on
 all rich surfaces, and **revises the D7 note**: wireframes/canvas are **not**
 Excalidraw/roughjs. A wireframe is a self-contained **semantic HTML fragment**
 (`data.html` + a `surface` preset) that BuilderIO render into the **live DOM**
@@ -209,7 +212,7 @@ escalation. Posture:
 - **HtmlBlock + Prototype — sandboxed iframe is the boundary; NO sanitiser.**
   _(D9 originally said "HtmlBlock … + sanitise"; the build dropped the sanitiser
   and an independent real-browser security review RATIFIED the drop —
-  `docs/mdx-iframe-surfaces-review.md`.)_ Unlike the wireframe surface,
+  `plans/2026-07-01-mdx-iframe-surfaces-review.md`.)_ Unlike the wireframe surface,
   HtmlBlock/Prototype content lives in a **separate `srcdoc` document**, not the
   live DOM. Prototype uses `sandbox="allow-scripts allow-forms"` (no
   `allow-same-origin` → opaque origin) + CSP `default-src 'none'` (no remote

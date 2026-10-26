@@ -3,9 +3,12 @@ manager_sessions:
   - id: a8479403-bfea-495b-abb2-346fed1e2b16
     role: plan
     authored_at: 2026-07-14T05:24:28.822Z
+status: done
 ---
 
 # Plan: Scaffold-first graph authoring — `workstream_scaffold` + `workstream_brief`
+
+> V1-era design history (July 2026, before the pull 9 V2 port), moved here from `docs/plans/workstream-scaffold-brief-graph.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. The feature is live in this shape.
 
 ## Problem
 
@@ -300,7 +303,7 @@ dispatcher has one read path and legacy brief-less spawns keep working.
 Parent wakes are no longer whole-generation joins: the dispatcher collects
 per-child terminal **deltas** with durable receipt markers
 (`WorkstreamDispatcher.ts:1883-1925`; whole-generation replay was removed —
-see `docs/design/workstream-notice-coalescing.md:102-109`). `spawnGeneration`
+see `plans/2026-07-08-workstream-notice-coalescing.md:105-112`). `spawnGeneration`
 survives as a UI dispatch-episode key, not a wake barrier
 (`WorkstreamDispatcher.ts:709-733`). Action rails already wake a parent
 mid-wave, so a brief-needed wake creates no conflict with the join model.
@@ -362,7 +365,7 @@ visible **"awaiting brief"** state distinct from `planned` (staged) and
 - board/graph/rollup views
 
 This composes with the fork–join graph work
-(`docs/plans/workstream-fork-join-graph.md`) — eager thread allocation means
+(`plans/2026-06-30-workstream-fork-join-graph.md`) — eager thread allocation means
 scaffolded nodes appear there with no extra plumbing; only the unbriefed
 visual state is new. Sidebar cards: title + purpose already render; no change.
 

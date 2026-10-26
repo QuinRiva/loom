@@ -3,9 +3,12 @@ manager_sessions:
   - id: b0bd6ac3-218b-4b0e-86ac-7b45331f759c
     role: plan
     authored_at: 2026-07-05T15:23:11.008Z
+status: done
 ---
 
 # Plan: Workstream spawn hardening — fail-fast graph validation
+
+> V1-era design history (July 2026, before the pull 9 V2 port), moved here from `docs/plans/workstream-spawn-hardening.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. These are V1 mechanics: `validateSpawnGraph` did not survive the V2 port, `findDependencyCycle` did.
 
 ## Problem and intent
 

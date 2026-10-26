@@ -3,9 +3,12 @@ manager_sessions:
   - id: 2e36aea1-48d6-4aec-919b-e44a0453eb5b
     role: security-review
     authored_at: 2026-07-01T10:20:36.551Z
+status: done
 ---
 
 # MDX iframe surfaces — independent security review (Phase 4 B5 + C4)
+
+> V1-era design history (July 2026, before the pull 9 V2 port), moved here from `docs/mdx-iframe-surfaces-review.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Cited by D9 in the decision log, `plans/2026-07-01-mdx-plannotator-decisions.md`.
 
 **Reviewer:** independent security reviewer sub-thread (did **not** author the code).
 **Scope:** `<Prototype>` (C4, interactive) + `<HtmlBlock>` (B5, static) sandboxed
