@@ -14,13 +14,8 @@ const legacyReaderFiles: Record<string, string> = {
   "serverSettings.ts": "one-time provider history for settings migration",
   // loom: Loom survivors that name V1 tables (DL-179), each recorded in doc 29.
   "workspace/foreignHomeGuard.loom.ts": "boot detection over copied V1 worktree paths (DL-81)",
-  "persistence/ProviderSessionRuntime.ts": "orphaned DL-74 prune hunk (DT-89)",
   "loom/legacy/LoomV1WorkstreamImporter.ts": "Phase 4's Loom importer (sidecars, lineage, binding)", // loom: DL-513
 };
-// loom: files whose import only name-matches `forbiddenImport` (DL-179).
-const loomForbiddenImportExemptions = new Set([
-  "persistence/NodeSqliteWorkerClient.ts", // diagnostics/ProviderRuntimeIngestionTelemetry.ts (DT-90)
-]);
 const retiredPaths = [
   "orchestration",
   "orchestration/Layers/ProviderCommandReactor.ts",
@@ -52,7 +47,6 @@ it("keeps the V1 agent runtime and engine deleted", () => {
   }
   const violations = relativeSources
     .filter(({ path, source }) => !path.includes("/legacy/") && forbiddenImport.test(source))
-    .filter(({ path }) => !loomForbiddenImportExemptions.has(path)) // loom: DL-179
     .map(({ path }) => path);
   assert.deepEqual(violations, []);
 });

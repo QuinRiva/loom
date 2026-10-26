@@ -95,26 +95,6 @@ export class GitWorkflowService extends Context.Service<
       input: VcsCreateWorktreeInput,
       options?: GitVcsDriver.CreateWorktreeOptions,
     ) => Effect.Effect<VcsCreateWorktreeResult, GitCommandError>;
-    // loom: worktree isolation (design §3): fan-in git primitives (orphaned in pull 9, DT-45).
-    readonly commitAll: (
-      cwd: string,
-      subject: string,
-      body: string,
-    ) => Effect.Effect<GitVcsDriver.GitCommitAllResult, GitCommandError>;
-    readonly mergeWorktreeBranch: (
-      input: GitVcsDriver.GitMergeWorktreeBranchInput,
-    ) => Effect.Effect<GitVcsDriver.GitMergeWorktreeBranchResult, GitCommandError>;
-    readonly deleteBranch: (
-      input: GitVcsDriver.GitDeleteBranchInput,
-    ) => Effect.Effect<void, GitCommandError>;
-    // Worktree reaper (phase 3): enumeration + provably-dead predicates.
-    readonly listWorktrees: (
-      cwd: string,
-    ) => Effect.Effect<ReadonlyArray<GitVcsDriver.GitWorktreeListEntry>, GitCommandError>;
-    readonly isAncestor: (
-      input: GitVcsDriver.GitIsAncestorInput,
-    ) => Effect.Effect<boolean, GitCommandError>;
-    readonly hasWorkingTreeChanges: (cwd: string) => Effect.Effect<boolean, GitCommandError>;
     readonly listLocalBranchNames: (cwd: string) => Effect.Effect<string[], GitCommandError>;
     readonly fetchRemote: (input: {
       readonly cwd: string;
@@ -472,31 +452,6 @@ export const make = Effect.gen(function* () {
     createWorktree: (input, options) =>
       ensureGitCommand("GitWorkflowService.createWorktree", input.cwd).pipe(
         Effect.andThen(gitManager.createWorktree(input, options)),
-      ),
-    // loom: fan-in / reaper primitives (orphaned in pull 9, DT-45).
-    commitAll: (cwd, subject, body) =>
-      ensureGitCommand("GitWorkflowService.commitAll", cwd).pipe(
-        Effect.andThen(git.commitAll(cwd, subject, body)),
-      ),
-    mergeWorktreeBranch: (input) =>
-      ensureGitCommand("GitWorkflowService.mergeWorktreeBranch", input.cwd).pipe(
-        Effect.andThen(git.mergeWorktreeBranch(input)),
-      ),
-    deleteBranch: (input) =>
-      ensureGitCommand("GitWorkflowService.deleteBranch", input.cwd).pipe(
-        Effect.andThen(git.deleteBranch(input)),
-      ),
-    listWorktrees: (cwd) =>
-      ensureGitCommand("GitWorkflowService.listWorktrees", cwd).pipe(
-        Effect.andThen(git.listWorktrees(cwd)),
-      ),
-    isAncestor: (input) =>
-      ensureGitCommand("GitWorkflowService.isAncestor", input.cwd).pipe(
-        Effect.andThen(git.isAncestor(input)),
-      ),
-    hasWorkingTreeChanges: (cwd) =>
-      ensureGitCommand("GitWorkflowService.hasWorkingTreeChanges", cwd).pipe(
-        Effect.andThen(git.hasWorkingTreeChanges(cwd)),
       ),
     listLocalBranchNames: (cwd) =>
       ensureGitCommand("GitWorkflowService.listLocalBranchNames", cwd).pipe(

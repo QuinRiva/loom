@@ -31,9 +31,9 @@ import { DOCUMENT_QUERY_CLIENT_LABEL } from "../query/queryPosture.ts";
 import { ASK_COULD_NOT_PRESENT, openAskUserQuestion } from "../userInput/askUserQuestion.ts";
 import { LoomAskWaiters } from "../userInput/askWaiters.ts";
 
-export const LOOM_AGENT_ROUTE_PREFIX = "/loom/agent";
+const LOOM_AGENT_ROUTE_PREFIX = "/loom/agent";
 /** One long-poll slice; the extension re-polls until the outcome arrives. */
-export const LOOM_ASK_POLL_SLICE_MS = 25_000;
+const LOOM_ASK_POLL_SLICE_MS = 25_000;
 
 const reply = (status: number, message: string) =>
   HttpServerResponse.jsonUnsafe({ message }, { status });

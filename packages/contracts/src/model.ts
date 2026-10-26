@@ -130,17 +130,8 @@ export const PREFERRED_DEFAULT_CODEX_MODELS: ReadonlyArray<string> = [
   "gpt-5.6-sol",
   "gpt-5.6-terra",
 ];
-// loom: pi is the default provider; keep loom's pi model default + thinking levels.
+// loom: pi is the default provider; keep loom's pi model default.
 export const PI_DEFAULT_MODEL = "cliproxy/claude-opus-5-5";
-export const PI_THINKING_LEVEL_OPTIONS = [
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-] as const;
-export type PiThinkingLevel = (typeof PI_THINKING_LEVEL_OPTIONS)[number];
 export const DEFAULT_TEXT_GENERATION_MODEL = "gpt-6-luna";
 /** Keep the official Antigravity session's current model. Never send this ID to ACP. */
 export const ANTIGRAVITY_DEFAULT_MODEL = "antigravity-default";
@@ -210,17 +201,4 @@ export const PROVIDER_DISPLAY_NAMES: Partial<Record<ProviderDriverKind, string>>
   [ACP_REGISTRY_DRIVER_KIND]: "ACP Registry",
   [PI_DRIVER_KIND]: "Pi",
   [OPENCODE_DRIVER_KIND]: "OpenCode",
-};
-
-// loom: human labels for real backend provider ids (the `providerID` half of pi's slug, as in the
-// usage ledger's `provider_id`), a key space distinct from PROVIDER_DISPLAY_NAMES' driver kinds.
-// Shared by the usage dashboard and PiDriver's model-picker labels so the two never drift.
-export const USAGE_BACKEND_DISPLAY_NAMES: Record<string, string> = {
-  anthropic: "Anthropic",
-  bedrock: "Bedrock",
-  cliproxy: "CLI Proxy", // loom: pooled Pi backend label in model and usage surfaces
-  "google-vertex": "Vertex",
-  "google-vertex-claude": "Vertex",
-  openai: "OpenAI",
-  "openai-codex": "Codex",
 };

@@ -72,7 +72,7 @@ const formatElapsed = (ms: number) => {
  * most recent text reliably wins over the replayed transcript, and it keeps the
  * fork's prefix byte-identical to the target's (a warm prompt cache).
  */
-export const composeConsultTurn = (input: { readonly asker: string; readonly question: string }) =>
+const composeConsultTurn = (input: { readonly asker: string; readonly question: string }) =>
   `Consult from ${input.asker}, via ${agentToolName("consult_thread")}. What follows is a read-only fork of the session above: a copy of it, frozen at its last turn. The original thread is untouched by anything that happens here, and this fork is discarded once you have answered.
 
 Question:

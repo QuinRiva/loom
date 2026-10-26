@@ -36,7 +36,7 @@ export const asToolError = <A, R>(
  * `OrchestratorDispatchError` cause (a string), which the generic wrapper
  * message would hide.
  */
-export const dispatchRefusal = (error: Orchestrator.OrchestratorV2Error): string => {
+const dispatchRefusal = (error: Orchestrator.OrchestratorV2Error): string => {
   const cause = "cause" in error ? error.cause : undefined;
   return typeof cause === "string" ? cause : cause instanceof Error ? cause.message : error.message;
 };

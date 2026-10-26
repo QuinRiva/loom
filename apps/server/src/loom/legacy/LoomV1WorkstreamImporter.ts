@@ -151,7 +151,7 @@ const isWorkstreamRow = (row: LegacyV1Thread) =>
  * one thread. `kickoffAt` is the thread's first user message (null = never
  * started); V1's turn rows are gone by import time (upstream's 063).
  */
-export const mapLegacyThread = (
+const mapLegacyThread = (
   row: LegacyV1Thread,
   kickoffAt: string | null,
   ctx: LegacyMappingContext,
@@ -366,7 +366,7 @@ const piModelSelection = (json: string | null): ModelSelection => {
  * `<sessionId>` → absolute path for every `<timestamp>_<sessionId>.jsonl` at depth 1
  * (a flat root) or 2 (pi's slug directories); the newest mtime wins a duplicate.
  */
-export const indexPiSessions = (root: string): ReadonlyMap<string, string> => {
+const indexPiSessions = (root: string): ReadonlyMap<string, string> => {
   const index = new Map<string, { readonly path: string; mtimeMs?: number }>();
   const add = (dir: string, name: string) => {
     const underscore = name.indexOf("_");

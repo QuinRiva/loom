@@ -114,7 +114,7 @@ export const forkPrepareCommand = (input: {
  * `forkFromThreadId`, the source's goal, worktree, modes and model), the fork
  * transfer, the kickoff.
  */
-export const buildDraftForkCommands = (input: DraftForkInput) =>
+const buildDraftForkCommands = (input: DraftForkInput) =>
   [
     buildDraftSpawn(input),
     ...buildDraftForkLaunch({

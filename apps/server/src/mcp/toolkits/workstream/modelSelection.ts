@@ -54,7 +54,7 @@ export interface ModelCatalogueEntry {
   readonly models: ReadonlyArray<string>;
 }
 
-export const modelCatalogueOf = (
+const modelCatalogueOf = (
   providers: ReadonlyArray<ServerProvider>,
 ): ReadonlyArray<ModelCatalogueEntry> =>
   providers.filter(isProviderAvailable).map((provider) => ({
@@ -72,7 +72,7 @@ type ModelSelectionValidation =
       readonly models: ReadonlyArray<string>;
     };
 
-export const validateModelSelection = (
+const validateModelSelection = (
   selection: ModelSelection,
   catalogue: ReadonlyArray<ModelCatalogueEntry>,
 ): ModelSelectionValidation => {
@@ -275,7 +275,7 @@ const compareCandidates =
     return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
   };
 
-export const rankShapeCandidates = (input: {
+const rankShapeCandidates = (input: {
   readonly shape: TaskShape;
   readonly sensitive: string | undefined;
   readonly profiles: Readonly<Record<string, WorkstreamModelProfile>>;

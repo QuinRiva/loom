@@ -16,7 +16,7 @@ import * as Option from "effect/Option";
  * extension re-polls the moment a slice ends, so only a pi that died or lost
  * the server for this long falls through to upstream's message delivery.
  */
-export const LOOM_ASK_RECONNECT_GRACE_MS = 3_000;
+const LOOM_ASK_RECONNECT_GRACE_MS = 3_000;
 
 /** Why the ask reactor closed a request, so the cancelled event renders the right outcome. */
 export type LoomAskClosing = "superseded" | "run-ended";

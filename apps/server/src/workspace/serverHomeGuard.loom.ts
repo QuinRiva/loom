@@ -139,7 +139,7 @@ const SERVER_ENTRYPOINT = /(\bbin\.(mjs|ts|js)\b)|((^|\/)t3(\s|$))/;
  * `undefined` when the command line cannot be read — no `/proc` (macOS,
  * Windows), or a process we may not inspect.
  */
-export const readProcessCmdline = (pid: number): string | undefined => {
+const readProcessCmdline = (pid: number): string | undefined => {
   try {
     return NodeFS.readFileSync(`/proc/${pid}/cmdline`, "utf8").replaceAll("\0", " ").trim();
   } catch {

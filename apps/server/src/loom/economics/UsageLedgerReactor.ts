@@ -21,9 +21,7 @@ const isTerminalTurn = (event: OrchestrationV2DomainEvent): event is ProviderTur
   event.payload.status !== "running" &&
   event.payload.turnTokenUsage !== undefined;
 
-export const recordTurnUsage = Effect.fn("loom.usage-ledger.record")(function* (
-  event: ProviderTurnEvent,
-) {
+const recordTurnUsage = Effect.fn("loom.usage-ledger.record")(function* (event: ProviderTurnEvent) {
   const sql = yield* SqlClient.SqlClient;
   const turn = event.payload;
   const usage = turn.turnTokenUsage!;

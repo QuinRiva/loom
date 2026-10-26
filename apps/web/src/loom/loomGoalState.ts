@@ -13,14 +13,14 @@ import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentSnapshotAtom } from "../state/shell";
 
-export const loomGoalAtoms = createLoomGoalAtoms({ snapshotAtom: environmentSnapshotAtom });
+const loomGoalAtoms = createLoomGoalAtoms({ snapshotAtom: environmentSnapshotAtom });
 export const loomCommands = createLoomCommandAtoms(connectionAtomRuntime);
 
 const EMPTY_GOALS_ATOM = Atom.make<ReadonlyArray<LoomGoalShell>>(Object.freeze([])).pipe(
   Atom.withLabel("loom-goals:empty"),
 );
 
-export function useLoomGoals(environmentId: EnvironmentId | null): ReadonlyArray<LoomGoalShell> {
+function useLoomGoals(environmentId: EnvironmentId | null): ReadonlyArray<LoomGoalShell> {
   return useAtomValue(
     environmentId === null ? EMPTY_GOALS_ATOM : loomGoalAtoms.goalsAtom(environmentId),
   );

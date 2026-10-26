@@ -40,7 +40,7 @@ const DRIVER_OF: Record<string, ServerProvider["driver"]> = {
  * Split the pi instance's account-encoded windows into poolable accounts. Hub
  * and natively reported accounts pass through untouched.
  */
-export function splitLoomPiAccount(account: LimitAccount): readonly LimitAccount[] {
+function splitLoomPiAccount(account: LimitAccount): readonly LimitAccount[] {
   if (account.driver !== "pi") return [account];
   const byAccount = new Map<string, ServerProviderUsageWindow[]>();
   for (const window of account.limits.windows) {
@@ -65,7 +65,7 @@ export function splitLoomPiAccount(account: LimitAccount): readonly LimitAccount
 }
 
 /** How an account is named in a row: `carl3@` from a hub email or a pi label alike. */
-export function accountLabel(account: LimitAccount): string | null {
+function accountLabel(account: LimitAccount): string | null {
   return account.email ? `${account.email.split("@")[0]}@` : account.displayName;
 }
 
@@ -453,7 +453,7 @@ export function readMeter(presentations: LimitPresentations, now: number): Meter
  * every `serverConfig` change and the meter is always on screen, so the derive
  * runs only when a reading actually lands (or the countdown ticks).
  */
-export function limitsFingerprint(presentations: LimitPresentations): string {
+function limitsFingerprint(presentations: LimitPresentations): string {
   const parts: string[] = [];
   for (const [environmentId, presentation] of presentations) {
     for (const provider of presentation.serverConfig?.providers ?? []) {

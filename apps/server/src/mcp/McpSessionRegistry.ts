@@ -226,15 +226,6 @@ export const issueActiveMcpCredential = (
         .pipe(Effect.andThen(activeMcpSessionRegistry.issue(request)))
     : Effect.undefined;
 
-// loom: token → MCP scope for Loom's REST tool routes; orphaned in Phase 1 (consumers
-// `mcp/*Http.ts` quarantined, DT-25), re-hung with the toolkit in phase 3a.
-export const resolveActiveMcpCredential = (
-  rawToken: string,
-): Effect.Effect<McpInvocationContext.McpInvocationScope | undefined> =>
-  activeMcpSessionRegistry
-    ? activeMcpSessionRegistry.resolve(rawToken)
-    : Effect.sync((): McpInvocationContext.McpInvocationScope | undefined => undefined);
-
 export const touchActiveMcpThread = (threadId: ThreadId): Effect.Effect<void> =>
   activeMcpSessionRegistry ? activeMcpSessionRegistry.touch(threadId) : Effect.void;
 

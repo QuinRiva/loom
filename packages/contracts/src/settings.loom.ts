@@ -5,7 +5,6 @@
 
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 
@@ -58,60 +57,12 @@ export type WorkstreamModelProfile = typeof WorkstreamModelProfile.Type;
 // fallback model of another vendor (`fallbackTarget`, a pi slug); null parks it until the window
 // resets (resume is upstream's `autoResumeLimitedThreads`). Each key carries its default so the
 // sparse settings.json write, which strips default-valued keys, can encode a partial value.
-const ProviderFailoverSettingsFields = Schema.Struct({
+export const ProviderFailoverSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(true))),
   fallbackTarget: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null)),
   ),
 });
-
-const slugNamespace = (slug: string) => slug.split("/", 1)[0];
-
-/**
- * The single target a stored V1 `chains` map collapses to: the first chain
- * entry, in stored order, that is a concrete slug (a `<m>`, bare-namespace or
- * `/*` entry needs the exhausted model's id, which a setting cannot know) of a
- * different vendor than its chain's key; null when there is none.
- */
-export const fallbackTargetFromChains = (
-  chains: Readonly<Record<string, ReadonlyArray<string>>>,
-): string | null =>
-  Object.entries(chains)
-    .flatMap(([key, targets]) => targets.map((target) => ({ key, target: target.trim() })))
-    .find(
-      ({ key, target }) =>
-        /^[^/]+\/[^*]/.test(target) &&
-        !target.includes("<m>") &&
-        slugNamespace(target) !== slugNamespace(key),
-    )?.target ?? null;
-
-// What settings.json may hold: the current keys, or V1's stored `chains`, read
-// once and folded into `fallbackTarget` (settings.json has no migration ledger).
-// V1's `resumeOnReset` and `pausedAccounts` are stripped as excess keys.
-const StoredProviderFailoverSettings = Schema.Struct({
-  enabled: Schema.optionalKey(Schema.Boolean),
-  fallbackTarget: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  chains: Schema.optionalKey(Schema.Record(Schema.String, Schema.Array(Schema.String))),
-});
-
-export const ProviderFailoverSettings = StoredProviderFailoverSettings.pipe(
-  Schema.decodeTo(
-    ProviderFailoverSettingsFields,
-    SchemaTransformation.transform<
-      typeof ProviderFailoverSettingsFields.Encoded,
-      typeof StoredProviderFailoverSettings.Type
-    >({
-      decode: (stored) => ({
-        enabled: stored.enabled ?? true,
-        fallbackTarget:
-          stored.fallbackTarget !== undefined
-            ? stored.fallbackTarget
-            : fallbackTargetFromChains(stored.chains ?? {}),
-      }),
-      encode: (settings) => settings,
-    }),
-  ),
-);
 export type ProviderFailoverSettings = typeof ProviderFailoverSettings.Type;
 
 // Thread-search embedding provider (plans/thread-content-search). One vector per
@@ -166,17 +117,11 @@ export const LoomClientSettingsFields = {
   // manual + → tab per thread, and the per-thread one-shot flags make the cost
   // a single non-overriding seed per thread. Goal tasks never auto-opens (G3).
   autoOpenWorkstreamPanel: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  // Thread content search returns archived roots too unless this is off. A
-  // per-device view preference, sent with every `orchestration.searchThreads`.
-  threadSearchIncludeArchived: Schema.Boolean.pipe(
-    Schema.withDecodingDefault(Effect.succeed(true)),
-  ),
 } as const;
 
 // Spread into `ClientSettingsPatch`.
 export const LoomClientSettingsPatchFields = {
   autoOpenWorkstreamPanel: Schema.optionalKey(Schema.Boolean),
-  threadSearchIncludeArchived: Schema.optionalKey(Schema.Boolean),
 } as const;
 
 // Spread into `ServerSettings`.

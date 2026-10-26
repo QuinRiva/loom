@@ -123,7 +123,7 @@ const decodeWorkstreamRows = Schema.decodeUnknownEffect(Schema.Array(LoomThreadW
 const encodeWorkstreamRow = Schema.encodeEffect(LoomThreadWorkstreamRow);
 
 /** Rows of `loom_thread_workstream w` matching `where` (a fragment over alias `w`). */
-export const selectWorkstreams = (sql: SqlClient.SqlClient, where: Statement.Fragment) =>
+const selectWorkstreams = (sql: SqlClient.SqlClient, where: Statement.Fragment) =>
   sql`SELECT ${sql.literal(workstreamSelectList)} FROM loom_thread_workstream w WHERE ${where}
       ORDER BY w.created_at ASC, w.thread_id ASC`.pipe(Effect.flatMap(decodeWorkstreamRows));
 

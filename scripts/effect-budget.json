@@ -257,7 +257,6 @@
   "apps/web/src/components/chat/PierreEntryIcon.tsx": 1,
   "apps/web/src/components/chat/ProviderModelPicker.tsx": 1,
   "apps/web/src/components/chat/ProviderSubagentBar.tsx": 1,
-  "apps/web/src/components/chat/SearchableModelList.tsx": 3,
   "apps/web/src/components/chat/ThreadActivityAnnouncer.tsx": 1,
   "apps/web/src/components/chat/ThreadDetailsCard.tsx": 4,
   "apps/web/src/components/chat/ThreadFindBar.tsx": 1,

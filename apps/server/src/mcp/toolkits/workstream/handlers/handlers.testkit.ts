@@ -32,7 +32,7 @@ export type StubbedServices =
   | LoomThreadConsult
   | GitWorkflowService.GitWorkflowService;
 
-export const DefaultServiceStubs = Layer.mergeAll(
+const DefaultServiceStubs = Layer.mergeAll(
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   Layer.mock(HandoffDuplicateJudge)({}),
   Layer.mock(LoomThreadConsult)({}),

@@ -118,7 +118,7 @@ export interface RetroManifest {
 }
 
 /** One manifest entry from a tree-view thread, its session path and its raised-flag count. */
-export const retroManifestThread = (
+const retroManifestThread = (
   thread: WorkstreamTreeThread,
   sessionPath: string | null,
   attentionEpisodes: number,

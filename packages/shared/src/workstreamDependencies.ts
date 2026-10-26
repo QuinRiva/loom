@@ -70,25 +70,6 @@ export const deadlockedNodes = <T extends StartStateDependencyThread>(
 };
 
 /**
- * The first same-parent `cancelled` dependency in `thread.blockedBy`, or null.
- * A cancelled dependency never releases, so an un-started thread gated on one is
- * wedged: the control plane raises `needs_guidance` on it (cancel cascade and
- * `dependencies.set`), and clears that flag once a re-point removes the cause.
- */
-export const cancelledDependencyOf = <T extends DependencyGateThread>(
-  thread: Pick<T, "id" | "parentThreadId" | "blockedBy">,
-  threadsById: ReadonlyMap<ThreadId, T>,
-): ThreadId | null =>
-  thread.blockedBy.find((depId) => {
-    const dep = threadsById.get(depId);
-    return (
-      depId !== thread.id &&
-      dep?.parentThreadId === thread.parentThreadId &&
-      dep.outcome === "cancelled"
-    );
-  }) ?? null;
-
-/**
  * Detects a dependency cycle across the same sibling-scoped edges that can
  * actually gate execution. Unknown ids, self-references, and cross-parent ids
  * are ignored to match `areDependenciesSatisfied` exactly.

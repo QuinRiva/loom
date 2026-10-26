@@ -258,7 +258,7 @@ export const isPromotableLoomQueuedRun = (
 };
 
 /** Rule 4's clearing origins: a human, or the parent's `mcp__t3-code__workstream_prompt`. */
-export const loomClearsAttention = (loom: LoomMessageFields | undefined) =>
+const loomClearsAttention = (loom: LoomMessageFields | undefined) =>
   loom?.humanAuthored === true || loom?.origin === "orchestrator";
 
 /**

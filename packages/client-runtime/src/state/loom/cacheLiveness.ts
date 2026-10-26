@@ -12,7 +12,7 @@ import {
 
 const MINUTE_MS = 60_000;
 
-export const CACHE_TTL_MS: Record<LoomCacheRetention, number> = {
+const CACHE_TTL_MS: Record<LoomCacheRetention, number> = {
   long: 60 * MINUTE_MS,
   short: 5 * MINUTE_MS,
 };
@@ -28,7 +28,7 @@ const pingGraceMs = (retention: LoomCacheRetention) =>
   (CACHE_TTL_MS[retention] - pingDelayMs(retention)) / 2 + 30_000;
 
 /** Under this much left the cache is "expiring": the only urgent colour. */
-export const CACHE_EXPIRING_MS = 10 * MINUTE_MS;
+const CACHE_EXPIRING_MS = 10 * MINUTE_MS;
 
 export type CacheLivenessState = "warm" | "expiring" | "cold" | "unknown";
 

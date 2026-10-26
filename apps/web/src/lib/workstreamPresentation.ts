@@ -195,7 +195,7 @@ export const ATTENTION_LABELS = {
 } satisfies Record<WorkstreamAttentionReason, string>;
 
 /** The hover card's status-line form: short, so the line's figures never truncate. */
-export const ATTENTION_SHORT_LABELS = {
+const ATTENTION_SHORT_LABELS = {
   error: "stalled",
   awaiting_acceptance: "needs acceptance",
   needs_guidance: "needs guidance",
@@ -203,17 +203,8 @@ export const ATTENTION_SHORT_LABELS = {
   "brief-needed": "needs brief",
 } satisfies Record<WorkstreamAttentionReason, string>;
 
-/** Badge variant per reason (`components/ui/badge`). */
-export const ATTENTION_BADGE_VARIANTS = {
-  error: "error",
-  awaiting_acceptance: "info",
-  needs_guidance: "warning",
-  awaiting_orchestrator: "secondary",
-  "brief-needed": "outline",
-} as const satisfies Record<WorkstreamAttentionReason, string>;
-
 /** The token colour of a reason, for the graph's attention ring. */
-export const ATTENTION_COLORS = {
+const ATTENTION_COLORS = {
   error: "var(--color-error)",
   awaiting_acceptance: "var(--color-info)",
   needs_guidance: "var(--color-warning)",
@@ -278,15 +269,6 @@ export const TONE_DOT_CLASSES = {
   error: "bg-error",
 } satisfies Record<Tone, string>;
 
-/** Badge variant per tone. */
-export const TONE_BADGE_VARIANTS = {
-  neutral: "secondary",
-  info: "info",
-  success: "success",
-  warning: "warning",
-  error: "error",
-} as const satisfies Record<Tone, string>;
-
 export interface Verdict {
   readonly label: string;
   readonly tone: Tone;
@@ -312,7 +294,7 @@ export function describeOutcomeVerdict(outcome: {
   return null;
 }
 
-export const isGateSource = (node: Pick<WorkstreamNode, "routes">) =>
+const isGateSource = (node: Pick<WorkstreamNode, "routes">) =>
   node.routes.some((route) => route.kind === "loop");
 
 /** The gate source's verdict chip from its last submitted outcome. */

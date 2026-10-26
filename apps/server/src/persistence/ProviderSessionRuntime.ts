@@ -85,17 +85,6 @@ export class ProviderSessionRuntimeRepository extends Context.Service<
     readonly deleteByThreadId: (
       input: DeleteProviderSessionRuntimeInput,
     ) => Effect.Effect<void, ProviderSessionRuntimeRepositoryError>;
-
-    // loom: retention support for stopped runtime rows.
-    /**
-     * Deletes every `stopped` row whose thread is deleted, returning the pruned thread ids. Archived
-     * threads keep their resume pointer (archive is reversible). The status predicate shares the
-     * statement, so a row a concurrent start promoted back to `running` is never removed.
-     */
-    readonly deleteStoppedForDeletedThreads: () => Effect.Effect<
-      ReadonlyArray<ThreadId>,
-      ProviderSessionRuntimeRepositoryError
-    >;
   }
 >()("t3/persistence/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}
 
@@ -343,21 +332,6 @@ export const make = Effect.gen(function* () {
       `,
   });
 
-  // loom: retention — one statement per sweep (see the interface doc).
-  const deleteStoppedRuntimeForDeletedThreads = SqlSchema.findAll({
-    Request: Schema.Void,
-    Result: Schema.Struct({ threadId: ThreadId }),
-    execute: () =>
-      sql`
-        DELETE FROM provider_session_runtime
-        WHERE status = 'stopped'
-          AND thread_id IN (
-            SELECT thread_id FROM projection_threads WHERE deleted_at IS NOT NULL
-          )
-        RETURNING thread_id AS "threadId"
-      `,
-  });
-
   const upsert: ProviderSessionRuntimeRepository["Service"]["upsert"] = (runtime, options) =>
     (options?.onConflict === "ignore" ? insertRuntimeRow(runtime) : upsertRuntimeRow(runtime)).pipe(
       Effect.mapError(
@@ -456,26 +430,12 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  // loom: retention
-  const deleteStoppedForDeletedThreads: ProviderSessionRuntimeRepository["Service"]["deleteStoppedForDeletedThreads"] =
-    () =>
-      deleteStoppedRuntimeForDeletedThreads(undefined).pipe(
-        Effect.mapError(
-          toPersistenceSqlOrDecodeError(
-            "ProviderSessionRuntimeRepository.deleteStoppedForDeletedThreads:query",
-            "ProviderSessionRuntimeRepository.deleteStoppedForDeletedThreads:decodeRows",
-          ),
-        ),
-        Effect.map((rows) => rows.map((row) => row.threadId)),
-      );
-
   return {
     upsert,
     recordImportedTranscript,
     getByThreadId,
     list,
     deleteByThreadId,
-    deleteStoppedForDeletedThreads, // loom: retention
   } satisfies ProviderSessionRuntimeRepository["Service"];
 });
 

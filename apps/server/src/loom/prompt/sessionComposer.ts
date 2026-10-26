@@ -6,7 +6,6 @@
 import { type LoomOpenSessionFields, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 export const EMPTY_LOOM_OPEN_SESSION_FIELDS: LoomOpenSessionFields = {
@@ -40,6 +39,3 @@ export class LoomSessionComposer extends Context.Reference<LoomSessionComposerSh
   "loom/prompt/LoomSessionComposer",
   { defaultValue: () => emptyComposer },
 ) {}
-
-/** Every session opens with empty Loom fields. */
-export const LoomSessionComposerDefaultLive = Layer.succeed(LoomSessionComposer, emptyComposer);

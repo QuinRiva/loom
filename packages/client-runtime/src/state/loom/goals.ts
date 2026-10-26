@@ -10,7 +10,6 @@ import type {
   GoalId,
   LoomGoalShell,
   OrchestrationV2ShellSnapshot,
-  OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
@@ -18,15 +17,6 @@ const EMPTY_GOALS: ReadonlyArray<LoomGoalShell> = Object.freeze([]);
 
 export const goalById = (goals: ReadonlyArray<LoomGoalShell>, goalId: GoalId) =>
   goals.find((goal) => goal.id === goalId) ?? null;
-
-/** The Loom goal a thread works under, from its sidecar's `goalId`. */
-export const goalForThread = (
-  goals: ReadonlyArray<LoomGoalShell>,
-  thread: Pick<OrchestrationV2ThreadShell, "workstream">,
-) => {
-  const goalId = thread.workstream?.goalId ?? null;
-  return goalId === null ? null : goalById(goals, goalId);
-};
 
 export function createLoomGoalAtoms(input: {
   readonly snapshotAtom: (

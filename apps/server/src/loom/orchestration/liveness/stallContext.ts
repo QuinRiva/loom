@@ -41,7 +41,7 @@ const toolOutput = (item: OrchestrationV2TurnItem): string => {
  * silence" surfaces the error, "spoke then silence" the last words, and a stale
  * error behind later progress is not resurfaced. Null when there is neither.
  */
-export const extractStallContext = (
+const extractStallContext = (
   items: ReadonlyArray<OrchestrationV2TurnItem>,
 ): StallContext | null => {
   let best: StallContext | null = null;

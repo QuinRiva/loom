@@ -104,7 +104,8 @@ export const PLAN_BLEED_ATTR = "data-plan-bleed";
 
 /** Mark the TOP-LEVEL non-prose blocks that may bleed past the prose measure, so a
  * nested block never breaks out of its container. Exported for `lint-plan.mjs --out`,
- * whose static page must bleed the same blocks the panel does. */
+ * whose static page must bleed the same blocks the panel does.
+ * @public */
 export function stampBleedingBlocks(root: HTMLElement): void {
   for (const child of Array.from(root.children)) {
     // vocabulary v2: table — a GFM table in prose hugs like the `<Table>` block.

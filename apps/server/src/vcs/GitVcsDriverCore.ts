@@ -515,7 +515,7 @@ function classifyGitFailure(stderr: string): GitCommandFailureReason | null {
     .filter(
       (line) =>
         GIT_DIAGNOSTIC_LINE_PATTERN.test(line) ||
-        (!/^remote:/.test(line) && SSH_TRANSPORT_REFUSAL_PATTERN.test(line)),
+        (!line.startsWith("remote:") && SSH_TRANSPORT_REFUSAL_PATTERN.test(line)),
     )
     .join("\n");
   if (diagnostics.length === 0) return null;
@@ -4736,189 +4736,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       }),
     );
 
-  // Worktree isolation: `commitAll` stages and commits, or reports a clean tree.
-  // True when the worktree is mid-merge (`MERGE_HEAD` exists), e.g. a fan-in merge that conflicted
-  // and crashed before `merge --abort`.
-  const hasMergeHead = (cwd: string) =>
-    executeGit(
-      "GitVcsDriver.hasMergeHead",
-      cwd,
-      ["rev-parse", "--verify", "--quiet", "MERGE_HEAD"],
-      { allowNonZeroExit: true },
-    ).pipe(Effect.map((result) => result.exitCode === 0));
-
-  const commitAll: GitVcsDriver.GitVcsDriver["Service"]["commitAll"] = Effect.fn("commitAll")(
-    function* (cwd, subject, body) {
-      // Refuse to commit over an in-progress merge: `add -A && commit` would
-      // silently conclude a conflicted merge with conflict markers committed
-      // (review finding 3). The caller (fan-in/provisioner) must resolve first.
-      if (yield* hasMergeHead(cwd)) {
-        return yield* new GitCommandError({
-          ...gitCommandContext({ operation: "GitVcsDriver.commitAll", cwd, args: ["commit"] }),
-          detail:
-            "Refusing to commit: the worktree is mid-merge (MERGE_HEAD present). Resolve or abort the merge first.",
-        });
-      }
-      yield* runGit("GitVcsDriver.commitAll.addAll", cwd, ["add", "-A"]);
-      // `git diff --cached --quiet` exits 1 (a "failure" to git) precisely when
-      // there ARE staged changes — that is our signal, not an error.
-      const staged = yield* executeGit(
-        "GitVcsDriver.commitAll.hasStaged",
-        cwd,
-        ["diff", "--cached", "--quiet"],
-        { allowNonZeroExit: true },
-      );
-      if (staged.exitCode === 0) {
-        // Clean tree: still report HEAD (fan-in's `finalCommitSha` needs the child tip even when it
-        // committed nothing); `committed: false` is the "created a commit" signal. Unborn HEAD gives null.
-        const head = yield* executeGit(
-          "GitVcsDriver.commitAll.revParseHead",
-          cwd,
-          ["rev-parse", "HEAD"],
-          { allowNonZeroExit: true },
-        );
-        const commitSha = head.exitCode === 0 ? head.stdout.trim() || null : null;
-        return { committed: false, commitSha };
-      }
-      const { commitSha } = yield* commit(cwd, subject, body, { noVerify: true });
-      return { committed: true, commitSha };
-    },
-  );
-
-  // Worktree isolation (design §3): merge a child branch into the branch checked
-  // out in `cwd` with `--no-ff` (a merge commit per child = provenance). On
-  // conflict, collect the unmerged paths and `git merge --abort` so the parent
-  // worktree is never left mid-merge; the orchestrator resolves out of band.
-  const mergeWorktreeBranch: GitVcsDriver.GitVcsDriver["Service"]["mergeWorktreeBranch"] =
-    Effect.fn("mergeWorktreeBranch")(function* (input) {
-      // Clear a stale merge left by a prior crash before starting a fresh one,
-      // so we never build on a half-applied conflicted state (review finding 3).
-      if (yield* hasMergeHead(input.cwd)) {
-        yield* runGit(
-          "GitVcsDriver.mergeWorktreeBranch.abortStale",
-          input.cwd,
-          ["merge", "--abort"],
-          { allowNonZeroExit: true },
-        );
-      }
-      const result = yield* executeGit(
-        "GitVcsDriver.mergeWorktreeBranch",
-        input.cwd,
-        // `--no-verify` skips pre-merge-commit/commit-msg hooks: fan-in merges
-        // are machine-generated (design §3) and must not run repo hooks.
-        ["merge", "--no-verify", "--no-ff", "--no-edit", "-m", input.subject, input.branch],
-        { allowNonZeroExit: true },
-      );
-      if (result.exitCode === 0) {
-        const upToDate = /already up[ -]to[ -]date/i.test(result.stdout);
-        return { status: upToDate ? "up-to-date" : "merged", conflictPaths: [] } as const;
-      }
-      const conflicts = yield* runGitStdout(
-        "GitVcsDriver.mergeWorktreeBranch.conflicts",
-        input.cwd,
-        ["diff", "--name-only", "--diff-filter=U"],
-        true,
-      ).pipe(
-        Effect.map((stdout) =>
-          stdout
-            .split("\n")
-            .map((line) => line.trim())
-            .filter((line) => line.length > 0),
-        ),
-      );
-      yield* runGit("GitVcsDriver.mergeWorktreeBranch.abort", input.cwd, ["merge", "--abort"], {
-        allowNonZeroExit: true,
-      });
-      return { status: "conflict", conflictPaths: conflicts } as const;
-    });
-
-  // loom: branch deletion has no worktree path to contain, so provenance is the
-  // only rule available here — and it is the one that matters: the observed
-  // incident was a copied database asking for `branch -d` on a live sibling's
-  // branch, which survived only because git refuses a checked-out branch.
-  const deleteBranch: GitVcsDriver.GitVcsDriver["Service"]["deleteBranch"] = Effect.fn(
-    "deleteBranch",
-  )(function* (input) {
-    if (yield* refuseForeignHomeSideEffect("GitVcsDriver.deleteBranch", input.branch)) return;
-    yield* runGit("GitVcsDriver.deleteBranch", input.cwd, [
-      "branch",
-      input.force === false ? "-d" : "-D",
-      input.branch,
-    ]);
-  });
-
-  // Worktree reaper (phase 3): parse `git worktree list --porcelain`. Git
-  // always lists the main worktree first; blank lines separate entries.
-  const listWorktrees: GitVcsDriver.GitVcsDriver["Service"]["listWorktrees"] = (cwd) =>
-    runGitStdout("GitVcsDriver.listWorktrees", cwd, ["worktree", "list", "--porcelain"]).pipe(
-      Effect.map((stdout) => {
-        const entries: GitVcsDriver.GitWorktreeListEntry[] = [];
-        let current: { path: string; branch: string | null; head: string | null } | null = null;
-        let locked = false;
-        let prunable = false;
-        const flush = () => {
-          if (current !== null) {
-            entries.push({ ...current, isMain: entries.length === 0, locked, prunable });
-          }
-          current = null;
-          locked = false;
-          prunable = false;
-        };
-        for (const line of stdout.split("\n")) {
-          if (line.startsWith("worktree ")) {
-            flush();
-            current = { path: line.slice("worktree ".length), branch: null, head: null };
-          } else if (line.startsWith("HEAD ") && current) {
-            current.head = line.slice("HEAD ".length);
-          } else if (line.startsWith("branch refs/heads/") && current) {
-            current.branch = line.slice("branch refs/heads/".length);
-          } else if ((line === "locked" || line.startsWith("locked ")) && current) {
-            locked = true;
-          } else if ((line === "prunable" || line.startsWith("prunable ")) && current) {
-            prunable = true;
-          }
-        }
-        flush();
-        return entries;
-      }),
-    );
-
-  // Worktree reaper (phase 3): `merge-base --is-ancestor` — exit 0 means
-  // `ancestor` is fully contained in `descendant`, exit 1 means it is not;
-  // anything else (unknown ref, corrupt repo) is a real error.
-  const isAncestor: GitVcsDriver.GitVcsDriver["Service"]["isAncestor"] = (input) =>
-    executeGit(
-      "GitVcsDriver.isAncestor",
-      input.cwd,
-      ["merge-base", "--is-ancestor", input.ancestor, input.descendant],
-      { allowNonZeroExit: true, timeoutMs: 10_000 },
-    ).pipe(
-      Effect.flatMap((result) =>
-        result.exitCode === 0 || result.exitCode === 1
-          ? Effect.succeed(result.exitCode === 0)
-          : Effect.fail(
-              new GitCommandError({
-                ...gitCommandContext({
-                  operation: "GitVcsDriver.isAncestor",
-                  cwd: input.cwd,
-                  args: ["merge-base", "--is-ancestor", input.ancestor, input.descendant],
-                }),
-                detail: `git merge-base --is-ancestor failed: ${result.stderr.trim()}`,
-                ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
-              }),
-            ),
-      ),
-    );
-
-  // Worktree reaper (phase 3): lightweight dirty check — any tracked change or
-  // untracked file makes the tree dirty (much cheaper than statusDetailsLocal).
-  const hasWorkingTreeChanges: GitVcsDriver.GitVcsDriver["Service"]["hasWorkingTreeChanges"] = (
-    cwd,
-  ) =>
-    runGitStdout("GitVcsDriver.hasWorkingTreeChanges", cwd, ["status", "--porcelain"]).pipe(
-      Effect.map((stdout) => stdout.trim().length > 0),
-    );
-
   const listWorktreePaths: GitVcsDriver.GitVcsDriver["Service"]["listWorktreePaths"] = (cwd) =>
     executeWorktreeList("GitVcsDriver.listWorktreePaths", cwd, []).pipe(
       // A `prunable` record's directory is gone; another checkout may now sit there.
@@ -4969,12 +4786,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     prepareCommitContext,
     commit: (cwd, subject, body, options) =>
       withListRefsInvalidation(cwd, commit(cwd, subject, body, options)),
-    commitAll,
-    mergeWorktreeBranch,
-    deleteBranch,
-    listWorktrees,
-    isAncestor,
-    hasWorkingTreeChanges,
     pushCurrentBranch: (cwd, fallbackBranch, options) =>
       withListRefsInvalidation(cwd, pushCurrentBranch(cwd, fallbackBranch, options)),
     pullCurrentBranch: (cwd) => withListRefsInvalidation(cwd, pullCurrentBranch(cwd)),
