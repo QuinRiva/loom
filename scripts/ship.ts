@@ -248,19 +248,6 @@ export function assertShippableBranch(
     : Effect.succeed(branch);
 }
 
-/**
- * Refuse when the commit step's `git add -A` would sweep in untracked files the
- * shipper did not opt into. Pure so the guard is unit-testable.
- */
-export function assertNoUntrackedFiles(
-  paths: ReadonlyArray<string>,
-  includeUntracked: boolean,
-): Effect.Effect<void, ShipUntrackedFilesError> {
-  return paths.length > 0 && !includeUntracked
-    ? Effect.fail(new ShipUntrackedFilesError({ paths }))
-    : Effect.void;
-}
-
 const collectStream = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
   stream.pipe(
     Stream.decodeText(),
@@ -445,10 +432,10 @@ export const runShip = Effect.fn("runShip")(function* (options: {
 }) {
   const branch = yield* assertShippableBranch(yield* getCurrentBranch());
   const untracked = yield* captureGit(["ls-files", "-z", "--others", "--exclude-standard"]);
-  yield* assertNoUntrackedFiles(
-    untracked.stdout.split("\0").filter((path) => path.length > 0),
-    options.includeUntracked,
-  );
+  const paths = untracked.stdout.split("\0").filter((path) => path.length > 0);
+  if (paths.length > 0 && !options.includeUntracked) {
+    return yield* new ShipUntrackedFilesError({ paths });
+  }
   const steps = planShipSteps({
     branch,
     message: options.message,
