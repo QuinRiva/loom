@@ -123,10 +123,17 @@ const BOUNDARY_SEP = "\n";
 
 /** Flatten a subtree's text into one string + a prefix-offset index over its
  * text nodes, with a newline at every block boundary (see {@link BOUNDARY_TAGS}). */
+const NON_CONTENT_TAGS = new Set(["style", "script"]);
+
 export function flattenDocument(root: Node): FlattenedDocument {
+  // A rendered diagram's SVG carries a <style> sheet; its text is not content.
   const walker = root.ownerDocument!.createTreeWalker(
     root,
     NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+    (node) =>
+      node.nodeType === Node.ELEMENT_NODE && NON_CONTENT_TAGS.has((node as Element).localName)
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT,
   );
   let text = "";
   const spans: TextSpan[] = [];

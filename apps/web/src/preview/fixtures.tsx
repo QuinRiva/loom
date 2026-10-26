@@ -990,6 +990,30 @@ const mdxAnnotationFixture: PreviewFixture = {
   ),
 };
 
+const MDX_MERMAID_FIXTURE_SOURCE = [
+  "# Mermaid block",
+  "",
+  "A lazily loaded Mermaid diagram with tone classes and a legend. Hover it and use 'Comment on this block' to annotate it.",
+  "",
+  `<Mermaid source={${JSON.stringify(
+    [
+      "flowchart LR",
+      "  merge[S1 merge]:::tone-neutral --> gate[Gate 1]:::tone-info",
+      "  gate --> server[S2a server]:::tone-success",
+      "  gate --> web[S2b web]:::tone-success",
+      "  gate --> search[S2c search]:::tone-warning",
+      "  server & web & search --> integrate[S3 integrate]:::tone-accent",
+    ].join("\n"),
+  )}} caption="Pull 13 tracks" legend={[{ tone: "success", label: "green" }, { tone: "warning", label: "in flight" }]} />`,
+].join("\n");
+
+const mdxMermaidFixture: PreviewFixture = {
+  id: "mdx-mermaid",
+  title: "Mermaid block",
+  description: "The MDX plan Mermaid block renders through the lazily imported `mermaid` runtime.",
+  render: () => <PlanPanelPreview key="mdx-mermaid" source={MDX_MERMAID_FIXTURE_SOURCE} />,
+};
+
 const mdxWideBlockFixture: PreviewFixture = {
   id: "mdx-wide-blocks",
   title: "Wide blocks (bleed)",
@@ -1224,6 +1248,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       mdxAnnotationFixture,
       mdxScrollingTableFixture,
       mdxHtmlBlockCardsFixture,
+      mdxMermaidFixture,
     ],
   },
   {
