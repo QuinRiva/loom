@@ -19,7 +19,7 @@ import {
 } from "@t3tools/contracts";
 import { deadlockedNodes } from "@t3tools/shared/workstreamDependencies";
 import { isMemberOfUnresolvedGate, unresolvedGateSourcesOf } from "@t3tools/shared/workstreamGraph";
-import { isBriefNeeded } from "@t3tools/shared/workstreamStart.loom";
+import { isBriefNeeded, isEligibleToStart } from "@t3tools/shared/workstreamStart.loom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -494,7 +494,12 @@ export const briefNeededRail: PassStep = {
           // parent has heard how each one ended, earlier or piggybacked on this notice (a resolved
           // gate reports as one pair only once both parties are stamped, a pass after the
           // reviewer). A dependency terminalDeltas never reports (archived, an imported row with
-          // no submit) has no news to wait for.
+          // no submit) has no news to wait for, nor does one whose news an unresolved gate holds
+          // back while a reviewer of that gate has not started and is not starting this pass
+          // (promotion kicks off a briefed one, but this rail reads the pass-start snapshot):
+          // that reviewer is usually this very node, so waiting would be circular, and
+          // otherwise the wait has no bound.
+          const siblings = siblingNodes(ctx, parentId);
           const awaitingNews = node.blockedBy.some((depId) => {
             const dep = ctx.nodesById.get(depId);
             return (
@@ -502,6 +507,9 @@ export const briefNeededRail: PassStep = {
               dep?.parentThreadId === parentId &&
               dep.archivedAt === null &&
               dep.lastOutcome?.eventId != null &&
+              unresolvedGateSourcesOf(depId, siblings).every(
+                (source) => source.kickoffAt !== null || isEligibleToStart(source, ctx.nodesById),
+              ) &&
               !toldAbout(delivered, depId, Date.parse(dep.lastOutcome.at)) &&
               !pending.some(
                 ({ member, extra }) =>

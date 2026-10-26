@@ -423,6 +423,93 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
     }),
   );
 
+  it.effect("a reviewer kicked off this pass still holds a coder dependent's notice", () =>
+    Effect.gen(function* () {
+      const [parent, coder, reviewer, dependent] = [
+        "kick-parent",
+        "kick-coder",
+        "kick-reviewer",
+        "kick-dependent",
+      ].map((id) => ThreadId.make(id));
+      yield* seedThread({ threadId: parent! });
+      yield* spawnChild({ parentThreadId: parent!, threadId: coder!, graphKey: "coder" });
+      yield* spawnChild({
+        parentThreadId: parent!,
+        threadId: reviewer!,
+        graphKey: "reviewer",
+        role: "reviewer",
+        blockedBy: [coder!],
+        routes: [
+          { on: ["needs_rework"], kind: "loop", to: coder! },
+          { on: ["clean"], kind: "resolve" },
+        ],
+      });
+      yield* spawnChild({
+        parentThreadId: parent!,
+        threadId: dependent!,
+        graphKey: "dependent",
+        blockedBy: [coder!],
+      });
+      yield* setBrief(coder!, writeFile("kick-coder.md", "Build it."));
+      yield* setBrief(reviewer!, writeFile("kick-reviewer.md", "Review it."));
+      yield* runPass;
+      yield* submit(coder!);
+      const briefNeeded = withPayload(parent!, "notice", "brief-needed");
+
+      // This pass kicks the reviewer off, but the rails read the pass-start snapshot, where it
+      // has not started: the coder's round-0 done is still under review, so no notice yet.
+      yield* runPass;
+      assert.isNotNull((yield* row(reviewer!)).kickoffAt);
+      assert.isEmpty(yield* briefNeeded);
+
+      yield* submit(reviewer!, "clean");
+      yield* runPass;
+      yield* runPass;
+      const notices = yield* briefNeeded;
+      assert.lengthOf(notices, 1);
+      assert.deepEqual(
+        notices[0]!.loom!.controlPayload!.items.map((item) => [item.threadId, item.kind]),
+        [
+          [dependent!, undefined],
+          [reviewer!, "gate-resolved"],
+          [coder!, "terminal"],
+        ],
+      );
+    }),
+  );
+
+  it.effect("an unbriefed gate reviewer's brief-needed does not wait on its own gate", () =>
+    Effect.gen(function* () {
+      const [parent, coder, reviewer] = ["self-parent", "self-coder", "self-reviewer"].map((id) =>
+        ThreadId.make(id),
+      );
+      yield* seedThread({ threadId: parent! });
+      yield* spawnChild({ parentThreadId: parent!, threadId: coder!, graphKey: "coder" });
+      yield* spawnChild({
+        parentThreadId: parent!,
+        threadId: reviewer!,
+        graphKey: "reviewer",
+        role: "reviewer",
+        blockedBy: [coder!],
+        routes: [
+          { on: ["needs_rework"], kind: "loop", to: coder! },
+          { on: ["clean"], kind: "resolve" },
+        ],
+      });
+      yield* setBrief(coder!, writeFile("self-coder.md", "Build it."));
+      yield* runPass;
+      yield* submit(coder!);
+      // The coder's done is withheld until the gate resolves, which needs the reviewer briefed.
+      yield* runPass;
+      const notices = yield* withPayload(parent!, "notice", "brief-needed");
+      assert.lengthOf(notices, 1);
+      assert.deepEqual(
+        notices[0]!.loom!.controlPayload!.items.map((item) => [item.threadId, item.kind]),
+        [[reviewer!, undefined]],
+      );
+    }),
+  );
+
   it.effect("the cancel cascade runs in the pass and is not re-sent", () =>
     Effect.gen(function* () {
       const [a, b, c] = ["cascade-a", "cascade-b", "cascade-c"].map((id) => ThreadId.make(id));
