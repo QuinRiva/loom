@@ -671,36 +671,29 @@ interface ResolveRequestedPortInput<R = NetService.NetService> {
   readonly checkPortAvailability?: PortAvailabilityCheck<R>;
 }
 
-/**
- * loom: discard a busy `--port`/ambient `T3CODE_PORT` instead of binding it.
- *
- * Decide whether a requested server port should be honoured. `--port` falls
- * back to the ambient `T3CODE_PORT`, so the value may be a genuine CLI request
- * OR the live cockpit's own port leaking into an agent shell. Honour it only
- * when it is actually free; otherwise discard it (`effectivePort: undefined`)
- * so the caller falls back to offset scanning and never knowingly binds a busy
- * port. An explicitly free port is returned unchanged.
- */
-export function resolveRequestedPort<R = NetService.NetService>({
+// loom: discard a busy `--port`/ambient `T3CODE_PORT` instead of binding it. The value may be
+// the live cockpit's own port leaking into an agent shell, so honour it only when it is free;
+// otherwise the caller falls back to offset scanning.
+export const resolveRequestedPort = Effect.fn("dev-runner.resolveRequestedPort")(function* <
+  R = NetService.NetService,
+>({
   port,
   checkPortAvailability,
-}: ResolveRequestedPortInput<R>): Effect.Effect<
+}: ResolveRequestedPortInput<R>): Effect.fn.Return<
   { readonly effectivePort: number | undefined; readonly requestedPortBusy: boolean },
   never,
   R
 > {
-  return Effect.gen(function* () {
-    if (port === undefined) {
-      return { effectivePort: undefined, requestedPortBusy: false };
-    }
-    const checkPort = (checkPortAvailability ??
-      defaultCheckPortAvailability) as PortAvailabilityCheck<R>;
-    const available = yield* checkPort(port);
-    return available
-      ? { effectivePort: port, requestedPortBusy: false }
-      : { effectivePort: undefined, requestedPortBusy: true };
-  });
-}
+  if (port === undefined) {
+    return { effectivePort: undefined, requestedPortBusy: false };
+  }
+  const checkPort = (checkPortAvailability ??
+    defaultCheckPortAvailability) as PortAvailabilityCheck<R>;
+  const available = yield* checkPort(port);
+  return available
+    ? { effectivePort: port, requestedPortBusy: false }
+    : { effectivePort: undefined, requestedPortBusy: true };
+});
 
 interface DevRunnerCliInput {
   readonly mode: DevMode;
@@ -904,7 +897,11 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   yield* prepareFirstStart({
     mode: input.mode,
     seed: input.seed !== false,
-    worktreeHome: baseDir === worktreeHome ? worktreeHome : undefined,
+    // loom: seed the port-scoped home (`<worktree>/.t3/dev-instances/<port>`) the server reads.
+    worktreeHome:
+      worktreeHome !== undefined && `${baseDir}/`.startsWith(`${worktreeHome}/`)
+        ? baseDir
+        : undefined,
     env,
   });
 
