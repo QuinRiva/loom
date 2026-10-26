@@ -17,8 +17,6 @@ tools:
     web_search,
     fetch_content,
     get_search_content,
-    knowledge_search,
-    kb_read,
     capture_lesson,
   ]
 toolsets: [history]
