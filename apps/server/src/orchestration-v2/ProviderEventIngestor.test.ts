@@ -46,7 +46,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
-import * as ToolOutputImageStore from "./ToolOutputImageStore.loom.ts";
+import * as ToolOutputImageStore from "./ToolOutputImageStore.loom.ts"; // loom: tool images as attachment files
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import {
   makeProviderEventRoutingState,
@@ -1451,6 +1451,7 @@ layer("ProviderEventIngestorV2", (it) => {
     }),
   );
 
+  // loom: tool images move to attachment files at ingest
   it.effect("stores served tool image bytes as attachment files, not in the log", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
