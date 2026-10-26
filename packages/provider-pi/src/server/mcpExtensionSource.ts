@@ -382,7 +382,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   const supportsExposure = "registerMcpServer" in pi && typeof pi.registerMcpServer === "function";
   const directTools = new Set(["orchestrator_capabilities", "delegate_task", "task_status"]);
   let deferOptionalTools = supportsExposure;
-  // loom: the tools a Loom credential is denied (UPSTREAM_WITHHELD_TOOLS), from the session composer.
+  // loom: the upstream tools this thread's role withholds (withheldFrom), from the session composer.
   const loomHiddenTools = new Set<string>(JSON.parse(env(LOOM_HIDDEN_TOOLS_ENV) ?? "[]")); // loom:
   let catalog: ReadonlyArray<McpTool> = [];
 
