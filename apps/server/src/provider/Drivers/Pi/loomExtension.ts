@@ -18,6 +18,7 @@ import { backgroundJobsPart } from "./loomExtensionParts/backgroundJobs.ts";
 import { cacheWarmingGatePart } from "./loomExtensionParts/cacheWarmingGate.ts";
 import { commandGuardsPart } from "./loomExtensionParts/commandGuards.ts";
 import { consultGuardPart } from "./loomExtensionParts/consultGuard.ts";
+import { instructionGuardPart } from "./loomExtensionParts/instructionGuard.ts";
 import { pgrepSelfMatchPart } from "./loomExtensionParts/pgrepSelfMatch.ts";
 import { promptDebugPart } from "./loomExtensionParts/promptDebug.ts";
 import { queryGuardPart } from "./loomExtensionParts/queryGuard.ts";
@@ -192,6 +193,7 @@ export const LOOM_EXTENSION_PARTS: ReadonlyArray<LoomExtensionPart> = [
   askUserQuestionPart,
   searchGuardPart,
   commandGuardsPart,
+  instructionGuardPart,
   pgrepSelfMatchPart,
   promptDebugPart,
   cacheWarmingGatePart,
