@@ -11,6 +11,7 @@ import {
   HUMAN_INPUT as HUMAN_INPUT_PROVIDER_TOOLS,
   LEAF_CORE,
   PULL_REQUESTS,
+  SCHEDULING,
 } from "../../mcp/toolkits/workstream/families.ts";
 import { LOOM_TOOL_DEFS } from "../../mcp/toolkits/workstream/defs.ts";
 import { listRoleOverlays, loadRoleOverlay } from "./roleOverlay.ts";
@@ -145,6 +146,15 @@ describe("loadRoleOverlay", () => {
       for (const tool of HISTORY) expect(overlay?.tools).toContain(tool);
       for (const tool of ["session_search", "session_list", "session_read"])
         expect(overlay?.tools).not.toContain(tool);
+    },
+  );
+
+  it.each(["orchestrator", "assessor", "coder", "planner", "researcher", "reviewer", "shipper"])(
+    "only the built-in orchestrator keeps the scheduled-task tools (%s)",
+    (role) => {
+      const tools = loadRoleOverlay({ role, projectRoot: fixture().lookup.projectRoot })?.tools;
+      for (const tool of SCHEDULING)
+        expect(tools?.includes(tool), `${role} ${tool}`).toBe(role === "orchestrator");
     },
   );
 

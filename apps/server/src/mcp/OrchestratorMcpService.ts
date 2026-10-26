@@ -107,12 +107,17 @@ import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts
 import * as ServerSettings from "../serverSettings.ts";
 import {
   clientRuntimeModeCeiling,
+  type McpCapability, // loom:
   type McpInvocationScope,
   type McpThreadInvocationScope,
   requireThreadScope,
 } from "./McpInvocationContext.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+
+// loom: a Loom thread's credential carries `workstream` in place of `orchestration` (pull 9
+// P3-6); its role profile (`toolsets: [scheduling]`) decides which Loom threads see these tools.
+const SCHEDULING_CAPABILITIES: ReadonlyArray<McpCapability> = ["orchestration", "workstream"];
 
 const DEFAULT_WAIT_TIMEOUT_MS = 10 * 60 * 1_000;
 const MAX_WAIT_TIMEOUT_MS = 60 * 60 * 1_000;
@@ -1090,8 +1095,11 @@ const make = Effect.gen(function* () {
       : Effect.succeed(project.defaultModelSelection);
   const secretRequests = yield* SecretRequests.SecretRequests;
 
-  const requireCapability = (scope: McpInvocationScope) =>
-    scope.capabilities.has("orchestration")
+  const requireCapability = (
+    scope: McpInvocationScope,
+    accepted: ReadonlyArray<McpCapability> = ["orchestration"], // loom: SCHEDULING_CAPABILITIES widen it
+  ) =>
+    accepted.some((capability) => scope.capabilities.has(capability)) // loom:
       ? Effect.void
       : Effect.fail(
           failure(
@@ -1148,8 +1156,9 @@ const make = Effect.gen(function* () {
 
   const loadCaller = Effect.fn("OrchestratorMcpService.loadCaller")(function* (
     scope: McpInvocationScope,
+    accepted?: ReadonlyArray<McpCapability>, // loom: for SCHEDULING_CAPABILITIES
   ) {
-    yield* requireCapability(scope);
+    yield* requireCapability(scope, accepted); // loom:
     if (scope.thread === undefined) {
       return {
         parent: undefined,
@@ -1793,7 +1802,7 @@ const make = Effect.gen(function* () {
 
   return OrchestratorMcpService.of({
     scheduleTask: Effect.fn("OrchestratorMcpService.scheduleTask")(function* (scope, input) {
-      const { parent, limits } = yield* loadCaller(scope);
+      const { parent, limits } = yield* loadCaller(scope, SCHEDULING_CAPABILITIES); // loom:
       const projectId = yield* resolveProjectTarget(parent, input.projectId);
       yield* assertLiveCallerForOtherProject(scope, parent, projectId);
       const project = yield* requireProject(projectId);
@@ -1849,7 +1858,7 @@ const make = Effect.gen(function* () {
     }),
     listScheduledTasks: Effect.fn("OrchestratorMcpService.listScheduledTasks")(
       function* (scope, input) {
-        const { parent, limits } = yield* loadCaller(scope);
+        const { parent, limits } = yield* loadCaller(scope, SCHEDULING_CAPABILITIES); // loom:
         const projectId = input.projectId ?? parent?.thread.projectId;
         const { tasks } = yield* scheduledTasks
           .list()
@@ -1868,7 +1877,7 @@ const make = Effect.gen(function* () {
     ),
     updateScheduledTask: Effect.fn("OrchestratorMcpService.updateScheduledTask")(
       function* (scope, input) {
-        const { parent, limits } = yield* loadCaller(scope);
+        const { parent, limits } = yield* loadCaller(scope, SCHEDULING_CAPABILITIES); // loom:
         const existing = yield* loadScheduledTask(input.scheduledTaskId, limits);
         yield* assertLiveCallerForOtherProject(scope, parent, existing.projectId);
         if (
@@ -1920,7 +1929,7 @@ const make = Effect.gen(function* () {
     ),
     deleteScheduledTask: Effect.fn("OrchestratorMcpService.deleteScheduledTask")(
       function* (scope, input) {
-        const { parent, limits } = yield* loadCaller(scope);
+        const { parent, limits } = yield* loadCaller(scope, SCHEDULING_CAPABILITIES); // loom:
         const existing = yield* loadScheduledTask(input.scheduledTaskId, limits);
         yield* assertLiveCallerForOtherProject(scope, parent, existing.projectId);
         yield* scheduledTasks

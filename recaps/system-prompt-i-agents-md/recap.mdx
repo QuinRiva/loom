@@ -1,0 +1,181 @@
+---
+kicker: "Audit item I · loom's AGENTS.md · what changes and the one policy decision it needs · 22 Oct 2026"
+reader:
+  who: Carl, deciding whether loom's AGENTS.md becomes a loom-owned file (so upstream's contributor prose and overridden rules can go) and, if so, which sections change
+  knows: the audit's verdict on I (rewrite; the largest block in the prompt); that AGENTS.md is read by every loom thread in every role; has not seen the upstream-sync constraint that makes this a policy call rather than an edit
+  after_first_screen: that the saving is about 1,000 words a turn but only if AGENTS.md stops being kept byte-compatible with upstream; what that costs at each upstream pull; and the recommendation
+---
+
+# Loom's AGENTS.md is upstream's file with loom sections appended, and the upstream-sync policy is why it reads as it does
+
+**3,974 words; about 1,000 of them are written for a human contributor to upstream T3 Code or state a rule that loom's own section then overrides.** Every loom thread of every role reads them every turn, at about 1.4K tokens. The audit proposed deleting them. What the audit did not know: each upstream pull's overlap review checks that "both supersede notes still name text that exists", because the file is deliberately kept as upstream's text plus loom's additions so the pull merges cleanly (`docs/upstream-sync/35-clean-overlap-review.md` row 1, `37-clean-overlap-review.md` row 24). The stated-then-overridden pairs are not an accident; they are the sync policy applied to a file that models read.
+
+**The decision is therefore a policy one:** make AGENTS.md loom-owned (upstream's wording is no longer preserved; each pull's overlap review ports upstream's rule changes by hand, as it already does for roles and skills), or keep it byte-compatible and accept the 1,000 words. **I recommend loom-owned.** Upstream has changed this file in four of the last pulls, each time by a bullet or two, and the overlap review already reads the diff; porting a bullet costs less than every thread paying for the Theo note.
+
+If loom-owned: five sections change (about 1,000 words out, 150 in), the rest stay as they are. The one factual assumption I could not settle is whether loom builds the mobile app; it decides one row of "Hit every surface".
+
+**Protocol:** an item left undecided takes its recommendation. Section I0 is the policy decision; I1 to I5 assume it.
+
+## 1. All sections
+
+<Table
+  density="compact"
+  columns={["Section", "Words", "Verdict", "Change"]}
+  rows={[
+    ["I0 · ownership of the file", "", { badge: { label: "decide", tone: "accent" }, md: "" }, "loom-owned, or byte-compatible with upstream"],
+    ["I1 · intro, What makes T3 Code special (4), A note from Theo, glossary", "741", { badge: { label: "replace", tone: "warning" }, md: "" }, "one orientation paragraph plus the five domain terms, ~130 words"],
+    ["I2 · the three stated-then-overridden pairs", "~130", { badge: { label: "delete upstream half", tone: "warning" }, md: "" }, "the loom rule stands alone; the supersede paragraphs go"],
+    ["I3 · Hit every surface", "238", { badge: { label: "rewrite", tone: "warning" }, md: "" }, "loom's surfaces: pi only, web and desktop, mobile if built"],
+    ["I4 · Verifying and Pull requests", "387", { badge: { label: "trim", tone: "info" }, md: "" }, "upstream-only process lines go; the event-sourcing test rule stays"],
+    ["I5 · HTML artefacts", "167", { badge: { label: "trim", tone: "info" }, md: "" }, "the visual_explainer counter-instruction shrinks to a clause"],
+    ["Task completion, Shipping, Migrations, UI state, Live verification, Fork notes, Three ways, Dev servers, Test data, Documentation, Plans, How it works, Where code lives, Taste, tips", "~2,300", { badge: { label: "keep", tone: "success" }, md: "" }, "traps, environment facts, and doctrine; nothing to cut"],
+  ]}
+/>
+
+## 2. The decision and the changes
+
+<Card id="i0" eyebrow="I0 · ownership" heading="Should loom's AGENTS.md stop being upstream's text plus appendices?" tone="accent" badge="recommend: loom-owned">
+
+**Yes.** The file is read by models every turn; upstream's is written for human contributors and a six-provider, three-client product loom is not. The sync policy that keeps it byte-compatible buys a clean merge of a file upstream edits by a bullet or two per pull.
+
+<Table
+  density="compact"
+  columns={["Fact", "Value", "Source"]}
+  rows={[
+    ["Loom's delta against upstream today", "+108 / −4 lines: additions only, upstream text intact", "`git diff` against the upstream merge base"],
+    ["Upstream edits per pull", "pull 9: users count, a surface bullet, two Taste bullets; pull 10: users count, one Taste bullet; pull 12: one comment rule", "the clean-overlap reviews, docs 27, 35, 37"],
+    ["What the overlap review already does", "reads the AGENTS.md diff each pull and records a row", "same"],
+    ["Cost of loom-owned per pull", "port those bullets by hand into loom's wording; the review row says what was ported or ignored", "my estimate"],
+    ["Cost of byte-compatible per turn", "~1,000 words (~1.4K tokens) × every thread × every turn", "this document"],
+  ]}
+/>
+
+If nothing is decided: the file stays as it is and I1 to I5 do not apply.
+
+<ReviewChoice itemId="i0" label="I0" placeholder="Loom-owned, or keep byte-compatible?" />
+</Card>
+
+<Card id="i1" eyebrow="I1 · 741 → ~130" heading="Replace the contributor preamble, the four 'special' points, the Theo note and the glossary with one orientation paragraph" tone="warning" badge="replace">
+
+What a model needs from 741 words: what the product is, the three constraints that bind code changes (performance, remote, more than one client), and the five domain terms it will meet in the code. Dropped: "500,000 users who love T3 Code", "I like ambitious ideas", "**you** means the agent reading this file", "**we** … mean Theo, Julius" (false in loom; the maintainer is Carl).
+
+<Columns>
+  <Column label="Now (741 words, abridged)">
+    T3 Code is a minimal GUI for coding agents … We have over 500,000 users who love T3 Code … 1. Open at the core … 2. Performance without compromise … 3. Remote ready … 4. Multi-surface … A note from Theo: I like ambitious ideas, simple systems, and software that feels obvious … A small glossary: **you** means the agent reading this file … **we, us, and maintainers** mean Theo, Julius and the people building T3 Code … (eleven terms)
+  </Column>
+  <Column label="Proposed">
+    Loom is a fork of T3 Code, a GUI for coding agents: a Node WebSocket server wraps provider CLIs (pi is the default and the only provider loom maintains) and serves web, desktop and mobile clients, locally or over a tailnet or tunnel. The maintainer is Carl. Three constraints bind every change: performance (too much data over the socket, repainting animations and heavy lists are the usual regressions), remote use (a feature must work over the relay and tunnel, not only on localhost), and more than one client (web, the Electron desktop shell that wraps it, and the React Native mobile app). Terms: an *environment* is one running server with its machine, files and state; a *project* is a workspace record rooted at a directory; a *thread* is a project's durable conversation and work history; a *turn* is one user-to-agent cycle including its checkpoint; *T3 home* is the base data directory, with runtime state under `userdata/`.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="i1" label="I1" placeholder="Words to keep or change…" />
+</Card>
+
+<Card id="i2" eyebrow="I2 · ~130 words" heading="Delete the upstream half of each stated-then-overridden pair" tone="warning" badge="delete upstream half">
+
+Each pair costs twice and makes the reader resolve a negation; on a bad turn an agent follows the upstream half. With the file loom-owned, the loom rule stands alone and the "This supersedes upstream's …" paragraphs go too.
+
+<Table
+  density="compact"
+  columns={["Upstream line (goes)", "Loom rule (stays, supersede paragraph removed)"]}
+  rows={[
+    ["\"**Do not run repo-wide checks.** No `vp check`, no `vp run -r test`, no `vp run -r typecheck` unless I ask. CI owns the full suite.\"", "\"`vp check` and `vp run typecheck` must pass before considering tasks completed\" (Task Completion Requirements); its 40-word \"This supersedes upstream's …\" note goes"],
+    ["\"Never make a PR unless the developer explicitly asks you to do so.\"", "\"Do not ship until the user has approved shipping the change\" (Shipping); its 60-word \"This supersedes upstream's … only in the sense that …\" paragraph goes"],
+    ["\"**Providers.** Codex, Claude, Cursor, Grok, OpenCode, and Antigravity each have an adapter …\" (Hit every surface)", "Revised after Carl's note (\"not strictly pi only, I'm just not investing effort in supporting other providers\"): the row is rewritten, not deleted, as \"Loom runs pi; the other adapters stay as upstream ships them and are not maintained or verified here. A provider-shaped feature is built for pi and left working, or explicitly unsupported, for the rest.\" The fork note's \"deliberately ships pi only\" becomes \"pi is the default and the only provider loom maintains; the other adapters remain as upstream ships them\"."],
+  ]}
+/>
+
+<ReviewChoice itemId="i2" label="I2" placeholder="Words to keep or change…" />
+</Card>
+
+<Card id="i3" eyebrow="I3 · 238 → ~160" heading="Hit every surface: list loom's surfaces, not upstream's" tone="warning" badge="rewrite · one assumption">
+
+The checklist's purpose (a change that works on the path you tested and is missing everywhere else) is right and stays. Its rows named six providers; the Providers row is rewritten per I2. **Mobile stays** (Carl: "my intention is to start using it in the very near future"), so the Clients row is upstream's as written and the mobile native-client paragraph in Verifying stays.
+
+<Columns>
+  <Column label="Now (rows)">
+    Entry points · Clients: web, desktop, and mobile (React Native, separate navigation) · Providers: Codex, Claude, Cursor, Grok, OpenCode, and Antigravity each have an adapter; provider-shaped features need a decision per adapter · Agents · Contracts: change the schema and the server, web, mobile, and desktop all follow · Reverse states · Connection modes · Docs
+  </Column>
+  <Column label="Proposed (rows)">
+    The most common defect in this repo is a change that works on the path you tested and is missing everywhere else. Before calling frontend work done, walk this list and say which entries applied:
+
+    - **Entry points.** A behaviour reachable from the chat view is usually also reachable from Settings, the command palette, and a keybinding. Fixing one is not fixing the feature.
+    - **Clients.** Web, desktop (wraps web, adds Electron shell/IPC), and mobile (React Native, separate navigation). Shared logic lives in `packages/client-runtime`.
+    - **Providers.** Loom runs pi; the other adapters stay as upstream ships them and are not maintained or verified here. A provider-shaped feature is built for pi and left working, or explicitly unsupported, for the rest.
+    - **Agents.** A capability a user can trigger is usually one an agent should reach through MCP tools, and scheduled tasks run the same paths. That only works when it is a service method, not handler code.
+    - **Contracts.** Anything crossing the wire is typed in `packages/contracts`. Change the schema and the server, web, mobile, and desktop all follow.
+    - **Reverse states.** If you added a way in, add the way out and the way to see it. Snooze needs unsnooze. Close needs reopen. A one-way door is a bug.
+    - **Connection modes.** Local, remote/relay, and tunnel behave differently. Multi-device and multi-environment cases are real.
+    - **Docs.** Check whether the change makes existing guidance inaccurate. Apply the documentation rules before adding anything.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="i3" label="I3" placeholder="Does loom build mobile? Words to change…" />
+</Card>
+
+<Card id="i4" eyebrow="I4 · 387 → ~250" heading="Verifying and Pull requests: drop the upstream process lines, keep the rules that bind here" tone="info" badge="trim">
+
+Goes from **Verifying**: the repo-wide-checks line (I2) and "`test-t3-app` for web, `test-t3-mobile` for mobile" as the named path (upstream skills under `.agents/skills/`; loom's web live check is the dev-verify recipe named in Live frontend verification). The mobile native-client paragraph stays, since mobile is in use. Stays: smallest proof, what a test should assert, backend behaviour ships with focused tests, and the event-sourcing rule (drain the effect worker, never sleep or poll), which is the one a newcomer gets wrong.
+
+Goes from **Pull requests**: "Never make a PR unless …" (I2) and the outside-contributions clause. Stays: conventional titles, the body shape, before/after images for UI, evidence uploaded not committed, one request one PR, the babysitting rule.
+
+<Columns>
+  <Column label="Proposed · Verifying">
+    - Smallest proof that the change works: `vp test run <files>` for the tests you touched, targeted lint and typecheck for the scope you changed, then the completion gates above.
+    - Test meaningful logic or observable behaviour. Do not render components to static markup to assert props or attributes, or add tests that merely assert callback wiring or mirror the implementation.
+    - Backend behaviour changes ship with focused tests for that behaviour.
+    - The server is event-sourced, and side effects run after the command commits. In tests, drain the effect worker (`OrchestrationEffectWorkerV2.drain`) or await the specific persisted event or `Deferred` that marks the milestone. Never wait on sleeps or polling. A test that needs a timeout to pass is wrong.
+    - User-visible frontend changes get one live pass: web via the dev-verify recipe or the preview harness (Live frontend verification, above), mobile via `test-t3-mobile`. Subagents do not launch their own dev servers unless their brief says to.
+
+    For authorized mobile verification, a missing or outdated native client is a build step, not a blocker. Run `node scripts/mobile-native-client.ts ensure <ios|android> <device-id>` on the simulator host before starting Metro. It checks the local Expo fingerprint and builds/installs when needed. See `test-t3-mobile` for the full workflow.
+  </Column>
+  <Column label="Proposed · Pull requests">
+    - Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`.
+    - Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
+    - UI changes need before/after images. Motion or timing needs a short video. Upload PR evidence to GitHub; never commit PR-only screenshots or assets.
+    - One request is one PR. Split it only when the maintainer asks.
+    - When babysitting: poll checks and comments newer than the last push, verify each bot finding against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when the bots are green on the latest commit.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="i4" label="I4" placeholder="Words to keep or change…" />
+</Card>
+
+<Card id="i5" eyebrow="I5 · 167 → ~110" heading="HTML artefacts: the visual_explainer counter-instruction becomes a clause" tone="info" badge="trim">
+
+The tool is off the orchestrator role as of PR #426, but it is still registered in plain pi and other roles may reach it, so one clause stays. The rest of the section is the `.artifacts/` convention and stays as written.
+
+<Columns>
+  <Column label="Now (the sentence that shrinks)">
+    Do not write renderable HTML to locations outside the worktree (the `visual_explainer` tool's `~/.agent/diagrams/` default cannot be rendered in-app — write the HTML to `.artifacts/` instead), and do not commit throwaway HTML under `experiments/` or `docs/`.
+  </Column>
+  <Column label="Proposed">
+    Write it under `.artifacts/`, not outside the worktree (nothing outside renders in-app, including `visual_explainer`'s default directory) and not under `experiments/` or `docs/`.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="i5" label="I5" placeholder="Words to keep or change…" />
+</Card>
+
+<Card id="i-keep" eyebrow="the rest · ~2,300 words" heading="What stays, and why it is not egg-sucking" tone="success" badge="keep">
+
+| Section | Why it stays |
+|---|---|
+| Task Completion Requirements (loom) | the gates, and the `--` trap in `vpr test -- <dir>` |
+| Shipping changes | the approval gate, the per-project merge authority, deploy is separate; all loom's |
+| Database migrations | the two-ledger rule; numbering below 1000 silently disables upstream migrations |
+| Loom UI state conventions | seed-not-override; a pointer to the tier doc |
+| Live frontend verification | the two live-check paths and when each applies |
+| Fork-specific notes | Pi-first, the upstream-sync doctrine pointer, mark every loom hunk, never `git stash` (shared `.git`) |
+| The three ways to hurt yourself | kill by PID only, the live database, no baked origins: the three incidents that recur |
+| Dev servers, Test data | environment facts: ports, `--home-dir`, the pairing URL, `migrate-dev-db` |
+| Documentation | doctrine for when a doc earns its place; the reason this audit can delete prose |
+| Plans and work artifacts | no committed scratch files |
+| How it works, Where code lives, Taste | the architecture in 100 words, the map, the conventions lint enforces |
+
+<ReviewChoice itemId="i-keep" label="Keeps" placeholder="Any of these you want reconsidered…" />
+</Card>
+
+## 3. If loom-owned: what changes in the sync procedure
+
+One line in `docs/upstream-sync/` doctrine: `AGENTS.md` joins `roles/` and `skills/` as loom-owned text; the clean-overlap review's AGENTS.md row records upstream's bullet changes and whether each was ported. The pull-7 unmarked-hunk sweep does not scan `AGENTS.md` (it is prose, not code), so nothing else in the tooling changes. I have not checked whether the sweep's path list names it; the implementing coder will.

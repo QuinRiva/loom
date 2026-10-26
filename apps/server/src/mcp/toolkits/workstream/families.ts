@@ -1,7 +1,8 @@
 /**
  * Loom's tool families and upstream withhold list as pi sees them (`mcp__t3-code__<name>`). Roles
  * get LEAF_CORE plus their `toolsets:`; other permitted tools stay `deferred` behind `tool_search`,
- * and UPSTREAM_WITHHELD_TOOLS are registered `hidden` so no search surfaces them.
+ * and UPSTREAM_WITHHELD_TOOLS are registered `hidden` so no search surfaces them, unless a role's
+ * `toolsets:` names the family they belong to (`withheldFrom`).
  */
 import { AttachmentToolkit } from "../attachment/tools.ts";
 import { EnvironmentToolkit } from "../environment/tools.ts";
@@ -63,18 +64,28 @@ export const HUMAN_INPUT = prefixed(["ask_user_question"] as const);
 /** Upstream's PR toolkit, resident for orchestrator and shipper (seam 13). */
 export const PULL_REQUESTS = Object.keys(PullRequestsToolkit.tools).map(agentToolName);
 
+/** Upstream's scheduled-task tools, carved out of the withheld OrchestratorToolkit for the roles that name them. */
+export const SCHEDULING = prefixed([
+  "schedule_task",
+  "list_scheduled_tasks",
+  "update_scheduled_task",
+  "delete_scheduled_task",
+] as const);
+
 /** Families a role keeps resident by naming them in `toolsets:`. */
 export const TOOLSETS = {
   delegation: DELEGATION,
   "human-input": HUMAN_INPUT,
   history: HISTORY,
   "pull-requests": PULL_REQUESTS,
+  scheduling: SCHEDULING,
 } as const;
 
 /**
- * Upstream tools a Loom credential is denied (capability_denied) and the
- * profile never activates. Read from upstream's own toolkit exports, so a tool
- * upstream adds to these toolkits is withheld by construction.
+ * Upstream tools a Loom thread never sees: registered `hidden` and kept out of
+ * its active set. Read from upstream's own toolkit exports, so a tool upstream
+ * adds to these toolkits is withheld by construction. Most also fail on the
+ * server, whose Loom credential lacks `orchestration`.
  */
 export const UPSTREAM_WITHHELD_TOOLS = [
   OrchestratorToolkit,
@@ -84,3 +95,7 @@ export const UPSTREAM_WITHHELD_TOOLS = [
   EnvironmentToolkit,
   WorktreeToolkit,
 ].flatMap((toolkit) => Object.keys(toolkit.tools).map(agentToolName));
+
+/** The withheld tools a role's profile (`tools`, its `toolsets:` included) does not name. */
+export const withheldFrom = (tools: ReadonlyArray<string>) =>
+  UPSTREAM_WITHHELD_TOOLS.filter((name) => !tools.includes(name));

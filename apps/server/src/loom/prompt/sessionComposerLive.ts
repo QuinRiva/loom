@@ -59,14 +59,17 @@ import {
 } from "./sessionComposer.ts";
 import type { LoomOpenSessionFields } from "@t3tools/contracts";
 import { T3_LOOM_HIDDEN_TOOLS_ENV } from "@t3tools/provider-pi/server/mcpExtensionSource";
-import { UPSTREAM_WITHHELD_TOOLS } from "../../mcp/toolkits/workstream/families.ts";
+import { withheldFrom } from "../../mcp/toolkits/workstream/families.ts";
 
-/** Withheld tools as the bridge names them (unprefixed): registered `hidden`, so `tool_search` cannot surface them. */
-export const LOOM_HIDDEN_TOOLS_ENV = {
+/**
+ * The tools withheld from this profile, as the bridge names them (unprefixed): registered
+ * `hidden`, so `tool_search` cannot surface them and the profile cannot activate them.
+ */
+export const loomHiddenToolsEnv = (tools: ReadonlyArray<string>) => ({
   [T3_LOOM_HIDDEN_TOOLS_ENV]: JSON.stringify(
-    UPSTREAM_WITHHELD_TOOLS.map((name) => name.replace(/^mcp__t3-code__/, "")),
+    withheldFrom(tools).map((name) => name.replace(/^mcp__t3-code__/, "")),
   ),
-};
+});
 
 /** A `forkFrom` child whose source never launched has nothing to replay (V1's loud refusal). */
 export class LoomForkSourceIdentityMissing extends Schema.TaggedError<LoomForkSourceIdentityMissing>()(
@@ -243,7 +246,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
         env: {
           ...identity.env,
           ...agentGitEnv(threadId),
-          ...LOOM_HIDDEN_TOOLS_ENV,
+          ...loomHiddenToolsEnv(identity.tools),
           ...(retention === "long" && {
             PI_CACHE_WARMING_IDLE_MAX_MS: String(LOOM_CACHE_HORIZON_MS.long),
           }),

@@ -55,7 +55,8 @@ import { CHILD_READERSHIP_CLAUSE, WORK_MODEL_ADDENDUM, threadIdentityClause } fr
 import { agentGitEnv } from "../workstream/agentGitIdentity.ts";
 import type { LoomOpenSessionFields } from "@t3tools/contracts";
 import type { LoomSessionComposerShape } from "./sessionComposer.ts";
-import { LOOM_HIDDEN_TOOLS_ENV, makeLoomSessionComposer } from "./sessionComposerLive.ts";
+import { loomHiddenToolsEnv, makeLoomSessionComposer } from "./sessionComposerLive.ts";
+import { SCHEDULING } from "../../mcp/toolkits/workstream/families.ts";
 
 /** A replayed record as `threadId` launches it: the identity verbatim, the git identity its own. */
 const asThread = (fields: LoomOpenSessionFields, threadId: ThreadId) => ({
@@ -95,7 +96,7 @@ const withComposer = <A, E, R>(
 const longRootEnv = (threadId: ThreadId) => ({
   PI_CACHE_RETENTION: "long",
   ...agentGitEnv(threadId),
-  ...LOOM_HIDDEN_TOOLS_ENV,
+  ...loomHiddenToolsEnv(SCHEDULING), // the orchestrator's only withheld family
   PI_CACHE_WARMING_IDLE_MAX_MS: "5400000",
 });
 
@@ -242,7 +243,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         assert.deepEqual(env, {
           PI_CACHE_RETENTION: "short",
           ...agentGitEnv(child),
-          ...LOOM_HIDDEN_TOOLS_ENV,
+          ...loomHiddenToolsEnv([]),
         });
         assert.isUndefined(idleTimeoutMs);
       }),
@@ -461,7 +462,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           assert.deepEqual(shortFields.env, {
             PI_CACHE_RETENTION: "short",
             ...agentGitEnv(short),
-            ...LOOM_HIDDEN_TOOLS_ENV,
+            ...loomHiddenToolsEnv(SCHEDULING),
           });
           assert.isUndefined(shortFields.idleTimeoutMs);
           return NodeFS.readFileSync(

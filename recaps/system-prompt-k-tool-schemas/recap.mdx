@@ -1,0 +1,156 @@
+---
+kicker: "Audit item K · the loom tool schemas · the surface the sidecar never showed · 23 Oct 2026"
+reader:
+  who: Carl, deciding the rules a rewrite of the 22 loom tool descriptions will follow, the one structural change (spawn and scaffold carry the same node contract twice), and whether two worked rewrites hit the register he wants
+  knows: that descriptions are now the only model-read text per tool (guidelines are gone), his own authoring rule (state the criterion, respect the capable reader, no do-and-don't lists), and that this block is invisible in the prompt-debug sidecar
+  after_first_screen: what the schemas cost, where the bulk sits, the three rules the rewrite follows, and that he approves rules plus two samples here and reviews the full before/after afterwards
+---
+
+# The loom tool schemas are 6,500 words a request, a third of it one contract written twice, and they read as rulebooks rather than contracts
+
+**Measured from `LOOM_TOOL_DEFS` as pi serialises them: 22 tools, 3,909 words of description plus 2,579 words of parameter descriptions, about 8.5K tokens on every request of every thread that has them declared.** With the preamble switch the schema is each tool's only model-read surface, so what is cut here is simply gone; nothing moves to a second surface. Three things stand out:
+
+- **`workstream_spawn` and `workstream_scaffold` are 1,876 of those words (29 percent)**, because scaffold's `nodes[]` item repeats spawn's twelve node parameters with their full descriptions (605 words). Both tools are declared to every orchestrator in the same request.
+- **The five longest descriptions (prompt 349, spawn 325, request_attention 302, notify 269, submit 250) read as rulebooks**: capitalised NEVER and NOT, narration of what the result will say, and exceptions nested inside exceptions. This is the register your authoring rule names: lists of dos and don'ts written for a reader assumed to need them.
+- **The sidecar does not capture this surface at all.** You audited 19K believing it was the whole prompt; the schemas were another 11K.
+
+**What I am asking you to approve here is the rules and two worked samples, not 22 rewrites.** A rewrite of every description is a day of planner-preset work; approving its rules first means the result can be reviewed as a before/after batch rather than argued one tool at a time. The expected outcome, from the two samples as re-cut, is descriptions at roughly a quarter to a third of their size and parameters at two thirds; that is what the register produces, not a cap.
+
+**Protocol:** an item left undecided takes its recommendation.
+
+## 1. Where the words are
+
+<Table
+  filterable
+  density="compact"
+  columns={["Tool", "Description", "Parameter text", "Total", "What dominates"]}
+  rows={[
+    ["workstream_spawn", "325", "713", "1,038", "brief (180), anchorTaskId (70), role (50), modelSelection (60); the when-to-use-scaffold aside"],
+    ["workstream_scaffold", "233", "605", "838", "the same twelve node fields as spawn, repeated"],
+    ["workstream_submit", "250", "180", "430", "every routing case spelled out; the quiescence warning"],
+    ["workstream_prompt", "349", "63", "412", "five child states each with its own sentence; the hold-clearing rule stated twice"],
+    ["notify_thread", "269", "66", "335", "a list of five things it is NOT for"],
+    ["workstream_brief", "138", "191", "329", "the brief contract (shared with spawn's `brief` param)"],
+    ["workstream_request_attention", "302", "27", "329", "the hold semantics narrated three ways"],
+    ["goal_tasks_rewrite", "193", "109", "302", "id-retention rules stated in both description and param"],
+    ["goal_handoff", "162", "140", "302", "the duplicate-check protocol"],
+    ["workstream_set_outcome", "230", "38", "268", "cascade semantics and the gate-recovery rule"],
+    ["consult_thread", "197", "62", "259", "name-versus-id resolution narrated"],
+    ["snooze_thread", "205", "45", "250", "the deferred-apply mechanism explained"],
+    ["goal_continue", "170", "75", "245", "the contrast with handoff and spawn"],
+    ["goal_task_add", "160", "84", "244", "parent placement doctrine"],
+    ["goal_task_list", "156", "20", "176", "the snapshot-is-frozen explanation"],
+    ["goal_task_update", "122", "46", "168", "what it is not for"],
+    ["thread_fork", "113", "39", "152", "the contrast with spawn and continue"],
+    ["workstream_set_dependencies", "75", "27", "102", "fine"],
+    ["set_thread_title", "76", "8", "84", "fine"],
+    ["workstream_stop", "71", "8", "79", "fine"],
+    ["workstream_list", "61", "12", "73", "fine"],
+    ["goal_update", "52", "21", "73", "fine"],
+  ]}
+/>
+
+Not in this table and not in scope: `bg_start`, `bg_wait` and `ask_user_question` (registered by the extension, about 700 words, already folded this week), the seven pull-request tools (upstream's), and the pi and pi-craft tools (about 1,500 words, owned elsewhere).
+
+## 2. The rules
+
+<Card id="k0" eyebrow="K0 · the register" heading="What a description is for, and what it is not" tone="accent" badge="approve the rules">
+
+A description tells a capable reader three things and stops:
+
+1. **What the tool does**, in its first sentence.
+2. **The consequences the caller must act on**: what the call changes that the caller cannot undo or would not expect, and what the caller must do first. The test for every sentence, added after Carl's read of the two samples ("is all of the information there actually useful?"): **it stays only if it changes what the caller does or writes.** A mechanism whose consequence the result will report, or that the control plane handles either way, is dropped.
+3. **When another tool is the better choice**, by name, in one clause each.
+
+What goes, because the reader does not need it or the system already provides it:
+
+- **Narration of the result** ("the result says whether it started, steered or queued", "the error names the offending key"). The result says it.
+- **Capitalised prohibitions and lists of what the tool is NOT for.** `notify_thread` lists five. A reader who knows what `consult_thread`, `workstream_prompt` and `workstream_submit` do does not need to be told which of them `notify_thread` is not.
+- **Timings and internals** ("within about a minute", "25 s slices", "BM25").
+- **The same rule in the description and in a parameter.** Each rule lives in whichever of the two the reader meets first when it applies: a rule about a value is on the parameter; a rule about the call is in the description.
+- **Doctrine.** Why gates exist, why a child starts cold, what a brief is for. That is the addendum's and the overlay's.
+
+This is your rule applied to the one surface the fold left: "the models ingesting the content are very capable of making decisions, and overly prescriptive instructions constrain their ability to act intelligently."
+
+<ReviewChoice itemId="k0" label="K0 · rules" placeholder="A rule to add or drop…" />
+</Card>
+
+<Card id="k1" eyebrow="K1 · spawn and scaffold" heading="Should scaffold's node item carry spawn's twelve parameter descriptions a second time?" tone="warning" badge="dedupe: 605 → ~150 words">
+
+**No.** Both tools are declared in the same request for every orchestrator. Scaffold's `nodes[].items` has the same `key`-less fields as spawn (`role`, `title`, `purpose`, `blockedBy`, `gate`, `forkFrom`, `anchorTaskId`, `taskShape`, `sensitive`, `modelPreset`, `modelSelection`) with the same text. JSON Schema cannot reference another tool's schema, so the dedupe is textual: each scaffold node field says what it is in a few words and that its contract is `mcp__t3-code__workstream_spawn`'s; the `brief` contract, which both spawn's `brief` and `workstream_brief`'s `markdown` carry at ~180 words each, lives once on `workstream_brief` with spawn's `brief` pointing at it.
+
+<Table
+  density="compact"
+  columns={["Field", "Today", "Proposed"]}
+  rows={[
+    ["scaffold `nodes[].role`", "the 50-word role list and forkFrom caveat, verbatim from spawn", "\"As `workstream_spawn`'s `role`.\""],
+    ["scaffold `nodes[].anchorTaskId`", "70 words, verbatim", "\"As `workstream_spawn`'s `anchorTaskId`.\""],
+    ["scaffold `nodes[].gate`", "the full gate semantics, verbatim", "\"A review gate on this node; `rework` names the sibling it loops, by key or `thread:<id>`. Semantics as `workstream_spawn`'s `gate`.\""],
+    ["spawn `brief`", "~180 words: the brief contract", "\"The child's first-turn assignment; the contract is `workstream_brief`'s `markdown`.\""],
+  ]}
+/>
+
+<ReviewChoice itemId="k1" label="K1 · dedupe" placeholder="Why, if rejecting…" />
+</Card>
+
+## 3. Two worked rewrites, for the register
+
+<Card id="k2" eyebrow="K2 · workstream_prompt · 349 → 86" heading="Does this say everything an orchestrator needs to prompt a child?" tone="info" badge="sample">
+
+Re-cut after Carl's question, with the "changes what the caller does" test. Kept: what it does; the two facts that change how I write the message (an unlaunched child reads it as brief text; a stuck child must be stopped first); the hold-clearing consequence; the reopen rule as one clause. Dropped as mechanism the caller acts on nothing about: idle-versus-busy delivery, "a child with no brief is refused" (the refusal says so), "your message carries your authority, not the human's" (the child's addendum governs that), and everything the first cut had already removed.
+
+<Columns>
+  <Column label="Now (349 words)">
+    Send a markdown message to a DIRECT child Workstream thread you spawned — you acting on the child as its parent. On an idle child (e.g. one you paused with mcp__t3-code__workstream_stop) this starts the next turn with your message — the resume path. On a busy child with an open turn it becomes a queued steer, folded in between model rounds. A child whose turn has not begun (just launched, still starting, or waiting on an answer) cannot take a steer yet: your message is queued, then steered in once the turn is up (within about a minute), or it starts the next turn if that one ends first; the result says whether it started, steered or queued. A steer canNOT penetrate a blocked/hung tool call — if the child is stuck inside a tool call, mcp__t3-code__workstream_stop it first, then prompt to restart it with guidance. Prompting a child that holds an attention flag (needs_guidance, awaiting_acceptance, or a yield awaiting you) CLEARS that hold when the turn starts, so prompt a flagged child only when you actually hold the answer or the approval it is waiting for; clearing it is your decision as the parent, not the human's approval, and is never reported upward as such. The child reads your message labelled as its parent orchestrator's — an agent's — which the human's messages outrank. On a child that has NOT started yet (briefed but waiting on a dependency, or briefed and not yet launched): your message is appended to its brief as an amendment and no turn starts — the child reads the brief plus every amendment as its first turn when the control plane launches it, and the result names what it is still waiting on. Amendments stack in order; a later mcp__t3-code__workstream_brief replaces the whole brief, amendments included. If the child has NO brief yet, the call is rejected with guidance to call mcp__t3-code__workstream_brief first. Prompting never launches a child: launch is the control plane's, once its dependencies are done. A finished child (outcome done or cancelled) is reopened with mcp__t3-code__workstream_set_outcome 'none' before you prompt it.
+  </Column>
+  <Column label="Proposed (86 words)">
+    Send a markdown message to a direct child you spawned, as its parent. It starts or steers the child's next turn; a child that has not launched yet reads it as part of its brief. A steer cannot interrupt a tool call in progress, so `mcp__t3-code__workstream_stop` a stuck child first. Prompting a child that holds an attention flag clears the hold when its turn starts: do it only when you hold what the child is waiting for. Reopen a finished child (`mcp__t3-code__workstream_set_outcome` 'none') before prompting it.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k2" label="K2 · prompt sample" placeholder="Something lost, or a sentence still too prescriptive…" />
+</Card>
+
+<Card id="k3" eyebrow="K3 · request_attention · 302 → 101" heading="Does this say what a hold is, without three restatements?" tone="info" badge="sample">
+
+Re-cut with the same test. Kept: what it does and that it is the turn's last act (otherwise your own completion clears it); the two reasons, because they route differently; how to hand back a report while the flag stands (an action the caller would otherwise get wrong); consult the parent first (the better tool, for a child); write the report for a reader who has read nothing (it changes what is written). Dropped: the list of what clears the hold (the caller acts on none of it beyond "last act"), "a reviewer-bound thread just completes" (follows from the definition), and the refusal cases.
+
+<Columns>
+  <Column label="Now (302 words)">
+    Raise an attention flag on a T3 Code Workstream thread you own (this thread or one you directly spawned) — the single surface that pulls in a human. A raise HOLDS the work for that human; it is your turn's last act, not a label you attach to a report. The hold clears only when a human writes to the thread or its parent prompts it (at the start of that turn), or when the thread reaches done/cancelled — so completing yourself erases the hold and releases your dependents, and the submit path refuses a plain completion while a flag you raised stands, whether you raised it this turn or an earlier one; a raise on an already-finished thread is refused too. To hand a report back with the hold intact, pass a short non-'done' outcome to mcp__t3-code__workstream_submit: the report is recorded and you yield to your parent, flag standing. Two reasons: 'awaiting_acceptance' means a human (or the parent, when it already holds the human's decision) must accept this thread's output before its outcome may reach 'done' and its dependents release — it is NOT 'some reviewer thread should look at this' (a thread whose output flows to a separate reviewer thread just completes, which releases that reviewer). 'needs_guidance' means you cannot proceed without a human — including when what you want is answers to your questions, which is guidance, not acceptance. For a child it is the LAST resort: your parent wrote your brief and holds the context, and usually no human reads a child thread — consult the parent first (mcp__t3-code__consult_thread) and raise only if that does not settle it or the parent has finished. Write the accompanying report for a human who has read none of this thread: explain the blocker without relying on internal labels or unseen reports.
+  </Column>
+  <Column label="Proposed (101 words)">
+    Raise an attention flag that holds this thread, or a child you spawned, for a human; make it your turn's last act, since completing clears it. 'awaiting_acceptance': a human (or your parent, holding the human's decision) must accept this thread's output before it can be done. 'needs_guidance': you cannot proceed without a human, including when what you need is answers. To hand back a report while the flag stands, submit with a short non-'done' outcome. A child consults its parent first (`mcp__t3-code__consult_thread`); usually no human reads a child thread. Write the report for someone who has read none of this thread.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k3" label="K3 · attention sample" placeholder="Something lost, or a sentence still too prescriptive…" />
+</Card>
+
+## 4. The rest, and the sidecar
+
+<Card id="k4" eyebrow="K4 · the other 20" heading="The same rules applied to every other tool, by a planner-preset coder, reviewed as one before/after batch" tone="info" badge="approve the plan">
+
+Per tool, the thing the rules remove is in the table in section 1. Three tools need more than trimming:
+
+- **`workstream_submit`**: the routing cases (done, needs_human, review verdicts, unmatched tokens, rework rounds) stay, because a wrong token is a wrong routing; the quiescence warning ("a thread that ends its turn without submitting is treated as having gone quiet") stays as one sentence. The rest is register.
+- **`workstream_set_outcome`**: cascade and reopen semantics stay; the gate-recovery sentences, now in the yield notice, go.
+- **`goal_tasks_rewrite`**: the id-retention and deletion rules live on the `markdown` parameter only.
+
+The coder produces, alongside the code change, a recap in this format with every tool's before and after and a `<ReviewChoice>` per tool, so your review of the result is one pass. A reviewer gate checks that no control-plane fact was lost (the contract of each tool is in `apps/server/src/mcp/toolkits/workstream/handlers/`, so "the description says X and the handler does X" is checkable). Also in that change: `docs/architecture/tool-def-authoring.md` line 59 still says "authored by a top-tier model", which becomes the preset name as in the overlay.
+
+<ReviewChoice itemId="k4" label="K4 · plan" placeholder="Why, if rejecting…" />
+</Card>
+
+<Card id="k5" eyebrow="K5 · sidecar" heading="Should the prompt-debug capture show the tools array?" tone="info" badge="yes">
+
+The capture (`apps/server/src/provider/Drivers/Pi/loomExtensionParts/promptDebug.ts`) records the structured prompt inputs and the assembled system prompt. It should also record, per declared tool, the name, the description and the parameter descriptions as sent, with a word count per tool and a total, so the next audit sees the whole request. A small addition to the same file; it ships with the K rewrite.
+
+<ReviewChoice itemId="k5" label="K5 · sidecar" />
+</Card>
+
+## 5. What this does not touch
+
+- The pull-request tools (upstream's toolkit), and the pi, pi-craft and search tools: not loom's text.
+- `bg_start`, `bg_wait`, `ask_user_question`: folded this week under the D fold; the K rules apply to them on the same pass if you approve K4, since they are loom's.
+- Tool exposure and the role profiles: unchanged; the two-week delegation re-count stands.

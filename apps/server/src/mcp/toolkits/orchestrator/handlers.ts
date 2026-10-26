@@ -94,14 +94,16 @@ const handlers = {
       return yield* service.listScheduledTasks(scope, input);
     }),
   ),
-  update_scheduled_task: McpToolAccess.writes((input) =>
+  // loom: the service checks the capability (for scheduled tasks Loom's `workstream` also grants it).
+  update_scheduled_task: McpToolAccess.writesWithCapability((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       return yield* service.updateScheduledTask(scope, input);
     }),
   ),
-  delete_scheduled_task: McpToolAccess.writes((input) =>
+  // loom: as update_scheduled_task.
+  delete_scheduled_task: McpToolAccess.writesWithCapability((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;

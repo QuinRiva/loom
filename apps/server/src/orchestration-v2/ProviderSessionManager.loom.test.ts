@@ -31,8 +31,9 @@ import type { LoomOpenSessionFields, LoomThreadWorkstream } from "@t3tools/contr
 import { LoomSessionComposerLive } from "../loom/serverLayers.ts";
 import { WORK_MODEL_ADDENDUM } from "../loom/prompt/prose.ts";
 import { agentGitEnv } from "../loom/workstream/agentGitIdentity.ts";
-import { LOOM_HIDDEN_TOOLS_ENV } from "../loom/prompt/sessionComposerLive.ts";
+import { loomHiddenToolsEnv } from "../loom/prompt/sessionComposerLive.ts";
 import { LoomStoreV2 } from "../loom/projection/LoomStore.ts";
+import { SCHEDULING } from "../mcp/toolkits/workstream/families.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -307,7 +308,7 @@ it.effect("hands the production composer's prompt, extension and env to the adap
     assert.deepEqual(loom?.env, {
       PI_CACHE_RETENTION: "long",
       ...agentGitEnv(ThreadId.make("thread-loom-composer")),
-      ...LOOM_HIDDEN_TOOLS_ENV, // withheld tools reach the bridge per launch (DL-981)
+      ...loomHiddenToolsEnv(SCHEDULING), // the root's withheld tools reach the bridge per launch (DL-981)
       PI_CACHE_WARMING_IDLE_MAX_MS: "5400000",
     });
   }),

@@ -18,7 +18,7 @@ import {
   isReadOnlyCaller,
   type WorkstreamCaller,
 } from "../../mcp/toolkits/workstream/authorisation.ts";
-import { HUMAN_INPUT, UPSTREAM_WITHHELD_TOOLS } from "../../mcp/toolkits/workstream/families.ts";
+import { HUMAN_INPUT, withheldFrom } from "../../mcp/toolkits/workstream/families.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { isContinueLaunch } from "../../orchestration-v2/Orchestrator.loom.ts";
 import type { LoomSessionProfile } from "../../provider/Drivers/Pi/loomExtension.ts";
@@ -125,7 +125,7 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (
         : activeTools,
     humanEngaged,
     hasParent,
-    denyList: UPSTREAM_WITHHELD_TOOLS,
+    denyList: withheldFrom(activeTools),
     // V1 captured every pi thread's prompt; there is no setting to gate it.
     // A consult fork answers as the target, so it must not overwrite the target's capture.
     promptDebugPath: readOnly ? null : promptCapturePathsOf(config, threadId).latest,
