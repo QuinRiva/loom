@@ -5,18 +5,17 @@
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { attentionLabel, rowAttentionOf } from "@t3tools/client-runtime/state/loom/rollup";
 import type { EnvironmentId, GoalId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 
 import { resolveSidebarThreadStatus } from "../components/Sidebar.logic";
-import { loomAttentionOf } from "../components/Sidebar.logic.loom";
 import { cn } from "../lib/utils";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { orderGoalThreadsByHandoff } from "./goalThreadChain";
-import { attentionLabel } from "./loomAttention";
 
 function resolveChip(thread: EnvironmentThreadShell): { label: string; dot: string } {
-  const reason = loomAttentionOf(thread);
+  const reason = rowAttentionOf(thread);
   if (reason !== null) {
     return {
       label: attentionLabel(reason),

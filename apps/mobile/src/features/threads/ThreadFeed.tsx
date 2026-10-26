@@ -17,6 +17,7 @@ import {
 import { ThreadContextDivider } from "./thread-context-divider";
 import { ThreadHandoffDivider, ThreadHandoffRow } from "./thread-handoff-row";
 import { GuestBubbleTint, GuestMessageName } from "./guestMessageStyle";
+import { CONTROL_BUBBLE_CLASSES, useControlBubbles } from "./controlBubbles.loom"; // loom: 3d-3
 import { ThreadGuestPendingMessage, useThreadGuestShare } from "./ThreadGuestShareBar";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
@@ -1265,6 +1266,7 @@ function renderFeedEntry(
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
     readonly unsettledTurnId: RunId | null;
     readonly compactionLabelsByEntryId: ReadonlyMap<string, { title: string; compacting: string }>;
+    readonly controlBubbles: ReturnType<typeof useControlBubbles>; // loom: 3d-3
     readonly failedRunIds: ReadonlySet<RunId>;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
     readonly onToggleWorkGroup: (groupId: string, anchorKey?: string) => void;
@@ -1466,6 +1468,7 @@ function renderFeedEntry(
     const { message } = entry;
     const isUser = message.role === "user";
     const presentation = resolveUserMessagePresentation(message);
+    const loomBubble = isUser ? (props.controlBubbles.get(message.id) ?? null) : null; // loom: 3d-3
     const renderedText = renderAssistantCitationsAsText(presentation.text);
     const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
     const timestampLabel = formatMessageTime(isUser ? message.createdAt : message.updatedAt);
@@ -1558,7 +1561,17 @@ function renderFeedEntry(
           className="mb-5 items-end"
           {...(enterAnimated ? { entering: FadeInUp.duration(220) } : {})}
         >
-          {presentation.attribution === "t3code" ? (
+          {/* loom: 3d-3 — a kickoff, steer or notice names who sent it; it is not the human. */}
+          {loomBubble ? (
+            <Text
+              className={cn(
+                "mb-1 pr-1 font-t3-medium text-2xs",
+                CONTROL_BUBBLE_CLASSES[loomBubble.channel].label,
+              )}
+            >
+              {loomBubble.label}
+            </Text>
+          ) : presentation.attribution === "t3code" ? (
             <Text className="mb-1 pr-1 font-t3-medium text-2xs text-foreground-muted opacity-60">
               Sent by T3 Code
             </Text>
@@ -1581,6 +1594,15 @@ function renderFeedEntry(
             }}
           >
             {presentation.attribution === "guest" ? <GuestBubbleTint /> : null}
+            {loomBubble ? ( // loom: 3d-3 — the channel's accent, as on web
+              <View
+                pointerEvents="none"
+                className={cn(
+                  "absolute inset-0 rounded-[20px]",
+                  CONTROL_BUBBLE_CLASSES[loomBubble.channel].tint,
+                )}
+              />
+            ) : null}
             {foldRowId !== null ? (
               <AgentMessageFoldHeader
                 environmentId={props.environmentId}
@@ -2636,6 +2658,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     () => threadFeedCompactionLabels(props.feed),
     [props.feed],
   );
+  const controlBubbles = useControlBubbles(props.environmentId, props.threadId); // loom: 3d-3
   // LegendList does not invalidate visible rows when only the renderItem closure changes.
   // Include turn completion so unchanged message rows reveal their footer and spacing
   // even when the final message update arrives before the turn settles.
@@ -2657,6 +2680,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     contentWidth,
     skills: props.skills,
     workflowOpening,
+    controlBubbles, // loom: 3d-3
   };
   const reportHeaderMaterialVisibility = (visible: boolean) => {
     if (headerMaterialVisibleRef.current === visible) {
@@ -3102,6 +3126,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             terminalAssistantMessageIds,
             unsettledTurnId,
             compactionLabelsByEntryId,
+            controlBubbles, // loom: 3d-3
             failedRunIds,
             onCopyWorkRow,
             onToggleWorkGroup,

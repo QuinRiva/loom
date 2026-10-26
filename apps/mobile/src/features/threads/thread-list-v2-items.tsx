@@ -27,7 +27,7 @@ import {
 } from "@t3tools/client-runtime/state/models";
 import { AuthOrchestrationOperateScope, type EnvironmentMachineKind } from "@t3tools/contracts";
 import { canSnooze, resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
-import { pendingQuestionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: S4
+import { attentionLabel, pendingQuestionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: S4, 3d-3
 import { relativeTime } from "../../lib/time"; // loom: S4
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
@@ -67,6 +67,7 @@ import {
 import { QueuedMessageIcon } from "./queued-message-icon";
 import { shouldRecedeThreadRow } from "./thread-row-emphasis";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
+import { useWorkstreamBadge, WorkstreamBadgeView } from "./WorkstreamBadge.loom"; // loom: 3d-3
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 import { pullRequestStatus } from "../pull-requests/pullRequestStatus";
 
@@ -116,6 +117,31 @@ const STATUS_LABEL_BY_STATUS: Partial<Record<ThreadListV2Status, StatusLabel>> =
   limited: {
     label: "Limited",
     icon: "exclamationmark.circle",
+    className: "text-warning-foreground",
+    iconTintClassName: "accent-warning-foreground",
+  },
+  // loom: 3d-3 — a Loom flag reads as web's sidebar does.
+  error: {
+    label: attentionLabel("error"),
+    icon: "exclamationmark.circle",
+    className: "text-danger-foreground",
+    iconTintClassName: "accent-danger-foreground",
+  },
+  awaiting_acceptance: {
+    label: attentionLabel("awaiting_acceptance"),
+    icon: "person.fill.checkmark",
+    className: "text-warning-foreground",
+    iconTintClassName: "accent-warning-foreground",
+  },
+  needs_guidance: {
+    label: attentionLabel("needs_guidance"),
+    icon: "person.badge.clock",
+    className: "text-warning-foreground",
+    iconTintClassName: "accent-warning-foreground",
+  },
+  awaiting_orchestrator: {
+    label: attentionLabel("awaiting_orchestrator"),
+    icon: "arrow.uturn.backward",
     className: "text-warning-foreground",
     iconTintClassName: "accent-warning-foreground",
   },
@@ -650,6 +676,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const status = resolveThreadListV2Status(thread);
   const pendingQuestion = pendingQuestionOf(thread.source); // loom: S4
+  const workstreamBadge = useWorkstreamBadge(thread.environmentId, thread.id); // loom: 3d-3
   const isUnread = status === "ready" && threadHasUnseenCompletion(thread);
   const workingLabel = STATUS_LABEL_BY_STATUS[status];
   const showsWoke = status === "ready" && props.wokeAt !== null;
@@ -1201,6 +1228,14 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         ) : (
           <View className="flex-1" />
         )}
+        {workstreamBadge ? ( // loom: 3d-3 sub-thread rollup
+          <WorkstreamBadgeView
+            badge={workstreamBadge}
+            selected={selected}
+            mutedTextClassName={rowAppearance.mutedForegroundClassName}
+            mutedTintClassName={rowAppearance.mutedIconTintClassName}
+          />
+        ) : null}
         {pr ? (
           <Pressable
             // Padding cancelled by negative margin grows the touch target into
@@ -1277,9 +1312,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         interactionOpacity={rowAppearance.interactionOpacity}
         className={rowAppearance.className}
         accessibilityHint={swipeAccessibilityHint}
-        accessibilityLabel={
-          props.hasQueuedMessages ? `${thread.title}, messages queued to send` : thread.title
-        }
+        accessibilityLabel={[
+          thread.title,
+          ...(props.hasQueuedMessages ? ["messages queued to send"] : []),
+          // loom: 3d-3
+          ...(workstreamBadge && workstreamBadge.flagged > 0
+            ? [
+                `${workstreamBadge.flagged} sub-thread${workstreamBadge.flagged === 1 ? " needs" : "s need"} you`,
+              ]
+            : []),
+        ].join(", ")}
         accessibilityRole="button"
         accessibilityState={{ selected }}
         accessibilityActions={rowAccessibilityActions}

@@ -14,7 +14,12 @@ import { useThreadShells } from "~/state/entities";
 import { buildThreadRouteParams } from "~/threadRoutes";
 
 import { ControlDigestCardView } from "./ControlDigestCard";
-import { controlBubble, controlCardModel, type ControlBubble } from "./controlMessages";
+import {
+  controlBubble,
+  type ControlBubble,
+} from "@t3tools/client-runtime/state/loom/controlBubble";
+
+import { controlCardModel } from "./controlMessages";
 import { useLoomMessageFields } from "./loomMessageFields";
 
 export const ControlDigestRow = memo(function ControlDigestRow({

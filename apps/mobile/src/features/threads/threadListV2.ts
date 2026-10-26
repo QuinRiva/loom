@@ -28,8 +28,9 @@ import {
   sortPinnedThreadsByOrderKey,
   sortSettledThreads,
 } from "@t3tools/client-runtime/state/thread-sort";
-import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { EnvironmentId, LoomAttentionReason, ProjectId } from "@t3tools/contracts";
 import { shelllessArchivedMatches } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom
+import { rowAttentionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: 3d-3
 
 import type { ThreadListProvider } from "../../state/thread-list-environments";
 import type { ThreadMoveAvailability } from "./threadOrder";
@@ -71,7 +72,8 @@ export type ThreadListV2Status =
   | "waiting"
   | "failed"
   | "limited"
-  | "ready";
+  | "ready"
+  | LoomAttentionReason; // loom: 3d-3
 export type ThreadListV2SwipeAction = "archive" | "settle" | "unsettle" | "snooze" | "unsnooze";
 
 export function resolveThreadListV2SnoozeMenuSelection(input: {
@@ -181,8 +183,12 @@ export function resolveThreadListV2Status(
     | "pendingGuestMessageCount"
     | "runtime"
     | "blockedOnThreadWait"
+    | "source" // loom: 3d-3
   >,
 ): ThreadListV2Status {
+  // loom: 3d-3 — a Loom flag outranks every upstream state, as on web.
+  const attention = rowAttentionOf(thread);
+  if (attention !== null) return attention;
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
     return "approval";
   }
@@ -695,7 +701,11 @@ export function buildThreadListV2Items(input: {
       settled.push(thread);
     } else if (thread.pinnedAt != null) {
       pinned.push(thread);
-    } else if (workingShelfEnabled && (input.isWorking ?? isThreadWorking)(thread)) {
+    } else if (
+      workingShelfEnabled &&
+      (input.isWorking ?? isThreadWorking)(thread) &&
+      rowAttentionOf(thread) === null // loom: 3d-3 — a flagged thread stays in the inbox
+    ) {
       working.push(thread);
     } else {
       active.push(thread);

@@ -113,11 +113,11 @@ import { MiddleTruncate } from "../ui/middle-truncate";
 import { useThreadHasUnsentDraft } from "../../composerDraftStore";
 import { useClientSettings } from "../../hooks/useSettings";
 // loom: 3d-3 — attention override, rollup badge, agent-started cue, prompt-cache liveness, S4.
-import { loomAttentionOf, loomTopStatus } from "../Sidebar.logic.loom";
+import { loomTopStatus } from "../Sidebar.logic.loom";
 import { LoomRollupBadge, useLoomSubThreadsUnsettled } from "../../loom/LoomRollupBadge";
 import { CacheFuelRing } from "../../loom/CacheFuelRing"; // loom: prompt-cache liveness
 import { CacheHoverBlock } from "../../loom/CacheHoverBlock"; // loom: prompt-cache liveness
-import { pendingQuestionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: S4
+import { pendingQuestionOf, rowAttentionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: S4, 3d-3
 import { PendingQuestionWaitAge } from "../../loom/pendingUserInputLoom"; // loom: S4
 import {
   threadStartOf,
@@ -667,7 +667,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
   const projectIconColors = useClientSettings((s) => s.sidebarProjectIconColors);
-  const loomAttention = loomAttentionOf(thread); // loom: 3d-3
+  const loomAttention = rowAttentionOf(thread); // loom: 3d-3
   const loomSubThreadsUnsettled = useLoomSubThreadsUnsettled(threadKey); // loom: badge Q5
   const shouldRecede =
     loomAttention === null && // loom: 3d-3 — a flagged row never recedes

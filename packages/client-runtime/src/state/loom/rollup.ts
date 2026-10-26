@@ -15,6 +15,8 @@ import * as DateTime from "effect/DateTime";
 import { descendantsOf } from "@t3tools/shared/workstreamGraph";
 import { isBriefNeeded } from "@t3tools/shared/workstreamStart.loom";
 
+import type { EnvironmentThreadShell } from "../models.ts";
+
 import {
   deriveBoardColumn,
   startNodeOf,
@@ -54,14 +56,42 @@ const ATTENTION_PRIORITY: Record<WorkstreamAttentionReason, number> = {
 const byPriority = (left: WorkstreamAttentionReason, right: WorkstreamAttentionReason) =>
   ATTENTION_PRIORITY[right] - ATTENTION_PRIORITY[left];
 
+const ATTENTION_LABELS: Record<WorkstreamAttentionReason, string> = {
+  error: "Error",
+  awaiting_acceptance: "Accept?",
+  needs_guidance: "Needs you",
+  awaiting_orchestrator: "Yielded",
+  "brief-needed": "Brief needed",
+};
+
+/** The human label every client shows for an attention reason. */
+export const attentionLabel = (reason: WorkstreamAttentionReason): string =>
+  ATTENTION_LABELS[reason];
+
 /**
  * A thread's own stored attention reasons, highest priority first. Enough for a
  * root, which is never brief-needed; a graph surface reads `attentionReasonsOf`.
  */
-export const ownAttentionOf = (
+const ownAttentionOf = (
   thread: Pick<WorkstreamRollupThread, "workstream">,
-): ReadonlyArray<WorkstreamAttentionReason> =>
-  [...(thread.workstream?.attention ?? [])].sort(byPriority);
+): ReadonlyArray<LoomAttentionReason> => [...(thread.workstream?.attention ?? [])].sort(byPriority);
+
+/**
+ * The Loom attention a thread-list row shows instead of its upstream status, or null. A pending
+ * approval or question (the row's or a subagent's; pull 12 §7.1 row 1) outranks every Loom reason
+ * but `error`. A row is never a workstream child, so never brief-needed.
+ */
+export function rowAttentionOf(
+  thread: Pick<
+    EnvironmentThreadShell,
+    "source" | "hasPendingApprovals" | "hasPendingUserInput" | "pendingSubagentRequest"
+  >,
+): LoomAttentionReason | null {
+  const top = ownAttentionOf(thread.source)[0];
+  const upstreamShows =
+    thread.hasPendingApprovals || thread.hasPendingUserInput || thread.pendingSubagentRequest;
+  return top === undefined || (upstreamShows && top !== "error") ? null : top;
+}
 
 /**
  * An unsettled thread whose latest run failed with a known class other than a
@@ -287,6 +317,22 @@ export function workstreamBadgeTone({
   if (activity.active > 0 || attention.nodes.length > 0) return "working";
   return plan.settled ? "done" : "waiting";
 }
+
+/** A root row's rollup badge: settled over total sub-threads, and how many wait on a human. */
+export interface WorkstreamBadge {
+  readonly tone: WorkstreamBadgeTone;
+  readonly settled: number;
+  readonly total: number;
+  /** Sub-threads whose reason a human must act on (the `N!`). */
+  readonly flagged: number;
+}
+
+export const workstreamBadgeOf = (rollup: WorkstreamRollup): WorkstreamBadge => ({
+  tone: workstreamBadgeTone(rollup),
+  settled: rollup.plan.columns.done + rollup.plan.columns.cancelled,
+  total: rollup.plan.total,
+  flagged: rollup.attention.nodes.filter((node) => !node.withAgents).length,
+});
 
 /** The three rollups for `rootThreadId`'s descendants (lineage), from every shell held. */
 export function workstreamRollupOf(

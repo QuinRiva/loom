@@ -10,7 +10,12 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { workstreamFields, workstreamShell } from "./loomTestFixtures.ts";
 import { v2Now } from "../orchestrationV2TestFixtures.ts";
-import { attentionReasonsOf, workstreamBadgeTone, workstreamRollupOf } from "./rollup.ts";
+import {
+  attentionReasonsOf,
+  rowAttentionOf,
+  workstreamBadgeTone,
+  workstreamRollupOf,
+} from "./rollup.ts";
 import { workstreamIndexOf } from "./workstream.ts";
 
 const STARTED = "2026-10-05T01:00:00.000Z";
@@ -223,6 +228,27 @@ describe("attentionReasonsOf", () => {
     expect(
       reasonsOf("a", [{ id: "a", started: true, attention: ["awaiting_orchestrator"] }]),
     ).toEqual(["awaiting_orchestrator"]);
+  });
+});
+
+describe("rowAttentionOf", () => {
+  const row = (
+    attention: ReadonlyArray<LoomAttentionReason>,
+    flags: { hasPendingApprovals?: boolean; hasPendingUserInput?: boolean } = {},
+  ) => ({
+    source: workstreamShell(workstreamFields("r", { attention: [...attention] })),
+    hasPendingApprovals: flags.hasPendingApprovals ?? false,
+    hasPendingUserInput: flags.hasPendingUserInput ?? false,
+    pendingSubagentRequest: null,
+  });
+
+  it("shows the top stored reason, below a pending request unless it is an error", () => {
+    expect(rowAttentionOf(row([]))).toBeNull();
+    expect(rowAttentionOf(row(["needs_guidance", "awaiting_acceptance"]))).toBe(
+      "awaiting_acceptance",
+    );
+    expect(rowAttentionOf(row(["needs_guidance"], { hasPendingUserInput: true }))).toBeNull();
+    expect(rowAttentionOf(row(["error"], { hasPendingApprovals: true }))).toBe("error");
   });
 });
 

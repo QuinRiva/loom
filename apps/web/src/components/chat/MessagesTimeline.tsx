@@ -88,7 +88,7 @@ import { type HandoffTimelineRun } from "./V2LifecycleRow";
 import { publishTimelineAvailableWidth, TIMELINE_ROW_CLASS_NAME } from "./timelineLayout";
 // loom: 3d-3 — control cards, handoff receipts, model-change dividers, conversation jumps.
 import { ControlDigestRow } from "../../loom/ControlDigestRow";
-import { KICKOFF_BUBBLE } from "../../loom/controlMessages"; // loom: query threads
+import { KICKOFF_BUBBLE } from "@t3tools/client-runtime/state/loom/controlBubble"; // loom: query threads
 import { splitDocumentQueryKickoff } from "@t3tools/shared/documentQuery.loom"; // loom: query threads
 import { LoomTimelineRow } from "../../loom/LoomTimelineRow";
 import { insertLoomTimelineRows, useLoomTimelineRows } from "../../loom/loomTimelineRows";

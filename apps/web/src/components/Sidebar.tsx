@@ -235,7 +235,7 @@ import {
   SidebarSectionPlaceholder,
 } from "./sidebar/SidebarListMarkers";
 // loom: 3d-3 — attention (inbox placement) and the Loom goal menu.
-import { loomAttentionOf } from "./Sidebar.logic.loom";
+import { rowAttentionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: 3d-3
 import { GoalFormDialogHost } from "../loom/GoalFormDialogHost";
 import { readLoomGoal } from "../loom/loomGoalState";
 import { showWithLoomGoalMenu, useLoomGoalActions } from "../loom/sidebarGoalActions";
@@ -549,7 +549,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const inbox = (thread: EnvironmentThreadShell, manuallyMoved = false) =>
     workingShelfEnabled &&
     (manuallyMoved ? isThreadWorking(thread) : inboxObservation.isWorking(thread)) &&
-    loomAttentionOf(thread) === null // loom: 3d-3 — a flagged thread stays in the inbox
+    rowAttentionOf(thread) === null // loom: 3d-3 — a flagged thread stays in the inbox
       ? working
       : active;
   const snoozed: EnvironmentThreadShell[] = [];
