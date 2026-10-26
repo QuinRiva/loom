@@ -29,7 +29,7 @@ const planPath = NodePath.resolve(process.cwd(), file);
 const planDir = NodePath.dirname(planPath);
 const source = NodeFS.readFileSync(planPath, "utf8");
 
-// DOM globals for mermaid.parse and the wireframe sanitiser dry-run.
+// DOM globals for the wireframe sanitiser dry-run.
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 for (const key of [
   "window",
