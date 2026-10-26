@@ -1,0 +1,154 @@
+---
+kicker: "Plan · one skill for writing skills and editing AGENTS.md, built on what measurably works · 23 Oct 2026"
+reader:
+  who: Carl, deciding whether to rebuild pi-craft's skill-authoring skill and the AGENTS.md editing policy, and which of the surveyed mechanisms to adopt
+  knows: today's two failures (the Vertex thread's bloated AGENTS.md addition; skills that exist but are not loaded) and that pi-craft already has a skill-authoring skill and a lesson inbox; has not read the survey
+  after_first_screen: that the rules we have are as good as anyone's and the gap is that drafting and judging are one act with nothing counted; which four mechanisms close it, and what they cost
+manager_sessions:
+  - id: 01a165e0-5654-747e-aadd-a34c2bfebd58
+    name: "Prompt trim: fresh-thread review"
+    role: plan
+    authored_at: 2026-10-23T02:11:23.656Z
+---
+
+# The rules we have are as strong as anyone's; what we lack is a separate judge and a number
+
+**Recommendation: rebuild `skill-authoring` as the one skill that fires before creating or editing a skill or an AGENTS.md, and make every such edit pass an independent reviewer with a veto and a before/after word count.** The survey of 17 sources (Anthropic's `skill-creator`, the agentskills.io guide, Lauren Tan's `pstack` at Cursor, Matt Pocock, Vercel, HumanLayer, Codex, Grok Build, and the 2026 research that still applies) found no wording rule we lack. Our line-earning test, drop-if-derivable rule and whole-file review are at least as strict as theirs. What they have and we do not is structural: the drafter never judges its own addition, the size change is visible at edit time, the skill that carries the rules fires on the edit, and skill firing is measured rather than assumed.
+
+Today's failure fits exactly. The Vertex thread had the skill available and the rule in front of it; it drafted and judged in one act, nothing counted the words, and no skill fired on "edit AGENTS.md" because ours triggers on writing a skill.
+
+**What you get:** an agent asked to add a fact to AGENTS.md produces a PR whose description shows `+N/−M words`, whose addition a separate reviewer has tested against the whole file's purpose with the power to reject it, and whose drafting followed a skill that loaded because the file was being edited. Skills that never fire become visible from session logs instead of from your frustration.
+
+**The bets:** that a reviewer briefed to veto will actually reject (pstack's data says it does when the rejection reasons are fixed and named), and that one pointer line in AGENTS.md is enough to make the skill load (Vercel: 44% to 95%+).
+
+**Cost:** one pi-craft goal (planner-preset author plus reviewer, about half a day of agent time), one loom commit, one researcher query. The trigger-eval runner is deferred until the telemetry says which skills need it.
+
+Scope: pi-craft's `skill-authoring` and `lesson-triage` skills, two lines in the global AGENTS.md, one loom overlay bullet. Not in scope: a trigger-eval harness for pi (deferred, see §5), any change to loom's tool descriptions. Done means the rebuilt skill ships in a pi-craft PR you merge, the loom bullet ships on `t3/prompt-review-restores`, and the Vertex-thread scenario re-run cold produces a reviewed, counted addition. The open decisions are in the form at the end; the one that is genuinely yours is whether our "negative constraints only" rule still holds (§4).
+
+## 1. Why the existing rules did not bind
+
+Three things were true at once in the Vertex thread, and each is a gap the survey names:
+
+- **Drafting and judging were one act.** The thread wrote the section, then assessed it against the file only when you challenged it. Every rigorous source separates the two: pstack's `/reflect` has a synthesiser that rejects proposals with fixed reasons ("already covered", "changes no decision"); Anthropic's `/revise-claude-md` and HumanLayer's `improve-claude-md` run as a distinct pass; and our own loom review gate exists for code but was not applied to instruction text.
+- **Nothing was counted.** pstack ships PRs that only delete text and report token counts; Claude Code warns past about 200 lines; Codex truncates at 32 KiB. We have a whole-file review rule but no number the drafter sees.
+- **The skill did not fire.** `skill-authoring` triggers on creating a skill; the task was editing AGENTS.md. Vercel measured this failure directly in January: a skill never invoked in 56% of cases scored the same as no docs; one line in AGENTS.md saying to use it raised invocation to 95% or more. Pocock's `writing-for-agents` is the only surveyed skill whose trigger is simply "modifying AGENTS.md".
+
+<Callout tone="info" title="What the survey did not find">
+  No source has a wording rule ours lacks. The line-earning test ("a line stays only if the model would get something wrong without it"), the guard-first routing in `lesson-triage`, the drop-if-derivable rule and the complete-review-per-PR rule are as strict as anything at Anthropic, Cursor or Vercel. The survey file with every quote, date and model generation is at `.artifacts/skill-authoring-survey.md`.
+</Callout>
+
+## 2. The rebuilt skill
+
+One skill, still named `skill-authoring` so nothing that points at it breaks, with its trigger widened and its body reorganised around the edit rather than the blank page.
+
+**Trigger (the whole header):** before creating or editing any skill, or editing any AGENTS.md or CLAUDE.md, including a one-line addition; and when a skill exists but is not being loaded.
+
+**Body, what it keeps:** where a skill lives per repo and how it deploys; the frontmatter pi drops; what a description must say (the complete trigger, nothing else); what a body line must earn.
+
+**Body, what it adds, each from a surveyed mechanism:**
+
+<Table
+  density="compact"
+  columns={["Addition", "Source", "What it changes in practice"]}
+  rows={[
+    ["Fixed rejection reasons for any proposed line: already covered; changes no decision; derivable from code or tool output; a rule, not a fact", "pstack /reflect synthesiser", "The drafter tests each line against four named reasons before the reviewer does"],
+    ["The addition is judged against the whole file's purpose, stated in one sentence at the top of the edit", "Our existing rule; HumanLayer improve-claude-md", "Makes the Vertex-thread omission a step the skill walks, not a thing to remember"],
+    ["+N/−M words in the PR description or recap, with the file's total", "pstack deletion PRs; Claude Code line warning", "The size change is visible to you and the reviewer at decision time"],
+    ["An independent reviewer with a veto, briefed with the four rejection reasons and the file's purpose", "pstack three-arm evals; our review gate", "Drafting and judging become two threads; in loom, a gated reviewer"],
+    ["Tripwire, not ban: a prohibition earns its place only on an action agents were seen taking, with the reason; a general ban is rejected", "Claude 5 guidance; pstack PR #633; Pocock", "Replaces the broad 'negative constraints only' heuristic, if you accept §4"],
+    ["A rule that was present and broke again is escalated to a guard or lint, not reworded", "pstack /correct rule-to-enforcer table; our lesson-triage route order", "Stops the second copy of a rule that already failed once"],
+    ["A skill that must fire gets one pointer line in AGENTS.md naming it", "Vercel, Jan 2026 measurement", "The cheap fix for the 56% never-invoked case"],
+  ]}
+/>
+
+**`lesson-triage` changes in step:** its synthesiser step adopts the same four rejection reasons, and its form rule ("a lesson that cannot be written as never X, because Y is usually a drop") is softened to the tripwire form if §4 is accepted.
+
+**The two AGENTS.md lines** (global file, via the same pi-craft PR, logged in `agents-md-history.md`): in the self-improvement section, "Load `skill-authoring` before editing this file or any skill; an edit ships as a PR showing +N/−M words, reviewed by a thread that did not draft it." If §4 is accepted, the "bias against adding rules" paragraph loses "only negative constraints and the rare specific-failure-mode rule earn their tokens" and gains the tripwire sentence.
+
+## 3. The loom side
+
+One bullet in `roles/orchestrator.md` already says text models read is authored by the orchestrator or on the planner preset. It gains the other half: "and reviewed by a gate briefed to veto: the four rejection reasons, the file's purpose, the word count." This is a sentence, on the restores branch, and it is what would have put a reviewer between the Vertex thread's draft and its PR. The `workstream-review-gate` skill in loom's `skills/` gets a short section for instruction-text reviews with that brief as a template, so an orchestrator does not write it from memory.
+
+## 4. The decision that is yours: does "negative constraints only" still hold?
+
+Our rule rests on the pi-craft option-b ablation (Opus 4.7 and GPT-5.5, May 2026, one run per cell on one task) and *Guardrails Beat Guidance* (Opus 4.6, April 2026). Three newer sources disagree with it as a general rule: Anthropic's Claude 5 guidance (July 2026) replaced "give Claude rules" with "let Claude use judgement"; pstack PR #633 (October 2026, 180 blinded runs on Opus 5.5, GPT-5.6 and Gemini 4) found an old ban made models delete a contract test in six of six runs; Pocock argues a prohibition makes the banned behaviour more salient.
+
+They reconcile: a narrow tripwire on an action agents were actually observed taking, with its reason, still earns its tokens; a general prohibition misfires. That is also what the option-b trial actually tested, since its negative rules were specific. The proposal is to rewrite the rule as the reconciliation rather than re-run the ablation now; the ablation can be re-run on the current tier if you want the number first.
+
+<Columns>
+  <Column label="Adopt the tripwire wording now">
+    One sentence changes in AGENTS.md and in lesson-triage. The newer evidence is on current models and has more runs than ours. Cost: nothing beyond the PR already proposed.
+  </Column>
+  <Column label="Re-run option-b on the current tier first">
+    A day of agent time; gives a number of our own on Fable/Opus 5.5. Worth it only if you would act differently on a small effect, since the external result is 6/6.
+  </Column>
+</Columns>
+
+## 5. Measurement, in two steps
+
+**Now, cheap:** a researcher queries loom's session logs for which skill files were ever read (a `read` call on a `SKILL.md` path), per skill, over the last 30 days, against the list of skills declared in those sessions' prompts. This is Claude Code's `/skill-doctor` done by hand once. It tells us which skills never fire before we build anything to fix firing.
+
+**Deferred:** the trigger-eval loop everyone serious runs (about 20 realistic queries, half near-misses that should not fire, three runs each, a 60/40 train/held-out split, up to five rewrites, winner on the held-out score) needs a pi runner that detects the SKILL.md read. `llm-instruction-change` already has the statistics. Build it only for the skills the telemetry shows are not firing; a skill that fires has no use for it.
+
+<Details summary="Change map">
+  <FileTree
+    title="Files that change (paths under ~)"
+    entries={[
+      { path: "pi-craft/plugins/pi-craft/skills/skill-authoring/SKILL.md", change: "modified", note: "trigger widened to editing skills and AGENTS.md; body reorganised around the edit; four rejection reasons, the count, the reviewer, tripwire-not-ban" },
+      { path: "pi-craft/plugins/pi-craft/skills/lesson-triage/SKILL.md", change: "modified", note: "same rejection reasons in the synthesiser step; form rule softened per §4" },
+      { path: ".pi/agent/AGENTS.md", change: "modified", note: "pointer line naming skill-authoring; tripwire sentence replaces the polarity sentence per §4" },
+      { path: "pi-craft/docs/agents-md-history.md", change: "modified", note: "the trigger logged" },
+      { path: ".t3/cockpit/worktrees/loom/t3-30ac1703/roles/orchestrator.md", change: "modified", note: "instruction text is reviewed by a gate briefed to veto" },
+      { path: ".t3/cockpit/worktrees/loom/t3-30ac1703/skills/workstream-review-gate/SKILL.md", change: "modified", note: "reviewer brief template for instruction-text changes" },
+    ]}
+  />
+</Details>
+
+## 6. Verification
+
+The smoke is the failure itself, re-run cold: a fresh thread is given the Vertex brief again (add "Gemini is callable through Vertex" and "ask before working around a missing tool" to the global AGENTS.md) with the rebuilt skill in place. Pass means: the skill loaded (visible in the session log as a read of its SKILL.md), the PR description carries +N/−M words, a separate reviewer thread recorded a verdict with at least one line tested against the four reasons, and the resulting addition is no longer than the version you accepted today after challenging it. The pi-craft PR also carries the skill's own before/after word count, and the frontmatter loads in pi's banner.
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "rebuild",
+      title: "Rebuild skill-authoring as the one skill for creating or editing skills and AGENTS.md, with the reviewer, the count and the pointer line?",
+      mode: "single",
+      options: [
+        { id: "yes", label: "Yes, as one skill, via a pi-craft goal", recommended: true, detail: "One trigger, one body; nothing that points at skill-authoring breaks." },
+        { id: "two", label: "Yes, but as two skills: one for skills, one for AGENTS.md", detail: "Cleaner triggers; two headers in every prompt instead of one." },
+        { id: "no", label: "No; leave the skill and rely on review alone", detail: "Keeps the firing problem; the reviewer catches bloat after it is drafted." },
+      ],
+    },
+    {
+      id: "polarity",
+      title: "The 'negative constraints only' rule (§4)",
+      mode: "single",
+      options: [
+        { id: "tripwire", label: "Rewrite it as the tripwire rule now", recommended: true, detail: "Newer, larger evidence on current models; one sentence in two files." },
+        { id: "retest", label: "Re-run the option-b ablation on the current tier first", detail: "A day of agent time for our own number." },
+        { id: "keep", label: "Keep it as written", detail: "Our trial stands; the external results are on other harnesses." },
+      ],
+    },
+    {
+      id: "telemetry",
+      title: "Run the skill-usage query over session logs now?",
+      mode: "single",
+      options: [
+        { id: "yes", label: "Yes, one researcher, read-only", recommended: true, detail: "Tells us which skills never fire before anything is built for firing." },
+        { id: "later", label: "After the skill ships", detail: "Avoids measuring a state about to change." },
+      ],
+    },
+    {
+      id: "loom",
+      title: "Add the reviewer-with-veto bullet to loom's orchestrator overlay on the restores branch?",
+      mode: "single",
+      options: [
+        { id: "yes", label: "Yes, with the brief template in workstream-review-gate", recommended: true, detail: "One sentence plus a template; ships with the restores branch." },
+        { id: "no", label: "No; the pi-craft skill is enough", detail: "Orchestrators then depend on loading the skill to know a gate is required." },
+      ],
+    },
+  ]}
+/>

@@ -1,0 +1,400 @@
+---
+kicker: "Audit · the ambient prompt of a loom orchestrator thread · self-review by the model that reads it · 22 Oct 2026"
+reader:
+  who: Carl, loom's owner, deciding which parts of the per-turn prompt to cut, shorten or rewrite, and which prescriptive rules are doing harm
+  knows: the sidecar prompt-debug capture (he has read it and suspects it is too long); the loom authoring doctrine only by name; has not seen the tool schemas, which the sidecar does not show
+  after_first_screen: roughly what a turn costs in fixed tokens, where the waste concentrates, which half-dozen rules are actively harmful, and that the cheapest cuts need no behavioural bet
+---
+
+# About a third of what I read every turn is a second or third copy of something I have already read, and six rules point me the wrong way
+
+**Fixed cost per request: about 30K tokens. The sidecar shows 19K of it (14,200 words); the other 11K is the 52 tool schemas, sent with every request and invisible in the capture.** Of twelve sections reviewed: three are worth keeping as they are, four should be trimmed, three rewritten, two cut. The pattern behind the waste is not "teaching the model to suck eggs" so much as **triple-statement**: a loom tool's contract is written once as its schema description, again as the one-line snippet in the tools block, and again as ambient guidelines in the rules block. The authoring doctrine prices the description as "selection-time" and the guideline as "ambient", but for the 52 resident tools both are sent on every turn, so the split that justifies the second copy does not hold. Egg-sucking is real but small: perhaps 1.5K tokens of "read: Read file contents" and "use session_search to find past sessions".
+
+The harmful rules are fewer and more specific than the waste: a rule that tells me to log consults in `progress.md` in a repo that forbids scratch files; a tool whose default output location the project then spends a paragraph telling me not to use; "do not investigate the approach yourself" on a thread whose assignment is a question; a surface checklist naming mobile and six providers in a pi-only fork; and three places where the file states upstream's rule and then its override, so I read a negation to arrive at nothing.
+
+If every recommendation lands: system prompt 19K to about 11K, schemas 11K to about 7K, so **roughly 30K to 18K per turn** at no behavioural bet I can identify. The figures are estimates at 1.35 tokens per word from one capture and a word count of the tool prose; the doctrine's own evidence bar (does the rule bind in real transcripts?) has not been run, and the two items that would benefit from it are marked.
+
+<Callout tone="success" title="Status after the first chunk (22 Oct)" focus>
+  Items A to E are resolved by PR #426 (merged `d3aef60640`): loom now supplies its own two-sentence preamble, so pi renders no tools, rules or docs sections at all, and every loom tool guideline was folded into its description first. Measured on a seeded instance: first-turn prompt 33.9k → 30.5k tokens, Sonnet submit 5/5, turns unchanged. The pi-craft half of item C (consult_manager and sign_document guidelines) is its own goal in the pi-craft project and will reach you as a PR. **Still open for your review: F, G, I, J, K** (H and L are keeps).
+</Callout>
+
+**Protocol:** an item left undecided takes its recommendation. Verdict words: *keep* (as is), *trim* (shorten, same content), *rewrite* (same purpose, different text), *cut* (remove from this surface).
+
+## 1. All sections
+
+<Table
+  filterable
+  density="compact"
+  columns={["Section", "Words", "Tokens (est.)", "Verdict", "What goes"]}
+  rows={[
+    ["A · tools snippet block", "877", "1.2K", { badge: { label: "done · PR #426", tone: "success" }, md: "" }, "section no longer rendered"],
+    ["B · rules: pi built-in edit rules", "150", "0.2K", { badge: { label: "done · PR #426", tone: "success" }, md: "" }, "section no longer rendered; pi's edit schema carries the contract"],
+    ["C · rules: pi-craft tool guidelines", "450", "0.6K", { badge: { label: "done in loom · pi-craft PR pending", tone: "success" }, md: "" }, "visual_explainer off the orchestrator role; guidelines fold in pi-craft"],
+    ["D · rules: loom tool guidelines", "1,895", "2.5K", { badge: { label: "done · PR #426", tone: "success" }, md: "" }, "folded into descriptions (+209 words), guidelines emptied"],
+    ["E · docs pointers", "141", "0.2K", { badge: { label: "moot · PR #426", tone: "neutral" }, md: "" }, "went with the docs section; add a one-line pointer to the preamble if wanted"],
+    ["F · addendum: work model and principles", "1,500", "2.0K", { badge: { label: "trim", tone: "info" }, md: "" }, "elaboration around facts I cannot infer"],
+    ["G · addendum: orchestrator overlay", "950", "1.3K", { badge: { label: "rewrite", tone: "warning" }, md: "" }, "one harmful rule, two conditional protocols, one staling absolute"],
+    ["H · global AGENTS.md", "900", "1.2K", { badge: { label: "keep", tone: "success" }, md: "" }, "nothing"],
+    ["I · loom AGENTS.md", "4,150", "5.6K", { badge: { label: "rewrite", tone: "warning" }, md: "" }, "contributor prose, stated-then-overridden rules, phantom surfaces"],
+    ["J · skills catalogue", "2,800", "3.8K", { badge: { label: "trim", tone: "info" }, md: "" }, "17 fathom-only skills, five descriptions that leak their body"],
+    ["K · tool schemas (not in sidecar)", "~8,500", "11K", { badge: { label: "rewrite", tone: "warning" }, md: "" }, "duplicated node params, descriptions that restate tool results"],
+    ["L · shipping policy and roles catalogue", "250", "0.3K", { badge: { label: "keep", tone: "success" }, md: "" }, "nothing"],
+  ]}
+/>
+
+Where the 30K goes, by surface and by who owns the text:
+
+<Table
+  density="compact"
+  columns={["Owner", "Surfaces", "Tokens (est.)", "Recoverable"]}
+  rows={[
+    ["loom (`apps/server/src/mcp/toolkits/workstream/`, `roles/`, `.t3code/`, `AGENTS.md`)", "A, D, G, I, K, L", "21.5K", "about 10K"],
+    ["pi-craft and pi-fathom plugins (Carl's)", "C, J, part of F", "4.5K", "about 2.5K"],
+    ["pi upstream base prompt", "B, E, part of A", "0.6K", "0.2K, via a custom base prompt"],
+    ["global AGENTS.md", "H", "1.2K", "0"],
+  ]}
+/>
+
+## 2. The sections
+
+<Card id="item-a" eyebrow="A · tools snippet block" heading="Should the tools block keep a one-line snippet per loom tool when the full schema is in the same request?" tone="risk" badge="cut" meta={["877 words", "saves ~0.9K tokens", "owner: loom prose.ts + pi base"]}>
+
+**No. Replace each loom snippet with the bare name or at most five words.** The block exists because pi's base prompt lists "snippet-bearing tools"; loom fills `promptSnippet` for all 25 of its tools (567 words), and each snippet is a compression of a description I have already been sent in the tools array. The pi built-in lines are pure egg: "read: Read file contents", "write: Create or overwrite files".
+
+<Table
+  density="compact"
+  columns={["Fact", "Value", "Source"]}
+  rows={[
+    ["loom snippets", "567 words across 25 tools", "`prose.ts` word count, this review"],
+    ["pi built-in lines", "~25 lines, ~150 words", "the capture"],
+    ["same contract elsewhere", "description (4,139 words) and guidelines (1,895 words)", "`prose.ts`"],
+    ["what the doctrine says the snippet is for", "the system prompt's 'Available tools' line", "`docs/architecture/tool-def-authoring.md` line 33"],
+  ]}
+/>
+
+> "the one-line prompt snippet for the system prompt's 'Available tools' line" (`prose.ts` header comment)
+
+The one thing a snippet list does that the schemas do not is give me an index when there are 52 tools. A name-only index does that. The change: set each `promptSnippet` to a short noun phrase ("spawn a child thread", "submit your report") and let pi render the shorter list. If nothing is decided, 0.9K tokens a turn continue to say what the next block says.
+
+<Details summary="The three copies of one tool, side by side (workstream_submit)">
+
+Schema description, 250 words: "THE single terminal call for a T3 Code Workstream sub-thread: submit your markdown report plus a structured outcome, and the control plane derives what happens next…"
+
+Snippet, 30 words: "submit your report + outcome in one terminal call: plain completion → done; 'needs_human' → human flag; any other outcome → routed, with unmatched non-rework outcomes yielding to your orchestrator."
+
+Guidelines: none, by design (the description is the contract of record). This tool is the model the others should follow.
+
+</Details>
+
+<ReviewChoice itemId="a" label="A · tools snippet block" placeholder="Why, if rejecting…" />
+</Card>
+
+<Card id="item-b" eyebrow="B · pi built-in edit rules" heading="Which of pi's eight editing rules would I get wrong without them?" tone="info" badge="trim" meta={["150 words", "saves ~0.15K tokens", "owner: pi base prompt (loom can override)"]}>
+
+**Two: the edit-tool contracts.** "Each oldText is matched against the original file, not after earlier edits" and "do not emit overlapping edits" describe a non-obvious semantics of one tool. The rest are egg-sucking ("Use write only for new files"), and one pair contradicts a later rule: pi says "Use bash for file operations like ls, rg, find", then the pi-craft guidelines say "Use fd as the primary tool… instead of bash with find" and "Use rg instead of bash with grep". I resolve that by ignoring both, which is what any rule read as noise costs.
+
+The capture records "Custom base prompt: no (pi built-in base)", so loom could supply its own base and drop the six. Small saving, but the contradiction is worth removing on its own: a rule I have learned to ignore teaches me that the rules block is ignorable.
+
+If nothing is decided: nothing breaks; the contradiction stays.
+
+<ReviewChoice itemId="b" label="B · pi built-in edit rules" placeholder="Why, if rejecting…" />
+</Card>
+
+<Card id="item-c" eyebrow="C · pi-craft tool guidelines" heading="Do the 24 guideline bullets from pi-craft tools earn their place, and are two of them harmful here?" tone="risk" badge="cut most; two are harmful" meta={["450 words", "saves ~0.5K tokens", "owner: pi-craft extensions"]}>
+
+**Cut the fd, rg, session_search and knowledge_search bullets (13 of 24) outright; remove `visual_explainer` and its four rules from the loom tool profile; rewrite `consult_manager`'s five.** The search-tool bullets are the clearest egg in the prompt: "Use session_search to find past coding sessions relevant to the current task (e.g. 'when did we refactor the auth module')". Each tool's schema already says this.
+
+Two are harmful in a loom worktree:
+
+<Table
+  density="compact"
+  columns={["Rule", "Why it harms here", "Evidence"]}
+  rows={[
+    {
+      tone: "risk",
+      cells: [
+        "\"Record every consult in progress.md (or the project decision log) including the manager's confidence level\"",
+        "Directs me to create a scratch file in a repo whose AGENTS.md says \"Do not commit implementation plans, research notes, or agent scratch files\". No `progress.md` convention exists in loom.",
+        "rules block, consult_manager bullet 7; loom AGENTS.md, Plans and work artifacts",
+      ],
+    },
+    {
+      tone: "risk",
+      cells: [
+        "The four `visual_explainer` rules (\"ask before calling prepare\", \"pass a basename because it writes under ~/.agent/diagrams/\")",
+        "In loom the tool's default output cannot be rendered in-app, so the project AGENTS.md spends ~80 words telling me not to use the tool as designed. A tool that needs a paragraph of counter-instruction is a trap, not a capability; the MDX genres replaced it.",
+        "loom AGENTS.md, HTML artefacts: \"the visual_explainer tool's ~/.agent/diagrams/ default cannot be rendered in-app\"",
+      ],
+    },
+  ]}
+/>
+
+`consult_manager` and `sign_document` describe a real mechanism (signed documents whose author can be consulted) that overlaps with `consult_thread` inside a workstream. Keep the two bullets that say *when* (meaningful decisions only; not syntax or naming) and drop the five that narrate the parameters. The change lives in pi-craft's extension registrations, not in loom.
+
+If nothing is decided: the `progress.md` rule stays live, and the next agent that follows it literally commits a file the project forbids.
+
+<ReviewChoice itemId="c" label="C · pi-craft tool guidelines" placeholder="Why, if rejecting…" />
+</Card>
+
+<Card id="item-d" eyebrow="D · loom tool guidelines" heading="Should 25 resident tools carry ambient guidelines that restate their own descriptions?" tone="warning" badge="rewrite under the doctrine's own test" meta={["1,895 words", "saves ~1.5–2K tokens", "owner: loom prose.ts"]}>
+
+**No. Keep a guideline only when it states a duty after the call returns that the description does not carry; by that test about six of 31 bullets survive.** The doctrine already states the test; the text does not meet it. The premise that made the second copy cheap is also false for these tools:
+
+> "`promptGuidelines` · System prompt, 'Guidelines' bullets · Ambient, every turn" versus the description "shows at selection time" (`tool-def-authoring.md` lines 33 and 71)
+
+For a resident tool the description is sent on every request too, so both copies are ambient. The selection-time framing is only true for *deferred* tools reached through `tool_search`, and those are the ones with no guidelines in context at all.
+
+<Table
+  density="compact"
+  columns={["Tool", "Guideline words", "What the guideline adds beyond the description"]}
+  rows={[
+    ["goal_tasks_rewrite", "236", "nothing: the description already carries the id-retention, deletion and anchor rules; 'You never pass a goalId' appears five times across the goal tools"],
+    ["goal_continue", "171", "one duty (bring the goal up to date before handing off); the rest restates"],
+    ["workstream_scaffold", "158", "nothing; the brief-in-topological-order rule is in both"],
+    ["ask_user_question", "145", "genuine content (the user has read none of this thread; no internal shorthand), but it binds at call time, so it belongs in the parameter description, once"],
+    ["workstream_spawn", "120", "the shared-worktree collision rule, which the addendum also carries"],
+    ["workstream_submit, set_outcome, request_attention, list, bg_wait", "0", "the pattern the others should follow"],
+  ]}
+/>
+
+The change: for each tool, delete every guideline sentence whose content is in the description; move call-time duties into the parameter they govern; keep after-call duties ("a yielded child is not done; re-drive the reviewer") where the schema has lost salience. If nothing is decided, 2.5K tokens a turn repeat 4K tokens I read in the same request.
+
+<ReviewChoice itemId="d" label="D · loom tool guidelines" placeholder="Why, if rejecting…" />
+</Card>
+
+<Card id="item-e" eyebrow="E · docs pointers" heading="Keep the pi documentation pointers?" tone="success" badge="keep" meta={["141 words", "0.2K tokens"]}>
+
+**Yes.** Conditional ("read only when the user asks about the cli itself"), cheap, and the paths are not inferable. Could be two lines, not worth a change.
+
+<ReviewChoice itemId="e" label="E · docs pointers" />
+</Card>
+
+<Card id="item-f" eyebrow="F · work model and principles" heading="Which of the addendum's 1,500 words tell me something I could not infer?" tone="info" badge="trim by ~40%" meta={["1,500 words", "saves ~0.8K tokens", "owner: loom prose.ts WORK_MODEL_ADDENDUM"]}>
+
+**The facts, which are about a third of it; the elaboration around them is inferable.** The addendum is the best-written block in the prompt and most of its content is genuinely non-inferable. The cost is in how long each fact takes to state.
+
+<Table
+  density="compact"
+  columns={["Paragraph", "Words", "Non-inferable core", "Verdict"]}
+  rows={[
+    ["Goals, tasks, workstream", "250", "a child inherits none of the parent's conversation; dependencies are edges; the graph is expected to be amended", { badge: "trim", md: "to ~100" }],
+    ["Who wrote a message decides its weight", "200", "the labelling convention, the slash-command exception, `Loom-Thread:` trailers, human-vs-human conflicts", { badge: "keep", md: "dense but every clause binds" }],
+    ["Claims about the human's intent are sourced", "90", "all of it; a correction-born rule against a real failure", { badge: "keep", md: "" }],
+    ["Work at your level", "250", "a sub-phase may be delegated when its pages would outlive their use in your context", { badge: "trim", md: "the three-condition test and worked examples are inferable from that one sentence" }],
+    ["Status describes the plan; runtime is the truth", "60", "none I can act on; it says signals exist and to verify them", { badge: "cut", md: "" }],
+    ["Your worktree is your workspace", "200", "no per-child branch; never switch branch, stash or reset while a child is active; a brief that needs another worktree is a brief error", { badge: "trim", md: "to ~80" }],
+    ["File references", "80", "the client's rendering contract (absolute path in inline code; thread link form)", { badge: "keep", md: "" }],
+    ["Search your worktree", "200", "the roots above are vast; a guard bounds searches; brief paths are authoritative", { badge: "trim", md: "a guard exists, so two lines suffice" }],
+    ["Setup may still be running", "110", "the breadcrumb path and its three states", { badge: "trim", md: "to ~50" }],
+  ]}
+/>
+
+If nothing is decided: nothing breaks. The cost is dilution: the two rules in this block that matter most (message weight, shared worktree) sit inside 1,500 words.
+
+<ReviewChoice itemId="f" label="F · work model and principles" placeholder="Why, if rejecting…" />
+</Card>
+
+<Card id="item-g" eyebrow="G · orchestrator overlay" heading="Which orchestrator bullets are over-prescriptive enough to produce a worse outcome?" tone="warning" badge="rewrite four, keep the rest" meta={["950 words", "saves ~0.4K tokens", "owner: roles/orchestrator.md + .t3code/roles/", "needs Carl on one"]}>
+
+**Four of about twenty.** The overlay's judgement doctrine is good and I would keep it: put decisions to the human and never mistakes; a child's acceptance hold is a human hold; before briefing a defect fix, establish it still happens; judge a hand-back by the work it leaves the human. These are the rules I actually consult. The four below either push the wrong way or sit on the wrong surface.
+
+<Table
+  density="compact"
+  columns={["Bullet", "Problem", "Rewrite"]}
+  rows={[
+    {
+      tone: "risk",
+      cells: [
+        "\"Orient yourself; do not investigate the approach yourself.\" plus \"Delegate substantial implementation, investigation and review unless asked to do it yourself\"",
+        "On a question-shaped assignment (this one) the investigation *is* the answer, and a child would have less context than I do. Followed literally it spawns a planner for a ten-minute question and pays a cold start plus a round trip. I departed from it today.",
+        "a cost test: delegate an investigation when what comes back is an artefact and its pages would outlive their use in your context; answer it yourself when the context it needs is already yours",
+      ],
+    },
+    {
+      tone: "warning",
+      cells: [
+        "\"Text that models will read… is authored only by a top-tier model: write it yourself or use modelPreset: planner; Opus-level children may research and review it, never author it.\"",
+        "An absolute tied to a model tier that the monthly platform update rolls forward; it will be wrong the first month the tiers shift. I cannot tell whether this is Carl's stated decision or an agent's inference, and the overlay does not say.",
+        "if Carl's: keep the rule, name the preset only (not the tier), and mark it as his decision; if an agent's: soften to a preference",
+      ],
+    },
+    {
+      tone: "warning",
+      cells: [
+        "\"For shared-corpus assessments, use acknowledge-then-fork…\"",
+        "Conditional protocol living ambiently: it binds on perhaps one orchestrator thread in twenty. The doctrine's principle 2 says this goes to a skill with a two-line trigger.",
+        "two-line trigger here; the procedure in a skill",
+      ],
+    },
+    {
+      tone: "warning",
+      cells: [
+        "\"Gate recovery: dissolve a gate by marking the reviewer done… If a mid-rework coder goes quiet… A coder-side yield stops automation…\"",
+        "Binds only at a moment the control plane creates (a gate yield). The doctrine says that moment's notice is the only just-in-time surface; this is paid every turn against the one turn it applies.",
+        "move to the yield notice; leave one line here",
+      ],
+    },
+  ]}
+/>
+
+> "If a bullet begins (or honestly should begin) with 'when your brief asks…', 'when you are inside a gate…', it is conditional protocol masquerading as doctrine." (`prompt-surface-authoring.md`, role overlay principle 2)
+
+Also triple-stated: shipping. The overlay bullet, the SHIPPING POLICY block and the AGENTS.md section all say ship via `pnpm ship` after approval. Keep the policy block (it is the authority boundary and is per-project) and the `.t3code/roles` line that names the skill; the rest can go.
+
+If nothing is decided: the "do not investigate" rule keeps producing spawns where a thought would do, which costs more than the tokens this card saves.
+
+<ReviewChoice itemId="g" label="G · orchestrator overlay" placeholder="Why, if rejecting…" />
+</Card>
+
+<Card id="item-h" eyebrow="H · global AGENTS.md" heading="Keep Carl's global rules as they are?" tone="success" badge="keep" meta={["900 words", "1.2K tokens"]}>
+
+**Yes.** Every section is either a negative constraint I would not infer (no backwards compatibility in prototypes, tests are rare, automated review is a claim) or a preference about Carl specifically (how to explain an issue, Australian English, no em-dashes). This is the shape the file's own last paragraph argues for, and it follows it. The one Python-flavoured line ("a `run.py` you can invoke via `python -m`") reads oddly in a TypeScript repo and is harmless.
+
+<ReviewChoice itemId="h" label="H · global AGENTS.md" />
+</Card>
+
+<Card id="item-i" eyebrow="I · loom AGENTS.md" heading="Should loom's AGENTS.md keep upstream's contributor prose and the rules it then overrides?" tone="warning" badge="rewrite: ~1,500 words out" meta={["4,150 words", "saves ~2K tokens", "owner: loom AGENTS.md", "largest single block"]}>
+
+**No. Delete the contributor-facing sections, delete each upstream rule the loom section overrides rather than stating both, and rewrite the surface checklist for the surfaces loom actually has.** This is the biggest block in the prompt and the one with the most text written for a different reader (a human contributor to upstream T3 Code).
+
+Written for humans, not agents (about 700 words):
+
+<Table
+  density="compact"
+  columns={["Section", "Words", "Agent-relevant residue"]}
+  rows={[
+    ["What makes T3 Code special (four points)", "~300", "performance, remote, multi-surface are constraints; 'Hit every surface' already carries them"],
+    ["A note from Theo", "~100", "'fight scope creep; smallest model that makes correct behaviour unsurprising' is good, and the global AGENTS.md says it"],
+    ["A small glossary", "~200", "'you means the agent reading this file' is the purest egg in the prompt; the five domain terms (environment, project, thread, turn, T3 home) are worth five lines"],
+    ["Of note: most contributions come from T3 Code itself", "~40", "keep: it is the reason for rule 1 of the three ways to hurt yourself"],
+  ]}
+/>
+
+Stated, then overridden (each pair costs twice and I read a negation to reach the rule):
+
+<Table
+  density="compact"
+  columns={["Upstream rule, kept in the file", "Loom's override, also in the file"]}
+  rows={[
+    ["\"Do not run repo-wide checks. No vp check… CI owns the full suite.\"", "\"vp check and vp run typecheck must pass… This supersedes upstream's 'Do not run repo-wide checks' bullet\""],
+    ["\"Never make a PR unless the developer explicitly asks you to do so.\"", "a 60-word paragraph explaining in which sense that is superseded and in which sense it is not"],
+    ["\"Providers: Codex, Claude, Cursor, Grok, OpenCode, and Antigravity each have an adapter. Provider-shaped features need a decision per adapter\"", "\"Loom is a Pi-first fork… the driver registry deliberately ships pi only\""],
+  ]}
+/>
+
+Phantom surfaces: "Hit every surface" asks me to walk web, desktop, **mobile**, six providers, and local, remote and tunnel connection modes before calling frontend work done. In a pi-only fork I either write "mobile: not applicable" ceremony or, worse, touch mobile code that nobody builds here. *My assumption:* loom does not ship the mobile app; if it does, this row is wrong and the list stands.
+
+Keep in full: the three ways to hurt yourself, database migrations, shipping, UI state tiers, live verification, dev servers, test data, the loom-hunk convention, never `git stash`. These are traps and environment facts; they are the reason the file exists.
+
+The trade-off: AGENTS.md is a fork file with marked loom hunks, so deleting upstream sentences adds textual conflicts at the next upstream pull. They are small and the file already diverges around every override.
+
+If nothing is decided: 5.6K tokens a turn, a third of them for a reader who is not me.
+
+<ReviewChoice itemId="i" label="I · loom AGENTS.md" placeholder="Why, if rejecting…" />
+</Card>
+
+<Card id="item-j" eyebrow="J · skills catalogue" heading="Should a loom thread carry the headers of 17 fathom-platform skills, and should five headers be a quarter of their body?" tone="info" badge="trim: scope by project, cap descriptions" meta={["2,800 words", "saves ~2K tokens", "owner: pi-fathom plugin, individual SKILL.md files"]}>
+
+**No and no.** 39 skills are listed; 17 belong to fathom-platform (jira, query-exlake, langfuse-trace, prod-release, start-tracked-work, finish-tracked-work, work-hygiene-sweep, browse-frontend, gcp-auth-gap, share-files, convene-group, ensure-worktree-ready, evaluate-implementation, llm-instruction-change-fathom, pr-review, report-latent-issue, workbench). They reach a loom worktree because pi-fathom is a global plugin. About 1,400 words, none of which can fire here.
+
+Headers that leak body (the doctrine: "the header is the whole ambient budget; it must carry the complete trigger and nothing else"):
+
+<Table
+  density="compact"
+  columns={["Skill", "Description words", "What the trigger needs"]}
+  rows={[
+    ["langfuse-trace", "~130", "'the user shares a Langfuse URL or a pipeline run failed without error text': 20 words; the project-selection warning is body"],
+    ["llm-instruction-change", "~110", "'before editing any text an LLM reads, including renames': 25 words; the list of surfaces is body"],
+    ["browse-frontend", "~100", "'view the Unseen web app as an agent': the login-flow warning is body"],
+    ["platform-update", "~95", "'Carl says run the platform update': the procedure summary is body"],
+    ["work-hygiene-sweep", "~100", "'the scheduled task fires or Carl asks for the sweep'"],
+  ]}
+/>
+
+Not a duplicate after all (Carl: "MDX is the *normal* approach for presenting info to me, but if the info is *very* complex, I might request a HTML file, because it has much higher fidelity"): the `visual-explainer` skill stays as the HTML-authoring trigger; only its `visual_explainer` tool left the orchestrator role in PR #426, and the skill writes with the ordinary write tool into `.artifacts/` as loom's AGENTS.md asks.
+
+How the 17 fathom skills got here: pi-fathom was split from pi-craft for privacy (private endpoints, Jira, GCS), not scope, and both are declared globally in `~/.pi/agent/settings.json`. pi supports project-local package declarations (`.pi/settings.json`, after project trust), which is the fix; handed off as its own goal in the pi-fathom project.
+
+The change: pi-fathom's skills gated to fathom worktrees (project-local skills, or a cwd test in the plugin); five descriptions cut to their trigger. If nothing is decided: 3.8K tokens a turn, half of it for a codebase I am not in.
+
+<ReviewChoice itemId="j" label="J · skills catalogue" placeholder="Why, if rejecting…" />
+</Card>
+
+<Card id="item-k" eyebrow="K · tool schemas" heading="Is the 11K tokens the sidecar does not show the biggest single lever?" tone="warning" badge="rewrite under a budget" meta={["~8,500 words", "saves ~4–5K tokens", "owner: loom prose.ts + defs.ts", "needs the sidecar to render it"]}>
+
+**Yes.** The 52 schemas (names, descriptions, every parameter's description) are sent with every request. The 25 loom tools alone are 4,139 words of description plus parameter prose; the seven pull-request tools and twenty pi and pi-craft tools add perhaps 2,000 more.
+
+<Table
+  density="compact"
+  columns={["Observation", "Cost", "Change"]}
+  rows={[
+    ["`workstream_spawn` and `workstream_scaffold` each carry the same ~13 node parameters with full descriptions (brief alone is ~180 words, anchorTaskId ~70, role ~50)", "the node contract paid twice, ~1,300 words", "scaffold's node item references spawn's contract in one line; or the brief contract lives in `workstream_brief` only"],
+    ["Descriptions narrate what the tool result will say ('The tool result echoes the routing decision: read it', 'the result says whether it started, steered or queued')", "~15% of the longest descriptions", "cut; the result does say it"],
+    ["Five descriptions over 230 words (spawn 325, prompt 349, request_attention 302, notify 252, submit 250)", "these five are 1,480 words", "cap at ~120; the protocol detail goes to the existing `workstream-review-gate` skill"],
+    ["The sidecar does not render this surface", "Carl reviewed 19K believing it was the whole", "the prompt-debug capture should append the tools array as sent"],
+  ]}
+/>
+
+The doctrine's description-versus-guideline split (item D) matters most here: once the description is understood as ambient, the instinct "put it in the description, that is the cheap surface" is wrong for resident tools, and the only cheap surface is a skill body or the parameter that the sentence governs.
+
+If nothing is decided: the largest block in the request stays invisible to the person auditing it.
+
+<ReviewChoice itemId="k" label="K · tool schemas" placeholder="Why, if rejecting…" />
+</Card>
+
+<Card id="item-l" eyebrow="L · shipping policy and roles catalogue" heading="Keep the policy block and the one-line-per-role catalogue?" tone="success" badge="keep" meta={["250 words", "0.3K tokens"]}>
+
+**Yes.** The policy block is the authority boundary (agent may merge, only via the guarded ship procedure) and is per-project; it must be on a guaranteed surface. The roles catalogue is the one line per role a spawner needs to choose. Both are already the shape the doctrine asks for.
+
+<ReviewChoice itemId="l" label="L · shipping policy and roles catalogue" />
+</Card>
+
+## 3. The rules that point the wrong way, in one place
+
+The second half of the question was whether any of this is over-prescriptive to the point of harm. Six, in order of how often they bite:
+
+1. **"Do not investigate the approach yourself"** (G). Bites on every question-shaped root assignment; produces a cold-start spawn where a thought would do.
+2. **Stated-then-overridden rules** (I). Bite on every turn as noise; on a bad turn I follow the upstream half ("CI owns the full suite") and skip `vp check`.
+3. **"Hit every surface" naming mobile and six providers** (I). Bites on every frontend change: ceremony at best, edits to unbuilt code at worst.
+4. **"Record every consult in progress.md"** (C). Bites rarely (consult_manager is rare in a workstream) but the outcome is a committed scratch file the project forbids.
+5. **`visual_explainer` with its `~/.agent/diagrams/` default** (C). Bites whenever a human asks for a diagram: the tool writes somewhere the app cannot show, and the fix is a paragraph of counter-instruction.
+6. **"authored only by a top-tier model… never author it"** (G). Does not bite yet; will the month the tiers roll and the absolute refers to the wrong model.
+
+Not harmful, despite looking prescriptive: "substantial coders need review gates" (the same bullet exempts mechanical edits), "never `git stash`" (a real shared-`.git` hazard), "pass test paths directly, never after `--`" (a real trap), and the bash-sleep rule (bg_start exists for the reason it gives).
+
+## 4. What this review did not do
+
+- It did not run the doctrine's evidence bar: mining transcripts to see whether a rule ever changed behaviour. Items D and G would be sharpened by it; the rest are structural (duplication, wrong reader, wrong surface) and do not need it.
+- It did not size the other roles' prompts. A coder's overlay is 500 words, a reviewer's 1,040, so items F, I, J and K cost every role about the same and item G is orchestrator-only.
+- Token figures are 1.35 tokens per word on one capture plus a word count of `prose.ts`; treat them as ±20%.
+
+## 5. Open question
+
+<QuestionForm
+  questions={[
+    {
+      id: "evidence",
+      title: "Run the evidence pass before editing?",
+      subtitle: "A researcher would sample real transcripts for whether the flagged rules ever bound, and size the prompt per role across the ~1,100 prompt-debug captures.",
+      mode: "single",
+      options: [
+        {
+          id: "structural-first",
+          label: "Land the structural cuts now (A, C, I, J, K duplication); run the evidence pass only for D and G",
+          recommended: true,
+          detail: "Duplication and wrong-reader text need no behavioural evidence; the two judgement items get it.",
+        },
+        {
+          id: "evidence-first",
+          label: "Run the full evidence pass first, then decide every item",
+          detail: "Slower by a few hours; defensible against the doctrine's own validation bar on every line.",
+        },
+        {
+          id: "no-evidence",
+          label: "Edit from this review alone",
+          detail: "Fastest; D and G then rest on one model's self-report.",
+        },
+      ],
+    },
+  ]}
+/>

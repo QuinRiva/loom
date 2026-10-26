@@ -1,0 +1,802 @@
+---
+kicker: "Audit item K · the loom tool schemas rewritten · 25 tools, before and after · 2026-10-22"
+reader:
+  who: Carl, deciding tool by tool whether a cut lost something he wants back
+  knows: the K rules (K0), the spawn/scaffold dedupe (K1), the two approved samples (K2 prompt, K3 request_attention), and that the schema is each tool's only model-read surface
+  after_first_screen: the before/after totals, which six tools carried the largest judgement calls, and that every other card is the register applied with nothing he has not already approved
+---
+
+# The 25 loom tool schemas went from 4,348 to 1,745 description words and 2,843 to 1,764 parameter words, about 13,400 to 7,900 tokens a request (serialised chars ÷ 4)
+
+**Measured as pi serialises them (name, description, parameters): 53,513 → 31,447 characters, 41 percent less; descriptions 60 percent shorter, parameter text 38 percent shorter.** Every description was rewritten to K0 (what it does; the consequences the caller acts on; the better tool by name), the two samples are in verbatim, scaffold's twelve node fields now point at the spawn's (K1), the brief contract lives once on `workstream_brief`'s `markdown`, and the prompt-debug sidecar now ends with the declared tools array and a word count per tool (K5). Each deleted sentence was checked against the handler: either the result or error reports it, or the caller acts on nothing about it.
+
+**Six cards are judgement calls, marked in amber; read those first.** `workstream_submit` (the routing table stays, and one claim was wrong about the code), `workstream_set_outcome` (outcome semantics moved to the parameter alone), `notify_thread` (the NOT list is gone, the cap stays as a clause), `workstream_spawn` and `workstream_scaffold` (the model-precedence paragraph went, the dedupe landed), and `goal_update` (a fact the handler enforces that the old text never said). The other nineteen are the register applied; a glance at the "dropped" line on each is enough.
+
+Three descriptions were wrong or silent about what the code does, and were fixed to the code: `workstream_submit` said only unmatched tokens route back to the reviewer in a rework round, but every outcome except 'needs_human' does, 'done' included; `goal_update` never said that only the goal's owner may call it (a child or an anchored thread is refused); `workstream_spawn`'s `brief` never said that, omitted, the purpose becomes the brief.
+
+**Protocol:** an item left undecided takes its rewrite as written.
+
+## 1. Per tool
+
+<Table
+  filterable
+  density="compact"
+  columns={["Tool", "Desc before", "Desc after", "Params before", "Params after", "Chars before", "Chars after", "Kind"]}
+  rows={[
+    ["workstream_spawn", "325", "76", "713", "404", "7,820", "4,473", "judgement call"],
+    ["workstream_scaffold", "233", "85", "605", "123", "6,833", "3,030", "judgement call"],
+    ["workstream_brief", "138", "53", "191", "156", "2,239", "1,466", "register"],
+    ["workstream_submit", "250", "124", "180", "120", "3,262", "2,130", "judgement call"],
+    ["workstream_set_outcome", "230", "50", "38", "38", "1,945", "882", "judgement call"],
+    ["workstream_prompt", "349", "86", "63", "45", "2,688", "1,031", "register"],
+    ["workstream_request_attention", "302", "101", "27", "9", "2,238", "949", "register"],
+    ["notify_thread", "269", "70", "66", "53", "2,455", "1,043", "judgement call"],
+    ["consult_thread", "197", "72", "62", "46", "1,837", "982", "register"],
+    ["goal_tasks_rewrite", "193", "95", "109", "113", "2,042", "1,442", "register"],
+    ["goal_handoff", "162", "78", "122", "113", "2,262", "1,676", "register"],
+    ["goal_continue", "170", "91", "75", "63", "1,789", "1,197", "register"],
+    ["snooze_thread", "205", "70", "45", "34", "1,631", "806", "register"],
+    ["goal_task_add", "160", "65", "84", "65", "1,651", "1,040", "register"],
+    ["goal_task_list", "156", "64", "20", "16", "1,191", "646", "register"],
+    ["goal_task_update", "122", "61", "46", "32", "1,222", "816", "register"],
+    ["thread_fork", "113", "62", "39", "32", "1,167", "792", "register"],
+    ["workstream_set_dependencies", "75", "39", "27", "23", "880", "633", "register"],
+    ["set_thread_title", "76", "24", "8", "3", "685", "362", "register"],
+    ["workstream_stop", "71", "25", "8", "4", "653", "375", "register"],
+    ["workstream_list", "61", "45", "12", "11", "681", "562", "register"],
+    ["goal_update", "52", "24", "7", "5", "669", "496", "judgement call"],
+    ["ask_user_question", "123", "95", "175", "147", "2,778", "2,438", "register"],
+    ["bg_start", "214", "116", "86", "82", "1,917", "1,377", "register"],
+    ["bg_wait", "102", "74", "35", "27", "978", "803", "register"],
+  ]}
+/>
+
+## 2. The cards
+
+Each card's heading is the "dropped" line: what went and why. The parameter lists show every field description as sent, in schema order.
+
+<Card id="k01" eyebrow="k01 · judgement call" heading="workstream_spawn: description 325 → 76 words, parameters 713 → 404" tone="warning" badge="7,820 → 4,473 chars">
+
+Dropped: the three-field explanation (each field carries its own), the gate recipe (on `gate`), the model-precedence paragraph and 'never pick a model by name' (the escape-hatch parameters now say what they override), the fall-through warning (the result reports it). Added on `brief`: an omitted brief makes the purpose the brief, which the handler does and the text never said.
+
+<Columns>
+  <Column label="Before (1038 words)">
+    Spawn a T3 Code Workstream sub-thread as a child of the current thread. Identify the work with three distinct fields: a role, a short title (the card's name — roughly ≤6 words, leading with the distinguishing subject rather than a verb every sibling shares), and a purpose (1-3 sentences, shown on the sidebar card as the thread's 'Goal') that states the value the work delivers — the capability, fix, or decision it produces, NOT the role or the mechanical steps. Put the full instructions in brief instead. The child runs in THIS thread's worktree: every child shares its parent's checkout and has no branch of its own, so what you commit is visible to it at once and paths you give it are valid as written. A child with no dependencies starts working immediately. A child given blockedBy stays un-started until every dependency thread reaches outcome 'done', then starts automatically. To gate work, spawn the dependency first, then spawn the dependent with gate: \{ rework: thatChildThreadId \}; gate.rework is automatically added to blockedBy. Model choice: for most spawns, pass NO model fields — the child takes a preset matching its role, or inherits this thread's model. Only when the task clearly matches one of three shapes should you pass taskShape ('explore' / 'thorough' / 'mechanical'), a single token the server resolves to a concrete model (never pick a model by name). modelSelection / modelPreset are escape hatches for the rare case you genuinely need a specific model. Full precedence: explicit modelSelection > modelPreset > taskShape > role preset > inherit this thread's model. A valid taskShape on a server with no matching profiles simply falls through to the role preset/inherit with a warning (never an error). For laying out a MULTI-NODE graph, prefer mcp__t3-code__workstream_scaffold + mcp__t3-code__workstream_brief: scaffold defines the whole topology by symbolic key in one cheap call, then briefs are written just-in-time. mcp__t3-code__workstream_spawn is the one-node shortcut (scaffold-one-node + brief in a single call).
+
+    Parameters:
+
+    - `role`: The child's role: one of the built-in roles orchestrator, planner, coder, reviewer, researcher, assessor or shipper; a role the project adds under `.t3code/roles/`; or free text when none fits. Required for a normal spawn; OMIT it when forkFrom is set (a fork inherits the source's role, and passing role with forkFrom is rejected).
+    - `title`: Short label naming the work at a glance, the card's bold name, roughly ≤6 words. Lead with the distinguishing subject rather than a verb shared by every sibling: 'Receipt-dedup merge', not 'Implement receipt-dedup merge'.
+    - `purpose`: Short (1-3 sentence) summary shown on the sidebar card as the thread's 'Goal'. State the value the work delivers — the capability, fix, or decision it produces — not the role or the mechanical steps.
+    - `blockedBy`: Threads this child waits on; it does not start until every listed thread's outcome is 'done'.
+    - `gate`: Declare a review gate on this child (typically a reviewer): its mcp__t3-code__workstream_submit outcomes route in the control plane — 'needs_rework' loops the sibling named by rework, 'clean'/'fixed_inline' resolve the gate and complete both. gate.rework is added to blockedBy automatically. Wire downstream work on this gated child (or on both), never on the rework sibling alone: a rework round can reopen that sibling's done. You are woken once at gate resolution, or earlier if the gate yields.
+    - `gate.rework`: The sibling this gate loops rework back to (the work under review). Must be a thread you directly parent (or, in a scaffold, a node key or `thread:<id>`).
+    - `gate.maxRounds`: Maximum rework loops before the gate yields to you instead of looping again. Default 2.
+    - `forkFrom`: Fork this child's session from an active sibling (the source) once the source is done: the child starts from a copy of the source's final transcript and inherits its role, model and anchor. Do NOT pass role / modelSelection / modelPreset / taskShape / sensitive with it. forkFrom is added to blockedBy automatically and cannot be combined with gate.
+    - `anchorTaskId`: Bind this child to ONE task of the goal task tree: that task and its subtree become the branch the child owns. Anchor a child whose work IS a task in the tree; leave unbound a child with no task of its own (a reviewer, a researcher answering a brief). Pass the id from the trailing '(id)' of a task line in mcp__t3-code__goal_task_list. When you are yourself anchored you may only pass your own anchor or a task beneath it.
+    - `taskShape`: Server-resolved model hint; omit for most spawns. 'explore' (open-ended, plan likely to change); 'thorough' (edge cases, migrations, review gates); 'mechanical' (bounded, high-volume work). A shape with no matching server profile falls through to the role preset.
+    - `sensitive`: Optional sensitivity marker paired with taskShape: 'security' excludes models flagged unsuitable for security-adjacent work.
+    - `modelPreset`: Escape hatch: a named model preset; an unknown name is rejected with the available names.
+    - `modelSelection`: Escape hatch: an explicit model override, taking precedence over modelPreset and taskShape.
+    - `modelSelection.instanceId`: Configured provider instance id to route to. Must be a configured instance in this build — an unknown id is rejected at spawn with the available instance ids.
+    - `modelSelection.model`: Model slug for that instance — an unknown slug is rejected at spawn with guidance.
+    - `modelSelection.options`: Optional per-model options, e.g. thinking level.
+    - `brief`: The child's full, self-contained first-turn assignment, read by an agent that is told it is your writing and may depart from it with reasons. State the outcome it owes and the contract it works under (why it matters, constraints, definition of done, where the code and artefacts live) and leave how to its role. Mark which constraints are the human's stated decisions (quote them) and which are your own assumptions, so the child knows what it may challenge. When the deliverable is a document a human will read (a plan, a recap, an explainer), include its reader brief — who reads it and what they are there to do, what they already know, what they must be able to say or decide after the first screen — because the child has never met that reader and has none of the conversation you had. Do not restate what the child's system prompt already carries (AGENTS.md, the work-model doctrine, the shipping policy, its role overlay, the goal and its task tree).
+    - `clientRequestId`: Optional idempotency key. Reuse the same value only when retrying this exact call; a retry with it repeats nothing that already happened.
+  </Column>
+  <Column label="After (480 words)">
+    Spawn a child thread of this thread: delegated work with its own role, title, purpose and brief. The child runs in this worktree, so what you commit it sees at once and paths you give it are valid as written. It starts as soon as every thread in blockedBy is done, at once when there are none. For a graph of several dependent nodes, lay out the shape with mcp__t3-code__workstream_scaffold and brief each node with mcp__t3-code__workstream_brief.
+
+    Parameters:
+
+    - `role`: The child's role: one of the built-in roles orchestrator, planner, coder, reviewer, researcher, assessor or shipper; a role the project adds under `.t3code/roles/`; or free text when none fits. Omit it when forkFrom is set: a fork inherits its source's role.
+    - `title`: The card's name, roughly six words at most, leading with the distinguishing subject rather than a verb every sibling shares: 'Receipt-dedup merge', not 'Implement receipt-dedup merge'.
+    - `purpose`: One to three sentences shown on the sidebar card as the thread's goal: the value the work delivers, not the role or the steps.
+    - `blockedBy`: Threads this child waits on; it starts once every one is done.
+    - `gate`: A review gate on this child, typically a reviewer: its mcp__t3-code__workstream_submit verdicts route in the control plane; 'needs_rework' loops the sibling named by rework, 'clean' or 'fixed_inline' resolve the gate and complete both. rework is added to blockedBy. Hang downstream work on this gated child, not on the rework sibling alone, since a rework round reopens that sibling's done.
+    - `gate.rework`: The sibling under review, whose rework this gate loops: a direct child's id (in a scaffold, a node key or `thread:<id>`).
+    - `gate.maxRounds`: Rework loops before the gate yields to you instead of looping again. Default 2.
+    - `forkFrom`: Fork this child's session from a direct sibling once that sibling is done: it starts from a copy of the sibling's final transcript and inherits its role, model and anchor, so pass none of role, modelSelection, modelPreset, taskShape, sensitive or gate with it.
+    - `anchorTaskId`: The goal task this child owns, with its subtree, from the trailing '(id)' of a mcp__t3-code__goal_task_list line. Anchor a child whose work is a task in the tree; leave a reviewer or a researcher unbound. When you are anchored yourself, only your own anchor or a task beneath it.
+    - `taskShape`: Server-resolved model hint; omit for most spawns. 'explore' for open-ended work whose plan will change, 'thorough' for edge cases, migrations and review gates, 'mechanical' for bounded high-volume work.
+    - `sensitive`: 'security', with taskShape, excludes models flagged unsuitable for security-adjacent work.
+    - `modelPreset`: A named model preset, for the rare spawn that needs a specific model.
+    - `modelSelection`: An explicit model, overriding modelPreset and taskShape, for the rare spawn that needs one.
+    - `modelSelection.instanceId`: A configured provider instance id.
+    - `modelSelection.model`: Model slug on that instance.
+    - `modelSelection.options`: Per-model options, e.g. thinking level.
+    - `brief`: The child's first-turn assignment; the contract is mcp__t3-code__workstream_brief's `markdown`. Omitted, the purpose serves as the brief.
+    - `clientRequestId`: Idempotency key: reuse a value only when retrying this exact call, and the retry repeats nothing that already happened.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k01" label="k01 · workstream_spawn" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k02" eyebrow="k02 · judgement call" heading="workstream_scaffold: description 233 → 85 words, parameters 605 → 123" tone="warning" badge="6,833 → 3,030 chars">
+
+Dropped: the 'reach for this as soon as' doctrine, the all-or-nothing validation and 'the error names the key' (the error does), the UUID-key rule from the description (it is on `key`). The twelve node fields point at the spawn's (K1): 605 → 123 parameter words.
+
+<Columns>
+  <Column label="Before (838 words)">
+    Author a whole T3 Code Workstream graph SHAPE in one call — the topology-first half of graph authoring. Reach for this as soon as work firms up into more than a couple of dependent pieces; a series of ad-hoc mcp__t3-code__workstream_spawn calls builds the same graph blind, forfeiting shape review and visible parallelism. Each node carries only cheap metadata (key, role, title, purpose, and the same optional model fields as mcp__t3-code__workstream_spawn) plus its blockedBy edges and gate, all referenced by SYMBOLIC KEY. Threads are created eagerly (real ids, returned in the result) but NONE can launch yet: a node launches only once it ALSO has a brief (mcp__t3-code__workstream_brief). This lets you lay out the entire solution shape cheaply and instantly, get it reviewed, then write each node's token-heavy brief just-in-time in topological order — a late brief can reference the actual reports of upstream nodes that already finished. Every node runs in this thread's worktree, as a spawned child does. References: use the node's `key` for an intra-scaffold edge, or `thread:<id>` for an existing child; a bare UUID-shaped key is rejected (paste an existing id with the `thread:` prefix). Validation is all-or-nothing — on any error (duplicate key, dangling reference, dependency cycle) nothing is created and the error names the offending key. A later mcp__t3-code__workstream_scaffold call is a DELTA: its blockedBy may reference existing children by key or `thread:` id, extending the live graph.
+
+    Parameters:
+
+    - `nodes`: The nodes to create (or add, for a delta call): each is a mcp__t3-code__workstream_spawn node minus brief, plus a key. References are a node key in this call or `thread:<id>` for an existing child.
+    - `nodes.[].key`: Symbolic key, unique forever among the parent's children, used by other nodes' blockedBy / gate / forkFrom. Must NOT be UUID-shaped (reference an existing thread as `thread:<id>`).
+    - `nodes.[].role`: The child's role: one of the built-in roles orchestrator, planner, coder, reviewer, researcher, assessor or shipper; a role the project adds under `.t3code/roles/`; or free text when none fits. Required for a normal spawn; OMIT it when forkFrom is set (a fork inherits the source's role, and passing role with forkFrom is rejected).
+    - `nodes.[].title`: Short label naming the work at a glance, the card's bold name, roughly ≤6 words. Lead with the distinguishing subject rather than a verb shared by every sibling: 'Receipt-dedup merge', not 'Implement receipt-dedup merge'.
+    - `nodes.[].purpose`: Short (1-3 sentence) summary shown on the sidebar card as the thread's 'Goal'. State the value the work delivers — the capability, fix, or decision it produces — not the role or the mechanical steps.
+    - `nodes.[].blockedBy`: Threads this child waits on; it does not start until every listed thread's outcome is 'done'.
+    - `nodes.[].gate`: Declare a review gate on this child (typically a reviewer): its mcp__t3-code__workstream_submit outcomes route in the control plane — 'needs_rework' loops the sibling named by rework, 'clean'/'fixed_inline' resolve the gate and complete both. gate.rework is added to blockedBy automatically. Wire downstream work on this gated child (or on both), never on the rework sibling alone: a rework round can reopen that sibling's done. You are woken once at gate resolution, or earlier if the gate yields.
+    - `nodes.[].gate.rework`: The sibling this gate loops rework back to (the work under review). Must be a thread you directly parent (or, in a scaffold, a node key or `thread:<id>`).
+    - `nodes.[].gate.maxRounds`: Maximum rework loops before the gate yields to you instead of looping again. Default 2.
+    - `nodes.[].forkFrom`: Fork this child's session from an active sibling (the source) once the source is done: the child starts from a copy of the source's final transcript and inherits its role, model and anchor. Do NOT pass role / modelSelection / modelPreset / taskShape / sensitive with it. forkFrom is added to blockedBy automatically and cannot be combined with gate.
+    - `nodes.[].anchorTaskId`: Bind this child to ONE task of the goal task tree: that task and its subtree become the branch the child owns. Anchor a child whose work IS a task in the tree; leave unbound a child with no task of its own (a reviewer, a researcher answering a brief). Pass the id from the trailing '(id)' of a task line in mcp__t3-code__goal_task_list. When you are yourself anchored you may only pass your own anchor or a task beneath it.
+    - `nodes.[].taskShape`: Server-resolved model hint; omit for most spawns. 'explore' (open-ended, plan likely to change); 'thorough' (edge cases, migrations, review gates); 'mechanical' (bounded, high-volume work). A shape with no matching server profile falls through to the role preset.
+    - `nodes.[].sensitive`: Optional sensitivity marker paired with taskShape: 'security' excludes models flagged unsuitable for security-adjacent work.
+    - `nodes.[].modelPreset`: Escape hatch: a named model preset; an unknown name is rejected with the available names.
+    - `nodes.[].modelSelection`: Escape hatch: an explicit model override, taking precedence over modelPreset and taskShape.
+    - `nodes.[].modelSelection.instanceId`: Configured provider instance id to route to. Must be a configured instance in this build — an unknown id is rejected at spawn with the available instance ids.
+    - `nodes.[].modelSelection.model`: Model slug for that instance — an unknown slug is rejected at spawn with guidance.
+    - `nodes.[].modelSelection.options`: Optional per-model options, e.g. thinking level.
+    - `clientRequestId`: Optional idempotency key. Reuse the same value only when retrying this exact call; a retry with it repeats nothing that already happened.
+  </Column>
+  <Column label="After (208 words)">
+    Create a whole child graph in one call: nodes named by symbolic key, with blockedBy and gate edges between them. The threads exist at once, but none launches until it has a brief (mcp__t3-code__workstream_brief) and its dependencies are done, so briefs are written in topological order and a late one can cite the reports of nodes already finished. A node runs in this worktree, as a spawned child does. A later call is a delta: its edges may name existing children by key or `thread:<id>`.
+
+    Parameters:
+
+    - `nodes`: The nodes to create, or to add in a delta call: a key plus the fields of a spawn, minus its brief.
+    - `nodes.[].key`: Symbolic key, unique forever among this parent's children, that other nodes' blockedBy, gate and forkFrom name. Not UUID-shaped: an existing thread is `thread:<id>`.
+    - `nodes.[].role`: As mcp__t3-code__workstream_spawn's `role`.
+    - `nodes.[].title`: As mcp__t3-code__workstream_spawn's `title`.
+    - `nodes.[].purpose`: As mcp__t3-code__workstream_spawn's `purpose`.
+    - `nodes.[].blockedBy`: Node keys or `thread:<id>`s this node waits on.
+    - `nodes.[].gate`: A review gate on this node; `rework` names the sibling it loops, by key or `thread:<id>`. Semantics as mcp__t3-code__workstream_spawn's `gate`.
+    - `nodes.[].forkFrom`: As mcp__t3-code__workstream_spawn's `forkFrom`. By key or `thread:<id>`.
+    - `nodes.[].anchorTaskId`: As mcp__t3-code__workstream_spawn's `anchorTaskId`.
+    - `nodes.[].taskShape`: As mcp__t3-code__workstream_spawn's `taskShape`.
+    - `nodes.[].sensitive`: As mcp__t3-code__workstream_spawn's `sensitive`.
+    - `nodes.[].modelPreset`: As mcp__t3-code__workstream_spawn's `modelPreset`.
+    - `nodes.[].modelSelection`: As mcp__t3-code__workstream_spawn's `modelSelection`.
+    - `clientRequestId`: Idempotency key: reuse a value only when retrying this exact call, and the retry repeats nothing that already happened.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k02" label="k02 · workstream_scaffold" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k03" eyebrow="k03 · register" heading="workstream_brief: description 138 → 53 words, parameters 191 → 156" tone="info" badge="2,239 → 1,466 chars">
+
+Dropped: 'the second half of graph authoring', the launch-precondition restatement, the stable-path mechanism. Kept: a re-brief replaces amendments too (the one thing a caller would get wrong). The brief contract lives here alone, trimmed to the register; the spawn's `brief` points at it.
+
+<Columns>
+  <Column label="Before (329 words)">
+    Attach the kickoff brief that becomes a scaffolded node's first-turn assignment (its recipient contract and register are on the markdown parameter), just-in-time. This is the second half of graph authoring: a node created by mcp__t3-code__workstream_scaffold cannot launch until it has a brief (its launch precondition is dependencies-satisfied AND brief-present). Identify the node by its scaffold `key` or its thread id. Valid only on a direct child that has NOT started yet; on a started child it errors (steer a running child with mcp__t3-code__workstream_prompt instead). Calling it again pre-launch overwrites (editing the brief before launch is the expected path). The brief is stored at a stable path the call returns; the kickoff reads the file's current content at launch, so writing briefs in topological order lets a late brief incorporate the actual reports of upstream nodes that already completed.
+
+    Parameters:
+
+    - `node`: The scaffolded node to brief: its key or its thread id (optionally `thread:`-prefixed). Must be a direct child that has not started.
+    - `markdown`: The child's full, self-contained first-turn assignment, read by an agent that is told it is your writing and may depart from it with reasons. State the outcome it owes and the contract it works under (why it matters, constraints, definition of done, where the code and artefacts live) and leave how to its role. Mark which constraints are the human's stated decisions (quote them) and which are your own assumptions, so the child knows what it may challenge. When the deliverable is a document a human will read (a plan, a recap, an explainer), include its reader brief — who reads it and what they are there to do, what they already know, what they must be able to say or decide after the first screen — because the child has never met that reader and has none of the conversation you had. Do not restate what the child's system prompt already carries (AGENTS.md, the work-model doctrine, the shipping policy, its role overlay, the goal and its task tree).
+  </Column>
+  <Column label="After (209 words)">
+    Write a scaffolded node's kickoff brief, by key or thread id; the node launches once it is briefed and its dependencies are done. Valid only on a direct child that has not started. Calling it again before launch replaces the whole brief, amendments from mcp__t3-code__workstream_prompt included. A started child is steered with mcp__t3-code__workstream_prompt.
+
+    Parameters:
+
+    - `node`: The node to brief: its scaffold key or its thread id.
+    - `markdown`: The child's first-turn assignment, read by an agent told it is your writing and free to depart from it with reasons. State the outcome it owes and the contract it works under: why it matters, the constraints, the definition of done, where the code and artefacts live; leave how to its role. Mark which constraints are the human's stated decisions, quoted, and which are your own assumptions, so the child knows what it may challenge. When the deliverable is a document a human will read, include its reader brief (who reads it and to do what, what they already know, what they must be able to say or decide after the first screen), since the child has never met that reader. Do not restate what its system prompt already carries: AGENTS.md, the work model, the shipping policy, its role, the goal and its task tree.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k03" label="k03 · workstream_brief" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k04" eyebrow="k04 · judgement call" heading="workstream_submit: description 250 → 124 words, parameters 180 → 120" tone="warning" badge="3,262 → 2,130 chars">
+
+Kept every routing case and the quiescence warning, as one sentence each. Corrected: in a rework round every outcome but 'needs_human' routes back to the reviewer, including 'done' (the old text said only 'any other token' did). Dropped: 'read the result', 'escalation is the safe default', the worse-hand-back aside. The `outcome` parameter no longer repeats the routing table.
+
+<Columns>
+  <Column label="Before (430 words)">
+    THE single terminal call for a T3 Code Workstream sub-thread: submit your markdown report plus a structured outcome, and the control plane derives what happens next — you never set your own outcome at completion. Omit outcome (or pass 'done') for plain completion: the report is recorded and your outcome becomes done in one step, releasing dependents — refused while an attention flag you raised stands, this turn or an earlier one, because completing would clear it (pass an outcome token instead and you yield with the flag standing). Pass outcome 'needs_human' to record the report and raise the needs_guidance flag instead (a human is pulled in; your outcome is unchanged). Any other outcome token (e.g. 'rework_approach', or review verdicts like 'needs_rework'/'clean'/'fixed_inline' when you are in a review gate) is routed by the control plane; during an active rework round it routes back to the reviewer for re-verification, otherwise an outcome with no matching route YIELDS you to your live parent orchestrator with your report — escalation is the safe default, and you are NOT done in that case. The tool result echoes the routing decision: read it — 'yielded' or a rework route means you are NOT done. Submit explicitly: a thread that ends its turn without submitting is, after a grace, treated as having gone quiet — the control plane synthesises a report from its last message and yields that to the parent, marked as synthesised, which is a worse hand-back than the one you would have written.
+
+    Parameters:
+
+    - `markdown`: The markdown report to hand back, stored on disk and shown to whoever receives your work next. Make it a deliberate handoff: what you did, the key results and decisions, and anything the parent must act on, not a transcript dump. Open with a \<!-- response --> … \<!-- /response --> block: a concise summary of your hand-back, giving the gist of the answer and anything the receiver must act on. Every notice carries the block verbatim to whoever receives your work. The full report below it may be as long as the work needs and is read from the file on demand; when the answer itself is long, the block summarises it rather than containing it.
+    - `outcome`: Structured outcome token. Omitted ⇒ 'done'. Reserved: 'done', 'needs_human'. Review-gate verdicts: 'clean', 'fixed_inline', 'needs_rework'. Any unmatched token yields you to your parent — use a short snake_case token like 'rework_approach'.
+    - `contested`: Optional: findings you reject, verbatim-quotable — preserved on the audit trail (opaque to routing).
+    - `counts`: Optional reviewer finding counts for the verdict chip (opaque to routing).
+    - `counts.mustFix`: Number of must-fix findings.
+    - `counts.niceToHave`: Number of nice-to-have findings.
+  </Column>
+  <Column label="After (244 words)">
+    Your terminal call: hand back your markdown report with an outcome, and the control plane routes it; you never set your own outcome at completion. Omitted or 'done' completes you and releases your dependents; it is refused while an attention flag you raised stands (pass another token and you yield with the flag intact). 'needs_human' records the report and raises needs_guidance. A review-gate verdict ('clean', 'fixed_inline', 'needs_rework') routes the gate; in a rework round every outcome but 'needs_human' routes back to the reviewer; any other token yields you to your parent, and you are not done. A turn that ends without submitting is, after a grace, treated as gone quiet: the control plane synthesises a report from your last message and yields that instead.
+
+    Parameters:
+
+    - `markdown`: The report, stored on disk and shown to whoever receives your work next: what you did, the key results and decisions, and anything they must act on; not a transcript. Open with a \<!-- response --> … \<!-- /response --> block summarising the hand-back (the gist, and what the receiver must act on). Every notice carries that block verbatim and the rest is read from the file on demand, so a long answer is summarised in the block rather than contained in it.
+    - `outcome`: Omitted means 'done'; otherwise 'needs_human', a gate verdict, or a short snake_case token such as 'rework_approach'.
+    - `contested`: Findings you reject, quotable verbatim, kept on the audit trail.
+    - `counts`: Reviewer finding counts, for the verdict chip.
+    - `counts.mustFix`: Must-fix findings.
+    - `counts.niceToHave`: Nice-to-have findings.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k04" label="k04 · workstream_submit" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k05" eyebrow="k05 · judgement call" heading="workstream_set_outcome: description 230 → 50 words, parameters 38 → 38" tone="warning" badge="1,945 → 882 chars">
+
+The outcome semantics (release, cascade, reopen) live on the `outcome` parameter only; the description keeps what the call is for (accepting a yielded child, reopening before a prompt) and the two better tools. Dropped: the gate-recovery sentences (the yield notice carries them since 91adb22a23), the refusal and warning cases (the result reports them).
+
+<Columns>
+  <Column label="Before (268 words)">
+    Set the PLAN outcome of a T3 Code Workstream thread you own (this thread or one you directly spawned): 'done', 'cancelled', or 'none'. 'done' is the only outcome that releases dependents and lets the next thread start; it is how you accept a child's work when the child yielded to you instead of completing (a quiescent child whose report was synthesised, an unmatched outcome token). 'cancelled' abandons the work and does NOT release dependents — and it CASCADES: cancelling a thread also cancels every non-terminal descendant (children, grandchildren, …) and interrupts any in-flight turn among them, so cancelling a runaway branch kills the whole chain beneath it (already-done descendants are left untouched). 'none' reopens a finished thread — clears its outcome so it can be prompted again; do this before you prompt a done or cancelled child, so the board never shows a finished thread working. Completing your OWN work goes through mcp__t3-code__workstream_submit, never here: a self-issued 'done' is refused while a rework is pending on you or you are a member of an unresolved review gate, because it would skip the routing; a parent's 'done' on such a child is allowed, with a warning. To dissolve a stuck gate, mark the REVIEWER done, not the coder — the coder's done is what the reviewer's verdict decides. This is the plan axis only: to pull in a human, use mcp__t3-code__workstream_request_attention.
+
+    Parameters:
+
+    - `threadId`: Id of the thread to act on; defaults to the calling thread when omitted.
+    - `outcome`: 'done' releases dependents; 'cancelled' abandons the work and cascades to every non-terminal descendant, interrupting their in-flight turns; 'none' reopens a done or cancelled thread.
+  </Column>
+  <Column label="After (88 words)">
+    Set the plan outcome of this thread or a direct child. 'done' is how you accept a child that yielded to you instead of completing; 'none' reopens a finished child before you prompt it again. Your own completion goes through mcp__t3-code__workstream_submit, which routes it. To pull in a human, mcp__t3-code__workstream_request_attention.
+
+    Parameters:
+
+    - `threadId`: This thread when omitted, else a direct child's id.
+    - `outcome`: 'done' releases dependents. 'cancelled' abandons the work without releasing dependents and cascades: every unfinished descendant is cancelled and its in-flight turn interrupted. 'none' clears a done or cancelled outcome.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k05" label="k05 · workstream_set_outcome" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k06" eyebrow="k06 · register" heading="workstream_prompt: description 349 → 86 words, parameters 63 → 45" tone="info" badge="2,688 → 1,031 chars">
+
+K2 as approved, verbatim. The `message` parameter now points at `workstream_brief`'s `markdown` for the contract instead of the spawn's.
+
+<Columns>
+  <Column label="Before (412 words)">
+    Send a markdown message to a DIRECT child Workstream thread you spawned — you acting on the child as its parent. On an idle child (e.g. one you paused with mcp__t3-code__workstream_stop) this starts the next turn with your message — the resume path. On a busy child with an open turn it becomes a queued steer, folded in between model rounds. A child whose turn has not begun (just launched, still starting, or waiting on an answer) cannot take a steer yet: your message is queued, then steered in once the turn is up (within about a minute), or it starts the next turn if that one ends first; the result says whether it started, steered or queued. A steer canNOT penetrate a blocked/hung tool call — if the child is stuck inside a tool call, mcp__t3-code__workstream_stop it first, then prompt to restart it with guidance. Prompting a child that holds an attention flag (needs_guidance, awaiting_acceptance, or a yield awaiting you) CLEARS that hold when the turn starts, so prompt a flagged child only when you actually hold the answer or the approval it is waiting for; clearing it is your decision as the parent, not the human's approval, and is never reported upward as such. The child reads your message labelled as its parent orchestrator's — an agent's — which the human's messages outrank. On a child that has NOT started yet (briefed but waiting on a dependency, or briefed and not yet launched): your message is appended to its brief as an amendment and no turn starts — the child reads the brief plus every amendment as its first turn when the control plane launches it, and the result names what it is still waiting on. Amendments stack in order; a later mcp__t3-code__workstream_brief replaces the whole brief, amendments included. If the child has NO brief yet, the call is rejected with guidance to call mcp__t3-code__workstream_brief first. Prompting never launches a child: launch is the control plane's, once its dependencies are done. A finished child (outcome done or cancelled) is reopened with mcp__t3-code__workstream_set_outcome 'none' before you prompt it.
+
+    Parameters:
+
+    - `threadId`: Id of the direct child thread to prompt.
+    - `message`: The markdown message for the child. A steer into a running turn is a course-correction, not a fresh assignment; a message to an idle child starts its next turn; on an unstarted node it is appended to that node's brief as an amendment and does not launch it, so write it to mcp__t3-code__workstream_spawn's brief contract.
+  </Column>
+  <Column label="After (131 words)">
+    Send a markdown message to a direct child you spawned, as its parent. It starts or steers the child's next turn; a child that has not launched yet reads it as part of its brief. A steer cannot interrupt a tool call in progress, so mcp__t3-code__workstream_stop a stuck child first. Prompting a child that holds an attention flag clears the hold when its turn starts: do it only when you hold what the child is waiting for. Reopen a finished child (mcp__t3-code__workstream_set_outcome 'none') before prompting it.
+
+    Parameters:
+
+    - `threadId`: The direct child's id.
+    - `message`: The message. Into a running turn it is a course-correction, not a fresh assignment; to an idle child it is the next turn's prompt; on an unlaunched child it is appended to the brief, so write it to mcp__t3-code__workstream_brief's `markdown` contract.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k06" label="k06 · workstream_prompt" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k07" eyebrow="k07 · register" heading="workstream_request_attention: description 302 → 101 words, parameters 27 → 9" tone="info" badge="2,238 → 949 chars">
+
+K3 as approved, verbatim. The `reason` parameter's text is gone: it repeated the two definitions the description gives.
+
+<Columns>
+  <Column label="Before (329 words)">
+    Raise an attention flag on a T3 Code Workstream thread you own (this thread or one you directly spawned) — the single surface that pulls in a human. A raise HOLDS the work for that human; it is your turn's last act, not a label you attach to a report. The hold clears only when a human writes to the thread or its parent prompts it (at the start of that turn), or when the thread reaches done/cancelled — so completing yourself erases the hold and releases your dependents, and the submit path refuses a plain completion while a flag you raised stands, whether you raised it this turn or an earlier one; a raise on an already-finished thread is refused too. To hand a report back with the hold intact, pass a short non-'done' outcome to mcp__t3-code__workstream_submit: the report is recorded and you yield to your parent, flag standing. Two reasons: 'awaiting_acceptance' means a human (or the parent, when it already holds the human's decision) must accept this thread's output before its outcome may reach 'done' and its dependents release — it is NOT 'some reviewer thread should look at this' (a thread whose output flows to a separate reviewer thread just completes, which releases that reviewer). 'needs_guidance' means you cannot proceed without a human — including when what you want is answers to your questions, which is guidance, not acceptance. For a child it is the LAST resort: your parent wrote your brief and holds the context, and usually no human reads a child thread — consult the parent first (mcp__t3-code__consult_thread) and raise only if that does not settle it or the parent has finished. Write the accompanying report for a human who has read none of this thread: explain the blocker without relying on internal labels or unseen reports.
+
+    Parameters:
+
+    - `threadId`: Id of the thread to act on; defaults to the calling thread when omitted.
+    - `reason`: 'awaiting_acceptance' (output needs sign-off before done) or 'needs_guidance' (cannot proceed without a human).
+  </Column>
+  <Column label="After (110 words)">
+    Raise an attention flag that holds this thread, or a child you spawned, for a human; make it your turn's last act, since completing clears it. 'awaiting_acceptance': a human (or your parent, holding the human's decision) must accept this thread's output before it can be done. 'needs_guidance': you cannot proceed without a human, including when what you need is answers. To hand back a report while the flag stands, submit with a short non-'done' outcome. A child consults its parent first (mcp__t3-code__consult_thread); usually no human reads a child thread. Write the report for someone who has read none of this thread.
+
+    Parameters:
+
+    - `threadId`: This thread when omitted, else a direct child's id.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k07" label="k07 · workstream_request_attention" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k08" eyebrow="k08 · judgement call" heading="notify_thread: description 269 → 70 words, parameters 66 → 53" tone="warning" badge="2,455 → 1,043 chars">
+
+Dropped: the five-item NOT list, the refusal cases (finished or unstarted target), the framing details, the intercom aside. Kept: steer-or-start and never aborts, no reply owed, the two better tools, the pair cap as one clause (a back-and-forth hits it).
+
+<Columns>
+  <Column label="Before (335 words)">
+    Push a markdown message into ANY other live thread the server knows, across orchestration trees, worktrees, and projects: the write counterpart of the read-only mcp__t3-code__consult_thread. Delivery is steer-or-start and never aborts a turn: a busy recipient is steered — your message is folded into its running turn between model rounds — and an idle recipient starts a new turn with it (it will spend tokens acting on it). A finished target is refused: a notification never re-engages a thread that is done, cancelled, archived or deleted. The recipient sees it framed as a notification from your thread (title, id, and your relationship to it, if any) and owes no reply: this call is fire-and-forget, and its result says how the message landed (started a turn, steered a running one, or queued), never an answer. Use it to tell a thread something it is waiting to hear, e.g. "the extraction run you depend on is complete; results at \<path>". It is NOT for getting information back (mcp__t3-code__consult_thread asks a read-only question and returns the answer; or ask the recipient in your message to notify you back, and carry on until it does), not for directing your own children (mcp__t3-code__workstream_prompt), not for reporting to your parent (mcp__t3-code__workstream_submit), not for creating work (mcp__t3-code__workstream_spawn), and not for reaching non-T3 pi sessions on this machine (intercom); mcp__t3-code__notify_thread addresses durable T3 threads and leaves transcript and graph provenance. Identify the target by threadId, or by name (fuzzy sidebar-title match); an ambiguous name sends nothing and returns ranked candidates. A sender→target pair is capped at a handful of messages per hour; a back-and-forth exchange hits it.
+
+    Parameters:
+
+    - `threadId`: Exact id of the target thread, preferred when known. Provide exactly one of threadId or name.
+    - `name`: Fuzzy sidebar title of the target thread; an ambiguous match returns ranked candidates without sending.
+    - `message`: The markdown message the recipient receives, framed as a notification from your thread. Write it self-contained, reference outputs by absolute path, and say plainly if you want anything back. A notification informs; it never re-tasks.
+  </Column>
+  <Column label="After (123 words)">
+    Push a markdown message into any other live thread, across trees, worktrees and projects: it steers a busy recipient or starts an idle one, never aborts a turn, and earns no reply. Use it to tell a thread something it is waiting to hear. For an answer, mcp__t3-code__consult_thread; to direct your own child, mcp__t3-code__workstream_prompt. A sender-to-target pair is capped at a few messages an hour, which a back-and-forth exchange hits.
+
+    Parameters:
+
+    - `threadId`: The target's exact id, preferred when known. One of threadId or name.
+    - `name`: Fuzzy sidebar-title match when you have no id; an ambiguous name sends nothing and returns ranked candidates.
+    - `message`: Self-contained, framed to the recipient as a notification from your thread: reference outputs by absolute path and say plainly if you want anything back.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k08" label="k08 · notify_thread" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k09" eyebrow="k09 · register" heading="consult_thread: description 197 → 72 words, parameters 62 → 46" tone="info" badge="1,837 → 982 chars">
+
+Dropped: the name-versus-id resolution narrative (on the two parameters now), the @-mention example (on `threadId`). Kept: frozen fork as of the last turn, the target never learns (so quote both in the report), the parent as a child's first stop, notify as the write counterpart.
+
+<Columns>
+  <Column label="Before (259 words)">
+    Read-only consult of another thread, answered from a frozen fork of that thread's session: it reaches ANY thread the server knows (across worktrees and projects), never wakes or mutates the target, and the answer is what the target knew as of its last turn. Use it to ask the thread that holds the context. For a child, that is usually your PARENT — it wrote your brief and usually no human reads your thread, so a question the brief does not settle goes here before any human hold. Also use it when the user points you at another thread by name ("ask the liveness-detection thread …") or via an @-mention. Identify the target by exactly one of: threadId (preferred; an @-mentioned thread arrives in the message as [Title](t3-thread://v1/\<id>) — pass that \<id>), or name (a fuzzy sidebar-title match). If a name matches several threads it returns ranked candidates instead of guessing; surface them and confirm, then call again with the chosen threadId. To push a message the target acts on, use mcp__t3-code__notify_thread. The target never learns it was asked, so quote the question and the answer verbatim in your report to put the decision on the record.
+
+    Parameters:
+
+    - `threadId`: Exact id of the target thread, preferred when known (e.g. from an @-mention [Title](t3-thread://v1/\<id>)). Provide threadId OR name, not both.
+    - `name`: Fuzzy sidebar title of the target thread, when you have no exact id; an ambiguous name returns ranked candidates.
+    - `question`: The question to answer from the target thread's frozen session context. That fork shares none of your context, so make the question self-contained.
+  </Column>
+  <Column label="After (118 words)">
+    Ask any thread the server knows a read-only question, answered from a frozen fork of its session as of its last turn; the target is never woken or changed and never learns it was asked, so quote the question and answer in your report. For a child, the parent that wrote its brief is usually the thread to ask, before any human hold. To push a message the target acts on, mcp__t3-code__notify_thread.
+
+    Parameters:
+
+    - `threadId`: The target's exact id, preferred when known; an @-mentioned thread arrives as [Title](t3-thread://v1/\<id>). One of threadId or name.
+    - `name`: Fuzzy sidebar-title match when you have no id; an ambiguous name returns ranked candidates to call again with.
+    - `question`: Self-contained: the fork answering it shares none of your context.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k09" label="k09 · consult_thread" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k10" eyebrow="k10 · register" heading="goal_tasks_rewrite: description 193 → 95 words, parameters 109 → 113" tone="info" badge="2,042 → 1,442 chars">
+
+Id retention, deletion and resurrection live on `markdown` only. Dropped from the description: the checklist-form restatement, 'a cycle is unrepresentable', the rejected-whole cases (the error reports them). Kept: scope by ownership, the no-anchor refusal with the two tools to use instead, the fresh-read rule.
+
+<Columns>
+  <Column label="Before (302 words)">
+    Replace what you own in THIS thread's goal task tree with the markdown you submit — the primary structural mutation. Restructure, re-nest, reorder, merge, rename, mark done, and prune in ONE call: submit the revised tree in the same `- [x] text (id)` checklist form mcp__t3-code__goal_task_list returns. Lines keeping an existing task's `(id)` ARE that task (its text, done-state, parent, and order become what you submitted; its creation time is preserved); lines without an id are new tasks; tasks you omit are deleted. A deleted task comes back, with its id, if you resubmit its line with its `(id)`. Indentation (two spaces per level) is the nesting, so a cycle is unrepresentable. Scope follows ownership: the thread that owns the goal submits the WHOLE tree; an anchored thread submits exactly its BRANCH — one top-level line carrying its anchor's id plus everything beneath it, leaving the rest of the goal untouched. Rewrite from a fresh mcp__t3-code__goal_task_list read at that scope, since anything added since your last read and left out is lost. Rejected for a child with no anchor: the tree's owner does the restructuring (append with mcp__t3-code__goal_task_add and tick with mcp__t3-code__goal_task_update instead).
+
+    Parameters:
+
+    - `markdown`: The complete revised tree at your scope as an indented markdown checklist, one task per line: `- [ ] Open task`, `- [x] Finished task (task-id)`. Two spaces of indent per level; keep the trailing `(id)` on every retained task; omit it for new tasks. New or changed text is at most 300 characters: a short plain-language work item naming the outcome, never a finding, verdict or status note, with concrete work hung under a handful of phase or theme parents. Your anchor line stays (renamed or ticked at most); an empty submission, an unparseable line or an id outside your scope is rejected whole and nothing is applied.
+  </Column>
+  <Column label="After (208 words)">
+    Replace what you own in this thread's goal task tree with a markdown checklist: restructure, re-nest, reorder, merge, rename, tick and prune in one call. The goal's owner submits the whole tree; an anchored thread submits exactly its branch, one top-level line carrying its anchor's id plus everything beneath it, and the rest of the goal is untouched; a child with no anchor is refused and instead appends with mcp__t3-code__goal_task_add and ticks with mcp__t3-code__goal_task_update. Rewrite from a fresh mcp__t3-code__goal_task_list read at that scope, since anything added since your last read and left out is lost.
+
+    Parameters:
+
+    - `markdown`: The complete revised tree at your scope, in the `- [ ] Open task` / `- [x] Finished task (task-id)` form mcp__t3-code__goal_task_list returns, two spaces of indent per level. A line keeping an existing `(id)` is that task, with the text, done-state, parent and order you submit; a line without one is a new task; a task you omit is deleted, and comes back with its id if you resubmit its line. Text is at most 300 characters, a plain-language work item naming the outcome, never a finding, verdict or status note, with concrete work hung under a handful of phase or theme parents. Your anchor line stays, renamed or ticked at most.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k10" label="k10 · goal_tasks_rewrite" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k11" eyebrow="k11 · register" heading="goal_handoff: description 162 → 78 words, parameters 122 → 113" tone="info" badge="2,262 → 1,676 chars">
+
+Dropped: 'the receiving agent is highly capable' (folded into `brief` as 'an orchestrator that plans the work itself'), the proposal-not-plan sentence (on `brief`). Kept: a fresh worktree started at once, the brief is all it has, the duplicate check and its override, task_add for in-scope work.
+
+<Columns>
+  <Column label="Before (284 words)">
+    Hand off a separate, out-of-scope piece of work as its OWN new goal. Not for tasks that belong under this thread's existing goal (use mcp__t3-code__goal_task_add instead). Use when you discover follow-up work that can be actioned by an independent agent. The receiving agent is highly capable and will plan and orchestrate the solution itself. It launches a new goal-bound root in its OWN worktree, which starts immediately on your brief — the brief is all it has of this thread, so write it as a goal charter (what and why), not a doer's assignment. The root is told the brief is agent-written and treats it as a proposal, not the human's approved plan: quote the human's words where you relay them, and describe rather than instruct. A likely duplicate (an open thread already doing the work) launches nothing and is named in the result: consult or notify that thread instead, or repeat the call with notDuplicateOf when your work is genuinely distinct.
+
+    Parameters:
+
+    - `title`: A short (≤6-word) noun-phrase label leading with the distinguishing subject of the work. Names the goal.
+    - `brief`: The new session's first turn, read by a root that is told it is another agent's writing: a self-contained problem statement — context, motivation, constraints, and where things live. State what and why, never how; quote the human's words where you relay them and mark the rest as your own reading.
+    - `description`: One or two sentences stating the objective, focused on the value or pain point rather than the implementation.
+    - `project`: Optional target project (title or id) when the work belongs in a different project than this thread's.
+    - `notDuplicateOf`: Thread ids a duplicate check named that you judged to be different work; skips the check.
+    - `clientRequestId`: Optional idempotency key. Reuse the same value only when retrying this exact call; a retry with it repeats nothing that already happened.
+  </Column>
+  <Column label="After (191 words)">
+    Hand off a separate, out-of-scope piece of work as its own new goal: a root session in its own worktree starts on your brief at once, and the brief is all it has of this thread. A likely duplicate (an open thread already doing the work) launches nothing and is named in the result; consult or notify that thread, or repeat the call with notDuplicateOf when your work is distinct. Work that belongs under this goal is mcp__t3-code__goal_task_add.
+
+    Parameters:
+
+    - `title`: A noun phrase of up to six words naming the goal, leading with the distinguishing subject.
+    - `brief`: The new root's first turn, read as another agent's writing by an orchestrator that plans the work itself: a self-contained problem statement (context, motivation, constraints, where things live). What and why, never how; quote the human's words where you relay them and mark the rest as your own reading.
+    - `description`: One or two sentences on the objective: the value or pain point, not the implementation.
+    - `project`: The target project (title or id) when the work belongs in another project.
+    - `notDuplicateOf`: Thread ids a duplicate check named that you judged to be different work; skips the check.
+    - `clientRequestId`: Idempotency key: reuse a value only when retrying this exact call, and the retry repeats nothing that already happened.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k11" label="k11 · goal_handoff" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k12" eyebrow="k12 · register" heading="goal_continue: description 170 → 91 words, parameters 75 → 63" tone="info" badge="1,789 → 1,197 chars">
+
+Dropped: 'sent unchanged the brief stays your words; edited, it is the human's' (the caller acts on nothing about it), 'returns the new threadId'. Kept: same goal, worktree, branch and model; held for the human; the predecessor pointer; bring the goal up to date first; handoff as the other tool.
+
+<Columns>
+  <Column label="Before (245 words)">
+    Like mcp__t3-code__goal_handoff, but continues THIS goal in THIS worktree with a fresh context window: creates a held sibling session on the same goal, inheriting this thread's worktree, branch, and model — no new goal, no new worktree. Use it when a substantial hunk of work is done and the next phase should start with clean context while the overarching goal and its shared task tree carry on. The brief becomes the new session's first turn; a predecessor pointer to this thread is appended automatically so the successor can mcp__t3-code__consult_thread this session for detail. The human launches it with a single send: sent unchanged, the brief stays your agent-authored words, not the human's and not approval of its contents; if the human edits it first, the edited message is treated as theirs. Returns the new threadId. Before calling it, bring the goal up to date — the successor starts from it, and it has usually drifted: rewrite its title and objective with mcp__t3-code__goal_update and tick or add tasks in its tree.
+
+    Parameters:
+
+    - `brief`: The continuation session's first turn, self-contained and read as your writing, not the human's: current state, what was done, what to do next, and where key artefacts live. Quote the human's decisions rather than paraphrasing them.
+    - `threadTitle`: Optional sidebar name for the staged continuation (≤6 words). Defaults to the goal title + ' (continued)'.
+    - `clientRequestId`: Optional idempotency key. Reuse the same value only when retrying this exact call; a retry with it repeats nothing that already happened.
+  </Column>
+  <Column label="After (154 words)">
+    Continue this goal in a fresh context window: a held sibling session on the same goal, worktree, branch and model, launched by the human's first send with your brief as its first turn (a pointer back to this thread is appended, so it can consult you). Use it when a substantial hunk of work is done and the next phase should start clean. Bring the goal up to date first, with mcp__t3-code__goal_update and the task tree, since the successor starts from them. A new goal in a new worktree is mcp__t3-code__goal_handoff.
+
+    Parameters:
+
+    - `brief`: The continuation's first turn, self-contained and read as your writing, not the human's: current state, what was done, what to do next, where key artefacts live. Quote the human's decisions rather than paraphrasing them.
+    - `threadTitle`: Sidebar name; defaults to the goal title + ' (continued)'.
+    - `clientRequestId`: Idempotency key: reuse a value only when retrying this exact call, and the retry repeats nothing that already happened.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k12" label="k12 · goal_continue" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k13" eyebrow="k13 · register" heading="snooze_thread: description 205 → 70 words, parameters 45 → 34" tone="info" badge="1,631 → 806 chars">
+
+Dropped: the deferred-apply mechanism ('a snooze applied mid-turn would be undone'), 'only yourself' (it says 'this thread'), the hold-not-lock gloss. Kept: when it hides, what wakes it, the babysitting use, re-snooze replaces, a question or flag is never hidden.
+
+<Columns>
+  <Column label="Before (250 words)">
+    Snooze THIS thread out of the human's inbox once your current turn ends, until the ISO-8601 datetime you pass (`until`, at most 30 days ahead). The thread is always resolved from the session, so you can only ever snooze yourself — never another thread or a child. The snooze is deferred, not immediate: a snooze applied mid-turn would be undone the moment the run completes, so the server records your request and applies it when this turn finishes idle. It is a quiet-until-something-happens hold, not a lock: any inbound message — a pull-request watch wake, a notification, a human reply, a parent's prompt — un-snoozes the thread at once, and the thread wakes on its own when `until` passes. Use it after a triage pass on work you are only babysitting (typically a watched pull request), so the thread costs the human no attention until the watch wakes you or the snooze lapses. Calling it again simply replaces the pending request — re-snooze with the same `until` after each wake you have handled; pass cancel: true to withdraw a request made earlier this turn. A turn that ends with a pending question or an attention flag is never hidden — the human must see those.
+
+    Parameters:
+
+    - `until`: ISO-8601 datetime at which the snooze lapses; must be in the future and at most 30 days ahead. Pass the same value on every re-snooze so the thread's quiet period does not creep.
+    - `cancel`: true withdraws the snooze requested earlier this turn; until is then ignored.
+  </Column>
+  <Column label="After (104 words)">
+    Hide this thread from the human's inbox once this turn ends, until `until`; any inbound message (a pull-request watch wake, a notification, a reply, a parent's prompt) un-snoozes it at once. Use it after a triage pass on work you are only babysitting, typically a watched pull request. Calling it again replaces the pending request. A turn that ends with a pending question or an attention flag is never hidden.
+
+    Parameters:
+
+    - `until`: ISO-8601 datetime at which the snooze lapses, at most 30 days ahead; pass the same value on every re-snooze so the quiet period does not creep.
+    - `cancel`: true withdraws a request made earlier this turn.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k13" label="k13 · snooze_thread" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k14" eyebrow="k14 · register" heading="goal_task_add: description 160 → 65 words, parameters 84 → 65" tone="info" badge="1,651 → 1,040 chars">
+
+Dropped: 'you never pass a goalId', the example item, 'errors cleanly if no goal'. Kept: one task nested where it belongs, concurrency-safe, lands in your branch, any task is a legal parent, rewrite for several.
+
+<Columns>
+  <Column label="Before (244 words)">
+    Append ONE task to the task tree of THIS thread's active goal — a targeted, concurrency-safe write that touches only the task it creates, so it is safe to fire mid-flight while others hold the tree. The goal is resolved from the session — you never pass a goalId, and you can only ever mutate your own thread's goal. Use it to record a single discovered actionable item (e.g. 'evaluate whether to fix pre-existing bug X') as a short imperative work item, nested under the task or theme it belongs to. It lands in your own branch by default when you are anchored; any task of the goal is a legal explicit parent, so work you discover elsewhere enters the shared tree the moment you find it — the echo shows where it landed, with its ancestors. To add several items at once, or to reshape your branch, use mcp__t3-code__goal_tasks_rewrite instead. Errors cleanly if this thread has no active goal.
+
+    Parameters:
+
+    - `text`: A short plain-language work item naming the outcome (at most 300 characters) — never a finding, verdict, or status note.
+    - `parentTaskId`: Id of an existing task in this goal to nest the new task under. Omit to add under your own anchor; unanchored, omitting it appends a new top-level phase, which is for a genuinely new phase of the goal, not the default.
+    - `clientRequestId`: Optional idempotency key. Reuse the same value only when retrying this exact call; a retry with it repeats nothing that already happened.
+  </Column>
+  <Column label="After (130 words)">
+    Append one task to this thread's goal tree, nested under the task or theme it belongs to; a targeted write that is safe while others hold the tree. It lands in your own branch by default, and any task of the goal is a legal parent, so work discovered elsewhere is recorded where it belongs. Several items at once, or a reshaped branch, is mcp__t3-code__goal_tasks_rewrite.
+
+    Parameters:
+
+    - `text`: The task: a short plain-language work item naming the outcome (at most 300 characters), never a finding, verdict or status note.
+    - `parentTaskId`: The task to nest under; omitted, your own anchor. Unanchored and omitted, a new top-level phase, for a genuinely new phase of the goal only.
+    - `clientRequestId`: Idempotency key: reuse a value only when retrying this exact call, and the retry repeats nothing that already happened.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k14" label="k14 · goal_task_add" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k15" eyebrow="k15 · register" heading="goal_task_list: description 156 → 64 words, parameters 20 → 16" tone="info" badge="1,191 → 646 chars">
+
+Dropped: 'mutates nothing; a read after your own write is redundant', 'errors cleanly'. Kept: the prompt's tree is a spawn-time snapshot, the branch is the exact rewrite text under the spine, scope 'tree'.
+
+<Columns>
+  <Column label="Before (176 words)">
+    Read the task tree of THIS thread's active goal (the shared tree, resolved from the session — you never pass a goalId). Use it for orientation and reconciliation: the tree injected into your prompt is a snapshot from your spawn and is never refreshed, so a child may have marked its task done or added discovered work your snapshot does not reflect. If you are anchored to a branch, this returns THAT branch in full — its checklist block is the exact text a branch rewrite takes — preceded by the read-only spine showing where it hangs; pass scope "tree" for the complete goal, which is what an unanchored thread always gets and the only complete source for a whole-tree rewrite. This is a read — it mutates nothing; every mutation echoes the tree at your scope, so a read straight after your own write is redundant. Errors cleanly if this thread has no active goal.
+
+    Parameters:
+
+    - `scope`: "branch" (default when you are anchored): your anchor's subtree, preceded by the read-only spine. "tree": the complete goal task tree.
+  </Column>
+  <Column label="After (80 words)">
+    Read this thread's goal task tree. The tree in your prompt is a snapshot from your spawn, so read this before a rewrite or when a child may have changed it. Anchored, you get your branch in full, the exact checklist a branch rewrite takes, under the read-only spine it hangs from; scope 'tree' is the whole goal, which an unanchored thread always gets.
+
+    Parameters:
+
+    - `scope`: 'branch', the default when anchored: your anchor's subtree under the read-only spine. 'tree': the whole goal.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k15" label="k15 · goal_task_list" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k16" eyebrow="k16 · register" heading="goal_task_update: description 122 → 61 words, parameters 46 → 32" tone="info" badge="1,222 → 816 chars">
+
+Dropped: 'the goal is resolved from the session', the refusal case. Kept: branch scoping, tick your own task as it lands, report for work outside, rewrite for structure.
+
+<Columns>
+  <Column label="Before (168 words)">
+    Update ONE existing task in THIS thread's active goal: rename it (text) or mark it done / reopen it (done) — a targeted, concurrency-safe write that touches only that task, so it is safe to fire mid-flight while others hold the tree. The goal is resolved from the session; the taskId must belong to it, and when you are anchored it must be in your own branch — a task outside it is refused. This is how a thread marks its OWN task done the moment it finishes the work. Work needed on a task outside your branch goes in your report; new work is recorded with mcp__t3-code__goal_task_add. Re-nesting, reordering and removing a task are not here: they are edits via mcp__t3-code__goal_tasks_rewrite.
+
+    Parameters:
+
+    - `taskId`: Id of the task to update; must belong to this thread's goal.
+    - `text`: New task text: a short plain-language work item naming the outcome (at most 300 characters) — never a finding, verdict, status note or result record.
+    - `done`: Mark the task done (true) or reopen it (false).
+  </Column>
+  <Column label="After (93 words)">
+    Rename one task of this thread's goal, or mark it done or reopened; a targeted write that is safe while others hold the tree. Anchored, the task must be in your own branch: this is how you tick your own task the moment the work lands. Work needed outside your branch goes in your report; re-nesting, reordering and removing are mcp__t3-code__goal_tasks_rewrite.
+
+    Parameters:
+
+    - `taskId`: The task's id.
+    - `text`: New text: a short plain-language work item naming the outcome (at most 300 characters), never a finding, verdict or status note.
+    - `done`: true marks the task done, false reopens it.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k16" label="k16 · goal_task_update" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k17" eyebrow="k17 · register" heading="thread_fork: description 113 → 62 words, parameters 39 → 32" tone="info" badge="1,167 → 792 chars">
+
+Dropped: 'native fork', 'no tokens are spent until', 'returns the new threadId'. Kept: held copy that diverges, inherits goal/model/worktree, a human launches it (tell the user), never merges back, the two other tools.
+
+<Columns>
+  <Column label="Before (152 words)">
+    Fork THIS thread: create a new held thread that starts with a full copy of this thread's conversation context and then diverges independently. Use it to explore an alternate direction without disturbing this thread — the fork inherits this thread's goal, model, and worktree, and its FIRST launch forks this thread's pi session (native fork), so no tokens are spent until a human sends the divergent first message. The fork is a SIBLING that never merges back (it is divergence, not delegation — use mcp__t3-code__workstream_spawn for delegated sub-work, or mcp__t3-code__goal_continue for a fresh-context next phase of this goal). Returns the new threadId; tell the user the fork is waiting for their first message.
+
+    Parameters:
+
+    - `threadTitle`: Optional sidebar name for the staged fork (≤6 words). Defaults to this thread's title + ' (fork)'.
+    - `clientRequestId`: Optional idempotency key. Reuse the same value only when retrying this exact call; a retry with it repeats nothing that already happened.
+  </Column>
+  <Column label="After (94 words)">
+    Fork this thread into a new held thread that starts with a full copy of its context and then diverges on its own; it inherits this thread's goal, model and worktree, and a human's first message launches it, so tell the user it is waiting. It never merges back: delegated sub-work is mcp__t3-code__workstream_spawn, a fresh-context next phase of this goal is mcp__t3-code__goal_continue.
+
+    Parameters:
+
+    - `threadTitle`: Sidebar name for the fork; defaults to this thread's title + ' (fork)'.
+    - `clientRequestId`: Idempotency key: reuse a value only when retrying this exact call, and the retry repeats nothing that already happened.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k17" label="k17 · thread_fork" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k18" eyebrow="k18 · register" heading="workstream_set_dependencies: description 75 → 39 words, parameters 27 → 23" tone="info" badge="880 → 633 chars">
+
+Dropped: 're-planning operation', 'pass blockedBy at spawn time instead'. Kept: replaces the set, re-gates an unstarted child, display-only on a started one, stop as the pause.
+
+<Columns>
+  <Column label="Before (102 words)">
+    Declare which threads a T3 Code Workstream thread waits on. Replaces the full blockedBy set for a thread you own (this thread or a thread you directly spawned). This is a re-planning operation: it re-gates a not-yet-started thread, but setting dependencies on an already-started thread returns a warning — the edge is recorded for display only and never un-runs the thread. To gate a child's execution from the start, pass blockedBy at spawn time instead.
+
+    Parameters:
+
+    - `threadId`: Id of the thread to act on; defaults to the calling thread when omitted.
+    - `blockedBy`: Full set of thread ids this thread waits on. Replaces any existing dependencies.
+  </Column>
+  <Column label="After (62 words)">
+    Replace the blockedBy set of this thread or a direct child. It re-gates a child that has not started; on a started thread the edge is recorded for display only and never pauses or re-runs it (pause with mcp__t3-code__workstream_stop).
+
+    Parameters:
+
+    - `threadId`: This thread when omitted, else a direct child's id.
+    - `blockedBy`: The full set of thread ids this thread waits on; replaces the existing set.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k18" label="k18 · workstream_set_dependencies" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k19" eyebrow="k19 · register" heading="set_thread_title: description 76 → 24 words, parameters 8 → 3" tone="info" badge="685 → 362 chars">
+
+Dropped: 'you can only ever rename yourself' twice over. Kept: the two occasions, goal_update for the goal's title.
+
+<Columns>
+  <Column label="Before (84 words)">
+    Rename THIS thread's own sidebar title in T3 Code. You pass only a title; the thread is always resolved from the session, so you can only ever rename yourself — never another thread or a child. Use it to keep the sidebar legible: e.g. when a root's auto-from-first-message title is unhelpful, or when a child's scope has sharpened into something more specific than its spawn title. This does not touch the goal (use mcp__t3-code__goal_update for that).
+
+    Parameters:
+
+    - `title`: The new sidebar title for this thread (non-empty).
+  </Column>
+  <Column label="After (27 words)">
+    Rename this thread's own sidebar title, e.g. when a root's auto-title is unhelpful or a child's scope has sharpened. The goal's title is mcp__t3-code__goal_update's.
+
+    Parameters:
+
+    - `title`: The new title.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k19" label="k19 · set_thread_title" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k20" eyebrow="k20 · register" heading="workstream_stop: description 71 → 25 words, parameters 8 → 4" tone="info" badge="653 → 375 chars">
+
+Dropped: 'orchestrator pause' label, 'stays in progress on the board', the quiescence aside (the control plane handles it). Kept: interrupt, idle with outcome unset, you resume, no flag raised.
+
+<Columns>
+  <Column label="Before (79 words)">
+    Stop a direct child Workstream thread you spawned: interrupt its active turn and leave it idle with its outcome unset (it stays in progress on the board). This is an ORCHESTRATOR pause — you own restarting it (resume it with mcp__t3-code__workstream_prompt). No attention flag is raised, because you are the resumer; a child you never resume eventually reads as gone quiet and is yielded back to you after the quiescence grace.
+
+    Parameters:
+
+    - `threadId`: Id of the direct child thread to stop.
+  </Column>
+  <Column label="After (29 words)">
+    Interrupt a direct child's active turn and leave it idle with its outcome unset, for you to resume with mcp__t3-code__workstream_prompt; no attention flag is raised.
+
+    Parameters:
+
+    - `threadId`: The direct child's id.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k20" label="k20 · workstream_stop" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k21" eyebrow="k21 · register" heading="workstream_list: description 61 → 45 words, parameters 12 → 11" tone="info" badge="681 → 562 chars">
+
+Dropped: the `detail` option from the description (it is on the parameter). Kept: what the list shows, what a synthesised report means.
+
+<Columns>
+  <Column label="Before (73 words)">
+    Your workstream's thread graph, indented by lineage: each thread's id, role, title, status, attention flags and report path, plus last-activity and waits-on for threads still running. detail: "full" adds every thread's purpose, anchor task and pi session path. A child marked 'went quiet; report synthesised' ended its turn without submitting — its report is the control plane's reconstruction, not a hand-back.
+
+    Parameters:
+
+    - `detail`: detail: "full" adds every thread's purpose, anchor task and pi session path.
+  </Column>
+  <Column label="After (56 words)">
+    Your workstream's thread graph by lineage: each thread's id, role, title, status, attention flags and report path, plus last activity and waits-on for threads still running. A child marked 'went quiet; report synthesised' never submitted; its report is the control plane's reconstruction, not a hand-back.
+
+    Parameters:
+
+    - `detail`: 'full' adds each thread's purpose, anchor task and pi session path.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k21" label="k21 · workstream_list" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k22" eyebrow="k22 · judgement call" heading="goal_update: description 52 → 24 words, parameters 7 → 5" tone="warning" badge="669 → 496 chars">
+
+Added: only the goal's owner (its root) may call it, which the handler enforces and the old text never said. Dropped: 'you never pass a goalId', 'pass only the fields you want to change'.
+
+<Columns>
+  <Column label="Before (59 words)">
+    Update the metadata of THIS thread's active goal: its title, description (a short objective statement, not a journal), and/or slug. The goal is resolved from the session — you never pass a goalId. Use this to keep the goal's framing accurate as understanding evolves. Pass only the fields you want to change.
+
+    Parameters:
+
+    - `title`: New goal title.
+    - `description`: New short goal objective statement, not a journal (may be empty to clear it).
+    - `slug`: New stable goal slug.
+  </Column>
+  <Column label="After (29 words)">
+    Update this thread's goal: its title, objective statement or slug, keeping the framing accurate as understanding evolves. Only the goal's owner, its root, may.
+
+    Parameters:
+
+    - `title`: New title.
+    - `description`: New objective statement, short, not a journal; empty clears it.
+    - `slug`: New stable slug.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k22" label="k22 · goal_update" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k23" eyebrow="k23 · register" heading="ask_user_question: description 123 → 95 words, parameters 175 → 147" tone="info" badge="2,778 → 2,438 chars">
+
+Dropped: 'that is the only reason it is here', the NEVER. Kept: the three decision kinds, state an assumption otherwise, MDX for coupled decisions (moved here from `questions`), the two better tools. The `question` body keeps its reader rules: every sentence changes what is written.
+
+<Columns>
+  <Column label="Before (298 words)">
+    Ask the person who is reading this thread a structured question. It is active because a human has written to this thread — that is the only reason it is here. Use it for an irreversible, destructive or preference-only decision not settled by the request, codebase or prior context; otherwise state an assumption and proceed. Never ask to reconfirm scope or for approval you do not need. Coupled decisions, plan/design sign-offs or choices needing a walkthrough or supporting records belong in an MDX decision document; ask only a pointer question. A question your PARENT could answer (anything your brief left unsettled) goes to it via mcp__t3-code__consult_thread, not to the human. If you need human guidance but cannot frame options, use mcp__t3-code__workstream_request_attention with needs_guidance.
+
+    Parameters:
+
+    - `questions`: One question; two only when independent and answerable alone. Coupled decisions or a plan sign-off go in an MDX decision document (mdx-visual-recap) with evidence beside each decision, and the question becomes a pointer to it.
+    - `questions.[].header`: Short decision title, understandable alone.
+    - `questions.[].question`: Markdown body, for a reader who has read none of this thread or any child report. In order: the situation (what you are working on in plain words, the ticket reference so they can open it, what just happened), one real example (a named file, record or screen with literal content), the stakes and why their decision is needed, then your pick with its reason. Explain what any quoted figure measures. No internal shorthand as names ('D7', 'must-fix #1'), no unexplained acronyms, no references in place of substance ('per the report'); a child's report was written for you, so translate it rather than pass on its labels, ids or questions.
+    - `questions.[].options.[].label`: Plain-words outcome. 'Other' and 'Type something.' are reserved.
+    - `questions.[].options.[].description`: What this option gains and gives up, not how it works.
+    - `questions.[].options.[].recommended`: Mark exactly one option: your pick and the default on dismissal.
+    - `questions.[].multiSelect`: Allow multiple selections. Defaults to false.
+  </Column>
+  <Column label="After (242 words)">
+    Ask the person reading this thread a structured question; it is available because a human has written here. For an irreversible, destructive or preference-only decision the request, codebase and prior context do not settle; otherwise state an assumption and proceed, and do not ask to reconfirm scope or for approval you do not need. Coupled decisions and plan or design sign-offs go in an MDX decision document (the mdx-visual-recap skill), with the question a pointer to it. What your parent could answer goes to mcp__t3-code__consult_thread; guidance you cannot frame as options is mcp__t3-code__workstream_request_attention with needs_guidance.
+
+    Parameters:
+
+    - `questions`: One question; two only when independent and answerable alone.
+    - `questions.[].header`: Short decision title, understandable alone.
+    - `questions.[].question`: Markdown body for a reader who has read none of this thread or any child report. In order: the situation (what you are working on in plain words, the ticket reference so they can open it, what just happened), one real example (a named file, record or screen with literal content), the stakes and why their decision is needed, then your pick with its reason. Explain what any quoted figure measures. No internal shorthand as names ('D7', 'must-fix #1'), no unexplained acronyms, no references in place of substance ('per the report'): a child's report was written for you, so translate it rather than pass on its labels, ids or questions.
+    - `questions.[].options.[].label`: Plain-words outcome; 'Other' and 'Type something.' are reserved.
+    - `questions.[].options.[].description`: What it gains and gives up, not how it works.
+    - `questions.[].options.[].recommended`: Exactly one option: your pick, and the default on dismissal.
+    - `questions.[].multiSelect`: Allow several selections; default false.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k23" label="k23 · ask_user_question" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k24" eyebrow="k24 · register" heading="bg_start: description 214 → 116 words, parameters 86 → 82" tone="info" badge="1,917 → 1,377 chars">
+
+Dropped: the timings ('about two minutes' → 'a couple of minutes' stays as the only threshold, 'four hours' goes), 'commands that finish in seconds stay in bash', the explicit sleep rule (a long sleep is in the first sentence), the job id/pid/log narration. Kept: why here not bash, how the exit reaches you, write progress, the job dies with the session.
+
+<Columns>
+  <Column label="Before (300 words)">
+    Run here, not in bash, any command that may take more than about two minutes: an eval, a pipeline, a build or test suite, a deliberate delay. A foreground bash call holds your turn until the command ends and cannot be steered, and a `sleep` waiting for it cannot end early. The job starts at once in the working directory with stdout and stderr captured to a log; the result is the job id, pid and log path. Its exit code and last output lines reach you in bg_wait if you are waiting there, otherwise as a new message (one that starts a turn if yours has ended). Before starting, make sure the command writes progress as it runs (a line per item, a counter, a growing results file): bg_wait shows only what the job writes, and a job silent until the end cannot be told from one that is stuck. Commands that finish in seconds stay in bash. Never wait with a bash `sleep` of a minute or more for a process, a service or the clock: run the `sleep N` here instead and wait on it with bg_wait. The job dies with this session: Stop, a server restart, or more than four hours idle ends it, and your next turn is told.
+
+    Parameters:
+
+    - `command`: The command, run by `bash -c` in the working directory. No trailing `&`, `nohup` or output redirection: the job already runs apart from your turn with its output captured.
+    - `min_minutes`: Your lower bound on the run time, in minutes. An exit before it is reported as early, so you check the output before trusting it.
+    - `max_minutes`: Your upper bound, in minutes. bg_wait waits until here by default, and a job past it is reported as overdue, which is a reason to read its progress, not to stop it.
+  </Column>
+  <Column label="After (198 words)">
+    Run here, not in bash, a command that may take more than a couple of minutes (an eval, a build, a test suite, a long sleep): a foreground bash call holds your turn and cannot be steered. The job runs in the working directory with its output captured to a log; its exit reaches you in bg_wait, or as a new message that starts a turn if yours has ended. Make the command write progress as it runs, since bg_wait shows only what the job writes and a silent job cannot be told from a stuck one. The job dies with this session (Stop, a server restart, a long idle), and your next turn is told.
+
+    Parameters:
+
+    - `command`: Run by `bash -c` in the working directory. No trailing `&`, `nohup` or output redirection: the job already runs apart from your turn with its output captured.
+    - `min_minutes`: Your lower bound on the run time, in minutes; an exit before it is reported as early, so you check the output before trusting it.
+    - `max_minutes`: Your upper bound, in minutes; bg_wait waits until here by default, and a job past it is reported as overdue, a reason to read its progress rather than stop it.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k24" label="k24 · bg_start" placeholder="Something lost that you want back…" />
+</Card>
+
+<Card id="k25" eyebrow="k25 · register" heading="bg_wait: description 102 → 74 words, parameters 35 → 27" tone="info" badge="978 → 803 chars">
+
+Dropped: the exact progress fields narrated twice. Kept: what returns and when, a timeout is a progress report, when to kill, aborting leaves it running. `timeout_s` loses the '(never less than 60 s)' aside.
+
+<Columns>
+  <Column label="Before (137 words)">
+    Wait for a job started with bg_start. Returns the moment the job exits, with its exit code and the last lines of its log; or when timeout_s runs out with the job still running, with how long it has run against your bounds, how much the log grew since your last check, and its latest lines. That timeout result is a progress report, not a failure: when the log is still advancing, wait again; stop the job (`kill <pid>`) only when its output shows it has stalled, is failing, or is doing the wrong work. Aborting this call leaves the job running.
+
+    Parameters:
+
+    - `id`: The job id bg_start returned.
+    - `timeout_s`: Seconds to wait before returning with progress if the job has not exited; at most 3600. Omit for the time left before the job's max_minutes (never less than 60 s).
+  </Column>
+  <Column label="After (101 words)">
+    Wait for a bg_start job: returns when it exits, with its exit code and the last lines of its log, or at timeout_s with its progress (run time against your bounds, log growth, latest lines). A timeout is a progress report, not a failure: while the log advances, wait again; kill the pid only when the output shows the job stalled, failing or doing the wrong work. Aborting this call leaves the job running.
+
+    Parameters:
+
+    - `id`: The job id bg_start returned.
+    - `timeout_s`: Seconds before returning with progress if the job has not exited, at most 3600; omitted, the time left to the job's max_minutes.
+  </Column>
+</Columns>
+
+<ReviewChoice itemId="k25" label="k25 · bg_wait" placeholder="Something lost that you want back…" />
+</Card>
+
+## 3. Also in this change
+
+- `docs/architecture/tool-def-authoring.md`: "authored by a top-tier model" is now "authored on the `planner` preset (Carl's rule, in the orchestrator overlay)"; the description row of the decision-moment table, the ambient-cost bar, the recipient principle and the audit checklist now state the K rules rather than the older "when NOT to, then closing duties" shape.
+- The sidecar: `promptDebug.ts` appends "Declared tools" after the assembled prompt, from pi's registered tools filtered to the active set, so third-party tools appear too.
+- Tests: the prompt-debug test pins the new section; every other suite passed unchanged (no test pinned a description).
