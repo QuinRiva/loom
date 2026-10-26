@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Comparison tables for run.sh: this run's census and delegation outputs against baselines/.
 
-Usage: compare.py BASELINE_MD BASELINE_DELEGATION TABLE_MD TRIGGERS_TXT DELEGATION_CUMULATIVE DELEGATION_SINCE_DEPLOY DAYS
+Usage: compare.py BASELINE_MD BASELINE_DELEGATION TABLE_MD TRIGGERS_TXT DELEGATION_CUMULATIVE DELEGATION_SINCE_DEPLOY DAYS \
+                  BASELINE_CAPABILITIES CAPABILITIES_MD
 """
 import ast, datetime, math, re, sys
 
@@ -44,16 +45,36 @@ def cell(pair):
     return f"{pair[1]}/{pair[0]} ({pct(pair[1], pair[0]):.1f}%)" if pair and pair[0] else "–"
 
 
-def below(base, cur):
-    """Is cur's rate below base's, and by more than noise (two-proportion z <= -2)?"""
+def z(base, cur):
+    """Two-proportion z of cur's rate against base's; (count, total) pairs."""
     (bn, bd), (cn, cd) = base, cur
-    if not cd:
-        return "no data"
-    if pct(cn, cd) >= pct(bn, bd):
-        return "no"
     p = (bn + cn) / (bd + cd)
-    z = (cn / cd - bn / bd) / math.sqrt(p * (1 - p) * (1 / bd + 1 / cd)) if 0 < p < 1 else 0
-    return "**yes**" if z <= -2 else "lower, within noise"
+    return (cn / cd - bn / bd) / math.sqrt(p * (1 - p) * (1 / bd + 1 / cd)) if 0 < p < 1 else 0
+
+
+def below(base, cur):
+    """Is cur's rate below base's, and by more than noise (z <= -2)?"""
+    if not cur[1]:
+        return "no data"
+    if pct(*cur) >= pct(*base):
+        return "no"
+    return "**yes**" if z(base, cur) <= -2 else "lower, within noise"
+
+
+def follow_up(base, cur, better):
+    """'**yes**' unless cur moved the `better` way (+1 higher, -1 lower) by one standard error; 'no' needs two."""
+    if not cur[1]:
+        return "no data"
+    s = better * z(base, cur)
+    return "no" if s >= 2 else "**yes**" if s < 1 else "better, within noise: re-run later"
+
+
+def capabilities(text):
+    """(sessions, days, {row label: count}) from capabilities.py's output."""
+    head = re.search(r"^(\d+) sessions .*? last ([\d.]+) days", text, re.M)
+    rows = dict(re.findall(r"^\|\s*(.+?)\s*\|\s*(\d+)", text, re.M))
+    get = lambda prefix: int(next(v for k, v in rows.items() if k.startswith(prefix)))
+    return int(head[1]), float(head[2]), get
 
 
 def instruction_before_baseline(text):
@@ -70,6 +91,7 @@ def instruction_before_now(text):
 
 
 base_md, base_del, table, triggers, del_cum, del_dep = (open(p).read() for p in sys.argv[1:7])
+base_cap, cap = (capabilities(open(p).read()) for p in sys.argv[8:10])
 start = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=float(sys.argv[7]))
 then, now = census(base_md), census(table)
 b_del, n_cum, n_dep = delegation(base_del), delegation(del_cum), delegation(del_dep)
@@ -107,3 +129,19 @@ for s in CUT:
 b, n = instruction_before_baseline(base_md), instruction_before_now(triggers)
 print(f"| llm-instruction-change read before editing an instruction file (read first/editors) "
       f"| {b[0]}/{b[1]} ({pct(*b):.1f}%) | {n[0]}/{n[1]} ({pct(*n):.1f}%) | {below(b, n)} |")
+
+print("\n### Capabilities: threads that substituted for what loom provides\n")
+print("The deferred-capabilities line, the guards' browser and bounded-search notes and the `lint-doc.sh` "
+      "wrapper reach threads only from the first release carrying PR #450; sessions before that promote dilute 'now'.\n")
+print(f"| measure | baseline: {base_cap[1]:g} days to 26 Oct | now: since {start:%Y-%m-%d} | target | follow up? |")
+print("|---|--:|--:|---|---|")
+b_cap, n_cap = ((s, d, g("of those, outside a loom checkout"), g("of those, called `tool_search` before"),
+                 g("linted via ~/loom"), g("needed a browser"), g("used a browser tool")) for s, d, g in (base_cap, cap))
+share = lambda c: f"{c[2]} ({c[2] / c[1]:.1f}/day, {pct(c[2], c[0]):.1f}% of sessions)"
+print(f"| hand-rolled a browser outside a loom checkout | {share(b_cap)} | {share(n_cap)} | fewer "
+      f"| {follow_up((b_cap[2], b_cap[0]), (n_cap[2], n_cap[0]), -1)} |")
+print(f"| of those, called `tool_search` before substituting | {cell(b_cap[2:4])} | {cell(n_cap[2:4])} | more "
+      f"| {follow_up(b_cap[3:1:-1], n_cap[3:1:-1], 1)} |")
+print(f"| MDX lints from `~/loom` (sessions outside a loom checkout) | {b_cap[4]} ({b_cap[4] / b_cap[1]:.1f}/day) "
+      f"| {n_cap[4]} ({n_cap[4] / n_cap[1]:.1f}/day) | 0 | {'**yes**' if n_cap[4] else 'no'} |")
+print(f"| needed a browser and used a browser tool (context) | {cell(b_cap[5:7])} | {cell(n_cap[5:7])} | more | – |")
