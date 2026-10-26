@@ -18,7 +18,10 @@ import {
   HUMAN_INPUT,
   LEAF_CORE,
   PULL_REQUESTS,
+  SCHEDULING,
+  TOOLSETS,
   UPSTREAM_WITHHELD_TOOLS,
+  withheldFrom,
 } from "./families.ts";
 
 const namesOf = (toolkit: { readonly tools: Record<string, unknown> }) =>
@@ -67,5 +70,15 @@ describe("Loom tool families", () => {
     expect(UPSTREAM_WITHHELD_TOOLS.filter((name) => kept.has(name))).toEqual([]);
     const loom: ReadonlySet<string> = new Set(LOOM_TOOL_DEFS.map((def) => agentToolName(def.name)));
     expect(UPSTREAM_WITHHELD_TOOLS.filter((name) => loom.has(name))).toEqual([]);
+  });
+
+  it("SCHEDULING is carved out of the withheld OrchestratorToolkit, and only a profile naming it is spared it", () => {
+    expect(SCHEDULING.filter((name) => !namesOf(OrchestratorToolkit).includes(name))).toEqual([]);
+    expect(TOOLSETS.scheduling).toBe(SCHEDULING);
+    expect(withheldFrom([])).toEqual(UPSTREAM_WITHHELD_TOOLS);
+    const spared = withheldFrom([...SCHEDULING, ...LEAF_CORE, "read"]);
+    expect(UPSTREAM_WITHHELD_TOOLS.filter((name) => !spared.includes(name))).toEqual(SCHEDULING);
+    expect(spared).toContain("mcp__t3-code__delegate_task");
+    expect(spared).toContain("mcp__t3-code__request_secret");
   });
 });

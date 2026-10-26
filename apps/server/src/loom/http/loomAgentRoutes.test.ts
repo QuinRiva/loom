@@ -138,6 +138,9 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
       assert.isFalse(before.body.hasParent);
       assert.include(before.body.activeTools, ASK); // the root orchestrator keeps human-input resident
       assert.include(before.body.denyList, "mcp__t3-code__delegate_task");
+      // Its `scheduling` toolset spares it the scheduled-task tools the deny-list withholds from other roles.
+      assert.include(before.body.activeTools, "mcp__t3-code__schedule_task");
+      assert.notInclude(before.body.denyList, "mcp__t3-code__schedule_task");
       assert.match(before.body.promptDebugPath, /prompt-debug\/routes-root\.md$/);
       // The extension's prompt-debug part writes there with plain fs: the directory must exist.
       assert.isTrue(

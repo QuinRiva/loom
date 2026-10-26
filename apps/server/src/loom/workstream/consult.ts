@@ -49,7 +49,7 @@ import { PiSettings } from "@t3tools/provider-pi/settings";
 import { deriveProviderInstanceConfigMap } from "../../provider/ProviderInstanceRegistryHydration.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { loomPaths } from "../loomPaths.ts";
-import { LOOM_HIDDEN_TOOLS_ENV } from "../prompt/sessionComposerLive.ts";
+import { loomHiddenToolsEnv } from "../prompt/sessionComposerLive.ts";
 import { makeConsultTracker } from "./consultTracker.ts";
 import { readLaunchIdentity } from "./launchIdentity.ts";
 
@@ -199,7 +199,7 @@ export const layer = Layer.effect(
               // One short-lived turn: the 5-minute arm; reads are content-keyed.
               env: {
                 ...identity.value.env,
-                ...LOOM_HIDDEN_TOOLS_ENV,
+                ...loomHiddenToolsEnv(identity.value.tools),
                 PI_CACHE_RETENTION: "short",
                 T3_LOOM_CONSULT_FORK: "1",
               },

@@ -55,6 +55,7 @@ export interface McpServiceStubs {
   readonly projects?: Partial<ProjectService.ProjectService["Service"]>;
   /** Upstream's tool access reads the caller here (`loadCaller`) before any handler runs. */
   readonly threadManagement?: Partial<ThreadManagementService.ThreadManagementService["Service"]>;
+  readonly scheduledTasks?: Partial<ScheduledTaskService.ScheduledTaskService["Service"]>;
   readonly loomStore?: Pick<
     Partial<LoomStore.LoomStoreV2["Service"]>,
     "getWorkstream" | "listWorkstreamTree" | "listChildren"
@@ -79,7 +80,7 @@ const stubServices = (stubs: McpServiceStubs) =>
     Layer.mock(ThreadManagementService.ThreadManagementService)(stubs.threadManagement ?? {}),
     Layer.mock(ProviderRegistry.ProviderRegistry)({}),
     Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
-    Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+    Layer.mock(ScheduledTaskService.ScheduledTaskService)(stubs.scheduledTasks ?? {}),
     Layer.mock(SecretRequests.SecretRequests)({}),
     ServerSettings.layerTest({}),
     Layer.mock(GitWorkflowService.GitWorkflowService)({}),

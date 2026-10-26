@@ -2,7 +2,7 @@
 # Working tools only — the server auto-unions the leaf lifeline (submit,
 # attention, list, consult, goal tasks, title), so those are never listed here.
 # Every other permitted Loom tool stays deferred behind pi's `tool_search`;
-# `toolsets:` would keep a family (delegation, human-input, pull-requests, history) resident.
+# `toolsets:` would keep a family (delegation, human-input, pull-requests, history, scheduling) resident.
 tools:
   [
     read,

@@ -1,6 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import { HttpServerRequest } from "effect/http";
 
@@ -10,6 +11,7 @@ import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
 import * as McpHttpServer from "../../McpHttpServer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { documentQueryClient } from "../../../loom/query/queryPosture.ts";
+import { idleThreadProjection, liveThreadShell } from "../../McpToolAccess.testkit.ts";
 import type { WorkstreamCaller } from "./authorisation.ts";
 import { LOOM_TOOL_DEFS, LoomToolError, type LoomToolHandlers } from "./defs.ts";
 import { LOOM_TEST_THREAD, mcpTestLayer, serveMcp } from "./mcpHttp.testkit.ts";
@@ -304,5 +306,50 @@ it.effect("/mcp serves the real handlers with their error modes", () =>
       content: [{ type: "text", text: expect.stringContaining("has no active goal") }],
     });
     expect(tasks.isError ?? false).toBe(false);
+  }).pipe(Effect.scoped, Effect.provide(mcpTestLayer)),
+);
+
+// A Loom thread's credential carries `workstream` in place of upstream's `orchestration`. The
+// scheduled-task tools accept it (the role profile decides which threads see them); the rest of
+// upstream's OrchestratorToolkit still refuses it.
+it.effect("a Loom credential reaches the scheduled-task tools and no other orchestrator tool", () =>
+  Effect.gen(function* () {
+    const shell = {
+      ...liveThreadShell(LOOM_TEST_THREAD),
+      providerInstanceId: ProviderInstanceId.make("pi"),
+    };
+    const mcp = yield* serveMcp(
+      {
+        threadManagement: {
+          getThreadShell: () => Effect.succeed(shell),
+          getThreadRecords: () => Effect.succeed(idleThreadProjection(shell)),
+        },
+        projects: { getById: () => Effect.succeed(Option.none()) },
+        scheduledTasks: { list: () => Effect.succeed({ tasks: [] }) },
+      },
+      { threadId: LOOM_TEST_THREAD, capabilities: ["workstream", "pull-requests"] },
+    );
+    const text = (result: { readonly content: ReadonlyArray<{ readonly text?: string }> }) =>
+      result.content[0]?.text ?? "";
+    expect(yield* mcp.callTool("list_scheduled_tasks", {})).toMatchObject({
+      isError: false,
+      structuredContent: { tasks: [] },
+    });
+    // Past the capability gate, each fails on what the stubs lack, not on the credential.
+    const scheduled = yield* mcp.callTool("schedule_task", {
+      prompt: "Measure the prompt",
+      schedule: { type: "interval", everyMs: 3_600_000 },
+    });
+    expect(text(scheduled)).toContain("was not found");
+    for (const [name, args] of [
+      ["update_scheduled_task", { scheduledTaskId: "scheduled-task:gone", enabled: false }],
+      ["delete_scheduled_task", { scheduledTaskId: "scheduled-task:gone" }],
+    ] as const)
+      expect(text(yield* mcp.callTool(name, args)), name).toContain('"code":"task_not_found"');
+    for (const [name, args] of [
+      ["t3_thread_list", {}],
+      ["request_secret", { label: "Webhook secret", reason: "Signs the webhook." }],
+    ] as const)
+      expect(text(yield* mcp.callTool(name, args)), name).toContain('"code":"capability_denied"');
   }).pipe(Effect.scoped, Effect.provide(mcpTestLayer)),
 );
