@@ -668,29 +668,23 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
 
   visit(tree, []);
 
-  // Mermaid sources must pass the real mermaid parser (the renderer shows a
-  // per-block error card otherwise). Degrades to a warning without a DOM.
+  // Mermaid sources must pass the renderer's own parser (the block shows a
+  // per-block error card otherwise).
   if (mermaidChecks.length) {
-    if (typeof document === "undefined") {
-      findings.push({
-        severity: "warning",
-        message: "Mermaid sources were not validated (no DOM available in this environment).",
-      });
-    } else {
-      const mermaid = (await import("mermaid")).default;
-      for (const { source: mermaidSource, node } of mermaidChecks) {
-        try {
-          await mermaid.parse(mermaidSource);
-        } catch (cause) {
-          const message = (cause instanceof Error ? cause.message : String(cause))
-            .trim()
-            .slice(0, 400);
-          findings.push({
-            severity: "error",
-            ...at(node),
-            message: `<Mermaid> source failed to parse (renders an error card):\n  ${message.replace(/\n/g, "\n  ")}`,
-          });
-        }
+    const pele = await import("pele/lazy");
+    for (const { source: mermaidSource, node } of mermaidChecks) {
+      try {
+        await pele.load(pele.detectType(mermaidSource));
+        pele.parse(mermaidSource);
+      } catch (cause) {
+        const message = (cause instanceof Error ? cause.message : String(cause))
+          .trim()
+          .slice(0, 400);
+        findings.push({
+          severity: "error",
+          ...at(node),
+          message: `<Mermaid> source failed to parse (renders an error card):\n  ${message.replace(/\n/g, "\n  ")}`,
+        });
       }
     }
   }

@@ -1089,7 +1089,7 @@ const mdxAnnotationFixture: PreviewFixture = {
 const MDX_MERMAID_FIXTURE_SOURCE = [
   "# Mermaid block",
   "",
-  "A lazily loaded Mermaid diagram with tone classes and a legend. Hover it and use 'Comment on this block' to annotate it.",
+  "A lazily drawn Mermaid diagram with tone classes and a legend. Hover it and use 'Comment on this block' to annotate it.",
   "",
   `<Mermaid source={${JSON.stringify(
     [
@@ -1101,12 +1101,42 @@ const MDX_MERMAID_FIXTURE_SOURCE = [
       "  server & web & search --> integrate[S3 integrate]:::tone-accent",
     ].join("\n"),
   )}} caption="Pull 13 tracks" legend={[{ tone: "success", label: "green" }, { tone: "warning", label: "in flight" }]} />`,
+  "",
+  "Status lines (an authored `<br/>`), a toned edge, a dotted edge and an edge label:",
+  "",
+  `<Mermaid source={${JSON.stringify(
+    [
+      "flowchart TD",
+      '  R["researcher<br/>done"]:::tone-success',
+      '  W["writer<br/>done · unmerged"]:::tone-warning',
+      '  C["coder · ready, blocked on the writer merging first"]:::tone-neutral',
+      "  X{{risk gate}}:::tone-risk",
+      "  I([info]):::tone-info",
+      "  W --> R",
+      "  C -->|waits for merge| W",
+      "  X -.-> C",
+      "  I --> X",
+      "  linkStyle 1 stroke:tone-risk,color:tone-risk",
+    ].join("\n"),
+  )}} legend={[{ tone: "risk", label: "the unwritten edge" }]} />`,
+  "",
+  "A sequence diagram takes the document theme with no tones:",
+  "",
+  `<Mermaid source={${JSON.stringify(
+    [
+      "sequenceDiagram",
+      "  participant W as Web",
+      "  participant S as Server",
+      "  W->>S: dispatch command",
+      "  S-->>W: domain event",
+    ].join("\n"),
+  )}} />`,
 ].join("\n");
 
 const mdxMermaidFixture: PreviewFixture = {
   id: "mdx-mermaid",
   title: "Mermaid block",
-  description: "The MDX plan Mermaid block renders through the lazily imported `mermaid` runtime.",
+  description: "The MDX plan Mermaid block renders through the lazily loaded `pele` renderer.",
   render: () => <PlanPanelPreview key="mdx-mermaid" source={MDX_MERMAID_FIXTURE_SOURCE} />,
 };
 

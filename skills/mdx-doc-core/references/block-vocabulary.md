@@ -359,20 +359,18 @@ A Redoc-style reference rendered from a whole OpenAPI 3 / Swagger 2 document.
 ### `<Mermaid>` — a Mermaid diagram
 
 Renders a Mermaid diagram from its text `source` (multiline string attr), with an
-optional `caption`. Runs in Mermaid's `strict` security mode (sanitised output, no
-click JS) with HTML labels disabled — labels render as plain SVG text. (Strict mode
-alone does NOT disable `%%{init}%%` directives or HTML labels in mermaid 11.)
+optional `caption`. Drawn by pele, the renderer the chat uses: labels are plain
+SVG text, links and images are off, and the output is sanitised.
 Use `<Diagram>` for a hand-placed spatial
 layout; use `<Mermaid>` when Mermaid's auto-layout of a flow/sequence/ER graph is
 enough.
 
-**Node tones, legend, look.** Colour a node by meaning with Mermaid's own class
+**Node tones, legend.** Colour a node by meaning with Mermaid's own class
 syntax and the shared six-tone palette — `W["writer"]:::tone-warning`, or
 `class W,C tone-neutral` on its own line — with no `classDef` hexes to invent; the
 colours follow the app theme. Tone the two or three nodes the reader should look
 at first and leave the rest untoned. `legend` (up to six `{ tone, label }`)
-decodes the colours once, under the figure. The default look is Mermaid's clean
-`classic`; `look="handDrawn"` is for a diagram that should read as a sketch.
+decodes the colours once, under the figure.
 
 **Two-line nodes.** Write a node as `name<br/>status` —
 `W["writer<br/>done · unmerged"]:::tone-warning`. The first line renders bold, the

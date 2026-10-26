@@ -276,7 +276,6 @@ Props:
 
 - `source`: `string` **(required)**
 - `caption`: `string` _(optional)_
-- `look`: `"classic" | "handDrawn"` _(optional)_
 - `legend`: `object[]` _(optional)_
   - `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` **(required)**
   - `label`: `string` **(required)**

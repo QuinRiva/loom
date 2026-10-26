@@ -3257,7 +3257,7 @@ code {
 /* -------------------------------------------------------------------------- */
 /* loom: MDX vocabulary v2 — the shared tone palette (tones.ts). Plain CSS      */
 /* variables, not Tailwind classes, so the same colours reach a Mermaid SVG     */
-/* <style> and a sandboxed <HtmlBlock> frame. Derived from <Card>'s colours.    */
+/* and a sandboxed <HtmlBlock> frame. Derived from <Card>'s colours.            */
 /* Each later v2 block appends its own region below, headed                    */
 /* `MDX vocabulary v2: <block>`.                                                */
 /* -------------------------------------------------------------------------- */
@@ -3782,9 +3782,59 @@ code {
   }
 }
 
-/* loom: MDX vocabulary v2: mermaid — the legend row under a diagram
-   (blocks/mermaid.tsx); each swatch is coloured inline from its tone, drawn
-   like a toned node (soft fill, tone border). */
+/* loom: MDX vocabulary v2: mermaid (blocks/mermaid.tsx), a pele diagram on the
+   document card. A `tone-*` node class takes the palette; a two-line node
+   (`.plan-status`) reads as a bold name over a mono status line in its tone. */
+.plan-mermaid .pele {
+  --pele-bg: var(--card);
+}
+.plan-mermaid .tone-neutral {
+  --plan-mermaid-tone: var(--plan-tone-neutral);
+  --plan-mermaid-tone-soft: var(--plan-tone-neutral-soft);
+}
+.plan-mermaid .tone-info {
+  --plan-mermaid-tone: var(--plan-tone-info);
+  --plan-mermaid-tone-soft: var(--plan-tone-info-soft);
+}
+.plan-mermaid .tone-success {
+  --plan-mermaid-tone: var(--plan-tone-success);
+  --plan-mermaid-tone-soft: var(--plan-tone-success-soft);
+}
+.plan-mermaid .tone-warning {
+  --plan-mermaid-tone: var(--plan-tone-warning);
+  --plan-mermaid-tone-soft: var(--plan-tone-warning-soft);
+}
+.plan-mermaid .tone-risk {
+  --plan-mermaid-tone: var(--plan-tone-risk);
+  --plan-mermaid-tone-soft: var(--plan-tone-risk-soft);
+}
+.plan-mermaid .tone-accent {
+  --plan-mermaid-tone: var(--plan-tone-accent);
+  --plan-mermaid-tone-soft: var(--plan-tone-accent-soft);
+}
+.plan-mermaid
+  .pele-node:is(.tone-neutral, .tone-info, .tone-success, .tone-warning, .tone-risk, .tone-accent)
+  :is(rect, polygon, circle, ellipse, path) {
+  fill: var(--plan-mermaid-tone-soft);
+  stroke: var(--plan-mermaid-tone);
+  stroke-width: 1.5px;
+}
+.plan-mermaid .pele-flowchart .pele-edge-label text {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  fill: var(--muted-foreground);
+}
+.plan-mermaid .plan-status > .pele-label > tspan:first-child {
+  font-weight: 600;
+}
+.plan-mermaid .plan-status > .pele-label > tspan + tspan {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  fill: var(--plan-mermaid-tone, var(--muted-foreground));
+}
+
+/* The legend row under a diagram; each swatch is coloured inline from its
+   tone, drawn like a toned node (soft fill, tone border). */
 .plan-mermaid-legend {
   display: flex;
   flex-wrap: wrap;
