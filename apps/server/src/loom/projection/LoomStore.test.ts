@@ -87,62 +87,122 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
     }),
   );
 
-  it.effect(
-    "listReDriveInput: live rows plus only the episodes their subtree has not followed",
-    () =>
-      Effect.gen(function* () {
-        const store = yield* LoomStore.LoomStoreV2;
-        const cancelled = {
-          outcome: "cancelled" as const,
-          outcomeAt: T(10),
-          outcomeEventId: EventId.make("e:c"),
-        };
-        // Cancelled + archived root, unstarted archived child still open → both listed.
-        yield* row("rd-a", { ...cancelled, archivedAt: T(11) });
-        yield* row("rd-a1", { parent: "rd-a", archivedAt: T(11) });
-        // The same, but the child followed (cancelled + archived) → neither listed.
-        yield* row("rd-c", { ...cancelled, archivedAt: T(11) });
-        yield* row("rd-c1", { parent: "rd-c", ...cancelled, archivedAt: T(11) });
-        // Deleted root over an archived, undeleted child → both listed.
-        yield* row("rd-g", { archivedAt: T(5), deletedAt: T(12) });
-        yield* row("rd-g1", { parent: "rd-g", archivedAt: T(5) });
-        // Unarchived root: a child archived before the unarchive keeps the episode open;
-        // one a human re-archived after it does not (it is listed only because an open
-        // episode lists its whole subtree — the planner's episode-keyed id skips it).
-        yield* row("rd-i", { unarchivedAt: T(20), unarchivedEventId: EventId.make("e:u") });
-        yield* row("rd-i1", { parent: "rd-i", archivedAt: T(15) });
-        yield* row("rd-i2", { parent: "rd-i", archivedAt: T(25) });
-        yield* row("rd-j", { unarchivedAt: T(20), unarchivedEventId: EventId.make("e:u2") });
-        yield* row("rd-j1", { parent: "rd-j", archivedAt: T(25) });
-        // An imported cancel (no episode stamp) is history, not news.
-        yield* row("rd-l", { outcome: "cancelled", outcomeAt: T(10), archivedAt: T(11) });
-        yield* row("rd-l1", { parent: "rd-l", archivedAt: T(11) });
-        // Archived root whose child a human unarchived afterwards: the child is live, the
-        // root is not an open episode.
-        yield* row("rd-n", { archivedAt: T(30) });
-        yield* row("rd-n1", { parent: "rd-n", unarchivedAt: T(31) });
-        // A child created after the archive is out of the episode's scope.
-        yield* row("rd-p", { archivedAt: T(30) });
-        yield* row("rd-p1", { parent: "rd-p", createdAt: T(40) });
+  it.effect("listPassInput: live rows plus only the episodes their subtree has not followed", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStore.LoomStoreV2;
+      const cancelled = {
+        outcome: "cancelled" as const,
+        outcomeAt: T(10),
+        outcomeEventId: EventId.make("e:c"),
+      };
+      // Cancelled + archived root, unstarted archived child still open → both listed.
+      yield* row("rd-a", { ...cancelled, archivedAt: T(11) });
+      yield* row("rd-a1", { parent: "rd-a", archivedAt: T(11) });
+      // The same, but the child followed (cancelled + archived) → neither listed.
+      yield* row("rd-c", { ...cancelled, archivedAt: T(11) });
+      yield* row("rd-c1", { parent: "rd-c", ...cancelled, archivedAt: T(11) });
+      // Deleted root over an archived, undeleted child → both listed.
+      yield* row("rd-g", { archivedAt: T(5), deletedAt: T(12) });
+      yield* row("rd-g1", { parent: "rd-g", archivedAt: T(5) });
+      // Unarchived root: a child archived before the unarchive keeps the episode open;
+      // one a human re-archived after it does not (it is listed only because an open
+      // episode lists its whole subtree — the planner's episode-keyed id skips it), and a
+      // root with no live child is no news.
+      yield* row("rd-i", { unarchivedAt: T(20), unarchivedEventId: EventId.make("e:u") });
+      yield* row("rd-i1", { parent: "rd-i", archivedAt: T(15) });
+      yield* row("rd-i2", { parent: "rd-i", archivedAt: T(25) });
+      yield* row("rd-j", { unarchivedAt: T(20), unarchivedEventId: EventId.make("e:u2") });
+      yield* row("rd-j1", { parent: "rd-j", archivedAt: T(25) });
+      // An imported cancel (no episode stamp) is history, not news.
+      yield* row("rd-l", { outcome: "cancelled", outcomeAt: T(10), archivedAt: T(11) });
+      yield* row("rd-l1", { parent: "rd-l", archivedAt: T(11) });
+      // Archived root whose child a human unarchived afterwards: the child is live, the
+      // root is not an open episode.
+      yield* row("rd-n", { archivedAt: T(30) });
+      yield* row("rd-n1", { parent: "rd-n", unarchivedAt: T(31) });
+      // A child created after the archive is out of the episode's scope.
+      yield* row("rd-p", { archivedAt: T(30) });
+      yield* row("rd-p1", { parent: "rd-p", createdAt: T(40) });
 
-        const listed = new Set(
-          (yield* store.listReDriveInput())
-            .map((entry) => entry.threadId)
-            .filter((id) => id.startsWith("rd-")),
-        );
-        assert.deepEqual([...listed].toSorted(), [
-          "rd-a",
-          "rd-a1",
-          "rd-g",
-          "rd-g1",
-          "rd-i",
-          "rd-i1",
-          "rd-i2",
-          "rd-j",
-          "rd-n1",
-          "rd-p1",
-        ]);
-      }),
+      const listed = new Set(
+        (yield* store.listPassInput({ newsSince: T(0), threadIds: [] }))
+          .map((entry) => entry.threadId)
+          .filter((id) => id.startsWith("rd-")),
+      );
+      assert.deepEqual([...listed].toSorted(), [
+        "rd-a",
+        "rd-a1",
+        "rd-g",
+        "rd-g1",
+        "rd-i",
+        "rd-i1",
+        "rd-i2",
+        "rd-n1",
+        "rd-p1",
+      ]);
+    }),
+  );
+
+  it.effect("listPassInput: families with news, never the finished-and-forgotten ones", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStore.LoomStoreV2;
+      const done = (minute: number) => ({ outcome: "done" as const, outcomeAt: T(minute) });
+      // Old news only (before T(20)), one child archived: nothing listed.
+      yield* row("ps-old");
+      yield* row("ps-old-a", { parent: "ps-old", ...done(1) });
+      yield* row("ps-old-b", { parent: "ps-old", archivedAt: T(2) });
+      // An unfinished child lists its parent and every unarchived sibling, old news included,
+      // but not a finished sibling's own children.
+      yield* row("ps-live");
+      yield* row("ps-live-a", { parent: "ps-live" });
+      yield* row("ps-live-done", { parent: "ps-live", ...done(1) });
+      yield* row("ps-live-dep", {
+        parent: "ps-live",
+        outcome: "cancelled",
+        outcomeAt: T(1),
+        archivedAt: T(2),
+      });
+      yield* row("ps-live-sub", { parent: "ps-live", ...done(1) });
+      yield* row("ps-live-sub-a", { parent: "ps-live-sub", root: "ps-live", ...done(1) });
+      // Recent news, a standing flag, an open rework round, an owed goal: each lists its family.
+      yield* row("ps-recent");
+      yield* row("ps-recent-a", { parent: "ps-recent", ...done(30) });
+      yield* row("ps-flag");
+      yield* row("ps-flag-a", { parent: "ps-flag", ...done(1), attention: ["error"] });
+      yield* row("ps-rework");
+      yield* row("ps-rework-a", { parent: "ps-rework", ...done(1), pendingRework: true });
+      yield* row("ps-goal", { goalId: GoalId.make("goal:ps") });
+      yield* row("ps-goal-a", { parent: "ps-goal", ...done(1) });
+      // A live child of an archived parent: listed, its parent not.
+      yield* row("ps-arch", { archivedAt: T(5) });
+      yield* row("ps-arch-a", { parent: "ps-arch", createdAt: T(10) });
+      // Forced ids: an unarchived one is listed, an archived one is not.
+      yield* row("ps-forced");
+      yield* row("ps-forced-archived", { archivedAt: T(1) });
+
+      const listed = (yield* store.listPassInput({
+        newsSince: T(20),
+        threadIds: [ThreadId.make("ps-forced"), ThreadId.make("ps-forced-archived")],
+      }))
+        .map((entry) => entry.threadId)
+        .filter((id) => id.startsWith("ps-"));
+      assert.deepEqual(listed.toSorted(), [
+        "ps-arch-a",
+        "ps-flag",
+        "ps-flag-a",
+        "ps-forced",
+        "ps-goal",
+        "ps-goal-a",
+        "ps-live",
+        "ps-live-a",
+        "ps-live-done",
+        "ps-live-sub",
+        "ps-recent",
+        "ps-recent-a",
+        "ps-rework",
+        "ps-rework-a",
+      ]);
+    }),
   );
 
   it.effect("lists Loom threads with a held queued run", () =>

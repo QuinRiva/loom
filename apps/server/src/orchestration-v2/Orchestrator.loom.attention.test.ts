@@ -194,7 +194,9 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
         });
       yield* setOutcome("done");
       // Auto-settle settles a finished root at its outcome time.
-      assert.isNotNull((yield* loomSettleBlockers(yield* LoomStoreV2, root)).finishedRootAt);
+      assert.isNotNull(
+        (yield* loomSettleBlockers(yield* LoomStoreV2, [root])).get(root)?.finishedRootAt,
+      );
       yield* orchestrator.dispatch({
         type: "thread.settle",
         commandId: CommandId.make("settled-root-settle"),
@@ -204,7 +206,9 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
       const { thread } = yield* orchestrator.getThreadProjection(root);
       assert.isNull(thread.settledOverride);
       assert.isNull(thread.settledAt);
-      assert.isNull((yield* loomSettleBlockers(yield* LoomStoreV2, root)).finishedRootAt);
+      assert.isNull(
+        (yield* loomSettleBlockers(yield* LoomStoreV2, [root])).get(root)?.finishedRootAt,
+      );
     }),
   );
 
