@@ -7,6 +7,7 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   type WorkstreamBadge,
   type WorkstreamBadgeTone,
+  rollupIndexOf,
   workstreamBadgeOf,
   workstreamRollupOf,
 } from "@t3tools/client-runtime/state/loom/rollup";
@@ -31,13 +32,19 @@ const badgesAtom = Atom.family((environmentId: EnvironmentId) =>
     const threads = get(threadEnvironment.snapshotAtom(environmentId))?.threads;
     if (!threads) return EMPTY_BADGES;
     const byId = workstreamIndexOf(threads);
-    const parents = new Set(threads.flatMap((thread) => thread.lineage.parentThreadId ?? []));
+    const index = rollupIndexOf(threads);
     return new Map(
       threads
-        .filter((thread) => thread.lineage.parentThreadId === null && parents.has(thread.id))
+        .filter(
+          (thread) =>
+            thread.lineage.parentThreadId === null && index.childrenByParent.has(thread.id),
+        )
         .map(
           (root) =>
-            [root.id, workstreamBadgeOf(workstreamRollupOf(root.id, threads, byId))] as const,
+            [
+              root.id,
+              workstreamBadgeOf(workstreamRollupOf(root.id, threads, byId, index)),
+            ] as const,
         ),
     );
   }).pipe(Atom.withLabel(`loom-workstream-badges:${environmentId}`)),
