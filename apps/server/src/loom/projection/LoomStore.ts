@@ -322,6 +322,8 @@ export interface LoomStoreV2Shape {
       projectId: ProjectId,
       options?: { readonly includeDeleted?: boolean },
     ) => Op<ReadonlyArray<LoomGoal>>;
+    /** The undeleted goals among `goalIds`, tasks live only. */
+    readonly listLive: (goalIds: ReadonlyArray<GoalId>) => Op<ReadonlyArray<LoomGoal>>;
     readonly upsert: (goal: LoomGoalInput) => Op<LoomGoal>;
     readonly softDelete: (goalId: GoalId) => Op<LoomGoal | null>;
     /** Returns the goals this call deleted. */
@@ -495,22 +497,38 @@ const make = Effect.gen(function* () {
       Effect.flatMap(decodeGoalRows),
     );
 
-  const selectTasks = (goalId: GoalId, deleted: boolean) =>
+  const selectTasks = (goalIds: ReadonlyArray<GoalId>, deleted: boolean) =>
     sql`SELECT task_id AS "id", goal_id AS "goalId", parent_task_id AS "parentTaskId",
           position, text, done, created_at AS "createdAt", updated_at AS "updatedAt"
-        FROM loom_goal_tasks WHERE goal_id = ${goalId}
+        FROM loom_goal_tasks WHERE goal_id IN ${sql.in(goalIds)}
           AND deleted_at IS ${deleted ? sql`NOT NULL` : sql`NULL`}`.pipe(
       Effect.flatMap(decodeTaskRows),
     );
 
-  const listTasks = (goalId: GoalId) => selectTasks(goalId, false).pipe(Effect.map(buildTaskTree));
+  const listTasks = (goalId: GoalId) =>
+    selectTasks([goalId], false).pipe(Effect.map(buildTaskTree));
 
-  const withTasks = (row: GoalRow) =>
-    listTasks(row.id).pipe(Effect.map((tasks): LoomGoal => ({ ...row, tasks })));
+  /** Every goal's live tasks in one query, assembled into each goal's tree in memory. */
+  const withTasks = (rows: ReadonlyArray<GoalRow>) =>
+    rows.length === 0
+      ? Effect.succeed<ReadonlyArray<LoomGoal>>([])
+      : selectTasks(
+          rows.map((row) => row.id),
+          false,
+        ).pipe(
+          Effect.map((tasks) => {
+            const byGoal = Map.groupBy(tasks, (task) => task.goalId);
+            return rows.map((row): LoomGoal => ({
+              ...row,
+              tasks: buildTaskTree(byGoal.get(row.id) ?? []),
+            }));
+          }),
+        );
 
   const getGoal = (goalId: GoalId) =>
     selectGoals(sql`goal_id = ${goalId}`).pipe(
-      Effect.flatMap((rows) => (rows[0] === undefined ? Effect.succeed(null) : withTasks(rows[0]))),
+      Effect.flatMap(withTasks),
+      Effect.map((goals) => goals[0] ?? null),
     );
 
   const touchGoal = (goalId: GoalId, at: string) =>
@@ -752,7 +770,14 @@ const make = Effect.gen(function* () {
             sql`project_id = ${projectId}`,
             options?.includeDeleted ? "1 = 1" : "deleted_at IS NULL",
           ]),
-        ).pipe(Effect.flatMap(Effect.forEach(withTasks)), run("goals.listByProject")),
+        ).pipe(Effect.flatMap(withTasks), run("goals.listByProject")),
+      listLive: (goalIds) =>
+        goalIds.length === 0
+          ? Effect.succeed([])
+          : selectGoals(sql`goal_id IN ${sql.in(goalIds)} AND deleted_at IS NULL`).pipe(
+              Effect.flatMap(withTasks),
+              run("goals.listLive"),
+            ),
       upsert: Effect.fn("LoomStore.service.goals.upsert")(
         function* (goal) {
           const at = yield* now;
@@ -782,9 +807,7 @@ const make = Effect.gen(function* () {
           const live = yield* selectGoals(sql`project_id = ${projectId} AND deleted_at IS NULL`);
           yield* sql`UPDATE loom_goals SET deleted_at = ${at}, updated_at = ${at}
             WHERE project_id = ${projectId} AND deleted_at IS NULL`;
-          return yield* Effect.forEach(live, (row) =>
-            withTasks({ ...row, deletedAt: at, updatedAt: at }),
-          );
+          return yield* withTasks(live.map((row) => ({ ...row, deletedAt: at, updatedAt: at })));
         },
         sql.withTransaction,
         run("goals.softDeleteByProject"),
@@ -792,7 +815,7 @@ const make = Effect.gen(function* () {
     },
     tasks: {
       listByGoal: (goalId) => listTasks(goalId).pipe(run("tasks.listByGoal")),
-      listDeleted: (goalId) => selectTasks(goalId, true).pipe(run("tasks.listDeleted")),
+      listDeleted: (goalId) => selectTasks([goalId], true).pipe(run("tasks.listDeleted")),
       replaceTree: Effect.fn("LoomStore.service.tasks.replaceTree")(
         function* (goalId, entries) {
           const at = yield* now;

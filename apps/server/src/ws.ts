@@ -1063,7 +1063,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
       });
       subagentThreadIds = forSubscriber.subagentThreadIds;
       const enriched = yield* enrichProjectShells(base.projects);
-      const goals = yield* loomGoals.snapshotGoals(base.projects); // loom: snapshot goals (DL-200)
+      const goals = yield* loomGoals.snapshotGoals(forSubscriber.snapshot); // loom: snapshot goals (DL-200)
       return {
         snapshot: {
           ...forSubscriber.snapshot,

@@ -101,6 +101,34 @@ it.layer(TestLayer)("loom ws goal methods", (it) => {
     ),
   );
 
+  it.effect("reads one goal off the snapshot, null once it is gone", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStore.LoomStoreV2;
+      const id = GoalId.make("goal:ws-get");
+      yield* store.goals.upsert({
+        id,
+        projectId: ProjectId.make("project:ws"),
+        slug: "ws-get",
+        title: "Get",
+        description: "",
+      });
+      yield* store.tasks.replaceTree(id, [
+        { id: task("get-a"), parentTaskId: null, text: "A", done: false, position: 0 },
+      ]);
+      const handlers = yield* makeLoomWsHandlers;
+      const read = (goalId: GoalId) => handlers[LOOM_WS_METHODS.goalGet]({ goalId });
+      const { goal } = yield* read(id);
+      assert.deepStrictEqual(
+        goal?.tasks.map((node) => node.id),
+        [task("get-a")],
+      );
+      assert.notProperty(goal, "deletedAt");
+      assert.isNull((yield* read(GoalId.make("goal:unknown"))).goal);
+      yield* store.goals.softDelete(id);
+      assert.isNull((yield* read(id)).goal);
+    }),
+  );
+
   it.effect("refuses an illegal rewrite and the stubbed drafter methods by name", () =>
     Effect.gen(function* () {
       yield* seedGoal;

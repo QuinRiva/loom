@@ -226,6 +226,7 @@ const RPC_AGGREGATES = {
   // loom: seam 21 — Loom's ws methods (rpc.loom.ts) share one aggregate.
   [LOOM_WS_METHODS.goalUpdate]: "loom",
   [LOOM_WS_METHODS.goalTaskRewrite]: "loom",
+  [LOOM_WS_METHODS.goalGet]: "loom", // loom: goals off the cold snapshot
   [LOOM_WS_METHODS.handoffDraft]: "loom",
   [LOOM_WS_METHODS.retroDraft]: "loom",
   [LOOM_WS_METHODS.documentQuery]: "loom", // loom: query threads
