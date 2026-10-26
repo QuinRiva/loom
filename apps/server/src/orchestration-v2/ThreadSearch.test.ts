@@ -142,21 +142,7 @@ const message = (
 });
 
 it.layer(layerTest)("ThreadSearch", (it) => {
-  it.effect("reads the newest hits without sorting all of them", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      for (const match of ['"needle"', null]) {
-        const plan = yield* sql<{
-          readonly detail: string;
-        }>`EXPLAIN QUERY PLAN ${ThreadSearch.messageHitsQuery(sql, { match, substrings: "[]", projectId: null, excludedThreadIds: "[]" })}`;
-        assert.isFalse(
-          plan.some((row) => row.detail.includes("TEMP B-TREE")),
-          plan.map((row) => row.detail).join("\n"),
-        );
-      }
-    }),
-  );
-
+  // loom: the index query-plan test dropped with 069's index (1065), which Loom never reads.
   it.effect("returns one finished user or assistant match per active thread", () =>
     Effect.gen(function* () {
       const projections = yield* ProjectionStore.ProjectionStoreV2;
@@ -273,48 +259,7 @@ it.layer(layerTest)("ThreadSearch", (it) => {
       assert.lengthOf((yield* search.search({ query: "renam ab" })).matches, 0);
     }),
   );
-
-  it.effect("indexes neither subagent messages nor rewrites that keep the text", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      const projections = yield* ProjectionStore.ProjectionStoreV2;
-      const project = ProjectId.make("project:search-index-writes");
-      const parent = ThreadId.make("thread:index-parent");
-      const subagent = ThreadId.make("thread:index-subagent");
-      yield* createProject(project);
-      yield* Effect.forEach(
-        [
-          thread(parent, project),
-          message(parent, "index-parent", "assistant", "parent answer"),
-          thread(subagent, project, { subagentOf: parent }),
-          message(subagent, "index-subagent", "assistant", "subagent answer"),
-        ],
-        projections.apply,
-        { discard: true },
-      );
-      const indexedThreads = sql<{ readonly threadId: string }>`
-        SELECT messages.thread_id AS "threadId"
-        FROM orchestration_v2_message_search AS search
-        INNER JOIN orchestration_v2_projection_messages AS messages
-          ON messages.rowid = search.rowid
-        WHERE messages.thread_id IN (${parent}, ${subagent})
-      `.pipe(Effect.map((rows) => rows.map((row) => row.threadId)));
-      assert.deepEqual(yield* indexedThreads, [parent]);
-
-      // total_changes counts trigger writes, so 1 means the index was untouched.
-      const changes = sql<{ readonly n: number }>`SELECT total_changes() AS n`.pipe(
-        Effect.map(([row]) => row?.n ?? 0),
-      );
-      const before = yield* changes;
-      yield* sql`
-        UPDATE orchestration_v2_projection_messages
-        SET payload_json = json_set(payload_json, '$.updatedAt', '2026-09-27T01:00:00.000Z')
-        WHERE message_id = 'index-parent'
-      `;
-      assert.strictEqual((yield* changes) - before, 1);
-      assert.deepEqual(yield* indexedThreads, [parent]);
-    }),
-  );
+  // loom: the index-writes test dropped with 069's index (1065), which Loom never reads.
 });
 
 it.layer(layerTest)("ThreadSearch filters before it ranks", (it) => {
@@ -491,30 +436,7 @@ it.layer(layerTest)("ThreadSearch filters before it ranks", (it) => {
     }),
   );
 
-  it.effect("finds a curly apostrophe for a straight one and back", () =>
-    Effect.gen(function* () {
-      const projections = yield* ProjectionStore.ProjectionStoreV2;
-      const search = yield* ThreadSearch.ThreadSearch;
-      const project = ProjectId.make("project:apostrophes");
-      const curly = ThreadId.make("thread:apostrophe-curly");
-      const straight = ThreadId.make("thread:apostrophe-straight");
-      yield* createProject(project);
-      yield* Effect.forEach(
-        [
-          thread(curly, project),
-          message(curly, "apostrophe-curly", "user", "the gannet\u2019s nest"),
-          thread(straight, project),
-          message(straight, "apostrophe-straight", "user", "a kittiwake's nest"),
-        ],
-        projections.apply,
-        { discard: true },
-      );
-      const threadIds = (query: string) =>
-        search.search({ query }).pipe(Effect.map(({ matches }) => matches.map((m) => m.threadId)));
-      assert.deepEqual(yield* threadIds("gannet's"), [curly]);
-      assert.deepEqual(yield* threadIds("kittiwake\u2019s"), [straight]);
-    }),
-  );
+  // loom: the apostrophe-folding test dropped with 069's index (1065), which Loom never reads.
 
   it.effect("leaves out answers to an agent's question, which show in its card", () =>
     Effect.gen(function* () {
@@ -560,113 +482,10 @@ it.layer(layerTest)("ThreadSearch filters before it ranks", (it) => {
       );
     }),
   );
-
-  it.effect("reads at most the newest 10,000 index hits, however many the filters drop", () =>
-    Effect.gen(function* () {
-      const projections = yield* ProjectionStore.ProjectionStoreV2;
-      const search = yield* ThreadSearch.ThreadSearch;
-      const sql = yield* SqlClient.SqlClient;
-      const project = ProjectId.make("project:kestrel");
-      const old = ThreadId.make("thread:kestrel-old");
-      const busy = ThreadId.make("thread:kestrel-busy");
-      yield* createProject(project);
-      yield* Effect.forEach(
-        [
-          thread(old, project),
-          message(old, "kestrel-old", "user", "kestrel ci is red"),
-          thread(busy, project),
-        ],
-        projections.apply,
-        { discard: true },
-      );
-      const insertBusy = (count: number) => sql`
-        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${count})
-        INSERT INTO orchestration_v2_projection_messages
-          (message_id, thread_id, role, streaming, created_at, updated_at, payload_json)
-        SELECT 'kestrel-busy-' || i, ${busy}, 'assistant', 0, ${DateTime.formatIso(at(5))},
-          ${DateTime.formatIso(at(5))}, json_object('text', 'kestrel packages')
-        FROM n
-      `;
-      const threadIds = (query: string) =>
-        search.search({ query }).pipe(Effect.map(({ matches }) => matches.map((m) => m.threadId)));
-      yield* insertBusy(9_999);
-      assert.deepEqual(yield* threadIds("kestrel ci"), [old]);
-      yield* sql`DELETE FROM orchestration_v2_projection_messages WHERE thread_id = ${busy}`;
-      yield* insertBusy(10_000);
-      assert.deepEqual(yield* threadIds("kestrel ci"), []);
-    }),
-  );
+  // loom: the newest-10,000-index-hits test dropped with 069's index (1065), which Loom never reads.
 });
 
-it.layer(layerTest)("ThreadSearch across scripts and without the index", (it) => {
-  it.effect(
-    "matches Korean, Japanese, and two-character Chinese words, and whole short words",
-    () =>
-      Effect.gen(function* () {
-        const projections = yield* ProjectionStore.ProjectionStoreV2;
-        const search = yield* ThreadSearch.ThreadSearch;
-        const sql = yield* SqlClient.SqlClient;
-        const project = ProjectId.make("project:scripts");
-        const threadId = ThreadId.make("thread:scripts");
-        const drafts = ThreadId.make("thread:drafts");
-        const addresses = ThreadId.make("thread:addresses");
-        yield* createProject(project);
-        yield* Effect.forEach(
-          [
-            thread(threadId, project),
-            message(threadId, "korean", "user", "검색 기능을 고쳐 주세요"),
-            message(threadId, "japanese", "user", "がんばって検索します"),
-            message(threadId, "chinese", "user", "明天部署到生产环境"),
-            message(threadId, "fts", "assistant", "the FTS index is ready"),
-            thread(drafts, project),
-            message(drafts, "drafts", "assistant", "saved two drafts and shifts"),
-            message(threadId, "camel", "assistant", "Configure enableFTS today"),
-            message(threadId, "accented", "user", "Review Résumé indexing"),
-            thread(addresses, project),
-            message(addresses, "addresses", "user", "This addresses Résumé indexing"),
-          ],
-          projections.apply,
-          { discard: true },
-        );
-        const threadIds = (query: string) =>
-          search
-            .search({ query })
-            .pipe(Effect.map(({ matches }) => matches.map((m) => m.threadId)));
-
-        // Short words must start a word, which camelCase and accented words do.
-        for (const query of ["검색 기능", "がんばって", "部署", "fts", "enable"]) {
-          assert.deepEqual(yield* threadIds(query), [threadId], query);
-        }
-        // "res" inside "addresses" does not hide the accented word after it.
-        assert.sameMembers(yield* threadIds("res"), [threadId, addresses]);
-        // A word beats the same letters inside a longer word, even in an older message.
-        const trust = ThreadId.make("thread:trust");
-        const rust = ThreadId.make("thread:rust");
-        yield* Effect.forEach(
-          [
-            thread(rust, project),
-            message(rust, "rust", "assistant", "Rust rewrite notes"),
-            thread(trust, project),
-            message(trust, "trust", "user", "We trust the build"),
-          ],
-          projections.apply,
-          { discard: true },
-        );
-        const { matches } = yield* search.search({ query: "rust" });
-        assert.deepEqual(
-          matches.map((match) => [match.threadId, (match.quality ?? 1) <= 0.3]),
-          [
-            [rust, false],
-            [trust, true],
-          ],
-        );
-        // Without the index (an SQLite build without FTS5 trigrams) search scans instead.
-        yield* sql`DROP TABLE orchestration_v2_message_search`;
-        assert.deepEqual(yield* threadIds("検索"), [threadId]);
-        assert.deepEqual(yield* threadIds("fts"), [threadId]);
-      }),
-  );
-});
+// loom: the scripts and no-index tests dropped with 069's index (1065), which Loom never reads.
 
 it.layer(layerTest)("ThreadSearch.searchOlderSettled", (it) => {
   it.effect("returns older settled title matches in scope, then older message hits", () =>

@@ -107,11 +107,7 @@ it.layer(DatabaseMaintenance.layer.pipe(Layer.provideMerge(NodeServices.layer)))
               '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z', '{"text":"needle"}'
             )
           `;
-          // An index that drifted from its rows, as a renumbering VACUUM would leave it.
-          yield* sql`
-            INSERT INTO orchestration_v2_message_search (orchestration_v2_message_search)
-            VALUES ('delete-all')
-          `;
+          // loom: no drifted 069 index to seed or check after; 1065 drops it.
           yield* sql`PRAGMA wal_checkpoint(TRUNCATE)`;
           yield* sql`INSERT INTO orchestration_v2_legacy_imports (
             thread_id, source_updated_at, shell_imported_at, transcript_imported_at, imported_message_count
@@ -153,16 +149,6 @@ it.layer(DatabaseMaintenance.layer.pipe(Layer.provideMerge(NodeServices.layer)))
           const sql = yield* SqlClient.SqlClient;
           assert.deepEqual(yield* sql`PRAGMA auto_vacuum`, [{ auto_vacuum: 2 }]);
           assert.deepEqual(yield* sql`SELECT value FROM retained_data`, [{ value: "keep" }]);
-          assert.deepEqual(
-            yield* sql`
-              SELECT messages.message_id AS "messageId"
-              FROM orchestration_v2_message_search AS search
-              INNER JOIN orchestration_v2_projection_messages AS messages
-                ON messages.rowid = search.rowid
-              WHERE orchestration_v2_message_search MATCH '"needle"'
-            `,
-            [{ messageId: "message-1" }],
-          );
         }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: dbPath, readonly: true })));
       }).pipe(Effect.scoped),
     );
