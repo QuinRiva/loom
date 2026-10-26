@@ -5,19 +5,10 @@ import { rebuildThreadSearchIndex } from "../threadSearchIndex.loom.ts";
 import { whenV1TableExists } from "../v1Projections.loom.ts";
 
 /**
- * Re-points the thread-content search index at the V2 projection: drops the
- * V1-era triggers (and their rows, keyed on V1 rowids), installs the V2 trigger
- * family and refills every kind from V2 tables and report files.
- *
- * First it reverses one choice of the V1 importer (LoomV1WorkstreamImporter):
- * a V1 thread archived at cut-over got no `loom_thread_workstream` row, which
- * left 1,419 archived threads on the cockpit without their purpose, goal link
- * and report path, so search could not find archived work by any of them. Each
- * such thread (still archived in V2, or not yet imported) gets an inert sidecar
- * row like the ones archiving writes today: V1's purpose, role, goal, anchor
- * task, brief and report paths and terminal outcome, root from V1's parent
- * chain, no attention, holds, routes or graph key. Archived roots regain goal
- * grouping and tree membership as a side effect. Their ledger rows say so.
+ * Re-points the search index at the V2 projection (V1-era triggers and rows dropped, V2 family
+ * installed, every kind refilled). First, each V1 thread archived at cut-over without a
+ * `loom_thread_workstream` row (1,419 on the cockpit) gets an inert sidecar row from V1's data,
+ * so archived work is findable by purpose, goal and report; their ledger rows say so.
  */
 const backfillArchivedSidecars = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

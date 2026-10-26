@@ -1,16 +1,8 @@
 // @effect-diagnostics preferSchemaOverJson:off nodeBuiltinImport:off - settings are compared by a JSON key, never parsed; sha1 of a root document is a sync hash.
 /**
- * ThreadEmbedder: the semantic half of thread search (plans/thread-content-search).
- *
- * Keeps `loom_thread_embeddings` (one vector per root thread) in agreement with
- * the current root documents under the configured provider, by a hash sweep at
- * startup, every two minutes and on a provider change, not by event plumbing.
- * Vectors carry the identity `<provider>/<model>/<dim>`; only rows matching the
- * current provider are held in memory and searched, and the sweep re-embeds the
- * rest. Provider `none`, or one that cannot be reached, means `nearest` answers
- * `undefined` and search runs lexical-only.
- *
- * @module ThreadEmbedder
+ * The semantic half of thread search: keeps `loom_thread_embeddings` (one vector per root, identity
+ * `<provider>/<model>/<dim>`) in step with the root documents by a hash sweep at startup, every two
+ * minutes and on a provider change. Provider `none` or unreachable: `nearest` is undefined (lexical).
  */
 import * as NodeCrypto from "node:crypto";
 
@@ -57,11 +49,9 @@ export const providerFromSettings = (
 };
 
 /**
- * One document per root: title, purpose, goal, the first non-automated user
- * message (800 chars) and its direct children's titles (400 chars). The title
- * comes first (providers that take a separate title split it off) and the
- * lowest-value text last, so window truncation drops the right end. A root is
- * a thread whose V2 lineage names no parent.
+ * One document per root (a thread whose lineage names no parent): title, purpose, goal, the first
+ * non-automated user message (800 chars), direct children's titles (400). Title first, lowest-value
+ * text last, so window truncation drops the right end.
  */
 const ROOT_DOCUMENTS = `
   WITH lineage AS MATERIALIZED (
@@ -150,169 +140,169 @@ interface ProviderState {
 }
 
 /** `currentProvider` is read at every sweep; a different provider resets the state. */
-export const makeThreadEmbedder = (currentProvider: Effect.Effect<EmbeddingProvider | undefined>) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const lock = yield* Semaphore.make(1);
-    let state: ProviderState | undefined;
+export const makeThreadEmbedder = Effect.fn("ThreadEmbedder.make")(function* (
+  currentProvider: Effect.Effect<EmbeddingProvider | undefined>,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const lock = yield* Semaphore.make(1);
+  let state: ProviderState | undefined;
 
-    const resolveState = Effect.gen(function* () {
-      const provider = yield* currentProvider;
-      if (!state || state.provider !== provider)
-        state = { provider, warned: false, vectors: new Map() };
-      return state;
-    });
+  const resolveState = Effect.gen(function* () {
+    const provider = yield* currentProvider;
+    if (!state || state.provider !== provider)
+      state = { provider, warned: false, vectors: new Map() };
+    return state;
+  });
 
-    const warnOnce = (current: ProviderState, reason: string) =>
-      current.warned
-        ? Effect.void
-        : Effect.sync(() => (current.warned = true)).pipe(
-            Effect.andThen(
-              Effect.logWarning("thread-search.embedder.unavailable", {
-                provider: current.provider?.name,
-                reason,
-                fallback: "lexical-only search",
-              }),
-            ),
-          );
+  const warnOnce = (current: ProviderState, reason: string) =>
+    current.warned
+      ? Effect.void
+      : Effect.sync(() => (current.warned = true)).pipe(
+          Effect.andThen(
+            Effect.logWarning("thread-search.embedder.unavailable", {
+              provider: current.provider?.name,
+              reason,
+              fallback: "lexical-only search",
+            }),
+          ),
+        );
 
-    /** Probe the provider once; on success load the identity-matched vectors. */
-    const activate = (current: ProviderState) =>
-      Effect.gen(function* () {
-        const provider = current.provider!;
-        const probe = yield* provider.embed(["thread search"], "query");
-        const identity = `${provider.name}/${probe[0]!.length}`;
-        const rows = yield* sql<{ readonly threadId: string; readonly vector: Uint8Array }>`
+  /** Probe the provider once; on success load the identity-matched vectors. */
+  const activate = Effect.fn("ThreadEmbedder.activate")(function* (current: ProviderState) {
+    const provider = current.provider!;
+    const probe = yield* provider.embed(["thread search"], "query");
+    const identity = `${provider.name}/${probe[0]!.length}`;
+    const rows = yield* sql<{ readonly threadId: string; readonly vector: Uint8Array }>`
           SELECT thread_id AS "threadId", vector FROM loom_thread_embeddings
           WHERE identity = ${identity}`;
-        for (const row of rows) {
-          current.vectors.set(
-            row.threadId,
-            new Float32Array(
-              row.vector.buffer.slice(
-                row.vector.byteOffset,
-                row.vector.byteOffset + row.vector.byteLength,
-              ),
-            ),
-          );
-        }
-        current.identity = identity;
-        current.warned = false;
-        yield* Effect.logInfo("thread-search.embedder.ready", { identity, stored: rows.length });
-      });
-
-    const sweepOnce = Effect.gen(function* () {
-      const current = yield* resolveState;
-      if (!current.provider) return { embedded: 0 };
-      if (!current.identity) {
-        const activated = yield* activate(current).pipe(
-          Effect.as(true),
-          Effect.catch((error) => warnOnce(current, String(error)).pipe(Effect.as(false))),
-        );
-        if (!activated) return { embedded: 0 };
-      }
-      const identity = current.identity!;
-      const started = yield* Clock.currentTimeMillis;
-      const docs = yield* rootDocuments(sql);
-      const stored = new Map(
-        (yield* sql<{
-          readonly threadId: string;
-          readonly identity: string;
-          readonly hash: string;
-        }>`
-          SELECT thread_id AS "threadId", identity, source_hash AS hash FROM loom_thread_embeddings`).map(
-          (row) => [row.threadId, row] as const,
+    for (const row of rows) {
+      current.vectors.set(
+        row.threadId,
+        new Float32Array(
+          row.vector.buffer.slice(
+            row.vector.byteOffset,
+            row.vector.byteOffset + row.vector.byteLength,
+          ),
         ),
       );
-      const live = new Set(docs.map((doc) => doc.threadId));
-      for (const threadId of current.vectors.keys())
-        if (!live.has(threadId)) current.vectors.delete(threadId);
-      for (const threadId of stored.keys())
-        if (!live.has(threadId))
-          yield* sql`DELETE FROM loom_thread_embeddings WHERE thread_id = ${threadId}`;
+    }
+    current.identity = identity;
+    current.warned = false;
+    yield* Effect.logInfo("thread-search.embedder.ready", { identity, stored: rows.length });
+  });
 
-      const todo = docs.filter((doc) => {
-        const row = stored.get(doc.threadId);
-        return row?.identity !== identity || row.hash !== doc.hash;
-      });
-      let embedded = 0;
-      for (let start = 0; start < todo.length; start += BATCH) {
-        const batch = todo.slice(start, start + BATCH);
-        const vectors = yield* current.provider.embed(
-          batch.map((doc) => doc.text),
-          "document",
-        );
-        const updatedAt = DateTime.formatIso(yield* DateTime.now);
-        for (const [index, doc] of batch.entries()) {
-          const vector = normalise(vectors[index]!);
-          yield* sql`
+  const sweepOnce = Effect.gen(function* () {
+    const current = yield* resolveState;
+    if (!current.provider) return { embedded: 0 };
+    if (!current.identity) {
+      const activated = yield* activate(current).pipe(
+        Effect.as(true),
+        Effect.catch((error) => warnOnce(current, String(error)).pipe(Effect.as(false))),
+      );
+      if (!activated) return { embedded: 0 };
+    }
+    const identity = current.identity!;
+    const started = yield* Clock.currentTimeMillis;
+    const docs = yield* rootDocuments(sql);
+    const stored = new Map(
+      (yield* sql<{
+        readonly threadId: string;
+        readonly identity: string;
+        readonly hash: string;
+      }>`
+          SELECT thread_id AS "threadId", identity, source_hash AS hash FROM loom_thread_embeddings`).map(
+        (row) => [row.threadId, row] as const,
+      ),
+    );
+    const live = new Set(docs.map((doc) => doc.threadId));
+    for (const threadId of current.vectors.keys())
+      if (!live.has(threadId)) current.vectors.delete(threadId);
+    for (const threadId of stored.keys())
+      if (!live.has(threadId))
+        yield* sql`DELETE FROM loom_thread_embeddings WHERE thread_id = ${threadId}`;
+
+    const todo = docs.filter((doc) => {
+      const row = stored.get(doc.threadId);
+      return row?.identity !== identity || row.hash !== doc.hash;
+    });
+    let embedded = 0;
+    for (let start = 0; start < todo.length; start += BATCH) {
+      const batch = todo.slice(start, start + BATCH);
+      const vectors = yield* current.provider.embed(
+        batch.map((doc) => doc.text),
+        "document",
+      );
+      const updatedAt = DateTime.formatIso(yield* DateTime.now);
+      for (const [index, doc] of batch.entries()) {
+        const vector = normalise(vectors[index]!);
+        yield* sql`
             INSERT INTO loom_thread_embeddings (thread_id, identity, source_hash, vector, updated_at)
             VALUES (${doc.threadId}, ${identity}, ${doc.hash}, ${new Uint8Array(vector.buffer)}, ${updatedAt})
             ON CONFLICT (thread_id) DO UPDATE SET identity = excluded.identity,
               source_hash = excluded.source_hash, vector = excluded.vector, updated_at = excluded.updated_at`;
-          current.vectors.set(doc.threadId, vector);
-        }
-        embedded += batch.length;
+        current.vectors.set(doc.threadId, vector);
       }
-      if (embedded > 0)
-        yield* Effect.logInfo("thread-search.embedder.sweep", {
-          identity,
-          embedded,
-          roots: docs.length,
-          ms: (yield* Clock.currentTimeMillis) - started,
-        });
-      return { embedded, identity };
-    });
+      embedded += batch.length;
+    }
+    if (embedded > 0)
+      yield* Effect.logInfo("thread-search.embedder.sweep", {
+        identity,
+        embedded,
+        roots: docs.length,
+        ms: (yield* Clock.currentTimeMillis) - started,
+      });
+    return { embedded, identity };
+  });
 
-    const sweep = lock.withPermits(1)(
-      sweepOnce.pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("thread-search.embedder.sweep-failed", { cause }).pipe(
-            Effect.as({ embedded: 0 }),
-          ),
+  const sweep = lock.withPermits(1)(
+    sweepOnce.pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("thread-search.embedder.sweep-failed", { cause }).pipe(
+          Effect.as({ embedded: 0 }),
         ),
       ),
-    );
+    ),
+  );
 
-    /** Set by a failed query embed, cleared by the next success: one warning per outage. */
-    let queryWarned = false;
-    const nearest = (query: string, k: number, skip?: ReadonlySet<string>) =>
-      Effect.gen(function* () {
-        const current = state;
-        if (!current?.provider || !current.identity) return undefined;
-        const [embedded] = yield* current.provider.embed([query], "query");
-        queryWarned = false;
-        const vector = normalise(embedded!);
-        return [...current.vectors]
-          .filter(([threadId]) => !skip?.has(threadId))
-          .map(([threadId, candidate]) => {
-            let score = 0;
-            for (let index = 0; index < vector.length; index++)
-              score += vector[index]! * candidate[index]!;
-            return [threadId, score] as const;
-          })
-          .toSorted((a, b) => b[1] - a[1])
-          .slice(0, k)
-          .map(([threadId]) => threadId);
-      }).pipe(
-        Effect.timeoutOption(QUERY_TIMEOUT),
-        Effect.map(Option.getOrUndefined),
-        Effect.catch((error) =>
-          queryWarned
-            ? Effect.succeed(undefined)
-            : Effect.sync(() => (queryWarned = true)).pipe(
-                Effect.andThen(
-                  Effect.logWarning("thread-search.embedder.query-failed", {
-                    error: String(error),
-                  }),
-                ),
-                Effect.as(undefined),
-              ),
-        ),
-      );
+  /** Set by a failed query embed, cleared by the next success: one warning per outage. */
+  let queryWarned = false;
+  const nearest = Effect.fn("ThreadEmbedder.nearest")(
+    function* (query: string, k: number, skip?: ReadonlySet<string>) {
+      const current = state;
+      if (!current?.provider || !current.identity) return undefined;
+      const [embedded] = yield* current.provider.embed([query], "query");
+      queryWarned = false;
+      const vector = normalise(embedded!);
+      return [...current.vectors]
+        .filter(([threadId]) => !skip?.has(threadId))
+        .map(([threadId, candidate]) => {
+          let score = 0;
+          for (let index = 0; index < vector.length; index++)
+            score += vector[index]! * candidate[index]!;
+          return [threadId, score] as const;
+        })
+        .toSorted((a, b) => b[1] - a[1])
+        .slice(0, k)
+        .map(([threadId]) => threadId);
+    },
+    Effect.timeoutOption(QUERY_TIMEOUT),
+    Effect.map(Option.getOrUndefined),
+    Effect.catch((error) =>
+      queryWarned
+        ? Effect.succeed(undefined)
+        : Effect.sync(() => (queryWarned = true)).pipe(
+            Effect.andThen(
+              Effect.logWarning("thread-search.embedder.query-failed", {
+                error: String(error),
+              }),
+            ),
+            Effect.as(undefined),
+          ),
+    ),
+  );
 
-    return ThreadEmbedder.of({ nearest, sweep });
-  });
+  return ThreadEmbedder.of({ nearest, sweep });
+});
 
 /** Settings-driven embedder with its background sweep, for the server build. */
 export const ThreadEmbedderLive = Layer.effect(
