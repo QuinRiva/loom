@@ -637,7 +637,11 @@ const prepareFirstStart = Effect.fn("dev-runner.prepareFirstStart")(function* (i
         );
       }
     }
-    const source = path.join(yield* HostProcess.HomeDirectory, ".t3", "userdata", "statev2.sqlite");
+    // loom: the live install is the ambient T3CODE_HOME (`input.env`'s is the dev home), else ~/.t3
+    const liveHome =
+      (yield* HostProcess.Environment).T3CODE_HOME?.trim() ||
+      path.join(yield* HostProcess.HomeDirectory, ".t3");
+    const source = path.join(liveHome, "userdata", "statev2.sqlite");
     // A V1 state.sqlite counts as data too: the server imports it only while
     // statev2.sqlite is missing, so seeding would hide it.
     if (
@@ -1009,7 +1013,7 @@ const devRunnerCli = Command.make("dev-runner", {
   ),
   seed: Flag.Boolean("seed").pipe(
     Flag.withDescription(
-      "Seed an empty worktree database from ~/.t3 on first start (read-only, via migrate-dev-db). On by default; --no-seed or T3CODE_DEV_SEED=0 skips it.",
+      "Seed an empty worktree database from $T3CODE_HOME (else ~/.t3) on first start (read-only, via migrate-dev-db). On by default; --no-seed or T3CODE_DEV_SEED=0 skips it.", // loom: $T3CODE_HOME source
     ),
     Flag.withFallbackConfig(optionalBooleanConfig("T3CODE_DEV_SEED")),
   ),

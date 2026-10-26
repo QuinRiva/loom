@@ -819,7 +819,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         }).pipe(Effect.scoped),
       );
 
-      it.effect("seeds a worktree database from ~/.t3 only when it has none", () =>
+      it.effect("seeds a worktree database from the live install only when it has none", () =>
         Effect.gen(function* () {
           const path = yield* Path.Path;
           const root = yield* makeWorktree;
@@ -827,7 +827,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           NodeFS.mkdirSync(path.join(home, ".t3", "userdata"), { recursive: true });
           NodeFS.writeFileSync(path.join(home, ".t3", "userdata", "statev2.sqlite"), "");
 
-          const spawnedArgs = (seed: boolean | undefined) =>
+          const spawnedArgs = (seed: boolean | undefined, environment: NodeJS.ProcessEnv = {}) =>
             Effect.gen(function* () {
               const spawned: Array<ReadonlyArray<string>> = [];
               const spawnerLayer = Layer.succeed(
@@ -844,7 +844,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
                 Effect.provideService(HostProcess.Platform, "linux"),
                 Effect.provideService(HostProcess.WorkingDirectory, root),
                 Effect.provideService(HostProcess.HomeDirectory, home),
-                Effect.provideService(HostProcess.Environment, {}),
+                Effect.provideService(HostProcess.Environment, environment),
               );
               return spawned.filter((args) =>
                 args.some((arg) => arg.endsWith("migrate-dev-db.ts")),
@@ -857,6 +857,19 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             [...(seedArgs ?? [])],
             ["--base-dir", devInstance(path.join(root, ".t3"))],
           ); // loom: port-scoped home
+          assert.includeMembers(
+            [...(seedArgs ?? [])],
+            ["--source", path.join(home, ".t3", "userdata", "statev2.sqlite")],
+          );
+          // loom: an ambient T3CODE_HOME is the live install (the cockpit's ~/.t3/cockpit)
+          const live = path.join(root, "live");
+          NodeFS.mkdirSync(path.join(live, "userdata"), { recursive: true });
+          NodeFS.writeFileSync(path.join(live, "userdata", "statev2.sqlite"), "");
+          const [liveArgs] = yield* spawnedArgs(undefined, { T3CODE_HOME: live });
+          assert.includeMembers(
+            [...(liveArgs ?? [])],
+            ["--source", path.join(live, "userdata", "statev2.sqlite")],
+          );
 
           // Either database means the worktree already has data.
           for (const name of ["state.sqlite", "statev2.sqlite"]) {
