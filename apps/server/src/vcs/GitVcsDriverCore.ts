@@ -1143,12 +1143,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           return Effect.succeed(result);
         }
         const reason = classifyGitFailure(result.stderr);
-        // loom: fold git's stderr into `detail` (bounded) so a failure is
-        // diagnosable from the persisted error message alone — the park detail
-        // and traces otherwise carry only the generic "non-zero status" line +
-        // a length.
+        // loom: an unclassified failure folds git's stderr into `detail` (bounded) so it is
+        // diagnosable from the persisted message; a classified one keeps upstream's stable, redacted detail.
         const baseDetail = options.fallbackErrorDetail ?? gitFailureDetail(reason);
-        const stderr = result.stderr.trim().slice(0, 2000);
+        const stderr = reason === null ? result.stderr.trim().slice(0, 2000) : "";
         return Effect.fail(
           new GitCommandError({
             ...gitCommandContext({ operation, cwd, args }),

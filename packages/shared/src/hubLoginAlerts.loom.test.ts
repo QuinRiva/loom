@@ -26,7 +26,7 @@ const relogin = (overrides: Partial<NonNullable<UsageLimitSourceLogin["relogin"]
 describe("reloginText", () => {
   it("names the day, says why it is early, and when the login could die", () => {
     expect(reloginText(relogin(), "caaarl@", now)).toBe(
-      "Re-log caaarl@ by Fri 30 Oct — early, to keep the accounts spread out. It could expire from Sun 15 Nov.",
+      "Re-log caaarl@ by Fri 30 Oct (early, to keep the accounts spread out). It could expire from Sun 15 Nov.",
     );
     expect(reloginText(relogin({ early: false }), "carl@", now)).toBe(
       "Re-log carl@ by Fri 30 Oct. It could expire from Sun 15 Nov.",
@@ -38,13 +38,13 @@ describe("reloginText", () => {
       /^Ask Jacob to re-log jacob@ by Mon 26 Oct/,
     );
     expect(reloginText(relogin({ leadWeekdays: 3, phase: "overdue" }), "jacob@", now)).toBe(
-      "Ask Jacob to re-log jacob@ now — it is overdue. It could expire from Sun 15 Nov.",
+      "Ask Jacob to re-log jacob@ now; it is overdue. It could expire from Sun 15 Nov.",
     );
   });
 
   it("covers overdue, no date on record, a one-year token, and nothing yet", () => {
     expect(reloginText(relogin({ phase: "overdue" }), "carl3@", now)).toBe(
-      "carl3@ is overdue — re-log it now. It could expire from Sun 15 Nov.",
+      "carl3@ is overdue; re-log it now. It could expire from Sun 15 Nov.",
     );
     const { mayExpireAt: _none, ...undated } = relogin().relogin;
     expect(reloginText({ status: "healthy", relogin: undated }, "carl5@", now)).toBe(
