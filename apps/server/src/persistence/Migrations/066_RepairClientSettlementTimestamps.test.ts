@@ -9,6 +9,7 @@ import * as EventStore from "../../orchestration-v2/EventStore.ts";
 import * as ProjectionMaintenance from "../../orchestration-v2/ProjectionMaintenance.ts";
 import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
 import { runMigrations } from "../Migrations.ts";
+import { runLoomMigrations } from "../LoomMigrations.ts"; // loom: the rebuild writes Loom's sidecar tables
 import Migration0066 from "./066_RepairClientSettlementTimestamps.ts";
 
 const layer = it.layer(
@@ -363,6 +364,7 @@ layer("066_RepairClientSettlementTimestamps", (it) => {
       yield* Migration0066;
       assert.deepEqual(yield* snapshot, repaired);
 
+      yield* runLoomMigrations(); // loom: the rebuild writes Loom's sidecar tables
       const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
       assert.isTrue((yield* maintenance.rebuild).valid);
       assert.deepEqual(yield* imported, expectedImported);

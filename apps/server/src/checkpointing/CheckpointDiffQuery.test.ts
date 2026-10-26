@@ -61,6 +61,7 @@ function layerFor(input: {
         Layer.mock(CheckpointStore.CheckpointStore)({
           diffCheckpoints: input.diffCheckpoints ?? (() => Effect.succeed("diff")),
           listAuthoredPaths: () => Effect.succeed(input.authoredPaths ?? null),
+          hasCheckpointRef: () => Effect.succeed(false), // loom: no Loom start-of-run baseline
         }),
       ),
     ),
