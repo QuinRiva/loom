@@ -996,7 +996,7 @@ export function ensureComposerDraftsLoaded(): void {
         ...Object.fromEntries(
           Object.entries(current).map(([instanceId, models]) => [
             instanceId,
-            { ...persisted.modelOptionMemory[instanceId], ...models },
+            { ...(persisted.modelOptionMemory[instanceId] ?? {}), ...models },
           ]),
         ),
       });

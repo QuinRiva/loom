@@ -218,16 +218,16 @@ it.effect(
         ...scope(["workstream", "pull-requests"]),
         client: documentQueryClient(ThreadId.make("thread-caller")),
       });
-      const allowed = new Set([
+      const allowed = [
         "consult_thread",
         "document_query_promote",
         "goal_task_list",
         "set_thread_title",
         "workstream_list",
-      ]);
+      ];
       for (const { def, result } of results) {
         // The ones with required parameters get past the gate and fail decoding the empty payload.
-        if (allowed.has(def.name)) {
+        if (allowed.includes(def.name)) {
           expect(result.content[0], def.name).not.toMatchObject({
             text: expect.stringContaining("read-only"),
           });

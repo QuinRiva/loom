@@ -386,7 +386,7 @@ export const routeWorkSubmit = <T extends GateNode>(
  * `error` and `awaiting_orchestrator` are server-only — the arm rejects them
  * without a `server:` command id.
  */
-const RAISABLE_ATTENTION_REASONS: ReadonlyArray<LoomAttentionReason> = new Set([
+const RAISABLE_ATTENTION_REASONS: ReadonlySet<LoomAttentionReason> = new Set([
   "awaiting_acceptance",
   "needs_guidance",
 ]);
