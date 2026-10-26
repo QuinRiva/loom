@@ -7,16 +7,93 @@ often gone wrong. The skeletons' subjects are invented; the shipped exemplar
 is a real document.
 
 > **Two exemplars are shipped: the recap, and the decision card** (their
-> sections below point at the documents). The plan and explainer sections
-> name candidate documents that are written under these skeletons but not
+> sections below point at the documents). The intent-brief, plan and
+> explainer sections name candidate documents that are written under these skeletons but not
 > yet approved as canonical —
 > read them for the register, and take the skeleton as the bar where they
 > differ. Once an exemplar is approved, read it before the skeleton and treat
 > a conflict between them as the exemplar winning.
 
+## An intent brief
+
+The brief the bulk-archive plan below is written under. One screen, read by
+the owner in about a minute, every line checkable or quoted; shown whole
+because its shape is the point:
+
+```mdx
+---
+reader:
+  who: the owner, who asked for this and approves its intent before anything is built
+  knows: their own request; nothing of the codebase or the plan
+  after_first_screen: they can correct any line or say "go"
+kicker: "Intent brief · draft for your corrections · 3 Mar 2026"
+status: draft
+---
+
+# Archive a batch of contacts in one go, without losing one by mistake
+
+**Goal.** "I keep archiving stale contacts one at a time and it takes all
+morning." Archive many contacts in one action from the list, as safely as
+archiving one.
+
+**You'll know it works when.**
+
+- You tick a handful of contacts in the list, choose Archive, and they leave
+  the list at once.
+- You change your mind straight after and one click brings them all back.
+- **Must not:** archive a contact you did not tick; slow the list on a page
+  of a thousand contacts.
+
+**Approaches in play.**
+
+- Archive at once with an undo toast. Wins if undo is trusted enough that no
+  confirm dialog is needed. _Your pick._
+- A confirm dialog listing the contacts. Wins if a mis-archive is costly
+  enough to pay a click every time.
+- Dropped: a separate bulk-actions page. It moves the work away from the
+  list, where it starts.
+
+**Decided.** "no new page for this, it lives in the list". Web only for the
+first cut.
+_Assumed:_ archived contacts stay searchable, as they do today; redirect if
+wrong.
+
+**Not doing.** Bulk delete. Mobile.
+
+**Questions for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "undo-window",
+      title: "How long does undo stay available?",
+      subtitle: "Decides whether archiving is immediate or waits for the toast to close.",
+      mode: "single",
+      options: [
+        { id: "toast", label: "Until the toast closes, then it is final", recommended: true },
+        { id: "session", label: "For the rest of the session" },
+      ],
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- Does archiving a thousand ticked contacts at once stay quick enough that
+  the list never freezes? A spike against the largest seeded list settles it.
+```
+
+The parts, who may change each line, and the `status` lifecycle are in
+`mdx-visual-plan/SKILL.md`.
+
+Candidate, not yet approved: `plans/intent-first-workflow/intent.mdx` (the
+brief for this workflow itself, as its owner corrected it, his answers folded
+into Decided).
+
 ## A plan (UI work)
 
-A plan for adding a bulk-archive action to a contacts list:
+A plan for adding a bulk-archive action to a contacts list, under the brief
+above:
 
 1. **First screen — the recommendation and what the user gets.** One
    paragraph: _add a selection column and an "Archive selected" action to the

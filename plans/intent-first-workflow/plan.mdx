@@ -1,0 +1,161 @@
+---
+reader:
+  who: Loom's maintainer, approving how feature work starts before any prompt, role or skill is edited
+  knows: how he runs a workstream today and that he skips the long plans; none of the research behind this, none of the file names
+  after_first_screen: feature work starts with a one-screen intent brief he corrects and approves; the plan is reviewed by an agent against that brief; he hears back only when the brief is contradicted or a decision is his, then near done; and he can answer the two questions at the end
+kicker: "Proposal for approval · shaped like the intent brief it proposes · 26 Oct 2026"
+manager_sessions:
+  - id: 01a176f5-9768-7711-99af-95e055f364c3
+    name: Intent-first workflow proposal
+    role: plan
+    authored_at: 2026-10-26T06:57:55.527Z
+---
+
+# You approve a one-screen intent brief; an agent reviews the plan against it
+
+**Goal.** Make the intent brief, not the plan, the thing you approve when feature work starts, so that once your intent is nailed down "the rest of the process" runs without you. You described the shape yourself three days ago: "wouldn't you just hand this intent brief off to an orchestrator with instructions to plan it out, have the plan reviewed, then graph out the implementation and implement it?"
+
+**You'll know it works when.** A feature request gets back a brief you can read in about a minute, with a few questions that each carry a recommended answer; you correct, click through or say "go"; the next thing you hear is a build that is close to done, handed back as the brief's checks with evidence and the ones only you can judge marked "yours to try". Your reaction becomes changed checks in the same brief and the build goes again. Between those points, only the three triggers in your own words below reach you.
+
+**Approaches in play.** The agent drafts the brief from your request and you correct it; an interview first, one question at a time, when the agent would otherwise be guessing at the goal; for bigger-picture efforts the agent reads wayfinder itself and lets its decision map drive the questions.
+
+**Decided (your words).** Scope: "any sort of work that is more than just a bug fix, any sort of new feature", though "this isn't going to be relevant for every project". Depth: not "a hundred questions", but for "bigger-picture stuff, things that are more comprehensive or less well-defined features... we probably should be loading the wayfinder skill more than we are." Plans stay, "certainly for medium-size or larger features", reviewed "by an agent to ensure that it aligns with the intent". You are re-engaged "only if there's something the plan uncovers that contradicts something I've said in the intent brief or makes something in the decision that I've made in the intent no longer clear (or is something that's important for me to make a new decision on)", then not "until we've got something that is pretty much close to being done".
+
+**Not doing.** No new code or tooling; no new skill or role; no change to the always-on addendum; no edits to grill-me or wayfinder (the plan skill points at wayfinder's path; tailoring it to Loom is later work).
+
+<Callout tone="decision" title="What changes when you ask for a feature" focus>
+  Six text edits across five existing files. The plan skill's body, read on demand, grows by about **+790/−160 words**; the always-on surfaces (one orchestrator bullet, two planner bullets, the skill's catalogue header) grow by about **+120 net**, against the roughly 20,000 tokens the trim removed. No code. The plan skill gains the intent genre, the orchestrator role gains one sentence making the brief the hold, the planner and review-gate text learn to treat an approved brief as the contract and to check its lines on evidence. **Two questions at the end**, each with a recommended answer; the rest is decided here.
+</Callout>
+
+## 1. The workflow, end to end
+
+<Steps>
+  <Step at="Request" title="You ask for a feature, in chat or by voice." aside="You: one message.">
+    A defect fix or a one-line change is just done. The test: will you judge the result _in use_, or by a defect being gone?
+  </Step>
+  <Step at="Brief" title="The orchestrator drafts the intent brief and hands you the path." aside="You: a minute, a few clicks. Nothing is built before you approve.">
+    One screen at `plans/<slug>/intent.mdx`, shaped like this document, with a few questions for you and what is still unknown. You correct, annotate, click through or say "go"; your answers fold in, the status becomes approved, and the brief is signed so builders consult it before anyone consults you.
+  </Step>
+  <Step at="Plan" title="For medium or larger work, a planner writes the plan under the brief." aside="You: nothing.">
+    The plan's reader is a reviewer, not you. A small feature skips the plan and goes straight to a coder whose reviewer judges against the brief.
+  </Step>
+  <Step at="Review" title="A review gate checks the plan against the brief, then the usual bar." aside="You: nothing, unless flagged.">
+    Every brief line traced to plan work and to who verifies it; each open question answered or carried forward; then the usual factual and code review. A finding that contradicts a decision, blurs one, or raises a new decision that is yours reaches you as that single question.
+  </Step>
+  <Step at="Build" title="Coders build; mid-build rulings go to the coder and, if they change intent, into the brief." aside="You: nothing, unless flagged or two approaches differ only on your taste.">
+    Choosing among sanctioned approaches (a throwaway spike where cheap) and code-level fixes never reach you. Approaches that differ only on something you alone can judge come back as one "try A and B" question with spikes behind it.
+  </Step>
+  <Step at="Near done" title="You get the brief's checks back with evidence, try the ones that are yours, and react." aside="You: try it, say what is off.">
+    Your reaction becomes changed or new checks in the same brief and the build goes again; passed checks and must-not lines are guard rails a later round may not regress. Status becomes done when you say it works for you.
+  </Step>
+</Steps>
+
+## 2. The intent brief: one screen, outcomes not mechanisms
+
+The change-review brief ran 1,187 words and there is no sign you read it; what you engaged with was five short answers to sharp questions and a question form. So the brief is your corrections plus a short record, built on Anthropic's `intent.md` shape and the parts of Miessler's LifeOS that make "done" checkable without a spec. The change-review brief, as committed and as proposed:
+
+<Columns>
+    <Card eyebrow="As committed · 1,187 words · unread" heading="Change review before a PR: intent brief" tone="neutral" badge="12 sections" meta={["Business objective", "Required system capability", "Local objective", "Proposed mechanism", "Key constraints", "Non-goals", "Terminology", "Open questions"]}>
+      Three numbered failure modes with thread ids and commit hashes, five capability bullets, file paths for the web client and server, a terminology table, and a link to a wayfinder map. Everything a builder needed; nothing you read.
+    </Card>
+    <Card eyebrow="Proposed shape · about 230 words" heading="Review agent-made changes before a PR, from the thread you are talking to" tone="success" badge="status: draft">
+      **Goal.** See what the agents changed since your last message, in enough context to judge it, from the thread you are talking to; today the Diff panel shows one thread's turn and misses nested repos and artefacts.
+
+      **You'll know it works when.** From the thread you are talking to, you open the review and see every file the agents changed since your last message, nested repos and artefacts included. You click a file and see it whole, side by side, changes highlighted, the enclosing function in view. You switch to "against the base branch" and the list updates. **Must not:** scan beyond the worktree, its nested repos and declared artefact paths; freeze on a large file.
+
+      **Approaches in play.** Whole file side by side (your pick; wins if large files stay responsive); hunks with expandable context (the fallback if they do not).
+
+      **Decided.** "we don't want to be running diff git's across the entire hard drive". Two baselines: since your last message, and against the base branch.
+
+      **Not doing.** Review comments on the diff; creating the PR.
+
+      **Questions for you (form).** Hide threads and turns that changed nothing? *Recommended: yes.*
+
+      **Still unknown.** Is whole-file view fast on 5,000-line files? A spike on the largest file in the repo settles it.
+    </Card>
+</Columns>
+
+It lives at `plans/<slug>/intent.mdx` beside the plan it governs, committed and signed; `status` is `draft`, `approved`, `done` or `dropped`. Approval waits on the questions for you, never on what is still unknown. The brief is rewritten in place as the work teaches, git being its history. Agents may settle an unknown into a check or a dropped approach, record a chosen or dropped approach with its reason, tighten a check's wording without changing what passes it, and note a low-stakes assumption under Decided ("picking X over Y because R; redirect if wrong"). Only you may change the Goal, your quoted words, what a check means, a must-not or any other Decided line; an agent that needs one changed has hit the contradiction trigger. Loom's `AGENTS.md` says "Do not commit implementation plans", yet 40 are committed; that line is rewritten.
+
+## 3. How many questions you get asked
+
+The agent judges depth, in three tiers. **Well-defined** (you named the outcome and how you will judge it): draft and correct, with a few questions in the form and low-stakes forks taken as stated assumptions. **Less well-defined** (Goal or the checks cannot be drafted without guessing): an interview first, one question at a time, each with why it matters and a recommended answer so yes, no or a correction suffices; grill-me's discipline, restated in the plan skill rather than loaded, since grill-me's output is the long brief being replaced. **Bigger-picture or comprehensive**: the agent reads wayfinder by path, since `disable-model-invocation` hides it from the catalogue, and lets its map drive the questions. That is your "we probably should be loading the wayfinder skill more than we are"; against it, your 22 October verdict that it "hasn't been fully tailored to how Loom works". The pointer loads it now, tailoring is a pi-craft follow-up, and the second question at the end lets you keep it manual. Neither skill file changes.
+
+## 4. The plan is written for a reviewer, not for you
+
+The planner takes the brief's decisions as settled, answers or carries forward its open questions, takes the recommended answer to its own, and does not hold the plan for you. Your re-engagement quote settles the plan's question form: a question reaches you, on its own, only when it contradicts or reopens the brief or is a new decision that is yours (a product trade-off, deleting data or artefacts, overriding a design document). The gate traces every goal, check, must-not and decided line to plan work and to who verifies it where (an agent's tool or judgement in the live app, or you at near-done); a line dropped, narrowed or softened without saying so is a must-fix. A build reviewer runs each check from the brief's wording and returns the evidence, not the coder's claim that it passes. The one time this ran it caught a silent narrowing and five code errors before you saw anything. The brief is the floor of the review, not its ceiling.
+
+## 5. When you hear from us, and when you do not
+
+The test is "check wrong, or code wrong?": a check or a decision in the brief that turns out wrong changes the brief and reaches you; wrong code never does.
+
+<Columns>
+  <Card heading="Reaches you, as one question with a recommended answer" tone="warning" badge="re-engage">
+    - The plan or build **contradicts** a line in Decided or Goal.
+    - A decision in the brief is **no longer clear** given what planning found.
+    - A **new decision that is yours**: a product trade-off, deleting data or artefacts, overriding a design document, or two approaches that differ only on your taste ("try A and B", spikes attached).
+    - The work is **close to done**: the checks with their evidence, yours marked "try it", and how the brief moved since you approved it.
+  </Card>
+  <Card heading="Handled without you" tone="success" badge="automated">
+    - Choosing among the approaches in play or proposing a third; keeping dead ends with their reason; settling an unknown into a check; tightening a check's wording.
+    - The plan's own open questions: the recommended answer is taken, unless one is a new decision of yours.
+    - Code-level must-fixes and rework rounds.
+    - A ruling you make mid-build goes to the coder and, if it changes intent, into the brief.
+  </Card>
+</Columns>
+
+## 6. What changes where
+
+Every edit is text and ships through the reviewer gate the trim requires; exact wording and sequencing are in `plans/intent-first-workflow/changes.md`, the implementation contract. The orchestrator bullet is built-in and applies in every project; your "isn't going to be relevant for every project" is carried by the per-request trigger.
+
+<Table
+  density="compact"
+  columns={["Surface", "Change", "Words", "When"]}
+  rows={[
+    { tone: "info", cells: ["`skills/mdx-visual-plan/SKILL.md` (loom, deployed globally)", "Header names both genres and the feature trigger; body gains \"Which to write\" and \"The intent brief\" (with the wayfinder pointer), replacing \"The plan is the approval gate\" and \"When to write one\"", "header +63/−58; body +785/−161", "First PR; whichever of it and `t3/plan-names-domain-modeling` (+4 lines, held for pi-craft #21) lands second rebases"] },
+    ["`skills/mdx-doc-core/references/exemplar.md` (loom)", "The intent-brief skeleton, beside the plan skeleton", "about +200", "Same PR"],
+    { tone: "info", cells: ["`roles/orchestrator.md` (loom, always-on for roots)", "One sentence: feature work starts with a brief the human approves and nothing is built before it; \"a plan to approve\" becomes \"an intent brief to approve\"", "+61/−10", "Same PR; `t3/scheduling-tools` touches one frontmatter line, trivial rebase"] },
+    ["`roles/planner.md` (loom, always-on for planners)", "A plan under an approved brief is read by a gate, not the human; an intent brief waits, such a plan completes", "+94/−32", "Same PR; same trivial rebase"],
+    ["`skills/workstream-review-gate/SKILL.md` (loom)", "New section: reviewing a plan or build under an intent brief, each line traced and each check run by the reviewer", "+193", "After the low-value-tests batch, which adds +32 here"],
+    ["Loom `AGENTS.md` \"Plans and work artifacts\"", "Briefs and plans are committed under `plans/<slug>/`", "+30/−29", "After the low-value-tests batch, with the complete-file review Carl requires for `AGENTS.md`"],
+    { tone: "neutral", cells: ["`WORK_MODEL_ADDENDUM`, `gateClause`, tool descriptions, global `AGENTS.md`, grill-me, wayfinder", "Unchanged", "0", "The addendum's root sentence already says a brief is a proposal to plan from"] },
+  ]}
+/>
+
+## 7. Risks
+
+That it does not fire: the intent step was skipped in 38 of 40 plans, and LifeOS measured prose-only rules at 11 to 22 per cent compliance; the orchestrator bullet names the skill (the lever with evidence) and the November census counts plans without a sibling `intent.mdx`. That the brief grows back to 1,187 words: one screen is judgement, not a cap. That it is read literally, as "changed files open as a diff" once was: the checks say what you see, and the brief is a floor, not a spec.
+
+## 8. Done means
+
+The six edits merge, and the next feature request to a Loom orchestrator produces `plans/<slug>/intent.mdx` for your correction before any plan or coder is spawned; the plan that follows completes without waiting on you, and the near-done hand-back lists the brief's checks with evidence and how the brief moved.
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "trigger",
+      title: "Which test decides that a request gets an intent brief?",
+      refs: [{ label: "1. The workflow, end to end", anchor: "1-the-workflow-end-to-end" }],
+      subtitle: "You said \"more than just a bug fix, any sort of new feature\"; the agent needs a test it can apply without asking you.",
+      mode: "single",
+      options: [
+        { id: "in-use", label: "Yes: a brief whenever you would judge the result in use rather than by a defect being gone", recommended: true, detail: "Catches small features and behaviour changes; lets defect fixes, typos and mechanical edits go straight through." },
+        { id: "noticeable", label: "A brief only when the change is something a user of the app would notice", detail: "Narrower: internal behaviour changes and agent-facing features would skip the brief." },
+      ],
+    },
+    {
+      id: "depth",
+      title: "For bigger-picture work, does the agent load wayfinder itself?",
+      refs: [{ label: "3. How many questions you get asked", anchor: "3-how-many-questions-you-get-asked" }],
+      subtitle: "You said \"we probably should be loading the wayfinder skill more than we are\" for bigger-picture work, and on 22 October that it \"hasn't been fully tailored to how Loom works\".",
+      mode: "single",
+      options: [
+        { id: "agent-wayfinder", label: "Yes: the plan skill points at wayfinder's path and the agent reads it for bigger-picture or comprehensive work; tailoring it to Loom is a follow-up", recommended: true, detail: "Gets it loaded now, as you asked; the GitHub-issue map it builds is the untailored part you will see until the follow-up lands." },
+        { id: "manual", label: "No: wayfinder stays yours to invoke with /skill:wayfinder until it is tailored to Loom", detail: "Today's behaviour, about five invocations ever; ordinary and less-defined features still get the draft or the one-question-at-a-time interview." },
+        { id: "always-interview", label: "Interview before every brief, whatever its size, and leave wayfinder manual", detail: "More of your time on small features, in exchange for fewer wrong guesses." },
+      ],
+    },
+  ]}
+/>

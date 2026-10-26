@@ -27,7 +27,7 @@ usually, sign something off.
   Discuss on each, all in one review turn.
 
 Both review what exists; the plan genre's "planning is read-only" and "the
-plan is the approval gate" do not apply here. For a proposal of work not yet
+brief is the approval gate" do not apply here. For a proposal of work not yet
 written use **`mdx-visual-plan`**; for a document that explains or diagnoses
 without asking for verdicts use **`mdx-visual-explainer`**.
 
