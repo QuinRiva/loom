@@ -52,8 +52,8 @@ signals:
     kind: structural
     scope: session
     check: missing_tool
-    params: { roles: [coder, assessor, reviewer], tools: [bash, edit] }
-    why: A thread launched without a tool its role needs to verify its own work (e.g. an assessor that cannot run lint).
+    params: { roles: [coder, reviewer], tools: [bash, edit] }
+    why: A thread launched without a tool its role needs to verify its own work (e.g. a reviewer that cannot run lint).
     origin: retro-redesign design scan (2026-10)
     status: seed
 

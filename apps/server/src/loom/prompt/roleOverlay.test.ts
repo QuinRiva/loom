@@ -96,10 +96,9 @@ describe("loadRoleOverlay", () => {
 
   it("auto-unions the leaf lifeline (leaf-core) without duplicating, and nothing more", () => {
     const { lookup } = fixture({
-      "assessor.md":
-        "---\ntools: [read_full, mcp__t3-code__workstream_submit]\n---\nASSESSOR OVERLAY",
+      "reader.md": "---\ntools: [read_full, mcp__t3-code__workstream_submit]\n---\nREADER OVERLAY",
     });
-    const overlay = loadRoleOverlay({ role: "assessor", ...lookup });
+    const overlay = loadRoleOverlay({ role: "reader", ...lookup });
     expect([...(overlay?.tools ?? [])].sort()).toEqual(["read_full", ...LIFELINE].sort());
     // Every lifeline tool present exactly once, even when the role names one itself.
     expect(
@@ -149,7 +148,7 @@ describe("loadRoleOverlay", () => {
     },
   );
 
-  it.each(["orchestrator", "assessor", "coder", "planner", "researcher", "reviewer", "shipper"])(
+  it.each(["orchestrator", "coder", "planner", "researcher", "reviewer", "shipper"])(
     "only the built-in orchestrator keeps the scheduled-task tools (%s)",
     (role) => {
       const tools = loadRoleOverlay({ role, projectRoot: fixture().lookup.projectRoot })?.tools;
