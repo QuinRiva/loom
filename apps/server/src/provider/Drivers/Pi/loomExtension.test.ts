@@ -297,7 +297,8 @@ describe("Loom pi extension", () => {
       systemPrompt: "SYSTEM PROMPT BYTES",
       systemPromptOptions: { appendSystemPrompt: "LOOM ADDENDUM", cwd: "/work" },
     });
-    await new Promise((resume) => setImmediate(resume)); // the capture is fire-and-forget
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a macrotask boundary for the fire-and-forget capture, not a wait for time
+    await new Promise((resume) => setImmediate(resume));
 
     const captured = NodeFS.readFileSync(promptDebugPath, "utf8");
     assert.include(captured, "LOOM ADDENDUM");

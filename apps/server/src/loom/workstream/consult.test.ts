@@ -21,6 +21,7 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../../config.ts";
@@ -140,6 +141,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("consult_thread
         mcp.callTool("consult_thread", { threadId: target.id, question: "?" }),
       );
       const pidsFile = path.join(dir, "pids");
+      // oxlint-disable-next-line t3code/no-polling-loop-in-tests, t3code/no-real-time-wait-in-tests -- a separate pi process writes the file; nothing in this process can signal it
       while (!(yield* fs.exists(pidsFile))) yield* Effect.sleep("20 millis");
       const pids = (yield* fs.readFileString(pidsFile)).split(" ").map(Number);
       assert.isTrue(pids.every(isAlive));
@@ -152,7 +154,10 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("consult_thread
         "fork-session.jsonl",
       );
       // Teardown runs server-side after the disconnect; SIGKILL lands within pi's 1s grace.
+      // The processes are not this test's children, so no exit event reaches it.
+      // oxlint-disable-next-line t3code/no-polling-loop-in-tests -- see above
       for (let tries = 0; tries < 100 && pids.some(isAlive); tries++)
+        // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- see above
         yield* Effect.sleep("50 millis");
       assert.isFalse(pids.some(isAlive));
       assert.isTrue(yield* fs.exists(retained));
@@ -327,14 +332,19 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("consult cancel
             targetThreadId: target,
           }),
         );
-        const updates: LoomLiveConsult[] = [];
+        const updates = yield* Queue.unbounded<LoomLiveConsult>();
         const collect = yield* Effect.forkChild(
-          Stream.runForEach(items, (item) => Effect.sync(() => updates.push(item.consult))),
+          Stream.runForEach(items, (item) => Queue.offer(updates, item.consult)),
         );
+        const takeUntil = Effect.fn("takeUntil")(function* (
+          done: (consult: LoomLiveConsult) => boolean,
+        ) {
+          let consult = yield* Queue.take(updates);
+          while (!done(consult)) consult = yield* Queue.take(updates);
+          return consult;
+        });
         // Wait for the fork's tool step to reach the live channel.
-        while (!updates.some((consult) => consult.step?.kind === "tool"))
-          yield* Effect.sleep("20 millis");
-        const running = updates.at(-1)!;
+        const running = yield* takeUntil((consult) => consult.step?.kind === "tool");
         assert.strictEqual(running.questionKey, consultQuestionKey("What ran?"));
         assert.strictEqual(running.model, "fake/model-1");
         assert.strictEqual(running.narration, "Checking.");
@@ -344,11 +354,10 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("consult cancel
 
         assert.isTrue(yield* consult.cancel(running.consultId));
         const exit = yield* Fiber.await(ask);
-        while (updates.at(-1)?.endedAt == null) yield* Effect.sleep("20 millis");
+        const ended = yield* takeUntil((consult) => consult.endedAt != null);
         yield* Fiber.interrupt(collect);
         // A stopped consult cannot be stopped again.
         assert.isFalse(yield* consult.cancel(running.consultId));
-        const ended = updates.at(-1)!;
         return { exit, ended, pid, kept: yield* fs.exists(ended.forkSessionPath ?? "") };
       }).pipe(
         Effect.provide(

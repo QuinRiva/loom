@@ -33,6 +33,7 @@ async function awaitProcessExit(pid: number, attempts = 300): Promise<boolean> {
       return true;
     }
     // @effect-diagnostics-next-line globalTimers:off - Wall-clock poll; Effect's Clock is virtualised under `it.effect`.
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- the probe's process is not this test's child, so no exit event reaches it
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return false;

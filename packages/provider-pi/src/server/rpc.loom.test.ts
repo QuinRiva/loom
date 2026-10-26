@@ -47,6 +47,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")(
         }).pipe(Effect.scoped, Effect.exit);
         assert.isTrue(Exit.isFailure(exit));
         // Give the post-teardown EPIPE time to surface as an uncaught error.
+        // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- Node raises the EPIPE between macrotasks after teardown; no promise marks it
         yield* Effect.sleep("500 millis");
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
     );

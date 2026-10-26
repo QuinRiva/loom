@@ -126,6 +126,7 @@ function runPiRpc(input: {
   return new Promise<RpcRun>((resolve, reject) => {
     let stdout = "";
     let stderr = "";
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a kill guard for a real pi subprocess, not a wait the test depends on
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error(`pi RPC timed out after ${RPC_TIMEOUT_MS}ms\n${stdout}\n${stderr}`));
