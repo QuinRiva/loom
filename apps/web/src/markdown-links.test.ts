@@ -83,7 +83,10 @@ describe("resolveInlineCodeFileLinkMeta", () => {
       targetPath: "/Users/julius/project/script.ts:10",
       line: 10,
     });
-    expect(resolveInlineCodeFileLinkMeta("AGENTS.md", "/Users/julius/project")).toBeNull();
+    // loom: a bare named file resolves; ChatMarkdown keeps it plain code until a file is confirmed.
+    expect(resolveInlineCodeFileLinkMeta("AGENTS.md", "/Users/julius/project")).toMatchObject({
+      workspaceRelativePath: "AGENTS.md",
+    });
   });
 
   it("does not treat arbitrary name:digits shapes as files", () => {

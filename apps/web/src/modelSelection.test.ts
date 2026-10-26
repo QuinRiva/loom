@@ -826,7 +826,8 @@ describe("resolveAppModelSelectionState with the opencode plan agent", () => {
 
 describe("default model settings and new-thread composer parity", () => {
   it.each([
-    ["hidden", "claudeAgent", "claude-opus-5", "claude-opus-5-5", "medium"],
+    // loom: a hidden model is flagged, not dropped (DL-913), so the stored default stays.
+    ["hidden", "claudeAgent", "claude-opus-5", "claude-opus-5", "max"],
     ["visible", "claudeAgent", "claude-opus-5", "claude-opus-5", "max"],
     ["unavailable", "opencode", "openrouter/kimi-k3", "openrouter/kimi-k3", null],
   ] as const)(
