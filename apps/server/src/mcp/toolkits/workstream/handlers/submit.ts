@@ -1,9 +1,14 @@
 /**
  * `workstream_submit`: writes the report, dispatches `thread.work.submit` and echoes the route the arm
- * committed, so "yielded" and rework read as NOT done. A completing submit is refused while a hold
- * stands, and any submit without a response block, before writing; each gate round has its own file.
+ * committed, so "yielded" and rework read as NOT done. Every refusal the arm would make (terminal
+ * thread, reserved outcome, a completion erasing a hold) and a missing response block are refused
+ * before writing, so a refused submit never replaces the record; each gate round has its own file.
  */
-import { holdErasedByCompletion, routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
+import {
+  holdErasedByCompletion,
+  routeWorkSubmit,
+  workSubmitRefusal,
+} from "@t3tools/shared/workstreamGraph";
 import * as Effect from "effect/Effect";
 
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
@@ -39,6 +44,8 @@ export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(functi
   const tree = yield* asToolError(store.listWorkstreamTree(row.rootThreadId));
   const asNode = (node: typeof row) => ({ ...node, id: node.threadId });
   const routing = routeWorkSubmit(asNode(row), tree.map(asNode), outcome ?? "done");
+  const refusal = workSubmitRefusal(asNode(row), outcome ?? "done", routing.decision, false);
+  if (refusal !== null) return yield* fail(refusal);
   if (holdErasedByCompletion({ attention: row.attention, decision: routing.decision }) !== null)
     return yield* fail(SUBMIT_REFUSED_WHILE_RAISED);
 

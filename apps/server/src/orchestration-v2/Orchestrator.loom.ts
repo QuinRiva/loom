@@ -36,6 +36,7 @@ import {
   gateSourceFor,
   holdErasedByCompletion,
   routeWorkSubmit,
+  workSubmitRefusal,
 } from "@t3tools/shared/workstreamGraph";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -542,12 +543,19 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
     outcome: LoomThreadWorkstream["outcome"],
     cause: LoomOutcomeSetCause,
   ) => on("thread.outcome-set", threadId, { outcome, cause });
+  /** `reviewer`: a gate leg's source, blocked on its own target by construction, so never a warning. */
   const warnStartedDependents = Effect.fn("Orchestrator.warnStartedDependents")(function* (
     row: LoomThreadWorkstream,
+    reviewer?: ThreadId,
   ) {
     if (row.parentThreadId === null) return;
     const started = (yield* read(loomStore.listChildren(row.parentThreadId)))
-      .filter((sibling) => sibling.blockedBy.includes(row.threadId) && sibling.kickoffAt !== null)
+      .filter(
+        (sibling) =>
+          sibling.blockedBy.includes(row.threadId) &&
+          sibling.kickoffAt !== null &&
+          sibling.threadId !== reviewer,
+      )
       .map((sibling) => sibling.threadId);
     if (started.length > 0) {
       yield* on("thread.gate-warning", row.threadId, {
@@ -665,19 +673,15 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
     const row = yield* requireWorkstream(submit.threadId);
     const outcome = submit.outcome ?? "done";
     const synthesised = (RESERVED_OUTCOMES as ReadonlyArray<string>).includes(outcome);
-    if (synthesised && !isServerCommand(submit)) {
-      return yield* fail(`Outcome '${outcome}' is reserved for the server.`);
-    }
     const tree = (yield* read(loomStore.listWorkstreamTree(row.rootThreadId))).map(asNode);
     const routing = routeWorkSubmit(asNode(row), tree, outcome);
-    if (
-      row.outcome !== null &&
-      !(row.outcome === "done" && row.pendingRework && routing.decision === "loop")
-    ) {
-      return yield* fail(
-        `Thread ${submit.threadId} is ${row.outcome}; mcp__t3-code__workstream_submit cannot act on a terminal thread.`,
-      );
-    }
+    const refusal = workSubmitRefusal(
+      asNode(row),
+      outcome,
+      routing.decision,
+      isServerCommand(submit),
+    );
+    if (refusal !== null) return yield* fail(refusal);
     const erased = holdErasedByCompletion({
       attention: row.attention,
       decision: routing.decision,
@@ -788,7 +792,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
         sourceThreadId: leg.sourceThreadId,
         round: leg.round,
       });
-      if (row.outcome === "done") yield* warnStartedDependents(row);
+      if (row.outcome === "done") yield* warnStartedDependents(row, leg.sourceThreadId);
     }
     yield* ctx.nested.dispatchMessage({
       type: "message.dispatch",

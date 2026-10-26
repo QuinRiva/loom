@@ -3,6 +3,7 @@ import {
   type LoomAttentionReason,
   type LoomOutcome,
   type LoomThreadWorkstream,
+  RESERVED_OUTCOMES,
   type ThreadId,
   type WorkOutcomeDecision,
   type WorkstreamRoute,
@@ -404,3 +405,21 @@ export const holdErasedByCompletion = (input: {
   input.decision === "terminal" || input.decision === "resolve"
     ? (input.attention.find((reason) => RAISABLE_ATTENTION_REASONS.has(reason)) ?? null)
     : null;
+
+/**
+ * Why the arm refuses a `thread.work.submit` outright, or null: an agent claiming a reserved
+ * outcome, or a thread whose outcome is set, unless a gate rework reopens a `done` target. The
+ * submit tool checks it before writing the report, so a refused submit never replaces the record.
+ */
+export const workSubmitRefusal = (
+  thread: Pick<GateNode, "id" | "outcome" | "pendingRework">,
+  outcome: string,
+  decision: WorkOutcomeDecision,
+  fromServer: boolean,
+): string | null =>
+  (RESERVED_OUTCOMES as ReadonlyArray<string>).includes(outcome) && !fromServer
+    ? `Outcome '${outcome}' is reserved for the server.`
+    : thread.outcome !== null &&
+        !(thread.outcome === "done" && thread.pendingRework && decision === "loop")
+      ? `Thread ${thread.id} is ${thread.outcome}; mcp__t3-code__workstream_submit cannot act on a terminal thread.`
+      : null;
