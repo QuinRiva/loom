@@ -461,7 +461,7 @@ export const loomPreviewHandbackMessages: ReadonlyArray<OrchestrationV2Conversat
   handbackMessage("digest", "[T3 Workstream control plane]\n\nFYI digest (preview).", {
     kind: "digest",
     heading:
-      "FYI digest — the following items completed and were fully routed since you last heard.",
+      "FYI digest: the following items completed and were fully routed since you last heard.",
     items: [
       {
         kind: "gate-resolved",
@@ -525,7 +525,7 @@ export const loomPreviewHandbackMessages: ReadonlyArray<OrchestrationV2Conversat
       {
         threadId: T.quiescent,
         role: "researcher",
-        title: "Went quiet — report synthesised",
+        title: "Went quiet: report synthesised",
         status: "yielded",
         icon: "↩️",
         reportPath: `${REPORTS}/${T.quiescent}.quiescent-run-1.md`,

@@ -135,7 +135,7 @@ export function WorkstreamTimelineDrawer({
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs font-semibold text-foreground">
-              {node?.title ?? "—"}
+              {node?.title ?? "-"}
             </div>
             <div className="truncate text-2xs text-muted-foreground">
               {node ? getRoleLabel(node) : "sub-thread"} · timeline

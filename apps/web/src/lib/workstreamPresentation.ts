@@ -373,7 +373,7 @@ export const getPurpose = (node: Pick<WorkstreamNode, "purpose">) =>
 /** One short phrase for what the thread is doing, attention first. */
 export function getActivity(node: WorkstreamNode): string {
   const reason = node.reasons[0];
-  if (reason === "error") return "stalled — needs you";
+  if (reason === "error") return "stalled, needs you";
   // Which question waits and for how long (S4), so the card says whether it
   // is a five-second pick or needs real thought. The thread's own state, not
   // an attention reason: upstream rolls it up to the ancestors.
@@ -387,7 +387,7 @@ export function getActivity(node: WorkstreamNode): string {
       .join(" · ");
   if (node.pendingApproval)
     return ["approval required", formatCompactAge(node.pendingApproval.since)].join(" · ");
-  if (reason === "needs_guidance") return "stuck — needs guidance";
+  if (reason === "needs_guidance") return "stuck, needs guidance";
   if (reason === "awaiting_acceptance") return "awaiting your acceptance";
   if (reason === "awaiting_orchestrator")
     return node.lastOutcome?.synthesised
@@ -395,7 +395,7 @@ export function getActivity(node: WorkstreamNode): string {
       : "yielded to the orchestrator";
   if (reason === "brief-needed") return "no kickoff brief yet";
   if (node.column === "blocked") return "waiting on dependencies";
-  if (node.column === "held") return "staged — waits for its launch";
+  if (node.column === "held") return "staged, waits for its launch";
   if (isRunning(node)) return "live turn in progress";
   if (node.activity === "waiting") return "waiting";
   return COLUMN_SHORT_LABELS[node.column].toLowerCase();
@@ -419,7 +419,7 @@ const ageSeconds = (at: string, now: number) => {
  */
 export function formatCompactAge(at: string, now = Date.now()): string {
   const seconds = ageSeconds(at, now);
-  if (seconds === null) return "—";
+  if (seconds === null) return "-";
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h`;
@@ -428,7 +428,7 @@ export function formatCompactAge(at: string, now = Date.now()): string {
 
 export const formatRelativeAge = (at: string, now = Date.now()) => {
   const compact = formatCompactAge(at, now);
-  return compact === "—" ? compact : `${compact} ago`;
+  return compact === "-" ? compact : `${compact} ago`;
 };
 
 /**

@@ -146,9 +146,9 @@ function EnvironmentNotifications({
               : status === "request"
                 ? "Guest request"
                 : "Input needed";
-    // loom: S4 — an input alert names the waiting question: "header — thread title".
+    // loom: S4 — an input alert names the waiting question: "header: thread title".
     const header = status === "input" ? pendingQuestionOf(entry.raw)?.header : null;
-    const body = header ? `${header} — ${thread.title}` : thread.title;
+    const body = header ? `${header}: ${thread.title}` : thread.title;
     if (hasNotificationSound(mode)) {
       void playNotificationSound(kind, () =>
         hasNotificationSound(getClientSettings().notificationMode),

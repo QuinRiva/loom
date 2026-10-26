@@ -23,8 +23,8 @@ const QUESTION =
   "Which code path produced the empty tenant_name for building 7f3a9c on the 8 Oct production run? Give file:line evidence from the resolver and the Langfuse trace id of the extraction call that returned the blank value.";
 const ANSWER = `The blank comes from the fallback branch, not the extractor.
 
-- \`packages/lease_extraction/tenant_audit/resolve.py:178\` — \`resolve_tenant()\` returns \`candidates[0].name or ""\` when the top candidate has no name.
-- \`packages/lease_extraction/tenant_audit/fallbacks.py:41\` — \`from_schedule()\` yields a candidate with \`name=None\` when the schedule row carries only a lot number.
+- \`packages/lease_extraction/tenant_audit/resolve.py:178\`: \`resolve_tenant()\` returns \`candidates[0].name or ""\` when the top candidate has no name.
+- \`packages/lease_extraction/tenant_audit/fallbacks.py:41\`: \`from_schedule()\` yields a candidate with \`name=None\` when the schedule row carries only a lot number.
 - Langfuse trace \`7c1d0e42-…\`, observation \`resolve_tenant\`: input \`candidates=[{name: null, lot: "L12"}]\`, output \`""\`.`;
 const LIVE_PATH =
   "/home/dev/.pi/agent/sessions/--home-dev-fathom--/2026-10-12T03-21-08_fork-7f3a9c.jsonl";
@@ -295,12 +295,12 @@ function ConsultCardPreview({ make }: { readonly make: () => CardState }) {
       status={state.status}
       target={
         <ThreadLinkChip
-          label="Langfuse triage — 8 Oct tenant audit"
+          label="Langfuse triage: 8 Oct tenant audit"
           threadId={loomPreviewThreads.done.id}
           environmentId={loomPreviewEnvironmentId}
         />
       }
-      targetLabel="Langfuse triage — 8 Oct tenant audit"
+      targetLabel="Langfuse triage: 8 Oct tenant audit"
       question={QUESTION}
       startedAt={state.startedAt}
       completedAt={state.completedAt}

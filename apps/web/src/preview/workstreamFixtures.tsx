@@ -252,16 +252,11 @@ const yieldChild = (eventId: string | null): BadgeChild => ({
 
 /** A child yields at t=0; the orchestrator's state decides who owns it. */
 const BADGE_YIELDS = [
-  badgeRow(
-    "yield-wake-pending",
-    "Yield — wake on its way",
-    [yieldChild("evt-yield")],
-    ranUntil(-5),
-  ),
-  badgeRow("yield-answering", "Yield — orchestrator answering", [yieldChild("evt-yield")], running),
+  badgeRow("yield-wake-pending", "Yield: wake on its way", [yieldChild("evt-yield")], ranUntil(-5)),
+  badgeRow("yield-answering", "Yield: orchestrator answering", [yieldChild("evt-yield")], running),
   badgeRow(
     "yield-unresolved",
-    "Yield — turn ended unresolved",
+    "Yield: turn ended unresolved",
     [yieldChild("evt-yield")],
     ranUntil(2),
   ),
@@ -332,11 +327,11 @@ function BadgeRows({ rows }: { rows: ReadonlyArray<BadgeRow> }) {
 }
 
 const BADGE_TONE_FIXTURES = [
-  ["failed", "Failed — a sub-thread's latest run failed", BADGE_TONES.failed],
-  ["needs-you", "Needs you — a sub-thread awaits acceptance", BADGE_TONES.needsYou],
-  ["working", "Working — one runs, one is queued behind it", BADGE_TONES.working],
-  ["done", "Done — every sub-thread settled", BADGE_TONES.done],
-  ["waiting", "Waiting — nothing moves, nothing asked", BADGE_TONES.waiting],
+  ["failed", "Failed (a sub-thread's latest run failed)", BADGE_TONES.failed],
+  ["needs-you", "Needs you (a sub-thread awaits acceptance)", BADGE_TONES.needsYou],
+  ["working", "Working (one runs, one is queued behind it)", BADGE_TONES.working],
+  ["done", "Done (every sub-thread settled)", BADGE_TONES.done],
+  ["waiting", "Waiting (nothing moves, nothing asked)", BADGE_TONES.waiting],
 ] as const;
 
 export const WORKSTREAM_PREVIEW_GROUP: PreviewGroup = {
@@ -345,56 +340,56 @@ export const WORKSTREAM_PREVIEW_GROUP: PreviewGroup = {
   fixtures: [
     {
       id: "workstream-graph",
-      title: "Graph — gated pair with round badge",
+      title: "Graph: gated pair with round badge",
       description:
         "The whole orchestration with the active strip: the reviewer→coder loop edge carries ⟲ rounds/cap and the open-rework dot; the forkFrom child carries the fork badge. Steps: a 17-minute bash (amber) under a 48-character model slug, a 20-second read (name only), and a reviewer with a four-digit tool count beside waiting ⟲1.",
       render: () => <GraphFixture />,
     },
     {
       id: "workstream-quick-facts-root",
-      title: "Quick facts — orchestrator rollups",
+      title: "Quick facts: orchestrator rollups",
       render: () => <QuickFactsFixture threadId={T.root} />,
     },
     {
       id: "workstream-quick-facts-reviewer",
-      title: "Quick facts — reviewer in gate",
+      title: "Quick facts: reviewer in gate",
       render: () => <QuickFactsFixture threadId={T.gateReviewer} />,
     },
     {
       id: "workstream-quick-facts-long-step",
-      title: "Quick facts — a bash call past five minutes",
+      title: "Quick facts: a bash call past five minutes",
       render: () => <QuickFactsFixture threadId={T.gateCoder} />,
     },
     {
       id: "workstream-quick-facts-short-step",
-      title: "Quick facts — a read just started",
+      title: "Quick facts: a read just started",
       render: () => <QuickFactsFixture threadId={loomPreviewThreads.surveying.id} />,
     },
     {
       id: "workstream-quick-facts-done",
-      title: "Quick facts — finished",
+      title: "Quick facts: finished",
       render: () => <QuickFactsFixture threadId={T.coderDone} />,
     },
     {
       id: "workstream-timeline",
-      title: "Timeline — reviewer in gate",
+      title: "Timeline: reviewer in gate",
       render: () => <TimelineFixture threadId={T.gateReviewer} />,
     },
     ...BADGE_TONE_FIXTURES.map(([id, title, row]) => ({
       id: `workstream-badge-${id}`,
-      title: `Sidebar badge — ${title}`,
+      title: `Sidebar badge: ${title}`,
       render: () => <BadgeRows rows={[row]} />,
     })),
     {
       id: "workstream-badge-yield",
-      title: "Sidebar badge — a yield, by orchestrator state",
+      title: "Sidebar badge: a yield, by orchestrator state",
       description:
         "A child yields at t=0. Before the orchestrator's wake turn lands, and while it runs, the yield is its work (blue); once its turn ends without resolving it, the yield is yours (amber).",
       render: () => <BadgeRows rows={BADGE_YIELDS} />,
     },
     {
       id: "workstream-badge-real-rows",
-      title: "Sidebar badge — the three rows from the plan",
+      title: "Sidebar badge: the three rows from the plan",
       description:
         "Golden dataset (18 settled, one held child): grey. Disk cleanup (one researcher running): blue. Nested-ID (two running, a planner queued behind both): blue.",
       render: () => <BadgeRows rows={BADGE_REAL_ROWS} />,

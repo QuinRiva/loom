@@ -518,7 +518,7 @@ function GraphEdge({
           strokeWidth="1.4"
         />
         <g>
-          <title>{`Review loop — ${rounds} of ${cap} rework rounds used${
+          <title>{`Review loop: ${rounds} of ${cap} rework rounds used${
             target?.pendingRework ? " · rework round open" : ""
           }${verdict ? ` · latest verdict: ${verdict.replaceAll("_", " ")}` : ""}`}</title>
           <rect
