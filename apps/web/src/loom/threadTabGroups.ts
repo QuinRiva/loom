@@ -1,22 +1,23 @@
 /**
  * loom: thread-tab group keys (each tab's workstream root, walking `lineage.parentThreadId` across
- * `subagent` edges in its environment; a fork is a root) and tab liveness. A thread missing from a
- * live snapshot (past `shellResumeCompletionMarker`) is archived or deleted; a cached one may lag, so
- * never prunes. The index keeps its identity until an edge, the thread set or liveness changes.
+ * `subagent` edges in its environment's family-merged snapshot; a fork is a root) and tab liveness.
+ * The cold shell omits settled roots and their idle sub-threads, so absence is not gone: only a
+ * removal the shell saw since its latest authoritative snapshot prunes. The index keeps its
+ * identity until an edge, the thread set or the removals change.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
 import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
-import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
 
 import { environmentCatalog } from "../connection/catalog";
 import { environmentShell } from "../state/shell";
+import { threadEnvironment } from "../state/threads";
 
 interface EnvironmentLineage {
-  /** Past the catch-up marker: absence from `parents` means archived or deleted. */
-  readonly live: boolean;
+  /** Threads archived or deleted since the shell's latest authoritative snapshot. */
+  readonly removed: ReadonlyMap<ThreadId, number>;
   /** Each unarchived thread's `subagent` parent (null for a root). */
   readonly parents: ReadonlyMap<ThreadId, ThreadId | null>;
 }
@@ -26,7 +27,7 @@ export type ThreadTabLineage = ReadonlyMap<EnvironmentId, EnvironmentLineage>;
 
 const sameLineage = (left: EnvironmentLineage, right: EnvironmentLineage | undefined) =>
   right !== undefined &&
-  left.live === right.live &&
+  left.removed === right.removed &&
   left.parents.size === right.parents.size &&
   [...left.parents].every(([id, parent]) => right.parents.get(id) === parent);
 
@@ -36,10 +37,10 @@ const lineageAtom = (() => {
     const next: ThreadTabLineage = new Map(
       [...enabledEnvironmentIds(get(environmentCatalog.catalogValueAtom))].flatMap(
         (environmentId) => {
-          const { snapshot, status } = get(environmentShell.stateValueAtom(environmentId));
-          if (Option.isNone(snapshot)) return [];
+          const snapshot = get(threadEnvironment.snapshotAtom(environmentId));
+          if (snapshot === null) return [];
           const parents = new Map(
-            snapshot.value.threads.map(
+            snapshot.threads.map(
               ({ id, lineage }) =>
                 [
                   id,
@@ -47,7 +48,8 @@ const lineageAtom = (() => {
                 ] as const,
             ),
           );
-          return [[environmentId, { live: status === "live", parents }] as const];
+          const { removedAt } = get(environmentShell.stateValueAtom(environmentId));
+          return [[environmentId, { removed: removedAt, parents }] as const];
         },
       ),
     );
@@ -80,8 +82,8 @@ export function resolveThreadGroupKey(
   return scopedThreadKey({ environmentId: ref.environmentId, threadId: rootId });
 }
 
-/** Whether the thread is absent from its environment's live snapshot (archived or deleted). */
+/** Whether the shell saw the thread archived or deleted and it has not come back. */
 export function isThreadGone(lineage: ThreadTabLineage, ref: ScopedThreadRef): boolean {
   const entry = lineage.get(ref.environmentId);
-  return entry?.live === true && !entry.parents.has(ref.threadId);
+  return entry !== undefined && entry.removed.has(ref.threadId) && !entry.parents.has(ref.threadId);
 }
