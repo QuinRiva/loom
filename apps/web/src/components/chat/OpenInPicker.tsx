@@ -258,6 +258,7 @@ export const OpenInPicker = memo(function OpenInPicker({
     // loom: client-launched editors (zed-ssh) run on the viewer's machine and
     // reach back over SSH; they short-circuit both remote modes below.
     if (tryClientEditorLaunch(editor, openInCwd, remoteEditorSshHost)) {
+      setPreferredEditor(editor);
       return true;
     }
     if (remote.mode === "remote-unavailable") return false;
