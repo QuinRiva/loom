@@ -6,7 +6,10 @@ import {
 } from "@t3tools/client-runtime/environment";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { canSnooze, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
-import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
+import {
+  type EnvironmentThreadShell, // loom
+  threadRuntimeCanArchive,
+} from "@t3tools/client-runtime/state/models";
 import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
@@ -346,8 +349,13 @@ export function useThreadActions() {
     return result;
   };
 
-  const archiveThread = async (target: ScopedThreadRef, opts: { onArchived?: () => void } = {}) => {
-    const resolved = resolveThreadTarget(target);
+  const archiveThread = async (
+    target: ScopedThreadRef,
+    opts: { onArchived?: () => void; thread?: EnvironmentThreadShell } = {}, // loom: thread
+  ) => {
+    const resolved =
+      resolveThreadTarget(target) ??
+      (opts.thread ? { thread: opts.thread, threadRef: target } : null); // loom
     if (!resolved) return AsyncResult.success(undefined);
     const { thread, threadRef } = resolved;
     if (!threadRuntimeCanArchive(thread.runtime)) {

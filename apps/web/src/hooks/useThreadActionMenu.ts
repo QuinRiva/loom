@@ -44,7 +44,10 @@ import {
   selectProjectGroupingSettings,
 } from "../logicalProject";
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
-import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
+import {
+  type EnvironmentThreadShell, // loom
+  threadRuntimeCanArchive,
+} from "@t3tools/client-runtime/state/models";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
@@ -65,8 +68,10 @@ export function useThreadActionMenu(input: {
   readonly projectCwd: string | null;
   readonly onStartRename: () => void;
   readonly canShareWithGuest: boolean;
+  // loom: the route's own thread, for an older settled one the shell has not joined yet
+  readonly readRouteThread?: () => EnvironmentThreadShell | null;
 }) {
-  const { threadRef, projectCwd, onStartRename, canShareWithGuest } = input;
+  const { threadRef, projectCwd, onStartRename, canShareWithGuest, readRouteThread } = input;
   const router = useRouter();
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -121,7 +126,7 @@ export function useThreadActionMenu(input: {
     void (async () => {
       const api = readLocalApi();
       if (!api) return;
-      const thread = readThreadShell(threadRef);
+      const thread = readThreadShell(threadRef) ?? readRouteThread?.() ?? null; // loom
       if (!thread) return;
       const now = new Date();
       const supports = {
@@ -288,6 +293,7 @@ export function useThreadActionMenu(input: {
           }
           let didArchive = false;
           const result = await archiveThread(threadRef, {
+            thread, // loom: archives a shell-less thread too
             onArchived: () => {
               didArchive = true;
             },
