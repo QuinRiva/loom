@@ -1,0 +1,388 @@
+---
+kicker: "Decision batch · the overnight audit's document removals, PRs #456 and #458 · from a full read of every removed file and a survey of how threads find prior plans · 27 Oct 2026"
+reader:
+  who: Carl, loom's maintainer, reviewing the overnight audit's removal PRs; he stopped at #456 because it deletes a lot and asked whether the plans it removes are duplicates or are being deleted outright
+  knows: what plans/, recaps/, explainers/ and docs/design/ are and that the MDX skills write into them; not what is in the PRs file by file, nor that the "do not commit implementation plans" line in AGENTS.md came from upstream
+  after_first_screen: that #456 removes no plan in his sense; that #458 does, and which eleven are worth keeping; what each PR should become; and that the one decision underneath is whether plans are committed history, which settles the AGENTS.md line
+manager_sessions:
+  - id: 01a17a3b-4404-76e3-91f5-a1b3b41e494a
+    name: Removed-docs recap for Carl
+    role: plan
+    authored_at: 2026-10-26T22:08:44.810Z
+---
+
+# #456 deletes scratch and old engine source; #458 deletes the plans, and eleven of them are the only record of a decision you made
+
+You asked whether the audit is proposing to delete the plans or whether they are duplicates. The answer splits by PR. **#456 removes nothing that is a plan in your sense**: of its 27 non-`quarantine/` files, read in full, **22 are scratch, 5 duplicate a living page, 0 are reference-worthy**; the other 227 files are the V1 engine's source under `quarantine/`, not a document among them. **#458 is where the plans are**: of the 30 documents it deletes, **8 are the only record of a decision or a rejected alternative** for a feature that still ships in the designed shape, 5 partially duplicate a living page, and 17 are scratch. The audit's test was "does anything in the tree cite it", and three of the eight it found uncited were being maintained as decision records eleven days before the audit called them history.
+
+<Stats
+  items={[
+    { value: "0 of 27", label: "#456 documents worth keeping", tone: "success", detail: "22 scratch, 5 duplicates. Recommendation: merge as is." },
+    { value: "11 of 30", label: "#458 documents to keep", tone: "risk", detail: "8 reference-worthy plus the 3 that keep one decision log coherent. Recommendation: merge minus those 11.", badge: { label: "keep-set named in §4", tone: "risk" } },
+    { value: "573", label: "brief citations of plan paths", tone: "info", detail: "110 distinct plan or design paths cited across 4,239 orchestrator briefs; 54 citations came more than two weeks after the plan was committed." },
+    { value: "1 line", label: "of AGENTS.md to replace", tone: "warning", detail: "\"Do not commit implementation plans\" arrived verbatim from upstream on 21 Sep; loom committed about 60 plans before and after it." },
+  ]}
+/>
+
+<Callout tone="decision" title="What it means now" focus>
+  Four things, each a question at the end of this document. **#456**: merge as is; its one close call is a goals-migration plan whose decision is carried three times elsewhere. **#458**: merge minus the eleven files listed in §4 and put back two links the PR drops from the design doc it keeps; nineteen deletions stand. **The policy**: the audit was right by the letter of `AGENTS.md` and wrong by loom's practice, because that line is upstream's; the recommendation is to replace it with a loom rule that plans are dated history, with a one-line supersede marker so a later thread can tell which plan is current. **Where the kept V1-era files live**: in place under `docs/` with a "V1-era, intent only" header, because every way a thread finds a plan today runs on its path. A question you leave unanswered takes its recommended option; a per-document verdict you disagree with in §5 is an annotation on that row.
+</Callout>
+
+## 1. What each PR removes
+
+Two PRs, two different kinds of content. The counts are from a full read of every deleted file and of the living page each is said to duplicate; the diff figures are GitHub's.
+
+<Table
+  density="compact"
+  columns={["PR", "What it is", "Diff", "Read and classified", "Verdict"]}
+  rows={[
+    { tone: "success", cells: [
+      "#456 `t3/audit-quarantine`",
+      "Deletes `quarantine/` (the V1 engine's 227 source files, tagged `loom-quarantine-final`), the June `goals/` packages, an 11 MB synthetic MDX perf harness, the multi-feature coder log `progress.md`, two raw upstream-sync dumps and a debug PNG; ten one-line source edits",
+      "+9 / −86,643 across 264 files",
+      "27 documents: **22 scratch · 5 duplicate · 0 reference**",
+      { badge: { label: "merge as is", tone: "success" } },
+    ]},
+    { tone: "risk", cells: [
+      "#458 `t3/audit-docshistory`",
+      "Deletes all of `docs/plans/` (9), 8 of `docs/design/`, the 10 `docs/mdx-*` pages, one research note and two retired designs; edits `docs/design/workstream-review-gates.md` to drop its links to four of them; moves one tabs constraint into a code comment",
+      "+6 / −9,947 across 32 files",
+      "30 documents: **8 reference · 5 partial duplicate · 17 scratch**",
+      { badge: { label: "merge minus 11 files", tone: "risk" } },
+    ]},
+  ]}
+/>
+
+**#456 in one line.** The `goals/` packages carry their own retirement banners ("NON-AUTHORITATIVE (2026-06-23) … Kept as a planning/historical artifact only"); the reasoning-display plans describe a mechanism you ruled a workaround ("upstream's model is adopted end to end and loom's is deleted", `docs/upstream-sync/26-reasoning-rehome.md`); `plans/perf-mdx` is a seeded generator and its output ("Deterministic pseudo-random so runs are comparable"); and loom's own fork-deltas record classed `goals/**` and `progress.md` as "not features to defend … drop them freely" on 2026-06-30. The quarantined source is reachable at the annotated tag `loom-quarantine-final` (`4a898574091e`, the PR's merge base and an ancestor of `origin/main`, holding all 227 files).
+
+**#458 in one line.** The PR body's premise is "V1-era history, nothing live cites them, rewritten in the pull 9 V2 port". Read against the tree, four of the eight reference documents describe features that exist today in the shape they designed (the scaffold-and-brief mechanism, the fork-join band layout, the FYI notice digest, the provider failover chains), two current `plans/*.mdx` say they deliberately did not restate a deleted doc's decisions, an upstream-sync inventory page cites one as its source, and three of the MDX decision records were edited on 2026-10-12 (commit `4e8dd6fa`). The one design doc the PR keeps, `workstream-review-gates.md`, is the same July vintage with the same V1 anchors; it survives only because `packages/shared/src/workstreamGraph.ts` names it.
+
+## 2. Three documents a future thread would miss
+
+These are the concrete cases behind "reference-worthy". Each describes a feature that still ships, holds a decision you made or an alternative you rejected, and has no living page that carries it.
+
+<Card heading="The scaffold-and-brief design: why two calls, what was rejected, what was deliberately not built" tone="risk" badge="KEEP" eyebrow="docs/plans · scaffold-brief-graph" meta={["24.5 KB", "feature live in this shape", "only living mention cites this doc as its source"]}>
+  `docs/plans/workstream-scaffold-brief-graph.md`. This is the mechanism the workstream that produced this document ran on: `workstream_scaffold` plus `workstream_brief`, the brief-needed wake rail, the `briefNeededSince` episode clock, "the brief gates only the first launch". The doc records "Decisions already settled (with the user)" 1 to 8, among them "No file-based manifest" and "No reusable/saved graphs" and the rejection of Claude Code's script model, and a section headed "Deferred hardening (documented, not built)" with the reason not to build it.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Value", "Source"]}
+    rows={[
+      ["Feature today", "`handlers/scaffold.ts`, `loom/workstream/brief.ts`, `dispatcher/briefNeeded.ts`, `kickoffBriefPath`, `graphKey` all present", "identifier checks against this worktree"],
+      ["Living description", "One table row in `docs/upstream-sync/28-pull9-v2-alignment/02-loom-inventory.md:117`, which cites this doc as its source", "full read of the inventory page"],
+      ["Upstream's V2 docs", "`docs/orchestration-v2/*` is upstream's `delegate_task` world; it does not mention scaffold or briefs", "full read of `orchestrator-mcp-server.md`"],
+    ]}
+  />
+
+  **What a thread loses:** the next thread that changes how briefs gate launches finds a working mechanism and no account of why the manifest and saved-graph designs were rejected, so it re-litigates them.
+</Card>
+
+<Card heading="Provider failover: your D1 to D6 of 2026-07-06, with the alternatives you rejected" tone="risk" badge="KEEP" eyebrow="docs/plans · provider failover" meta={["35.1 KB", "config shape live today", "PR body says a V2 record replaced it; none found"]}>
+  `docs/plans/provider-exhaustion-failover.md`. §11 is headed "Decisions — RESOLVED by the user (2026-07-06)": D1 to D6, each with what was turned down ("Silent is rejected", "An interactive 'ask' mode … defer", Vertex-first, "stored selections are never rewritten"). The PR body says the design "was replaced by the V2 reroute record"; no document in the tree records D1 to D6.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Value", "Source"]}
+    rows={[
+      ["Feature today", "`ProviderHealthRegistry.test.ts`, `providerExhaustionOverlay.ts`, `piQuotaClassifier.loom.ts`, migration `1020` (`quota_exhausted`)", "identifier checks against this worktree"],
+      ["The designed config shape", "`plans/tier-based-model-rollover/plan.mdx` writes `providerFailover.chains.openai-codex/*[0]`, the exact `chains` shape with namespace wildcards this doc designed", "full read of that plan"],
+      ["Later reuse", "Cited by a brief 27 days after it was written: “treat it as the map, but verify against the code”", "survey of 4,239 briefs"],
+      ["What else records D1 to D6", "Nothing in `plans/tier-based-model-rollover` or `plans/usage-visibility`", "full read of both"],
+    ]}
+  />
+
+  **What a thread loses:** the next thread that touches failover sees the chains config and the quota classifier and has no record that silent failover and an interactive ask mode were considered and rejected by you.
+</Card>
+
+<Card heading="The thread tabs: the keybinding reversal you approved, and why" tone="risk" badge="KEEP" eyebrow="docs/design · centre-panel-thread-tabs" meta={["32.7 KB", "feature live", "PR moved one of its constraints to a code comment"]}>
+  `docs/design/centre-panel-thread-tabs.md`. Status line: "shipped (v1, PR #120); v2 revision". It carries the URL-as-single-source-of-truth rule, the preview-tab decision and its reason ("without it, casual sidebar browsing piles up tabs"), "no absence-based pruning", and a decision reversed with its cause: "Reversed after implementation (user-approved): the fallback is unreachable in practice … Tabs now own `tab.previous` / `tab.next` / `tab.jump.1..9` on `mod+alt+…`".
+
+  <Table
+    density="compact"
+    columns={["Fact", "Value", "Source"]}
+    rows={[
+      ["Feature today", "`apps/web/src/loom/threadTabsStore.ts`, `ThreadTabsStrip.tsx`", "identifier checks against this worktree"],
+      ["What the PR carried over", "One constraint (only the routed thread mounts a `ChatView`) as a `// loom:` comment in `ThreadRouteView.tsx`", "the PR's diff"],
+      ["What `docs/architecture/loom-ui-state-tiers.md` holds", "The tier policy, not these decisions", "full read"],
+      ["Later reuse", "Four to six brief citations (the survey's two counts differ)", "survey of 4,239 briefs"],
+    ]}
+  />
+
+  **What a thread loses:** a thread redesigning tab shortcuts sees the current bindings and not that the original design's fallback was tried, found unreachable and reversed with your approval.
+</Card>
+
+<Callout tone="warning" title="Why the audit could not see this use">
+  The audit's criterion was citation: a document stayed if a file in the tree named it. That finds code that depends on a doc; it cannot find a reader who does not exist yet. Your use, "see the original plan and see how it was intended to be built within the context of how it existed at that point in time", is a future thread reading the doc from a brief, a thread-search hit or a browse of the directory. None of those leave a citation in the tree. Read for that use instead of for citation, a quarter of #458's set is the only record of a user decision or a rejected alternative, and the kept `workstream-review-gates.md` (same vintage, same V1 anchors, kept because one source file names it) is the clearest sign that the test was the wrong one for this question.
+</Callout>
+
+## 3. The policy underneath
+
+Both PRs quote the same line as their licence, and it is the one thing to settle before the PRs: are plans committed history, or not?
+
+### 3.1 Why the rule and the practice disagree
+
+> Do not commit implementation plans, research notes, or agent scratch files. Keep temporary working material outside the worktree. `.plans/` is gitignored only as a safety net for legacy tooling.
+> (`AGENTS.md:192`)
+
+That bullet arrived verbatim with upstream PR #7665 (t3-code[bot], 20 Aug 2026) in the pull 7 merge on 21 Sep. It is upstream's policy for upstream's repo, which has no `plans/` directory. Loom committed plans before and after it: about 60 under `plans/` today, 75 files added across the three MDX directories in October alone, and loom's own `vite.config.ts` excludes `plans/**`, `recaps/**` and `explainers/**` from formatting with a loom comment calling them "product deliverables". PR #460 (`t3/audit-agentsmd`) rewrites `AGENTS.md` and leaves this bullet as it is, so fixing the rule is not already in flight. The `.plans/` safety-net clause is also stale in loom: `.plans/` is gitignored (`.gitignore:29`), yet 29 June-era files under it are tracked on `main`, and one of them is now the only file that still cites the goals plan #456 deletes.
+
+### 3.2 How threads find prior plans today
+
+Measured against the question "a thread designing changes to the review gate": which channels lead to a prior plan without someone handing over the path.
+
+<Table
+  density="compact"
+  columns={["Channel", "Finds a plan unprompted?", "Measured"]}
+  rows={[
+    ["Orchestrator briefs", { badge: { label: "yes, the main conduit", tone: "success" } }, "665 of 4,239 briefs cite a plan or design path; 573 citations of 110 distinct paths; 54 of those more than 14 days after the plan was committed (brief file mtime as the date). `db-lane-reader-writer-split` was cited 6 times, once 83 days later."],
+    ["`rg` / `fd` / `ls` over `plans/` and `docs/`", { badge: { label: "yes, when the words match", tone: "success" } }, "`fd -i \"review|gate\"` finds `workstream-review-gates.md` at once; a whole-repo search takes 25 ms. Since 1 Sep about 102 sessions ran a bare `ls plans` or `fd plans`, and 304 read a plan, recap or explainer (session tool calls; some in other repos sharing the skills)."],
+    ["`thread_search`", { badge: { label: "the path, never the text", tone: "info" } }, "Indexes titles, briefs, messages and reports, not files. Used in 145 of 2,703 sessions since 1 Oct. A hit names a path; from there `consult_thread` reaches the author."],
+    ["`consult_manager` with `author_doc`", { badge: { label: "while the file exists", tone: "info" } }, "83 of 136 plan and design docs carry `manager_sessions` frontmatter; briefs use it. Deleting the file breaks it; #458's body says so itself."],
+    ["Living docs linking their history", { badge: { label: "yes, as a chain", tone: "success" } }, "`AGENTS.md` → `docs/architecture/loom-ui-state-tiers.md` → `plans/2026-07-13-loom-state-tier-retool.md`. The healthiest pattern: the current doc names the plan that established it."],
+    ["Git history", { badge: { label: "only from a known path", tone: "warning" } }, "9 sessions since 1 Sep ran `git show <ref>:plans/…`, 8 ran `git log --all -- <path>`; in every sampled case the path came from a brief or a doc link. No session browses a tag to discover what used to exist."],
+    ["`knowledge_search` (pi knowledge base)", { badge: { label: "dead", tone: "risk" } }, "No `~/.pi/knowledge-search.json`, no project `localPath`; every call returns “not configured”. Three roles list it (§6)."],
+  ]}
+/>
+
+Every channel that works ends in a file path. A plan in the tree, named the way its area is named, gets found; a plan that exists only in git history is found only when something still in the tree names it.
+
+### 3.3 What keeping them costs
+
+<Table
+  density="compact"
+  columns={["Cost", "Measured", "Verdict"]}
+  rows={[
+    ["Checkout size", "165 files, 21.4 MB of a 369 MB checkout; 11.1 MB of that is `plans/perf-mdx` (#456 deletes it) and 5.0 MB is 40 images, leaving about 5 MB of documents. In history the three directories are about 7.5 MB compressed in a pack of about 1 GB; deleting files never shrinks a clone.", { badge: { label: "small", tone: "success" } }],
+    ["Search noise for code work", "Hits in plans, recaps and explainers versus code: `consult_thread` 87 vs 85; `workstream_submit` 85 vs 68; `goal_task` 102 vs 136; `fanIn` 29 vs 0.", { badge: { label: "real; scope to apps/ or packages/", tone: "warning" } }],
+    ["Gates", "`vite.config.ts` already excludes the three directories from fmt; the `pnpm ship` unmarked-hunk sweep looks only at upstream-owned files; upstream has no `plans/`, so no sync conflicts.", { badge: { label: "none touched", tone: "success" } }],
+    ["Staleness", "Only 1 of about 60 plans carries a `status:` field, though the plan skill already asks for one. Three concrete cases below.", { badge: { label: "the real problem", tone: "risk" } }],
+  ]}
+/>
+
+Hiding the directories with an `.ignore` file would remove the search noise and kill the main discovery channel with it; the survey recommends against.
+
+### 3.4 Staleness, in three cases
+
+- **`plans/sqlite-read-lane` and `-v2`.** The v2 is not a later design; it is the same decision re-authored as an MDX exemplar for a different reader. A thread would wrongly take v2 to mean v1 was superseded. Both are now stale against the code (v1 cites 8 source files, 5 gone), and the dead-code audit replaces loom's worker stack with upstream's `readerWorker`. A "superseded by" line fixes the v1/v2 confusion; "the lane design was later replaced" needs a status line written by whoever replaced it.
+- **`plans/agent-started-thread-cue` and `-v2`.** v1 compares six treatments and recommends a combination; v2 recommends the left-edge rail, which is what shipped (`f41ba37530`). One line, `superseded_by: agent-started-thread-cue-v2`, fixes this completely.
+- **`docs/design/workstream-review-gates.md`.** Live code cites it and #458 keeps it. It names 15 source files and 11 are gone, because the V2 port moved everything. The intent sections hold; the "where it lives" sections mislead. A header such as "describes V1 mechanics (pre pull 9); the intent in §1 to §3 holds; code is now in `orchestration-v2`" fixes most of it, and briefs already add the rest ("treat it as the map, but verify against the code").
+
+A header fixes "which document is current". It does not fix "what drifted since"; the verify-against-code habit covers that and is already common in briefs. The marker is cheap only if it is written at the moment of supersession, so the convention has to live in the skill's "before drafting" step and its lint, not in a wish.
+
+### 3.5 The options, and the recommendation
+
+<Table
+  density="compact"
+  columns={["Option", "What a future thread finds", "Why not"]}
+  rows={[
+    { tone: "success", cells: ["**Keep committing in place; replace the AGENTS.md line; add a status/supersede convention**", "Everything in §3.2 keeps working: `ls plans`, brief citations, thread-search paths, `consult_manager`, the in-app viewer", { badge: { label: "RECOMMENDED", tone: "success" } }] },
+    ["Move history to an archive path (`docs/history/`, `plans/archive/`) with an index", "Still greppable, but 110 cited paths across 573 brief citations, plus report citations, doc links and `consult_manager` anchors go dead at once, and every thread-search hit names a path that no longer exists", "Buys tidiness, not findability; the index is one more thing that rots"],
+    ["Git history only, behind a tag, with an in-tree index of what was removed (the #456/#458 approach)", "Only if it happens to read the index, the index wording matches its area, and it then runs `git show <tag>:<path>`; every observed `git show` started from a path someone handed the agent", "Weaker than keeping, same index upkeep as archiving, breaks `consult_manager` and the viewer, saves no clone size. Right for genuine scratch: fixtures, dumps, progress logs"],
+    ["An index outside the tree (thread search, the pi knowledge base)", "Thread search already points at the authoring thread and its report but never holds the plan text; the knowledge base is unconfigured and per-worktree paths would pin a global index to one checkout", "Complementary at best; not a store"],
+  ]}
+/>
+
+<Callout tone="decision" title="Recommended policy">
+  **Plans, intent briefs, recaps and explainers written under the MDX skills are committed as dated snapshots of intent.** They are history, not documentation: not edited once done except for their status line; the current truth is the code plus `docs/internals` and `docs/architecture`, which link to the plan that established them. Scratch (progress logs, fixtures, raw dumps, test data) stays out of the tree, which is what #456 does. Two conventions make this hold: a `status` field (`draft` / `approved` / `done` / `dropped` / `superseded`) with `superseded_by: <slug>`, written by the thread whose plan replaces an older one and required by the MDX lint; and a "look for prior plans in this area" step in the plan skill's before-drafting section (`rg -l` the area across `plans/`, `recaps/`, `explainers/`, `docs/` plus `thread_search`; read hits as intent-as-of-then and verify against the code). Both belong in the global MDX skills, since other repos write `plans/` with the same skills, and the `AGENTS.md` replacement is a `<!-- loom: -->`-marked hunk because that file is upstream-owned. The storage is not the weak link; the habit of looking is.
+
+  <Details summary="Proposed replacement for the AGENTS.md bullet (draft wording, for a coder to land after your decision)">
+    <Diff
+      filename="AGENTS.md"
+      language="markdown"
+      wrap
+      before={"## Plans and work artifacts\n\n- Do not commit implementation plans, research notes, or agent scratch files. Keep temporary working material outside the worktree. `.plans/` is gitignored only as a safety net for legacy tooling.\n- Track active maintainer work in the GitHub issue or project item that owns it. External proposals follow `CONTRIBUTING.md` and belong in Ideas discussions.\n- A merged PR is the implementation record. Close or update its tracking item when the work lands; do not preserve a second checklist in the repository."}
+      after={"## Plans and work artifacts\n\n- <!-- loom: plans are committed history --> Plans, intent briefs, recaps and explainers written under the MDX skills (`plans/`, `recaps/`, `explainers/`) are committed as dated snapshots of intent. They are history, not documentation: once done they change only in their `status` / `superseded_by` frontmatter, and the current truth is the code plus `docs/internals` and `docs/architecture`, which link to the plan that established them. Before drafting a plan, look for prior plans in the area and mark the one you replace. Agent scratch (progress logs, fixtures, raw dumps, test data) stays out of the tree.\n- Track active maintainer work in the GitHub issue or project item that owns it. External proposals follow `CONTRIBUTING.md` and belong in Ideas discussions.\n- A merged PR is the implementation record. Close or update its tracking item when the work lands; do not preserve a second checklist in the repository."}
+      annotations={[
+        { side: "after", lines: "3", label: "loom hunk", note: "Marked, because AGENTS.md also exists upstream and an unmarked hunk is dropped at the next pull." },
+      ]}
+    />
+  </Details>
+</Callout>
+
+## 4. Recommendation per PR
+
+### #456: merge as is
+
+Nothing in it is a plan in your sense. The one close call is `goals/pi-frontend/plans/db-goals-and-tasks-migration.md`, the June "files to DB-authoritative goals" plan: about 70 percent duplicate, with the decision carried by `docs/upstream-sync/02-fork-deltas.md` §C, the docstring of migration `1003_GoalsAndTasks.ts` and the current task-tree design `plans/goal-task-tree-redesign/plan.mdx` (which also supersedes the contract details it pins). Only its full "why not files" paragraph ("tracked `goals/<slug>/goal.md` files appear in every git worktree, so file discovery treats one semantic goal as several filesystem occurrences") has no living home. If you want belt and braces, that single file could move to `plans/db-goals-and-tasks-migration/plan.md`; the assessor would not.
+
+Two living plans cite deleted paths as history (`plans/mdx-large-doc-review-gaps/plan.mdx:176` calls the perf harness "the kept harness"; `plans/ingestion-backpressure/plan.md:176` and its `implementation-notes.md:15` cite `docs/oom-thread-notes.md`). A one-line "at tag `loom-quarantine-final`" fixup can ride any later PR, not this one.
+
+### #458: merge minus eleven files, and put two links back
+
+The eleven to keep, with why each earns it:
+
+<Table
+  density="compact"
+  columns={["Keep", "Why"]}
+  rows={[
+    ["`docs/plans/workstream-scaffold-brief-graph.md`", "Why scaffold and brief are two calls, what was rejected, the hardening deliberately not built (§2)"],
+    ["`docs/plans/provider-exhaustion-failover.md`", "Your D1 to D6 for a feature whose config shape is live today (§2)"],
+    ["`docs/plans/workstream-fork-join-graph.md`", "The spine-per-generation model and the `spawnGeneration` ordering trap (“an opaque turn-id, not an ordinal … the spine MUST be ordered by each wave's `min(child.createdAt)`”); `computeForkJoinLayout` is live"],
+    ["`docs/design/workstream-notice-coalescing.md`", "`digest.ts` carries the mechanism (“The FYI digest, ported from V1”); only this doc carries why gate verdicts are FYI, the rejected persisted queue, the losslessness invariant and the field evidence (30 wakes, 11 echo pairs)"],
+    ["`docs/design/centre-panel-thread-tabs.md`", "The tabs decisions including the keybinding reversal and why (§2)"],
+    ["`docs/mdx-plannotator-decisions.md`", "The MDX pipeline's decision log, maintained to 2026-10-12: “D1 — Reimplement, not wrap (ratified by user)”, “D9 — Security posture CONFIRMED by user”, “Never add `allow-scripts` to HtmlBlock”, the CSP Option A decision. The explainer is the how; this is the why and who decided"],
+    ["`docs/plans/db-lane-reader-writer-split.md`", "Two current plans defer to its D1/D3/D5 by reference rather than restating them (“the change adds one superseding paragraph under D2 of that doc, not a second account”). D3 is since superseded. **Also deleted by #471** (`t3/audit-deadcode`); whatever you decide here applies there"],
+    ["`docs/plans/workstream-spawn-hardening.md`", "The “an incoherent graph cannot be submitted” invariant with the user-agreed split and the gated-reviewer deadlock. Weakest of the eight: V1-anchored, `validateSpawnGraph` is gone"],
+    ["`docs/mdx-iframe-surfaces-review.md`", "Cited by the decisions log's D9; holds the real-browser probe results and “`allow-same-origin` must never be combined with `allow-scripts` here”. Edited 2026-10-12. Keeps the log coherent"],
+    ["`docs/mdx-phase4-scoping.md`", "Cited by the decisions log's D8 to D10; holds the rejected per-artboard iframe alternative and the §7 proofs. Edited 2026-10-12. Keeps the log coherent"],
+    ["`docs/design/workstream-graph-state-rollup.md`", "Cheap: `plans/sidebar-workstream-badge/plan.mdx:123` quotes it and names it; “Carl asked for deadlock to be a real state” and the rejected single-pill ladder are only here. Weak, since `rollupGraphState` no longer exists"],
+  ]}
+/>
+
+And in `docs/design/workstream-review-gates.md`, which the PR edits (+5/−8), revert the two hunks that drop its pointers to `workstream-fork-join-graph.md` and `workstream-notice-coalescing.md` (the "visualisation lineage" list can lose the dag-visualization entry, which is scratch). The re-pointing of the coalescing note at `digest.ts` and `rails.ts` can stay. The other 19 deletions, the `// loom:` comment the PR adds to `ThreadRouteView.tsx`, and the PR body's "browsable in git history" argument are all fine for the scratch set.
+
+### The two neighbours
+
+- **#471** (`t3/audit-deadcode`, "delete runtime-dead Loom code") also deletes `docs/plans/db-lane-reader-writer-split.md` (−266) alongside the SQLite lane code it designed. If that file stays in #458 it must stay in #471 too, or the second merge removes it anyway.
+- **#460** (`t3/audit-agentsmd`) rewrites `AGENTS.md` and leaves the plans bullet untouched, so the policy decision below is not already being made by another PR.
+
+## 5. Evidence: every document, with its class and the line that settles it
+
+Classes: **reference** (the only record of a decision or rejected alternative for something that still exists), **duplicate** (a named living page carries it; overlap stated), **scratch** (its value ended when the work landed). Each row is one full read; the quoted fragment is the line the verdict rests on.
+
+<Details summary="#458: the 30 deleted documents and the one it edits">
+  <Table
+    filterable
+    density="compact"
+    columns={["File", "Class", "Verdict", "The line that settles it"]}
+    rows={[
+      { tone: "risk", cells: ["`docs/plans/db-lane-reader-writer-split.md`", "reference (partial duplicate)", { badge: { label: "keep", tone: "success" } }, "`plans/sqlite-read-lane/plan.mdx:72` and `-v2/plan.mdx:146` rely on it rather than restate it; D5 (command-worker partitioning cut, revisit when “p95 queue-wait > 250 ms”) lives only here. Also deleted by #471."] },
+      { tone: "risk", cells: ["`docs/plans/provider-exhaustion-failover.md`", "reference", { badge: { label: "keep", tone: "success" } }, "§11 “Decisions — RESOLVED by the user (2026-07-06)” D1 to D6 with rejected alternatives; the `providerFailover.chains` shape is live; no V2 reroute record in the tree carries them."] },
+      ["`docs/plans/sidebar-goal-recency-ordering.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "Landed the same day (`1184d2e6`); the sidebar was since rehomed (`plans/sidebar-v2-rehome`)."],
+      ["`docs/plans/sub-agent-card-metrics.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "V1 implementation plan; its one durable sentence (no per-thread diff lines, “git cannot attribute lines per-thread”) is already quoted by `plans/workstream-worktree-isolation/plan.mdx:152`."],
+      { tone: "risk", cells: ["`docs/plans/workstream-fork-join-graph.md`", "reference", { badge: { label: "keep", tone: "success" } }, "“Decision: hand-roll the band layout and DROP `d3-dag`”; the `spawnGeneration` ordering trap; `computeForkJoinLayout` is live; `workstream-review-gates.md` still points at it (the PR deletes that clause)."] },
+      ["`docs/plans/workstream-model-presets.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "The “explicit > preset > role > inherit” precedence is the contract in `modelSelection.ts` and its test; the plan adds nothing the code does not show."],
+      ["`docs/plans/workstream-purpose-brief-split.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "The inline-string `brief` it designed was replaced by the on-disk `kickoffBriefPath` model; superseded by the scaffold doc."],
+      { tone: "risk", cells: ["`docs/plans/workstream-scaffold-brief-graph.md`", "reference", { badge: { label: "keep", tone: "success" } }, "“Decisions already settled (with the user)” 1 to 8 and “Deferred hardening (documented, not built)”; feature live in this shape; the only living mention (`02-loom-inventory.md:117`) cites this doc as its source."] },
+      { tone: "risk", cells: ["`docs/plans/workstream-spawn-hardening.md`", "reference (weak)", { badge: { label: "keep", tone: "success" } }, "“The runtime predicate stays permissive as a backstop (unchanged — decided with the user)”; “a gated reviewer always runs attached … Any other isolation deadlocks the gate”. V1-anchored; `findDependencyCycle` survives, `validateSpawnGraph` is gone."] },
+      ["`docs/research/workstream-dag-visualization.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "Its implemented choice (d3-dag) was reversed by the fork-join doc; one durable paragraph (“Switch to React Flow … the moment the product intent flips to an editable orchestration canvas”) is not worth the 22 KB."],
+      { tone: "risk", cells: ["`docs/design/centre-panel-thread-tabs.md`", "reference", { badge: { label: "keep", tone: "success" } }, "“Reversed after implementation (user-approved): the fallback is unreachable in practice”; the preview-tab decision and “no absence-based pruning”; feature live; the PR moved exactly one constraint to a code comment."] },
+      ["`docs/design/pi-steering-queued-messages.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "The steer trap concerned `PiDriver.ts`; `streamingBehavior` now lives in upstream's `packages/provider-pi/src/server/adapter.ts`."],
+      ["`docs/design/subscription-usage-visibility.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "Self-retired 2026-09-21: “The sidebar usage pill and the `AccountUsageRegistry` this document designed are deleted … Read the rest as history.”"],
+      ["`docs/design/workstream-graph-node-redesign.html`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "Mockup for a design that shipped the same day (`f9a7da9c`); HTML artefacts belong in `.artifacts/`."],
+      { tone: "warning", cells: ["`docs/design/workstream-graph-state-rollup.md`", "partial duplicate of `plans/sidebar-workstream-badge/plan.mdx`", { badge: { label: "keep (cheap)", tone: "success" } }, "The badge plan quotes its rule verbatim at `:123` (“liveness anywhere in the DAG dominates local blocked-ness”); “Carl asked for deadlock to be a real state” and the rejected single-pill ladder are only here; `rollupGraphState` no longer exists."] },
+      { tone: "risk", cells: ["`docs/design/workstream-notice-coalescing.md`", "reference (partial duplicate)", { badge: { label: "keep", tone: "success" } }, "`digest.ts` opens “The FYI digest, ported from V1” and carries the mechanism; neither it nor `review-gates.md` §6 carries “Why gate verdicts are FYI”, “Decision: no persisted queue … Rejected”, the losslessness invariant or the field evidence. `02-loom-inventory.md:278` cites this doc."] },
+      ["`docs/design/workstream-sidebar-indicator-mockup.html`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "Footer: “Throwaway design artifact”; shipped as `plans/sidebar-workstream-badge`."],
+      ["`docs/design/ws-keepalive-plan.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "`isHeartbeatFresh` and the heartbeat RPC are gone from `packages/client-runtime`; the remaining `heartbeat` hits are thread liveness, a different thing."],
+      { tone: "warning", cells: ["`docs/agent-native-wrap-assessment.md`", "duplicate of `docs/mdx-plannotator-decisions.md` D1", { badge: { label: "drop", tone: "neutral" } }, "Its verdict is D1 (“Reimplement, not wrap (ratified by user)”); its best case (“depend on `@agent-native/core/blocks`”) was overturned by the spike (D3)."] },
+      ["`docs/mdx-b6-review.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "Review transcript, verdict SHIP, no decisions."],
+      { tone: "warning", cells: ["`docs/mdx-iframe-surfaces-review.md`", "partial duplicate of `explainers/mdx-document-pipeline/explainer.mdx` §2.7", { badge: { label: "keep (with the log)", tone: "success" } }, "Only here: the real-browser probe results (“Sink server total hits across all probes: 0”), the sanitiser-versus-sandbox table and “`allow-same-origin` must never be combined with `allow-scripts` here”. Cited by the log's D9. Edited 2026-10-12."] },
+      ["`docs/mdx-phase4-review.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "Review transcript; its SF1 finding (id-namespace pollution) since fixed per the explainer."],
+      { tone: "warning", cells: ["`docs/mdx-phase4-scoping.md`", "partial duplicate of `docs/mdx-plannotator-decisions.md` D8 to D10", { badge: { label: "keep (with the log)", tone: "success" } }, "Only here: the rejected wireframe alternative (“iframe-sandbox each artboard … Rejected because it breaks the single annotation geometry model”) and the §7 proofs. Edited 2026-10-12."] },
+      ["`docs/mdx-plan-authoring-skill-integration.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "Notes its own supersession: “Historical: the manual `scripts/enable-mdx-doc-skills.sh` installer has been retired”."],
+      ["`docs/mdx-plan-review.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "Review transcript; its blocker B1 is recorded as the D2 correction in the decisions log."],
+      { tone: "risk", cells: ["`docs/mdx-plannotator-decisions.md`", "reference", { badge: { label: "keep", tone: "success" } }, "The decision log maintained to 2026-10-12: D1 “ratified by user”, D9 “CONFIRMED by user … foreign `.mdx` … IS in scope”, “Never add `allow-scripts` to HtmlBlock”, CSP “Option A (accept `unsafe-eval`) … Revisit before ship if a CSP is planned”. The explainer flags the CSP gap without the decision."] },
+      ["`docs/mdx-plannotator-research.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "Pre-build research whose questions the build answered; the explainer is the current account."],
+      ["`docs/mdx-spike-findings.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "Spike log (“Scratch harness (throwaway, not committed to app)”); its contracts are the code."],
+      ["`docs/mdx-wireframe-sanitiser-review.md`", "scratch", { badge: { label: "drop", tone: "neutral" } }, "Findings landed (`8c12571c`) and are pinned by exploit-shape tests in `wireframe.test.ts`. One latent note (“Gate for C3 … MUST bring back `sanitizeWireframeCss`”) is carried nowhere; low frequency."],
+      { tone: "warning", cells: ["`docs/usage-dashboard-design.md`", "partial duplicate of its own 2026-09-21 status header and `plans/usage-visibility`", { badge: { label: "drop", tone: "neutral" } }, "“The `/usage` dashboard this document designed is retired … What survives from this design is §3 D1”; the D1 rationale is only here but its “Backfill stance: none” was reversed by migration `1043`."] },
+      { tone: "info", cells: ["`docs/design/workstream-review-gates.md` (edited, +5/−8)", "kept by the PR", { badge: { label: "revert two hunks", tone: "warning" } }, "Same July vintage and V1 anchors as the deleted set, kept because `packages/shared/src/workstreamGraph.ts` cites it. Its edit drops links to the fork-join, state-rollup, notice-coalescing and dag-visualisation docs."] },
+    ]}
+  />
+
+  Audit claims that held: the keepalive, pi-steer, usage pill, usage dashboard and skill-installer docs describe removed or upstream-owned code; the ten `mdx-*` review, spike and research pages are a closed, self-citing cluster. Audit claims that did not: "Nothing live cites them" (four current `plans/*.mdx` and one upstream-sync inventory page cite five of the deleted docs as their source); "rewritten in the pull 9 V2 port" (scaffold and brief, the fork-join layout, the digest and the failover chains exist in the designed shape, and `digest.ts` says "ported from V1"); "the failover decisions describe a design the V2 reroute record has replaced" (no such record in the tree). Confidence: high on the scratch set and on the scaffold, failover, fork-join, coalescing and plannotator docs; medium on the db-lane, spawn-hardening and state-rollup calls, where the citing lines were read but not every citing page end to end.
+</Details>
+
+<Details summary="#456: the 27 deleted documents, the quarantine block and the ten source edits">
+  <Table
+    filterable
+    density="compact"
+    columns={["File", "Class", "The line that settles it", "Living carrier"]}
+    rows={[
+      ["`goals/pi-frontend/goal.md`", "scratch", "Own banner: “NON-AUTHORITATIVE (2026-06-23): This Markdown file is no longer a source of truth”; every task landed; its PiDriver session-resume diagnosis is carried as “deterministic per-thread `--session-id` create-or-resume”.", "`docs/upstream-sync/02-fork-deltas.md` §A"],
+      { tone: "warning", cells: ["`goals/pi-frontend/plans/db-goals-and-tasks-migration.md`", "duplicate (about 70 percent)", "“Files stop being a source of truth.” The decision is carried three times; contract details it pins (`goal.task.delete`, `position`) were superseded; only the “why not files” worktree paragraph has no living home. The close call.", "`02-fork-deltas.md` §C; migration `1003_GoalsAndTasks.ts`; `plans/goal-task-tree-redesign/plan.mdx`"] },
+      ["`goals/pi-frontend/plans/db-goals-and-tasks-migration.{implementation,review,gpt55-review,fix-implementation,gpt55-rereview}.md` (5 files)", "scratch", "Implementation and review records of commit `49f7eb53fe`; “Status: COMPLETE”; each ends in a June harness `acceptance-report` blob.", "the merged commit"],
+      ["`goals/pi-frontend/plans/goal-index-ws-push.md`", "scratch", "Own banner: “SUPERSEDED (2026-06-23) … obsolete. Retained for historical context only.” Never built.", "none needed"],
+      ["`goals/pi-frontend/plans/vp-check-fix.md`", "scratch", "Bumps a `LEGACY_BASELINE` entry (31 to 32) in a map upstream has since replaced with a per-file lint option.", "n/a"],
+      ["`goals/reasoning-display/goal.md`", "scratch", "Task list; its two open items (“awaiting user”, “Live run against Opus 4.8”) are moot after the reasoning rehome.", "`docs/upstream-sync/26-reasoning-rehome.md`"],
+      { tone: "warning", cells: ["`goals/reasoning-display/plan.md`", "duplicate", "“Reasoning text is stored as two new fields on `OrchestrationMessage`”; the rehome page summarises exactly this as the deleted “Loom's v2” and names what was lost (“Thought for Xs”, the `reasoningDisplay` setting).", "`26-reasoning-rehome.md`"] },
+      { tone: "warning", cells: ["`goals/reasoning-display/plan-v2-ephemeral-streaming.md`", "duplicate", "“Reasoning is persisted once per assistant segment”; its perf diagnosis is of the V1 pipeline now in `quarantine/`. Keeping it risks a thread reviving a mechanism a human ruled a workaround.", "`26-reasoning-rehome.md`"] },
+      ["`goals/reasoning-display/implementation-report.md`, `review.md` (2 files)", "scratch", "Records of commits `1e94ea1cbf` / `43b367c3f2`; review verdict “Keep-with-fixes”; superseded by PR #200.", "the merged commits"],
+      ["`plans/perf-mdx/` (8 files, about 11 MB)", "scratch", "`gen.mjs`: “Synthetic tier-(b) decision-doc MDX generator for perf measurement … let seed = 12345”; the four `doc-*.mdx` are its regenerable output; no script, config or test runs them. The measurements live on in the review-gaps plan, which calls this “the kept harness” at `:176`.", "`plans/mdx-large-doc-review-gaps/plan.mdx`"],
+      ["`progress.md` (436 lines)", "scratch", "Multi-feature coder log, June to August, last touched by a formatter; “Status: COMPLETE — all phases done”; the question card it describes at length was later deleted end to end; its consult decisions are duplicated where they matter (`plans/ask-user-question-redesign/plan.mdx:125`).", "merged commits; `.pi/manager/consults.jsonl`"],
+      { tone: "warning", cells: ["`docs/oom-thread-notes.md`", "duplicate (about 80 percent)", "Items 2 and 3 (the boot-time `getSnapshot()` of 458k activities, the sqlite worker `prepareCache`) are in the plan's §3.7 almost verbatim; items 4 and 5 (unattributed growth without agents, no span-exporter buffer) are not. The plan cites it by path and will dangle.", "`plans/ingestion-backpressure/plan.md` §3.7"] },
+      ["`docs/upstream-sync/24-remaining-typecheck-errors.txt` (310 lines)", "scratch", "“Remaining `vp run typecheck` errors after cadence pull 6, session 2.” Doc 24 summarises it and Session 3 records 306 errors to 0. No page links to it.", "`24-cadence-pull-…-STATE.md`"],
+      { tone: "warning", cells: ["`docs/upstream-sync/25-final-three-web-files-ledger.json`", "duplicate", "Three entries (`Sidebar.tsx` 13 hunks, `FilePreviewPanel.tsx` 10, `rightPanelStore.ts` 7); doc 25 Session 2 has the same table.", "`25-cadence-pull-v0.0.43-nightly-20260920.md`"] },
+      ["`docs/design/_debug/c2-node-card-preview.png` (44 KB)", "scratch", "Only file in `_debug/`; added by `f9a7da9c` with the graph-node redesign; nothing references it.", "the HTML mockup (which #458 drops)"],
+    ]}
+  />
+
+  **The `quarantine/` block.** 227 files, all source (201 `.ts`, 26 `.tsx`, zero `.md`): `apps/server` 151, `apps/web` 64, `packages/shared` 10, `packages/contracts` 1, `packages/client-runtime` 1. The annotated tag `loom-quarantine-final` ("Last main commit holding quarantine/ (pull 9 V1 engine sources) before its deletion") points at `4a898574091e`, the merge of #455 and an ancestor of `origin/main`; `git ls-tree -r loom-quarantine-final | grep -c ^quarantine/` returns 227, the same count as on `origin/main`.
+
+  **The ten source edits.** Seven are one-word comment changes ("quarantined" to "deleted" or "V1") in `ProviderRuntimeIngestionTelemetry.ts`, `RuntimePerformanceMonitor.ts`, `loomProjection.ts`, `Orchestrator.loom.ts`, `ProviderRegistry.test.ts`, `index.css` and `managedProvider.test.ts`; `ProjectSetupScriptRunner.loom.test.ts` now names the tag; `McpSessionRegistry.ts` drops the unused export `resolveActiveMcpCredential` (9 lines); `vite.config.ts` removes the three `quarantine/**` exclusion lines. The PR lists 264 files: 227 quarantined, 27 deleted documents, 10 edits.
+
+  Prior ruling consistent with all of this: `docs/upstream-sync/02-fork-deltas.md` §L (2026-06-30) classed "`goals/**` (markdown, now non-authoritative), `progress.md`" as "planning/working artefacts, not product … not features to defend".
+</Details>
+
+## 6. Side note: the knowledge base is dead, and three roles still list it
+
+`knowledge_search` has no configuration on this machine (no `~/.pi/knowledge-search.json`, no project `localPath`) and every call returns "knowledge-search is not configured", yet `roles/planner.md`, `roles/orchestrator.md` and `roles/researcher.md` all list it, so each call by those agents is wasted. It is not a decision for this document; configuring it would give semantic search over plan text at the cost of a per-worktree index pinned to one checkout. If you want it either configured or removed from the role tool lists, say so and a follow-up thread can do it.
+
+###### Sources: the #458 classification (every deleted file and its named living counterpart read in full from `origin/main` and this worktree); the #456 classification (same method, plus the tag and ls-tree checks); the discovery survey (4,239 briefs, session tool calls since 1 Sep, thread-search usage since 1 Oct, directory sizes in this worktree at `4a89857409`); PR bodies and diffs from GitHub on 27 Oct 2026. Every number above is one of theirs; none is a decision until you make it below.
+
+## Decisions
+
+<QuestionForm
+  submitLabel="Record decisions"
+  questions={[
+    {
+      id: "pr456",
+      title: "PR #456 (delete quarantine/ and committed scratch): what should it become?",
+      subtitle: "Nothing it deletes is reference-worthy; the one close call is the June goals-migration plan, whose decision is carried three times elsewhere.",
+      mode: "single",
+      required: true,
+      refs: [{ label: "4. Recommendation per PR", anchor: "4-recommendation-per-pr" }],
+      options: [
+        { id: "merge", label: "Merge as is", detail: "All 27 documents and the 227 quarantined source files go; the source stays reachable at tag loom-quarantine-final.", recommended: true },
+        { id: "merge-minus-goals", label: "Merge, but first move the goals-migration plan to plans/db-goals-and-tasks-migration/plan.md", detail: "Keeps the one paragraph (why goals could not stay as files across worktrees) that has no living home." },
+        { id: "hold", label: "Hold; I want to look at it myself first", detail: "The PR stays open and untouched." },
+      ],
+    },
+    {
+      id: "pr458",
+      title: "PR #458 (remove V1-era design history): what should it become?",
+      subtitle: "Thirty documents deleted; eleven are the only record of a decision or a rejected alternative for a feature that still ships, and the design doc the PR keeps loses its links to two of them.",
+      mode: "single",
+      required: true,
+      refs: [{ label: "4. Recommendation per PR", anchor: "4-recommendation-per-pr" }, { label: "2. Three documents a future thread would miss", anchor: "2-three-documents-a-future-thread-would-miss" }],
+      options: [
+        { id: "merge-minus-11", label: "Merge minus the eleven-file keep-set, with the two dropped links in workstream-review-gates.md put back", detail: "Nineteen scratch and duplicate documents go; the eight reference documents and the three that keep the MDX decision log coherent stay. The same keep applies to the db-lane doc in #471.", recommended: true },
+        { id: "merge", label: "Merge as is", detail: "All thirty go to git history; consult_manager anchors on them break and nothing in the tree leads a future thread to them." },
+        { id: "close", label: "Close it; keep all thirty in the tree", detail: "The PR body offers this (\"Close this if you want the V1-era design history browsable in-tree\"). Keeps the seventeen scratch pages too." },
+        { id: "hold", label: "Hold; I want to read some of these myself first", detail: "The PR stays open and untouched." },
+      ],
+    },
+    {
+      id: "policy",
+      title: "Are plans committed history? This settles the AGENTS.md line both PRs cite.",
+      subtitle: "The current line (\"Do not commit implementation plans\") is upstream's, merged on 21 Sep; loom has committed about 60 plans before and after it, and every way a thread finds a prior plan today runs on the plan's file path.",
+      mode: "single",
+      required: true,
+      refs: [{ label: "3. The policy underneath", anchor: "3-the-policy-underneath" }],
+      options: [
+        { id: "history", label: "Yes: plans, recaps and explainers are committed as dated history; replace the AGENTS.md line with the loom rule and add the status/superseded_by convention and the prior-plan step to the MDX skills", detail: "A coder lands the loom-marked AGENTS.md hunk drafted in §3.5 and the skill changes; scratch stays out of the tree as now.", recommended: true },
+        { id: "upstream", label: "No: keep upstream's rule and move the plans out of the tree", detail: "The MDX directories leave the repo; 110 cited paths across 573 brief citations, the consult_manager anchors and the in-app viewer paths go dead, and a new home and index must be built and kept." },
+        { id: "later", label: "Decide later; leave the line as it is for now", detail: "The contradiction between the line and the practice stays, and the next audit will propose the same deletions." },
+      ],
+    },
+    {
+      id: "keepset-home",
+      title: "Where should the eleven kept V1-era documents live?",
+      subtitle: "They sit under docs/plans, docs/design and docs/ today; later threads cite them by those paths, and the documentation rules say docs/ pages are rewritten or removed when a decision changes, which is not what these are.",
+      mode: "single",
+      required: true,
+      refs: [{ label: "3. The policy underneath", anchor: "3-the-policy-underneath" }],
+      options: [
+        { id: "stay-header", label: "Stay where they are, each with a one-line \"V1-era, superseded by the pull 9 V2 port; intent only\" header", detail: "Every existing citation keeps resolving; the header stops a thread reading V1 file paths as current.", recommended: true },
+        { id: "move-plans", label: "Move them under plans/ as dated history", detail: "Tidier, and consistent with the policy above, at the cost of the brief, report and doc citations that name the docs/ paths." },
+        { id: "stay-bare", label: "Stay where they are, no header", detail: "Cheapest now; a thread that finds one must work out for itself that the file paths inside are V1." },
+      ],
+    },
+    {
+      id: "other",
+      title: "Anything else you want done on the back of this, or a verdict in §5 you read differently?",
+      mode: "freeform",
+      placeholder: "For example: configure or drop the knowledge base; move the tracked .plans/ files; a document whose class you would change.",
+    },
+  ]}
+/>
