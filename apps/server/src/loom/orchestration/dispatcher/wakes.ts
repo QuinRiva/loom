@@ -1,10 +1,7 @@
 /**
- * Shared wake vocabulary for the dispatcher's composers, ported from V1's
- * `WorkstreamDispatcher.ts` with logic unchanged and inputs retyped onto the
- * Loom sidecar (`LoomThreadWorkstream`). V1's plan lane is derived here
- * (`workstreamLane`); fan-in and isolation are gone (shared checkout only).
- *
- * @module loom/orchestration/dispatcher/wakes
+ * Shared wake vocabulary for the dispatcher's composers, ported from V1 onto the Loom sidecar
+ * (`LoomThreadWorkstream`). V1's plan lane is derived here (`workstreamLane`); fan-in and isolation
+ * are gone (shared checkout only).
  */
 import type {
   ControlPayloadItem,
@@ -70,14 +67,10 @@ export const boundedExcerpt = (report: string | null | undefined): string | unde
 const REPORT_REFERENCE = /`([^`\n]+)`|\]\(\s*<?([^)\s>]+)/g;
 
 /**
- * The `.md` / `.mdx` / `.html` files a report names — backticked paths and
- * markdown link targets — for its card item's document chips (the excerpt is
- * cut before the "Full review: …" line reports usually end with). Kept as
- * written: absolute, or relative to the child's workspace, which the parent
- * shares and the client resolves against. Only paths with a directory part: a
- * bare `AGENTS.md` / `plan.mdx` is a mention, not a hand-back. URLs, `~`,
- * globs and placeholders are dropped, as are files beside the report itself
- * (the workstream-reports directory: other threads' reports, never shown by name).
+ * The `.md` / `.mdx` / `.html` paths a report names (backticked or link targets) for its card's
+ * document chips, kept as written since the parent shares the child's workspace. Only paths with a
+ * directory part count (a bare `plan.mdx` is a mention); URLs, `~`, globs, placeholders and files
+ * in the workstream-reports directory are dropped.
  */
 const HANDBACK_DIR = /(?:^|\/)(?:\.artifacts|plans|recaps|workbench)\//;
 
@@ -183,11 +176,10 @@ export const isResolvedSource = (member: WakeMember): boolean =>
   member.lastOutcome?.decision === "resolve";
 
 /**
- * Partitions a parent's batch into resolved gate pairs and singles. A pair is a
- * member whose last outcome RESOLVED the gate and whose loop target is also in
- * the batch. A force-dissolved gate (a parent set the reviewer's outcome) is not
- * paired — that would fabricate a verdict and strip the target of its
- * first-look excerpt. Pure and order-preserving.
+ * Partitions a parent's batch, order-preserving, into resolved gate pairs and singles. A pair is a
+ * member whose last outcome RESOLVED the gate and whose loop target is also in the batch. A
+ * force-dissolved gate is not paired: that would fabricate a verdict and strip the target of its
+ * first-look excerpt.
  */
 export const groupBatchForWake = (
   members: ReadonlyArray<WakeMember>,
@@ -367,11 +359,10 @@ export const slowToolEstimateClause = (input: {
 // yield (`yield.ts`); slow tools and recoveries are digest items (`digest.ts`).
 
 /**
- * Composes a per-child notice: which child errored or paused, a reference to
- * its report with a bounded excerpt, and how the parent may proceed. An
- * attention notice is a PAUSE notice — it never says the child finished.
- * `wedgedSince` (ISO) marks a `needs_guidance` the deferred-wake rail raised on
- * a child that reads busy but has been silent since then (#312).
+ * Composes a per-child notice: which child errored or paused, a reference to its report with a
+ * bounded excerpt, and how the parent may proceed. An attention notice is a PAUSE notice: it never
+ * says the child finished. `wedgedSince` (ISO) marks a `needs_guidance` the deferred-wake rail
+ * raised on a child that reads busy but has been silent since then.
  */
 export const buildChildWakeMessage = (
   child: {

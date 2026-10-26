@@ -1,23 +1,8 @@
 /**
- * `/handoff` fork-drafter, out of quarantine onto V2 (Phase 3 plan Track 3b,
- * DT-24). The human's composer intercept calls `loom.handoffDraft`; the server
- * forks the source into a `handoff-drafter` ROOT whose first message is the
- * drafter kickoff. The source transcript is never touched; the drafter is
- * archived once its handoff is recorded (`HandoffDrafterReactor`).
- *
- * The fork is three Loom commands (DL-384): `thread.spawn` of a root carrying
- * the role, the source's goal, worktree, modes and projected model selection
- * and `forkFromThreadId`; `thread.fork.prepare`, which writes upstream's pending
- * `fork` context transfer from the source's latest finished run (what
- * `thread.fork`'s `latest_stable` picks; a V1-imported thread with no V2 run forks
- * its bound pi session) for upstream to resolve natively at the drafter's first run
- * (P3-28's mechanism); then the kickoff as a Loom control message. A mid-turn
- * source defers the fork, and `HandoffDrafterReactor` sends the fork and kickoff
- * once the turn ends, so the drafter carries that turn too. V2's bare
- * `thread.fork` would leave the drafter without a sidecar row, and the role is
- * what `mcp__t3-code__goal_handoff`, the composer's overlay and the reactor key on.
- *
- * @module loom/handoff/handoffDraft
+ * `/handoff`: forks the source into a `handoff-drafter` ROOT via three Loom commands: `thread.spawn`
+ * with the role and `forkFromThreadId`, `thread.fork.prepare` (upstream's pending fork transfer),
+ * then the kickoff. V2's bare `thread.fork` would leave no sidecar row, and the role is what
+ * `goal_handoff`, the composer's overlay and the reactor key on. The source is never touched.
  */
 import {
   CommandId,
@@ -195,14 +180,10 @@ export const dispatchDraftFork = Effect.fn("handoffDraft.dispatchDraftFork")(fun
 });
 
 /**
- * Validates the source and launches a drafter fork; returns the drafter's id.
- * The source must exist and be pi-backed with a strong native session ref (the
- * drafter's whole value is the source's native session): its latest finished
- * run's, or for a V1-imported thread with no V2 run yet, the session the importer
- * bound (`runlessFork.loom.ts`). A source that is mid-turn is accepted: the drafter
- * appears now and forks when the turn ends, so it carries that turn too. The model
- * is the source's projected selection (DL-384: launch identity is the composer's).
- * Fails with `LoomWsMethodError` naming `method`.
+ * Validates the source and launches a drafter fork; returns the drafter's id. The source must be
+ * pi-backed with a strong native session ref (its latest finished run's, or the importer-bound one
+ * for a V1 thread with no V2 run). A mid-turn source is accepted: the drafter forks when the turn
+ * ends. The model is the source's projected selection. Fails with `LoomWsMethodError`.
  */
 export const launchDraftFork = Effect.fn("handoffDraft.launchDraftFork")(
   function* (input: {

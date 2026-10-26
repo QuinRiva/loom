@@ -1,11 +1,7 @@
 /**
- * The brief-needed condition, its episode clock, its re-arming rung ladder and
- * the batched notice (V1 scaffold plan §2–§3, liveness plan §3.2–§3.3), ported
- * with logic unchanged onto the sidecar row. V1's `planned` hold is the `held`
- * flag, which no agent tool writes in pull 9, so the notice's deliberate-deferral
- * move is a dependency on the work the brief waits for; fan-in gaps are gone.
- *
- * @module loom/orchestration/dispatcher/briefNeeded
+ * The brief-needed condition, its episode clock, its re-arming rung ladder and the batched notice,
+ * ported from V1 onto the sidecar row. V1's `planned` hold is the `held` flag, which no agent tool
+ * writes, so the notice's deliberate-deferral move is a dependency on the work the brief waits for.
  */
 import type { LoomThreadWorkstream, ThreadId } from "@t3tools/contracts";
 import {
@@ -26,11 +22,9 @@ const parseIsoMs = (iso: string | null | undefined): number =>
   iso === null || iso === undefined ? Number.NaN : Date.parse(iso);
 
 /**
- * The brief-needed episode clock (ms): the latest stable transition that made
- * the node eligible — its creation, a `dependencies.set` that re-entered
- * eligibility (only while the current set is satisfied), or a same-parent
- * dependency reaching `done` (its submit or its outcome-set). Never `updatedAt`,
- * which drifts and would re-arm the notice in a loop.
+ * The brief-needed episode clock (ms): the latest stable transition that made the node eligible
+ * (creation, a `dependencies.set` re-entering eligibility while satisfied, or a same-parent
+ * dependency reaching `done`). Never `updatedAt`, which drifts and would re-arm the notice in a loop.
  */
 export const briefNeededSinceMs = <T extends BriefNeededNode>(
   node: T,

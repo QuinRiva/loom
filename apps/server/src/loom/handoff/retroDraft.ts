@@ -1,17 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * `/retro`: a FRESH, visible `retro-reviewer` root over the source thread's whole
- * workstream — no fork, so it starts at once even when the source is mid-turn and
- * carries none of the source's transcript. Before the spawn the server claims a
- * run directory under `~/loom-retro/runs/` and writes `manifest.json` there: every
- * thread in the source's root tree (grandchildren and archived included) with its
- * report and pi session paths, which the retro skill's scanner reads. The kickoff
- * (a brief on disk, `kickoffBriefPath`) names the run directory, the skill and a
- * one-line-per-thread listing; the reviewer reaches the threads themselves with
- * `consult_thread`, which is global. The reviewer has no goal (`deriveEmergentGoal`
- * skips the role) and no parent: the human reads it directly.
- *
- * @module loom/handoff/retroDraft
+ * `/retro`: a FRESH visible `retro-reviewer` root over the source's whole workstream, not a fork,
+ * so it starts at once even mid-turn and carries none of the transcript. The server first writes
+ * `manifest.json` (every thread in the root tree, archived included, with report and session
+ * paths) to a run directory under `~/loom-retro/runs/`. The reviewer has no goal and no parent.
  */
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -50,11 +42,10 @@ export const RETRO_RUNS_DIR = NodePath.join(NodeOS.homedir(), "loom-retro", "run
 export const RETRO_SKILL_PATH = NodePath.join(LOOM_REPO_ROOT, "skills", "retro", "SKILL.md");
 
 /**
- * The retro reviewer's role overlay, SERVER-OWNED: the reviewer is minted by the
- * server, never spawned from the role catalogue, so its policy is this constant
- * rather than a role file. The session composer supplies it for the role. It
- * carries the standing identity and write scope only; the procedure is the retro
- * skill the kickoff names (model-read text: edit under `llm-instruction-change`).
+ * The retro reviewer's role overlay, SERVER-OWNED: the server mints the reviewer, never from the
+ * role catalogue, so its policy is this constant. It carries identity and write scope only; the
+ * procedure is the retro skill the kickoff names (model-read text: edit under
+ * `llm-instruction-change`).
  */
 export const RETRO_REVIEWER_OVERLAY_PROMPT = `You are a retro reviewer: a fresh root thread with no parent, no goal and none of the reviewed work's transcript. The human typed \`/retro\` in a workstream; your kickoff names that workstream, its run directory and the retro skill, which is your whole procedure. The human reads this thread directly. Your workstream is this thread alone: workstream_list shows only you; the manifest is the reviewed tree, and consult_thread reaches any thread in it by id.
 

@@ -1,11 +1,7 @@
 /**
- * The goal task tree's pure helpers: flat ↔ nested conversion (the store hands
- * out the nested `LoomGoalTask` tree; diffs and rewrites work over a flat list
- * in tree order), and branch scoping — a thread anchored to a task owns that
- * task and its subtree (ported from V1's `goalTaskTree.ts` and
- * `goalTaskAnchor.loom.ts`).
- *
- * @module loom/goals/goalTaskTree
+ * The goal task tree's pure helpers: flat ↔ nested conversion (the store hands out the nested tree;
+ * diffs and rewrites work over a flat list in tree order), and branch scoping: a thread anchored to
+ * a task owns that task and its subtree.
  */
 import type { GoalTaskId, LoomGoalTask } from "@t3tools/contracts";
 

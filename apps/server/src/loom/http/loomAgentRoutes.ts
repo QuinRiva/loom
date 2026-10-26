@@ -1,13 +1,8 @@
 /**
- * The REST routes beside `/mcp` (P3-3), for Loom's pi extension: the session
- * profile (seam 5), `mcp__t3-code__ask_user_question`'s ask + long-poll wait, and
- * the idle cache-warming plan report (the sidebar cache gauge) and the review-gate keep-alive
- * question a submitted thread asks before each idle ping.
- * The bearer is the thread's MCP credential, resolved through
- * `McpSessionRegistry.resolve` exactly as `/mcp` does; the caller is that
- * credential's thread and must hold the `workstream` capability.
- *
- * @module loom/http/loomAgentRoutes
+ * REST routes beside `/mcp` for Loom's pi extension: the session profile, `ask_user_question`'s
+ * ask and long-poll wait, the idle cache-warming plan report and the review-gate keep-alive
+ * question. The bearer is the thread's MCP credential, resolved as `/mcp` does; the caller must
+ * hold the `workstream` capability.
  */
 import { LoomCacheWarming, type ThreadId } from "@t3tools/contracts";
 import { gateKeepAliveCounterpart } from "@t3tools/shared/workstreamGraph";

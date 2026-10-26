@@ -1,16 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off - one boot-time walk of the pi sessions root.
 /**
- * The Loom V1 importer (plans/upstream-pull9-phase4-import/plan.mdx §1): a
- * startup phase piped onto upstream's `importLegacyShells`, so it runs after
- * every V1 thread has a V2 `thread.created` shell and before recovery and the
- * Loom reactors. Per V1 thread upstream imported and Loom's ledger
- * (`loom_legacy_imports`, migration 1051) has not seen, in one transaction: the
- * sidecar row (`loom_thread_workstream`, live workstream threads only), the
- * `subagent` lineage re-emit (every non-deleted child) with the provider fix
- * folded in, the binding to the thread's pi session file, and the ledger row.
- * Idempotent on every boot; re-run a thread by deleting its ledger row.
- *
- * @module loom/legacy/LoomV1WorkstreamImporter
+ * The Loom V1 importer, piped onto upstream's `importLegacyShells` so it runs after every V1 thread
+ * has a V2 shell and before recovery and the Loom reactors. Per unseen thread, in one transaction:
+ * the sidecar row, the `subagent` lineage re-emit, the pi session binding and the
+ * `loom_legacy_imports` ledger row. Idempotent; re-run a thread by deleting its ledger row.
  */
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";

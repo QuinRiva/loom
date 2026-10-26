@@ -1,32 +1,8 @@
 /**
- * The workstream liveness sweep on V2 (Phase 3 plan "Liveness"; P3-8–P3-10).
- * A periodic pass over every active Loom sub-thread that classifies it from the
- * V2 shell, the in-memory heartbeat and its in-flight tool (a root with a Loom
- * row gets State A only):
- *
- * - **dead** (State A) — the latest run `failed` with a provider failure class
- *   (`usage_limit` excluded: upstream's limit recovery parks and resumes it).
- *   The first sweep to see it sends ONE steered resume naming the error
- *   (`errorResume.ts`), unless that run was itself the resume; otherwise, for
- *   `failureCap` consecutive sweeps → `thread.attention.raise error`.
- * - **waiting** (State B) — a pending approval-kind runtime request: exempt.
- * - **stalled** (State C) — a running run, no in-flight tool, heartbeat frozen
- *   past `staleActivityWindowMs` → ONE steered stall nudge per frozen episode,
- *   then `error` if still frozen after `stallNudgeGraceMs`. When upstream's
- *   steer conversion would not take the nudge, a queued run would wait behind
- *   the frozen turn, so the sweep escalates at once instead.
- * - **spinning** (State D, `ENABLE_STATE_D`) — heartbeat advancing, the run's
- *   tool work product flat for `noProgressWindowMs` → a `spinning` advisory on
- *   the parent's next FYI digest (not an attention raise).
- * - **slow tool** — a tool in flight past its deferral → a `slow-tool` advisory.
- *
- * A child's parent learns of every `error` raise through the dispatcher's
- * attention rail; a root's flag shows on its own card and in the inbox. Nothing
- * is persisted: the per-thread ladders live in this service and restart from
- * scratch, floored at sweep start. The classification and ladder
- * functions are V1's (`WorkstreamLivenessSweep.ts`), unchanged in logic.
- *
- * @module loom/orchestration/liveness/WorkstreamLivenessSweep
+ * The liveness sweep classifies every active Loom sub-thread (a root: dead only) as dead (a
+ * provider-failed run other than `usage_limit`: one steered resume, then `error`), waiting
+ * (exempt), stalled (frozen heartbeat: one nudge per episode, then `error`), or spinning or
+ * slow-tool (FYI advisories). Ladders live in memory and restart from scratch at sweep start.
  */
 import {
   CommandId,
@@ -88,19 +64,10 @@ import { readStallContext, renderStallContext, type StallContext } from "./stall
 const ENABLE_STATE_D = true;
 
 /**
- * Liveness thresholds (V1's, without the starting-run pair). Generous on purpose:
- * - `sweepIntervalMs` 60 s — responsive without hammering the projection.
- * - `startupGraceMs` 2 min — gates the stall detector so a slow first tool
- *   call is never a stall.
- * - `staleActivityWindowMs` 10 min — a running run whose heartbeat has been
- *   frozen this long is a mid-turn stall.
- * - `failureCap` 3 — consecutive sweeps in a failed state before `error`.
- * - `stallNudgeGraceMs` 2 min — how long a nudged episode may stay frozen
- *   before escalating (a steer is folded in between model rounds).
- * - `noProgressWindowMs` 10 min — State D: how long the work product must stay
- *   flat while the heartbeat advances.
- * - `progressInputSampleSize` 16 — State D: how many recent tool calls feed the
- *   fingerprint (larger is stricter and safer).
+ * Liveness thresholds, generous on purpose: `startupGraceMs` keeps a slow first tool call from
+ * reading as a stall, `stallNudgeGraceMs` must outlast a steer folding in between model rounds, and
+ * State D needs `noProgressWindowMs` of flat work product over the last `progressInputSampleSize`
+ * tool calls (a larger sample is stricter and safer).
  */
 export interface LivenessSweepThresholds {
   readonly sweepIntervalMs: number;
@@ -218,11 +185,9 @@ export const classifyLiveness = (input: LivenessClassifyInput): LivenessVerdict 
 export type StallAction = "nudge" | "escalate" | "wait";
 
 /**
- * Pure stall ladder. `nudge` on the first sweep of an episode; `escalate` when
- * the same episode is still frozen after the nudge grace, OR when there is no
- * open turn the nudge can steer into (under V2: upstream's steer conversion
- * would not take it, so a queued run would wait behind the frozen turn); `wait`
- * while a nudged episode is within its grace. A new `episodeMs` re-arms.
+ * Pure stall ladder: `nudge` on an episode's first sweep; `escalate` when it is still frozen after
+ * the nudge grace, or when no open turn can take the nudge (a queued run would wait behind the
+ * frozen turn); `wait` while a nudged episode is within its grace. A new `episodeMs` re-arms.
  */
 export const decideStallAction = (input: {
   readonly priorEpisodeMs: number | null;

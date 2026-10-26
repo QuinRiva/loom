@@ -1,18 +1,7 @@
 /**
- * Loom's WebSocket RPC handlers (Pull 9 Phase 3, seam 21), spliced into
- * `ws.ts`'s RPC group by ONE marked line (`...(yield* makeLoomWsHandlers)`);
- * the Rpc members are `packages/contracts/src/rpc.loom.ts`, the scopes a marked
- * block in `auth/RpcAuthorization.ts`.
- *
- * Seam 21 (integrated): 3b's drafter methods, 3d's goal methods (each writes
- * `LoomStoreV2` and publishes the goal on `LoomGoalBroadcast`, DL-219) and
- * seam 11's two spend reads over 3c's `LoomUsageLedger` (DL-432/433/438),
- * the timeline's outcome history (DL-620), the consult card's Stop, the
- * Prompt button's captured-prompt lookup, the hub login dialog's two calls
- * (thin over `UsageLimitSources`) and the change-review reads (thin over
- * `ReviewSnapshotService`).
- *
- * @module loom/wsMethods
+ * Loom's WebSocket RPC handlers, spliced into `ws.ts`'s RPC group by ONE marked line
+ * (`...(yield* makeLoomWsHandlers)`). The Rpc members are `packages/contracts/src/rpc.loom.ts`, the
+ * scopes a marked block in `auth/RpcAuthorization.ts`. Goal writes publish on `LoomGoalBroadcast`.
  */
 import {
   type GoalId,

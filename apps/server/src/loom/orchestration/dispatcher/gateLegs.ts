@@ -1,11 +1,7 @@
 /**
- * The review gate's leg messages (V1 review-gates design §4.3), ported with
- * logic unchanged: the rework resume to the loop target and the re-verify
- * resume to the reviewer. `makeGateLegComposer` is the `GateLegComposer` the
- * dispatcher hands `runReDrivePass`; the arm nests the result inside
- * `thread.gate.rework` / `thread.gate.reverify` (never dispatched bare).
- *
- * @module loom/orchestration/dispatcher/gateLegs
+ * The review gate's leg messages, ported from V1: the rework resume to the loop target and the
+ * re-verify resume to the reviewer. The arm nests the result inside `thread.gate.rework` /
+ * `thread.gate.reverify`; it is never dispatched bare.
  */
 import type { ThreadId } from "@t3tools/contracts";
 

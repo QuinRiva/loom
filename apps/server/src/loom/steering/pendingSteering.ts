@@ -1,24 +1,8 @@
 /**
- * The pending-steer stash (Phase 3 plan seam 20, P3-24; DL-691):
- * `<stateDir>/pending-steering/<threadId>.json` holds the steers pi has accepted but not yet put
- * into the conversation — a durable mirror of pi's in-memory steering queue, which a restart (or
- * any pi process death) loses — stamped with the run whose turn pi held them for. The pi
- * adapter's marked hunk `write`s pi's `queue_update` steering list on every change; pi drops a
- * steer from that list as it injects it into the conversation (before its user `message_start`),
- * so a consumed steer leaves the stash on its own and the stash is never cleared at turn end.
- * A pi that dies with the server (DL-1002) can inject a steer after the server's last read of
- * its `queue_update`, so each mirror also records how long pi's session file was when it was
- * written, and `read` drops a steer that file's later user messages show was delivered.
- *
- * Only a restart that cut the stamped run delivers the stash (DL-694): upstream's restart
- * continuation of that run carries it (`withStashedSteer`, DL-690), else 3b's startup pass
- * redelivers it as a control message or leaves it for the dispatcher's rail. A stash whose run
- * ended any other way (a Stop, a pi death while the server stayed up) died with that pi, as
- * upstream's steers do, and the startup pass discards it. Never fails: the stash must not fail a
- * turn or a startup pass, so every error is logged and swallowed, and a missing or unreadable
- * stash reads as nothing.
- *
- * @module loom/steering/pendingSteering
+ * Durable mirror of pi's in-memory steering queue (`pending-steering/<threadId>.json`, stamped
+ * with its run); pi drops a steer as it injects it, and `read` also drops any the session file
+ * shows delivered after the last mirror. Only a restart that cut the stamped run delivers it.
+ * Never fails: errors log, and a missing or unreadable stash reads as nothing.
  */
 import { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -168,11 +152,10 @@ export const listStashed = Effect.fn("pendingSteering.listStashed")(
 );
 
 /**
- * Upstream's restart-continuation prompt for `sourceRunId`, with the steers stashed from that run
- * after it (DL-690): they were accepted into the cut turn, so they ride the turn that resumes it —
- * first after the restart, ahead of every queued message, and past a human-held queue. A stash
- * from any other run is not this turn's (DL-694). Read through the adapter hooks' reference, so
- * upstream's callers gain no requirement; the startup pass clears it.
+ * Upstream's restart-continuation prompt for `sourceRunId`, plus the steers stashed from that run:
+ * accepted into the cut turn, they ride the turn that resumes it, ahead of every queued message and
+ * past a human-held queue. Read through the adapter hooks' reference so upstream's callers gain no
+ * requirement; the startup pass clears the stash.
  */
 export const withStashedSteer = Effect.fn("pendingSteering.withStashedSteer")(function* (
   threadId: ThreadId,

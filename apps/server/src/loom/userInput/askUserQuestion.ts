@@ -1,22 +1,8 @@
 /**
- * `mcp__t3-code__ask_user_question` on V2 (P3-3, P3-26, DL-331–333, DL-347–349).
- *
- * Open: validate, open the live waiter, dispatch Loom's `runtime-request.create`
- * — a pending `user_input` request with `message` capability on its own
- * request node, so V2's panel, mobile card and `pendingRuntimeRequest` render it
- * unchanged. Answer: upstream's `runtime-request.respond`; the one
- * `Orchestrator.ts` hunk withholds upstream's answer message while the waiter
- * is live, and this module's reactor hands the waiter the rendered outcome
- * from the committed `runtime-request.updated` — the single sink for answered,
- * dismissed and closed requests.
- *
- * The reactor also closes a pending `loom-ask:` request with upstream's own
- * `thread.user-input.dismiss`: when a human message lands on the thread
- * (supersede, rule 6) and when the run that asked ends. Both read post-commit
- * state, so upstream's no-waiter answer message (resolution and message in one
- * commit) never reads as a supersede.
- *
- * @module loom/userInput/askUserQuestion
+ * `ask_user_question` on V2: opens a live waiter and a pending `user_input` runtime request that
+ * upstream's panels render unchanged; while the waiter is live the `Orchestrator.ts` hunk withholds
+ * upstream's answer message and this reactor hands the waiter the outcome. It also dismisses a
+ * pending `loom-ask:` request when a human message lands or the asking run ends (read post-commit).
  */
 import {
   CommandId,

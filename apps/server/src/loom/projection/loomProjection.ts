@@ -1,18 +1,8 @@
 /**
- * The Loom projector (plans/upstream-pull9-phase2-substrate/plan.mdx §1 event
- * table, §4): folds Loom events — and four upstream thread events for threads
- * that have a sidecar row — into `loom_thread_workstream`, `loom_goals`,
- * `loom_thread_consults` and `loom_thread_peer_messages`. Called from the top of
- * `ProjectionStore.apply`, so it runs in V2's commit transaction beside
- * upstream's projection writes and the receipt.
- *
- * Replay-safe: `ProjectionMaintenance.rebuild` re-applies the whole log over
- * these tables (it clears only upstream's), so every row effect is a set, a
- * first-write-wins or an idempotent append — never an increment. The goal
- * cascades read other rows and the goal, so they are judged at the event's
- * time and never overwrite a goal written after the event (`updated_at`).
- *
- * @module loom/projection/loomProjection
+ * The Loom projector: folds Loom events, and four upstream thread events for threads with a sidecar
+ * row, into Loom's tables inside V2's commit transaction. Replay-safe: rebuild re-applies the whole
+ * log over these tables, so every row effect is a set, first-write-wins or idempotent append, never
+ * an increment; goal cascades never overwrite a goal written after the event (`updated_at`).
  */
 import {
   isLoomDomainEvent,
@@ -357,13 +347,10 @@ const MIRRORED_THREAD_EVENTS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * `thread.handoff-recorded`'s other end: stamp the DESTINATION root with who
- * started it. A `/handoff` drafter (role `handoff-drafter`, `handoffDraft.ts`;
- * not imported: it pulls in the orchestrator) credits the human's source thread
- * as `human`, and so does the source's own record (its `drafterThreadId` is the
- * drafter, not itself); any other caller is the `agent` that started it. A
- * `human` stamp is never downgraded, so the drafter's two records settle the
- * same way in either order. A set: replay-safe.
+ * Stamps the DESTINATION root of `thread.handoff-recorded` with who started it: a `handoff-drafter`
+ * record, and its source's own record, credit `human`; any other caller is `agent`. A `human`
+ * stamp is never downgraded, so the two records settle the same in either order. `handoffDraft.ts`
+ * is not imported: it pulls in the orchestrator.
  */
 const stampHandoffOrigin = Effect.fn("loomProjection.stampHandoffOrigin")(function* (
   sql: SqlClient.SqlClient,

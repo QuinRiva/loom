@@ -1,24 +1,8 @@
 /**
- * The production session composer (Phase 3a-5).
- *
- * The prompt, in reading order: the work-model addendum, the child-readership
- * clause (children only), the identity clause, the role overlay, the ship
- * policy, the role catalogue (only when the surface delegates), the goal
- * context (a child's always; a root's only when it joins work in progress), and — appended per launch, never recorded — the relocation clause.
- * Everything but the relocation clause is the thread's launch identity: written
- * once at its first compose and replayed verbatim by every later compose, and
- * by a `forkFrom` child's or a V2 fork's (thread_fork) first compose (P3-23) —
- * that first launch only: the fork's next compose is its own (DL-740, V1's
- * fork-once replay).
- * A `retro-reviewer` (a fresh root, not a fork) composes with its server-owned
- * overlay. A `handoff-drafter` replays its source when the source has a record
- * and composes fresh when it has none (an upstream-only thread the human was
- * chatting to). `env` carries `PI_CACHE_RETENTION` (DL-300), the
- * arm for life, and, per launch, the agent git identity, whose shim directory rides
- * `pathPrepend`. A 1-hour root's launch adds, outside the identity, the keep-alive
- * policy: pi's idle-warming horizon and a longer idle release.
- *
- * @module loom/prompt/sessionComposerLive
+ * The production session composer. Everything but the per-launch relocation clause is the thread's
+ * launch identity: written at its first compose and replayed verbatim later, and by a fork's first
+ * launch only. A `retro-reviewer` composes with its server-owned overlay; a `handoff-drafter`
+ * replays its source's record, or composes fresh when the source has none.
  */
 import {
   LOOM_CACHE_HORIZON_MS,
@@ -165,11 +149,10 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
   });
 
   /**
-   * Own record → the fork source's record verbatim → a fresh composition; first one written.
-   * A replayed record serves the fork's first launch only; its next compose is fresh and final.
-   * The source is a `forkFrom` child's sibling, which must have a record, or a V2 fork's
-   * lineage parent (thread_fork, a UI fork), which composes fresh as a root when it has none
-   * (a V1-imported source never relaunched under V2).
+   * Own record → the fork source's record verbatim → a fresh composition; the first one is written.
+   * A replayed record serves the fork's first launch only. The source is a `forkFrom` child's
+   * sibling (must have a record) or a V2 fork's lineage parent, which composes fresh as a root when
+   * it has none (a V1-imported source never relaunched under V2).
    */
   const launchIdentity = Effect.fn("sessionComposerLive.launchIdentity")(function* (
     thread: OrchestrationV2AppThread,

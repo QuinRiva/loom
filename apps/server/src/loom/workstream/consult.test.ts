@@ -1,9 +1,7 @@
 /**
- * A consult has no duration bound, so stopping the asker is what ends a fork
- * that never answers. Stopping aborts the asker's `consult_thread` HTTP call;
- * that must interrupt the consult and kill the fork's whole process group
- * (pi and anything its tools started); the fork's transcript stays in
- * `workstream-consults/`.
+ * A consult has no duration bound, so stopping the asker is what ends a fork that never answers:
+ * aborting its `consult_thread` call must interrupt the consult and kill the fork's whole process
+ * group, keeping the transcript in `workstream-consults/`.
  */
 import { assert, describe, it } from "@effect/vitest";
 import {

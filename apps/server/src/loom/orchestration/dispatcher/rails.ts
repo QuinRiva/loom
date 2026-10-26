@@ -1,13 +1,8 @@
 /**
- * The dispatcher's wake rails (Phase 3 plan "Wake tiers, ids and modes"), V1's
- * `collectTerminalDeltas` … `surfaceDeferredWakes` re-expressed on the V2
- * pass. Decision-bearing wakes (attention, yield, brief-needed, deadlock,
- * notify) are `steered`; the digest is `fyi`. Every id is deterministic, so a
- * receipt makes each episode exactly-once; "already told" for the per-item FYI
- * rails is read back from the parent's stored control messages
- * (`PassContext.delivered`), never from dispatcher state. No rail clears a hold.
- *
- * @module loom/orchestration/dispatcher/rails
+ * The dispatcher's wake rails. Decision-bearing wakes (attention, yield, brief-needed, deadlock,
+ * notify) are `steered`; the digest is `fyi`. Every id is deterministic, so a receipt makes each
+ * episode exactly-once; the FYI rails read "already told" back from the parent's stored control
+ * messages (`PassContext.delivered`), never from dispatcher state. No rail clears a hold.
  */
 import {
   CommandId,
@@ -86,7 +81,7 @@ export const ATTENTION_NOTICE_REASONS = [
  */
 export const PARENT_BUSY_GRACE_MS = 600_000;
 
-/** How long a busy parent may show no activity while FYI wakes wait on it before a human is pulled in (V1 #304). */
+/** How long a busy parent may show no activity while FYI wakes wait on it before a human is pulled in. */
 export const DEFERRED_WAKE_SILENCE_MS = 600_000;
 
 const nowMs = (ctx: PassContext) => DateTime.toEpochMillis(ctx.now);
@@ -165,12 +160,10 @@ const childItem = (
 });
 
 /**
- * Terminal deltas → FYI items: a child with a recorded submit (`lastOutcome.eventId`)
- * and an outcome the parent has not heard of since that submit, held back while
- * it is a party of an unresolved gate (a resolved pair reports together as one
- * `gate-resolved` item plus the coder's reference) — or as `recovered` when the
- * parent last heard of it through an `error` notice; plus dead episodes and the
- * liveness advisories. Imported rows (null stamps) never qualify.
+ * Terminal deltas → FYI items: a child with a recorded submit whose outcome the parent has not
+ * heard since, held while it is party to an unresolved gate (a resolved pair reports as one
+ * `gate-resolved` item), or `recovered` when the parent last heard of it via an `error` notice;
+ * plus dead episodes and liveness advisories. Imported rows (null stamps) never qualify.
  */
 export const terminalDeltas: PassStep = {
   name: "terminalDeltas",
@@ -304,11 +297,10 @@ export const terminalDeltas: PassStep = {
 };
 
 /**
- * One steered attention notice to `child`'s parent for the `reason` episode
- * stamped `episode`, under the id the attention rail keys on — so whichever
- * sends first, the other's receipt check skips it. `wedgedSince` marks a
- * `needs_guidance` the deferred-wake rail raised (the child reads busy but has
- * been silent since then) and switches the copy to the wedge and its remedy.
+ * One steered attention notice to `child`'s parent for the `reason` episode, under the id the
+ * attention rail keys on, so whichever sends first, the other's receipt check skips it.
+ * `wedgedSince` marks a `needs_guidance` the deferred-wake rail raised (busy but silent since
+ * then) and switches the copy to the wedge and its remedy.
  */
 const sendAttentionNotice = Effect.fn("loom.dispatcher.attentionNotice")(function* (
   ctx: PassContext,
@@ -491,10 +483,9 @@ export const briefNeededRail: PassStep = {
           const delivered = yield* ctx.delivered(parentId);
           const pending = ctx.pendingDigests.get(parentId) ?? [];
           // loom: the brief builds on its dependencies' results, so the notice waits until the
-          // parent has heard how each one ended, earlier or piggybacked on this notice (a resolved
-          // gate reports as one pair only once both parties are stamped, a pass after the
-          // reviewer). A dependency terminalDeltas never reports (archived, an imported row with
-          // no submit) has no news to wait for.
+          // parent has heard how each ended, earlier or piggybacked here (a resolved gate reports
+          // once both parties are stamped, a pass after the reviewer). A dependency terminalDeltas
+          // never reports (archived, an imported row with no submit) has no news to wait for.
           const awaitingNews = node.blockedBy.some((depId) => {
             const dep = ctx.nodesById.get(depId);
             return (
@@ -732,11 +723,10 @@ export const notifyDelivery: PassStep = {
 };
 
 /**
- * Deferred-wake visibility (V1 #304): a thread that FYI wakes waited on this
- * pass, that reads busy at pass start yet shows no activity for
- * `DEFERRED_WAKE_SILENCE_MS` and has nothing running, is wrongly busy — raise
- * `needs_guidance` on it once per silence episode (the silence start is the key),
- * and steer its parent (if any) the wedge notice under that episode's attention id.
+ * Deferred-wake visibility: a thread FYI wakes waited on this pass that reads busy at pass start,
+ * shows no activity for `DEFERRED_WAKE_SILENCE_MS` and has nothing running is wrongly busy. Raise
+ * `needs_guidance` on it once per silence episode (keyed by the silence start) and steer its
+ * parent, if any, the wedge notice under that episode's attention id.
  */
 export const surfaceDeferredWakes: PassStep = {
   name: "deferredWakes",
@@ -781,7 +771,7 @@ export const surfaceDeferredWakes: PassStep = {
             silentSince,
             deferred: Object.fromEntries(waiting),
           });
-          // #312: a sub-orchestrator's parent hears of the wedge now, in words that fit it; the
+          // A sub-orchestrator's parent hears of the wedge now, in words that fit it; the
           // attention rail then finds this episode's notice receipted. A flag already standing at
           // pass start is the child's own episode, and keeps the rail's generic notice.
           const before = ctx.rows.find((row) => row.threadId === threadId);

@@ -1,11 +1,8 @@
 /**
- * The deadlock notice (V1 issue #280), ported with logic unchanged minus the
- * fan-in clauses: every unfinished child of a parent is not held, not started
- * and waiting on another stuck sibling, so only re-planning the graph can
- * release one. `deadlockedNodes` (shared with the board's badge) decides; this
- * module keys the episode and composes the text.
- *
- * @module loom/orchestration/dispatcher/deadlock
+ * The deadlock notice, ported from V1 minus the fan-in clauses: every unfinished child of a parent
+ * is not held, not started and waiting on another stuck sibling, so only re-planning the graph can
+ * release one. `deadlockedNodes` (shared with the board's badge) decides; this module keys the
+ * episode and composes the text.
  */
 import type { LoomThreadWorkstream, ThreadId } from "@t3tools/contracts";
 import {

@@ -1,19 +1,12 @@
-// LOOM-ONLY. The prompt-side texts a Loom thread reads outside its tool
-// definitions: the preamble that replaces pi's, the work-model addendum every
-// thread gets, the readership clause only children get, the identity and
-// relocation clauses the composer appends, the kickoff wrapper around a
-// child's brief, and the three refusal texts. Plain strings and pure
-// functions, no imports: the composer, the extension assembler and the
-// control plane import from here so each text has one source.
+// LOOM-ONLY. The prompt-side texts a Loom thread reads outside its tool definitions, as plain
+// strings and pure functions with no imports, so the composer, the extension assembler and the
+// control plane share one source per text.
 // Authoring doctrine: docs/architecture/prompt-surface-authoring.md.
 
 /**
- * pi's `customPrompt`, set by the extension on every `before_agent_start`. A
- * non-empty custom prompt makes pi render its preamble alone: no tools, rules
- * or docs sections, so a tool's contract reaches the model only through its
- * schema and the ambient texts here. pi's own edit-tool rules are in the
- * `edit` schema already; its other rules and documentation pointers are
- * dropped deliberately.
+ * pi's `customPrompt`, set on every `before_agent_start`. A non-empty one makes pi render this
+ * preamble alone (no tools, rules or docs sections), so a tool's contract reaches the model only
+ * through its schema and the texts here; pi's other rules and doc pointers are dropped on purpose.
  */
 export const LOOM_PREAMBLE =
   "You are an expert coding agent operating inside pi, a coding-agent harness, within T3 Code. Your tools are the ones declared with this request.";
@@ -32,16 +25,10 @@ export const CHILD_READERSHIP_CLAUSE =
   "You are a child thread. Your brief was written by an agent (your parent) and is its best understanding of the work, written with less of your task's detail than you will have. Where what you find contradicts the brief's premise or prescription, investigate and act on the better understanding (consult your parent first if the change touches scope or a contract another thread depends on) and say in your report where you departed from the brief and why. Constraints the human stated (quoted in the brief) hold: surface a conflict with the evidence rather than override them; your parent's own assumptions and prescriptions are not settled merely because the brief contains them. Usually no human reads this thread: your report is read by your parent, and a question addressed to 'the user' waits on nobody. When something the brief does not settle blocks you, consult your parent with `mcp__t3-code__consult_thread` (it holds the context the brief came from, answered from a frozen copy of its session, so it costs the parent nothing); raise `needs_guidance` with `mcp__t3-code__workstream_request_attention` only when that does not settle it or the parent has finished. Occasionally the human does write here: their message arrives labelled `[From the human]` and outranks your parent's brief and steers. Your parent is not told; answer the human here and quote what they changed in your report. Tell your parent at once, with `mcp__t3-code__notify_thread`, only when it would act differently now (the human changed the scope, or a contract another thread is building on), never for a question or a message that leaves your course unchanged. Once they have written, `mcp__t3-code__ask_user_question` is available to you.";
 
 /**
- * Who this thread is, in-band. Derived only from the thread's stable facts
- * (its id and, for a child, its parent's id — so a child's first consult to
- * its parent does not have to guess the id) so the composed prompt is
- * byte-identical across relaunches (the report and brief directories are fixed
- * for a server), and replayed verbatim for a forkFrom child
- * (a sibling: same parent; a stale own id is inert: every tool resolves the
- * caller from its credential). It names no cwd (pi appends the
- * real one), no sessions root (the store moves with pi's settings) and no
- * other thread's jsonl location (there is no short true answer) — only
- * `$PI_SESSION_FILE`, which pi's own bash tool sets for every command.
+ * Who this thread is, from stable facts only (its id and a child's parent id) so the prompt is
+ * byte-identical across relaunches and replays verbatim for a forkFrom sibling (a stale own id is
+ * inert: tools resolve the caller from its credential). No cwd (pi appends it), sessions root or
+ * other thread's jsonl location: only `$PI_SESSION_FILE`, which pi's bash tool sets.
  */
 export const threadIdentityClause = (
   threadId: string,
@@ -115,11 +102,9 @@ export const KICKOFF_CLOSING =
   "Work autonomously toward the outcome this brief is meant to deliver: stay anchored to the value it produces (the capability, fix, or decision), not just the mechanical steps. Keep the work focused and report progress clearly.";
 
 /**
- * Kick-off message for a spawned Workstream sub-thread: the role framing, the
- * gate membership and its target's files when it applies (invisible otherwise
- * until the first rework resume — too late for the first verdict), the
- * hand-backs of the siblings it waited on, the brief, and the completion
- * contract by reference to the tools that own it.
+ * Kick-off message for a spawned sub-thread: role framing, gate membership and its target's files
+ * when it applies (otherwise invisible until the first rework, too late for the first verdict), the
+ * hand-backs of the siblings it waited on, the brief, and the completion contract by reference.
  */
 export const workstreamChildPrompt = (input: {
   readonly role: string;

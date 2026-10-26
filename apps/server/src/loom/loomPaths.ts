@@ -1,11 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - a pure path derivation, no service needed.
 /**
- * Loom's durable directories under the server's state dir. V1 carried these on
- * `ServerConfig`; pull 9 keeps upstream's `config.ts` untouched and derives
- * them here instead (DL-357). The names are V1's exactly, so Phase 4's importer
- * finds existing reports, briefs and launch identities where V1 left them.
- *
- * @module loom/loomPaths
+ * Loom's durable directories under the server's state dir, derived here so upstream's `config.ts`
+ * stays untouched. The names are V1's exactly, so the importer finds existing reports, briefs and
+ * launch identities where V1 left them.
  */
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";

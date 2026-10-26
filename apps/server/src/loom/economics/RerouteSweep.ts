@@ -1,36 +1,8 @@
 /**
- * RerouteSweep — what Loom adds to upstream's usage-limit recovery for pi
- * threads (plans/upstream-pull9-phase3-tracks/plan.mdx, track 3c; P3-11/P3-12).
- *
- * Upstream's `UsageLimitRecoveryWorker` parks a thread whose run failed
- * `usage_limit` with a reset time and resumes it when the window passes. It
- * cannot do three things, which this sweep does for a pi thread whose latest
- * run failed `usage_limit` (not archived, settled, waiting on a runtime request,
- * holding Loom attention or a Loom outcome):
- *
- *  1. **Reroute.** The intended model is out of usage and the single
- *     `providerFailover.fallbackTarget` is a healthy model of ANOTHER vendor:
- *     move the thread onto it now (model selection, then detach the live pi
- *     session so a fresh process — and the adapter's sanitiser — loads the
- *     session file), record `loom_thread_reroute`, and resume it with a Loom
- *     control message.
- *  2. **Move back.** A rerouted thread that is idle and whose intended account
- *     is healthy again goes back to its intended selection (and, if it is
- *     itself stopped on a usage limit, is resumed there).
- *  3. **No-reset resume.** A failure upstream cannot arm (no reset time, or one
- *     already due when the run ended) and no fallback: resume once the
- *     registry no longer marks the intended model exhausted (the adapter's
- *     classifier marks it when the failure names no reset; DL-397).
- *
- * The two resume mechanisms are disjoint by condition: a reset time known and
- * no fallback ⇒ upstream's (this sweep leaves it alone); otherwise Loom's.
- * Every command id is deterministic per thread and failed run, so a receipted
- * step replays as a no-op and a `LoomDispatchDeferredError` is retried on the
- * next pass. Resumes are steered `controlMessage()` wakes (`createdBy: "agent"`), never a human's.
- *
- * Runs every 60 s and after every run ends.
- *
- * @module loom/economics/RerouteSweep
+ * Loom's additions to upstream's usage-limit recovery for pi threads: reroute onto a healthy
+ * other-vendor fallback, move back once the intended account recovers, and resume a failure with
+ * no reset time and no fallback (a known reset with no fallback stays upstream's). Command ids are
+ * deterministic per thread and failed run, so a receipted step replays as a no-op.
  */
 import {
   CommandId,

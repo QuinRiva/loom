@@ -1,16 +1,8 @@
 /**
- * The re-drive planner (plans/upstream-pull9-phase2-substrate/plan.mdx §4, D3,
- * D16; DL-199, DL-213). The arm writes only to the commanded thread, so every
- * effect on another thread — cancel, archive, unarchive and delete cascades,
- * wedged dependents, goal attach, gate legs — is derived here from sidecar
- * state as one per-thread command with an episode-keyed `server:` id. A
- * receipted id is done (accepted or dead) and never re-sent; a deferral leaves
- * no receipt, so the same id is retried on the next pass.
- *
- * The dispatcher (`dispatcher/WorkstreamDispatcher.ts`) runs the pass first in
- * every control-plane pass, with the real gate-leg composer (`dispatcher/gateLegs.ts`).
- *
- * @module loom/orchestration/redrive
+ * The re-drive planner. The arm writes only to the commanded thread, so every effect on another
+ * thread (cancel, archive, unarchive and delete cascades, wedged dependents, goal attach, gate
+ * legs) is derived here as one per-thread command with an episode-keyed `server:` id. A receipted
+ * id is never re-sent; a deferral leaves no receipt, so the same id is retried on the next pass.
  */
 import {
   CommandId,

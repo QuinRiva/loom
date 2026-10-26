@@ -1,17 +1,8 @@
 /**
- * LoomStoreV2 — reads and plain-table writes over Loom's sidecar tables
- * (plans/upstream-pull9-phase2-substrate/plan.mdx §4): the workstream record
- * the arm, the re-drive planner and the dispatcher read; goal and task CRUD for
- * the Phase 3a handlers; the summaries the shell join attaches.
- *
- * `loom_thread_workstream` is written ONLY by the projector
- * (`loomProjection.ts`) inside V2's commit transaction — and once per V1 thread
- * by the Phase 4 importer (`loom/legacy/LoomV1WorkstreamImporter.ts`), which
- * inserts imported rows directly at first boot; this module owns its
- * row ↔ record codec, which the projector shares. Reads see committed state
- * only (no pending-event overlay).
- *
- * @module loom/projection/LoomStore
+ * LoomStoreV2: reads and plain-table writes over Loom's sidecar tables. `loom_thread_workstream` is
+ * written ONLY by the projector (`loomProjection.ts`) inside V2's commit transaction, and once per
+ * V1 thread by the importer at first boot; this module owns its row ↔ record codec, which the
+ * projector shares. Reads see committed state only (no pending-event overlay).
  */
 import {
   GoalId,
@@ -576,12 +567,9 @@ const make = Effect.gen(function* () {
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(PeerMessageSummaryRow))),
     );
 
-  // The card's tool-call count: V1's imported count plus V2's tool items
-  // (index-only); the context window: the active provider thread's, else
-  // V1's imported one (both migration 1053); and the prompt-cache row (1056).
-  // The active step reads only the active run (the shell's own active-run
-  // shape), so idle threads cost nothing;
-  // `modelSince` moves at tool ends only, never per streamed token.
+  // Card stats: tool-call count (V1's imported count plus V2's tool items), context window (the
+  // active provider thread's, else V1's imported one) and the prompt-cache row. The active step
+  // reads only the active run, so idle threads cost nothing; `modelSince` moves at tool ends only.
   const threadStats = (threadIds: ReadonlyArray<ThreadId>) =>
     sql`SELECT t.thread_id AS "threadId",
           COALESCE(m.tool_calls, 0) + (SELECT COUNT(*) FROM orchestration_v2_projection_turn_items i
@@ -650,12 +638,9 @@ const make = Effect.gen(function* () {
       ).pipe(run("listChildren")),
     listActiveWorkstreams: () =>
       selectWorkstreams(sql, visibility()).pipe(run("listActiveWorkstreams")),
-    // A row is an episode root that its subtree has not followed when an
-    // in-scope descendant still disagrees with it. "In scope" excludes nodes
-    // created after the episode, and nodes a human moved deliberately after it
-    // (unarchived after an archive, re-archived after an unarchive, reopened
-    // after a cancel) — the planner's episode-keyed ids would skip those anyway,
-    // so listing them would only re-read them every pass. Imported rows carry no
+    // An episode root its subtree has not followed: an in-scope descendant still disagrees. Out of
+    // scope: nodes created after the episode and nodes a human moved deliberately after it (the
+    // planner's episode-keyed ids would skip them anyway). Imported rows carry no
     // `outcome_event_id`, so a historical cancel is never an episode.
     listReDriveInput: () =>
       sql`

@@ -1,13 +1,8 @@
 /**
- * The FYI digest (V1 notice-coalescing design §4.2–§5.3), ported with logic
- * unchanged: terminal children, gate resolutions and informational advisories
- * are withheld into one per-parent digest delivered `start_if_idle` (or
- * piggybacked on the next decision-bearing wake). One traversal yields both the
- * model-visible text and the `controlPayload` items, so the two cannot drift.
- * Items carry the seam-6 `kind`: terminal | gate-resolved | recovered |
- * slow-tool | spinning | dead-episode.
- *
- * @module loom/orchestration/dispatcher/digest
+ * The FYI digest, ported from V1: terminal children, gate resolutions and advisories are withheld
+ * into one per-parent digest delivered `start_if_idle` or piggybacked on the next decision-bearing
+ * wake. One traversal yields both the model-visible text and the `controlPayload` items, so the two
+ * cannot drift.
  */
 import type {
   ControlPayload,

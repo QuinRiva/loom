@@ -1,20 +1,8 @@
 /**
- * The workstream control plane's pass (Phase 3 plan Track 3b): one idempotent
- * recompute from durable state that re-drives the graph, promotes ready
- * children and delivers every wake, run by a coalescing worker on the trigger
- * set (`isPassTrigger`), on a 60 s tick, and once at startup from
- * `loomStartupRecovery` (DL-386). It absorbs Phase
- * 2's re-drive reactor (DL-247).
- *
- * The steps run in `PASS_STEPS` order over one `PassContext`: re-drive and
- * promotion here, the self-snooze rail in `snoozeRail.ts`, the quiescence rail in
- * `quiescenceRail.ts`, the wake rails in `rails.ts`. Every `server:` dispatch goes through `PassContext.dispatch`,
- * which applies the receipt discipline (`dispatchServerCommand`) and records
- * deferrals and dead episodes. Nothing here is persisted: "already told" is
- * read back from the target's stored control messages (`PassContext.delivered`)
- * and the receipts.
- *
- * @module loom/orchestration/dispatcher/WorkstreamDispatcher
+ * The workstream control plane's pass: one idempotent recompute from durable state that re-drives
+ * the graph, promotes ready children and delivers every wake, run by a coalescing worker on
+ * `isPassTrigger`, a 60 s tick and once at startup. Every `server:` dispatch goes through
+ * `PassContext.dispatch`; nothing is persisted, so "already told" is read back from stored state.
  */
 import {
   CommandId,
@@ -268,13 +256,10 @@ const reDrive: PassStep = {
 };
 
 /**
- * Step 2 — promotion: every eligible child with a brief is kicked off exactly
- * once. A forkFrom child first gets `thread.fork.prepare` (P3-28): a deferral
- * (the source still runs) leaves it for a later pass; a rejection is a dead
- * episode and it is not kicked off. The kickoff carries the brief file's
- * current bytes and no `controlPayload` (DL-333); an unreadable brief parks the
- * child with `needs_guidance`. The kickoff's receipt and the arm's `kickoffAt`
- * stamp make a second kickoff impossible.
+ * Step 2, promotion: every eligible child with a brief is kicked off exactly once (the kickoff's
+ * receipt and the arm's `kickoffAt` stamp). A forkFrom child first gets `thread.fork.prepare`: a
+ * deferral waits a pass, a rejection is a dead episode. The kickoff carries the brief file's
+ * current bytes and no `controlPayload`; an unreadable brief parks the child with `needs_guidance`.
  */
 const promotion: PassStep = {
   name: "promotion",

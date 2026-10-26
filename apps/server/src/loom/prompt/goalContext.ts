@@ -1,14 +1,7 @@
 /**
- * The once-per-session goal context the composer appends (V1's
- * `activeGoalContextInstruction`, names prefixed). Three variants: a BOUND
- * child gets its branch, the spine it hangs off and a one-line pulse; an
- * UNBOUND child gets the top-level overview and "your brief is your
- * assignment"; the root gets the open plan and the full shaping guidance,
- * since it owns the tree (the composer gives a root the goal only when its
- * tree has tasks). Every variant says it is a snapshot that
- * `mcp__t3-code__goal_task_list` reads live.
- *
- * @module loom/prompt/goalContext
+ * The once-per-session goal context the composer appends: a BOUND child gets its branch, spine and
+ * a pulse; an UNBOUND child the top-level overview; the root the open plan and full shaping
+ * guidance (only when its tree has tasks). Each says it is a snapshot `goal_task_list` reads live.
  */
 import type { GoalTaskId, LoomGoal } from "@t3tools/contracts";
 
