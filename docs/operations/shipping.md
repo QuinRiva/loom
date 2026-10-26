@@ -79,8 +79,10 @@ yourself when you have touched native mobile code.
 ## The sequence (what `scripts/ship.ts` does)
 
 Run `pnpm ship -m "<concise summary>"`; add `--merge-only` for an upstream-sync
-branch (below), `--dry-run` to preview the steps and `--include-untracked` to
-commit untracked files too (above). In order, the script:
+branch (below), `--pr-only` to stop at the open PR (steps 1 to 6: the `human`
+ceiling, or when the human has said they will merge or close the PR themselves),
+`--dry-run` to preview the steps and `--include-untracked` to commit untracked
+files too (above). In order, the script:
 
 1. `gh repo set-default QuinRiva/loom`: pins the PR target to `origin`, not the
    upstream fork parent (see the gotcha below).

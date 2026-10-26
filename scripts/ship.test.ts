@@ -55,6 +55,21 @@ it("skips the rebase for an upstream-sync (merge-only) branch", () => {
   assert.include(stepKinds(steps), "delete-branch");
 });
 
+it("stops at the open PR with --pr-only", () => {
+  const steps = planShipSteps({
+    branch: "feature",
+    message: "msg",
+    mergeOnly: false,
+    prOnly: true,
+  });
+  assert.equal(steps.at(-1)?.kind, "pr-create");
+  assert.notInclude(stepKinds(steps), "pr-merge");
+  assert.notInclude(stepKinds(steps), "delete-branch");
+  // The gate still runs before the push.
+  assert.include(stepKinds(steps), "check");
+  assert.include(stepKinds(steps), "push");
+});
+
 it("deletes the remote branch explicitly and never uses --delete-branch", () => {
   const steps = planShipSteps({ branch: "feature", message: "msg", mergeOnly: false });
   const deleteStep = steps.find((step) => step.kind === "delete-branch");
