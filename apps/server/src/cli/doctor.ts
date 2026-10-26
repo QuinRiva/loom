@@ -8,6 +8,7 @@ import * as BootService from "../cloud/bootService.ts";
 import * as DatabaseMaintenance from "../persistence/DatabaseMaintenance.ts";
 import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
 import * as CliService from "./service.ts";
+import { reclaimToolImagesCommand } from "./reclaimToolImages.loom.ts"; // loom: one-off image reclaim
 
 const formatBytes = (bytes: number) =>
   bytes >= 1024 ** 3
@@ -144,4 +145,5 @@ export const doctorCommand = Command.make("doctor", {
       );
     }),
   ),
+  Command.withSubcommands([reclaimToolImagesCommand]), // loom: one-off image reclaim
 );
