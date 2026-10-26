@@ -1,10 +1,7 @@
 /**
- * loom: the Diff panel scope menu's change-review entries (plans/change-review/plan.mdx §5),
- * mounted after upstream's Turn submenu: "Since your message" (the live interval), "Earlier"
- * (closed intervals that changed something in an enabled source kind, newest first, each with a
- * jump to its message in the chat) and the Sources toggle.
- *
- * @module loom/review/LoomScopeMenuEntries
+ * loom: the Diff panel scope menu's change-review entries, mounted after upstream's Turn submenu:
+ * "Since your message" (the live interval), "Earlier" (closed intervals that changed something in
+ * an enabled source kind, newest first, each with a jump to its message) and the Sources toggle.
  */
 import type { LoomReviewInterval, ScopedThreadRef } from "@t3tools/contracts";
 import { CheckIcon, MessageSquareIcon } from "lucide-react";

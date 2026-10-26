@@ -2,16 +2,9 @@ import { isLinkablePathText } from "~/markdown-links";
 import { FILE_PATH_PATTERN, trimClosingDelimiters, URL_PATTERN } from "~/terminal-links";
 
 /**
- * Loom's two *loose* path scanners for chat markdown, restored after the slice-1
- * re-home onto upstream's ChatMarkdown (which only links explicit markdown links
- * and inline-code spans).
- *
- * Agents constantly name files as bare prose ("the verdict is at
- * `_findings/verdict.md`" written without backticks) and dump paths inside
- * fenced blocks, and both shapes were clickable in loom before the pull. This
- * module is the purely-syntactic half: it says *where* a path-shaped substring
- * sits. Whether a hit becomes a chip is decided elsewhere by the shared
- * existence verification, so a false positive here just stays plain text.
+ * Loom's loose path scanners for chat markdown: agents name files in bare prose and inside fenced
+ * blocks, which upstream's ChatMarkdown does not link. Purely syntactic: whether a hit becomes a
+ * chip is decided by the shared existence check, so a false positive just stays plain text.
  */
 
 export interface TextPathSpan {
@@ -24,11 +17,9 @@ export interface TextPathSpan {
 }
 
 /**
- * Scan a plain string for path-like substrings, reusing the terminal link
- * patterns and trimming so prose/code-block detection matches the terminal
- * exactly. URLs are excluded, trailing punctuation/unbalanced brackets are
- * trimmed, and each remaining candidate must pass the strict
- * {@link isLinkablePathText} gate.
+ * Scan a plain string for path-like substrings with the terminal link patterns, so detection
+ * matches the terminal exactly. URLs are excluded, trailing punctuation and unbalanced brackets
+ * trimmed, and each candidate must pass {@link isLinkablePathText}.
  */
 export function matchTextPathSpans(text: string): TextPathSpan[] {
   const urlRanges: Array<readonly [number, number]> = [];
@@ -114,13 +105,10 @@ function splitMessageSegments(text: string): MessageSegment[] {
 }
 
 /**
- * Existence-candidate path strings for a whole message, aligned with what the
- * renderers will actually attempt to link and bounded so a single message can
- * never produce an unbounded stat set. Prose is scanned in full; fenced-code
- * segments are scanned line-by-line and skipped entirely when they exceed
- * {@link CODE_BLOCK_MAX_LINES} (matching the DOM decorator), with over-length
- * lines skipped. Prose comes first so ordinary prose paths stay eligible even
- * when a large in-bounds code block follows.
+ * Existence candidates for a message, matching what the renderers will try to link and bounded so
+ * one message never yields an unbounded stat set. Prose goes first, in full, so its paths survive
+ * the bound; fenced code is scanned per line, skipping blocks over {@link CODE_BLOCK_MAX_LINES} (as
+ * the DOM decorator does) and over-length lines.
  */
 export function extractMessagePathCandidates(text: string): string[] {
   const seen = new Set<string>();
@@ -175,11 +163,9 @@ interface HastElementNode {
 type HastChildNode = HastTextNode | HastElementNode | { type: string; children?: HastChildNode[] };
 
 /**
- * A quoted path is part of a command, a directive, or some other literal the
- * renderer deliberately left as text (an escaped or malformed
- * `:codex-file-citation{path="..."}`, a pasted shell argument) rather than a
- * prose reference; prose names files bare. Only the prose scanner applies this
- * — inside a fenced block quoted paths are ordinary code and stay linkable.
+ * A quoted path in prose is part of a command, directive or other literal the renderer left as text
+ * (an escaped `:codex-file-citation{path="..."}`, a pasted shell argument); prose names files bare.
+ * Prose only: inside a fenced block quoted paths are ordinary code and stay linkable.
  */
 function isQuotedInProse(value: string, span: TextPathSpan): boolean {
   const before = value[span.start - 1];
@@ -204,12 +190,9 @@ function buildProsePathNodes(value: string, spans: readonly TextPathSpan[]): Has
 }
 
 /**
- * Rehype plugin: split plain-prose text nodes on path-like substrings and inject
- * {@link PROSE_FILE_PATH_TAG} elements for them. Runs *after* rehype-sanitize so
- * the injected (trusted) nodes are not stripped, and skips code/pre/anchor
- * subtrees so inline code, fenced blocks and existing links keep their own
- * handling. The mapped component decides whether each hit resolves to a file
- * that exists.
+ * Rehype plugin: inject {@link PROSE_FILE_PATH_TAG} elements for path-like substrings in prose. Runs
+ * after rehype-sanitize so the trusted nodes survive, and skips code, pre and anchor subtrees so
+ * those keep their own handling. The mapped component decides whether each hit is an existing file.
  */
 export function rehypeChatFilePaths() {
   return (tree: { children?: HastChildNode[] }) => {

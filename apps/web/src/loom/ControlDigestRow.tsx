@@ -1,13 +1,8 @@
 /**
- * loom: the user-row switch for control-plane arrivals (3d-3). A user message
- * whose Loom fields make it a control arrival (`controlCardModel`) renders as
- * a {@link ControlDigestCardView}; every other user message renders upstream's
- * row (`fallback`), told its {@link ControlBubble} when another thread or the
- * control plane wrote it.
- *
- * It also resolves each item's sender: the dispatcher stamps a generic verdict
- * as the item title and carries identity only as `threadId`, so without the
- * live title a three-child digest reads "Completed" three times.
+ * loom: the user-row switch for control-plane arrivals: a control arrival (`controlCardModel`)
+ * renders as a {@link ControlDigestCardView}, any other user message as upstream's row, told its
+ * {@link ControlBubble}. It resolves each item's sender too: the dispatcher titles items with a
+ * generic verdict, so without live titles a three-child digest reads "Completed" three times.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { MessageId, ThreadId } from "@t3tools/contracts";

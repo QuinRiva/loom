@@ -1,11 +1,7 @@
 /**
- * loom: "Top threads by cost" on the Usage page's Cost tab (3d-4, seam 11).
- *
- * The Usage page knows what a window cost per model and per hour, but not which
- * piece of work spent it. Rows come from Loom's usage ledger (`loom.topSpend`),
- * so they answer for turns Loom drove — the transcript scan above also counts
- * pi runs outside Loom and will read higher. Titles come from the shell; a
- * thread the client no longer holds renders by id and does not link.
+ * loom: "Top threads by cost" on the Usage page's Cost tab, from Loom's usage ledger
+ * (`loom.topSpend`), so it covers only turns Loom drove; the transcript scan above also counts pi
+ * runs outside Loom and reads higher. A thread the client no longer holds renders by id, unlinked.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, UsageSummaryInput } from "@t3tools/contracts";

@@ -1,22 +1,5 @@
-// Loom's change-review baseline (plans/change-review/plan.mdx §5), beside upstream's
-// `diffPanelStore`, never inside it:
-//
-// - `intervalIdByThreadKey` (tier 1, per thread): the selected review interval (`"live"` or a
-//   closing message id). Null once the user picks an upstream scope; absent until the thread is
-//   first seen with an interval, when "Since your message" is seeded (seed, never override).
-// - `sources` (tier 2, client-wide): the Sources toggle, "Everything" by default.
-// - `marksOff` (tier 2, client-wide): the Files surface used as a plain browser, with no change
-//   marks and no whole-file change view.
-// - `fileChangeLayout` (tier 2, client-wide): an opened changed file side by side (the default) or
-//   unified; separate from the Diff panel's layout, which defaults to unified.
-// - `changedOnly` (session only, not persisted): the Files tree collapsed to marked files, kept
-//   across file opens but not across reloads, so a fresh session never opens on a filtered tree.
-//
-// Picking an upstream scope records null for the thread: the scope menu does it in its one
-// marked line, and opening a turn's diff from anywhere (a `selectTurn`) does it through the
-// subscription below, also on a thread with no entry yet, so the seed never overrides the pick. Upstream's own "open the panel on Changes" writes do not clear it, so a
-// chosen interval survives the panel closing and reopening.
-// No orphan sweep (docs/architecture/loom-ui-state-tiers.md); `removeThread` is for parity.
+// Loom's change-review baseline, beside upstream's `diffPanelStore`, never inside it. Tiers per
+// docs/architecture/loom-ui-state-tiers.md; there is no orphan sweep, so `removeThread` is parity.
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { LoomReviewSourceKind, ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
@@ -36,10 +19,19 @@ export const REVIEW_SOURCE_KINDS: Record<
 };
 
 interface ReviewBaselineState {
+  /**
+   * Tier 1: `"live"` or a closing message id; null once the user picks an upstream scope (the scope
+   * menu's marked line, or the `selectTurn` subscription below). Absent until the thread is first
+   * seen with an interval, when "Since your message" is seeded, never overriding a pick.
+   */
   intervalIdByThreadKey: Record<string, string | null>;
+  /** Tier 2: the Sources toggle, "Everything" by default. */
   sources: ReviewSourcesChoice;
+  /** Tier 2: the Files surface as a plain browser, with no change marks or whole-file view. */
   marksOff: boolean;
+  /** Session only, never persisted, so a fresh session never opens on a filtered tree. */
   changedOnly: boolean;
+  /** Tier 2: split by default, separate from the Diff panel's layout (unified by default). */
   fileChangeLayout: "split" | "unified";
   selectInterval: (ref: ScopedThreadRef, intervalId: string | null) => void;
   /** Selects the live interval only when the thread has no choice recorded yet. */
@@ -105,6 +97,8 @@ export const useReviewBaselineStore = create<ReviewBaselineState>()(
   ),
 );
 
+// Any `selectTurn` records null, also on a thread with no entry yet, so the seed never overrides the
+// pick; upstream's "open the panel on Changes" writes do not, so an interval survives a reopen.
 useDiffPanelStore.subscribe((state, previous) => {
   // Rehydration replays persisted selections; only a write after it is a user's choice.
   if (!useDiffPanelStore.persist.hasHydrated()) return;

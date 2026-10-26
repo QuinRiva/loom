@@ -1,10 +1,7 @@
 /**
- * loom: the client-side composer commands that never become a turn on the
- * source thread (3d-3, out of quarantine unchanged but for V2's
- * `threadContexts`). `/handoff` and `/retro` are recognised, decided and
- * sequenced here; `useLoomDraftIntercepts` calls 3b's `loom.handoffDraft` /
- * `loom.retroDraft`, and ChatView's send authority owns only the mount (one
- * marked branch).
+ * loom: the client-side composer commands that never become a turn on the source thread. `/handoff`
+ * and `/retro` are recognised, decided and sequenced here; `useLoomDraftIntercepts` calls the
+ * drafter methods, and ChatView's send authority owns only the mount (one marked branch).
  */
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 
@@ -97,11 +94,9 @@ export type HandoffSendDecision =
   | { readonly kind: "dispatch"; readonly explanation: string };
 
 /**
- * Pure decision for the `/handoff` intercept. `onSend` performs the effects
- * (inline error, RPC dispatch, draft clear/preserve) but the branch selection
- * lives here so the no-fall-through invariant is unit-testable in isolation.
- * Attachments/terminal/element/preview/review/thread contexts alongside a
- * recognised `/handoff` are rejected (plan D2), never silently discarded.
+ * Pure decision for the `/handoff` intercept, so the no-fall-through invariant is testable; `onSend`
+ * performs the effects. Attachments or any terminal, element, preview, review or thread context
+ * alongside a recognised `/handoff` are rejected, never silently discarded.
  */
 export function decideHandoffSend(input: {
   trimmedPrompt: string;
@@ -185,20 +180,10 @@ export function shouldRestoreSubmittedDraft(snapshot: ComposerContentSnapshot): 
 export type ComposerDraftInterceptOutcome = "success" | "failure";
 
 /**
- * Effect sequencing shared by the `/handoff` and `/retro` composer intercepts.
- *
- * Both intercepts `await` an RPC, which is the one thing the normal send path
- * never does before clearing the composer — and that yield point was the whole
- * double-fire bug: a still-populated, still-armed composer dispatched one
- * drafter per keypress. So the order here is load-bearing:
- *
- * 1. arm the in-flight guard the caller checks at entry, with no intervening
- *    `await`, so repeated submissions collapse to one dispatch;
- * 2. clear the composer BEFORE the `await`, exactly as the normal path does
- *    (which is also why the second submission no longer parses as a draft
- *    command at all);
- * 3. release the guard on every exit, and on failure put the submitted text
- *    back only when the composer is still empty.
+ * Effect sequencing for the `/handoff` and `/retro` intercepts. Both `await` an RPC, and a composer
+ * still armed across that yield fired one drafter per keypress, so the order is load-bearing: arm
+ * the caller's in-flight guard with no intervening `await`; clear the composer before the `await`;
+ * release the guard on every exit, and on failure restore the text only into an empty composer.
  */
 export async function runComposerDraftIntercept<A, E>(ports: {
   readonly submittedPrompt: string;

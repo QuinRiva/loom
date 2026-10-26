@@ -1,10 +1,8 @@
 /**
- * loom: the prompt-cache fuel ring on sidebar and command-palette thread rows —
- * counting down to when the cache really goes cold, keep-alive pings included:
- * neutral while warm or kept warm, orange in the last 10 minutes once no ping is
- * coming, a grey snowflake once cold. Shown only on rows that are the user's move (never Working, Waiting on
- * sub-threads, Snoozed or Settled) and only on pi threads with a cache arm.
- * Re-evaluates on the shared minute tick; never animates.
+ * loom: the prompt-cache fuel ring on sidebar and command-palette rows, counting down to when the
+ * cache really goes cold (pings included): neutral while warm, orange in the last 10 minutes once no
+ * ping is coming, a grey snowflake once cold. Only on pi threads with a cache arm whose row is the
+ * user's move. Re-evaluates on the shared minute tick; never animates.
  */
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {

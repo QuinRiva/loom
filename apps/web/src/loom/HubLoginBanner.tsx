@@ -1,10 +1,8 @@
 /**
- * loom: the composer banner for hub logins that need the user — one item per
- * account, most urgent first: signed out, refresh failing, re-login overdue,
- * re-login due. Each carries Log in… (the root-mounted `HubLoginDialogHost`)
- * and, while the account is only due or failing, Snooze until tomorrow 08:00.
- * A one-year token is re-minted outside Loom, so its item has no Log in….
- * Snoozing hides only this banner: the meter and the Usage page stay ambient.
+ * loom: the composer banner for hub logins that need the user, one item per account, most urgent
+ * first: signed out, refresh failing, re-login overdue, re-login due. Each offers Log in… and, while
+ * only due or failing, Snooze until tomorrow 08:00; a one-year token is re-minted outside Loom, so
+ * has no Log in…. Snoozing hides only this banner; the meter and Usage page stay ambient.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { type LoginAlert, loginAlerts } from "@t3tools/shared/usageLimits";

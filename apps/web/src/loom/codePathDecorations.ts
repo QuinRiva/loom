@@ -3,22 +3,10 @@ import type { MarkdownFileLinkMeta } from "~/markdown-links";
 import { CODE_BLOCK_MAX_LINES, CODE_LINE_MAX_LENGTH, matchTextPathSpans } from "./chatPathScan";
 
 /**
- * In-place, copy-fidelity-preserving decoration of file paths inside a rendered
- * (Shiki-highlighted) code block. The fence reads exactly as the agent wrote it
- * and the path substring itself is what you click: each hit is wrapped in an
- * `<a>` *without* changing the block's text content, since wrapping only
- * reparents existing text nodes. `Element.textContent` (and therefore a manual
- * selection copy, and the Copy button) is byte-identical to the original, and
- * the highlight token spans are untouched.
- *
- * Safe against React: every `.line` this walks lives inside a
- * `dangerouslySetInnerHTML` subtree (both the cached-HTML block and the
- * incremental per-line renderer), so React owns no text node here. A line whose
- * HTML changes is re-rendered wholesale by React and re-decorated by the effect.
- *
- * The scan is syntactic ({@link matchTextPathSpans}); the caller's
- * `resolveTarget` decides which hits actually resolve to an existing file, so a
- * false-positive path simply stays undecorated plain text.
+ * Decorates file paths in a rendered Shiki code block by reparenting existing text nodes into `<a>`s,
+ * so `textContent` (and every copy) stays byte-identical and token spans are untouched. Safe against
+ * React: every `.line` walked is in a `dangerouslySetInnerHTML` subtree, so React owns no text node
+ * here, and a changed line is re-rendered wholesale and re-decorated by the effect.
  */
 
 /** Shared with the prose scanner's anchor, so both forms look and behave alike. */
@@ -44,11 +32,9 @@ function unwrapExistingDecorations(container: HTMLElement): void {
 }
 
 /**
- * Wrap `ranges` (offsets into `lineEl`'s text content) in anchors. Walks the
- * line's text nodes and splits each so the covered slice becomes its own node,
- * then reparents it into an anchor. A range spanning several highlight token
- * `<span>`s yields one anchor per token — visually contiguous, and text content
- * is preserved regardless.
+ * Wrap `ranges` (offsets into `lineEl`'s text content) in anchors by splitting text nodes so each
+ * covered slice is its own node, then reparenting it. A range spanning several token `<span>`s
+ * yields one anchor per token, visually contiguous.
  */
 function decorateLineElement(
   lineEl: HTMLElement,

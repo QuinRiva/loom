@@ -1,10 +1,8 @@
 /**
- * loom: the handoff receipt (`loomTimelineRows.ts`) — where this thread's work
- * went: a `/handoff` waiting on this turn, drafting, failed or handed off, or the thread's own
- * `goal_handoff` / `goal_continue`. Its grammar is deliberately non-message (a
- * kicker, full width) because none of it entered this thread's conversation.
- * The `/handoff` explanation is shown in full and copyable: on a failure it is
- * the second copy that makes the handoff recoverable.
+ * loom: the handoff receipt row, where this thread's work went. Its grammar is deliberately
+ * non-message (a kicker, full width) because none of it entered this thread's conversation. The
+ * `/handoff` explanation is shown in full and copyable: on a failure it is the second copy that
+ * makes the handoff recoverable.
  */
 import type { EnvironmentId } from "@t3tools/contracts";
 import { GitBranchIcon, HourglassIcon, TriangleAlertIcon } from "lucide-react";

@@ -1,9 +1,7 @@
 /**
- * loom: a message's Loom fields (`origin`, `controlPayload`) by message id
- * (3d-3, Phase 2 D8). Turn items carry only the text; the fields ride the
- * thread projection's `messages`. One index per thread, rebuilt only when the
- * messages array changes, and one selector per row — so a row re-renders only
- * when its own message's fields change, never on a streaming delta elsewhere.
+ * loom: a message's Loom fields (`origin`, `controlPayload`) by message id; turn items carry only the
+ * text, the fields ride the thread projection's `messages`. One index per thread, rebuilt only when
+ * `messages` changes, and one selector per row, so a row re-renders only for its own fields.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";

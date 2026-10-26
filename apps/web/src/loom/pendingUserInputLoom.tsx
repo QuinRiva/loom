@@ -1,14 +1,8 @@
 /**
- * loom: 3d-4 (DT-36, P3-27) — Loom's additions to upstream's RuntimeRequest
- * panel (`components/chat/ComposerPendingUserInputPanel.tsx`), so a question
- * read cold is answerable: its one-line summary and age (the markdown body
- * itself is upstream's), and "reply in chat instead", which sends the composer text as an ordinary
- * message (the server settles the set as superseded, 3a). Digit-select never
- * submitting is a guard inside the panel itself.
- *
- * ChatView hosts the request (it owns the send path);
- * the panel reads its host by request id, so ChatComposer — which sits between
- * them — carries no Loom props.
+ * loom: additions to upstream's RuntimeRequest panel so a question read cold is answerable: its
+ * one-line summary and age, and "reply in chat instead", sending the composer text as a message (the
+ * server settles the set as superseded). ChatView hosts the request; the panel reads its host by
+ * request id, so ChatComposer between them carries no Loom props.
  */
 import type { Nodes } from "mdast";
 import { useEffect } from "react";

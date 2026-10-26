@@ -1,17 +1,8 @@
 /**
- * loom: serial handoff order for a goal's threads.
- *
- * `mcp__t3-code__goal_continue` stamps `workstream.continuesThreadId` on the successor,
- * which makes "this goal's threads, in the order the work actually flowed"
- * answerable from stored data rather than from prose inside a brief. This module
- * is the walk: chain heads first (ordered by creation), each head followed
- * immediately by its successors, and threads that are on no chain interleaved by
- * creation time.
- *
- * Deliberately NOT part of the chain: `forkFromThreadId`. A fork is divergence
- * from a thread's context, not a continuation of its work — a fork keeps its own
- * place in creation order, and treating it as a chain edge would claim a serial
- * handoff that never happened.
+ * loom: serial handoff order for a goal's threads, from `workstream.continuesThreadId`: chain heads
+ * by creation, each followed by its successors, with unchained threads interleaved by creation.
+ * `forkFromThreadId` is deliberately not a chain edge: a fork diverges from a thread's context and
+ * keeps its own place in creation order, rather than claiming a handoff that never happened.
  */
 
 export interface GoalChainThread {
@@ -32,11 +23,9 @@ const byCreation = <T extends GoalChainThread>(left: T, right: T): number =>
   left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 
 /**
- * Order a goal's threads by serial handoff. A thread whose `continuesThreadId`
- * is absent from `threads` (predecessor archived, deleted, or in another goal)
- * is treated as a chain head — its successors still follow it. Cycles are broken
- * by the visited set: members of a pure cycle are unreachable from any head and
- * are appended in creation order rather than dropped.
+ * Order a goal's threads by serial handoff. A thread whose predecessor is absent from `threads`
+ * (archived, deleted or in another goal) heads a chain and its successors still follow it. Members
+ * of a pure cycle are unreachable from any head, so they are appended in creation order, not dropped.
  */
 export function orderGoalThreadsByHandoff<T extends GoalChainThread>(
   threads: readonly T[],

@@ -14,11 +14,10 @@ const previewable = (path: string | null | undefined) =>
   path && isAbsolutePreviewablePath(path) ? path : null;
 
 /**
- * The workstream surface's Prompt menu: opens a thread's captured system prompt
- * (pi's prompt-debug sidecar), either the latest agent start's or the kickoff's.
- * Asks `loom.promptCapture` when the thread changes or `refreshKey` moves (only
- * whether a capture exists can change; the file is read fresh on open). Renders
- * nothing until a capture exists.
+ * The workstream surface's Prompt menu: opens a thread's captured system prompt (pi's prompt-debug
+ * sidecar), the latest agent start's or the kickoff's. Asks `loom.promptCapture` when the thread or
+ * `refreshKey` changes (only a capture's existence can change; the file is read fresh on open).
+ * Renders nothing until a capture exists.
  */
 export function PromptCaptureMenu({
   threadId,

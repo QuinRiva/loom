@@ -18,7 +18,7 @@ export const ModelChangeDivider = memo(function ModelChangeDivider({
 }) {
   const { activeThreadEnvironmentId } = use(TimelineRowCtx);
   // Selects the label string, so a provider status push (fresh `checkedAt`)
-  // re-renders the divider only when a model name changed (upstream #20854).
+  // re-renders the divider only when a model name changed.
   const detail = useAtomValue(
     serverEnvironment.providersValueAtom(activeThreadEnvironmentId),
     (providers) => {

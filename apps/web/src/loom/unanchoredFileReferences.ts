@@ -10,18 +10,10 @@ import { projectEnvironment } from "~/state/projects";
 import { createBatchedLookupStore } from "./batchedLookupStore";
 
 /**
- * Unanchored inline-code file references — a bare `prices.json`, an unprefixed
- * `src/models/chain_models.py:61`. Agents write these relative to wherever they
- * last `cd`'d, which the renderer cannot know, so joining them onto the
- * worktree root is a guess, and a wrong guess is not evidence the file is gone.
- * They therefore get the scanners' polarity: plain code until a file is
- * confirmed, never a "missing?" chip. Resolution tries, in order, the base
- * directory (the worktree root, or a rendered markdown file's own directory),
- * each directory the same message names, and finally the workspace path index,
- * which binds only when exactly one indexed file matches.
- *
- * Anchored references — absolute, `~/`, `./`, `../` — name one place, so they
- * keep the optimistic chip that says "missing?" when that place is empty.
+ * Unanchored inline-code file references (a bare `prices.json`) are relative to wherever the agent
+ * last `cd`'d, so a failed guess is not evidence the file is gone: plain code until confirmed, never
+ * "missing?". Tried in order: the base directory, each directory the message names, then the path
+ * index if exactly one file matches. Anchored ones (absolute, `~/`, `./`, `../`) keep "missing?".
  */
 export function isAnchoredFileReference(text: string): boolean {
   const normalized = text.trim().replaceAll("\\", "/");
@@ -74,12 +66,10 @@ export function unanchoredLocateReference(span: string): string {
 }
 
 /**
- * The chip target for an unanchored span, or null to render plain code.
- * Candidates bind in priority order to the first confirmed regular file; one
- * still unverified blocks the rest, so the choice never flips from a lower- to
- * a higher-priority target. Past them, the index's unique match binds unless a
- * stat has since found it gone. `located` is undefined while the index has not
- * answered and null when it matched none or several.
+ * The chip target for an unanchored span, or null for plain code. Candidates bind in priority order
+ * to the first confirmed regular file, and an unverified one blocks the rest so the choice never
+ * flips upward; past them the index's unique match binds unless a stat found it gone. `located` is
+ * undefined while the index is unanswered, null when it matched none or several.
  */
 export function selectUnanchoredBinding(input: {
   candidates: readonly MarkdownFileLinkMeta[];

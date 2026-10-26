@@ -1,10 +1,7 @@
 /**
- * loom: the change-review controls the Files surface carries (plans/change-review/plan.mdx §1, §4):
- * the baseline chip shared by the Files header and an opened file, and the Files header's row of
- * baseline · Changed only · Repo code / Everything. The baseline is the Diff panel's selection, so
- * a pick here moves the Diff panel too.
- *
- * @module loom/review/BaselineChip
+ * loom: the change-review controls the Files surface carries: the baseline chip shared by the Files
+ * header and an opened file, and the header's row of baseline · Changed only · Repo code /
+ * Everything. The baseline is the Diff panel's selection, so a pick here moves the Diff panel too.
  */
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { ChevronDownIcon } from "lucide-react";

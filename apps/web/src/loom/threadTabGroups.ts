@@ -1,21 +1,8 @@
 /**
- * loom: thread-tab group keys and tab liveness, from V2 lineage.
- *
- * Centre-panel tabs are grouped per workstream (see `threadTabsStore`): a tab's
- * group key is the `scopedThreadKey` of its **workstream root**, reached by
- * walking V2 `lineage.parentThreadId` across `subagent` edges within the
- * thread's own environment. A fork (`relationshipToParent: "fork"`) is a root
- * in Loom's graph (DL-344), as in V1 where a fork had no parent, so the walk
- * stops there. This is the one place lineage becomes a group key; the store
- * takes keys as arguments.
- *
- * The index covers environments whose shell snapshot has loaded (cached or
- * live). V2 shells carry only unarchived threads, so a thread missing from a
- * **live** snapshot — one past the server's catch-up `synchronized` marker
- * (`shellResumeCompletionMarker`) — has been archived or deleted and its tab
- * has nothing to show; a cached snapshot may lag, so it never prunes. The
- * index keeps its identity until an edge, the thread set or liveness changes,
- * so its readers do not re-render on ordinary shell updates.
+ * loom: thread-tab group keys (each tab's workstream root, walking `lineage.parentThreadId` across
+ * `subagent` edges in its environment; a fork is a root) and tab liveness. A thread missing from a
+ * live snapshot (past `shellResumeCompletionMarker`) is archived or deleted; a cached one may lag, so
+ * never prunes. The index keeps its identity until an edge, the thread set or liveness changes.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";

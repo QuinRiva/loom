@@ -1,12 +1,7 @@
-// loom: in-flight preview annotation picks, keyed by runtime tab id.
-//
-// The annotate pop-up and the note typed into it live inside the previewed
-// page, and ElectronBrowserHost keeps that page alive however the right panel
-// changes. So a pick belongs to the tab, not to whichever PreviewView happens
-// to be mounted: an automatic panel switch, a thread switch or a closed and
-// reopened panel must leave the pop-up and its text alone. A pick ends only
-// when the user cancels it (toggle or Escape), submits it, or the tab or its
-// page goes away (main settles the pick then).
+// loom: in-flight preview annotation picks, keyed by runtime tab id. The pop-up and its note live
+// in the previewed page, which ElectronBrowserHost keeps alive across panel and thread switches, so
+// a pick belongs to the tab, not the mounted PreviewView. It ends only on cancel (toggle or Escape),
+// submit, or the tab or its page going away (main settles the pick then).
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 

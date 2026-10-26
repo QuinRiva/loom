@@ -1,23 +1,8 @@
 /**
- * loom: the handoff receipts spliced into a thread's timeline, derived from
- * the V2 shell alone, so they survive a reload and reach every client:
- *
- * - **`/handoff`** — one row per drafter forked from this thread (role
- *   `handoff-drafter`, `forkFromThreadId === this`): waiting while this thread's
- *   turn runs (a mid-turn `/handoff` forks once it ends), drafting while its run is
- *   live, failed when the run ended without placing a handoff, handed off once
- *   it did. An archived (settled) drafter leaves the snapshot; its row then
- *   reads from the `handoffDestinations` markers `goal_handoff` copies onto
- *   this thread, attributed to the drafter.
- * - **`goal_handoff`** — one row per marker this thread's own agent placed.
- * - **`goal_continue`** — one row per root that continues this thread
- *   (`workstream.continuesThreadId === this`).
- *
- * A `consult_thread` call is not a row here: it is a turn item, rendered as
- * its own card (`ConsultCardRow.tsx`).
- *
- * Placement is insertion, not a re-sort: each row lands before the first
- * strictly later row, above the working indicator when nothing later exists.
+ * loom: the handoff receipts spliced into a thread's timeline, derived from the V2 shell alone so
+ * they survive a reload and reach every client: one row per `/handoff` drafter forked from this
+ * thread (read from its `handoffDestinations` markers once archived), per `goal_handoff` marker this
+ * thread placed, and per root continuing it. Rows are inserted before the first later row, not sorted.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";

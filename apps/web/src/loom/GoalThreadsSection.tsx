@@ -1,10 +1,7 @@
 /**
- * loom: the goal panel's Threads section (3d-3) — the goal's ROOT threads in
- * serial handoff order (`workstream.continuesThreadId`). Workstream children
- * belong to the Workstream graph, not here.
- *
- * One chip per row, in precedence order: what a human must act on outranks
- * what a machine is doing, which outranks where the thread rests.
+ * loom: the goal panel's Threads section: the goal's root threads in serial handoff order, since
+ * workstream children belong to the Workstream graph. One chip per row, in precedence order: what a
+ * human must act on outranks what a machine is doing, which outranks where the thread rests.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";

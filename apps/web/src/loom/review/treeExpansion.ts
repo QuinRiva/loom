@@ -1,18 +1,8 @@
 /**
- * loom: the Files tree's folder expansion outlives the tree. Opening a file swaps the explorer for
- * the file, so the tree unmounts and its model (and every expanded folder) went with it; reopening
- * showed every folder collapsed.
- *
- * State tier (docs/architecture/loom-ui-state-tiers.md): a tier-1 per-thread choice in what it
- * scopes and outlives, held in memory for the session rather than persisted, because an expanded
- * set grows with the repo (expand-all on a large tree is thousands of paths) and names folders that
- * may be gone by the next launch.
- *
- * Only transitions are recorded: a folder that appears collapsed because it just loaded is not a
- * choice. Changed only seeds every folder open, and a stored choice (a folder the user collapsed)
- * wins over the seed.
- *
- * @module loom/review/treeExpansion
+ * loom: the Files tree's folder expansion outlives the tree, which unmounts when a file opens. Tier 1
+ * per thread but held in memory, not persisted: an expanded set grows with the repo and names
+ * folders that may be gone next launch. Only transitions are recorded (a folder collapsed because it
+ * just loaded is not a choice); Changed only seeds every folder open, and a stored collapse wins.
  */
 import type { FileTree, FileTreeDirectoryHandle } from "@pierre/trees";
 import { useEffect } from "react";

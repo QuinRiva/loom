@@ -1,15 +1,8 @@
 /**
- * loom: the agent-started cue on sidebar rows. A root whose opening brief the
- * human did not write carries a 2 px left rail: an accent for an agent's own
- * `goal_handoff`, an agent-made scheduled task, or a `goal_continue` successor
- * launched with the predecessor's brief unedited; a muted one for the human's
- * `/handoff`. The rail is colour-only, so the hover card names the origin, the
- * row's accessible name says it, and the Workstream panel's breadcrumb links it.
- *
- * The classification is a pure function of the row's shell (`threadStartOf`);
+ * loom: the agent-started cue on sidebar rows: a 2 px left rail on a root whose brief the human did
+ * not write, accent for an agent's origin and muted for the human's `/handoff` (`threadStartOf`).
+ * Colour-only, so the hover card, the row's accessible name and the breadcrumb all name the origin;
  * only the hover line, mounted while the card is open, reads the origin's title.
- * The origin links back to the handoff's place in the origin's conversation
- * (`useOpenHandoffOrigin`), resolved on click from the shell snapshot.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -132,11 +125,9 @@ function OriginText({
 }
 
 /**
- * Open a handed-off root's origin at the handoff: the receipt row the origin's
- * timeline draws for this destination (`handoffReceiptRows` — the
- * `goal_handoff` marker, the `/handoff` drafter's row, or a `goal_continue`
- * successor's row), else the destination's creation, inside the handoff call. With neither in the
- * snapshot it just opens the origin. Read once per click, never subscribed.
+ * Open a handed-off root's origin at the handoff: the receipt row its timeline draws for this
+ * destination (`handoffReceiptRows`), else the destination's creation inside the handoff call, else
+ * just the origin. Read once per click, never subscribed.
  */
 export function useOpenHandoffOrigin(environmentId: EnvironmentId) {
   const navigate = useNavigate();

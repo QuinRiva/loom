@@ -1,13 +1,8 @@
 /**
- * "Show me where this happened" (W3, V1's scroll-to-dispatch): a Workstream
- * surface parks a one-shot anchor — a thread and an instant — and opens that
- * thread; its timeline consumes the anchor on arrival. It pages back until the
- * anchored moment is loaded, unfolds the turn and opens the tool group that
- * hold it, scrolls the row at or before that instant into view and flashes it
- * once. A dispatch's anchor is the child's creation, inside the parent's
- * spawn call; a consult's is its record, landing on the consult card.
- *
- * @module loom/conversationJump
+ * "Show me where this happened": a Workstream surface parks a one-shot anchor (a thread and an
+ * instant) and opens that thread, whose timeline consumes it: it pages back until loaded, unfolds
+ * the turn and tool group holding it, scrolls the row at or before that instant into view and
+ * flashes it once. A dispatch anchors on the child's creation, a consult on its record.
  */
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { LegendListRef } from "@legendapp/list/react";

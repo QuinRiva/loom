@@ -25,12 +25,10 @@ const liveThreadKeysAtom = Atom.family((environmentKey: string) =>
 );
 
 /**
- * Settings → Archive is a one-shot query that upstream refreshes only after this client's
- * own actions, so archives and unarchives from elsewhere (another client, or the cascade
- * Loom's server runs over a root's descendants) never reach it. Refresh exactly when
- * archived membership changes as seen from the streamed live shell: a live thread leaves
- * it (archived or deleted), or a thread the page lists as archived appears in it
- * (unarchived). A thread being created changes neither, so it costs nothing.
+ * Settings → Archive is a one-shot query upstream refreshes only after this client's own actions, so
+ * archives from elsewhere (another client, the server's descendant cascade) never reach it. Refresh
+ * when archived membership changes in the live shell: a live thread leaves it, or a thread the page
+ * lists as archived appears in it. A thread being created changes neither.
  */
 export function useArchiveMembershipRefresh(
   environmentIds: ReadonlyArray<EnvironmentId>,

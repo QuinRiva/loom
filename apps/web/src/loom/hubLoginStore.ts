@@ -1,15 +1,4 @@
-/**
- * loom: client state for the hub login reminder.
- *
- * - `snoozedUntil` (tier 2, client-local, persisted): per account email, when
- *   its composer banner may show again: 08:00 the next morning. Per browser by
- *   design; a hold that lasts until morning is not worth a wire change.
- * - `dialog` (tier 3, not persisted): the account the Log in… dialog is open
- *   for, set by the banner or the Usage page and read by the one mounted
- *   `HubLoginDialogHost`, so the dialog outlives the banner that opened it.
- *
- * See docs/architecture/loom-ui-state-tiers.md.
- */
+/** loom: client state for the hub login reminder; tiers per docs/architecture/loom-ui-state-tiers.md. */
 import type { LoginAlert } from "@t3tools/shared/usageLimits";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -17,7 +6,9 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "../lib/storage";
 
 interface HubLoginState {
+  /** Tier 2, persisted per browser by design: when each account's banner may show again (08:00). */
   snoozedUntil: Readonly<Record<string, number>>;
+  /** Tier 3: the account the one mounted `HubLoginDialogHost` is open for, outliving its opener. */
   dialog: LoginAlert | null;
   snooze: (email: string, until: number) => void;
   openDialog: (alert: LoginAlert | null) => void;

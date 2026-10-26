@@ -357,12 +357,9 @@ describe("draft command intercepts: no non-success exit loses the draft", () => 
     }
   });
 
-  // The case the two accepted decisions only cover TOGETHER, and the one a
-  // reviewer flagged as losing the draft when the receipt is absent: a failure
-  // arriving after the human has typed something new. The no-clobber rule
-  // deliberately declines to restore (their content wins), so the ONLY thing
-  // keeping the submitted text on screen is the receipt. If a future change
-  // drops the receipt, or stops recording it before the dispatch, this fails.
+  // The case both accepted decisions cover only together: a failure after the human typed something
+  // new. The no-clobber rule declines to restore, so only the receipt keeps the submitted text on
+  // screen; this fails if the receipt is dropped or recorded after the dispatch.
   it("keeps the submitted text recoverable via the receipt when the composer is not restored", async () => {
     const submittedPrompt = "/handoff the audit trail misses soft-deleted rows";
     const typedMeanwhile = "a totally unrelated new thought";
