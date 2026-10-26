@@ -12,7 +12,6 @@ import type {
 } from "@t3tools/contracts";
 import { deadlockedNodes } from "@t3tools/shared/workstreamDependencies";
 import * as DateTime from "effect/DateTime";
-import { descendantsOf } from "@t3tools/shared/workstreamGraph";
 import { isBriefNeeded } from "@t3tools/shared/workstreamStart.loom";
 
 import type { EnvironmentThreadShell } from "../models.ts";
@@ -259,17 +258,11 @@ function withAgents(
   thread: WorkstreamRollupThread,
   reason: WorkstreamAttentionReason,
   byId: WorkstreamIndex,
-  threadsById: ReadonlyMap<ThreadId, WorkstreamRollupThread>,
+  { threadsById, childrenByParent }: RollupIndex,
 ): boolean {
   const parent = threadsById.get(thread.lineage.parentThreadId!);
   if (!PARENT_OWED.has(reason) || parent === undefined) return false;
-  if (
-    runInFlight(parent) ||
-    [...threadsById.values()].some(
-      (child) => child.lineage.parentThreadId === parent.id && runInFlight(child),
-    )
-  )
-    return true;
+  if (runInFlight(parent) || (childrenByParent.get(parent.id) ?? []).some(runInFlight)) return true;
   const since = parentOwedSince(thread.workstream!, reason, byId);
   const answeredAt = parent.latestRunCompletedAt ?? null;
   return since !== null && (answeredAt === null || DateTime.toEpochMillis(answeredAt) < since);
@@ -278,7 +271,7 @@ function withAgents(
 function attentionRollup(
   descendants: ReadonlyArray<WorkstreamRollupThread>,
   byId: WorkstreamIndex,
-  threadsById: ReadonlyMap<ThreadId, WorkstreamRollupThread>,
+  index: RollupIndex,
 ): AttentionRollup {
   const nodes = liveOf(descendants)
     .flatMap((thread) => {
@@ -290,7 +283,7 @@ function attentionRollup(
               id: thread.id,
               title: thread.title,
               reason,
-              withAgents: withAgents(thread, reason, byId, threadsById),
+              withAgents: withAgents(thread, reason, byId, index),
             },
           ];
     })
@@ -334,20 +327,51 @@ export const workstreamBadgeOf = (rollup: WorkstreamRollup): WorkstreamBadge => 
   flagged: rollup.attention.nodes.filter((node) => !node.withAgents).length,
 });
 
+/** Every held shell by id and by lineage parent: build once per snapshot when rolling up many roots. */
+export interface RollupIndex {
+  readonly threadsById: ReadonlyMap<ThreadId, WorkstreamRollupThread>;
+  readonly childrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<WorkstreamRollupThread>>;
+}
+
+export function rollupIndexOf(threads: ReadonlyArray<WorkstreamRollupThread>): RollupIndex {
+  const childrenByParent = new Map<ThreadId, WorkstreamRollupThread[]>();
+  for (const thread of threads) {
+    const parentId = thread.lineage.parentThreadId;
+    if (parentId === null) continue;
+    const siblings = childrenByParent.get(parentId);
+    if (siblings) siblings.push(thread);
+    else childrenByParent.set(parentId, [thread]);
+  }
+  return { threadsById: new Map(threads.map((thread) => [thread.id, thread])), childrenByParent };
+}
+
+/** Transitive lineage descendants in depth-first pre-order, as `descendantsOf` walks them. */
+function descendantsIn(rootThreadId: ThreadId, { childrenByParent }: RollupIndex) {
+  const out: WorkstreamRollupThread[] = [];
+  const seen = new Set([rootThreadId]);
+  const visit = (id: ThreadId) => {
+    for (const child of childrenByParent.get(id) ?? []) {
+      if (seen.has(child.id)) continue;
+      seen.add(child.id);
+      out.push(child);
+      visit(child.id);
+    }
+  };
+  visit(rootThreadId);
+  return out;
+}
+
 /** The three rollups for `rootThreadId`'s descendants (lineage), from every shell held. */
 export function workstreamRollupOf(
   rootThreadId: ThreadId,
   threads: ReadonlyArray<WorkstreamRollupThread>,
   byId: WorkstreamIndex,
+  index = rollupIndexOf(threads),
 ): WorkstreamRollup {
-  const byThreadId = new Map(threads.map((thread) => [thread.id, thread]));
-  const descendants = descendantsOf(
-    rootThreadId,
-    threads.map((thread) => ({ id: thread.id, parentThreadId: thread.lineage.parentThreadId })),
-  ).map((node) => byThreadId.get(node.id)!);
+  const descendants = descendantsIn(rootThreadId, index);
   return {
     plan: planRollup(descendants, byId),
     activity: activityRollup(descendants),
-    attention: attentionRollup(descendants, byId, byThreadId),
+    attention: attentionRollup(descendants, byId, index),
   };
 }

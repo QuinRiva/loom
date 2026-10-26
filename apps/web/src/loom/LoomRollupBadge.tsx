@@ -10,6 +10,7 @@ import {
   attentionLabel,
   type WorkstreamBadgeTone,
   type WorkstreamRollup,
+  rollupIndexOf,
   workstreamBadgeOf,
   workstreamRollupOf,
 } from "@t3tools/client-runtime/state/loom/rollup";
@@ -33,11 +34,14 @@ const rollupsAtom = Atom.family((environmentId: EnvironmentId) =>
     const threads = get(loomEnvironmentSnapshotAtom(environmentId))?.threads;
     if (!threads) return EMPTY_ROLLUPS;
     const byId = workstreamIndexOf(threads);
-    const parents = new Set(threads.flatMap((thread) => thread.lineage.parentThreadId ?? []));
+    const index = rollupIndexOf(threads);
     return new Map(
       threads
-        .filter((thread) => thread.lineage.parentThreadId === null && parents.has(thread.id))
-        .map((root) => [root.id, workstreamRollupOf(root.id, threads, byId)] as const),
+        .filter(
+          (thread) =>
+            thread.lineage.parentThreadId === null && index.childrenByParent.has(thread.id),
+        )
+        .map((root) => [root.id, workstreamRollupOf(root.id, threads, byId, index)] as const),
     );
   }).pipe(Atom.withLabel(`loom-rollups:${environmentId}`)),
 );
