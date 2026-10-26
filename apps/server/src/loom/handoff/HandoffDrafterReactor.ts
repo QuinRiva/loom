@@ -115,8 +115,8 @@ const make = Effect.gen(function* () {
   const loomStore = yield* LoomStoreV2;
   const services = yield* Effect.context<CommandReceiptStoreV2 | OrchestratorV2>();
 
-  const settle = (row: LoomThreadWorkstream, nowMs: number) =>
-    Effect.gen(function* () {
+  const settle = Effect.fn("HandoffDrafterReactor.settle")(
+    function* (row: LoomThreadWorkstream, nowMs: number) {
       const id = (step: string) =>
         CommandId.make(`server:loom:handoff-settle:${step}:${row.threadId}`);
       const createdAt = DateTime.formatIso(yield* DateTime.now);
@@ -175,16 +175,19 @@ const make = Effect.gen(function* () {
           reason: "needs_guidance",
         });
       }
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Cause.hasInterruptsOnly(cause)
-          ? Effect.failCause(cause)
-          : Effect.logWarning("loom.handoff-drafter.settle-failed", {
-              threadId: row.threadId,
-              cause: Cause.pretty(cause),
-            }),
+    },
+    (effect, row, nowMs) =>
+      effect.pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause)
+            : Effect.logWarning("loom.handoff-drafter.settle-failed", {
+                threadId: row.threadId,
+                cause: Cause.pretty(cause),
+              }),
+        ),
       ),
-    );
+  );
 
   const pass = Effect.gen(function* () {
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);

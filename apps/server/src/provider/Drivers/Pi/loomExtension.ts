@@ -135,7 +135,7 @@ export const askUserQuestionPart: LoomExtensionPart = {
   source: `
 const prose = ${json(proseOf("ask_user_question"))};
 const REFUSAL = ${json(HUMAN_INPUT_REFUSAL)};
-// Registered hidden — so tool_search cannot surface it — until a human has written to the
+// Registered hidden (so tool_search cannot surface it) until a human has written to the
 // thread; the profile part's apply() calls syncHumanInput() each turn to re-register it direct.
 let askExposure;
 const registerAsk = (exposure) => {

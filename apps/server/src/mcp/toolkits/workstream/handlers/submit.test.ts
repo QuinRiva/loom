@@ -78,7 +78,7 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
         markdown: report("over to you"),
         outcome: "rework_approach",
       });
-      assert.include(yieldEcho.text, "YIELDED to your parent orchestrator — you are NOT done");
+      assert.include(yieldEcho.text, "YIELDED to your parent orchestrator: you are NOT done");
       assert.deepEqual((yield* store.getWorkstream(yielded))!.attention, ["awaiting_orchestrator"]);
     }),
   );
@@ -95,7 +95,7 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
       });
       assert.include(
         loop.text,
-        "findings routed to the coder for rework (round 1) — you are NOT done",
+        "findings routed to the coder for rework (round 1): you are NOT done",
       );
       assert.match(loop.text, /\.round-1\.md$/);
       assert.isNull((yield* store.getWorkstream(looped.reviewer))!.outcome);

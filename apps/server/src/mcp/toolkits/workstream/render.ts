@@ -124,7 +124,7 @@ export const renderWorkstreamList = (view: WorkstreamListView): string => {
         ? firstLine(thread.latestVisibleMessage.text)
         : "";
       lines.push(
-        `${pad}    last-activity: ${formatWakeTimestamp(DateTime.formatIso(thread.updatedAt))}${preview ? ` — ${preview}` : ""}`,
+        `${pad}    last-activity: ${formatWakeTimestamp(DateTime.formatIso(thread.updatedAt))}${preview ? `, ${preview}` : ""}`,
       );
     }
     if (ws.reportPath)
@@ -159,17 +159,17 @@ export const renderSubmitOutcome = (view: SubmitOutcomeView): string => {
     case "terminal":
       return "Work submitted: report recorded, outcome done (dependents released).";
     case "attention":
-      return "Work submitted: report recorded and needs_guidance raised — a human has been flagged; you are not done.";
+      return "Work submitted: report recorded and needs_guidance raised: a human has been flagged; you are not done.";
     case "resolve":
-      return `${withOutcome}: the review gate RESOLVED — you and your gate counterpart are both done (dependents released).`;
+      return `${withOutcome}: the review gate RESOLVED: you and your gate counterpart are both done (dependents released).`;
     case "loop":
       return view.leg === "reverify"
-        ? `Work submitted: routed to the reviewer for re-verification (round ${view.round}) — you are NOT done yet; the control plane resumes you if further rework is needed.`
-        : `${withOutcome}: findings routed to the coder for rework (round ${view.round}) — you are NOT done; you will be resumed to re-verify the rework.`;
+        ? `Work submitted: routed to the reviewer for re-verification (round ${view.round}): you are NOT done yet; the control plane resumes you if further rework is needed.`
+        : `${withOutcome}: findings routed to the coder for rework (round ${view.round}): you are NOT done; you will be resumed to re-verify the rework.`;
     case "cap-breach":
-      return `${withOutcome}: the review gate's round cap is exhausted, so you YIELDED to your parent orchestrator — you are NOT done; it decides what happens next.`;
+      return `${withOutcome}: the review gate's round cap is exhausted, so you YIELDED to your parent orchestrator: you are NOT done; it decides what happens next.`;
     case "yield":
-      return `${withOutcome}: no route matched, so you YIELDED to your parent orchestrator — you are NOT done; it will be woken with your report and decides what happens next.`;
+      return `${withOutcome}: no route matched, so you YIELDED to your parent orchestrator: you are NOT done; it will be woken with your report and decides what happens next.`;
   }
 };
 
@@ -199,7 +199,7 @@ const renderThreadCandidates = (candidates: ReadonlyArray<ThreadCandidate>, tool
         `Multiple threads match that name. Confirm which one with whoever named it (your parent, via ${t("consult_thread")}, if the name came from your brief), then call ${t(tool)} again with its threadId:`,
         ...candidates.map(
           (candidate) =>
-            `- ${candidate.title ?? "(untitled)"} — ${candidate.role ?? "thread"}, ${candidate.status ?? "unknown"}` +
+            `- ${candidate.title ?? "(untitled)"}: ${candidate.role ?? "thread"}, ${candidate.status ?? "unknown"}` +
             (candidate.worktreePath ? ` [${candidate.worktreePath}]` : "") +
             ` (threadId: ${candidate.threadId})`,
         ),

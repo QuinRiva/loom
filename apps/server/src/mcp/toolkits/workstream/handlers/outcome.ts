@@ -27,7 +27,7 @@ const WARNING_ADVICE: Record<LoomGateWarningKind, string> = {
 };
 
 /** A `done` that cleared a standing human hold: the parent may hold the approval, so warn, never refuse (#321). */
-const ACCEPTANCE_CLEARED_WARNING = `It held an \`awaiting_acceptance\` hold — a human's sign-off on its output was pending — and this \`done\` cleared it, so its output now counts as accepted and its dependents are released. If you do not hold that human's approval, reopen it (\`${t("workstream_set_outcome")}\` none) and re-raise the hold (\`${t("workstream_request_attention")}\` awaiting_acceptance).`;
+const ACCEPTANCE_CLEARED_WARNING = `It held an \`awaiting_acceptance\` hold (a human's sign-off on its output was pending) and this \`done\` cleared it, so its output now counts as accepted and its dependents are released. If you do not hold that human's approval, reopen it (\`${t("workstream_set_outcome")}\` none) and re-raise the hold (\`${t("workstream_request_attention")}\` awaiting_acceptance).`;
 
 export const workstreamSetOutcome = Effect.fn("LoomToolkit.workstreamSetOutcome")(function* (
   input: LoomToolInput<"workstream_set_outcome">,

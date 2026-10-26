@@ -55,5 +55,5 @@ export const buildDeadlockMessage = <
         `- ${child.role ?? "sub-thread"} \`${child.id}\`${child.title ? ` (“${child.title}”)` : ""}: ${describeUnsatisfiedDependency(child, siblingsById) ?? "waiting"}`,
     ),
     "",
-    "A reviewer must not wait on work that waits on the thread it reviews. Ways out: re-point dependencies (`mcp__t3-code__workstream_set_dependencies`), dissolve a review gate (`mcp__t3-code__workstream_set_outcome` done on the reviewer — cancelling it would block the dependents that wait on it), or cancel nodes you no longer need.",
+    "A reviewer must not wait on work that waits on the thread it reviews. Ways out: re-point dependencies (`mcp__t3-code__workstream_set_dependencies`), dissolve a review gate (`mcp__t3-code__workstream_set_outcome` done on the reviewer; cancelling it would block the dependents that wait on it), or cancel nodes you no longer need.",
   ].join("\n");

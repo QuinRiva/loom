@@ -399,24 +399,21 @@ const makePassContext = Effect.fn("loom.dispatcher.passContext")(function* (
       humanStartedMs: settings.quiescenceHumanGraceMs,
     },
     startedAtMs: memory.startedAtMs,
-    delivered: (threadId) =>
-      Effect.gen(function* () {
-        const stamp = String(shells.get(threadId)?.latestUserMessageAt ?? null);
-        const cached = memory.deliveredCache.get(threadId);
-        if (cached?.stamp === stamp) return cached.items;
-        const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"], {
-          messageRoles: ["user"],
-        });
-        const items = messages.flatMap((message) => {
-          const payload = message.loom?.controlPayload;
-          const atMs = DateTime.toEpochMillis(message.createdAt);
-          return payload === undefined
-            ? []
-            : payload.items.map((item) => ({ payload, item, atMs }));
-        });
-        memory.deliveredCache.set(threadId, { stamp, items });
-        return items;
-      }),
+    delivered: Effect.fn("WorkstreamDispatcher.delivered")(function* (threadId) {
+      const stamp = String(shells.get(threadId)?.latestUserMessageAt ?? null);
+      const cached = memory.deliveredCache.get(threadId);
+      if (cached?.stamp === stamp) return cached.items;
+      const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"], {
+        messageRoles: ["user"],
+      });
+      const items = messages.flatMap((message) => {
+        const payload = message.loom?.controlPayload;
+        const atMs = DateTime.toEpochMillis(message.createdAt);
+        return payload === undefined ? [] : payload.items.map((item) => ({ payload, item, atMs }));
+      });
+      memory.deliveredCache.set(threadId, { stamp, items });
+      return items;
+    }),
     sent: (id) => Effect.map(receipts.getByCommandId(CommandId.make(id)), Option.isSome),
     dispatch: (rail, command, count = 1) =>
       dispatchServerCommand(command).pipe(

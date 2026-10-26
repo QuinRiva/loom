@@ -100,43 +100,45 @@ export const makeDrainableWorker = Effect.fn("DrainableWorker.makeDrainableWorke
  *
  * @param process - The idempotent pass to run per (coalesced) trigger.
  */
-export const makeCoalescingWorker = <E, R>(
+export const makeCoalescingWorker = Effect.fn("DrainableWorker.makeCoalescingWorker")(function* <
+  E,
+  R,
+>(
   process: Effect.Effect<void, E, R>,
-): Effect.Effect<DrainableWorker<void>, never, Scope.Scope | R> =>
-  Effect.gen(function* () {
-    // `running`: a pass body is executing. `pending`: at least one trigger has
-    // arrived that no started pass has claimed yet. Both live in ONE TxRef so
-    // the claim (pending → running) is a single atomic transition.
-    const state = yield* TxRef.make({ running: false, pending: false });
+): Effect.fn.Return<DrainableWorker<void>, never, Scope.Scope | R> {
+  // `running`: a pass body is executing. `pending`: at least one trigger has
+  // arrived that no started pass has claimed yet. Both live in ONE TxRef so
+  // the claim (pending → running) is a single atomic transition.
+  const state = yield* TxRef.make({ running: false, pending: false });
 
-    // Claim the pending trigger: block until one exists, then mark the pass
-    // running and clear the flag atomically. Everything the pass reads happens
-    // after this transaction commits, which is what makes the invariant hold.
-    const claimPass = TxRef.get(state).pipe(
-      Effect.flatMap((current) =>
-        current.pending ? TxRef.set(state, { running: true, pending: false }) : Effect.txRetry,
+  // Claim the pending trigger: block until one exists, then mark the pass
+  // running and clear the flag atomically. Everything the pass reads happens
+  // after this transaction commits, which is what makes the invariant hold.
+  const claimPass = TxRef.get(state).pipe(
+    Effect.flatMap((current) =>
+      current.pending ? TxRef.set(state, { running: true, pending: false }) : Effect.txRetry,
+    ),
+    Effect.tx,
+  );
+
+  yield* claimPass.pipe(
+    Effect.andThen(
+      Effect.ensuring(
+        process,
+        TxRef.update(state, (current) => ({ ...current, running: false })),
       ),
-      Effect.tx,
-    );
+    ),
+    Effect.forever,
+    Effect.forkScoped,
+  );
 
-    yield* claimPass.pipe(
-      Effect.andThen(
-        Effect.ensuring(
-          process,
-          TxRef.update(state, (current) => ({ ...current, running: false })),
-        ),
-      ),
-      Effect.forever,
-      Effect.forkScoped,
-    );
+  const drain: DrainableWorker<void>["drain"] = TxRef.get(state).pipe(
+    Effect.tap((current) => (current.running || current.pending ? Effect.txRetry : Effect.void)),
+    Effect.tx,
+  );
 
-    const drain: DrainableWorker<void>["drain"] = TxRef.get(state).pipe(
-      Effect.tap((current) => (current.running || current.pending ? Effect.txRetry : Effect.void)),
-      Effect.tx,
-    );
+  const enqueue = (): Effect.Effect<void> =>
+    TxRef.update(state, (current) => ({ ...current, pending: true })).pipe(Effect.tx);
 
-    const enqueue = (): Effect.Effect<void> =>
-      TxRef.update(state, (current) => ({ ...current, pending: true })).pipe(Effect.tx);
-
-    return { enqueue, drain } satisfies DrainableWorker<void>;
-  });
+  return { enqueue, drain } satisfies DrainableWorker<void>;
+});

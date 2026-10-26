@@ -296,30 +296,29 @@ export const dispatchServerCommand = Effect.fn("loom.dispatchServerCommand")(fun
  * SEQUENTIALLY — one thread lock at a time, never nested — through `dispatch`
  * (the dispatcher's pass helper, or the bare `dispatchServerCommand`).
  */
-export const runReDrivePass = <E, R>(
+export const runReDrivePass = Effect.fn("redrive.runReDrivePass")(function* <E, R>(
   gateLeg: GateLegComposer,
   dispatch: (
     command: ThreadServerCommand,
   ) => Effect.Effect<{ readonly status: "receipted" | "accepted" | "deferred" | "dead" }, E, R>,
-) =>
-  Effect.gen(function* () {
-    const loomStore = yield* LoomStoreV2;
-    const commands = planReDrive({
-      rows: yield* loomStore.listReDriveInput(),
-      now: DateTime.formatIso(yield* DateTime.now),
-      gateLeg,
-    });
-    const result = {
-      accepted: [] as CommandId[],
-      deferred: [] as CommandId[],
-      dead: [] as CommandId[],
-    };
-    for (const command of commands) {
-      const { status } = yield* dispatch(command);
-      if (status !== "receipted") result[status].push(command.commandId);
-    }
-    return result satisfies ReDrivePassResult;
-  }).pipe(Effect.withSpan("loom.runReDrivePass"));
+) {
+  const loomStore = yield* LoomStoreV2;
+  const commands = planReDrive({
+    rows: yield* loomStore.listReDriveInput(),
+    now: DateTime.formatIso(yield* DateTime.now),
+    gateLeg,
+  });
+  const result = {
+    accepted: [] as CommandId[],
+    deferred: [] as CommandId[],
+    dead: [] as CommandId[],
+  };
+  for (const command of commands) {
+    const { status } = yield* dispatch(command);
+    if (status !== "receipted") result[status].push(command.commandId);
+  }
+  return result satisfies ReDrivePassResult;
+}, Effect.withSpan("loom.runReDrivePass"));
 
 const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
   "completed",

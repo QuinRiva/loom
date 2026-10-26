@@ -66,7 +66,7 @@ import { deleteReroute, insertReroute, listReroutes } from "./rerouteRecord.ts";
 
 export const rerouteResumeText = (fallbackModel?: string): string =>
   [
-    "[T3 Code control plane — automated resume after a provider usage limit; not a message from the user]",
+    "[T3 Code control plane: automated resume after a provider usage limit; not a message from the user]",
     "",
     fallbackModel === undefined
       ? "The provider usage limit that stopped your previous turn has cleared; none of that response was delivered."
@@ -107,56 +107,56 @@ const usageLimitedThreadIds = Effect.gen(function* () {
 });
 
 /** Dispatch one step; false when it did not land (deferred: next pass; rejected: logged). */
-const send = (command: OrchestrationV2ServerCommand) =>
-  Effect.gen(function* () {
-    const orchestrator = yield* OrchestratorV2;
-    return yield* orchestrator.dispatch(command).pipe(
-      Effect.as(true),
-      Effect.catch((error) =>
-        error._tag === "LoomDispatchDeferredError"
-          ? Effect.succeed(false)
-          : Effect.logWarning("loom.reroute.dispatch-failed", {
-              commandId: command.commandId,
-              commandType: command.type,
-              error: error.message,
-            }).pipe(Effect.as(false)),
-      ),
-    );
-  });
+const send = Effect.fn("RerouteSweep.send")(function* (command: OrchestrationV2ServerCommand) {
+  const orchestrator = yield* OrchestratorV2;
+  return yield* orchestrator.dispatch(command).pipe(
+    Effect.as(true),
+    Effect.catch((error) =>
+      error._tag === "LoomDispatchDeferredError"
+        ? Effect.succeed(false)
+        : Effect.logWarning("loom.reroute.dispatch-failed", {
+            commandId: command.commandId,
+            commandType: command.type,
+            error: error.message,
+          }).pipe(Effect.as(false)),
+    ),
+  );
+});
 
 /** A steered control message (the target is idle, so it starts the turn). */
 const resume = (threadId: ThreadId, id: string, text: string) =>
   send(controlMessage({ threadId, id, tier: "steered", origin: "control_notice", text }));
 
 /** Selection set, then every live pi session detached, so the next turn opens a fresh process. */
-const moveTo = (threadId: ThreadId, idBase: string, modelSelection: ModelSelection) =>
-  Effect.gen(function* () {
-    const orchestrator = yield* OrchestratorV2;
+const moveTo = Effect.fn("RerouteSweep.moveTo")(function* (
+  threadId: ThreadId,
+  idBase: string,
+  modelSelection: ModelSelection,
+) {
+  const orchestrator = yield* OrchestratorV2;
+  if (
+    !(yield* send({
+      type: "thread.model-selection.set",
+      commandId: CommandId.make(`${idBase}:model`),
+      threadId,
+      modelSelection,
+    }))
+  )
+    return false;
+  const { providerSessions } = yield* orchestrator.getThreadRecords(threadId, ["providerSessions"]);
+  for (const session of providerSessions.filter((s) => s.status !== "stopped"))
     if (
       !(yield* send({
-        type: "thread.model-selection.set",
-        commandId: CommandId.make(`${idBase}:model`),
+        type: "provider-session.detach",
+        commandId: CommandId.make(`${idBase}:detach:${session.id}`),
         threadId,
-        modelSelection,
+        providerSessionId: session.id,
+        reason: "Loom moved the thread to another model.",
       }))
     )
       return false;
-    const { providerSessions } = yield* orchestrator.getThreadRecords(threadId, [
-      "providerSessions",
-    ]);
-    for (const session of providerSessions.filter((s) => s.status !== "stopped"))
-      if (
-        !(yield* send({
-          type: "provider-session.detach",
-          commandId: CommandId.make(`${idBase}:detach:${session.id}`),
-          threadId,
-          providerSessionId: session.id,
-          reason: "Loom moved the thread to another model.",
-        }))
-      )
-        return false;
-    return true;
-  });
+  return true;
+});
 
 const sameSelection = (a: ModelSelection, b: ModelSelection) =>
   a.instanceId === b.instanceId && a.model === b.model;

@@ -448,8 +448,10 @@ const make = Effect.gen(function* () {
       Effect.flatMap((rows) => deleteSnapshots(rows.slice(SNAPSHOTS_PER_SOURCE), null)),
     );
 
-  const captureForMessage: ReviewSnapshotService["Service"]["captureForMessage"] = (input) =>
-    Effect.gen(function* () {
+  const captureForMessage: ReviewSnapshotService["Service"]["captureForMessage"] = Effect.fn(
+    "ReviewSnapshotService.captureForMessage",
+  )(
+    function* (input) {
       const worktree = yield* resolveWorktree(input.threadId);
       if (worktree === null) return;
       yield* worktreeLocks.withLock(
@@ -521,14 +523,17 @@ const make = Effect.gen(function* () {
           }
         }),
       );
-    }).pipe(
-      Effect.provideContext(platform),
-      Effect.mapError(
-        (cause) =>
-          new ReviewSnapshotError({ operation: "capture", threadId: input.threadId, cause }),
+    },
+    (effect, input) =>
+      effect.pipe(
+        Effect.provideContext(platform),
+        Effect.mapError(
+          (cause) =>
+            new ReviewSnapshotError({ operation: "capture", threadId: input.threadId, cause }),
+        ),
+        Effect.withSpan("loom.review.captureForMessage"),
       ),
-      Effect.withSpan("loom.review.captureForMessage"),
-    );
+  );
 
   const liveCaptures = yield* Cache.makeWith<
     ThreadId,
@@ -610,8 +615,10 @@ const make = Effect.gen(function* () {
     }
   });
 
-  const listIntervals: ReviewSnapshotService["Service"]["listIntervals"] = (threadId) =>
-    Effect.gen(function* () {
+  const listIntervals: ReviewSnapshotService["Service"]["listIntervals"] = Effect.fn(
+    "ReviewSnapshotService.listIntervals",
+  )(
+    function* (threadId) {
       const messages = messagesOf(yield* selectRows(sql.and([sql`thread_id = ${threadId}`])));
       const [latest] = messages;
       if (latest === undefined) return { intervals: [], sources: [] };
@@ -645,11 +652,14 @@ const make = Effect.gen(function* () {
         ],
         sources: latest.ready.map(reviewSourceOf),
       };
-    }).pipe(
-      Effect.mapError(
-        (cause) => new ReviewSnapshotError({ operation: "intervals", threadId, cause }),
+    },
+    (effect, threadId) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) => new ReviewSnapshotError({ operation: "intervals", threadId, cause }),
+        ),
       ),
-    );
+  );
 
   const diffSource = Effect.fn("loom.review.diffSource")(function* (
     row: ReviewSnapshotRow & { readonly commitOid: string },
@@ -760,8 +770,8 @@ const make = Effect.gen(function* () {
     };
   });
 
-  const diff: ReviewSnapshotService["Service"]["diff"] = (input) =>
-    Effect.gen(function* () {
+  const diff: ReviewSnapshotService["Service"]["diff"] = Effect.fn("ReviewSnapshotService.diff")(
+    function* (input) {
       const messages = messagesOf(yield* selectRows(sql.and([sql`thread_id = ${input.threadId}`])));
       const closing = messages.findIndex((message) => message.messageId === input.intervalId);
       const [fromRows, toCommits] =
@@ -803,15 +813,21 @@ const make = Effect.gen(function* () {
           { concurrency: 4 },
         ),
       };
-    }).pipe(
-      Effect.provideContext(platform),
-      Effect.mapError(
-        (cause) => new ReviewSnapshotError({ operation: "diff", threadId: input.threadId, cause }),
+    },
+    (effect, input) =>
+      effect.pipe(
+        Effect.provideContext(platform),
+        Effect.mapError(
+          (cause) =>
+            new ReviewSnapshotError({ operation: "diff", threadId: input.threadId, cause }),
+        ),
       ),
-    );
+  );
 
-  const fileContents: ReviewSnapshotService["Service"]["fileContents"] = (input) =>
-    Effect.gen(function* () {
+  const fileContents: ReviewSnapshotService["Service"]["fileContents"] = Effect.fn(
+    "ReviewSnapshotService.fileContents",
+  )(
+    function* (input) {
       if (!OBJECT_ID.test(input.fromCommit) || !OBJECT_ID.test(input.toCommit))
         return yield* Effect.fail("Not a snapshot commit.");
       const [row] = yield* selectRows(
@@ -847,12 +863,15 @@ const make = Effect.gen(function* () {
         { concurrency: 2 },
       );
       return { oldContents, newContents };
-    }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new ReviewSnapshotError({ operation: "fileContents", threadId: input.threadId, cause }),
+    },
+    (effect, input) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new ReviewSnapshotError({ operation: "fileContents", threadId: input.threadId, cause }),
+        ),
       ),
-    );
+  );
 
   return ReviewSnapshotService.of({
     captureForMessage,

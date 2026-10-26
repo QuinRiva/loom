@@ -43,20 +43,19 @@ const reply = (status: number, message: string) =>
   HttpServerResponse.jsonUnsafe({ message }, { status });
 
 /** Runs `handle` as the credential's thread, or answers 401 / 403. */
-const asCaller = <E, R>(
+const asCaller = Effect.fn("loomAgentRoutes.asCaller")(function* <E, R>(
   handle: (caller: WorkstreamCaller) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
-) =>
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const authorization = request.headers.authorization ?? "";
-    const scope = yield* (yield* McpSessionRegistry.McpSessionRegistry).resolve(
-      authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length).trim() : "",
-    );
-    if (scope === undefined) return reply(401, "A valid T3 thread credential is required.");
-    if (!scope.capabilities.has("workstream"))
-      return reply(403, "This credential does not carry the workstream capability.");
-    return yield* handle({ scope, threadId: scope.thread.threadId });
-  });
+) {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const authorization = request.headers.authorization ?? "";
+  const scope = yield* (yield* McpSessionRegistry.McpSessionRegistry).resolve(
+    authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length).trim() : "",
+  );
+  if (scope === undefined) return reply(401, "A valid T3 thread credential is required.");
+  if (!scope.capabilities.has("workstream"))
+    return reply(403, "This credential does not carry the workstream capability.");
+  return yield* handle({ scope, threadId: scope.thread.threadId });
+});
 
 /** As `asCaller`, but a read-only consult fork (whose thread is the target's) gets 403. */
 const asWritingCaller = <E, R>(

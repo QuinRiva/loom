@@ -34,5 +34,5 @@ export const workstreamStop = Effect.fn("LoomToolkit.workstreamStop")(function* 
     reason: "Paused by its parent orchestrator.",
     holdQueue: true,
   });
-  return `Stopped Workstream child ${threadId} (paused; it stays in progress — resume it with ${t("workstream_prompt")}).`;
+  return `Stopped Workstream child ${threadId} (paused; it stays in progress. Resume it with ${t("workstream_prompt")}).`;
 });

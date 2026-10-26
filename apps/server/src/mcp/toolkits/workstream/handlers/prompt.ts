@@ -53,7 +53,7 @@ export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(functi
   if (row.kickoffAt === null) {
     if (row.kickoffBriefPath === null)
       return yield* fail(
-        `Child ${threadId} has not been briefed yet — call ${t("workstream_brief")} to write its kickoff (it then launches once its dependencies clear). ${t("workstream_prompt")} steers an already-running child.`,
+        `Child ${threadId} has not been briefed yet: call ${t("workstream_brief")} to write its kickoff (it then launches once its dependencies clear). ${t("workstream_prompt")} steers an already-running child.`,
       );
     const brief = Option.getOrUndefined(yield* readWorkstreamBriefAt(row.kickoffBriefPath));
     if (brief === undefined)
@@ -76,7 +76,7 @@ export const workstreamPrompt = Effect.fn("LoomToolkit.workstreamPrompt")(functi
       Effect.mapError(
         (error) =>
           new LoomToolError({
-            message: `${error.message} Call ${t("workstream_prompt")} again — it now steers the running child.`,
+            message: `${error.message} Call ${t("workstream_prompt")} again: it now steers the running child.`,
           }),
       ),
     );

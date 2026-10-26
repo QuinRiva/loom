@@ -430,258 +430,257 @@ const V1_COLUMNS = `thread_id, project_id, created_at, updated_at, archived_at, 
  * the sessions root it indexed and the counts; a per-thread failure is logged
  * with the thread id and the phase continues.
  */
-const makeReconcile = (
+const makeReconcile = Effect.fn("LoomV1WorkstreamImporter.makeReconcile")(function* (
   sql: SqlClient.SqlClient,
   eventSink: EventSink.EventSinkV2Shape,
   stateDir: string,
-) =>
-  Effect.gen(function* () {
-    const pending = yield* sql.unsafe<LegacyV1Thread>(`
+) {
+  const pending = yield* sql.unsafe<LegacyV1Thread>(`
     SELECT ${V1_COLUMNS} FROM projection_threads
     WHERE thread_id IN (
       SELECT li.thread_id FROM orchestration_v2_legacy_imports li
       WHERE NOT EXISTS (SELECT 1 FROM loom_legacy_imports l WHERE l.thread_id = li.thread_id))
     ORDER BY created_at ASC, thread_id ASC`);
-    const sessionsRoot = piSessionsRoot();
-    const counts = {
-      considered: pending.length,
-      sidecars: 0,
-      lineageReemits: 0,
-      providerFixes: 0,
-      bindings: 0,
-      alreadyBound: 0,
-      missing: 0,
-      corrupt: 0,
-      notPi: 0,
-      deleted: 0,
-      failed: 0,
-    };
-    if (pending.length === 0) {
-      return yield* Effect.logInfo("Loom V1 workstream import", { sessionsRoot, ...counts });
-    }
+  const sessionsRoot = piSessionsRoot();
+  const counts = {
+    considered: pending.length,
+    sidecars: 0,
+    lineageReemits: 0,
+    providerFixes: 0,
+    bindings: 0,
+    alreadyBound: 0,
+    missing: 0,
+    corrupt: 0,
+    notPi: 0,
+    deleted: 0,
+    failed: 0,
+  };
+  if (pending.length === 0) {
+    return yield* Effect.logInfo("Loom V1 workstream import", { sessionsRoot, ...counts });
+  }
 
-    const threads = new Map(
-      (yield* sql.unsafe<LegacyV1Thread>(`SELECT ${V1_COLUMNS} FROM projection_threads`)).map(
-        (row) => [row.thread_id, row] as const,
-      ),
-    );
-    const goalProjects = new Map(
-      (yield* sql<{
-        goal_id: string;
-        project_id: string;
-      }>`SELECT goal_id, project_id FROM loom_goals`).map(
-        (row) => [row.goal_id, row.project_id] as const,
-      ),
-    );
-    const taskGoals = new Map(
-      (yield* sql<{
-        task_id: string;
-        goal_id: string;
-      }>`SELECT task_id, goal_id FROM loom_goal_tasks`).map(
-        (row) => [row.task_id, row.goal_id] as const,
-      ),
-    );
-    const takenGraphKeys = new Map(
-      (yield* sql<{
-        key: string;
-        thread_id: string;
-      }>`SELECT parent_thread_id || char(0) || graph_key AS key, thread_id
+  const threads = new Map(
+    (yield* sql.unsafe<LegacyV1Thread>(`SELECT ${V1_COLUMNS} FROM projection_threads`)).map(
+      (row) => [row.thread_id, row] as const,
+    ),
+  );
+  const goalProjects = new Map(
+    (yield* sql<{
+      goal_id: string;
+      project_id: string;
+    }>`SELECT goal_id, project_id FROM loom_goals`).map(
+      (row) => [row.goal_id, row.project_id] as const,
+    ),
+  );
+  const taskGoals = new Map(
+    (yield* sql<{
+      task_id: string;
+      goal_id: string;
+    }>`SELECT task_id, goal_id FROM loom_goal_tasks`).map(
+      (row) => [row.task_id, row.goal_id] as const,
+    ),
+  );
+  const takenGraphKeys = new Map(
+    (yield* sql<{
+      key: string;
+      thread_id: string;
+    }>`SELECT parent_thread_id || char(0) || graph_key AS key, thread_id
       FROM loom_thread_workstream WHERE parent_thread_id IS NOT NULL AND graph_key IS NOT NULL`).map(
-        (row) => [row.key, row.thread_id] as const,
-      ),
-    );
-    const ctx: LegacyMappingContext = {
-      threads,
-      goalProjects,
-      taskGoals,
-      takenGraphKeys,
-      briefsDir: loomPaths({ stateDir }).workstreamBriefsDir,
-      fileExists: NodeFS.existsSync,
-    };
-    const indexStarted = yield* Clock.currentTimeMillis;
-    if (!NodeFS.existsSync(sessionsRoot))
-      yield* Effect.logWarning("Loom V1 workstream import: the pi sessions root does not exist", {
-        sessionsRoot,
-      });
-    const sessions = indexPiSessions(sessionsRoot);
-    const indexMs = (yield* Clock.currentTimeMillis) - indexStarted;
-    const now = yield* DateTime.now;
-    const importedAt = DateTime.formatIso(now);
+      (row) => [row.key, row.thread_id] as const,
+    ),
+  );
+  const ctx: LegacyMappingContext = {
+    threads,
+    goalProjects,
+    taskGoals,
+    takenGraphKeys,
+    briefsDir: loomPaths({ stateDir }).workstreamBriefsDir,
+    fileExists: NodeFS.existsSync,
+  };
+  const indexStarted = yield* Clock.currentTimeMillis;
+  if (!NodeFS.existsSync(sessionsRoot))
+    yield* Effect.logWarning("Loom V1 workstream import: the pi sessions root does not exist", {
+      sessionsRoot,
+    });
+  const sessions = indexPiSessions(sessionsRoot);
+  const indexMs = (yield* Clock.currentTimeMillis) - indexStarted;
+  const now = yield* DateTime.now;
+  const importedAt = DateTime.formatIso(now);
 
-    const importThread = (row: LegacyV1Thread) =>
-      Effect.gen(function* () {
-        const threadId = ThreadId.make(row.thread_id);
-        const [message] = yield* sql<{ at: string | null }>`
+  const importThread = Effect.fn("LoomV1WorkstreamImporter.importThread")(function* (
+    row: LegacyV1Thread,
+  ) {
+    const threadId = ThreadId.make(row.thread_id);
+    const [message] = yield* sql<{ at: string | null }>`
         SELECT MIN(created_at) AS at FROM projection_thread_messages
         WHERE thread_id = ${threadId} AND role = 'user'`;
-        const mapping = mapLegacyThread(row, message?.at ?? null, ctx);
-        const [stored] = yield* sql<{ payload_json: string }>`
+    const mapping = mapLegacyThread(row, message?.at ?? null, ctx);
+    const [stored] = yield* sql<{ payload_json: string }>`
         SELECT payload_json FROM orchestration_v2_projection_threads WHERE thread_id = ${threadId}`;
-        const current = Option.getOrThrowWith(
-          decodeStoredThread(stored?.payload_json),
-          () => new Error(`no decodable V2 thread row for ${threadId}`),
-        );
+    const current = Option.getOrThrowWith(
+      decodeStoredThread(stored?.payload_json),
+      () => new Error(`no decodable V2 thread row for ${threadId}`),
+    );
 
-        let session: { status: LegacySessionStatus; path: string | null } = {
-          status: "deleted",
-          path: null,
-        };
-        if (row.deleted_at === null) {
-          const [bound] = yield* sql`
+    let session: { status: LegacySessionStatus; path: string | null } = {
+      status: "deleted",
+      path: null,
+    };
+    if (row.deleted_at === null) {
+      const [bound] = yield* sql`
           SELECT 1 FROM orchestration_v2_projection_provider_threads
           WHERE thread_id = ${threadId} AND driver = ${PI_PROVIDER}
             AND json_extract(payload_json, '$.nativeThreadRef.strength') = 'strong' LIMIT 1`;
-          const sessionId = piSessionIdForThread(threadId);
-          const path = sessions.get(sessionId);
-          session =
-            bound !== undefined
-              ? { status: "already-bound", path: null }
-              : path === undefined
-                ? {
-                    status: current.providerInstanceId === PI_INSTANCE_ID ? "missing" : "not-pi",
-                    path: null,
-                  }
-                : readSessionHeaderId(path) === sessionId
-                  ? { status: "bound", path }
-                  : { status: "corrupt", path: null };
-        }
-        const providerFix =
-          session.status === "bound" && current.providerInstanceId !== PI_INSTANCE_ID
+      const sessionId = piSessionIdForThread(threadId);
+      const path = sessions.get(sessionId);
+      session =
+        bound !== undefined
+          ? { status: "already-bound", path: null }
+          : path === undefined
             ? {
-                providerInstanceId: PI_INSTANCE_ID,
-                modelSelection: piModelSelection(row.model_selection_json),
+                status: current.providerInstanceId === PI_INSTANCE_ID ? "missing" : "not-pi",
+                path: null,
               }
-            : undefined;
-        const wantsLineage =
-          mapping.parentThreadId !== null && current.lineage.relationshipToParent !== "subagent";
-        const warnings = [
-          ...mapping.warnings,
-          ...(providerFix ? [`provider fixed from ${current.providerInstanceId}`] : []),
-        ];
-
-        const written = yield* sql.withTransaction(
-          Effect.gen(function* () {
-            const sidecarWritten =
-              mapping.sidecar !== null && (yield* readWorkstream(sql, threadId)) === null;
-            if (sidecarWritten) {
-              if (mapping.briefFile !== null) {
-                NodeFS.mkdirSync(NodePath.dirname(mapping.briefFile.path), { recursive: true });
-                NodeFS.writeFileSync(mapping.briefFile.path, mapping.briefFile.text);
-              }
-              yield* writeWorkstream(sql, mapping.sidecar!);
-            }
-            if (wantsLineage || providerFix !== undefined) {
-              yield* eventSink.write({
-                events: [
-                  {
-                    id: EventId.make(
-                      `loom-import:v1:thread:${threadId}:re-emit:${yield* randomUuidV4}`,
-                    ),
-                    type: "thread.metadata-updated",
-                    threadId,
-                    providerInstanceId:
-                      providerFix?.providerInstanceId ?? current.providerInstanceId,
-                    occurredAt: now,
-                    payload: {
-                      ...current,
-                      ...(wantsLineage
-                        ? {
-                            lineage: {
-                              parentThreadId: mapping.parentThreadId,
-                              relationshipToParent: "subagent" as const,
-                              rootThreadId: mapping.rootThreadId,
-                            },
-                          }
-                        : {}),
-                      ...providerFix,
-                    },
-                  },
-                ],
-              });
-            }
-            if (session.status === "bound") {
-              yield* eventSink.write({
-                events: [
-                  {
-                    id: EventId.make(`loom-import:v1:provider-thread:${threadId}`),
-                    type: "provider-thread.updated",
-                    threadId,
-                    driver: PI_PROVIDER,
-                    providerInstanceId: PI_INSTANCE_ID,
-                    occurredAt: now,
-                    payload: {
-                      id: deriveProviderThread({
-                        driver: PI_PROVIDER,
-                        nativeThreadId: session.path!,
-                      }),
-                      driver: PI_PROVIDER,
-                      providerInstanceId: PI_INSTANCE_ID,
-                      providerSessionId: null,
-                      appThreadId: threadId,
-                      ownerNodeId: null,
-                      nativeThreadRef: {
-                        driver: PI_PROVIDER,
-                        nativeId: session.path!,
-                        strength: "strong",
-                      },
-                      nativeConversationHeadRef: null,
-                      status: "idle",
-                      firstRunOrdinal: null,
-                      lastRunOrdinal: null,
-                      handoffIds: [],
-                      forkedFrom: null,
-                      pendingBackgroundTasks: [],
-                      contextUsage: null,
-                      nativeMetadata: null,
-                      createdAt: current.createdAt,
-                      updatedAt: current.updatedAt,
-                    },
-                  },
-                ],
-              });
-            }
-            yield* sql`INSERT INTO loom_legacy_imports ${sql.insert({
-              thread_id: threadId,
-              imported_at: importedAt,
-              status: mapping.status,
-              sidecar_written: sidecarWritten ? 1 : 0,
-              lineage_reemitted: wantsLineage ? 1 : 0,
-              session_status: session.status,
-              session_path: session.path,
-              warnings_json: encodeWarnings(warnings),
-            })}`;
-            return sidecarWritten;
-          }),
-        );
-        if (written && mapping.sidecar !== null && mapping.sidecar.graphKey !== null)
-          takenGraphKeys.set(
-            `${mapping.sidecar.parentThreadId}\u0000${mapping.sidecar.graphKey}`,
-            threadId,
-          );
-        counts.sidecars += written ? 1 : 0;
-        counts.lineageReemits += wantsLineage ? 1 : 0;
-        counts.providerFixes += providerFix ? 1 : 0;
-        counts[SESSION_COUNT[session.status]] += 1;
-      });
-
-    for (const row of pending) {
-      yield* importThread(row).pipe(
-        Effect.catchCause((cause) => {
-          counts.failed += 1;
-          return Effect.logWarning("Loom V1 workstream import failed for a thread; skipped", {
-            threadId: row.thread_id,
-            cause,
-          });
-        }),
-      );
+            : readSessionHeaderId(path) === sessionId
+              ? { status: "bound", path }
+              : { status: "corrupt", path: null };
     }
-    yield* Effect.logInfo("Loom V1 workstream import", {
-      sessionsRoot,
-      indexedSessionFiles: sessions.size,
-      indexMs,
-      ...counts,
-    });
+    const providerFix =
+      session.status === "bound" && current.providerInstanceId !== PI_INSTANCE_ID
+        ? {
+            providerInstanceId: PI_INSTANCE_ID,
+            modelSelection: piModelSelection(row.model_selection_json),
+          }
+        : undefined;
+    const wantsLineage =
+      mapping.parentThreadId !== null && current.lineage.relationshipToParent !== "subagent";
+    const warnings = [
+      ...mapping.warnings,
+      ...(providerFix ? [`provider fixed from ${current.providerInstanceId}`] : []),
+    ];
+
+    const written = yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const sidecarWritten =
+          mapping.sidecar !== null && (yield* readWorkstream(sql, threadId)) === null;
+        if (sidecarWritten) {
+          if (mapping.briefFile !== null) {
+            NodeFS.mkdirSync(NodePath.dirname(mapping.briefFile.path), { recursive: true });
+            NodeFS.writeFileSync(mapping.briefFile.path, mapping.briefFile.text);
+          }
+          yield* writeWorkstream(sql, mapping.sidecar!);
+        }
+        if (wantsLineage || providerFix !== undefined) {
+          yield* eventSink.write({
+            events: [
+              {
+                id: EventId.make(
+                  `loom-import:v1:thread:${threadId}:re-emit:${yield* randomUuidV4}`,
+                ),
+                type: "thread.metadata-updated",
+                threadId,
+                providerInstanceId: providerFix?.providerInstanceId ?? current.providerInstanceId,
+                occurredAt: now,
+                payload: {
+                  ...current,
+                  ...(wantsLineage
+                    ? {
+                        lineage: {
+                          parentThreadId: mapping.parentThreadId,
+                          relationshipToParent: "subagent" as const,
+                          rootThreadId: mapping.rootThreadId,
+                        },
+                      }
+                    : {}),
+                  ...providerFix,
+                },
+              },
+            ],
+          });
+        }
+        if (session.status === "bound") {
+          yield* eventSink.write({
+            events: [
+              {
+                id: EventId.make(`loom-import:v1:provider-thread:${threadId}`),
+                type: "provider-thread.updated",
+                threadId,
+                driver: PI_PROVIDER,
+                providerInstanceId: PI_INSTANCE_ID,
+                occurredAt: now,
+                payload: {
+                  id: deriveProviderThread({
+                    driver: PI_PROVIDER,
+                    nativeThreadId: session.path!,
+                  }),
+                  driver: PI_PROVIDER,
+                  providerInstanceId: PI_INSTANCE_ID,
+                  providerSessionId: null,
+                  appThreadId: threadId,
+                  ownerNodeId: null,
+                  nativeThreadRef: {
+                    driver: PI_PROVIDER,
+                    nativeId: session.path!,
+                    strength: "strong",
+                  },
+                  nativeConversationHeadRef: null,
+                  status: "idle",
+                  firstRunOrdinal: null,
+                  lastRunOrdinal: null,
+                  handoffIds: [],
+                  forkedFrom: null,
+                  pendingBackgroundTasks: [],
+                  contextUsage: null,
+                  nativeMetadata: null,
+                  createdAt: current.createdAt,
+                  updatedAt: current.updatedAt,
+                },
+              },
+            ],
+          });
+        }
+        yield* sql`INSERT INTO loom_legacy_imports ${sql.insert({
+          thread_id: threadId,
+          imported_at: importedAt,
+          status: mapping.status,
+          sidecar_written: sidecarWritten ? 1 : 0,
+          lineage_reemitted: wantsLineage ? 1 : 0,
+          session_status: session.status,
+          session_path: session.path,
+          warnings_json: encodeWarnings(warnings),
+        })}`;
+        return sidecarWritten;
+      }),
+    );
+    if (written && mapping.sidecar !== null && mapping.sidecar.graphKey !== null)
+      takenGraphKeys.set(
+        `${mapping.sidecar.parentThreadId}\u0000${mapping.sidecar.graphKey}`,
+        threadId,
+      );
+    counts.sidecars += written ? 1 : 0;
+    counts.lineageReemits += wantsLineage ? 1 : 0;
+    counts.providerFixes += providerFix ? 1 : 0;
+    counts[SESSION_COUNT[session.status]] += 1;
   });
+
+  for (const row of pending) {
+    yield* importThread(row).pipe(
+      Effect.catchCause((cause) => {
+        counts.failed += 1;
+        return Effect.logWarning("Loom V1 workstream import failed for a thread; skipped", {
+          threadId: row.thread_id,
+          cause,
+        });
+      }),
+    );
+  }
+  yield* Effect.logInfo("Loom V1 workstream import", {
+    sessionsRoot,
+    indexedSessionFiles: sessions.size,
+    indexMs,
+    ...counts,
+  });
+});
 
 export class LoomV1WorkstreamImporter extends Context.Service<
   LoomV1WorkstreamImporter,

@@ -352,8 +352,8 @@ const sendAttentionNotice = Effect.fn("loom.dispatcher.attentionNotice")(functio
             child,
             report,
             wedgedSince === undefined
-              ? `Needs attention — \`${reason}\``
-              : "Wedged — reads busy but silent",
+              ? `Needs attention: \`${reason}\``
+              : "Wedged: reads busy but silent",
             reason,
           ),
           ...piggyback.items,

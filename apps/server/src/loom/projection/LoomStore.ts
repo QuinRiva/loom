@@ -508,16 +508,14 @@ const make = Effect.gen(function* () {
   const touchGoal = (goalId: GoalId, at: string) =>
     sql`UPDATE loom_goals SET updated_at = ${at} WHERE goal_id = ${goalId}`;
 
-  const setGoalState = (
-    operation: string,
-    goalId: GoalId,
-    assignments: (at: string) => Statement.Fragment,
-  ) =>
-    Effect.gen(function* () {
+  const setGoalState = Effect.fn("LoomStore.setGoalState")(
+    function* (operation: string, goalId: GoalId, assignments: (at: string) => Statement.Fragment) {
       const at = yield* now;
       yield* sql`UPDATE loom_goals SET ${assignments(at)}, updated_at = ${at} WHERE goal_id = ${goalId}`;
       return yield* getGoal(goalId);
-    }).pipe(sql.withTransaction, run(operation));
+    },
+    (effect, operation, goalId, assignments) => effect.pipe(sql.withTransaction, run(operation)),
+  );
 
   const upsertTaskRow = (goalId: GoalId, task: LoomGoalTaskInput, at: string) =>
     sql`INSERT INTO loom_goal_tasks ${sql.insert({
@@ -714,8 +712,8 @@ const make = Effect.gen(function* () {
             options?.includeDeleted ? "1 = 1" : "deleted_at IS NULL",
           ]),
         ).pipe(Effect.flatMap(Effect.forEach(withTasks)), run("goals.listByProject")),
-      upsert: (goal) =>
-        Effect.gen(function* () {
+      upsert: Effect.fn("LoomStore.service.goals.upsert")(
+        function* (goal) {
           const at = yield* now;
           yield* sql`INSERT INTO loom_goals ${sql.insert({
             goal_id: goal.id,
@@ -731,11 +729,14 @@ const make = Effect.gen(function* () {
           ON CONFLICT (goal_id) DO UPDATE SET slug = excluded.slug, title = excluded.title,
             description = excluded.description, updated_at = excluded.updated_at`;
           return (yield* getGoal(goal.id))!;
-        }).pipe(sql.withTransaction, run("goals.upsert")),
+        },
+        sql.withTransaction,
+        run("goals.upsert"),
+      ),
       softDelete: (goalId) =>
         setGoalState("goals.softDelete", goalId, (at) => sql`deleted_at = ${at}`),
-      softDeleteByProject: (projectId) =>
-        Effect.gen(function* () {
+      softDeleteByProject: Effect.fn("LoomStore.service.goals.softDeleteByProject")(
+        function* (projectId) {
           const at = yield* now;
           const live = yield* selectGoals(sql`project_id = ${projectId} AND deleted_at IS NULL`);
           yield* sql`UPDATE loom_goals SET deleted_at = ${at}, updated_at = ${at}
@@ -743,13 +744,16 @@ const make = Effect.gen(function* () {
           return yield* Effect.forEach(live, (row) =>
             withTasks({ ...row, deletedAt: at, updatedAt: at }),
           );
-        }).pipe(sql.withTransaction, run("goals.softDeleteByProject")),
+        },
+        sql.withTransaction,
+        run("goals.softDeleteByProject"),
+      ),
     },
     tasks: {
       listByGoal: (goalId) => listTasks(goalId).pipe(run("tasks.listByGoal")),
       listDeleted: (goalId) => selectTasks(goalId, true).pipe(run("tasks.listDeleted")),
-      replaceTree: (goalId, entries) =>
-        Effect.gen(function* () {
+      replaceTree: Effect.fn("LoomStore.service.tasks.replaceTree")(
+        function* (goalId, entries) {
           const at = yield* now;
           yield* Effect.forEach(entries, (entry) => upsertTaskRow(goalId, entry, at), {
             discard: true,
@@ -763,16 +767,22 @@ const make = Effect.gen(function* () {
             ])}`;
           yield* touchGoal(goalId, at);
           return yield* listTasks(goalId);
-        }).pipe(sql.withTransaction, run("tasks.replaceTree")),
-      upsert: (task) =>
-        Effect.gen(function* () {
+        },
+        sql.withTransaction,
+        run("tasks.replaceTree"),
+      ),
+      upsert: Effect.fn("LoomStore.service.tasks.upsert")(
+        function* (task) {
           const at = yield* now;
           yield* upsertTaskRow(task.goalId, task, at);
           yield* touchGoal(task.goalId, at);
           return yield* listTasks(task.goalId);
-        }).pipe(sql.withTransaction, run("tasks.upsert")),
-      markDeleted: (goalId, taskId) =>
-        Effect.gen(function* () {
+        },
+        sql.withTransaction,
+        run("tasks.upsert"),
+      ),
+      markDeleted: Effect.fn("LoomStore.service.tasks.markDeleted")(
+        function* (goalId, taskId) {
           const at = yield* now;
           yield* sql`
             WITH RECURSIVE subtree(task_id) AS (
@@ -785,42 +795,44 @@ const make = Effect.gen(function* () {
               AND task_id IN (SELECT task_id FROM subtree)`;
           yield* touchGoal(goalId, at);
           return yield* listTasks(goalId);
-        }).pipe(sql.withTransaction, run("tasks.markDeleted")),
+        },
+        sql.withTransaction,
+        run("tasks.markDeleted"),
+      ),
     },
-    shellFields: (threadIds) =>
-      Effect.gen(function* () {
-        if (threadIds.length === 0) return new Map<ThreadId, LoomThreadShellFields>();
-        const rows = yield* selectWorkstreams(sql, sql`w.thread_id IN ${sql.in(threadIds)}`);
-        if (rows.length === 0) return new Map<ThreadId, LoomThreadShellFields>();
-        const rowIds = rows.map((row) => row.threadId);
-        const consults = Map.groupBy(yield* consultSummaries(rowIds), (row) => row.askerThreadId);
-        const peerMessages = Map.groupBy(
-          yield* peerMessageSummaries(rowIds),
-          (row) => row.senderThreadId,
-        );
-        const stats = yield* threadStats(rowIds);
-        return new Map(
-          rows.map((row) => {
-            const stat = stats.get(row.threadId);
-            return [
-              row.threadId,
-              {
-                ...Struct.omit(row, SHELL_OMITTED),
-                consults: (consults.get(row.threadId) ?? []).map((summary) =>
-                  Struct.omit(summary, ["askerThreadId"]),
-                ),
-                peerMessages: (peerMessages.get(row.threadId) ?? []).map((summary) =>
-                  Struct.omit(summary, ["senderThreadId"]),
-                ),
-                toolCalls: stat?.toolCalls ?? 0,
-                contextUsage: stat?.contextUsage ?? null,
-                activeStep: activeStepOf(stat),
-                ...(stat?.cache ? { cache: stat.cache } : {}),
-              },
-            ] as const;
-          }),
-        );
-      }).pipe(run("shellFields")),
+    shellFields: Effect.fn("LoomStore.service.shellFields")(function* (threadIds) {
+      if (threadIds.length === 0) return new Map<ThreadId, LoomThreadShellFields>();
+      const rows = yield* selectWorkstreams(sql, sql`w.thread_id IN ${sql.in(threadIds)}`);
+      if (rows.length === 0) return new Map<ThreadId, LoomThreadShellFields>();
+      const rowIds = rows.map((row) => row.threadId);
+      const consults = Map.groupBy(yield* consultSummaries(rowIds), (row) => row.askerThreadId);
+      const peerMessages = Map.groupBy(
+        yield* peerMessageSummaries(rowIds),
+        (row) => row.senderThreadId,
+      );
+      const stats = yield* threadStats(rowIds);
+      return new Map(
+        rows.map((row) => {
+          const stat = stats.get(row.threadId);
+          return [
+            row.threadId,
+            {
+              ...Struct.omit(row, SHELL_OMITTED),
+              consults: (consults.get(row.threadId) ?? []).map((summary) =>
+                Struct.omit(summary, ["askerThreadId"]),
+              ),
+              peerMessages: (peerMessages.get(row.threadId) ?? []).map((summary) =>
+                Struct.omit(summary, ["senderThreadId"]),
+              ),
+              toolCalls: stat?.toolCalls ?? 0,
+              contextUsage: stat?.contextUsage ?? null,
+              activeStep: activeStepOf(stat),
+              ...(stat?.cache ? { cache: stat.cache } : {}),
+            },
+          ] as const;
+        }),
+      );
+    }, run("shellFields")),
     history: (threadId) =>
       sql`SELECT event_id AS "eventId", event_type AS "type", occurred_at AS "at",
             payload_json AS "payload"

@@ -138,12 +138,12 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
     new LoomWsMethodError({ method, message, ...(cause === undefined ? {} : { cause }) });
 
   /** Load the live goal, apply `write`, publish the result, answer it. */
-  const goalWrite = (
-    method: string,
-    goalId: GoalId,
-    write: (goal: LoomGoal) => Effect.Effect<unknown, LoomStoreError | LoomWsMethodError>,
-  ) =>
-    Effect.gen(function* () {
+  const goalWrite = Effect.fn("wsMethods.goalWrite")(
+    function* (
+      method: string,
+      goalId: GoalId,
+      write: (goal: LoomGoal) => Effect.Effect<unknown, LoomStoreError | LoomWsMethodError>,
+    ) {
       const current = yield* loomStore.goals.get(goalId);
       if (current === null || current.deletedAt !== null) {
         return yield* fail(method, `Goal ${goalId} was not found.`);
@@ -152,11 +152,14 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
       const goal = (yield* loomStore.goals.get(goalId))!;
       yield* broadcast.publish(goalShellItem(goal));
       return { goal: Struct.omit(goal, ["deletedAt"]) };
-    }).pipe(
-      Effect.catchTags({
-        LoomStoreError: (cause) => Effect.fail(fail(method, `${method} failed.`, cause)),
-      }),
-    );
+    },
+    (effect, method, goalId, write) =>
+      effect.pipe(
+        Effect.catchTags({
+          LoomStoreError: (cause) => Effect.fail(fail(method, `${method} failed.`, cause)),
+        }),
+      ),
+  );
 
   const reviewRead =
     (method: string) =>
@@ -235,17 +238,18 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
     [LOOM_WS_METHODS.consultCancel]: (input: LoomConsultCancelInput) =>
       consult.cancel(input.consultId).pipe(Effect.map((stopped) => ({ stopped }))),
     // The Prompt button: each captured-prompt path, or null while that file is absent.
-    [LOOM_WS_METHODS.promptCapture]: (input: LoomPromptCaptureInput) =>
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const { latest, first } = promptCapturePathsOf(yield* ServerConfig, input.threadId);
-        const present = (path: string) =>
-          fileSystem.exists(path).pipe(
-            Effect.orElseSucceed(() => false),
-            Effect.map((exists) => (exists ? path : null)),
-          );
-        return { latest: yield* present(latest), first: yield* present(first) };
-      }),
+    [LOOM_WS_METHODS.promptCapture]: Effect.fn("wsMethods.promptCapture")(function* (
+      input: LoomPromptCaptureInput,
+    ) {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const { latest, first } = promptCapturePathsOf(yield* ServerConfig, input.threadId);
+      const present = (path: string) =>
+        fileSystem.exists(path).pipe(
+          Effect.orElseSucceed(() => false),
+          Effect.map((exists) => (exists ? path : null)),
+        );
+      return { latest: yield* present(latest), first: yield* present(first) };
+    }),
     // Thread search opens an archived root, which the shell stream does not carry.
     [LOOM_WS_METHODS.threadShell]: (input: LoomThreadShellInput) =>
       orchestrator.getThreadShell(input.threadId).pipe(

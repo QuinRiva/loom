@@ -518,7 +518,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         const after = yield* composer.compose(moved);
         assert.equal(
           after.appendSystemPrompt,
-          `${before.appendSystemPrompt}\n\nYour work here previously happened in a different working directory; you are now in \`${elsewhere}\`. The files you see are this tree's CURRENT state, which may have moved on since you last ran, and any absolute paths you remember are historical — re-verify before reading or editing.`,
+          `${before.appendSystemPrompt}\n\nYour work here previously happened in a different working directory; you are now in \`${elsewhere}\`. The files you see are this tree's CURRENT state, which may have moved on since you last ran, and any absolute paths you remember are historical; re-verify before reading or editing.`,
         );
         assert.notInclude(
           (yield* composer.compose(stayed)).appendSystemPrompt,

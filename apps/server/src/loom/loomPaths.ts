@@ -40,13 +40,14 @@ export const promptCapturePathsOf = (
 };
 
 /** Creates every Loom directory (idempotent); later sessions call it from their layers. */
-export const ensureLoomDirectories = (config: Pick<ServerDerivedPaths, "stateDir">) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    yield* Effect.forEach(
-      Object.values(loomPaths(config)),
-      (directory) => fileSystem.makeDirectory(directory, { recursive: true }),
-      { discard: true },
-    );
-    return loomPaths(config);
-  });
+export const ensureLoomDirectories = Effect.fn("loomPaths.ensureLoomDirectories")(function* (
+  config: Pick<ServerDerivedPaths, "stateDir">,
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  yield* Effect.forEach(
+    Object.values(loomPaths(config)),
+    (directory) => fileSystem.makeDirectory(directory, { recursive: true }),
+    { discard: true },
+  );
+  return loomPaths(config);
+});

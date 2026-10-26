@@ -31,7 +31,7 @@ import type { LoomExtensionPart } from "../loomExtension.ts";
 const NOTE = "[t3 command guard]";
 const BLOCKED = "Blocked by the t3 command guard:";
 
-const KILL_MESSAGE = `${BLOCKED} killing by pattern (\`pkill\`, or \`pgrep\` output fed to \`kill\`) can kill another thread's process on this shared machine — several agents run dev servers and jobs with the same names and paths. Kill only a PID you captured at spawn (\`pid=$!\`), or the owner of your port from \`ss -H -ltnp\` after checking \`/proc/<pid>/cwd\`. If you must find it by name, list candidates with \`pgrep -af <pattern>\`, check each \`/proc/<pid>/cwd\` is your worktree, then \`kill <pid>\`.`;
+const KILL_MESSAGE = `${BLOCKED} killing by pattern (\`pkill\`, or \`pgrep\` output fed to \`kill\`) can kill another thread's process on this shared machine: several agents run dev servers and jobs with the same names and paths. Kill only a PID you captured at spawn (\`pid=$!\`), or the owner of your port from \`ss -H -ltnp\` after checking \`/proc/<pid>/cwd\`. If you must find it by name, list candidates with \`pgrep -af <pattern>\`, check each \`/proc/<pid>/cwd\` is your worktree, then \`kill <pid>\`.`;
 
 const GROUP_KILL_MESSAGE = `${BLOCKED} this signals a whole process group. A bg_start job runs in pi's own process group so that it dies with pi, so signalling that group kills pi as well and ends your turn with a provider error. To stop a job and the processes it started, signal its children and then the job: \`pkill -TERM -P <pid>; kill <pid>\`. If the group is one you created yourself (with \`setsid\`), look up its number first and pass it as a literal (\`kill -TERM -- -<pgid>\`): the guard lets a literal group through when it is not pi's.`;
 

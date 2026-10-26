@@ -5936,7 +5936,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ORDER BY secret.updated_at DESC, secret.turn_item_id DESC
                 LIMIT 1
               ) AS pending_secret_request_payload_json,
-              -- loom: S4 — the pending question's first header. Driven by the thread's pending
+              -- loom: S4: the pending question's first header. Driven by the thread's pending
               -- request, so threads with none never touch turn items.
               (
                 SELECT json_extract(question.payload_json, '$.questions[0].header')

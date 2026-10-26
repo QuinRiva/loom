@@ -53,7 +53,7 @@ export const LOOM_TOOL_PROSE = {
     description:
       "Raise an attention flag that holds this thread, or a child you spawned, for a human; make it your turn's last act, since completing clears it. 'awaiting_acceptance': a human (or your parent, holding the human's decision) must accept this thread's output before it can be done. 'needs_guidance': you cannot proceed without a human, including when what you need is answers. To hand back a report while the flag stands, submit with a short non-'done' outcome. A child consults its parent first (mcp__t3-code__consult_thread); usually no human reads a child thread. Write the report for someone who has read none of this thread.",
     promptSnippet:
-      "raise a hold for a human — 'awaiting_acceptance' (your output needs sign-off before it may be done) or 'needs_guidance' (you're stuck, or you need answers); the raise ends your turn, so don't complete yourself in the same turn.",
+      "raise a hold for a human: 'awaiting_acceptance' (your output needs sign-off before it may be done) or 'needs_guidance' (you're stuck, or you need answers); the raise ends your turn, so don't complete yourself in the same turn.",
     promptGuidelines: "",
   },
   workstream_stop: {
@@ -67,7 +67,7 @@ export const LOOM_TOOL_PROSE = {
     description:
       "Send a markdown message to a direct child you spawned, as its parent. It starts or steers the child's next turn; a child that has not launched yet reads it as part of its brief. A steer reaches a child waiting in bg_wait at once but waits out any other tool call in progress, so mcp__t3-code__workstream_stop a child stuck in one first. Prompting a child that holds an attention flag clears the hold when its turn starts: do it only when you hold what the child is waiting for. Reopen a finished child (mcp__t3-code__workstream_set_outcome 'none') before prompting it.",
     promptSnippet:
-      "send a message to a direct child, labelled to it as its parent's: resumes an idle child or steers a busy one, and clears a hold the child raised (a steer won't penetrate a hung tool call — stop first, then prompt).",
+      "send a message to a direct child, labelled to it as its parent's: resumes an idle child or steers a busy one, and clears a hold the child raised (a steer won't penetrate a hung tool call: stop first, then prompt).",
     promptGuidelines: "",
   },
   workstream_set_dependencies: {
@@ -136,7 +136,7 @@ export const LOOM_TOOL_PROSE = {
     description:
       "Read this thread's goal task tree. The tree in your prompt is a snapshot from your spawn, so read this before a rewrite or when a child may have changed it. Anchored, you get your branch in full, the exact checklist a branch rewrite takes, under the read-only spine it hangs from; scope 'tree' is the whole goal, which an unanchored thread always gets.",
     promptSnippet:
-      "read this thread's active goal's task tree — your own branch by default, scope \"tree\" for the whole goal; mutates nothing.",
+      "read this thread's active goal's task tree: your own branch by default, scope \"tree\" for the whole goal; mutates nothing.",
     promptGuidelines: "",
   },
   goal_task_add: {
@@ -156,7 +156,7 @@ export const LOOM_TOOL_PROSE = {
     description:
       "Replace what you own in this thread's goal task tree with a markdown checklist: restructure, re-nest, reorder, merge, rename, tick and prune in one call. The goal's owner submits the whole tree; an anchored thread submits exactly its branch, one top-level line carrying its anchor's id plus everything beneath it, and the rest of the goal is untouched; a child with no anchor is refused and instead appends with mcp__t3-code__goal_task_add and ticks with mcp__t3-code__goal_task_update. Rewrite from a fresh mcp__t3-code__goal_task_list read at that scope, since anything added since your last read and left out is lost.",
     promptSnippet:
-      "replace the tree you own — the whole goal, or your own branch when you are anchored — with an edited markdown checklist (the mcp__t3-code__goal_task_list form); one call restructures, re-nests, renames, done-marks and prunes.",
+      "replace the tree you own (the whole goal, or your own branch when you are anchored) with an edited markdown checklist (the mcp__t3-code__goal_task_list form); one call restructures, re-nests, renames, done-marks and prunes.",
     promptGuidelines: "",
   },
   goal_handoff: {

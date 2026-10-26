@@ -433,7 +433,7 @@ describe("prompt-debug part", () => {
     expect(written).toContain("SYSTEM ~~~~ PROMPT");
     // The declared tools array: name, description and every parameter description, counted.
     expect(written).toContain(
-      "### `mcp__t3-code__workstream_stop` — 6 description + 6 parameter words",
+      "### `mcp__t3-code__workstream_stop`: 6 description + 6 parameter words",
     );
     expect(written).toContain("- `threadId`: The direct child's id.");
     expect(written).toContain("- `nodes.[].key`: Symbolic key.");

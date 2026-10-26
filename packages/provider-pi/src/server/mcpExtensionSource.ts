@@ -15,7 +15,7 @@ export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
 
 export const PI_T3_MCP_EXTENSION_SOURCE = `\
 import { stripFrontmatter, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-// loom: node:http for post() — see there
+// loom: node:http for post(); see there
 import { request as httpRequest } from "node:http";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";

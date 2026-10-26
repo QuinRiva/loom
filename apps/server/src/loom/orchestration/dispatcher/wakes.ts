@@ -25,7 +25,7 @@ import { reportResponse } from "../../workstream/report.ts";
  * without it a parent cannot tell an automated notice from a human message.
  */
 export const WORKSTREAM_CONTROL_PLANE_MARKER =
-  "[T3 Workstream control plane — automated notice, not from the human]";
+  "[T3 Workstream control plane: automated notice, not from the human]";
 
 /** The board column a sidecar row sits in; V1's plan lane, derived (contract docstring on `LoomThreadWorkstream`). */
 export type WorkstreamLane = "held" | "blocked" | "ready" | "in_progress" | LoomOutcome;
@@ -55,7 +55,7 @@ export const formatReportExcerpt = (report: string | null): string => {
   const response = responseOf(report);
   if (response === undefined) return "";
   return response.truncated
-    ? `\n\n${response.text}\n\n_[excerpt truncated — read the full report via the reference above]_`
+    ? `\n\n${response.text}\n\n_[excerpt truncated: read the full report via the reference above]_`
     : `\n\n${response.text}`;
 };
 
@@ -233,17 +233,17 @@ const roundsClause = (member: WakeMember): string => {
 export const renderWakePair = (pair: WakePair): string => {
   const { source, target } = pair;
   const verdict = source.lastOutcome?.outcome ?? "resolved";
-  const header = `### ✅ Gate resolved \`${verdict}\` — ${source.role ?? "reviewer"} \`${source.id}\` + ${target.role ?? "coder"} \`${target.id}\`${roundsClause(source)}`;
+  const header = `### ✅ Gate resolved \`${verdict}\`: ${source.role ?? "reviewer"} \`${source.id}\` + ${target.role ?? "coder"} \`${target.id}\`${roundsClause(source)}`;
   const meta = [timestampLine(source), releasedClause(source)]
     .filter((part) => part !== "")
     .join(" · ");
   const sourceRef =
     source.reportPath !== null
-      ? `Verdict report: \`${source.reportPath}\` — excerpt:${formatReportExcerpt(source.report)}`
+      ? `Verdict report: \`${source.reportPath}\`, excerpt:${formatReportExcerpt(source.report)}`
       : "_No verdict report was filed._";
   const targetRef =
     target.reportPath !== null
-      ? `${target.role ?? "coder"} round report: \`${target.reportPath}\` (reference only — verified by the gate).`
+      ? `${target.role ?? "coder"} round report: \`${target.reportPath}\` (reference only; verified by the gate).`
       : `_No ${target.role ?? "coder"} round report was filed._`;
   return [header, meta, "", sourceRef, "", targetRef].filter((part) => part !== "").join("\n");
 };
@@ -259,17 +259,17 @@ export const renderWakeSingle = (member: WakeMember): string => {
     .join(" · ");
   if (isResolvedSource(member)) {
     const verdict = member.lastOutcome?.outcome ?? "resolved";
-    const header = `### ✅ Gate resolved \`${verdict}\` — ${member.role ?? "reviewer"} \`${member.id}\`${roundsClause(member)}`;
+    const header = `### ✅ Gate resolved \`${verdict}\`: ${member.role ?? "reviewer"} \`${member.id}\`${roundsClause(member)}`;
     const reference =
       member.reportPath !== null
-        ? `Verdict report: \`${member.reportPath}\` — excerpt:${formatReportExcerpt(member.report)}`
+        ? `Verdict report: \`${member.reportPath}\`, excerpt:${formatReportExcerpt(member.report)}`
         : "_No verdict report was filed._";
     return [header, meta, "", reference].filter((part) => part !== "").join("\n");
   }
   const flags = member.attention.length > 0 ? ` (attention: ${member.attention.join(", ")})` : "";
   // An unreviewed completion is marked ☑️ so the closing can point at "the usual first look".
   const marker = member.outcome === "done" ? "☑️ " : "";
-  const header = `### ${marker}${member.role ?? "sub-thread"} \`${member.id}\` — ${member.outcome}${flags}`;
+  const header = `### ${marker}${member.role ?? "sub-thread"} \`${member.id}\`: ${member.outcome}${flags}`;
   const reference =
     member.reportPath !== null
       ? `Report reference: \`${member.reportPath}\` (read the full report on demand)`
@@ -359,7 +359,7 @@ export const slowToolEstimateClause = (input: {
   const capMinutes = Math.round(SLOW_TOOL_ESTIMATE_CAP_MS / 60_000);
   return input.inFlightMs >= input.estimateMs
     ? `child estimated ~${estimateMinutes} min, now overrun`
-    : `child estimated ~${estimateMinutes} min, not yet reached — the honoured estimate was capped at the ${capMinutes}-min safety ceiling`;
+    : `child estimated ~${estimateMinutes} min, not yet reached; the honoured estimate was capped at the ${capMinutes}-min safety ceiling`;
 };
 
 // Per-child notices (the attention rail's). V1's `idle` ("forgot to finish") is
@@ -391,8 +391,8 @@ export const buildChildWakeMessage = (
     kind === "error"
       ? `Your Workstream sub-thread ${who} raised an \`error\` attention flag (the liveness sweep detected it dead, stalled, looping, or repeatedly failing) and did not report success.`
       : wedgedSince !== undefined
-        ? `Your Workstream sub-thread ${who} looks wedged: it reads busy (it is still \`${child.lane}\`) yet has shown no activity since ${formatWakeTimestamp(wedgedSince)}, while control-plane notices wait on it undelivered. The control plane flagged it \`needs_guidance\` for that reason — neither a human nor the child raised it. It has NOT finished, and it is not working.`
-        : `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) ${flags} and is not executing, while it is still \`${child.lane}\`. It has NOT finished — this is a pause notice, not a result.`;
+        ? `Your Workstream sub-thread ${who} looks wedged: it reads busy (it is still \`${child.lane}\`) yet has shown no activity since ${formatWakeTimestamp(wedgedSince)}, while control-plane notices wait on it undelivered. The control plane flagged it \`needs_guidance\` for that reason; neither a human nor the child raised it. It has NOT finished, and it is not working.`
+        : `Your Workstream sub-thread ${who} is paused and needs attention: it carries the attention flag(s) ${flags} and is not executing, while it is still \`${child.lane}\`. It has NOT finished; this is a pause notice, not a result.`;
   const reference =
     child.reportPath !== null
       ? `Report reference: \`${child.reportPath}\` (read the full report on demand).`
@@ -401,8 +401,8 @@ export const buildChildWakeMessage = (
     kind === "error"
       ? "Investigate via its report above (or `mcp__t3-code__consult_thread` for a read-only Q&A), then either set its outcome (`mcp__t3-code__workstream_set_outcome` done/cancelled) or re-dispatch it (`mcp__t3-code__workstream_prompt`). Its dependents stay gated until it reaches `done`; nothing was auto-cascaded."
       : wedgedSince !== undefined
-        ? "Do not wait on it or treat its work as complete. A `mcp__t3-code__workstream_prompt` alone only queues behind the stuck turn. Close that turn with `mcp__t3-code__workstream_stop`, then `mcp__t3-code__workstream_prompt` it to resume — the prompt's turn also clears the flag. If the stop does not free it (it reports nothing was stopped, or the child stays silent after your prompt), cancel it (`mcp__t3-code__workstream_set_outcome` cancelled) and spawn a replacement for its work. A human has also been alerted on the board. Its dependents stay gated until it reaches `done`."
-        : "Do not treat its work as complete. If it is `awaiting_acceptance`, it stopped short of `done` on purpose because a human's word is owed on its output: accepting it yourself (`mcp__t3-code__workstream_set_outcome` done, which releases its dependents) IS giving that word, so do it only when you already hold the human's decision — otherwise leave the flag standing, put the decision to the human, and let the branch wait. If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop — plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`.";
+        ? "Do not wait on it or treat its work as complete. A `mcp__t3-code__workstream_prompt` alone only queues behind the stuck turn. Close that turn with `mcp__t3-code__workstream_stop`, then `mcp__t3-code__workstream_prompt` it to resume; the prompt's turn also clears the flag. If the stop does not free it (it reports nothing was stopped, or the child stays silent after your prompt), cancel it (`mcp__t3-code__workstream_set_outcome` cancelled) and spawn a replacement for its work. A human has also been alerted on the board. Its dependents stay gated until it reaches `done`."
+        : "Do not treat its work as complete. If it is `awaiting_acceptance`, it stopped short of `done` on purpose because a human's word is owed on its output: accepting it yourself (`mcp__t3-code__workstream_set_outcome` done, which releases its dependents) IS giving that word, so do it only when you already hold the human's decision; otherwise leave the flag standing, put the decision to the human, and let the branch wait. If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop: plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`.";
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",

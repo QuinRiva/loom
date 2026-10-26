@@ -54,6 +54,7 @@ describe("Loom tool families", () => {
     ].flatMap(namesOf);
     expect(UPSTREAM_WITHHELD_TOOLS.toSorted()).toEqual(expected.toSorted());
     expect(UPSTREAM_WITHHELD_TOOLS).toContain("mcp__t3-code__delegate_task");
+    expect(UPSTREAM_WITHHELD_TOOLS).toContain("mcp__t3-code__t3_background_wait");
     const kept = new Set(
       [PullRequestsToolkit, PreviewStandardToolkit, DeviceStandardToolkit].flatMap(namesOf),
     );

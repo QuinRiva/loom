@@ -625,9 +625,9 @@ export function reloginText(
       : `Re-log ${name}`;
   if (relogin.phase === "overdue")
     return relogin.leadWeekdays > 1
-      ? `${ask} now — it is overdue. It could expire from ${expires}.`
-      : `${name} is overdue — re-log it now. It could expire from ${expires}.`;
-  return `${ask} by ${due}${relogin.early ? " — early, to keep the accounts spread out" : ""}. It could expire from ${expires}.`;
+      ? `${ask} now; it is overdue. It could expire from ${expires}.`
+      : `${name} is overdue; re-log it now. It could expire from ${expires}.`;
+  return `${ask} by ${due}${relogin.early ? " (early, to keep the accounts spread out)" : ""}. It could expire from ${expires}.`;
 }
 
 /** loom: the day a hub login is next due by (`Fri 6 Nov`), as the reminder words it; null with none. */

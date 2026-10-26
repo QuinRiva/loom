@@ -308,7 +308,7 @@ const FIRST_CHOICE_LOSS: Record<HeadroomBucket, string> = {
 const PICK_CAVEAT: Record<HeadroomBucket, string> = {
   healthy: "",
   demoted: "running on low headroom",
-  skipped: "every shape match exhausted — the child waits for the earliest reset",
+  skipped: "every shape match exhausted: the child waits for the earliest reset",
 };
 const BUCKET_ORDER: ReadonlyArray<HeadroomBucket> = ["healthy", "demoted", "skipped"];
 
@@ -337,7 +337,7 @@ const resolveShapeSelection = (input: {
     kind: "fall-through",
     warnings: [
       ...warnings,
-      `taskShape "${input.shape}"${input.sensitive === undefined ? "" : ` (sensitive: ${input.sensitive})`} ${why} — falling through to the role preset / inherited model.`,
+      `taskShape "${input.shape}"${input.sensitive === undefined ? "" : ` (sensitive: ${input.sensitive})`} ${why}: falling through to the role preset / inherited model.`,
     ],
   });
   if (Object.keys(input.profiles).length === 0) {
@@ -360,7 +360,7 @@ const resolveShapeSelection = (input: {
       const notes = [
         entry.candidate.name === top.candidate.name
           ? ""
-          : `${FIRST_CHOICE_LOSS[top.bucket]} — substituted`,
+          : `${FIRST_CHOICE_LOSS[top.bucket]}, substituted`,
         PICK_CAVEAT[entry.bucket],
       ].filter((note) => note !== "");
       return {

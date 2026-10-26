@@ -40,7 +40,7 @@ export type ParsedGoalTaskMarkdown =
 /** Validates text written by add/update, where every supplied text is new. */
 export const validateGoalTaskText = (text: string): string | undefined =>
   text.length > MAX_GOAL_TASK_TEXT_LENGTH
-    ? `Task text is ${text.length.toLocaleString("en-US")} characters; the limit is ${MAX_GOAL_TASK_TEXT_LENGTH}. The tree is the human's at-a-glance view of the plan — a task records THAT work exists, never its details. State the work as a short plain-language item (e.g. "Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101)"); put coordinates in the task's thread, findings and verdicts in a report or memo, and draft content in its artefact. Keep the goal description a short objective, not a journal.`
+    ? `Task text is ${text.length.toLocaleString("en-US")} characters; the limit is ${MAX_GOAL_TASK_TEXT_LENGTH}. The tree is the human's at-a-glance view of the plan: a task records THAT work exists, never its details. State the work as a short plain-language item (e.g. "Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101)"); put coordinates in the task's thread, findings and verdicts in a report or memo, and draft content in its artefact. Keep the goal description a short objective, not a journal.`
     : undefined;
 
 /**
@@ -108,7 +108,7 @@ export const parseGoalTaskMarkdown = (
     if (id !== undefined && (knownTaskIds.has(id) || UUID_SHAPE.test(id))) {
       if (!knownTaskIds.has(id)) {
         return {
-          error: `Line "${raw.trim()}" carries task id ${id}, which is not a task in this goal — your view of the tree is stale (or the id was mistyped). Re-read the tree (${agentToolName("goal_task_list")}, or \`t3 goal show\`) and rewrite from what it returns; drop the "(id)" to submit the line as a new task.`,
+          error: `Line "${raw.trim()}" carries task id ${id}, which is not a task in this goal: your view of the tree is stale (or the id was mistyped). Re-read the tree (${agentToolName("goal_task_list")}, or \`t3 goal show\`) and rewrite from what it returns; drop the "(id)" to submit the line as a new task.`,
         };
       }
       if (seen.has(id)) {

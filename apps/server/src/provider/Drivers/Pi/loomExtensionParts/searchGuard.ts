@@ -60,9 +60,9 @@ export const SEARCH_GUARD_TIMEOUT_SECONDS = 30;
  * file that a wider search will find.
  */
 const LADDER_BASE =
-  "When a file is not where you expected, searching wider almost never finds it — " +
+  "When a file is not where you expected, searching wider almost never finds it: " +
   "you are usually in the wrong directory, repo, or worktree. Escalate in order: " +
-  "(1) verify the exact paths your brief gave you (`pwd`, `git rev-parse --show-toplevel`, `ls <path>`) — brief paths are authoritative; " +
+  "(1) verify the exact paths your brief gave you (`pwd`, `git rev-parse --show-toplevel`, `ls <path>`): brief paths are authoritative; " +
   "(2) run a focused, bounded search: a named subtree, `find <dir> -maxdepth 3 -name <name>`, or `rg --files -g <name>` inside your worktree";
 
 const CONSULT_TOOL = "mcp__t3-code__consult_thread";
@@ -72,7 +72,7 @@ const CONSULT_TOOL = "mcp__t3-code__consult_thread";
  * workstream toolkit, so the guard checks pi's registry when it teaches and a
  * session without the tool is never told to call it.
  */
-const LADDER_CONSULT = `; (3) only as a last resort, ask the thread that holds the context via \`${CONSULT_TOOL}\` — it is expensive, so exhaust the cheap checks first`;
+const LADDER_CONSULT = `; (3) only as a last resort, ask the thread that holds the context via \`${CONSULT_TOOL}\`: it is expensive, so exhaust the cheap checks first`;
 
 const LADDER_TAIL =
   ". If you genuinely need a long search, bound it explicitly (`-maxdepth`, `--max-depth`, or a `timeout` prefix / explicit timeout parameter).";
@@ -100,7 +100,7 @@ const ladder = () =>
 // Recursive searchers the guard reasons about. rg/fd are gitignore-aware (a
 // foreign worktree walk is usually fine); find/grep walk everything.
 const WALKERS = new Set(["find", "grep", "rg", "fd"]);
-// Heads considered harmless to kill mid-run — a pipeline is only auto-bounded
+// Heads considered harmless to kill mid-run: a pipeline is only auto-bounded
 // when EVERY segment head is in this set (never a build, install, or write).
 const SAFE_HEADS = new Set([
   "cd", "find", "grep", "rg", "fd", "ls", "head", "tail", "wc",
@@ -109,7 +109,7 @@ const SAFE_HEADS = new Set([
 // Wrapper commands whose flags/values precede the real command.
 const WRAPPERS = new Set(["sudo", "nice", "command", "env", "nohup", "stdbuf", "ionice"]);
 // find actions with side effects (execution or file writes): a pipeline
-// containing one is never auto-bounded — a mid-run kill could leave partial
+// containing one is never auto-bounded; a mid-run kill could leave partial
 // artefacts or interrupt the exec'd command.
 const FIND_SIDE_EFFECTS = new Set([
   "-exec", "-execdir", "-ok", "-okdir", "-delete",
@@ -122,7 +122,7 @@ const isWithin = (root, p) => {
 };
 
 // Known-vast roots: filesystem root, the home dir, any depth-1 directory
-// (/home, /usr, /tmp, ...), and any STRICT ANCESTOR of the worktree — which
+// (/home, /usr, /tmp, ...), and any STRICT ANCESTOR of the worktree, which
 // generically covers the workspace and cockpit roots that contain every
 // sibling worktree's node_modules.
 const isVastRoot = (worktree, p) => {
@@ -141,7 +141,7 @@ const splitSegments = (command) =>
 
 // Tokenise a segment: strip quotes and subshell parens, extract redirections
 // (dropping operator+target from the analysis tokens, and flagging output
-// redirection to a real file — a mid-run kill of such a command could leave a
+// redirection to a real file; a mid-run kill of such a command could leave a
 // plausible-looking partial artefact), and drop leading env assignments.
 const tokenise = (segment) => {
   const raw = segment
@@ -181,7 +181,7 @@ const headOf = (tokens) => {
 // skipped so \`env LC_ALL=C find ...\`, \`nice -n 10 find ...\`,
 // \`sudo -u nobody find ...\`, and \`stdbuf -o L find ...\` all expose the
 // walker. After a flag token, the next token is treated as that flag's value
-// (and skipped) unless it is itself a walker or \`cd\` — so a no-value flag
+// (and skipped) unless it is itself a walker or \`cd\`, so a no-value flag
 // directly preceding the command (\`sudo -n find ...\`) still resolves.
 const unwrapPrefixes = (tokens) => {
   let rest = tokens;
@@ -190,7 +190,7 @@ const unwrapPrefixes = (tokens) => {
     const head = headOf(rest);
     if (head === "timeout") {
       bounded = true;
-      // timeout [opts] DURATION CMD... — skip to the token after the duration.
+      // timeout [opts] DURATION CMD...: skip to the token after the duration.
       let i = 1;
       while (i < rest.length && rest[i].startsWith("-")) i += 1;
       rest = rest.slice(i + 1);

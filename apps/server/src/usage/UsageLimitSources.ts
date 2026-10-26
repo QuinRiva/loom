@@ -290,58 +290,59 @@ export const make = Effect.gen(function* () {
       }),
     );
 
-  const loginStart = (input: UsageLimitSourceLoginStartInput) =>
-    Effect.gen(function* () {
-      const config = yield* enabledSource(input.sourceId);
-      const { url, state } = yield* api.authUrl(config);
-      const expiresAt = DateTime.add(yield* DateTime.now, {
-        minutes: LOGIN_CALLBACK_WINDOW_MINUTES,
-      });
-      return { url, state, expiresAt: DateTime.formatIso(expiresAt) };
+  const loginStart = Effect.fn("UsageLimitSources.loginStart")(function* (
+    input: UsageLimitSourceLoginStartInput,
+  ) {
+    const config = yield* enabledSource(input.sourceId);
+    const { url, state } = yield* api.authUrl(config);
+    const expiresAt = DateTime.add(yield* DateTime.now, {
+      minutes: LOGIN_CALLBACK_WINDOW_MINUTES,
     });
+    return { url, state, expiresAt: DateTime.formatIso(expiresAt) };
+  });
 
-  const loginFinish = (input: UsageLimitSourceLoginFinishInput) =>
-    Effect.gen(function* () {
-      const config = yield* enabledSource(input.sourceId);
-      const body = oauthCallbackBody(input.pasted, input.state);
-      if (!body.redirect_url && !body.code) {
-        return yield* new UsageLimitSourceError({
-          detail: "That paste has no sign-in code in it.",
-        });
-      }
-      // The hub stamps the login (`last_refresh`, whole seconds) after this instant.
-      const startedAt = DateTime.toEpochMillis(yield* DateTime.now) - 2_000;
-      yield* api.oauthCallback(config, body);
-      // The exchange runs on the hub after the callback is accepted.
-      const status = yield* api.authStatus(config, input.state).pipe(
-        Effect.flatMap((reply) =>
-          reply.status === "wait" ? Effect.fail("wait" as const) : Effect.succeed(reply),
-        ),
-        Effect.retry({
-          while: (error) => error === "wait",
-          schedule: Schedule.spaced("2 seconds"),
-        }),
-        Effect.timeout("90 seconds"),
-        Effect.mapError((error) =>
-          isUsageLimitSourceError(error)
-            ? error
-            : new UsageLimitSourceError({
-                detail: "The hub did not finish the login within 90 seconds.",
-              }),
-        ),
-      );
-      if (status.status !== "ok") {
-        return yield* new UsageLimitSourceError({
-          detail: `The hub could not finish the login${status.error ? `: ${status.error}` : ""}.`,
-        });
-      }
-      yield* refresh;
-      const loggedIn = Object.entries(yield* Ref.get(records)).find(
-        ([, record]) =>
-          record.loggedInAt !== undefined && Date.parse(record.loggedInAt) >= startedAt,
-      );
-      return { loggedIn: loggedIn?.[0] ?? null };
-    });
+  const loginFinish = Effect.fn("UsageLimitSources.loginFinish")(function* (
+    input: UsageLimitSourceLoginFinishInput,
+  ) {
+    const config = yield* enabledSource(input.sourceId);
+    const body = oauthCallbackBody(input.pasted, input.state);
+    if (!body.redirect_url && !body.code) {
+      return yield* new UsageLimitSourceError({
+        detail: "That paste has no sign-in code in it.",
+      });
+    }
+    // The hub stamps the login (`last_refresh`, whole seconds) after this instant.
+    const startedAt = DateTime.toEpochMillis(yield* DateTime.now) - 2_000;
+    yield* api.oauthCallback(config, body);
+    // The exchange runs on the hub after the callback is accepted.
+    const status = yield* api.authStatus(config, input.state).pipe(
+      Effect.flatMap((reply) =>
+        reply.status === "wait" ? Effect.fail("wait" as const) : Effect.succeed(reply),
+      ),
+      Effect.retry({
+        while: (error) => error === "wait",
+        schedule: Schedule.spaced("2 seconds"),
+      }),
+      Effect.timeout("90 seconds"),
+      Effect.mapError((error) =>
+        isUsageLimitSourceError(error)
+          ? error
+          : new UsageLimitSourceError({
+              detail: "The hub did not finish the login within 90 seconds.",
+            }),
+      ),
+    );
+    if (status.status !== "ok") {
+      return yield* new UsageLimitSourceError({
+        detail: `The hub could not finish the login${status.error ? `: ${status.error}` : ""}.`,
+      });
+    }
+    yield* refresh;
+    const loggedIn = Object.entries(yield* Ref.get(records)).find(
+      ([, record]) => record.loggedInAt !== undefined && Date.parse(record.loggedInAt) >= startedAt,
+    );
+    return { loggedIn: loggedIn?.[0] ?? null };
+  });
 
   yield* settingsService.streamChanges.pipe(
     Stream.map((settings) => settings.usageLimitSources),

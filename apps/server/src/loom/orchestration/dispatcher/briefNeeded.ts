@@ -134,15 +134,15 @@ export const buildBriefNeededMessage = (
     ...children.map((child) => {
       const handle =
         child.graphKey !== null ? `\`${child.graphKey}\` (\`${child.id}\`)` : `\`${child.id}\``;
-      const stalled = child.rung > 0 ? ` — stalled ${formatStalledFor(child.ageMs)}` : "";
-      return `- ${handle} — ${child.role ?? "child"}: ${child.title}${stalled}`;
+      const stalled = child.rung > 0 ? `, stalled ${formatStalledFor(child.ageMs)}` : "";
+      return `- ${handle}, ${child.role ?? "child"}: ${child.title}${stalled}`;
     }),
     "",
-    "Pick one of three moves for each node — while it stays in this state you will keep hearing about it, on a widening schedule (1h, 6h, then daily):",
+    "Pick one of three moves for each node: while it stays in this state you will keep hearing about it, on a widening schedule (1h, 6h, then daily):",
     "",
-    "1. **Brief it now** — `mcp__t3-code__workstream_brief` (node = its graph key or thread id); it launches as soon as the brief lands. This is the moment to write it: any upstream results it should build on are now in hand.",
-    "2. **Defer it deliberately** — `mcp__t3-code__workstream_set_dependencies`, adding the sibling whose result the brief must wait for. That takes the node out of the brief-needed state and stops these notices until the sibling is `done`.",
-    "3. **Cancel it** — `mcp__t3-code__workstream_set_outcome` cancelled, if the node is no longer wanted.",
+    "1. **Brief it now**: `mcp__t3-code__workstream_brief` (node = its graph key or thread id); it launches as soon as the brief lands. This is the moment to write it: any upstream results it should build on are now in hand.",
+    "2. **Defer it deliberately**: `mcp__t3-code__workstream_set_dependencies`, adding the sibling whose result the brief must wait for. That takes the node out of the brief-needed state and stops these notices until the sibling is `done`.",
+    "3. **Cancel it**: `mcp__t3-code__workstream_set_outcome` cancelled, if the node is no longer wanted.",
     "",
     "Leaving it untouched is not a fourth option: the graph is stalled at this node either way, and silence is indistinguishable from having forgotten it.",
   ].join("\n");

@@ -99,15 +99,15 @@ export const selectServerBaseDir = (input: {
 export const describeBaseDirSelection = (selection: BaseDirSelection): string => {
   switch (selection.rule) {
     case "flag":
-      return `T3 home ${selection.baseDir} — chosen by --base-dir.`;
+      return `T3 home ${selection.baseDir}, chosen by --base-dir.`;
     case "worktree":
-      return `T3 home ${selection.baseDir} — chosen by the worktree rule: this checkout was provisioned under ${selection.displacedHome}/worktrees, so it runs on its own .t3 instead of that install's live state. Pass --base-dir to override.`;
+      return `T3 home ${selection.baseDir}, chosen by the worktree rule: this checkout was provisioned under ${selection.displacedHome}/worktrees, so it runs on its own .t3 instead of that install's live state. Pass --base-dir to override.`;
     case "env":
-      return `T3 home ${selection.baseDir} — chosen by T3CODE_HOME.`;
+      return `T3 home ${selection.baseDir}, chosen by T3CODE_HOME.`;
     case "bootstrap":
-      return `T3 home ${selection.baseDir} — chosen by the desktop bootstrap envelope.`;
+      return `T3 home ${selection.baseDir}, chosen by the desktop bootstrap envelope.`;
     case "default":
-      return `T3 home ${selection.baseDir} — chosen by default; no --base-dir and no T3CODE_HOME.`;
+      return `T3 home ${selection.baseDir}, chosen by default; no --base-dir and no T3CODE_HOME.`;
   }
 };
 

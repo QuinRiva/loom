@@ -121,7 +121,7 @@ export const goalTaskUpdate = Effect.fn("LoomToolkit.goalTaskUpdate")(function* 
   const anchor = resolveThreadAnchor(goal.tasks, row.anchorTaskId);
   if (anchor !== null && !isWithinGoalTaskBranch(anchor, taskId))
     return yield* fail(
-      `Task ${taskId} is outside the branch you own, rooted at your anchor "${anchor.text}" (${anchor.id}) — only the thread that owns a task ticks or renames it. Record discovered work with ${t("goal_task_add")} instead (it lands in your branch by default; pass a parentTaskId to place it elsewhere), and say what needs doing to that task in your report, or ask its thread with ${t("consult_thread")}.`,
+      `Task ${taskId} is outside the branch you own, rooted at your anchor "${anchor.text}" (${anchor.id}): only the thread that owns a task ticks or renames it. Record discovered work with ${t("goal_task_add")} instead (it lands in your branch by default; pass a parentTaskId to place it elsewhere), and say what needs doing to that task in your report, or ask its thread with ${t("consult_thread")}.`,
     );
   const text = input.text?.trim();
   if (text !== undefined && text.length === 0)
@@ -161,7 +161,7 @@ export const goalTasksRewrite = Effect.fn("LoomToolkit.goalTasksRewrite")(functi
   const anchor = resolveThreadAnchor(goal.tasks, row.anchorTaskId);
   if (row.parentThreadId !== null && anchor === null)
     return yield* fail(
-      `Rewrites are scoped to what a thread owns: the whole tree belongs to the thread that owns the goal, and a child may rewrite only the branch it is anchored to — this thread has a parent and no anchor. Use ${t("goal_task_add")} to record discovered work (nested under the relevant parent task) and ${t("goal_task_update")} to mark your own task done; ask your orchestrator if the tree's shape needs restructuring.`,
+      `Rewrites are scoped to what a thread owns: the whole tree belongs to the thread that owns the goal, and a child may rewrite only the branch it is anchored to: this thread has a parent and no anchor. Use ${t("goal_task_add")} to record discovered work (nested under the relevant parent task) and ${t("goal_task_update")} to mark your own task done; ask your orchestrator if the tree's shape needs restructuring.`,
     );
   const current = flattenGoalTasks(goal.tasks);
   const deleted = yield* asToolError(

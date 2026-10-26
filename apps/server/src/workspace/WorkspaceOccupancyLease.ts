@@ -138,8 +138,8 @@ export const makeWorkspaceLease = Effect.gen(function* () {
       state.holds.delete(holdId) ? Effect.asVoid(state.semaphore.release(1)) : Effect.void,
     );
 
-  const hold: WorkspaceLeaseShape["hold"] = (path, holder) =>
-    Effect.gen(function* () {
+  const hold: WorkspaceLeaseShape["hold"] = Effect.fn("WorkspaceOccupancyLease.hold")(
+    function* (path, holder) {
       const key = NodePath.resolve(path);
       const state = yield* stateFor(key);
       const holdId = nextHoldId++;
@@ -163,7 +163,8 @@ export const makeWorkspaceLease = Effect.gen(function* () {
         ),
       );
       return { path: key, holder, release: releaseHold(state, holdId) } satisfies WorkspaceHold;
-    });
+    },
+  );
 
   const withExclusive: WorkspaceLeaseShape["withExclusive"] = (path, effect) =>
     Effect.flatMap(stateFor(NodePath.resolve(path)), (state) =>

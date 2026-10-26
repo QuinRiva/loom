@@ -67,30 +67,29 @@ export const isContinued = (
  * lost, DL-376). `continueRestartedRun` is idempotent by its message and command ids, so the
  * worker's later run of the same effect does nothing.
  */
-const runDueContinuation = (
+const runDueContinuation = Effect.fn("loomRecoveryPolicy.runDueContinuation")(function* (
   threadId: ThreadId,
   projection: Pick<OrchestrationV2ThreadProjection, "runs">,
-) =>
-  Effect.gen(function* () {
-    // Upstream's choice of the cut run (`restartContinuationRun`): by end time, not ordinal — a
-    // queued message promoted to a steer leaves a cancelled run with a higher ordinal.
-    const source = projection.runs
-      .filter((run) => run.status !== "queued")
-      .reduce<(typeof projection.runs)[number] | undefined>(
-        (latest, run) => (latest === undefined || runRanAfter(run, latest) ? run : latest),
-        undefined,
-      );
-    if (source === undefined) return;
-    const continuation = yield* (yield* EffectOutbox.EffectOutboxV2).get(
-      `effect:restart-continuation:${source.id}`,
+) {
+  // Upstream's choice of the cut run (`restartContinuationRun`): by end time, not ordinal — a
+  // queued message promoted to a steer leaves a cancelled run with a higher ordinal.
+  const source = projection.runs
+    .filter((run) => run.status !== "queued")
+    .reduce<(typeof projection.runs)[number] | undefined>(
+      (latest, run) => (latest === undefined || runRanAfter(run, latest) ? run : latest),
+      undefined,
     );
-    if (
-      Option.isSome(continuation) &&
-      (continuation.value.status === "pending" || continuation.value.status === "running")
-    ) {
-      yield* continueRestartedRun({ threadId, sourceRunId: source.id });
-    }
-  });
+  if (source === undefined) return;
+  const continuation = yield* (yield* EffectOutbox.EffectOutboxV2).get(
+    `effect:restart-continuation:${source.id}`,
+  );
+  if (
+    Option.isSome(continuation) &&
+    (continuation.value.status === "pending" || continuation.value.status === "running")
+  ) {
+    yield* continueRestartedRun({ threadId, sourceRunId: source.id });
+  }
+});
 
 /** The §3 table's startup pass over Loom threads holding a queued run. Never fails startup. */
 export const releaseHeldQueues = Effect.gen(function* () {
@@ -161,30 +160,29 @@ export const releaseHeldQueues = Effect.gen(function* () {
  * after it. A stash from any other run died with its pi — a Stop terminates pi, as can a pi
  * death while the server stays up — or is older than the thread's later turns.
  */
-const cutByRestart = (
+const cutByRestart = Effect.fn("loomRecoveryPolicy.cutByRestart")(function* (
   threadId: ThreadId,
   runs: OrchestrationV2ThreadProjection["runs"],
   runId: string | null,
-) =>
-  Effect.gen(function* () {
-    const cut = runs.find((run) => run.id === runId);
-    if (
-      cut?.status !== "cancelled" ||
-      runs.some(
-        (run) =>
-          run.id !== cut.id &&
-          run.status !== "queued" &&
-          run.restartContinuationOfRunId !== cut.id &&
-          runRanAfter(run, cut),
-      )
+) {
+  const cut = runs.find((run) => run.id === runId);
+  if (
+    cut?.status !== "cancelled" ||
+    runs.some(
+      (run) =>
+        run.id !== cut.id &&
+        run.status !== "queued" &&
+        run.restartContinuationOfRunId !== cut.id &&
+        runRanAfter(run, cut),
     )
-      return false;
-    const { turnItems } = yield* (yield* OrchestratorV2).getThreadRecords(threadId, ["turnItems"], {
-      turnItemRunIds: [cut.id],
-      turnItemTypes: ["run_interrupt_request"],
-    });
-    return turnItems.length === 0;
+  )
+    return false;
+  const { turnItems } = yield* (yield* OrchestratorV2).getThreadRecords(threadId, ["turnItems"], {
+    turnItemRunIds: [cut.id],
+    turnItemTypes: ["run_interrupt_request"],
   });
+  return turnItems.length === 0;
+});
 
 /**
  * Seam 20 (P3-24): each stashed steer — what the dead pi had accepted and never delivered

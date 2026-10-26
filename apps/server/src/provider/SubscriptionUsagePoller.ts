@@ -360,8 +360,8 @@ const make = Effect.gen(function* () {
   // because nothing else ever removes a window from an instance's limits.
   const hubOwnsClaudeQuota = yield* Ref.make(false);
 
-  const retractAnthropicLimits = (settings: ServerSettings) =>
-    Effect.gen(function* () {
+  const retractAnthropicLimits = Effect.fn("SubscriptionUsagePoller.retractAnthropicLimits")(
+    function* (settings: ServerSettings) {
       const checkedAt = DateTime.formatIso(yield* DateTime.now);
       const byInstance = anthropicAccountPrefixes(
         settings,
@@ -376,7 +376,8 @@ const make = Effect.gen(function* () {
         "subscription-usage poller: retracted the Anthropic windows the hub now reports",
         { instances: [...byInstance.keys()] },
       );
-    });
+    },
+  );
 
   const standDownForHub = Effect.gen(function* () {
     const settings = yield* serverSettings.getSettings.pipe(
@@ -386,30 +387,31 @@ const make = Effect.gen(function* () {
     if ((yield* Ref.getAndSet(hubOwnsClaudeQuota, standDown)) !== standDown) {
       yield* Effect.logInfo(
         standDown
-          ? "subscription-usage poller: Anthropic arms suppressed — an enabled cliproxy usage-limit source is registered, so the hub reports Claude quota"
-          : "subscription-usage poller: Anthropic arms resumed — no enabled cliproxy usage-limit source is registered",
+          ? "subscription-usage poller: Anthropic arms suppressed: an enabled cliproxy usage-limit source is registered, so the hub reports Claude quota"
+          : "subscription-usage poller: Anthropic arms resumed: no enabled cliproxy usage-limit source is registered",
       );
       if (standDown && settings !== null) yield* retractAnthropicLimits(settings);
     }
     return standDown;
   });
 
-  const pollAnthropic = (auth: typeof PiAuthSchema.Type) =>
-    Effect.gen(function* () {
-      // The hub reports this subscription too, and with no email on the OAuth
-      // usage endpoint there is no way to match the two readings up — so the
-      // whole arm, health telemetry included, defers to the hub.
-      if (yield* standDownForHub) return;
-      const token = auth.anthropic?.access;
-      if (!token) {
-        yield* Effect.logDebug("subscription-usage poller: no Anthropic token on disk; skipping");
-        return;
-      }
-      yield* feed(
-        { providerName: "claudeAgent", providerInstanceId: null },
-        yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs),
-      );
-    });
+  const pollAnthropic = Effect.fn("SubscriptionUsagePoller.pollAnthropic")(function* (
+    auth: typeof PiAuthSchema.Type,
+  ) {
+    // The hub reports this subscription too, and with no email on the OAuth
+    // usage endpoint there is no way to match the two readings up — so the
+    // whole arm, health telemetry included, defers to the hub.
+    if (yield* standDownForHub) return;
+    const token = auth.anthropic?.access;
+    if (!token) {
+      yield* Effect.logDebug("subscription-usage poller: no Anthropic token on disk; skipping");
+      return;
+    }
+    yield* feed(
+      { providerName: "claudeAgent", providerInstanceId: null },
+      yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs),
+    );
+  });
 
   // Instance-scoped usage sources (§Option B): an instance's config can declare
   // its own token files (e.g. a router proxy pooling several subscriptions, each
@@ -423,24 +425,25 @@ const make = Effect.gen(function* () {
       .pipe(Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(TokenFileSchema))));
   // loom: cliproxy renames an auth file on re-login, so a configured file that
   // is gone resolves to the file beside it naming the same account by email.
-  const resolveTokenFile = (tokenFile: string) =>
-    Effect.gen(function* () {
-      if (yield* fileSystem.exists(tokenFile)) return tokenFile;
-      const dir = path.dirname(tokenFile);
-      const files = yield* Effect.forEach(
-        (yield* fileSystem.readDirectory(dir)).filter((name) => name.endsWith(".json")),
-        (id) =>
-          readJson(path.join(dir, id)).pipe(
-            Effect.map((json) => ({
-              id,
-              email: typeof json.email === "string" ? json.email : undefined,
-            })),
-            Effect.orElseSucceed(() => ({ id, email: undefined })),
-          ),
-      );
-      const match = usageSourceAccounts(tokenFile, files)[0];
-      return match ? path.join(dir, match.id) : tokenFile;
-    });
+  const resolveTokenFile = Effect.fn("SubscriptionUsagePoller.resolveTokenFile")(function* (
+    tokenFile: string,
+  ) {
+    if (yield* fileSystem.exists(tokenFile)) return tokenFile;
+    const dir = path.dirname(tokenFile);
+    const files = yield* Effect.forEach(
+      (yield* fileSystem.readDirectory(dir)).filter((name) => name.endsWith(".json")),
+      (id) =>
+        readJson(path.join(dir, id)).pipe(
+          Effect.map((json) => ({
+            id,
+            email: typeof json.email === "string" ? json.email : undefined,
+          })),
+          Effect.orElseSucceed(() => ({ id, email: undefined })),
+        ),
+    );
+    const match = usageSourceAccounts(tokenFile, files)[0];
+    return match ? path.join(dir, match.id) : tokenFile;
+  });
   const readSourceToken = (source: ProviderUsageSource) =>
     resolveTokenFile(expandHome(source.tokenFile)).pipe(
       Effect.flatMap(readJson),
@@ -450,75 +453,75 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const pollUsageSource = (
+  const pollUsageSource = Effect.fn("SubscriptionUsagePoller.pollUsageSource")(function* (
     instanceId: ProviderInstanceId,
     driver: string,
     source: ProviderUsageSource,
-  ) =>
-    Effect.gen(function* () {
-      const label = sourceLabel(source);
-      const attribution = {
-        providerName: driver,
-        providerInstanceId: instanceId,
-        accountLabel: label,
-      };
-      // These pooled accounts ARE the hub's: it reads the same auth file on its
-      // own refresh (linked by `usageSourceAccounts`, which survives the hub
-      // renaming the file on re-login). Reading it here too
-      // doubled the load on a 429-ing endpoint, so failover — loom's only
-      // per-account exhaustion signal — takes the hub's reading, stamped with
-      // when the hub took it, and nothing is published (the hub draws the bar).
-      if (yield* standDownForHub) {
-        const accounts = usageSourceAccounts(
-          source.tokenFile,
-          (yield* usageLimitSources.current)
-            .flatMap((hub) => hub.accounts)
-            .filter((account) => account.driver === "claudeAgent"),
-        ).toSorted((a, b) => b.usageLimits.checkedAt.localeCompare(a.usageLimits.checkedAt));
-        // loom: a signed-out account is no headroom, however good its last reading.
-        const dead = accounts[0];
-        if (dead?.login?.status === "dead") {
-          yield* health.applyUsage({
-            ...attribution,
-            windows: [],
-            limitReached: true,
-            signedOut: true,
-            observedAt: dead.usageLimits.checkedAt,
-          });
-          return;
-        }
-        const reading = accounts.find((account) => !account.usageLimits.unavailable);
-        if (!reading) {
-          // loom: clients flag a source no hub account matches (`unlinkedUsageSources`).
-          yield* Effect.logDebug(`subscription-usage poller: no hub reading for ${label} yet`, {
-            tokenFile: source.tokenFile,
-          });
-          return;
-        }
+  ) {
+    const label = sourceLabel(source);
+    const attribution = {
+      providerName: driver,
+      providerInstanceId: instanceId,
+      accountLabel: label,
+    };
+    // These pooled accounts ARE the hub's: it reads the same auth file on its
+    // own refresh (linked by `usageSourceAccounts`, which survives the hub
+    // renaming the file on re-login). Reading it here too
+    // doubled the load on a 429-ing endpoint, so failover — loom's only
+    // per-account exhaustion signal — takes the hub's reading, stamped with
+    // when the hub took it, and nothing is published (the hub draws the bar).
+    if (yield* standDownForHub) {
+      const accounts = usageSourceAccounts(
+        source.tokenFile,
+        (yield* usageLimitSources.current)
+          .flatMap((hub) => hub.accounts)
+          .filter((account) => account.driver === "claudeAgent"),
+      ).toSorted((a, b) => b.usageLimits.checkedAt.localeCompare(a.usageLimits.checkedAt));
+      // loom: a signed-out account is no headroom, however good its last reading.
+      const dead = accounts[0];
+      if (dead?.login?.status === "dead") {
         yield* health.applyUsage({
           ...attribution,
-          windows: hubLimitsToWindows(reading.usageLimits, yield* piModelSlugs),
-          observedAt: reading.usageLimits.checkedAt,
+          windows: [],
+          limitReached: true,
+          signedOut: true,
+          observedAt: dead.usageLimits.checkedAt,
         });
         return;
       }
-      const token = yield* readSourceToken(source);
-      if (!token) return;
-      yield* feed(attribution, yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs));
-    });
-
-  const pollCodex = (auth: typeof PiAuthSchema.Type) =>
-    Effect.gen(function* () {
-      const codex = auth["openai-codex"];
-      if (!codex?.access || !codex.accountId) {
-        yield* Effect.logDebug("subscription-usage poller: no Codex token on disk; skipping");
+      const reading = accounts.find((account) => !account.usageLimits.unavailable);
+      if (!reading) {
+        // loom: clients flag a source no hub account matches (`unlinkedUsageSources`).
+        yield* Effect.logDebug(`subscription-usage poller: no hub reading for ${label} yet`, {
+          tokenFile: source.tokenFile,
+        });
         return;
       }
-      yield* feed(
-        { providerName: "codex", providerInstanceId: null },
-        yield* fetchCodexUsage(httpClient, codex.access, codex.accountId),
-      );
-    });
+      yield* health.applyUsage({
+        ...attribution,
+        windows: hubLimitsToWindows(reading.usageLimits, yield* piModelSlugs),
+        observedAt: reading.usageLimits.checkedAt,
+      });
+      return;
+    }
+    const token = yield* readSourceToken(source);
+    if (!token) return;
+    yield* feed(attribution, yield* fetchAnthropicUsage(httpClient, token, yield* piModelSlugs));
+  });
+
+  const pollCodex = Effect.fn("SubscriptionUsagePoller.pollCodex")(function* (
+    auth: typeof PiAuthSchema.Type,
+  ) {
+    const codex = auth["openai-codex"];
+    if (!codex?.access || !codex.accountId) {
+      yield* Effect.logDebug("subscription-usage poller: no Codex token on disk; skipping");
+      return;
+    }
+    yield* feed(
+      { providerName: "codex", providerInstanceId: null },
+      yield* fetchCodexUsage(httpClient, codex.access, codex.accountId),
+    );
+  });
 
   // Pull the first HttpClientError out of a failure cause, so we can read its
   // HTTP status and headers for rate-limit/auth classification.
@@ -547,49 +550,51 @@ const make = Effect.gen(function* () {
   // from the outcome (healthy cadence on success, exponential backoff on
   // failure). Isolated per provider so one endpoint's rate limiting never
   // touches the other's cadence.
-  const runProvider = <E>(providerName: string, poll: Effect.Effect<void, E>) =>
-    Effect.gen(function* () {
-      const failures = yield* Ref.make(0);
-      const step = poll.pipe(
-        Effect.matchCauseEffect({
-          onSuccess: () => Ref.set(failures, 0).pipe(Effect.as(HEALTHY_INTERVAL)),
-          onFailure: (cause) => {
-            // Let scope teardown interrupt the fiber instead of "handling" it.
-            if (Cause.hasInterrupts(cause)) return Effect.failCause(cause);
-            return Effect.gen(function* () {
-              const attempt = yield* Ref.updateAndGet(failures, (n) => n + 1);
-              const error = httpErrorOf(cause);
-              const status = error?.response?.status;
-              const expected = status === 429 || status === 401 || status === 403;
-              const retryAfter = status === 429 ? retryAfterOf(error) : null;
-              const backoff = Duration.min(
-                Duration.times(HEALTHY_INTERVAL, 2 ** (attempt - 1)),
-                MAX_BACKOFF,
-              );
-              const delay = retryAfter ? Duration.max(retryAfter, backoff) : backoff;
-              const detail = {
-                attempt,
-                status: status ?? null,
-                retryAfterMs: retryAfter ? Duration.toMillis(retryAfter) : null,
-                nextPollMs: Duration.toMillis(delay),
-              };
-              yield* expected
-                ? Effect.logDebug(
-                    `subscription-usage poller: ${providerName} expected failure (rate-limit/auth); backing off`,
-                    detail,
-                  )
-                : Effect.logWarning(`subscription-usage poller: ${providerName} poll failed`, {
-                    ...detail,
-                    cause: Cause.pretty(cause),
-                  });
-              return delay;
-            });
-          },
-        }),
-        Effect.flatMap(Effect.sleep),
-      );
-      return yield* Effect.forever(step);
-    });
+  const runProvider = Effect.fn("SubscriptionUsagePoller.runProvider")(function* <E>(
+    providerName: string,
+    poll: Effect.Effect<void, E>,
+  ) {
+    const failures = yield* Ref.make(0);
+    const step = poll.pipe(
+      Effect.matchCauseEffect({
+        onSuccess: () => Ref.set(failures, 0).pipe(Effect.as(HEALTHY_INTERVAL)),
+        onFailure: (cause) => {
+          // Let scope teardown interrupt the fiber instead of "handling" it.
+          if (Cause.hasInterrupts(cause)) return Effect.failCause(cause);
+          return Effect.gen(function* () {
+            const attempt = yield* Ref.updateAndGet(failures, (n) => n + 1);
+            const error = httpErrorOf(cause);
+            const status = error?.response?.status;
+            const expected = status === 429 || status === 401 || status === 403;
+            const retryAfter = status === 429 ? retryAfterOf(error) : null;
+            const backoff = Duration.min(
+              Duration.times(HEALTHY_INTERVAL, 2 ** (attempt - 1)),
+              MAX_BACKOFF,
+            );
+            const delay = retryAfter ? Duration.max(retryAfter, backoff) : backoff;
+            const detail = {
+              attempt,
+              status: status ?? null,
+              retryAfterMs: retryAfter ? Duration.toMillis(retryAfter) : null,
+              nextPollMs: Duration.toMillis(delay),
+            };
+            yield* expected
+              ? Effect.logDebug(
+                  `subscription-usage poller: ${providerName} expected failure (rate-limit/auth); backing off`,
+                  detail,
+                )
+              : Effect.logWarning(`subscription-usage poller: ${providerName} poll failed`, {
+                  ...detail,
+                  cause: Cause.pretty(cause),
+                });
+            return delay;
+          });
+        },
+      }),
+      Effect.flatMap(Effect.sleep),
+    );
+    return yield* Effect.forever(step);
+  });
 
   // Each provider reads pi's auth for itself so the two fibers stay independent.
   const pollProvider = <E>(select: (auth: typeof PiAuthSchema.Type) => Effect.Effect<void, E>) =>
@@ -623,8 +628,8 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  const start: SubscriptionUsagePollerShape["start"] = () =>
-    Effect.gen(function* () {
+  const start: SubscriptionUsagePollerShape["start"] = Effect.fn("SubscriptionUsagePoller.start")(
+    function* () {
       yield* Effect.forkScoped(runProvider("Anthropic", pollProvider(pollAnthropic)));
       yield* Effect.forkScoped(runProvider("Codex", pollProvider(pollCodex)));
       const sources = yield* configuredSources;
@@ -641,7 +646,8 @@ const make = Effect.gen(function* () {
         maxBackoffMs: Duration.toMillis(MAX_BACKOFF),
         usageSources: sources.length,
       });
-    });
+    },
+  );
 
   return { start } satisfies SubscriptionUsagePollerShape;
 });

@@ -29,7 +29,7 @@ const formatResetClock = (until: string | null): string | null => {
 
 const exhaustionMessage = (mark: ExhaustionMark): string => {
   const clock = formatResetClock(mark.until);
-  return clock ? `Subscription limit reached — resets ${clock}` : "Subscription limit reached";
+  return clock ? `Subscription limit reached, resets ${clock}` : "Subscription limit reached";
 };
 
 /**

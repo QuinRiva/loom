@@ -636,90 +636,89 @@ export const make = Effect.gen(function* () {
       nextDelayMs: Duration.toMillis(nextDelay),
     });
 
-  const makeRemoteRefreshLoop = (
+  const makeRemoteRefreshLoop = Effect.fn("VcsStatusBroadcaster.makeRemoteRefreshLoop")(function* (
     repositoryKey: string,
     wake: Queue.Queue<void>,
     registered: Deferred.Deferred<void>,
-  ) =>
-    Effect.gen(function* () {
-      // The fiber is forked before the poller record commits to `pollersRef`;
-      // wait for the registration rather than relying on scheduler ordering (a
-      // missed read would exit the loop for good and wedge the repo).
-      yield* Deferred.await(registered);
-      const consecutiveFailuresRef = yield* Ref.make(0);
-      const readCycle = Effect.gen(function* () {
-        const poller = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
-        if (!poller) return null;
-        const intervals = yield* pollerIntervals(poller);
-        const enabled = intervals.filter(
-          ({ cwd, interval }) => !Duration.isZero(interval) || poller.initialPending.has(cwd),
-        );
-        const nonZeroIntervals = intervals
-          .map(({ interval }) => interval)
-          .filter((interval) => !Duration.isZero(interval));
-        const activeInterval = nonZeroIntervals.reduce(
-          (shortest, interval) =>
-            Duration.toMillis(shortest) <= Duration.toMillis(interval) ? shortest : interval,
-          nonZeroIntervals[0] ?? DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL, // loom: per-repository poller
-        );
-        return { poller, enabled, activeInterval };
-      });
-
-      const initial = yield* readCycle;
-      if (!initial) return;
-      if (initial.poller.initialPending.size === 0) {
-        yield* Effect.raceFirst(Effect.sleep(initial.activeInterval), Queue.take(wake));
-      }
-
-      while (true) {
-        const cycle = yield* readCycle;
-        if (!cycle) return;
-        const cwds = cycle.enabled.map(({ cwd }) => cwd);
-        let nextDelay = cycle.activeInterval;
-        let failed = false;
-        // Upstream's background-policy gate, re-homed onto the per-repository
-        // poller: a tick runs only while at least one subscribed cwd still wants
-        // background work (an initial refresh always does — the subscriber is
-        // waiting on its first status).
-        const policyAllows =
-          cycle.poller.initialPending.size > 0 ||
-          (yield* Effect.forEach(
-            cwds,
-            (demandCwd) =>
-              backgroundPolicy.shouldRunScopeWork({ type: "vcs-status", cwd: demandCwd }),
-            { concurrency: "unbounded" },
-          )).some(Boolean);
-        if (cwds.length > 0 && policyAllows) {
-          const exit = yield* withRemoteWriteLocks(
-            cwds, // loom: upstream's stale-poll race fix, on the batch path (DL-99)
-            refreshRepositoryRemoteStatus(repositoryKey, cwds, {
-              refreshUpstream: cycle.enabled.some(({ interval }) => !Duration.isZero(interval)),
-            }),
-          ).pipe(Effect.exit);
-          if (Exit.isSuccess(exit)) {
-            yield* clearInitialPending(repositoryKey, cwds);
-            yield* Ref.set(consecutiveFailuresRef, 0);
-            nextDelay = yield* withRefreshJitter(cycle.activeInterval);
-          } else {
-            failed = true;
-            const interruptionReasons = exit.cause.reasons.filter(Cause.isInterruptReason);
-            if (interruptionReasons.length > 0) {
-              return yield* Effect.failCause(Cause.fromReasons<never>(interruptionReasons));
-            }
-            const consecutiveFailures = yield* Ref.updateAndGet(
-              consecutiveFailuresRef,
-              (count) => count + 1,
-            );
-            nextDelay = remoteRefreshFailureDelay(consecutiveFailures, cycle.activeInterval);
-            yield* logRefreshFailure(repositoryKey, exit.cause, consecutiveFailures, nextDelay);
-          }
-        }
-
-        const current = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
-        if (!failed && current?.initialPending.size) continue;
-        yield* Effect.raceFirst(Effect.sleep(nextDelay), Queue.take(wake));
-      }
+  ) {
+    // The fiber is forked before the poller record commits to `pollersRef`;
+    // wait for the registration rather than relying on scheduler ordering (a
+    // missed read would exit the loop for good and wedge the repo).
+    yield* Deferred.await(registered);
+    const consecutiveFailuresRef = yield* Ref.make(0);
+    const readCycle = Effect.gen(function* () {
+      const poller = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
+      if (!poller) return null;
+      const intervals = yield* pollerIntervals(poller);
+      const enabled = intervals.filter(
+        ({ cwd, interval }) => !Duration.isZero(interval) || poller.initialPending.has(cwd),
+      );
+      const nonZeroIntervals = intervals
+        .map(({ interval }) => interval)
+        .filter((interval) => !Duration.isZero(interval));
+      const activeInterval = nonZeroIntervals.reduce(
+        (shortest, interval) =>
+          Duration.toMillis(shortest) <= Duration.toMillis(interval) ? shortest : interval,
+        nonZeroIntervals[0] ?? DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL, // loom: per-repository poller
+      );
+      return { poller, enabled, activeInterval };
     });
+
+    const initial = yield* readCycle;
+    if (!initial) return;
+    if (initial.poller.initialPending.size === 0) {
+      yield* Effect.raceFirst(Effect.sleep(initial.activeInterval), Queue.take(wake));
+    }
+
+    while (true) {
+      const cycle = yield* readCycle;
+      if (!cycle) return;
+      const cwds = cycle.enabled.map(({ cwd }) => cwd);
+      let nextDelay = cycle.activeInterval;
+      let failed = false;
+      // Upstream's background-policy gate, re-homed onto the per-repository
+      // poller: a tick runs only while at least one subscribed cwd still wants
+      // background work (an initial refresh always does — the subscriber is
+      // waiting on its first status).
+      const policyAllows =
+        cycle.poller.initialPending.size > 0 ||
+        (yield* Effect.forEach(
+          cwds,
+          (demandCwd) =>
+            backgroundPolicy.shouldRunScopeWork({ type: "vcs-status", cwd: demandCwd }),
+          { concurrency: "unbounded" },
+        )).some(Boolean);
+      if (cwds.length > 0 && policyAllows) {
+        const exit = yield* withRemoteWriteLocks(
+          cwds, // loom: upstream's stale-poll race fix, on the batch path (DL-99)
+          refreshRepositoryRemoteStatus(repositoryKey, cwds, {
+            refreshUpstream: cycle.enabled.some(({ interval }) => !Duration.isZero(interval)),
+          }),
+        ).pipe(Effect.exit);
+        if (Exit.isSuccess(exit)) {
+          yield* clearInitialPending(repositoryKey, cwds);
+          yield* Ref.set(consecutiveFailuresRef, 0);
+          nextDelay = yield* withRefreshJitter(cycle.activeInterval);
+        } else {
+          failed = true;
+          const interruptionReasons = exit.cause.reasons.filter(Cause.isInterruptReason);
+          if (interruptionReasons.length > 0) {
+            return yield* Effect.failCause(Cause.fromReasons<never>(interruptionReasons));
+          }
+          const consecutiveFailures = yield* Ref.updateAndGet(
+            consecutiveFailuresRef,
+            (count) => count + 1,
+          );
+          nextDelay = remoteRefreshFailureDelay(consecutiveFailures, cycle.activeInterval);
+          yield* logRefreshFailure(repositoryKey, exit.cause, consecutiveFailures, nextDelay);
+        }
+      }
+
+      const current = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
+      if (!failed && current?.initialPending.size) continue;
+      yield* Effect.raceFirst(Effect.sleep(nextDelay), Queue.take(wake));
+    }
+  });
 
   const refreshStatus: VcsStatusBroadcaster["Service"]["refreshStatus"] = Effect.fn(
     "VcsStatusBroadcaster.refreshStatus",

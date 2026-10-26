@@ -105,12 +105,12 @@ export const composeBranchRewrite = (input: {
   const roots = submitted.filter((line) => line.parentIndex === null);
   if (roots.length > 1) {
     return {
-      error: `A branch rewrite submits YOUR BRANCH, not the whole tree: exactly one top-level line — your anchor ${anchorLabel} — with everything else nested beneath it (two spaces per level of nesting). You submitted ${roots.length} top-level lines. Nothing was applied.`,
+      error: `A branch rewrite submits YOUR BRANCH, not the whole tree: exactly one top-level line (your anchor ${anchorLabel}) with everything else nested beneath it (two spaces per level of nesting). You submitted ${roots.length} top-level lines. Nothing was applied.`,
     };
   }
   if (roots[0]?.taskId !== anchor.id) {
     return {
-      error: `The first line of a branch rewrite must be your anchor ${anchorLabel}, keeping its "(id)": it is the root of the branch you own, so it cannot be deleted, replaced or moved — rename it or tick it in place instead. Nothing was applied.`,
+      error: `The first line of a branch rewrite must be your anchor ${anchorLabel}, keeping its "(id)": it is the root of the branch you own, so it cannot be deleted, replaced or moved; rename it or tick it in place instead. Nothing was applied.`,
     };
   }
   const deletedParent = new Map(input.deleted.map((task) => [task.id, task.parentTaskId]));

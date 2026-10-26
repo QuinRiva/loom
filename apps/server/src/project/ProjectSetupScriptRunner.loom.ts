@@ -60,28 +60,33 @@ const worktreeSetupStatePath = Effect.fn("worktreeSetupStatePath")(function* (
 });
 
 /** Best effort: a breadcrumb that cannot be written is logged, never fatal. */
-export const writeWorktreeSetupState = (
-  fs: FileSystem.FileSystem,
-  path: Path.Path,
-  worktreePath: string,
-  state: Omit<WorktreeSetupState, "updatedAt">,
-) =>
-  Effect.gen(function* () {
+export const writeWorktreeSetupState = Effect.fn(
+  "ProjectSetupScriptRunner.writeWorktreeSetupState",
+)(
+  function* (
+    fs: FileSystem.FileSystem,
+    path: Path.Path,
+    worktreePath: string,
+    state: Omit<WorktreeSetupState, "updatedAt">,
+  ) {
     const statePath = yield* worktreeSetupStatePath(fs, path, worktreePath);
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     yield* fs.writeFileString(
       statePath,
       `${yield* encodeWorktreeSetupState({ ...state, updatedAt })}\n`,
     );
-  }).pipe(
-    Effect.catchCause((cause) =>
-      Effect.logWarning("ProjectSetupScriptRunner failed to write worktree setup state", {
-        worktreePath,
-        status: state.status,
-        cause: Cause.pretty(cause),
-      }),
+  },
+  (effect, fs, path, worktreePath, state) =>
+    effect.pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("ProjectSetupScriptRunner failed to write worktree setup state", {
+          worktreePath,
+          status: state.status,
+          cause: Cause.pretty(cause),
+        }),
+      ),
     ),
-  );
+);
 
 /** The breadcrumb for a settled run, or `None` when `SETUP_STATE_TIMEOUT` elapsed first. */
 export const settledWorktreeSetupState = (
@@ -101,15 +106,11 @@ export const settledWorktreeSetupState = (
   });
 
 /** A `bun install` setup script in a pnpm checkout runs pnpm's frozen install instead. */
-export const setupInstallCommand = (
-  fs: FileSystem.FileSystem,
-  path: Path.Path,
-  cwd: string,
-  command: string,
-) =>
-  Effect.gen(function* () {
+export const setupInstallCommand = Effect.fn("ProjectSetupScriptRunner.setupInstallCommand")(
+  function* (fs: FileSystem.FileSystem, path: Path.Path, cwd: string, command: string) {
     return command.trim() === "bun install" &&
       (yield* fs.exists(path.join(cwd, "pnpm-lock.yaml")).pipe(Effect.orElseSucceed(() => false)))
       ? "pnpm install --frozen-lockfile"
       : command;
-  });
+  },
+);

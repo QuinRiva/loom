@@ -310,16 +310,15 @@ export const makeIngestionTelemetry = Effect.gen(function* () {
 
   const instrumentWorker = <A>(inner: DrainableWorker<A>): DrainableWorker<A> => ({
     drain: inner.drain,
-    enqueue: (item) =>
-      Effect.gen(function* () {
-        const startedAtNs = yield* Clock.currentTimeNanos;
-        yield* inner.enqueue(item);
-        const endedAtNs = yield* Clock.currentTimeNanos;
-        enqueuedTotal += 1;
-        interval.enqueued += 1;
-        interval.queueDepthMax = Math.max(interval.queueDepthMax, enqueuedTotal - processedTotal);
-        interval.intakeSuspendedMs += Number(endedAtNs - startedAtNs) / 1e6;
-      }),
+    enqueue: Effect.fn("ProviderRuntimeIngestionTelemetry.enqueue")(function* (item) {
+      const startedAtNs = yield* Clock.currentTimeNanos;
+      yield* inner.enqueue(item);
+      const endedAtNs = yield* Clock.currentTimeNanos;
+      enqueuedTotal += 1;
+      interval.enqueued += 1;
+      interval.queueDepthMax = Math.max(interval.queueDepthMax, enqueuedTotal - processedTotal);
+      interval.intakeSuspendedMs += Number(endedAtNs - startedAtNs) / 1e6;
+    }),
   });
 
   let previousCheckAtMs = startedAtMs;

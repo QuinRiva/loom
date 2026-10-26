@@ -40,7 +40,7 @@ export interface LoomSeedControlMessage {
   readonly payload: ControlPayload;
 }
 
-const PREAMBLE = "[T3 Workstream control plane — automated notice, not from the human]";
+const PREAMBLE = "[T3 Workstream control plane: automated notice, not from the human]";
 
 /**
  * One digest (every item kind), one synthesised yield and one notice per
@@ -61,7 +61,7 @@ export const loomSeedControlMessages = (reports: {
     text: `${PREAMBLE}\n\n${heading}`,
     payload: { kind: "notice", notice: kind, heading, items },
   });
-  const digestHeading = "FYI digest — nothing below is blocked on you.";
+  const digestHeading = "FYI digest: nothing below is blocked on you.";
   return [
     {
       key: "digest",
@@ -139,7 +139,7 @@ export const loomSeedControlMessages = (reports: {
     notice("deadlock", "Your children cannot make progress", [
       { threadId: t.blocked, role: "coder", title: "Waits on a quiet sibling" },
     ]),
-    notice("stall-nudge", "No activity for 10 minutes — are you stuck?", [
+    notice("stall-nudge", "No activity for 10 minutes. Are you stuck?", [
       { threadId: t.gateCoder, title: "Heartbeat frozen" },
     ]),
     notice("attention", "A child needs guidance", [

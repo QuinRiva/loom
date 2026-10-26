@@ -5092,6 +5092,33 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
     }
 
+    // loom: the target's sidecar and the message's loom field (humanAuthored stamped server-side, DL-194)
+    const loomWorkstream = yield* loomStore
+      .getWorkstream(command.threadId)
+      .pipe(mapDispatchError(command));
+    // loom: a goal_continue launch of the stored brief is the predecessor agent's words
+    command = yield* loomStampContinueLaunch(command, loomWorkstream, fileSystem);
+    const loomFields = loomMessageFields(command);
+    // loom: rule 0 (DL-195), before upstream's read watermark: a vetoed continuation is an accepted no-op
+    if (
+      (command.restartContinuationOfRunId ?? command.usageLimitContinuationOfRunId) !== undefined &&
+      loomContinuationVetoed(
+        loomWorkstream,
+        projection.runtimeRequests.some((request) => request.status === "pending"),
+      )
+    ) {
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        occurredAt: yield* DateTime.now,
+        payload: projection.thread,
+      });
+      return;
+    }
+
     if (projection.thread.lastVisitedAt === null && !isNativeMaintenanceCommand(command)) {
       const now = yield* DateTime.now;
       // Null keeps imported history read. The first fresh dispatch establishes
@@ -5111,33 +5138,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         },
       });
       projection = applyToProjection(projection, event);
-    }
-
-    // loom: the target's sidecar and the message's loom field (humanAuthored stamped server-side, DL-194)
-    const loomWorkstream = yield* loomStore
-      .getWorkstream(command.threadId)
-      .pipe(mapDispatchError(command));
-    // loom: a goal_continue launch of the stored brief is the predecessor agent's words
-    command = yield* loomStampContinueLaunch(command, loomWorkstream, fileSystem);
-    const loomFields = loomMessageFields(command);
-    // loom: rule 0 (DL-195) — a continuation of a Loom thread that is not continued is an accepted no-op
-    if (
-      (command.restartContinuationOfRunId ?? command.usageLimitContinuationOfRunId) !== undefined &&
-      loomContinuationVetoed(
-        loomWorkstream,
-        projection.runtimeRequests.some((request) => request.status === "pending"),
-      )
-    ) {
-      yield* emit(
-        events,
-        command,
-      )({
-        type: "thread.metadata-updated",
-        threadId: command.threadId,
-        occurredAt: yield* DateTime.now,
-        payload: projection.thread,
-      });
-      return;
     }
 
     const continuedTaskId = projection.runs.find(

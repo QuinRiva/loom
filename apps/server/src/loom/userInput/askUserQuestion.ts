@@ -112,7 +112,7 @@ const ASK_DISMISSED =
   "The user dismissed these questions without selecting an option. Proceed on the recommended option and say so; if none was marked, use your best judgement and state the assumption.";
 // Rule 6: the message itself steers into this run or queues as the next turn, so the text is not repeated here.
 const ASK_SUPERSEDED =
-  "The user replied with a message instead of using the form, so these questions are settled. Their message reaches you separately — right after this result, or as your next turn. Do not proceed on an assumed answer and do not re-ask: read their message and respond to it.";
+  "The user replied with a message instead of using the form, so these questions are settled. Their message reaches you separately: right after this result, or as your next turn. Do not proceed on an assumed answer and do not re-ask: read their message and respond to it.";
 
 const answerText = (answer: unknown) =>
   Array.isArray(answer)
@@ -195,18 +195,21 @@ const TERMINAL_RUN = new Set(["completed", "interrupted", "failed", "cancelled",
 const isPendingAsk = (request: OrchestrationV2RuntimeRequest) =>
   request.status === "pending" && request.id.startsWith(LOOM_ASK_REQUEST_PREFIX);
 
-const closeAsk = (threadId: ThreadId, requestId: RuntimeRequestId, closing: LoomAskClosing) =>
-  Effect.gen(function* () {
-    yield* (yield* LoomAskWaiters).markClosing(requestId, closing);
-    yield* (yield* OrchestratorV2).dispatch({
-      type: "thread.user-input.dismiss",
-      commandId: CommandId.make(
-        `server:loom:${closing === "superseded" ? "ask-supersede" : "ask-run-end"}:${requestId}`,
-      ),
-      threadId,
-      requestId,
-    });
+const closeAsk = Effect.fn("askUserQuestion.closeAsk")(function* (
+  threadId: ThreadId,
+  requestId: RuntimeRequestId,
+  closing: LoomAskClosing,
+) {
+  yield* (yield* LoomAskWaiters).markClosing(requestId, closing);
+  yield* (yield* OrchestratorV2).dispatch({
+    type: "thread.user-input.dismiss",
+    commandId: CommandId.make(
+      `server:loom:${closing === "superseded" ? "ask-supersede" : "ask-run-end"}:${requestId}`,
+    ),
+    threadId,
+    requestId,
   });
+});
 
 /** One committed domain event's effect on `loom-ask:` requests and their waiters. */
 export const reactToAskEvent = Effect.fn("loom.askUserQuestion.react")(function* (

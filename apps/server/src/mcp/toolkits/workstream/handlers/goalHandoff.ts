@@ -75,7 +75,7 @@ export const goalHandoff = Effect.fn("LoomToolkit.goalHandoff")(function* (
   if (matches.length !== 1)
     return yield* fail(
       projectRef === undefined || projectRef.length === 0
-        ? `This thread's project is an inbox — handoffs must name a target project. Pass 'project' as one of: ${titles}.`
+        ? `This thread's project is an inbox: handoffs must name a target project. Pass 'project' as one of: ${titles}.`
         : `Project '${projectRef}' ${matches.length === 0 ? "was not found" : "is ambiguous"}. Active projects: ${titles}.`,
     );
   const project = matches[0]!;

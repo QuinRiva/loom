@@ -268,7 +268,7 @@ export const reconcileMigrationLedgers = Effect.fn("reconcileMigrationLedgers")(
             `this reconciliation knows how to unpick. Expected rows above id 32 to be a dense prefix of ` +
             `${expected.map(([id, name]) => `${id}_${name}`).join(", ") || "(nothing)"}, ` +
             `found ${actual.map(([id, name]) => `${id}_${name}`).join(", ") || "(nothing)"}. ` +
-            `Restore from backup or reconcile the ledger by hand — this database must not be migrated automatically.`,
+            `Restore from backup or reconcile the ledger by hand: this database must not be migrated automatically.`,
         });
       }
 

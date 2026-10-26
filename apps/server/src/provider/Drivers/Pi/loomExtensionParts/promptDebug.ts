@@ -18,7 +18,7 @@ const NodeFS = process.getBuiltinModule("node:fs");
 // structured options used to build it. We write a per-thread markdown sidecar
 // (path from the session profile's promptDebugPath) so a human can inspect the prompt this pi
 // thread sent. The sections report the STRUCTURED INPUTS pi was handed
-// (systemPromptOptions) — deliberately NOT a reconstruction of pi's assembled
+// (systemPromptOptions), deliberately NOT a reconstruction of pi's assembled
 // output: pi applies its own base prompt, guideline injection, skill-inclusion
 // and ordering rules, and reproducing those here would be a partial
 // reimplementation of pi's assembler that silently drifts as pi changes. The
@@ -56,7 +56,7 @@ const renderDeclaredTools = (tools) => {
   const lines = [];
   let descriptionWords = 0;
   let parameterWords = 0;
-  lines.push("## Declared tools (" + tools.length + ") \u2014 the tools array as sent");
+  lines.push("## Declared tools (" + tools.length + "): the tools array as sent");
   lines.push("");
   for (const tool of tools) {
     const params = parameterDescriptions(tool.parameters);
@@ -64,7 +64,7 @@ const renderDeclaredTools = (tools) => {
     const toolParameterWords = params.reduce((sum, [, text]) => sum + wordCount(text), 0);
     descriptionWords += toolDescriptionWords;
     parameterWords += toolParameterWords;
-    lines.push("### \`" + tool.name + "\` \u2014 " + toolDescriptionWords + " description + " + toolParameterWords + " parameter words");
+    lines.push("### \`" + tool.name + "\`: " + toolDescriptionWords + " description + " + toolParameterWords + " parameter words");
     lines.push("");
     lines.push(String(tool.description ?? ""));
     lines.push("");
@@ -88,13 +88,13 @@ const renderPromptDebug = (event, startIndex, tools) => {
   const snippets = opts.toolSnippets && typeof opts.toolSnippets === "object" ? opts.toolSnippets : {};
   const guidelines = Array.isArray(opts.promptGuidelines) ? opts.promptGuidelines : [];
   const lines = [];
-  lines.push("# Effective prompt \u2014 debug capture");
+  lines.push("# Effective prompt: debug capture");
   lines.push("");
   lines.push("> Fire-and-forget debug sidecar written by the pi capture extension on each");
   lines.push("> agent start. The sections below are the STRUCTURED INPUTS pi assembled the");
   lines.push("> prompt from (systemPromptOptions), captured as seen by THIS before_agent_start");
   lines.push("> handler; pi's own base prompt, guideline/skill inclusion and ordering rules");
-  lines.push("> apply on top \u2014 the \\"Full assembled system prompt\\" block at the end is the");
+  lines.push("> apply on top: the \\"Full assembled system prompt\\" block at the end is the");
   lines.push("> authoritative bytes. This file is NEVER read back into a turn.");
   lines.push("");
   lines.push("## Metadata");
@@ -107,11 +107,11 @@ const renderPromptDebug = (event, startIndex, tools) => {
   lines.push("- Skills (" + skills.length + "): " + (skills.length ? skills.map((s) => s && s.name ? s.name : String(s)).join(", ") : "(none)"));
   lines.push("- Context files (" + contextFiles.length + "): " + (contextFiles.length ? contextFiles.map((f) => f && f.path ? f.path : "(unnamed)").join(", ") : "(none)"));
   lines.push("");
-  lines.push("## System prompt inputs (structured options \u2014 pi assembles the final bytes)");
+  lines.push("## System prompt inputs (structured options; pi assembles the final bytes)");
   lines.push("");
   lines.push("### Custom base prompt");
   lines.push("");
-  lines.push(hasCustom ? promptDebugFence(opts.customPrompt) : "(none \u2014 pi uses its built-in coding-assistant base prompt; see the assembled block)");
+  lines.push(hasCustom ? promptDebugFence(opts.customPrompt) : "(none: pi uses its built-in coding-assistant base prompt; see the assembled block)");
   lines.push("");
   lines.push("### Appended system prompt (T3 work-model + role overlay + goal)");
   lines.push("");
@@ -138,7 +138,7 @@ const renderPromptDebug = (event, startIndex, tools) => {
     for (const s of skills) {
       const name = s && s.name ? s.name : "(unnamed)";
       const loc = s && s.filePath ? " (\`" + s.filePath + "\`)" : "";
-      const disabled = s && s.disableModelInvocation ? " \u2014 disable-model-invocation" : "";
+      const disabled = s && s.disableModelInvocation ? ", disable-model-invocation" : "";
       const desc = String(s && s.description ? s.description : "").replace(/\\n/g, " ");
       lines.push("- **" + name + "**" + loc + disabled + ": " + desc);
     }
@@ -173,7 +173,7 @@ const renderPromptDebug = (event, startIndex, tools) => {
   lines.push("");
   lines.push(promptDebugFence(event.prompt));
   lines.push("");
-  lines.push("## Full assembled system prompt (authoritative \u2014 as observed by this handler)");
+  lines.push("## Full assembled system prompt (authoritative, as observed by this handler)");
   lines.push("");
   lines.push(promptDebugFence(event.systemPrompt));
   lines.push("");
@@ -205,7 +205,7 @@ const capture = (event, path) => {
     NodeFS.writeFileSync(tempPath, markdown, "utf8");
     NodeFS.renameSync(tempPath, path);
     // First capture: the original kickoff is the primary artefact, so preserve
-    // it WRITE-ONCE at the filesystem level and atomically \u2014 independent of
+    // it WRITE-ONCE at the filesystem level and atomically, independent of
     // this process's start index. A resumed/restarted pi process starts at
     // index 1 again but must NOT clobber the original: write a fully-formed
     // temp, then hard-link it into place. linkSync is atomic and fails with
@@ -221,10 +221,10 @@ const capture = (event, path) => {
         NodeFS.rmSync(firstTemp, { force: true });
       }
     } catch {
-      // First capture already durable, or an fs error \u2014 debug data only.
+      // First capture already durable, or an fs error: debug data only.
     }
   } catch {
-    // Debug capture only \u2014 swallow every error, never affect the run.
+    // Debug capture only: swallow every error, never affect the run.
   }
 };
 pi.on("before_agent_start", (event) => {

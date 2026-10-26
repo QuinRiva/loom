@@ -38,20 +38,22 @@ export const listReroutes = Effect.gen(function* () {
 });
 
 /** Keeps the first record: a thread rerouted twice still moves back to what it started on. */
-export const insertReroute = (reroute: ThreadReroute) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const row = yield* encodeRow(reroute);
-    yield* sql`
+export const insertReroute = Effect.fn("rerouteRecord.insertReroute")(function* (
+  reroute: ThreadReroute,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const row = yield* encodeRow(reroute);
+  yield* sql`
       INSERT INTO loom_thread_reroute
         (thread_id, intended_selection, rerouted_selection, rerouted_at, window_label, reset_at)
       VALUES (${row.threadId}, ${row.intendedSelection}, ${row.reroutedSelection},
         ${row.reroutedAt}, ${row.windowLabel}, ${row.resetAt})
       ON CONFLICT (thread_id) DO NOTHING`;
-  });
+});
 
-export const deleteReroute = (threadId: ThreadId) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql`DELETE FROM loom_thread_reroute WHERE thread_id = ${threadId}`;
-  });
+export const deleteReroute = Effect.fn("rerouteRecord.deleteReroute")(function* (
+  threadId: ThreadId,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`DELETE FROM loom_thread_reroute WHERE thread_id = ${threadId}`;
+});

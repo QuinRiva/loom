@@ -120,6 +120,8 @@ const RPC_DATA: Record<string, unknown> = {
 const makeFakePi = Effect.gen(function* () {
   const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
   const requests: Array<PiRpcRecord> = [];
+  // How many prompts pi has received, offered on each one, so a test awaits a count.
+  const promptCounts = yield* Queue.unbounded<number>();
   const spawns: Array<ReadonlyArray<string>> = [];
   // The session file's bytes at the moment each switch_session frame reached pi.
   const switchedFiles: Array<string | null> = [];
@@ -146,13 +148,23 @@ const makeFakePi = Effect.gen(function* () {
                   NodeFS.existsSync(path) ? NodeFS.readFileSync(path, "utf8") : null,
                 );
               }
-              return emit({
-                type: "response",
-                id: record["id"],
-                command: String(record["type"]),
-                success: true,
-                data: RPC_DATA[String(record["type"])],
-              });
+              const prompted =
+                record["type"] === "prompt"
+                  ? Queue.offer(
+                      promptCounts,
+                      requests.filter((request) => request["type"] === "prompt").length,
+                    )
+                  : Effect.void;
+              return Effect.andThen(
+                prompted,
+                emit({
+                  type: "response",
+                  id: record["id"],
+                  command: String(record["type"]),
+                  success: true,
+                  data: RPC_DATA[String(record["type"])],
+                }),
+              );
             },
             { discard: true },
           ),
@@ -167,7 +179,7 @@ const makeFakePi = Effect.gen(function* () {
   );
   // pi's stdout ends: the process went away.
   const close = Queue.end(stdout);
-  return { spawner, emit, close, requests, spawns, switchedFiles };
+  return { spawner, emit, close, requests, promptCounts, spawns, switchedFiles };
 });
 
 const openRuntime = Effect.fnUntraced(function* (
@@ -755,12 +767,7 @@ describe("PiAdapterV2 (loom) — assistant citations", () => {
         providerTurnId: providerTurnId as never,
         message: message(`and ${cite("Also this")}`),
       });
-      while (fake.requests.filter((request) => request["type"] === "prompt").length < 2) {
-        yield* Effect.yieldNow;
-      }
-      const [turn, steer] = fake.requests
-        .filter((request) => request["type"] === "prompt")
-        .map((request) => String(request["message"]));
+      const [turn, steer] = yield* prompts(fake, 2);
       for (const [prompt, comment] of [
         [turn!, "Why?"],
         [steer!, "Also this"],
@@ -799,14 +806,18 @@ const stamped = (
 const PARENT_ID = ThreadId.make("thread-pi-loom-parent");
 
 /** The prompts pi received, in order, once `count` have arrived. */
-const prompts = (fake: { readonly requests: ReadonlyArray<PiRpcRecord> }, count: number) =>
-  Effect.gen(function* () {
-    while (fake.requests.filter((request) => request["type"] === "prompt").length < count)
-      yield* Effect.yieldNow;
-    return fake.requests
-      .filter((request) => request["type"] === "prompt")
-      .map((request) => String(request["message"]));
-  });
+const prompts = Effect.fn("PiAdapterV2.loom.test.prompts")(function* (
+  fake: {
+    readonly requests: ReadonlyArray<PiRpcRecord>;
+    readonly promptCounts: Queue.Queue<number>;
+  },
+  count: number,
+) {
+  while ((yield* Queue.take(fake.promptCounts)) < count);
+  return fake.requests
+    .filter((request) => request["type"] === "prompt")
+    .map((request) => String(request["message"]));
+});
 
 /** Starts one turn on `thread`, then steers each of `steers` into it; returns every prompt sent. */
 const sendAll = Effect.fnUntraced(function* (

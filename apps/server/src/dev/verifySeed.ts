@@ -68,37 +68,36 @@ const columnOf = (ws: LoomThreadShellFields, byId: ReadonlyMap<ThreadId, StartNo
  * orchestrator's `dispatch` records the command and answers `LoomDispatchDeferredError` (a
  * receipted episode never reaches it), so nothing is written.
  */
-const dispatcherWouldSend = (atMs: number) =>
-  Effect.gen(function* () {
-    const real = yield* Orchestrator.OrchestratorV2;
-    const attempted: string[] = [];
-    const recording = Orchestrator.OrchestratorV2.of({
-      ...real,
-      dispatch: (command) =>
-        Effect.fail(
-          new LoomDispatchDeferredError({
-            commandId: command.commandId,
-            commandType: command.type,
-            threadId: (command as { readonly threadId: ThreadId }).threadId,
-            reason: (attempted.push(`${command.type} ${command.commandId}`), "verify: read-only"),
-          }),
-        ),
-    });
-    const clock = yield* Clock.Clock;
-    yield* Effect.flatMap(WorkstreamDispatcher, (dispatcher) => dispatcher.runPass).pipe(
-      Effect.provide(WorkstreamDispatcherLive),
-      Effect.provideService(Orchestrator.OrchestratorV2, recording),
-      Effect.provide(ServerSettings.layerTest()),
-      Effect.provideService(Clock.Clock, {
-        ...clock,
-        currentTimeMillisUnsafe: () => atMs,
-        currentTimeMillis: Effect.succeed(atMs),
-        currentTimeNanosUnsafe: () => BigInt(atMs) * 1_000_000n,
-        currentTimeNanos: Effect.succeed(BigInt(atMs) * 1_000_000n),
-      }),
-    );
-    return attempted;
+const dispatcherWouldSend = Effect.fn("verifySeed.dispatcherWouldSend")(function* (atMs: number) {
+  const real = yield* Orchestrator.OrchestratorV2;
+  const attempted: string[] = [];
+  const recording = Orchestrator.OrchestratorV2.of({
+    ...real,
+    dispatch: (command) =>
+      Effect.fail(
+        new LoomDispatchDeferredError({
+          commandId: command.commandId,
+          commandType: command.type,
+          threadId: (command as { readonly threadId: ThreadId }).threadId,
+          reason: (attempted.push(`${command.type} ${command.commandId}`), "verify: read-only"),
+        }),
+      ),
   });
+  const clock = yield* Clock.Clock;
+  yield* Effect.flatMap(WorkstreamDispatcher, (dispatcher) => dispatcher.runPass).pipe(
+    Effect.provide(WorkstreamDispatcherLive),
+    Effect.provideService(Orchestrator.OrchestratorV2, recording),
+    Effect.provide(ServerSettings.layerTest()),
+    Effect.provideService(Clock.Clock, {
+      ...clock,
+      currentTimeMillisUnsafe: () => atMs,
+      currentTimeMillis: Effect.succeed(atMs),
+      currentTimeNanosUnsafe: () => BigInt(atMs) * 1_000_000n,
+      currentTimeNanos: Effect.succeed(BigInt(atMs) * 1_000_000n),
+    }),
+  );
+  return attempted;
+});
 
 const verifyProgram = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;

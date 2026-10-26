@@ -257,50 +257,53 @@ export const ProviderHealthRegistryLive = Layer.effect(
       yield* PubSub.publish(changesPubSub, activeMarks(telemetry, error, nowMs));
     }).pipe(Effect.asVoid);
 
-    const isExhausted: ProviderHealthRegistryShape["isExhausted"] = (accountKey, modelId, now) =>
-      Effect.gen(function* () {
-        const [telemetry, error] = yield* Effect.all([Ref.get(telemetryRef), Ref.get(errorRef)]);
-        const at = now ?? (yield* Clock.currentTimeMillis);
-        const hit = (mark: ExhaustionMark) =>
-          matches(mark, accountKey, modelId) && isActive(mark, at);
-        return Array.from(telemetry.values()).some(hit) || Array.from(error.values()).some(hit);
-      });
+    const isExhausted: ProviderHealthRegistryShape["isExhausted"] = Effect.fn(
+      "ProviderHealthRegistry.isExhausted",
+    )(function* (accountKey, modelId, now) {
+      const [telemetry, error] = yield* Effect.all([Ref.get(telemetryRef), Ref.get(errorRef)]);
+      const at = now ?? (yield* Clock.currentTimeMillis);
+      const hit = (mark: ExhaustionMark) =>
+        matches(mark, accountKey, modelId) && isActive(mark, at);
+      return Array.from(telemetry.values()).some(hit) || Array.from(error.values()).some(hit);
+    });
 
-    const exhaustedUntil: ProviderHealthRegistryShape["exhaustedUntil"] = (accountKey, modelId) =>
-      Effect.gen(function* () {
-        const [telemetry, error] = yield* Effect.all([Ref.get(telemetryRef), Ref.get(errorRef)]);
-        const now = yield* Clock.currentTimeMillis;
-        const relevant = [...telemetry.values(), ...error.values()].filter(
-          (mark) => matches(mark, accountKey, modelId) && isActive(mark, now),
-        );
-        if (relevant.length === 0) return null;
-        // Available again only once every active mark clears; a null (unknown)
-        // until dominates.
-        if (relevant.some((mark) => mark.until === null)) return null;
-        return relevant.reduce(
-          (latest, mark) =>
-            latest === null || Date.parse(mark.until!) > Date.parse(latest) ? mark.until : latest,
-          null as string | null,
-        );
-      });
+    const exhaustedUntil: ProviderHealthRegistryShape["exhaustedUntil"] = Effect.fn(
+      "ProviderHealthRegistry.exhaustedUntil",
+    )(function* (accountKey, modelId) {
+      const [telemetry, error] = yield* Effect.all([Ref.get(telemetryRef), Ref.get(errorRef)]);
+      const now = yield* Clock.currentTimeMillis;
+      const relevant = [...telemetry.values(), ...error.values()].filter(
+        (mark) => matches(mark, accountKey, modelId) && isActive(mark, now),
+      );
+      if (relevant.length === 0) return null;
+      // Available again only once every active mark clears; a null (unknown)
+      // until dominates.
+      if (relevant.some((mark) => mark.until === null)) return null;
+      return relevant.reduce(
+        (latest, mark) =>
+          latest === null || Date.parse(mark.until!) > Date.parse(latest) ? mark.until : latest,
+        null as string | null,
+      );
+    });
 
-    const markExhausted: ProviderHealthRegistryShape["markExhausted"] = (mark) =>
-      Effect.gen(function* () {
-        const nowMs = yield* Clock.currentTimeMillis;
-        const resolved: ExhaustionMark =
-          mark.source === "error" && mark.until === null
-            ? {
-                ...mark,
-                until: DateTime.formatIso(DateTime.makeUnsafe(nowMs + ERROR_MARK_DEFAULT_TTL_MS)),
-              }
-            : mark;
-        yield* Ref.update(errorRef, (marks) => {
-          const next = new Map(marks);
-          next.set(markKey(resolved.accountKey, resolved.modelScope), resolved);
-          return next;
-        });
-        yield* publish;
+    const markExhausted: ProviderHealthRegistryShape["markExhausted"] = Effect.fn(
+      "ProviderHealthRegistry.markExhausted",
+    )(function* (mark) {
+      const nowMs = yield* Clock.currentTimeMillis;
+      const resolved: ExhaustionMark =
+        mark.source === "error" && mark.until === null
+          ? {
+              ...mark,
+              until: DateTime.formatIso(DateTime.makeUnsafe(nowMs + ERROR_MARK_DEFAULT_TTL_MS)),
+            }
+          : mark;
+      yield* Ref.update(errorRef, (marks) => {
+        const next = new Map(marks);
+        next.set(markKey(resolved.accountKey, resolved.modelScope), resolved);
+        return next;
       });
+      yield* publish;
+    });
 
     const snapshot = Effect.gen(function* () {
       const nowMs = yield* Clock.currentTimeMillis;
@@ -309,19 +312,18 @@ export const ProviderHealthRegistryLive = Layer.effect(
     });
 
     // Fresh telemetry rebuilds the telemetry marks and clears reset error marks.
-    const applyUsage: ProviderHealthRegistryShape["applyUsage"] = (snapshot) =>
-      Effect.gen(function* () {
-        const snapshots = Array.from(
-          (yield* Ref.updateAndGet(usageRef, (store) =>
-            mergeAccountUsage(store, snapshot),
-          )).values(),
-        );
-        const nowMs = yield* Clock.currentTimeMillis;
-        const derived = deriveFromTelemetry(snapshots, yield* Ref.get(errorRef), nowMs);
-        yield* Ref.set(telemetryRef, derived.telemetry);
-        yield* Ref.set(errorRef, derived.error);
-        yield* publish;
-      });
+    const applyUsage: ProviderHealthRegistryShape["applyUsage"] = Effect.fn(
+      "ProviderHealthRegistry.applyUsage",
+    )(function* (snapshot) {
+      const snapshots = Array.from(
+        (yield* Ref.updateAndGet(usageRef, (store) => mergeAccountUsage(store, snapshot))).values(),
+      );
+      const nowMs = yield* Clock.currentTimeMillis;
+      const derived = deriveFromTelemetry(snapshots, yield* Ref.get(errorRef), nowMs);
+      yield* Ref.set(telemetryRef, derived.telemetry);
+      yield* Ref.set(errorRef, derived.error);
+      yield* publish;
+    });
 
     return {
       applyUsage,

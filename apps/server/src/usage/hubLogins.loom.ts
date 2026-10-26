@@ -240,18 +240,17 @@ export function reloginSchedule(
 // The record file.
 
 /** The record, or none when the file is absent; a corrupt file is logged and replaced. */
-export const loadHubLogins = (path: string) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    if (!(yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false)))) return {};
-    return yield* fs.readFileString(path).pipe(
-      Effect.flatMap(decodeRecords),
-      Effect.tapError((cause) =>
-        Effect.logWarning("hub login record unreadable; starting empty", { path, cause }),
-      ),
-      Effect.orElseSucceed((): HubLoginRecords => ({})),
-    );
-  });
+export const loadHubLogins = Effect.fn("hubLogins.loadHubLogins")(function* (path: string) {
+  const fs = yield* FileSystem.FileSystem;
+  if (!(yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false)))) return {};
+  return yield* fs.readFileString(path).pipe(
+    Effect.flatMap(decodeRecords),
+    Effect.tapError((cause) =>
+      Effect.logWarning("hub login record unreadable; starting empty", { path, cause }),
+    ),
+    Effect.orElseSucceed((): HubLoginRecords => ({})),
+  );
+});
 
 export const saveHubLogins = (path: string, records: HubLoginRecords) =>
   writeFileStringAtomically({

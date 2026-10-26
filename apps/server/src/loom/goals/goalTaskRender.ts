@@ -92,7 +92,7 @@ export const renderGoalTaskBranch = (
   (spine.length === 0
     ? ""
     : `Where your branch sits in the goal (read-only context, not rewrite input):\n${renderSpine(spine)}\n\n`) +
-  `Your branch — its root line is your anchor, and this block is the complete source a branch rewrite takes:\n${renderGoalTaskTree([anchor]).trimEnd()}`;
+  `Your branch: its root line is your anchor, and this block is the complete source a branch rewrite takes:\n${renderGoalTaskTree([anchor]).trimEnd()}`;
 
 /** Where an out-of-branch add landed: its ancestor spine, then the added line. */
 const renderGoalTaskPlacement = (spine: ReadonlyArray<LoomGoalTask>, added: LoomGoalTask): string =>
@@ -145,7 +145,7 @@ export const renderGoalTaskEcho = (input: {
   if (anchor === null) {
     return input.isChild
       ? `${input.summary}\n\n${open}`
-      : `${input.summary}\n\n${open}\n\nDone subtrees are elided above, so this echo is NOT rewrite input — rewrite from a fresh ${agentToolName("goal_task_list")} (scope "tree"), which returns the complete tree.`;
+      : `${input.summary}\n\n${open}\n\nDone subtrees are elided above, so this echo is NOT rewrite input. Rewrite from a fresh ${agentToolName("goal_task_list")} (scope "tree"), which returns the complete tree.`;
   }
   const placed =
     input.placedTaskId !== undefined && !isWithinGoalTaskBranch(anchor, input.placedTaskId)

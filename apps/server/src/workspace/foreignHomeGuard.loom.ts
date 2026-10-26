@@ -53,11 +53,11 @@ export const isInsideDirectory = (dir: string, target: string): boolean => {
  * A database with no recorded worktree path at all says nothing either way and
  * is treated as ours — it has no foreign checkout to damage.
  */
-export const detectForeignDatabase = (input: {
-  readonly worktreesDir: string;
-  readonly recordedWorktreePaths: Iterable<string>;
-}) =>
-  Effect.gen(function* () {
+export const detectForeignDatabase = Effect.fn("foreignHomeGuard.detectForeignDatabase")(
+  function* (input: {
+    readonly worktreesDir: string;
+    readonly recordedWorktreePaths: Iterable<string>;
+  }) {
     const recorded = [...input.recordedWorktreePaths];
     const ours = recorded.some((path) => isInsideDirectory(input.worktreesDir, path));
     foreignHome =
@@ -78,7 +78,8 @@ export const detectForeignDatabase = (input: {
         recordedWorktreePaths: foreignHome.recordedCount,
       },
     );
-  });
+  },
+);
 
 export const isForeignDatabase = (): boolean => foreignHome !== null;
 
@@ -89,8 +90,10 @@ export const isForeignDatabase = (): boolean => foreignHome !== null;
  * `worktreePath` lives in `payload_json` — fed to `detectForeignDatabase`. A
  * failed read leaves the guard off, which is the pre-existing behaviour.
  */
-export const detectForeignDatabaseAtBoot = (worktreesDir: string) =>
-  Effect.gen(function* () {
+export const detectForeignDatabaseAtBoot = Effect.fn(
+  "foreignHomeGuard.detectForeignDatabaseAtBoot",
+)(
+  function* (worktreesDir: string) {
     const sql = yield* SqlClient.SqlClient;
     const rows = yield* sql<{ readonly path: string }>`
       SELECT worktree_path AS path FROM projection_threads WHERE worktree_path IS NOT NULL
@@ -103,31 +106,32 @@ export const detectForeignDatabaseAtBoot = (worktreesDir: string) =>
       worktreesDir,
       recordedWorktreePaths: rows.map((row) => row.path),
     });
-  }).pipe(
-    Effect.catch((cause) =>
-      Effect.logWarning("failed to check which home this database came from", { cause }),
-    ),
-  );
+  },
+  Effect.catch((cause) =>
+    Effect.logWarning("failed to check which home this database came from", { cause }),
+  ),
+);
 
 /**
  * Gate for one mutating call site. Returns `true` when the caller must NOT act
  * — the caller decides whether that is a silent skip or a typed failure.
  */
-export const refuseForeignHomeSideEffect = (site: string, target: string) =>
-  Effect.gen(function* () {
-    if (foreignHome === null) return false;
-    const key = `${site}\u0000${target}`;
-    if (!warned.has(key)) {
-      warned.add(key);
-      yield* Effect.logWarning("foreign-home guard refused a side effect", {
-        site,
-        target,
-        worktreesDir: foreignHome.worktreesDir,
-        recordedExample: foreignHome.recordedExample,
-      });
-    }
-    return true;
-  });
+export const refuseForeignHomeSideEffect = Effect.fn(
+  "foreignHomeGuard.refuseForeignHomeSideEffect",
+)(function* (site: string, target: string) {
+  if (foreignHome === null) return false;
+  const key = `${site}\u0000${target}`;
+  if (!warned.has(key)) {
+    warned.add(key);
+    yield* Effect.logWarning("foreign-home guard refused a side effect", {
+      site,
+      target,
+      worktreesDir: foreignHome.worktreesDir,
+      recordedExample: foreignHome.recordedExample,
+    });
+  }
+  return true;
+});
 
 /** Test seam: drive the boot-time decision directly. */
 export const setForeignDatabaseForTest = (

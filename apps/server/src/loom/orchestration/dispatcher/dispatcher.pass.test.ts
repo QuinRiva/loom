@@ -174,7 +174,7 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
       const [released] = yield* messages(dependent!);
       assert.include(
         released?.text ?? "",
-        `You waited on 1 thread that is now done; its hand-back:\n- coder ${a} — report \`${(yield* row(a!)).reportPath}\``,
+        `You waited on 1 thread that is now done; its hand-back:\n- coder ${a}: report \`${(yield* row(a!)).reportPath}\``,
       );
     }),
   );
@@ -516,7 +516,7 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
           kind: "slow-tool" as const,
           threadId: child!,
           title: "Still executing",
-          excerpt: "⏳ coder `advise-child` still executing — SLOW_TOOL_LINE",
+          excerpt: "⏳ coder `advise-child` still executing: SLOW_TOOL_LINE",
         },
         episodeKey: `slow-tool:${child}:1`,
         episodeStartedAt: "1969-12-31T23:50:00.000Z",

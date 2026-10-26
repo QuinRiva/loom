@@ -124,7 +124,7 @@ Question:
 
 ${input.question}
 
-Answering: reply from the knowledge already in this session's context, addressed to the asker, who sees your reply and nothing else. You may inspect anything that helps you answer (run commands, read files, git log/diff), but do not modify files, git state or any thread; every tool that changes state — the workstream tools, edits, questions to a human — is refused in this fork; use the read-only ones and your context, so do not narrate work, promise follow-up, or offer to go and do something. The tree has moved on since this session's last turn, so treat remembered paths and contents as historical. If this session's context does not resolve the question, say so plainly (for example "this session does not resolve that") and say what it does cover; that is a useful answer, not a failure.`;
+Answering: reply from the knowledge already in this session's context, addressed to the asker, who sees your reply and nothing else. You may inspect anything that helps you answer (run commands, read files, git log/diff), but do not modify files, git state or any thread; every tool that changes state (the workstream tools, edits, questions to a human) is refused in this fork; use the read-only ones and your context, so do not narrate work, promise follow-up, or offer to go and do something. The tree has moved on since this session's last turn, so treat remembered paths and contents as historical. If this session's context does not resolve the question, say so plainly (for example "this session does not resolve that") and say what it does cover; that is a useful answer, not a failure.`;
 
 export class LoomConsultError extends Schema.TaggedError<LoomConsultError>()("LoomConsultError", {
   detail: Schema.String,
@@ -403,17 +403,15 @@ export const layer = Layer.effect(
 
     return LoomThreadConsult.of({
       ask,
-      cancel: (consultId) =>
-        Effect.gen(function* () {
-          const consult = running.get(consultId);
-          if (consult === undefined) return false;
-          const elapsed =
-            (yield* Clock.currentTimeMillis) - Date.parse(consult.published.startedAt);
-          return yield* Deferred.succeed(
-            consult.stop,
-            `Stopped from the consult card after ${formatElapsed(elapsed)}.`,
-          );
-        }),
+      cancel: Effect.fn("consult.cancel")(function* (consultId) {
+        const consult = running.get(consultId);
+        if (consult === undefined) return false;
+        const elapsed = (yield* Clock.currentTimeMillis) - Date.parse(consult.published.startedAt);
+        return yield* Deferred.succeed(
+          consult.stop,
+          `Stopped from the consult card after ${formatElapsed(elapsed)}.`,
+        );
+      }),
       subscribeLive: Effect.map(PubSub.subscribe(live), (subscription) =>
         Stream.concat(
           Stream.fromIterable(

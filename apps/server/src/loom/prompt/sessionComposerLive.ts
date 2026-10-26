@@ -106,65 +106,63 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
   );
 
   /** The thread's identity from scratch: its role, ship policy, catalogue and goal as of now. */
-  const composeIdentity = (
+  const composeIdentity = Effect.fn("sessionComposerLive.composeIdentity")(function* (
     thread: OrchestrationV2AppThread,
     workstream: LoomThreadWorkstream | null,
     projectRoot: string,
     longShare: number,
-  ) =>
-    Effect.gen(function* () {
-      // A V2 `fork` (thread_fork, a UI fork) is a root the human drives; only `subagent` is a child.
-      const isChild = thread.lineage.relationshipToParent === "subagent";
-      const overlay =
-        workstream?.role === RETRO_REVIEWER_ROLE
-          ? {
-              prompt: RETRO_REVIEWER_OVERLAY_PROMPT,
-              delegation: false,
-              tools: RETRO_REVIEWER_TOOLS,
-            }
-          : loadRoleOverlay({ role: workstream?.role ?? null, projectRoot });
-      const catalogue =
-        overlay === undefined || overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
-      const goal =
-        workstream?.goalId == null ? null : yield* loomStore.goals.get(workstream.goalId);
-      const appendSystemPrompt = [
-        WORK_MODEL_ADDENDUM,
-        isChild ? CHILD_READERSHIP_CLAUSE : undefined,
-        threadIdentityClause(
-          thread.id,
-          isChild ? thread.lineage.parentThreadId : null,
-          loomPaths(config),
-        ),
-        overlay?.prompt,
-        shipPolicyPromptBlock(resolveMergeAuthority(projectRoot)),
-        catalogue.length > 0
-          ? [
-              "Available roles for spawning children (built in; a project may add its own under `.t3code/roles/`). A free-text role may still be used when none fits:",
-              ...catalogue.map((role) => `- ${role.name}: ${role.summary}`),
-            ].join("\n")
-          : undefined,
-        // A root the human or a handoff starts has said nothing yet that a goal could
-        // summarise; only a root joining work in progress (its goal already has tasks) needs it.
-        goal === null || goal.deletedAt !== null || (!isChild && goal.tasks.length === 0)
-          ? undefined
-          : goalContextInstruction(goal, {
-              asChildBackground: isChild,
-              anchorTaskId: workstream?.anchorTaskId ?? null,
-            }),
-      ]
-        .filter((part): part is string => part !== undefined && part.trim().length > 0)
-        .join("\n\n");
-      return {
-        appendSystemPrompt,
-        skills: overlay?.skills ?? [],
-        extensions: [extensionPath],
-        env: {
-          PI_CACHE_RETENTION: cacheRetentionForThread(thread.id, !isChild, longShare),
-        },
-        modelSelection: thread.modelSelection,
-        tools: overlay?.tools ?? [],
-      } satisfies LaunchIdentityRecord;
-    });
+  ) {
+    // A V2 `fork` (thread_fork, a UI fork) is a root the human drives; only `subagent` is a child.
+    const isChild = thread.lineage.relationshipToParent === "subagent";
+    const overlay =
+      workstream?.role === RETRO_REVIEWER_ROLE
+        ? {
+            prompt: RETRO_REVIEWER_OVERLAY_PROMPT,
+            delegation: false,
+            tools: RETRO_REVIEWER_TOOLS,
+          }
+        : loadRoleOverlay({ role: workstream?.role ?? null, projectRoot });
+    const catalogue =
+      overlay === undefined || overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
+    const goal = workstream?.goalId == null ? null : yield* loomStore.goals.get(workstream.goalId);
+    const appendSystemPrompt = [
+      WORK_MODEL_ADDENDUM,
+      isChild ? CHILD_READERSHIP_CLAUSE : undefined,
+      threadIdentityClause(
+        thread.id,
+        isChild ? thread.lineage.parentThreadId : null,
+        loomPaths(config),
+      ),
+      overlay?.prompt,
+      shipPolicyPromptBlock(resolveMergeAuthority(projectRoot)),
+      catalogue.length > 0
+        ? [
+            "Available roles for spawning children (built in; a project may add its own under `.t3code/roles/`). A free-text role may still be used when none fits:",
+            ...catalogue.map((role) => `- ${role.name}: ${role.summary}`),
+          ].join("\n")
+        : undefined,
+      // A root the human or a handoff starts has said nothing yet that a goal could
+      // summarise; only a root joining work in progress (its goal already has tasks) needs it.
+      goal === null || goal.deletedAt !== null || (!isChild && goal.tasks.length === 0)
+        ? undefined
+        : goalContextInstruction(goal, {
+            asChildBackground: isChild,
+            anchorTaskId: workstream?.anchorTaskId ?? null,
+          }),
+    ]
+      .filter((part): part is string => part !== undefined && part.trim().length > 0)
+      .join("\n\n");
+    return {
+      appendSystemPrompt,
+      skills: overlay?.skills ?? [],
+      extensions: [extensionPath],
+      env: {
+        PI_CACHE_RETENTION: cacheRetentionForThread(thread.id, !isChild, longShare),
+      },
+      modelSelection: thread.modelSelection,
+      tools: overlay?.tools ?? [],
+    } satisfies LaunchIdentityRecord;
+  });
 
   /**
    * Own record → the fork source's record verbatim → a fresh composition; first one written.
@@ -173,42 +171,41 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
    * lineage parent (thread_fork, a UI fork), which composes fresh as a root when it has none
    * (a V1-imported source never relaunched under V2).
    */
-  const launchIdentity = (
+  const launchIdentity = Effect.fn("sessionComposerLive.launchIdentity")(function* (
     thread: OrchestrationV2AppThread,
     workstream: LoomThreadWorkstream | null,
     projectRoot: string,
     longShare: number,
-  ) =>
-    Effect.gen(function* () {
-      const own = yield* readLaunchIdentity(identityDir, thread.id);
-      if (Option.isSome(own) && own.value.replayedFrom === undefined) return own.value;
-      const firstLaunch = Option.isNone(own);
-      const forkFrom = firstLaunch ? (workstream?.forkFromThreadId ?? null) : null;
-      const sourceThreadId =
-        forkFrom ??
-        (firstLaunch && thread.lineage.relationshipToParent === "fork"
-          ? thread.lineage.parentThreadId
-          : null);
-      const source =
-        sourceThreadId === null
-          ? Option.none<LaunchIdentityRecord>()
-          : Option.map(yield* readLaunchIdentity(identityDir, sourceThreadId), (record) => ({
-              ...record,
-              replayedFrom: sourceThreadId,
-            }));
-      if (forkFrom !== null && Option.isNone(source) && workstream?.role !== HANDOFF_DRAFTER_ROLE)
-        return yield* Effect.fail(
-          new LoomForkSourceIdentityMissing({ threadId: thread.id, sourceThreadId: forkFrom }),
-        );
-      const record = Option.isSome(source)
-        ? source.value
-        : yield* composeIdentity(thread, workstream, projectRoot, longShare);
-      yield* writeLaunchIdentity(identityDir, thread.id, record);
-      return record;
-    });
+  ) {
+    const own = yield* readLaunchIdentity(identityDir, thread.id);
+    if (Option.isSome(own) && own.value.replayedFrom === undefined) return own.value;
+    const firstLaunch = Option.isNone(own);
+    const forkFrom = firstLaunch ? (workstream?.forkFromThreadId ?? null) : null;
+    const sourceThreadId =
+      forkFrom ??
+      (firstLaunch && thread.lineage.relationshipToParent === "fork"
+        ? thread.lineage.parentThreadId
+        : null);
+    const source =
+      sourceThreadId === null
+        ? Option.none<LaunchIdentityRecord>()
+        : Option.map(yield* readLaunchIdentity(identityDir, sourceThreadId), (record) => ({
+            ...record,
+            replayedFrom: sourceThreadId,
+          }));
+    if (forkFrom !== null && Option.isNone(source) && workstream?.role !== HANDOFF_DRAFTER_ROLE)
+      return yield* Effect.fail(
+        new LoomForkSourceIdentityMissing({ threadId: thread.id, sourceThreadId: forkFrom }),
+      );
+    const record = Option.isSome(source)
+      ? source.value
+      : yield* composeIdentity(thread, workstream, projectRoot, longShare);
+    yield* writeLaunchIdentity(identityDir, thread.id, record);
+    return record;
+  });
 
-  const compose = (threadId: ThreadId) =>
-    Effect.gen(function* () {
+  const compose = Effect.fn("sessionComposerLive.compose")(
+    function* (threadId: ThreadId) {
       const { thread, providerSessions } = yield* projections.getThreadRecords(threadId, [
         "providerSessions",
       ]);
@@ -252,10 +249,13 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
         pathPrepend: gitShimDir,
         ...(retention === "long" && { idleTimeoutMs: LONG_ROOT_IDLE_TIMEOUT_MS }),
       } satisfies LoomOpenSessionFields;
-    }).pipe(
-      Effect.provide(context),
-      Effect.mapError((cause) => new LoomSessionComposerError({ threadId, cause })),
-    );
+    },
+    (effect, threadId) =>
+      effect.pipe(
+        Effect.provide(context),
+        Effect.mapError((cause) => new LoomSessionComposerError({ threadId, cause })),
+      ),
+  );
 
   return { compose } satisfies LoomSessionComposerShape;
 });

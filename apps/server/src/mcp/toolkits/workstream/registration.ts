@@ -32,8 +32,8 @@ const textResult = (text: string, isError: boolean) =>
  * success is one text block; a failure is its message, `isError` per the
  * tool's error mode.
  */
-export const callLoomTool = (def: LoomToolDef, handlers: LoomToolHandlers, payload: unknown) =>
-  Effect.gen(function* () {
+export const callLoomTool = Effect.fn("registration.callLoomTool")(
+  function* (def: LoomToolDef, handlers: LoomToolHandlers, payload: unknown) {
     const caller = yield* requireWorkstreamCaller();
     // A consult fork answers as its target but may only read (refused before decoding).
     if (isReadOnlyCaller(caller.scope) && !CONSULT_READ_TOOLS.has(def.name))
@@ -54,12 +54,15 @@ export const callLoomTool = (def: LoomToolDef, handlers: LoomToolHandlers, paylo
       caller: WorkstreamCaller,
     ) => Effect.Effect<string, LoomToolError>;
     return yield* handle(input, caller);
-  }).pipe(
-    Effect.match({
-      onSuccess: (rendered) => textResult(rendered, false),
-      onFailure: (error) => textResult(error.message, def.errorMode === "throw"),
-    }),
-  );
+  },
+  (effect, def, handlers, payload) =>
+    effect.pipe(
+      Effect.match({
+        onSuccess: (rendered) => textResult(rendered, false),
+        onFailure: (error) => textResult(error.message, def.errorMode === "throw"),
+      }),
+    ),
+);
 
 export const registerLoomToolkit = Effect.fn("LoomToolkit.register")(function* (
   defs: ReadonlyArray<LoomToolDef>,

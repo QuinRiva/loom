@@ -62,7 +62,7 @@ export const buildDrafterTitle = (explanation: string) => curatedTitle("Handoff"
  * placed — the drafter runs unattended, so any closing text is never read.
  */
 export const buildDrafterKickoffPrompt = (explanation: string) =>
-  `You are a handoff drafter forked from the preceding session with its full context. The human has flagged out-of-scope work: ${explanation}. Draft a focused brief for it and call \`mcp__t3-code__goal_handoff\` (title, brief, description; name a \`project\` if the work belongs elsewhere). The receiving root is told the brief is agent-written and treats it as a proposal: quote the human's words where you relay what they asked, mark the rest as your own reading, and describe the problem rather than instructing it what to do — it plans for itself. If the human flags multiple separable issues, use your judgment: one goal if they belong together, one \`mcp__t3-code__goal_handoff\` call per goal if they should proceed independently. Do NOT do the work itself, and do not write exhaustive briefs — omissions are recoverable because the receiving agent can \`mcp__t3-code__consult_thread\` this frozen session. After your last \`mcp__t3-code__goal_handoff\` call, end your turn immediately without further response.`;
+  `You are a handoff drafter forked from the preceding session with its full context. The human has flagged out-of-scope work: ${explanation}. Draft a focused brief for it and call \`mcp__t3-code__goal_handoff\` (title, brief, description; name a \`project\` if the work belongs elsewhere). The receiving root is told the brief is agent-written and treats it as a proposal: quote the human's words where you relay what they asked, mark the rest as your own reading, and describe the problem rather than instructing it what to do. It plans for itself. If the human flags multiple separable issues, use your judgment: one goal if they belong together, one \`mcp__t3-code__goal_handoff\` call per goal if they should proceed independently. Do NOT do the work itself, and do not write exhaustive briefs: omissions are recoverable because the receiving agent can \`mcp__t3-code__consult_thread\` this frozen session. After your last \`mcp__t3-code__goal_handoff\` call, end your turn immediately without further response.`;
 
 const BLOCKING_RUN = new Set(["preparing", "starting", "running", "waiting"]);
 
@@ -174,24 +174,25 @@ export const buildHandoffDraftTurnStart = (
  * ends). `deferred` leaves the rest for `HandoffDrafterReactor`, whose pass re-sends
  * them on every run end (a receipted id replays as a no-op); `dead` carries the refusal.
  */
-export const dispatchDraftFork = (commands: ReadonlyArray<OrchestrationV2ServerCommand>) =>
-  Effect.gen(function* () {
-    const orchestrator = yield* OrchestratorV2;
-    for (const command of commands) {
-      const stopped = yield* orchestrator.dispatch(command).pipe(
-        Effect.as(null),
-        Effect.catch((error) =>
-          Effect.succeed(
-            error._tag === "LoomDispatchDeferredError"
-              ? ({ status: "deferred" } as const)
-              : ({ status: "dead", error: error.message } as const),
-          ),
+export const dispatchDraftFork = Effect.fn("handoffDraft.dispatchDraftFork")(function* (
+  commands: ReadonlyArray<OrchestrationV2ServerCommand>,
+) {
+  const orchestrator = yield* OrchestratorV2;
+  for (const command of commands) {
+    const stopped = yield* orchestrator.dispatch(command).pipe(
+      Effect.as(null),
+      Effect.catch((error) =>
+        Effect.succeed(
+          error._tag === "LoomDispatchDeferredError"
+            ? ({ status: "deferred" } as const)
+            : ({ status: "dead", error: error.message } as const),
         ),
-      );
-      if (stopped !== null) return stopped;
-    }
-    return { status: "launched" } as const;
-  });
+      ),
+    );
+    if (stopped !== null) return stopped;
+  }
+  return { status: "launched" } as const;
+});
 
 /**
  * Validates the source and launches a drafter fork; returns the drafter's id.
@@ -203,17 +204,17 @@ export const dispatchDraftFork = (commands: ReadonlyArray<OrchestrationV2ServerC
  * is the source's projected selection (DL-384: launch identity is the composer's).
  * Fails with `LoomWsMethodError` naming `method`.
  */
-export const launchDraftFork = (input: {
-  readonly method: string;
-  /** "handed off" / "reviewed": the refusal wording. */
-  readonly verb: string;
-  readonly sourceThreadId: ThreadId;
-  readonly build: (
-    fork: Omit<DraftForkInput, "role" | "title" | "kickoff">,
-    source: OrchestrationV2ThreadShell,
-  ) => ReadonlyArray<OrchestrationV2ServerCommand>;
-}) =>
-  Effect.gen(function* () {
+export const launchDraftFork = Effect.fn("handoffDraft.launchDraftFork")(
+  function* (input: {
+    readonly method: string;
+    /** "handed off" / "reviewed": the refusal wording. */
+    readonly verb: string;
+    readonly sourceThreadId: ThreadId;
+    readonly build: (
+      fork: Omit<DraftForkInput, "role" | "title" | "kickoff">,
+      source: OrchestrationV2ThreadShell,
+    ) => ReadonlyArray<OrchestrationV2ServerCommand>;
+  }) {
     const orchestrator = yield* OrchestratorV2;
     const fail = (message: string) => new LoomWsMethodError({ method: input.method, message });
     const source = yield* orchestrator.getThreadShell(input.sourceThreadId);
@@ -263,16 +264,19 @@ export const launchDraftFork = (input: {
     );
     if (launch.status === "dead") return yield* fail(launch.error);
     return drafterThreadId;
-  }).pipe(
-    Effect.catchIf(
-      (error) => error._tag !== "LoomWsMethodError",
-      (cause) =>
-        Effect.fail(
-          new LoomWsMethodError({
-            method: input.method,
-            message: `${input.method} failed to start the fork.`,
-            cause,
-          }),
-        ),
+  },
+  (effect, input) =>
+    effect.pipe(
+      Effect.catchIf(
+        (error) => error._tag !== "LoomWsMethodError",
+        (cause) =>
+          Effect.fail(
+            new LoomWsMethodError({
+              method: input.method,
+              message: `${input.method} failed to start the fork.`,
+              cause,
+            }),
+          ),
+      ),
     ),
-  );
+);

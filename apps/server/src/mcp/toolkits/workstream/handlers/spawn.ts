@@ -39,8 +39,8 @@ export const workstreamSpawn = Effect.fn("LoomToolkit.workstreamSpawn")(function
   if (forkFrom !== undefined && (source === undefined || source.archivedAt !== null))
     return yield* fail(
       source === undefined
-        ? `forkFrom must name an active direct child of this thread — ${forkFrom} is not one. ${NOTHING}`
-        : `forkFrom names ${forkFrom}, which is archived and no longer active — an archived thread cannot be forked. ${NOTHING}`,
+        ? `forkFrom must name an active direct child of this thread: ${forkFrom} is not one. ${NOTHING}`
+        : `forkFrom names ${forkFrom}, which is archived and no longer active: an archived thread cannot be forked. ${NOTHING}`,
     );
 
   const anchorRejection = yield* anchorError(

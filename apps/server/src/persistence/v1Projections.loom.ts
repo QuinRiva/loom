@@ -7,9 +7,11 @@ import * as SqlClient from "effect/sql/SqlClient";
  * backfills from one of them finds it gone. There is nothing to backfill then;
  * on an existing database these migrations ran long before 063.
  */
-export const whenV1TableExists = <E, R>(table: string, migration: Effect.Effect<void, E, R>) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const rows = yield* sql`SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ${table}`;
-    if (rows.length > 0) yield* migration;
-  });
+export const whenV1TableExists = Effect.fn("v1Projections.whenV1TableExists")(function* <E, R>(
+  table: string,
+  migration: Effect.Effect<void, E, R>,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql`SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ${table}`;
+  if (rows.length > 0) yield* migration;
+});

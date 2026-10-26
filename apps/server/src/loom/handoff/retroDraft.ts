@@ -175,8 +175,8 @@ export const buildRetroKickoffPrompt = (manifest: RetroManifest, skillPath: stri
     `- Focus: ${manifest.focus}`,
     `- Source thread (where \`/retro\` was typed): ${source.threadId} "${source.title}"`,
     `- Source root: ${source.rootThreadId} "${root?.title ?? source.title}"; goal: ${source.goalTitle === null ? "none" : `"${source.goalTitle}"`}`,
-    `- Run directory (RUN): \`${manifest.runDir}\` — \`manifest.json\` there lists every thread below with its report and session file paths; everything you write for this run goes here.`,
-    `- Retro skill: \`${skillPath}\` — its directory is SKILL_DIR.`,
+    `- Run directory (RUN): \`${manifest.runDir}\`: \`manifest.json\` there lists every thread below with its report and session file paths; everything you write for this run goes here.`,
+    `- Retro skill: \`${skillPath}\`: its directory is SKILL_DIR.`,
     "",
     `Threads (${manifest.threads.length}, depth-first from the root; id, parent, role, title, outcome):`,
     ...manifest.threads.map(
@@ -190,22 +190,21 @@ const method = LOOM_WS_METHODS.retroDraft;
 const fail = (message: string) => new LoomWsMethodError({ method, message });
 
 /** Claims `<runsDir>/<date>-<slug>` (then `-2`, `-3`, …): creating the directory is the claim. */
-const claimRunDir = (runsDir: string, base: string) =>
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    yield* fileSystem.makeDirectory(runsDir, { recursive: true });
-    for (let attempt = 1; ; attempt++) {
-      const dir = NodePath.join(runsDir, attempt === 1 ? base : `${base}-${attempt}`);
-      const claimed = yield* fileSystem.makeDirectory(dir).pipe(
-        Effect.as(true),
-        Effect.catchIf(
-          (error) => error.reason._tag === "AlreadyExists",
-          () => Effect.succeed(false),
-        ),
-      );
-      if (claimed) return dir;
-    }
-  });
+const claimRunDir = Effect.fn("retroDraft.claimRunDir")(function* (runsDir: string, base: string) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  yield* fileSystem.makeDirectory(runsDir, { recursive: true });
+  for (let attempt = 1; ; attempt++) {
+    const dir = NodePath.join(runsDir, attempt === 1 ? base : `${base}-${attempt}`);
+    const claimed = yield* fileSystem.makeDirectory(dir).pipe(
+      Effect.as(true),
+      Effect.catchIf(
+        (error) => error.reason._tag === "AlreadyExists",
+        () => Effect.succeed(false),
+      ),
+    );
+    if (claimed) return dir;
+  }
+});
 
 /** The reviewer's spawn (a goal-less root on the source's worktree, branch and model) and its kickoff. */
 const buildRetroCommands = (input: {
@@ -255,13 +254,13 @@ const buildRetroCommands = (input: {
  * manifest, and spawns and kicks off the reviewer; returns the reviewer's id.
  * Fails with `LoomWsMethodError` naming `loom.retroDraft`.
  */
-export const launchRetro = (input: {
-  readonly sourceThreadId: ThreadId;
-  readonly focus: string | undefined;
-  /** `RETRO_RUNS_DIR` in production; a test seam. */
-  readonly runsDir: string;
-}) =>
-  Effect.gen(function* () {
+export const launchRetro = Effect.fn("retroDraft.launchRetro")(
+  function* (input: {
+    readonly sourceThreadId: ThreadId;
+    readonly focus: string | undefined;
+    /** `RETRO_RUNS_DIR` in production; a test seam. */
+    readonly runsDir: string;
+  }) {
     const orchestrator = yield* OrchestratorV2;
     const store = yield* LoomStoreV2;
     const fileSystem = yield* FileSystem.FileSystem;
@@ -342,12 +341,12 @@ export const launchRetro = (input: {
     }))
       yield* orchestrator.dispatch(command);
     return reviewerThreadId;
-  }).pipe(
-    Effect.catchIf(
-      (error) => error._tag !== "LoomWsMethodError",
-      (cause) =>
-        Effect.fail(
-          new LoomWsMethodError({ method, message: `${method} failed to start the retro.`, cause }),
-        ),
-    ),
-  );
+  },
+  Effect.catchIf(
+    (error) => error._tag !== "LoomWsMethodError",
+    (cause) =>
+      Effect.fail(
+        new LoomWsMethodError({ method, message: `${method} failed to start the retro.`, cause }),
+      ),
+  ),
+);

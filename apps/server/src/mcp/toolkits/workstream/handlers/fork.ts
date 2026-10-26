@@ -73,5 +73,5 @@ export const threadFork = Effect.fn("LoomToolkit.threadFork")(function* (
       held: true,
     });
   }
-  return `Forked this thread into staged session ${threadId} (${title}). It launches — and forks the session — on the first send; no tokens are spent until then.`;
+  return `Forked this thread into staged session ${threadId} (${title}). It launches (and forks the session) on the first send; no tokens are spent until then.`;
 });
