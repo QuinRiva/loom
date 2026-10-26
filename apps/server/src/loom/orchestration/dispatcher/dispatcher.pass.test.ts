@@ -35,6 +35,7 @@ import {
   seedRunningRun,
   seedThread,
   spawnChild,
+  testModelSelection,
   writeEvents,
 } from "../../testkit/loomOrchestratorLayer.ts";
 import {
@@ -507,6 +508,49 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
         notices[0]!.loom!.controlPayload!.items.map((item) => [item.threadId, item.kind]),
         [[reviewer!, undefined]],
       );
+    }),
+  );
+
+  it.effect("a scaffolded gate launches on its purpose when its coder submits", () =>
+    Effect.gen(function* () {
+      const [parent, coder, reviewer] = ["scaf-parent", "scaf-coder", "scaf-reviewer"].map((id) =>
+        ThreadId.make(id),
+      );
+      const purpose = "Confirm receipts are idempotent on every path.";
+      yield* seedThread({ threadId: parent! });
+      const node = { role: "coder", purpose: "Build it.", modelSelection: testModelSelection };
+      yield* dispatch({
+        type: "thread.scaffold",
+        commandId: CommandId.make("pass-scaffold"),
+        threadId: parent!,
+        createdAt,
+        nodes: [
+          { ...node, threadId: coder!, graphKey: "coder", title: "Coder" },
+          {
+            ...node,
+            threadId: reviewer!,
+            graphKey: "reviewer",
+            title: "Reviewer",
+            role: "reviewer",
+            purpose,
+            blockedBy: [coder!],
+            routes: [
+              { on: ["needs_rework"], kind: "loop", to: coder! },
+              { on: ["clean"], kind: "resolve" },
+            ],
+            kickoffBriefPath: writeFile("scaf-reviewer.md", purpose),
+          },
+        ],
+      });
+      yield* setBrief(coder!, writeFile("scaf-coder.md", "Build it."));
+      yield* runPass;
+      yield* submit(coder!);
+      yield* runPass;
+      assert.isNotNull((yield* row(reviewer!)).kickoffAt);
+      const [kickoff] = yield* messages(reviewer!);
+      assert.include(kickoff?.text ?? "", `Your brief:\n${purpose}\n`);
+      yield* runPass;
+      assert.isEmpty(yield* withPayload(parent!, "notice", "brief-needed"));
     }),
   );
 

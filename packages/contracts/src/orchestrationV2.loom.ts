@@ -637,6 +637,7 @@ export const LoomScaffoldNode = Schema.Struct({
   spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   anchorTaskId: Schema.optional(Schema.NullOr(GoalTaskId)),
+  kickoffBriefPath: Schema.optional(TrimmedNonEmptyString),
   modelSelection: ModelSelection,
 });
 export type LoomScaffoldNode = typeof LoomScaffoldNode.Type;

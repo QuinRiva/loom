@@ -30,9 +30,9 @@ export const LOOM_TOOL_PROSE = {
   },
   workstream_scaffold: {
     description:
-      "Create a whole child graph in one call: nodes named by symbolic key, with blockedBy and gate edges between them. The threads exist at once, but none launches until it has a brief (mcp__t3-code__workstream_brief) and its dependencies are done, so briefs are written in topological order and a late one can cite the reports of nodes already finished. A node runs in this worktree, as a spawned child does. A later call is a delta: its edges may name existing children by key or `thread:<id>`.",
+      "Create a whole child graph in one call: nodes named by symbolic key, with blockedBy and gate edges between them. The threads exist at once, but none launches until it has a brief (mcp__t3-code__workstream_brief; a gate node's purpose serves as one) and its dependencies are done, so briefs are written in topological order and a late one can cite the reports of nodes already finished. A node runs in this worktree, as a spawned child does. A later call is a delta: its edges may name existing children by key or `thread:<id>`.",
     promptSnippet:
-      "lay out a whole child graph shape in one call (nodes with keys + blockedBy/gate edges, no briefs); each node then needs mcp__t3-code__workstream_brief before it launches.",
+      "lay out a whole child graph shape in one call (nodes with keys + blockedBy/gate edges, no briefs); each non-gate node then needs mcp__t3-code__workstream_brief before it launches.",
     promptGuidelines: "",
   },
   workstream_brief: {
