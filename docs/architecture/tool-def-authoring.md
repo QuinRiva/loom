@@ -47,9 +47,8 @@ The prose and the schema are separate files with separate authors.
   model reads — a description, a snippet, a guideline, a role overlay, a
   skill, the work-model addendum, a control-plane message — uses the prefixed
   form, because that is the only name the model can act on. Bare names
-  survive only as record keys and in historical documents. The gate is
-  `docs/upstream-sync/pull9-tools/barenames.sh`, which fails on a bare Loom
-  tool name anywhere outside `docs/upstream-sync/` and `plans/`.
+  survive only as record keys and in historical documents. No script checks
+  this; the review of an instruction change is what catches a bare name.
 - **Prompt-side texts** that are not tool defs — the work-model addendum, the
   child readership clause, the identity and relocation clauses, the kickoff
   wrapper, the refusal texts — live in
