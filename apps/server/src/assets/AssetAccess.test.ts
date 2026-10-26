@@ -99,6 +99,13 @@ const oversizedScreenshotItem = {
   },
 };
 
+const storedScreenshotId = "thread-1-00000000-0000-4000-8000-000000000001-png";
+const storedScreenshotItem = {
+  ...screenshotItem,
+  id: TurnItemId.make("tool-screenshot-stored"),
+  output: { content: [{ type: "image", mimeType: "image/png", attachmentId: storedScreenshotId }] },
+};
+
 const layerTest = Layer.mergeAll(
   NodeHttpPlatform.layer,
   Layer.mock(Orchestrator.OrchestratorV2)({
@@ -108,7 +115,9 @@ const layerTest = Layer.mergeAll(
           ? screenshotItem
           : itemId === oversizedScreenshotItem.id
             ? oversizedScreenshotItem
-            : null,
+            : itemId === storedScreenshotItem.id
+              ? storedScreenshotItem
+              : null,
       ),
   }),
   layerConfig,
@@ -206,6 +215,31 @@ describe("AssetAccess", () => {
         resource: { ...resource, itemId: oversizedScreenshotItem.id },
       }).pipe(Effect.flip);
       expect(oversized._tag).toBe("AssetWorkspaceAssetNotFoundError");
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("serves a tool image whose bytes ingest stored as an attachment file", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const { attachmentsDir } = yield* ServerConfig.ServerConfig;
+      const resource = {
+        _tag: "tool-output-image" as const,
+        threadId: storedScreenshotItem.threadId,
+        itemId: storedScreenshotItem.id,
+        index: 0,
+      };
+      const missing = yield* issueAssetUrl({ resource }).pipe(Effect.flip);
+      expect(missing._tag).toBe("AssetWorkspaceAssetNotFoundError");
+      yield* fileSystem.writeFile(`${attachmentsDir}/${storedScreenshotId}.png`, screenshotPng);
+      const result = yield* issueAssetUrl({ resource });
+      expect(result.imageDimensions).toEqual({ width: 390, height: 844 });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separator = suffix.indexOf("/");
+      expect(yield* resolveAsset(suffix.slice(0, separator), suffix.slice(separator + 1))).toEqual({
+        kind: "bytes",
+        mimeType: "image/png",
+        bytes: Buffer.from(screenshotPng),
+      });
     }).pipe(Effect.provide(layerTest)),
   );
 

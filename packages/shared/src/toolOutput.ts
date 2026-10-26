@@ -211,6 +211,7 @@ export function toolOutputIndicatesFailure(text: string): boolean {
 export interface ToolOutputImage {
   readonly mimeType: string;
   readonly data?: string;
+  readonly attachmentId?: string; // loom: ingest moves the bytes to an attachment file
 }
 
 /** Raster types only, so agent SVG/HTML cannot be served inline. */
@@ -224,7 +225,11 @@ export function readToolOutputImage(block: unknown): ToolOutputImage | null {
     return null;
   }
   const image = { mimeType: mimeType.toLowerCase() };
-  return typeof data === "string" ? { ...image, data } : image;
+  if (typeof data === "string") return { ...image, data };
+  // loom: a block whose bytes ingest stored as an attachment
+  return typeof block.attachmentId === "string"
+    ? { ...image, attachmentId: block.attachmentId }
+    : image;
 }
 
 function outputBlocks(value: unknown): ReadonlyArray<unknown> {
@@ -256,7 +261,10 @@ export function toolOutputImages(value: unknown): ReadonlyArray<ToolOutputImage>
 export function omitToolOutputImageData(value: unknown): unknown {
   const omit = (block: unknown) => {
     const image = readToolOutputImage(block);
-    return image?.data === undefined ? block : { type: "image", mimeType: image.mimeType };
+    // loom: attachment ids stay server-side
+    return image === null || (image.data ?? image.attachmentId) === undefined
+      ? block
+      : { type: "image", mimeType: image.mimeType };
   };
   if (Array.isArray(value)) return value.map(omit);
   if (Predicate.isObject(value) && Array.isArray(value.content)) {
