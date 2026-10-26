@@ -6,8 +6,7 @@ Prints a markdown section with three measures from plans/deferred-capabilities Â
 needed a browser, used a browser tool or hand-rolled one; MDX lints outside a loom checkout, by
 the path the linter ran from (target: the skills' lint-doc.sh wrapper, never ~/loom); and
 tool_search queries that found nothing. Same population as skill-usage-agg.py: forks and /tmp
-dev instances dropped. Joins scripts/prompt-telemetry/ (branch t3/prompt-telemetry) as run.sh's
-third section.
+dev instances dropped. run.sh's third section; compare.py reads its table rows by label.
 """
 import argparse, collections, json, os, re, time
 
@@ -51,7 +50,7 @@ def text_of(content):
 
 def scan(path):
     r = {"cwd": "", "fork": False, "loom_thread": False, "browser_tool": False, "hand_browser": False,
-         "browser_note": False, "tool_search": 0, "misses": [], "wrote_mdx": False, "lints": set(),
+         "browser_note": False, "searched_first": False, "tool_search": 0, "misses": [], "wrote_mdx": False, "lints": set(),
          "hunt": False, "vast_find": False, "bounded_note": False}
     ts_ids = {}
     with open(path, errors="replace") as fh:
@@ -83,7 +82,8 @@ def scan(path):
                         r["wrote_mdx"] |= str(a.get("path") or "").endswith(".mdx")
                     elif name == "bash":
                         cmd = str(a.get("command") or "")
-                        r["hand_browser"] |= bool(HAND_BROWSER.search(cmd))
+                        if not r["hand_browser"] and HAND_BROWSER.search(cmd):
+                            r["hand_browser"], r["searched_first"] = True, r["tool_search"] > 0
                         r["hunt"] |= bool(HUNT.search(cmd))
                         r["vast_find"] |= bool(VAST_FIND.search(cmd))
                         if LINT_RUN.search(cmd):
@@ -124,6 +124,7 @@ print(f"| used a browser tool (`preview_*`, `html_preview`, pi-browser `browser_
 print(f"| hand-rolled one (`--headless`, `playwright install`, `page.goto`, ...) | {len(hand)} |")
 print(f"| of those, outside a loom checkout (where a loom install is not the project's own test setup) | {len(hand_out)} ({per_day(len(hand_out))}) |")
 print(f"| of those, never called `tool_search` | {count(lambda r: not r['tool_search'], hand_out)} |")
+print(f"| of those, called `tool_search` before the first hand-rolled command | {count(lambda r: r['searched_first'], hand_out)} |")
 print(f"| got the command guard's browser note | {count(lambda r: r['browser_note'])} |\n")
 
 mdx = [r for r in recs if not r["in_loom"] and (r["wrote_mdx"] or r["lints"])]
