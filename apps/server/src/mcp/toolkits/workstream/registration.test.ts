@@ -200,7 +200,7 @@ it.effect("a read-only consult fork reaches only workstream_list and goal_task_l
       expect(result.content, def.name).toEqual([
         {
           type: "text",
-          text: `This is a read-only consult fork of thread thread-caller: ${def.name} changes workstream state and was refused. Answer from this session's context; workstream_list and goal_task_list still work.`,
+          text: `This is a read-only consult fork of thread thread-caller: mcp__t3-code__${def.name} changes workstream state and was refused. Answer from this session's context; mcp__t3-code__workstream_list and mcp__t3-code__goal_task_list still work.`,
         },
       ]);
     }
@@ -236,7 +236,7 @@ it.effect(
         expect(result.content, def.name).toEqual([
           {
             type: "text",
-            text: `This is a read-only query thread: ${def.name} changes workstream state and was refused. The author is the document's only writer; the human promotes an exchange to it as a comment. workstream_list, goal_task_list, consult_thread and set_thread_title still work.`,
+            text: `This is a read-only query thread: mcp__t3-code__${def.name} changes workstream state and was refused. The author is the document's only writer; the human promotes an exchange to it as a comment. mcp__t3-code__workstream_list, mcp__t3-code__goal_task_list, mcp__t3-code__consult_thread and mcp__t3-code__set_thread_title still work.`,
           },
         ]);
       }

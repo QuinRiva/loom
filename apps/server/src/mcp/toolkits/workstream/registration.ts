@@ -21,6 +21,7 @@ import {
   type WorkstreamCaller,
 } from "./authorisation.ts";
 import { LOOM_TOOL_DEFS, LoomToolError, type LoomToolDef, type LoomToolHandlers } from "./defs.ts";
+import { agentToolName as t } from "./families.ts";
 import { makeLoomToolHandlers } from "./handlers.ts";
 
 const textResult = (text: string, isError: boolean) =>
@@ -43,15 +44,15 @@ export const callLoomTool = Effect.fn("registration.callLoomTool")(
     )
       return yield* new LoomToolError({
         message: query
-          ? `This is a read-only query thread: ${def.name} changes workstream state and was refused. The author is the document's only writer; the human promotes an exchange to it as a comment. workstream_list, goal_task_list, consult_thread and set_thread_title still work.`
-          : `This is a read-only consult fork of thread ${caller.threadId}: ${def.name} changes workstream state and was refused. Answer from this session's context; workstream_list and goal_task_list still work.`,
+          ? `This is a read-only query thread: ${t(def.name)} changes workstream state and was refused. The author is the document's only writer; the human promotes an exchange to it as a comment. ${t("workstream_list")}, ${t("goal_task_list")}, ${t("consult_thread")} and ${t("set_thread_title")} still work.`
+          : `This is a read-only consult fork of thread ${caller.threadId}: ${t(def.name)} changes workstream state and was refused. Answer from this session's context; ${t("workstream_list")} and ${t("goal_task_list")} still work.`,
       });
     const input = yield* Schema.decodeUnknownEffect(def.input)(payload ?? {}, {
       onExcessProperty: "error",
     }).pipe(
       Effect.mapError(
         (error) =>
-          new LoomToolError({ message: `Invalid ${def.name} parameters: ${error.message}` }),
+          new LoomToolError({ message: `Invalid ${t(def.name)} parameters: ${error.message}` }),
       ),
     );
     // One correlation the compiler cannot see: `def.input` decodes `handlers[def.name]`'s input.

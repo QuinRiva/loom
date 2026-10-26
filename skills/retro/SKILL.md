@@ -53,7 +53,7 @@ python3 "$SKILL_DIR/scripts/retro_scan.py" --manifest "$RUN/manifest.json"
 Writes `$RUN/digest.md` and `$RUN/scan.json`. Read `digest.md` whole. It
 numbers threads `#n` in manifest order; every later section uses those
 numbers, and the Tree table carries each full thread id for `--extract` and
-`consult_thread`. Its sections:
+`mcp__t3-code__consult_thread`. Its sections:
 
 1. **Tree** and **Outliers** — one row per thread; a thread flagged ⚠ is an
    outlier on turns, cost, tool errors, repeated calls, a yield, hold,
@@ -85,9 +85,9 @@ python3 "$SKILL_DIR/scripts/retro_scan.py" --manifest "$RUN/manifest.json" --ext
 Writes `$RUN/extract-<id>.md` and prints its path and size: the
 orchestrator's human turns, control notices (FYI digests collapsed to their
 per-child header lines), assistant prose, thinking and steers
-(`workstream_prompt`), with other tool results dropped except errors. Each
-brief-writing call (`workstream_spawn`, `workstream_scaffold`,
-`workstream_brief`) is a one-line stub naming the target thread as `#n` and
+(`mcp__t3-code__workstream_prompt`), with other tool results dropped except errors. Each
+brief-writing call (`mcp__t3-code__workstream_spawn`, `mcp__t3-code__workstream_scaffold`,
+`mcp__t3-code__workstream_brief`) is a one-line stub naming the target thread as `#n` and
 the brief's size, because briefs are the bulk of an orchestrator's transcript
 and most are never in question. This is the orchestrator's own account of
 why it shaped the graph as it did.
