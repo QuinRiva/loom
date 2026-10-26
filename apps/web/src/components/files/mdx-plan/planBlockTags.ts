@@ -23,6 +23,7 @@ export const PLAN_BLOCK_TAGS: ReadonlySet<string> = new Set([
   "Endpoint",
   "FieldDiff",
   "FileTree",
+  "Glossary",
   "HtmlBlock",
   "Image",
   "Json",
@@ -39,6 +40,7 @@ export const PLAN_BLOCK_TAGS: ReadonlySet<string> = new Set([
   "Tab",
   "Table",
   "TabsBlock",
+  "Term",
   "VisualQuestions",
 ]);
 

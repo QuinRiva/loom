@@ -207,4 +207,30 @@ it.layer(HandlerTestLayer)("workstream spawn, scaffold and brief", (it) => {
         assert.include(late.text, "has already started");
       }),
   );
+
+  it.effect("scaffold: a gate node is briefed with its purpose; other nodes are not", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStoreV2;
+      const parent = ThreadId.make("scaffold-gate-root");
+      yield* seedThread({ threadId: parent });
+      const result = yield* callAs(parent, "workstream_scaffold", {
+        nodes: [
+          { key: "coder", ...spawnNode("Coder") },
+          {
+            key: "review",
+            ...spawnNode("Review", { role: "reviewer", gate: { rework: "coder" } }),
+          },
+        ],
+      });
+      assert.isFalse(result.isError, result.text);
+      const children = yield* store.listChildren(parent);
+      const coder = children.find((child) => child.graphKey === "coder")!;
+      const review = children.find((child) => child.graphKey === "review")!;
+      assert.isNull(coder.kickoffBriefPath);
+      assert.equal(
+        yield* (yield* FileSystem.FileSystem).readFileString(review.kickoffBriefPath!),
+        "Deliver Review.",
+      );
+    }),
+  );
 });

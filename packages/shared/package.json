@@ -279,6 +279,10 @@
       "types": "./src/planCommentAnchor.loom.ts",
       "import": "./src/planCommentAnchor.loom.ts"
     },
+    "./documentQuery.loom": {
+      "types": "./src/documentQuery.loom.ts",
+      "import": "./src/documentQuery.loom.ts"
+    },
     "./composerContextLegacy": {
       "types": "./src/composerContextLegacy.ts",
       "import": "./src/composerContextLegacy.ts"

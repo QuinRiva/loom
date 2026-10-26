@@ -22,6 +22,7 @@ import {
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { PlanCommentAnchor } from "./plan.ts";
 import { ProviderInteractionMode, RuntimeMode } from "./providerPolicy.ts";
 
 // Type-only (erased) — safe against the value cycle.
@@ -225,6 +226,75 @@ export const HandoffOrigin = Schema.Struct({
 });
 export type HandoffOrigin = typeof HandoffOrigin.Type;
 
+/**
+ * A query thread's role: a read-only, visible fork of a document's author (the
+ * thread whose composer a Comment would reach) that the human questions about
+ * one revision of that document (plans/plan-query-threads/plan.mdx §2.1).
+ */
+export const DOCUMENT_QUERY_ROLE = "document-query";
+
+/** One question asked in a query thread, pinned to the passage it was asked about. */
+export const LoomDocumentQueryQuestion = Schema.Struct({
+  /** The human message carrying the question. */
+  messageId: MessageId,
+  /** The conversation-jump anchor a pin opens. */
+  askedAt: IsoDateTime,
+  anchor: PlanCommentAnchor,
+  quotedText: Schema.String.check(Schema.isMaxLength(16_000)),
+  sectionTitle: Schema.String,
+});
+export type LoomDocumentQueryQuestion = typeof LoomDocumentQueryQuestion.Type;
+
+/**
+ * A promoted exchange as the `mdx-anchor` review comment it seeds into the
+ * author's composer, minus what the promotion already names: the chip id is
+ * `promotionId` and the file is the query's `filePath`.
+ */
+export const LoomDocumentQueryComment = Schema.Struct({
+  text: TrimmedNonEmptyString,
+  anchor: PlanCommentAnchor,
+  quotedText: Schema.String.check(Schema.isMaxLength(16_000)),
+  sectionId: Schema.String,
+  sectionTitle: Schema.String,
+  rangeLabel: Schema.String,
+});
+export type LoomDocumentQueryComment = typeof LoomDocumentQueryComment.Type;
+
+/** One exchange the query thread distilled into a comment for the author. */
+export const LoomDocumentQueryPromotion = Schema.Struct({
+  /** The chip id in the author's composer; the seed-once key. */
+  promotionId: TrimmedNonEmptyString,
+  promotedAt: IsoDateTime,
+  /** The `askedAt` of the question turn it distils. */
+  exchangeAt: IsoDateTime,
+  comment: LoomDocumentQueryComment,
+});
+export type LoomDocumentQueryPromotion = typeof LoomDocumentQueryPromotion.Type;
+
+/**
+ * Which thread a query forks: the thread that signed the document (its
+ * `manager_sessions` manifest), or the viewing thread when none resolves.
+ */
+export const DocumentQueryAuthorSource = Schema.Literals(["signature", "viewing-thread"]);
+export type DocumentQueryAuthorSource = typeof DocumentQueryAuthorSource.Type;
+
+/**
+ * A query thread's document: one revision of one file. A rewrite forks a new
+ * query thread rather than changing these, so `filePath` and `revision` are set
+ * once, by the first question. Promoting does not close the thread.
+ */
+export const LoomDocumentQuery = Schema.Struct({
+  /** Workspace-relative, as the annotation layer names it. */
+  filePath: TrimmedNonEmptyString,
+  /** SHA-256 of the file bytes when first asked, 12 hex characters. */
+  revision: TrimmedNonEmptyString,
+  /** How the author (`forkFromThreadId`) was chosen, set by the first question. */
+  authorSource: DocumentQueryAuthorSource,
+  questions: Schema.Array(LoomDocumentQueryQuestion),
+  promotions: Schema.Array(LoomDocumentQueryPromotion),
+});
+export type LoomDocumentQuery = typeof LoomDocumentQuery.Type;
+
 // mcp__t3-code__consult_thread observability: one entry per distinct target this thread has
 // consulted (the full question + answer live on `thread.consult-recorded`).
 export const LoomThreadConsultSummary = Schema.Struct({
@@ -390,6 +460,10 @@ export const LoomThreadWorkstream = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   notifySendLog: Schema.Array(NotifySendLogEntry),
+  /** Set on a `DOCUMENT_QUERY_ROLE` thread by its first question; null on every other thread. */
+  documentQuery: Schema.NullOr(LoomDocumentQuery).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   /** Mirrored from thread.archived / unarchived. */
   archivedAt: Schema.NullOr(IsoDateTime),
   /** Mirrored from thread.unarchived; bounds the unarchive cascade (DL-199). */
@@ -614,6 +688,7 @@ export const LoomScaffoldNode = Schema.Struct({
   spawnGeneration: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   anchorTaskId: Schema.optional(Schema.NullOr(GoalTaskId)),
+  kickoffBriefPath: Schema.optional(TrimmedNonEmptyString),
   modelSelection: ModelSelection,
 });
 export type LoomScaffoldNode = typeof LoomScaffoldNode.Type;
@@ -790,6 +865,21 @@ export const makeLoomInternalCommandMembers = <
       drafterThreadId: ThreadId,
       destinationGoalId: GoalId,
       destinationThreadId: ThreadId,
+    }),
+    /** Records one question on a query thread (`threadId`); the first one names the document. */
+    Schema.Struct({
+      type: Schema.Literal("thread.document-query.ask"),
+      ...LoomCommandFields,
+      filePath: TrimmedNonEmptyString,
+      revision: TrimmedNonEmptyString,
+      authorSource: DocumentQueryAuthorSource,
+      question: LoomDocumentQueryQuestion,
+    }),
+    /** Records one promoted exchange on a query thread (`threadId`). */
+    Schema.Struct({
+      type: Schema.Literal("thread.document-query.promote"),
+      ...LoomCommandFields,
+      promotion: LoomDocumentQueryPromotion,
     }),
     /**
      * Writes the pending `fork` context transfer on a forkFrom child
@@ -1004,6 +1094,21 @@ export const makeLoomDomainEventMembers = <const Base extends Schema.Struct.Fiel
         createdAt: IsoDateTime,
       }),
     }),
+    Schema.Struct({
+      ...base,
+      type: Schema.Literal("thread.document-query-asked"),
+      payload: Schema.Struct({
+        filePath: TrimmedNonEmptyString,
+        revision: TrimmedNonEmptyString,
+        authorSource: DocumentQueryAuthorSource,
+        question: LoomDocumentQueryQuestion,
+      }),
+    }),
+    Schema.Struct({
+      ...base,
+      type: Schema.Literal("thread.document-query-promoted"),
+      payload: Schema.Struct({ promotion: LoomDocumentQueryPromotion }),
+    }),
   ] as const;
 
 // Narrowing guards. The listed string tuples are checked against the spliced
@@ -1031,6 +1136,8 @@ export const LOOM_COMMAND_TYPES = [
   "thread.peer-message.mark-delivered",
   "thread.peer-message.expire",
   "thread.handoff.record",
+  "thread.document-query.ask",
+  "thread.document-query.promote",
   "thread.fork.prepare",
   "runtime-request.create",
 ] as const;
@@ -1064,6 +1171,8 @@ export const LOOM_EVENT_TYPES = [
   "thread.peer-message-delivered",
   "thread.peer-message-expired",
   "thread.handoff-recorded",
+  "thread.document-query-asked",
+  "thread.document-query-promoted",
 ] as const;
 export type LoomEventType = (typeof LOOM_EVENT_TYPES)[number];
 

@@ -11,9 +11,11 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { McpSchema, McpServer } from "effect/ai";
 
+import { DOCUMENT_QUERY_CLIENT_LABEL } from "../../../loom/query/queryPosture.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import {
   CONSULT_READ_TOOLS,
+  DOCUMENT_QUERY_TOOLS,
   isReadOnlyCaller,
   requireWorkstreamCaller,
   type WorkstreamCaller,
@@ -32,10 +34,17 @@ const textResult = (text: string, isError: boolean) =>
 export const callLoomTool = Effect.fn("registration.callLoomTool")(
   function* (def: LoomToolDef, handlers: LoomToolHandlers, payload: unknown) {
     const caller = yield* requireWorkstreamCaller();
-    // A consult fork answers as its target but may only read (refused before decoding).
-    if (isReadOnlyCaller(caller.scope) && !CONSULT_READ_TOOLS.has(def.name))
+    // A consult fork answers as its target but may only read; a query thread may also consult,
+    // retitle itself and promote (both refused before decoding).
+    const query = caller.scope.client?.label === DOCUMENT_QUERY_CLIENT_LABEL;
+    if (
+      isReadOnlyCaller(caller.scope) &&
+      !(query ? DOCUMENT_QUERY_TOOLS : CONSULT_READ_TOOLS).has(def.name)
+    )
       return yield* new LoomToolError({
-        message: `This is a read-only consult fork of thread ${caller.threadId}: ${def.name} changes workstream state and was refused. Answer from this session's context; workstream_list and goal_task_list still work.`,
+        message: query
+          ? `This is a read-only query thread: ${def.name} changes workstream state and was refused. The author is the document's only writer; the human promotes an exchange to it as a comment. workstream_list, goal_task_list, consult_thread and set_thread_title still work.`
+          : `This is a read-only consult fork of thread ${caller.threadId}: ${def.name} changes workstream state and was refused. Answer from this session's context; workstream_list and goal_task_list still work.`,
       });
     const input = yield* Schema.decodeUnknownEffect(def.input)(payload ?? {}, {
       onExcessProperty: "error",

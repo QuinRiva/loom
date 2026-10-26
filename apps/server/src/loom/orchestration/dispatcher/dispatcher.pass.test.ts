@@ -35,6 +35,7 @@ import {
   seedRunningRun,
   seedThread,
   spawnChild,
+  testModelSelection,
   writeEvents,
 } from "../../testkit/loomOrchestratorLayer.ts";
 import {
@@ -420,6 +421,136 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
       yield* runPass;
       assert.lengthOf(yield* briefNeeded, 1);
       assert.isEmpty(yield* withPayload(parent!, "digest"));
+    }),
+  );
+
+  it.effect("a reviewer kicked off this pass still holds a coder dependent's notice", () =>
+    Effect.gen(function* () {
+      const [parent, coder, reviewer, dependent] = [
+        "kick-parent",
+        "kick-coder",
+        "kick-reviewer",
+        "kick-dependent",
+      ].map((id) => ThreadId.make(id));
+      yield* seedThread({ threadId: parent! });
+      yield* spawnChild({ parentThreadId: parent!, threadId: coder!, graphKey: "coder" });
+      yield* spawnChild({
+        parentThreadId: parent!,
+        threadId: reviewer!,
+        graphKey: "reviewer",
+        role: "reviewer",
+        blockedBy: [coder!],
+        routes: [
+          { on: ["needs_rework"], kind: "loop", to: coder! },
+          { on: ["clean"], kind: "resolve" },
+        ],
+      });
+      yield* spawnChild({
+        parentThreadId: parent!,
+        threadId: dependent!,
+        graphKey: "dependent",
+        blockedBy: [coder!],
+      });
+      yield* setBrief(coder!, writeFile("kick-coder.md", "Build it."));
+      yield* setBrief(reviewer!, writeFile("kick-reviewer.md", "Review it."));
+      yield* runPass;
+      yield* submit(coder!);
+      const briefNeeded = withPayload(parent!, "notice", "brief-needed");
+
+      // This pass kicks the reviewer off, but the rails read the pass-start snapshot, where it
+      // has not started: the coder's round-0 done is still under review, so no notice yet.
+      yield* runPass;
+      assert.isNotNull((yield* row(reviewer!)).kickoffAt);
+      assert.isEmpty(yield* briefNeeded);
+
+      yield* submit(reviewer!, "clean");
+      yield* runPass;
+      yield* runPass;
+      const notices = yield* briefNeeded;
+      assert.lengthOf(notices, 1);
+      assert.deepEqual(
+        notices[0]!.loom!.controlPayload!.items.map((item) => [item.threadId, item.kind]),
+        [
+          [dependent!, undefined],
+          [reviewer!, "gate-resolved"],
+          [coder!, "terminal"],
+        ],
+      );
+    }),
+  );
+
+  it.effect("an unbriefed gate reviewer's brief-needed does not wait on its own gate", () =>
+    Effect.gen(function* () {
+      const [parent, coder, reviewer] = ["self-parent", "self-coder", "self-reviewer"].map((id) =>
+        ThreadId.make(id),
+      );
+      yield* seedThread({ threadId: parent! });
+      yield* spawnChild({ parentThreadId: parent!, threadId: coder!, graphKey: "coder" });
+      yield* spawnChild({
+        parentThreadId: parent!,
+        threadId: reviewer!,
+        graphKey: "reviewer",
+        role: "reviewer",
+        blockedBy: [coder!],
+        routes: [
+          { on: ["needs_rework"], kind: "loop", to: coder! },
+          { on: ["clean"], kind: "resolve" },
+        ],
+      });
+      yield* setBrief(coder!, writeFile("self-coder.md", "Build it."));
+      yield* runPass;
+      yield* submit(coder!);
+      // The coder's done is withheld until the gate resolves, which needs the reviewer briefed.
+      yield* runPass;
+      const notices = yield* withPayload(parent!, "notice", "brief-needed");
+      assert.lengthOf(notices, 1);
+      assert.deepEqual(
+        notices[0]!.loom!.controlPayload!.items.map((item) => [item.threadId, item.kind]),
+        [[reviewer!, undefined]],
+      );
+    }),
+  );
+
+  it.effect("a scaffolded gate launches on its purpose when its coder submits", () =>
+    Effect.gen(function* () {
+      const [parent, coder, reviewer] = ["scaf-parent", "scaf-coder", "scaf-reviewer"].map((id) =>
+        ThreadId.make(id),
+      );
+      const purpose = "Confirm receipts are idempotent on every path.";
+      yield* seedThread({ threadId: parent! });
+      const node = { role: "coder", purpose: "Build it.", modelSelection: testModelSelection };
+      yield* dispatch({
+        type: "thread.scaffold",
+        commandId: CommandId.make("pass-scaffold"),
+        threadId: parent!,
+        createdAt,
+        nodes: [
+          { ...node, threadId: coder!, graphKey: "coder", title: "Coder" },
+          {
+            ...node,
+            threadId: reviewer!,
+            graphKey: "reviewer",
+            title: "Reviewer",
+            role: "reviewer",
+            purpose,
+            blockedBy: [coder!],
+            routes: [
+              { on: ["needs_rework"], kind: "loop", to: coder! },
+              { on: ["clean"], kind: "resolve" },
+            ],
+            kickoffBriefPath: writeFile("scaf-reviewer.md", purpose),
+          },
+        ],
+      });
+      yield* setBrief(coder!, writeFile("scaf-coder.md", "Build it."));
+      yield* runPass;
+      yield* submit(coder!);
+      yield* runPass;
+      assert.isNotNull((yield* row(reviewer!)).kickoffAt);
+      const [kickoff] = yield* messages(reviewer!);
+      assert.include(kickoff?.text ?? "", `Your brief:\n${purpose}\n`);
+      yield* runPass;
+      assert.isEmpty(yield* withPayload(parent!, "notice", "brief-needed"));
     }),
   );
 

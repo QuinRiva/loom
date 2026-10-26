@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { EnvironmentId, ThreadId, type FilesystemEntryMetadata } from "@t3tools/contracts";
 import type { RuntimeRequestId, UserInputQuestion } from "@t3tools/contracts";
@@ -12,8 +12,11 @@ import {
 import { cn } from "~/lib/utils";
 
 import ChatMarkdown from "../components/ChatMarkdown";
-import { DraftId } from "../composerDraftStore";
-import { MdxPlanAnnotationLayer } from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
+import { DraftId, useComposerDraftStore } from "../composerDraftStore";
+import {
+  MdxPlanAnnotationLayer,
+  type PlanQueryBinding,
+} from "../components/files/mdx-plan/annotation/MdxPlanAnnotationLayer";
 import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
 import { useTimelineAvailableWidthVar } from "../components/chat/timelineLayout";
 import { __setMetadataFetcherForTests } from "../components/chat/usePathExistence";
@@ -928,6 +931,99 @@ const MDX_SCROLLING_TABLE_FIXTURE_SOURCE = [
   "Closing prose after the wide table, so you can confirm a scrolled highlight never paints over these words.",
 ].join("\n");
 
+/**
+ * Query threads: the plan's "after" mockup, one pending comment and two query pins. Selecting
+ * prose offers Comment and Query; a question succeeds after a beat, and one containing "fail"
+ * shows the inline error.
+ */
+const MDX_QUERY_PINS_SOURCE = [
+  "# Plan: SQLite read lane v2",
+  "",
+  "## 2. One reader lane, not two",
+  "",
+  "The projection reader moves to the worker thread. Every read that used to block the event loop now crosses one message port, so a 40 ms query no longer stalls a turn.",
+  "",
+  "The writer stays in-process: a write that crossed the port would lose the transaction it sits in, and the orchestrator commits events, projections and outbox in one.",
+  "",
+  "Costs: one serialisation per read, measured at 0.3 ms on the seeded database.",
+  "",
+  '<Callout tone="decision" title="Reads cross the port; writes never do">',
+  "  Hover this block: the corner offers Query beside Comment.",
+  "</Callout>",
+].join("\n");
+const QUERY_PINS_TARGET = DraftId.make("preview-query-pins");
+const QUERY_PINS_FILE = "plans/preview/query-pins.mdx";
+const textAnchor = (textQuote: string) => ({
+  anchorKind: "text" as const,
+  textQuote,
+  sectionId: "2-one-reader-lane-not-two",
+  sectionTitle: "2. One reader lane, not two",
+});
+const QUERY_PINS_BINDING: PlanQueryBinding = {
+  label: "Ask the author's fork",
+  detail: "Signed by “Read-lane plan”",
+  pins: [
+    "a write that crossed the port would lose the transaction it sits in",
+    "one serialisation per read",
+  ].map((quote, index) => ({
+    queryThreadId: ThreadId.make("preview-query-thread"),
+    askedAt: `2026-10-21T10:0${index}:00.000Z`,
+    anchor: textAnchor(quote),
+    quotedText: quote,
+  })),
+  ask: (input) =>
+    new Promise((resolve) =>
+      setTimeout(
+        () =>
+          resolve(
+            input.question.includes("fail")
+              ? "The author's session has no finished run to fork yet."
+              : null,
+          ),
+        700,
+      ),
+    ),
+  openPin: () => {},
+};
+
+function PlanQueryPinsPreview() {
+  // One pending comment, seeded once into the scratch draft the layer reads.
+  useEffect(() => {
+    const quote = "Every read that used to block the event loop now crosses one message port";
+    useComposerDraftStore.getState().addReviewComment(QUERY_PINS_TARGET, {
+      kind: "mdx-anchor",
+      id: "mdx-anchor:preview-query-pins",
+      filePath: QUERY_PINS_FILE,
+      sectionId: "2-one-reader-lane-not-two",
+      sectionTitle: "2. One reader lane, not two",
+      rangeLabel: "annotation",
+      text: "Say what happens to a read issued mid-commit.",
+      anchor: textAnchor(quote),
+      quotedText: quote,
+    });
+  }, []);
+  const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
+  useTimelineAvailableWidthVar(viewport);
+  return (
+    <div ref={setViewport} className="min-h-[520px] rounded-lg border border-border">
+      <MdxPlanAnnotationLayer
+        source={MDX_QUERY_PINS_SOURCE}
+        filePath={QUERY_PINS_FILE}
+        composerDraftTarget={QUERY_PINS_TARGET}
+        query={QUERY_PINS_BINDING}
+      />
+    </div>
+  );
+}
+
+const mdxQueryPinsFixture: PreviewFixture = {
+  id: "mdx-query-pins",
+  title: "Query affordance and pins",
+  description:
+    "One pending comment (amber 1) and two query pins (hollow ?). Select prose: Comment and Query. Query opens the card in query mode; a question containing 'fail' shows the inline error.",
+  render: () => <PlanQueryPinsPreview />,
+};
+
 const mdxScrollingTableFixture: PreviewFixture = {
   id: "mdx-scrolling-table",
   title: "Wide table (intra-cell selection + scroll)",
@@ -1207,6 +1303,35 @@ const mdxQuestionRefsFixture: PreviewFixture = {
 };
 
 /**
+ * loom: `<Glossary>` — three coined terms, each linked in body prose to a
+ * hover/tap card. "node" also sits in a heading and a code span, where it must
+ * stay plain.
+ */
+const MDX_GLOSSARY_FIXTURE_SOURCE = [
+  "# How the recursion tags a document",
+  "",
+  "The parser walks the document tree and gives every node exactly one reading unit. A run is one pass of the recursion over the whole tree; when a run cannot place a node, the node is escalated to the parent run.",
+  "",
+  "## Why a node can be escalated",
+  "",
+  "A node whose text straddles two units has no single reading unit, so the run hands it up. The flag lives on `node.escalated`, and the next run retries every escalated node first.",
+  "",
+  "<Glossary>",
+  '  <Term name="node">One entry in the document tree: a heading, a paragraph or a list item.</Term>',
+  '  <Term name="reading unit">The span of text the recursion tagged as one thing; a node\'s reading unit is the one that contains it.</Term>',
+  '  <Term name="run">One pass of the recursion over the whole tree. Runs are numbered from `1`.</Term>',
+  "</Glossary>",
+].join("\n");
+
+const mdxGlossaryFixture: PreviewFixture = {
+  id: "mdx-glossary",
+  title: "Glossary terms (hover/tap cards)",
+  description:
+    "Every 'node', 'nodes', 'reading unit' and 'run' in body prose has a dotted underline: hover one for its definition card, or click/tap to toggle it (clicking must not navigate). The heading and the `node.escalated` code span stay plain. The glossary renders at the foot. Select a phrase across a term and comment: it must anchor and survive a reload.",
+  render: () => <PlanPanelPreview key="mdx-glossary" source={MDX_GLOSSARY_FIXTURE_SOURCE} />,
+};
+
+/**
  * The usage meter in the sidebar footer's real slot: a 16rem sidebar with the
  * footer's inset, so the axis column is the width the app gives it.
  */
@@ -1242,6 +1367,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
     id: "mdx-annotation",
     title: "MDX plan document",
     fixtures: [
+      mdxGlossaryFixture,
       mdxQuestionRefsFixture,
       mdxWideBlockFixture,
       mdxDiffWordsFixture,
@@ -1249,6 +1375,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       mdxScrollingTableFixture,
       mdxHtmlBlockCardsFixture,
       mdxMermaidFixture,
+      mdxQueryPinsFixture,
     ],
   },
   {

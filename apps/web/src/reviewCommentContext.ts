@@ -1,6 +1,7 @@
 import {
   PlanCommentAnchor,
   PullRequestContextMetadata,
+  ThreadId, // loom: query-thread link on promoted mdx-anchor comments
   type PullRequestReviewPosition,
 } from "@t3tools/contracts";
 import type { FileDiffMetadata, SelectedLineRange, SelectionSide } from "@pierre/diffs";
@@ -47,6 +48,9 @@ export const MdxAnchorReviewCommentContextSchema = Schema.Struct({
   ...reviewCommentBaseFields,
   anchor: PlanCommentAnchor,
   quotedText: Schema.String,
+  // loom: set on a comment promoted from a query thread (the link back, the seed-once key).
+  queryThreadId: Schema.optionalKey(ThreadId),
+  promotionId: Schema.optionalKey(Schema.String),
 });
 
 export const ReviewCommentContextSchema = Schema.Union([

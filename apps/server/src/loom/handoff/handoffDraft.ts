@@ -83,62 +83,72 @@ export const buildDraftForkLaunch = (input: {
   readonly sourceThreadId: ThreadId;
   readonly kickoff: string;
   readonly createdAt: string;
-}) => {
-  const id = (step: string) => `server:loom:draft:${input.drafterThreadId}:${step}`;
-  return [
-    {
-      type: "thread.fork.prepare",
-      commandId: CommandId.make(id("fork")),
-      threadId: input.drafterThreadId,
-      createdAt: input.createdAt,
-      sourceThreadId: input.sourceThreadId,
-    },
+}) =>
+  [
+    forkPrepareCommand(input),
     controlMessage({
       threadId: input.drafterThreadId,
-      id: id("kickoff"),
+      id: `server:loom:draft:${input.drafterThreadId}:kickoff`,
       tier: "steered",
       origin: "kickoff",
       text: input.kickoff,
     }),
   ] as const;
-};
+
+/** The fork transfer from the source onto the drafter, under the drafter's deterministic id. */
+export const forkPrepareCommand = (input: {
+  readonly drafterThreadId: ThreadId;
+  readonly sourceThreadId: ThreadId;
+  readonly createdAt: string;
+}) =>
+  ({
+    type: "thread.fork.prepare",
+    commandId: CommandId.make(`server:loom:draft:${input.drafterThreadId}:fork`),
+    threadId: input.drafterThreadId,
+    createdAt: input.createdAt,
+    sourceThreadId: input.sourceThreadId,
+  }) as const satisfies OrchestrationV2ServerCommand;
 
 /**
  * The drafter fork's three commands, dispatched in order: the root (role,
  * `forkFromThreadId`, the source's goal, worktree, modes and model), the fork
  * transfer, the kickoff.
  */
-export const buildDraftForkCommands = (input: DraftForkInput) => {
-  const { source } = input;
-  return [
-    {
-      type: "thread.spawn",
-      commandId: CommandId.make(`server:loom:draft:${input.drafterThreadId}:spawn`),
-      threadId: input.drafterThreadId,
-      createdAt: input.createdAt,
-      // The human asked for it (the composer intercept); the server builds it.
-      createdBy: "user",
-      creationSource: "server",
-      parentThreadId: null,
-      projectId: source.projectId,
-      title: input.title,
-      modelSelection: source.modelSelection,
-      runtimeMode: source.runtimeMode,
-      interactionMode: source.interactionMode,
-      branch: source.branch,
-      worktreePath: source.worktreePath,
-      role: input.role,
-      purpose: input.purpose ?? null,
-      goalId: input.sourceGoalId,
-      forkFromThreadId: source.id,
-    },
+export const buildDraftForkCommands = (input: DraftForkInput) =>
+  [
+    buildDraftSpawn(input),
     ...buildDraftForkLaunch({
       drafterThreadId: input.drafterThreadId,
-      sourceThreadId: source.id,
+      sourceThreadId: input.source.id,
       kickoff: input.kickoff,
       createdAt: input.createdAt,
     }),
   ] as const satisfies ReadonlyArray<OrchestrationV2ServerCommand>;
+
+/** The drafter's root: role, `forkFromThreadId`, the source's goal, worktree, modes and model. */
+export const buildDraftSpawn = (input: Omit<DraftForkInput, "kickoff">) => {
+  const { source } = input;
+  return {
+    type: "thread.spawn",
+    commandId: CommandId.make(`server:loom:draft:${input.drafterThreadId}:spawn`),
+    threadId: input.drafterThreadId,
+    createdAt: input.createdAt,
+    // The human asked for it (the composer intercept); the server builds it.
+    createdBy: "user",
+    creationSource: "server",
+    parentThreadId: null,
+    projectId: source.projectId,
+    title: input.title,
+    modelSelection: source.modelSelection,
+    runtimeMode: source.runtimeMode,
+    interactionMode: source.interactionMode,
+    branch: source.branch,
+    worktreePath: source.worktreePath,
+    role: input.role,
+    purpose: input.purpose ?? null,
+    goalId: input.sourceGoalId,
+    forkFromThreadId: source.id,
+  } as const satisfies OrchestrationV2ServerCommand;
 };
 
 /** The `/handoff` drafter's commands (`buildDraftForkCommands` with its role, title and kickoff). */
@@ -191,6 +201,8 @@ export const launchDraftFork = Effect.fn("handoffDraft.launchDraftFork")(
     /** "handed off" / "reviewed": the refusal wording. */
     readonly verb: string;
     readonly sourceThreadId: ThreadId;
+    /** Minted here unless the caller needed it first (a query thread writes its brief before). */
+    readonly drafterThreadId?: ThreadId;
     readonly build: (
       fork: Omit<DraftForkInput, "role" | "title" | "kickoff">,
       source: OrchestrationV2ThreadShell,
@@ -231,7 +243,8 @@ export const launchDraftFork = Effect.fn("handoffDraft.launchDraftFork")(
         `This thread's pi session cannot be forked (no native session reference), so it cannot be ${input.verb}.`,
       );
     }
-    const drafterThreadId = ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4());
+    const drafterThreadId =
+      input.drafterThreadId ?? ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4());
     const launch = yield* dispatchDraftFork(
       input.build(
         {

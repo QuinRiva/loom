@@ -7,7 +7,10 @@ import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ServerConfig from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
+import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
+import { WorkspaceFileSystem } from "../workspace/WorkspaceFileSystem.ts";
 import * as LoomUsageLedger from "./economics/LoomUsageLedger.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
@@ -25,6 +28,9 @@ const TestLayer = Layer.mergeAll(
   Layer.mock(ReviewSnapshotService)({}),
   // The drafter handlers capture the orchestrator; these tests never call them.
   Layer.succeed(OrchestratorV2, {} as never),
+  Layer.mock(ProjectStoreV2)({}),
+  Layer.mock(WorkspaceFileSystem)({}),
+  ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-ws-" }),
 ).pipe(Layer.provideMerge(SqlitePersistence.layerMemory), Layer.provideMerge(NodeServices.layer));
 const goalId = GoalId.make("goal:ws");
 const task = (id: string) => GoalTaskId.make(id);

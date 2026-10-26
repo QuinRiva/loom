@@ -57,6 +57,8 @@ import {
   refuseForeignHomeSideEffect,
 } from "../workspace/foreignHomeGuard.loom.ts"; // loom: foreign-home guard (DL-81)
 import { LoomSessionComposer } from "../loom/prompt/sessionComposer.ts"; // loom: Area G
+import type { McpClientCaller } from "../mcp/McpInvocationContext.ts"; // loom: query threads
+import { documentQueryClient, LOOM_QUERY_FORK_ENV } from "../loom/query/queryPosture.ts"; // loom: query threads
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
@@ -421,6 +423,7 @@ export const layerWithOptions = (
       const prepareMcpSession = (
         threadId: ThreadId,
         providerInstanceId: ProviderInstanceId,
+        client?: McpClientCaller, // loom: a query thread's read-only client (plan query-threads §2.3)
       ): Effect.Effect<PreparedMcpCredential> =>
         options.configureMcp === false
           ? mcpSessions
@@ -463,7 +466,8 @@ export const layerWithOptions = (
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
                     resolved.capabilities.has("device") === deviceToolsAvailable &&
                     // A credential issued while the lineage read failed is replaced once it works.
-                    (resolved.thread.subagent === true) === subagent
+                    (resolved.thread.subagent === true) === subagent &&
+                    resolved.client?.access === client?.access // loom: query thread read-only
                   ) {
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
@@ -476,6 +480,7 @@ export const layerWithOptions = (
                   browserToolsAvailable,
                   capabilities,
                   subagent,
+                  ...(client === undefined ? {} : { client }), // loom: query thread read-only
                 });
                 yield* mcpSessions.set(credential.config);
                 reserveMcpCredential(threadId, credential.config.providerSessionId);
@@ -2149,6 +2154,10 @@ export const layerWithOptions = (
               const prepared = yield* prepareMcpSession(
                 input.threadId,
                 input.modelSelection.instanceId,
+                // loom: the composer's query-thread flag decides the read-only credential
+                loom.env?.[LOOM_QUERY_FORK_ENV] === "1"
+                  ? documentQueryClient(input.threadId)
+                  : undefined,
               );
               const mcpCredentialId = prepared.mcpCredentialId;
               let reservationDropped = mcpCredentialId === undefined;

@@ -230,6 +230,8 @@ export const seedRunningRun = Effect.fn("loom.testkit.seedRunningRun")(function*
   readonly turn?: boolean;
   /** The provider thread's driver (default the test driver; `pi` for the drafter guards). */
   readonly driver?: ProviderDriverKind;
+  /** The provider thread's native id (a pi session file path for the signer lookup). */
+  readonly nativeThreadId?: string;
 }) {
   const sink = yield* EventSink.EventSinkV2;
   const driver = input.driver ?? testDriver;
@@ -266,7 +268,7 @@ export const seedRunningRun = Effect.fn("loom.testkit.seedRunningRun")(function*
           ownerNodeId: null,
           nativeThreadRef: {
             driver,
-            nativeId: `native:${threadId}`,
+            nativeId: input.nativeThreadId ?? `native:${threadId}`,
             strength: "strong",
           },
           nativeConversationHeadRef: null,

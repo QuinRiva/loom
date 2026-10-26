@@ -43,8 +43,10 @@ export interface ControlBubble {
   readonly label: string;
 }
 
+export const KICKOFF_BUBBLE: ControlBubble = { channel: "inter-thread", label: "Kickoff brief" };
+
 const BUBBLES: Record<LoomMessageOrigin, ControlBubble> = {
-  kickoff: { channel: "inter-thread", label: "Kickoff brief" },
+  kickoff: KICKOFF_BUBBLE,
   orchestrator: { channel: "inter-thread", label: "Orchestrator" },
   notify: { channel: "inter-thread", label: "Thread notification" },
   control_notice: { channel: "control-plane", label: "Control plane" },

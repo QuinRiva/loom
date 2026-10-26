@@ -22,6 +22,7 @@ import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../times
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
 import { MESSAGE_HEADING_LEVEL, MessageAuthorHeading } from "./TimelineRowParts";
+import { DocumentQueryPromoteButton } from "../../loom/DocumentQueryPromoteButton"; // loom: query threads
 
 export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
@@ -180,6 +181,14 @@ function AssistantMessageMeta({
       />
       {projectedItem?.item.type === "assistant_message" ? (
         <AssistantForkButton projectedItem={projectedItem} />
+      ) : null}
+      {/* loom: Promote on a query thread's answer (renders nothing elsewhere) */}
+      {projectedItem?.item.type === "assistant_message" && projectedItem.item.runId !== null ? (
+        <DocumentQueryPromoteButton
+          environmentId={ctx.activeThreadEnvironmentId}
+          threadId={projectedItem.sourceThreadId}
+          runId={projectedItem.item.runId}
+        />
       ) : null}
       {!message.streaming && (
         <Tooltip>

@@ -14,6 +14,7 @@ import {
   agentToolName,
   DELEGATION,
   HISTORY,
+  DOCUMENT_QUERY,
   HUMAN_INPUT,
   LEAF_CORE,
   PULL_REQUESTS,
@@ -24,13 +25,18 @@ const namesOf = (toolkit: { readonly tools: Record<string, unknown> }) =>
   Object.keys(toolkit.tools).map(agentToolName);
 
 describe("Loom tool families", () => {
-  it("LEAF_CORE, DELEGATION and HISTORY partition the 23 MCP tools with no overlap", () => {
-    const families: ReadonlyArray<string> = [...LEAF_CORE, ...DELEGATION, ...HISTORY];
+  it("LEAF_CORE, DELEGATION, HISTORY and DOCUMENT_QUERY partition the 24 MCP tools with no overlap", () => {
+    const families: ReadonlyArray<string> = [
+      ...LEAF_CORE,
+      ...DELEGATION,
+      ...HISTORY,
+      ...DOCUMENT_QUERY,
+    ];
     expect(new Set(families).size).toBe(families.length);
     expect(families.toSorted()).toEqual(
       LOOM_TOOL_DEFS.map((def) => agentToolName(def.name)).toSorted(),
     );
-    expect(LOOM_TOOL_DEFS).toHaveLength(23);
+    expect(LOOM_TOOL_DEFS).toHaveLength(24);
     expect(HISTORY).toEqual(["mcp__t3-code__thread_search"]);
   });
 

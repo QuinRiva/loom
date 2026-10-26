@@ -23,6 +23,10 @@ export function createLoomCommandAtoms<R, E>(
     threadHistory: command(LOOM_WS_METHODS.threadHistory),
     consultCancel: command(LOOM_WS_METHODS.consultCancel),
     promptCapture: command(LOOM_WS_METHODS.promptCapture),
+    // The MDX viewer's Query: forks (or reuses) the author's query thread and asks there.
+    documentQuery: command(LOOM_WS_METHODS.documentQuery),
+    // A query thread's Promote: queues the turn that distils one exchange for the author.
+    documentQueryPromote: command(LOOM_WS_METHODS.documentQueryPromote),
     // The hub login dialog; a double-click must not post one code twice.
     hubLoginStart: command(LOOM_WS_METHODS.usageLimitSourceLoginStart),
     hubLoginFinish: createEnvironmentRpcCommand(runtime, {
@@ -37,6 +41,13 @@ export function createLoomCommandAtoms<R, E>(
     threadSpend: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: `environment-data:${LOOM_WS_METHODS.threadSpend}`,
       tag: LOOM_WS_METHODS.threadSpend,
+      staleTimeMs: 30_000,
+      idleTtlMs: 5 * 60_000,
+    }),
+    // The Query card's pre-flight (which thread a Query forks), once per open document.
+    documentQueryAuthor: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: `environment-data:${LOOM_WS_METHODS.documentQueryAuthor}`,
+      tag: LOOM_WS_METHODS.documentQueryAuthor,
       staleTimeMs: 30_000,
       idleTtlMs: 5 * 60_000,
     }),

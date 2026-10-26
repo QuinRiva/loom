@@ -1,0 +1,122 @@
+---
+kicker: "Recap · query threads for plan and recap review · 21 Oct 2026"
+reader:
+  who: loom's owner, deciding whether to ship the query-threads feature to main
+  knows: the approved plan (plans/plan-query-threads/plan.mdx) and its two answered questions; none of the nine commits, reviews or live runs
+  after_first_screen: that the feature works end to end in a real browser as planned, where it departed from the plan and why, what is deliberately left open, and whether to say ship
+---
+
+# Query threads: built, verified live, ready to ship
+
+**You can now select a passage of a plan or recap, press Query, and chat with a read-only fork of the thread that wrote it, in the main window, without that thread spending a turn.** Twelve commits on `t3/side-questions-on-plans-recaps` (77 files, +3,829 / −276), every one behind a review gate, and three live browser passes against a real pi author: 29 of 29 end-to-end assertions pass. Your three decisions hold on screen: pressing Query sends the question as the fork's first turn; Promote leaves the query thread open so one pass can promote several exchanges; and the fork comes from the thread that **signed** the document, not the thread you happen to be viewing it from.
+
+**What you are deciding:** ship it (PR from the branch, merge via `pnpm ship`) or hold it. Three items departed from the plan during the build and are explained in §3; none change the design you approved. Four small things are deliberately left open (§4); none block shipping. The one question is at the bottom.
+
+<Columns>
+  <Column label="Before">
+    A question about a plan had one in-document channel: a comment, which became a review turn in the authoring thread. A one-line "why?" cost the author a turn of context and an edit cycle.
+  </Column>
+  <Column label="After">
+    <Image src="shots/01-affordance.png" alt="Selecting a passage of a plan offers Comment and Query" caption="Selecting a passage now offers Query beside Comment" width={900} />
+  </Column>
+</Columns>
+
+## 1. One review pass, as it ran live
+
+<Steps>
+  <Step at="ask" title="Query sends; the answer is the fork's first turn.">
+    <Image src="shots/02-fresh-fork-answer-first.jpg" alt="The query thread: collapsed kickoff brief, the question with its passage chip, and the answer as the first assistant message" caption="A fresh fork: the overlay is a collapsed kickoff bubble, your question carries the passage, the answer streams first" width={900} />
+    The fork answered from the author's reasoning, not the text: "The original request said pick the in-process LRU… The reasoning in Decision 1 is mine, written to justify a choice that was already made."
+  </Step>
+  <Step at="author" title="The fork is the signing thread, from wherever you open the document.">
+    <Image src="shots/01-signed-card-from-other-thread.png" alt="The Query card opened from a different thread, reading Signed by the authoring thread's title" caption="Opened from another thread, the card names the signer before you ask" width={900} />
+    <Image src="shots/02-query-thread-header-fork-of-signer.png" alt="The query thread header reading read-only fork of the signing thread" caption="The query thread is a fork of the signer; its satellite hangs under that thread on the graph" width={900} />
+    <Image src="shots/04-unsigned-card-fallback.png" alt="The Query card on an unsigned document, reading No signature found in the document" caption="An unsigned document falls back to the viewing thread, and the card says so" width={900} />
+  </Step>
+  <Step at="refuse" title="It cannot edit.">
+    <Image src="shots/04-refusal.png" alt="The query thread refusing to edit the plan, naming the author as the writer" caption="Asked to change a sentence, it refuses and names the author as the only writer; when forced to call edit, the pi guard refused and the file was unchanged" width={900} />
+  </Step>
+  <Step at="pins" title="More questions reuse the thread; each passage gets a pin.">
+    <Image src="shots/07-two-pins.png" alt="Two hollow question-mark pins on the plan beside the amber comment badge" caption="Two questions, one thread, two pins; each pin opens the query thread at its question" width={900} />
+    <Image src="shots/15-header-count-comment-and-query.png" alt="File panel header reading 1 comment · 1 query" caption="The file panel header counts comments and queries" width={700} />
+  </Step>
+  <Step at="promote" title="Promote writes one anchored comment into the author's composer.">
+    <Image src="shots/03-promote-turn-and-tool-call.jpg" alt="The promote turn, the tool_search call, and the document_query_promote call in the query thread" caption="The fork finds the promote tool, copies the exchange timestamp exactly, and records one comment" width={900} />
+    <Image src="shots/05-author-one-chip-with-link-back.jpg" alt="The author's composer with one promoted chip beside the human's own draft text" caption="Exactly one chip in the author's composer; the draft typed there beforehand is untouched" width={900} />
+    <Image src="shots/10-author-transcript-promoted-chip-links-back.jpg" alt="The author's transcript showing a promoted chip and a hand annotation, the promoted one linking to the query thread" caption="After you send: the author's transcript shows both chips, and the promoted one links back to the query thread" width={900} />
+  </Step>
+  <Step at="graph" title="The query thread hangs off the author on the graph.">
+    <Image src="shots/11-graph-satellite-2-questions-2-promoted.jpg" alt="The workstream graph with a dashed satellite under the author reading 2 questions · 2 promoted" caption="A dashed satellite under the author, never a dependency, never a flag" width={900} />
+  </Step>
+  <Step at="supersede" title="A rewrite forks afresh; the old thread recedes.">
+    <Image src="shots/17-graph-after-supersede.jpg" alt="The graph after the plan was edited: the old satellite faded, a new live one" caption="Edit the plan, Query again: the old thread is archived and recedes, a new one forks" width={900} />
+  </Step>
+  <Step at="deferred" title="A mid-turn author defers the fork, and the composer waits." dashed>
+    <Image src="shots/14-deferred-fork-composer-disabled.jpg" alt="A query thread waiting on its author's turn, with the composer disabled" caption="While the author is mid-turn the fork waits and the composer is disabled, so a hand-typed message cannot start the fork as a fresh session" width={900} />
+  </Step>
+</Steps>
+
+## 2. How it works, in two lines
+
+A query thread is a Loom root with role `document-query`, forked from the author's pi session exactly as a `/handoff` drafter is, with no goal and no parent, so it is outside every join barrier, rollup and attention cascade. The author is the thread whose pi session signed the document (`manager_sessions` in the frontmatter or the HTML manifest: the newest `plan`/`architecture`/`intent`/`manager` entry, else the newest entry, mapped to its thread through the provider-thread projection); an unsigned document falls back to the viewing thread, and the sidecar records which (`authorSource`). It replays the author's launch identity verbatim (so its first turn re-reads the author's context at prompt-cache price) and is held read-only by three things: a pi hook that refuses `edit` and `write`, a read-only MCP credential, and a per-role allow-list of workstream tools (`consult_thread` in, `spawn`/`submit`/`prompt` out). One query thread serves one revision (SHA-256 of the file) of one document. Promote is an event on the query thread; the author's client seeds it once into the composer as an ordinary review chip, and you send it with the rest of your review.
+
+## 3. Where the build departed from the plan
+
+<Table
+  density="compact"
+  columns={["Plan said", "Shipped as", "Why"]}
+  rows={[
+    ["Overlay as a kickoff turn, question dispatched right behind it", "Overlay and first question in ONE dispatch; overlay rendered as a collapsed kickoff bubble", "Live, 4 of 4 forks replied to the kickoff first (\"Ready for the human's first question.\"), so the question was turn 2. This is the plan's own §7 fallback, and it keeps your decision: the question is the first turn. Verified on two fresh forks and one deferred fork."],
+    ["Promote button keyed to \"the preceding question\"", "Keyed to the latest question at or before the answer's run", "A typed follow-up continues its exchange and can be promoted; a promote turn's own reply gets no button."],
+    ["Link back on the chip face", "Link back in the chip's details card", "The chip face is already a popover button."],
+    ["Author = the viewing thread; signature resolution deferred", "Author = the signing thread; viewing thread only as a labelled fallback", "Your recap comment: nearly every plan and recap is signed by its true author. Verified live from a non-author thread and from another worktree (one query thread, shared pins) by an integration test on the real orchestrator."],
+  ]}
+/>
+
+Two small things the live runs found and fixed before you saw them: a planner root with no children showed no satellite (the graph laid no card to hang it from), and a superseded thread vanished instead of receding (the graph read archived shells from a stale snapshot).
+
+## 4. Still open, none blocking
+
+- **A double Promote records two chips.** The tool has no idempotency key; a transport retry or a model calling twice would seed two chips. Not observed in either live run; recovery is deleting one.
+- **No consult edge to a root author.** When the author is a root, a consult from the query thread shows its card but draws no edge; that is the graph's existing rule for consults to roots, not new to this work.
+- **Annotation card clipped by the file tree.** With the file-tree pane open beside the viewer, the Comment and Query cards both run under it. Pre-existing in the shared annotation layer.
+- **Mobile has no Query button.** Query threads are ordinary threads, so chatting in one works on mobile; the affordance and pins are web and desktop only, as the plan deferred.
+
+<Details summary="Commits on the branch, oldest first">
+
+| Commit | What |
+|---|---|
+| `f09964b3fe` | contracts, `document_query` sidecar column (migration 1061), reducers for both slices |
+| `b8605998e4` | web: Query affordance, pins, graph satellite, header chip |
+| `b27feddc1a` | server: fork-or-reuse RPC, overlay, read-only posture, deferred launch |
+| `5d53d40d30` | test: drop a case that restated a one-liner (web reviewer) |
+| `a6eb3326ef` | server rework: a query thread reads its author's human-input flags, keeps its own prompt capture |
+| `04662f7d10` | chore: doc comment back in place (server reviewer) |
+| `6bb6bfa595` | web: satellites on a childless author's graph; superseded leaf recedes; header count; eager-mount fix |
+| `4c994c29bb` | one-dispatch first turn; deferred fork's composer waits |
+| `7964a84c6e` | Promote: tool, RPC, action, seed-once chip, prompt line, user doc (`docs/user/plan-queries.md`) |
+| `e9c9b618b5` | a Query forks the thread that signed the document, not the viewing thread |
+| `b193c0b361` | the Query card names the signing thread on its own line |
+| `6aaa8d3585` | a Query from another worktree reuses the author's query thread and shares its pins |
+
+Gates on the final tree: `vp check` 0 errors, `vp run typecheck` clean, unmarked-hunk sweep clean. The plan (`plans/plan-query-threads/`) and this recap ship with the branch.
+
+</Details>
+
+## Open question
+
+<QuestionForm
+  questions={[
+    {
+      id: "ship",
+      title: "Ship query threads to main now?",
+      subtitle: "A PR from t3/side-questions-on-plans-recaps, merged through pnpm ship once checks pass. Deploying to the cockpit VM is a separate step you trigger.",
+      mode: "single",
+      options: [
+        { id: "ship", label: "Ship as is", recommended: true, detail: "The four open items stay open; none affect the review flow you asked for." },
+        { id: "ship-with-idempotency", label: "Ship after adding a promote idempotency key", detail: "Closes the double-chip edge first; about an hour of coder time plus review." },
+        { id: "hold", label: "Hold; I want to try it myself first", detail: "The branch stays as is. The seeded dev instance from the live runs is at /tmp/t3verify-qt and restarts with one command from the verifier's report." },
+      ],
+    },
+  ]}
+/>

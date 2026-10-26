@@ -14,6 +14,7 @@ import {
   type LoomActiveStep,
   type LoomCacheRetention,
   LoomContextUsage,
+  LoomDocumentQuery,
   LoomRouteRecord,
   LoomThreadCache,
   type LoomThreadCachePatch,
@@ -64,6 +65,7 @@ export const LoomThreadWorkstreamRow = LoomThreadWorkstream.mapFields((fields) =
   handoffDestinations: Schema.fromJsonString(fields.handoffDestinations),
   handoffOrigin: Schema.NullOr(Schema.fromJsonString(HandoffOrigin)),
   notifySendLog: Schema.fromJsonString(fields.notifySendLog),
+  documentQuery: Schema.NullOr(Schema.fromJsonString(LoomDocumentQuery)),
 }));
 
 const WORKSTREAM_COLUMNS = {
@@ -100,6 +102,7 @@ const WORKSTREAM_COLUMNS = {
   handoff_destinations: "handoffDestinations",
   handoff_origin: "handoffOrigin",
   notify_send_log: "notifySendLog",
+  document_query: "documentQuery",
   archived_at: "archivedAt",
   unarchived_at: "unarchivedAt",
   unarchived_event_id: "unarchivedEventId",
@@ -182,6 +185,7 @@ export const emptyWorkstream = (input: {
   handoffDestinations: [],
   handoffOrigin: null,
   notifySendLog: [],
+  documentQuery: null,
   archivedAt: null,
   unarchivedAt: null,
   unarchivedEventId: null,
@@ -297,6 +301,11 @@ export interface LoomStoreV2Shape {
   readonly listReDriveInput: () => Op<ReadonlyArray<LoomThreadWorkstream>>;
   /** Loom threads with a held queued V2 run. */
   readonly listThreadsWithHeldQueue: () => Op<ReadonlyArray<ThreadId>>;
+  /**
+   * The live thread whose pi session is `sessionId` (the `id` `sign_document` writes), most
+   * recently updated first, else null. pi names a session file `<timestamp>_<sessionId>.jsonl`.
+   */
+  readonly threadForPiSession: (sessionId: string) => Op<ThreadId | null>;
   readonly goals: {
     /** Any state, tasks live only. */
     readonly get: (goalId: GoalId) => Op<LoomGoal | null>;
@@ -638,6 +647,18 @@ const make = Effect.gen(function* () {
       ).pipe(run("listChildren")),
     listActiveWorkstreams: () =>
       selectWorkstreams(sql, visibility()).pipe(run("listActiveWorkstreams")),
+    // An unindexed scan of provider threads (~5k rows, ~15ms live), run once per Query.
+    threadForPiSession: (sessionId) =>
+      sql<{ readonly threadId: ThreadId }>`SELECT p.thread_id AS "threadId"
+          FROM orchestration_v2_projection_provider_threads p
+          JOIN orchestration_v2_projection_threads t ON t.thread_id = p.thread_id
+          WHERE p.driver = 'pi' AND t.deleted_at IS NULL
+            AND substr(json_extract(p.payload_json, '$.nativeThreadRef.nativeId'),
+              -${sessionId.length + 7}) = ${`_${sessionId}.jsonl`}
+          ORDER BY p.updated_at DESC LIMIT 1`.pipe(
+        Effect.map((rows) => rows[0]?.threadId ?? null),
+        run("threadForPiSession"),
+      ),
     // An episode root its subtree has not followed: an in-scope descendant still disagrees. Out of
     // scope: nodes created after the episode and nodes a human moved deliberately after it (the
     // planner's episode-keyed ids would skip them anyway). Imported rows carry no

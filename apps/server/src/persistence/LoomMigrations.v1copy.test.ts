@@ -23,7 +23,7 @@ import { migrationManifest, runMigrations } from "./Migrations.ts";
 const at = "2026-01-01T00:00:00.000Z";
 
 // A V1 `state.sqlite` as the live install has it (upstream lane 054, Loom lane 1045), copied to
-// `statev2.sqlite` and migrated by the live layer: Loom runs to its head (1063), V1's goal,
+// `statev2.sqlite` and migrated by the live layer: Loom runs to its head (1064), V1's goal,
 // consult, peer-message and usage-ledger rows survive the renames (1048, 1049), upstream's ledger
 // matches its manifest, and 1062 rebuilds search from the renamed goal tables with no V1 trigger.
 it.effect(
@@ -67,7 +67,6 @@ it.effect(
         const loomLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM ${sql(loomMigrationsTable)} ORDER BY migration_id`;
         assert.deepEqual(loomLedger.slice(-10), [
-          { id: 1054, name: "LoomImportedConsultItems" },
           { id: 1055, name: "LoomHandoffOrigin" },
           { id: 1056, name: "LoomThreadCache" },
           { id: 1057, name: "LoomThreadCacheWarming" },
@@ -76,7 +75,8 @@ it.effect(
           { id: 1060, name: "DropThreadSearchMessageTriggers" },
           { id: 1061, name: "LoomReviewSnapshots" },
           { id: 1062, name: "ThreadSearchIndexV2" },
-          { id: 1063, name: "ThreadSearchTextGuard" },
+          { id: 1063, name: "LoomThreadDocumentQuery" },
+          { id: 1064, name: "ThreadSearchTextGuard" },
         ]);
         const upstreamLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM effect_sql_migrations ORDER BY migration_id`;

@@ -1,20 +1,24 @@
 /**
- * Settles `/handoff` drafters from durable state once the kickoff run ends: a recorded handoff
- * means `done` then `thread.archive` (which hides it); none, or a kickoff unfinished past
- * `HANDOFF_HUNG_GRACE_MS`, raises `needs_guidance` on the source if it has a live Loom row, else
- * the drafter. Also re-sends a fork a mid-turn source deferred. Deterministic `server:` ids.
+ * Settles `/handoff` drafters from durable state once the kickoff run ends: a handoff means `done`
+ * then `thread.archive`; none, or a kickoff unfinished past `HANDOFF_HUNG_GRACE_MS`, raises
+ * `needs_guidance` on the source if it has a live Loom row, else the drafter. Re-sends a fork a
+ * mid-turn source deferred; a `document-query` thread gets only that leg. Deterministic `server:` ids.
  */
 import {
   CommandId,
+  DOCUMENT_QUERY_ROLE,
   type LoomThreadWorkstream,
   type OrchestrationV2ThreadShell,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { makeCoalescingWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import type * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -24,6 +28,8 @@ import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { dispatchServerCommand } from "../orchestration/redrive.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
+import { buildQueryForkLaunch, parseDocumentQueryBrief } from "../query/documentQuery.ts";
+import { readWorkstreamBriefAt } from "../workstream/brief.ts";
 import {
   buildDraftForkLaunch,
   buildDrafterKickoffPrompt,
@@ -92,7 +98,21 @@ export class HandoffDrafterReactor extends Context.Service<
 const make = Effect.gen(function* () {
   const orchestrator = yield* OrchestratorV2;
   const loomStore = yield* LoomStoreV2;
-  const services = yield* Effect.context<CommandReceiptStoreV2 | OrchestratorV2>();
+  const services = yield* Effect.context<
+    CommandReceiptStoreV2 | OrchestratorV2 | FileSystem.FileSystem
+  >();
+
+  /** A deferred query thread's fork and its overlay-led first question; none without a brief. */
+  const queryLaunch = (row: LoomThreadWorkstream, authorThreadId: ThreadId, createdAt: string) =>
+    Effect.map(
+      row.kickoffBriefPath === null
+        ? Effect.succeed(Option.none<string>())
+        : readWorkstreamBriefAt(row.kickoffBriefPath),
+      (brief) =>
+        Option.map(Option.flatMap(brief, parseDocumentQueryBrief), (question) =>
+          buildQueryForkLaunch({ threadId: row.threadId, authorThreadId, question, createdAt }),
+        ),
+    );
 
   const settle = Effect.fn("HandoffDrafterReactor.settle")(
     function* (row: LoomThreadWorkstream, nowMs: number) {
@@ -100,21 +120,28 @@ const make = Effect.gen(function* () {
         CommandId.make(`server:loom:handoff-settle:${step}:${row.threadId}`);
       const createdAt = DateTime.formatIso(yield* DateTime.now);
       // A fork that waited for its mid-turn source is launched here, once that turn ends.
+      const query = row.role === DOCUMENT_QUERY_ROLE;
       const pendingLaunch = row.kickoffAt === null && row.forkFromThreadId !== null;
-      const launch = pendingLaunch
-        ? yield* dispatchDraftFork(
-            buildDraftForkLaunch({
+      const commands = !pendingLaunch
+        ? null
+        : query
+          ? Option.getOrNull(yield* queryLaunch(row, row.forkFromThreadId!, createdAt))
+          : buildDraftForkLaunch({
               drafterThreadId: row.threadId,
               sourceThreadId: row.forkFromThreadId!,
               kickoff: buildDrafterKickoffPrompt(row.purpose ?? ""),
               createdAt,
-            }),
-          )
-        : null;
+            });
+      const launch =
+        commands !== null
+          ? yield* dispatchDraftFork(commands)
+          : pendingLaunch
+            ? ({ status: "dead" } as const)
+            : null;
       const action: HandoffSettlementAction =
         launch?.status === "dead"
           ? { kind: "guidance", reasonKey: "fork-failed" }
-          : pendingLaunch
+          : pendingLaunch || query
             ? { kind: "none" }
             : classifyHandoffSettlement(
                 row,
@@ -140,6 +167,7 @@ const make = Effect.gen(function* () {
             ? null
             : yield* loomStore.getWorkstream(row.forkFromThreadId);
         const target =
+          !query &&
           source !== null &&
           source.outcome === null &&
           source.archivedAt === null &&
@@ -171,7 +199,11 @@ const make = Effect.gen(function* () {
   const pass = Effect.gen(function* () {
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
     for (const row of yield* loomStore.listActiveWorkstreams()) {
-      if (row.role === HANDOFF_DRAFTER_ROLE) yield* settle(row, nowMs);
+      if (
+        row.role === HANDOFF_DRAFTER_ROLE ||
+        (row.role === DOCUMENT_QUERY_ROLE && row.kickoffAt === null)
+      )
+        yield* settle(row, nowMs);
     }
   }).pipe(
     Effect.provideContext(services),

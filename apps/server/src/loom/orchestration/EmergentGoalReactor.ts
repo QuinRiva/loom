@@ -6,6 +6,7 @@
  */
 import {
   CommandId,
+  DOCUMENT_QUERY_ROLE,
   GoalId,
   type ProjectId,
   type RunId,
@@ -102,6 +103,8 @@ export const deriveEmergentGoal = Effect.fn("loom.deriveEmergentGoal")(function*
     (workstream?.goalId ?? null) !== null ||
     // A `/retro` reviewer is goal-less by design: its goal tools refuse rather than mint one.
     workstream?.role === RETRO_REVIEWER_ROLE ||
+    // A query thread is goal-less too: it sits outside every goal, join and rollup (plan §2.1).
+    workstream?.role === DOCUMENT_QUERY_ROLE ||
     thread.archivedAt !== null ||
     thread.deletedAt !== null
   ) {

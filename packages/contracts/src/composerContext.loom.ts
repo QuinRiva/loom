@@ -5,6 +5,7 @@
 
 import * as Schema from "effect/Schema";
 
+import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { PlanCommentAnchor } from "./plan.ts";
 
 /**
@@ -15,5 +16,11 @@ import { PlanCommentAnchor } from "./plan.ts";
 export const LoomMdxAnchorReviewContext = Schema.Struct({
   anchor: PlanCommentAnchor,
   quotedText: Schema.String.check(Schema.isMaxLength(16_000)),
+  /**
+   * Set on a comment promoted from a query thread (the transcript's link back);
+   * `promotionId` is that promotion's id on the query thread's `documentQuery`.
+   */
+  queryThreadId: Schema.optionalKey(ThreadId),
+  promotionId: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type LoomMdxAnchorReviewContext = typeof LoomMdxAnchorReviewContext.Type;

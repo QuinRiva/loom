@@ -502,6 +502,20 @@ const LOOM_TOOL_SPECS = {
     "soft",
     { idempotent: true },
   ),
+  document_query_promote: spec(
+    "Promote Query Exchange",
+    Schema.Struct({
+      text: described(
+        Schema.String,
+        "The comment for the author, in the author's terms: what the exchange concluded and the change it implies, as a reviewer's request rather than a transcript.",
+      ),
+      exchangeAt: described(
+        Schema.String,
+        "The exchangeAt timestamp from the promote turn, copied exactly: it names the question whose passage anchors the comment.",
+      ),
+    }),
+    "throw",
+  ),
 } satisfies { readonly [N in LoomMcpToolName]: LoomToolSpec };
 
 type Specs = typeof LOOM_TOOL_SPECS;

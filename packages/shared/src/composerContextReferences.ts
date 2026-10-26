@@ -258,6 +258,11 @@ function formatComposerContextProviderPayload(record: KnownComposerContextRecord
           : `range: ${record.rangeLabel} (${record.startIndex}-${record.endIndex})`,
         `section: ${record.sectionTitle}`,
       ];
+      // loom: a comment promoted from a query thread says where its words came from.
+      if (mdx?.queryThreadId)
+        lines.push(
+          "promoted from a query thread: the human and a read-only fork of you discussed this passage; this comment distils that exchange",
+        );
       if (record.text.trim()) lines.push("comment:", indent(record.text.trim()));
       if (mdx) {
         if (mdx.quotedText.trim()) lines.push("quoted passage:", indent(mdx.quotedText.trim()));

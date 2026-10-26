@@ -24,7 +24,7 @@ import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
 import ChatMarkdown from "../ChatMarkdown";
 import { ThreadContextChip } from "../ThreadContextChip";
 import { MessageCircleIcon, MousePointerClickIcon, PaintbrushIcon } from "lucide-react";
-import type { ComposerContextId, KnownComposerContextRecord } from "@t3tools/contracts";
+import type { ComposerContextId, KnownComposerContextRecord, ThreadId } from "@t3tools/contracts"; // loom: ThreadId for query threads
 import { buildExpandedImagePreview } from "./ExpandedImagePreview";
 import { WorkspaceEntryIcon, WorkspaceEntryTooltip } from "./WorkspaceEntryIcon";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
@@ -56,6 +56,7 @@ import {
   type LineReviewCommentContext, // loom:
 } from "../../reviewCommentContext";
 import { TimelineRowCtx } from "./timelineRowContext";
+import { PromotedFromQuery } from "../../loom/PromotedFromQuery"; // loom: query threads
 
 function UserMessageMentionChip(props: {
   record: Extract<KnownComposerContextRecord, { kind: "mention" }>;
@@ -482,6 +483,7 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
                   : {}),
                 ...(record.pullRequest !== undefined ? { pullRequest: record.pullRequest } : {}),
               }}
+              queryThreadId={record.mdxAnchor?.queryThreadId} // loom: promoted link back
             />
           </UserMessageContextPopover>
         );
@@ -538,7 +540,13 @@ export function UserMessageContextReferenceChip(props: {
 }
 
 // loom: the card renders line comments; mdx-anchor ones have no diff to show.
-function UserMessageReviewCommentCard({ comment }: { comment: LineReviewCommentContext }) {
+function UserMessageReviewCommentCard({
+  comment,
+  queryThreadId, // loom: set on a comment promoted from a query thread
+}: {
+  comment: LineReviewCommentContext;
+  queryThreadId?: ThreadId | undefined; // loom:
+}) {
   const renderedAppearance = useRenderedAppearance();
   const ctx = use(TimelineRowCtx);
   const fenceLanguage = comment.fenceLanguage ?? "diff";
@@ -556,6 +564,14 @@ function UserMessageReviewCommentCard({ comment }: { comment: LineReviewCommentC
         <div className="text-2xs text-muted-foreground">
           {comment.sectionTitle} · {comment.rangeLabel}
         </div>
+        {queryThreadId ? ( // loom: the link back to the query thread
+          <PromotedFromQuery
+            environmentId={ctx.activeThreadEnvironmentId}
+            queryThreadId={queryThreadId}
+            filePath={comment.filePath}
+            fromThreadRef={ctx.threadRef ?? undefined}
+          />
+        ) : null}
       </div>
       {comment.text.length > 0 && (
         <div className="wrap-break-word text-sm">

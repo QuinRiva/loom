@@ -20,6 +20,7 @@ import { commandGuardsPart } from "./loomExtensionParts/commandGuards.ts";
 import { consultGuardPart } from "./loomExtensionParts/consultGuard.ts";
 import { pgrepSelfMatchPart } from "./loomExtensionParts/pgrepSelfMatch.ts";
 import { promptDebugPart } from "./loomExtensionParts/promptDebug.ts";
+import { queryGuardPart } from "./loomExtensionParts/queryGuard.ts";
 import { searchGuardPart } from "./loomExtensionParts/searchGuard.ts";
 import { systemHeadPart } from "./loomExtensionParts/systemHead.ts";
 import { T3_MCP_BEARER_ENV, T3_MCP_URL_ENV } from "@t3tools/provider-pi/server/mcpExtensionSource";
@@ -195,6 +196,7 @@ export const LOOM_EXTENSION_PARTS: ReadonlyArray<LoomExtensionPart> = [
   promptDebugPart,
   cacheWarmingGatePart,
   consultGuardPart,
+  queryGuardPart,
   systemHeadPart,
   backgroundJobsPart,
 ];

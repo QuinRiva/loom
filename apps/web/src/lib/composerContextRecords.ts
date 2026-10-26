@@ -232,6 +232,11 @@ export function reviewCommentContextRecord(
               comment.quotedText,
               COMPOSER_CONTEXT_REVIEW_TEXT_MAX_CHARS,
             ),
+            // loom: a promoted query-thread comment keeps its link back on the wire.
+            ...(comment.queryThreadId !== undefined
+              ? { queryThreadId: comment.queryThreadId }
+              : {}),
+            ...(comment.promotionId ? { promotionId: comment.promotionId } : {}),
           },
         }
       : {}),

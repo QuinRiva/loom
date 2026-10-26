@@ -30,6 +30,13 @@ const LOOP_LANE_STEP = 8; // stagger for loop channels that would otherwise shar
 const CHANNEL_MARGIN = 10; // clearance below an obstacle before a routed channel
 const LANE_STEP = COL_GAP / 2; // step when searching outward for a clear vertical lane
 const CONSULT_LANE_STEP = 9; // per-edge offset so shared consult channels never overlap
+// Query-thread satellites (plans/plan-query-threads/plan.mdx §5 step 11): a smaller
+// card hung under its author, indented like a nested block.
+export const SATELLITE_W = 132;
+export const SATELLITE_H = 40;
+const SATELLITE_GAP = 14; // card → first satellite, and between stacked satellites
+const SATELLITE_ROOT_GAP = 28; // a bridge-only root's satellites sit this far left of its first bridge
+const satelliteStackH = (count: number) => count * (SATELLITE_H + SATELLITE_GAP);
 
 export type Point = { readonly x: number; readonly y: number };
 
@@ -81,13 +88,16 @@ export type LaidNode =
       readonly kind: "thread";
       readonly key: string;
       readonly thread: WorkstreamNode;
+      /** Where this card's query satellites start, relative to its top (set
+       * when the layout reserved room for them). */
+      readonly satelliteDy?: number;
       x: number;
       y: number;
       readonly w: number;
       readonly h: number;
     };
 
-export type EdgeKind = "spine" | "fork" | "blocked" | "loop";
+export type EdgeKind = "spine" | "fork" | "blocked" | "loop" | "query";
 export interface LaidEdge {
   readonly kind: EdgeKind;
   readonly key: string;
@@ -202,6 +212,7 @@ function layoutOrchestrator(
   orchestratorId: ThreadId,
   title: string,
   childrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<WorkstreamNode>>,
+  satelliteCounts: ReadonlyMap<ThreadId, number>,
 ): Block {
   const children = childrenByParent.get(orchestratorId) ?? [];
   if (children.length === 0) return { nodes: [], edges: [], w: 0, h: 0 };
@@ -249,7 +260,10 @@ function layoutOrchestrator(
       }
     }
     const subBlockByMember = new Map<ThreadId, Block>(
-      members.map((m) => [m.id, layoutMember(m, childrenByParent, loopParticipants.has(m.id))]),
+      members.map((m) => [
+        m.id,
+        layoutMember(m, childrenByParent, satelliteCounts, loopParticipants.has(m.id)),
+      ]),
     );
     // A wave that carries a review-gate loop reserves an extra row lane so the
     // loop channel never crosses the next row. The bump is uniform across every
@@ -445,45 +459,66 @@ function layoutOrchestrator(
 function layoutMember(
   member: WorkstreamNode,
   childrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<WorkstreamNode>>,
+  satelliteCounts: ReadonlyMap<ThreadId, number>,
   // A gate participant (loop source or target) routes its review loop in the
   // channel just below its card; reserve that lane ABOVE its nested block so the
   // loop can never cut through the member's own spawned descendants.
   reserveLoopLane = false,
 ): Block {
+  const loopLane = reserveLoopLane ? LOOP_CHANNEL_LANE : 0;
+  // loom: query satellites hang below the loop lane and above any nested block.
+  const satellites = satelliteCounts.get(member.id) ?? 0;
+  const satelliteDy = NODE_H + loopLane + SATELLITE_GAP;
   const card: LaidNode = {
     kind: "thread",
     key: member.id,
     thread: member,
+    ...(satellites > 0 ? { satelliteDy } : {}),
     x: 0,
     y: 0,
     w: NODE_W,
     h: NODE_H,
   };
-  const nested = layoutOrchestrator(member.id, member.title, childrenByParent);
+  const w = satellites > 0 ? Math.max(NODE_W, NEST_INDENT + SATELLITE_W) : NODE_W;
+  const cardH = satellites > 0 ? satelliteDy + satelliteStackH(satellites) - SATELLITE_GAP : NODE_H;
+  const nested = layoutOrchestrator(member.id, member.title, childrenByParent, satelliteCounts);
   if (nested.nodes.length === 0) {
-    return { nodes: [card], edges: [], w: NODE_W, h: NODE_H };
+    return { nodes: [card], edges: [], w, h: cardH };
   }
-  const nestVGap = reserveLoopLane ? NEST_VGAP + LOOP_CHANNEL_LANE : NEST_VGAP;
-  translate(nested, NEST_INDENT, NODE_H + nestVGap);
+  const nestTop = satellites > 0 ? cardH + NEST_VGAP : NODE_H + NEST_VGAP + loopLane;
+  translate(nested, NEST_INDENT, nestTop);
   const firstBridge = nested.nodes.find((n) => n.kind === "bridge");
   const edges = [...nested.edges];
   if (firstBridge) {
+    // Satellites sit where the diagonal would run, so the spine then takes the
+    // gutter left of them into the bridge's side.
+    const bridgeMidY = firstBridge.y + firstBridge.h / 2;
+    const gutterX = NEST_INDENT / 2;
     edges.push({
       kind: "spine",
       key: `nest:${member.id}`,
       fromKey: member.id,
       toKey: firstBridge.key,
-      x1: NODE_W / 2,
+      ...(satellites > 0
+        ? {
+            points: [
+              { x: gutterX, y: NODE_H },
+              { x: gutterX, y: bridgeMidY },
+              { x: firstBridge.x, y: bridgeMidY },
+            ],
+          }
+        : {}),
+      x1: satellites > 0 ? gutterX : NODE_W / 2,
       y1: NODE_H,
-      x2: firstBridge.x + firstBridge.w / 2,
-      y2: firstBridge.y,
+      x2: satellites > 0 ? firstBridge.x : firstBridge.x + firstBridge.w / 2,
+      y2: satellites > 0 ? bridgeMidY : firstBridge.y,
     });
   }
   return {
     nodes: [card, ...nested.nodes],
     edges,
-    w: Math.max(NODE_W, NEST_INDENT + nested.w),
-    h: NODE_H + nestVGap + nested.h,
+    w: Math.max(w, NEST_INDENT + nested.w),
+    h: nestTop + nested.h,
   };
 }
 
@@ -491,7 +526,11 @@ function layoutMember(
  * Build the whole-orchestration layout from a flat subtree (root + all
  * descendants). The root is the member whose parent is absent from the set.
  */
-export function computeForkJoinLayout(threads: ReadonlyArray<WorkstreamNode>): {
+export function computeForkJoinLayout(
+  threads: ReadonlyArray<WorkstreamNode>,
+  /** Query satellites per author card, so the layout reserves room under it. */
+  satelliteCounts: ReadonlyMap<ThreadId, number> = new Map(),
+): {
   nodes: ReadonlyArray<LaidNode>;
   edges: ReadonlyArray<LaidEdge>;
 } {
@@ -505,7 +544,111 @@ export function computeForkJoinLayout(threads: ReadonlyArray<WorkstreamNode>): {
     if (siblings) siblings.push(thread);
     else childrenByParent.set(thread.parentThreadId, [thread]);
   }
-  return layoutOrchestrator(root.id, root.title, childrenByParent);
+  return layoutOrchestrator(root.id, root.title, childrenByParent, satelliteCounts);
+}
+
+/** The query-thread satellites laid beside their authors, and the dashed `query` edges to them. */
+export interface QueryOverlay {
+  readonly nodes: ReadonlyArray<Extract<LaidNode, { kind: "thread" }>>;
+  readonly edges: ReadonlyArray<LaidEdge>;
+}
+
+/**
+ * Place each query thread whose author is laid out as a satellite: under the author's card, or
+ * left of a bridge-only root author's first bridge; a root that has dispatched nothing stacks
+ * them from the origin. An author outside the graph draws nothing. Satellites gate nothing and
+ * sit outside every rollup.
+ */
+export function deriveQueryOverlay(
+  nodes: ReadonlyArray<LaidNode>,
+  satellites: ReadonlyArray<WorkstreamNode>,
+): QueryOverlay {
+  const cardById = new Map<ThreadId, Extract<LaidNode, { kind: "thread" }>>();
+  for (const node of nodes) if (node.kind === "thread") cardById.set(node.thread.id, node);
+  const byAuthor = new Map<ThreadId, WorkstreamNode[]>();
+  for (const satellite of satellites.toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+    const authorId = satellite.forkFromThreadId;
+    if (authorId === null) continue;
+    byAuthor.set(authorId, [...(byAuthor.get(authorId) ?? []), satellite]);
+  }
+  const laid: Array<Extract<LaidNode, { kind: "thread" }>> = [];
+  const edges: LaidEdge[] = [];
+  const satelliteAt = (thread: WorkstreamNode, x: number, y: number) => {
+    const node = {
+      kind: "thread",
+      key: thread.id,
+      thread,
+      x,
+      y,
+      w: SATELLITE_W,
+      h: SATELLITE_H,
+    } as const;
+    laid.push(node);
+    return node;
+  };
+  const queryEdge = (authorId: ThreadId, satelliteId: ThreadId, points: Point[]) =>
+    edges.push({
+      kind: "query",
+      key: `query:${satelliteId}`,
+      fromKey: authorId,
+      toKey: satelliteId,
+      points,
+      x1: points[0]!.x,
+      y1: points[0]!.y,
+      x2: points[points.length - 1]!.x,
+      y2: points[points.length - 1]!.y,
+    });
+  for (const [authorId, members] of byAuthor) {
+    const card = cardById.get(authorId);
+    const bridge = card
+      ? undefined
+      : nodes.find(
+          (node): node is Extract<LaidNode, { kind: "bridge" }> =>
+            node.kind === "bridge" && node.orchestratorId === authorId && node.waveIndex === 1,
+        );
+    if (card) {
+      // A chain down the stack: card → first satellite → next, all on one axis.
+      const x = card.x + NEST_INDENT;
+      const axisX = x + SATELLITE_W / 2;
+      let top = card.y + (card.satelliteDy ?? card.h + SATELLITE_GAP);
+      let from: Point = { x: axisX, y: card.y + card.h };
+      for (const member of members) {
+        const node = satelliteAt(member, x, top);
+        queryEdge(authorId, member.id, [from, { x: axisX, y: node.y }]);
+        from = { x: axisX, y: node.y + node.h };
+        top += SATELLITE_H + SATELLITE_GAP;
+      }
+    } else if (bridge) {
+      const x = bridge.x - SATELLITE_ROOT_GAP - SATELLITE_W;
+      const axisX = x + SATELLITE_W / 2;
+      const bridgeMidY = bridge.y + bridge.h / 2;
+      members.forEach((member, index) => {
+        const node = satelliteAt(
+          member,
+          x,
+          bridgeMidY - SATELLITE_H / 2 + index * (SATELLITE_H + SATELLITE_GAP),
+        );
+        queryEdge(
+          authorId,
+          member.id,
+          index === 0
+            ? [
+                { x: bridge.x, y: bridgeMidY },
+                { x: x + SATELLITE_W, y: bridgeMidY },
+              ]
+            : [
+                { x: axisX, y: node.y - SATELLITE_GAP },
+                { x: axisX, y: node.y },
+              ],
+        );
+      });
+    } else if (nodes.length === 0) {
+      members.forEach((member, index) =>
+        satelliteAt(member, 0, index * (SATELLITE_H + SATELLITE_GAP)),
+      );
+    }
+  }
+  return { nodes: laid, edges };
 }
 
 // Consult edges and annotations stay out of the memoised structural layout (consults change
@@ -956,7 +1099,7 @@ function edgeExtentPoints(
  * overlay, which is not part of the memoised structural layout.
  */
 export function computeForkJoinViewBox(
-  nodes: ReadonlyArray<LaidNode>,
+  nodes: ReadonlyArray<Pick<LaidNode, "x" | "y" | "w" | "h">>,
   edges: ReadonlyArray<LaidEdge> = [],
   extraEdges: ReadonlyArray<ConsultEdge> = [],
 ): ViewBox {
@@ -972,5 +1115,8 @@ export function computeForkJoinViewBox(
   const minY = Math.min(...ys);
   const maxX = Math.max(...xs);
   const maxY = Math.max(...ys);
-  return { x: minX - pad, y: minY - pad, w: maxX - minX + 2 * pad, h: maxY - minY + 2 * pad };
+  // Never zoom past the empty graph's frame: a lone query satellite would fill the panel.
+  const w = Math.max(maxX - minX + 2 * pad, 320);
+  const h = Math.max(maxY - minY + 2 * pad, 240);
+  return { x: (minX + maxX - w) / 2, y: (minY + maxY - h) / 2, w, h };
 }

@@ -24,6 +24,8 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerConfig from "../../config.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
+import { ProjectStoreV2 } from "../../orchestration-v2/ProjectStore.ts";
+import { WorkspaceFileSystem } from "../../workspace/WorkspaceFileSystem.ts";
 import * as LoomUsageLedger from "../economics/LoomUsageLedger.ts";
 import * as LoomGoalBroadcast from "../projection/LoomGoalBroadcast.ts";
 import { UsageLimitSources } from "../../usage/UsageLimitSources.ts";
@@ -75,6 +77,9 @@ const TestLayer = Layer.mergeAll(
   Layer.mock(UsageLimitSources)({}),
   Layer.mock(ReviewSnapshotService)({}),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-retro-" }),
+  // The ws handlers also carry the query-thread method; these tests never call it.
+  Layer.mock(ProjectStoreV2)({}),
+  Layer.mock(WorkspaceFileSystem)({}),
 ).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(NodeServices.layer));
 
 /** An idle source whose one turn finished on `driver`; with `goal`, it is a Loom root with a row. */

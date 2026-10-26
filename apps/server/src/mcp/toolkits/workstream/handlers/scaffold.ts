@@ -1,7 +1,8 @@
 /**
  * `workstream_scaffold`: a whole child graph in one all-or-nothing `thread.scaffold`. References are
- * node keys or `thread:<id>`; nodes start unbriefed so none runs before `workstream_brief`. The arm
- * validates live siblings, cycles and unique non-UUID keys under the caller's lock.
+ * node keys or `thread:<id>`. A gate node carries its purpose as its brief from birth, so it starts
+ * once the thread it gates is done; every other node starts unbriefed, waiting for `workstream_brief`.
+ * The arm validates live siblings, cycles and unique non-UUID keys under the caller's lock.
  */
 import {
   GoalTaskId,
@@ -11,6 +12,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
+import { writeWorkstreamBrief } from "../../../../loom/workstream/brief.ts";
 import { THREAD_REF_PREFIX, threadIdAliases } from "../../../../loom/workstream/threadResolve.ts";
 import { authoriseTarget, type WorkstreamCaller } from "../authorisation.ts";
 import { agentToolName as t } from "../families.ts";
@@ -19,7 +21,7 @@ import { requestKey, stableCommandId, stableThreadId } from "../idempotency.ts";
 import { resolveChildModel, withUpstreamOptionIds } from "../modelSelection.ts";
 import { appendWarnings } from "../render.ts";
 import { anchorError, gateRoutes, nodeShapeError, trimmed, withImpliedEdges } from "./childNode.ts";
-import { childrenOf, dispatch, fail, nowIso, requireShell } from "./shared.ts";
+import { asToolError, childrenOf, dispatch, fail, nowIso, requireShell } from "./shared.ts";
 
 const NOTHING = "Nothing was created.";
 const UUID_SHAPED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -161,14 +163,20 @@ export const workstreamScaffold = Effect.fn("LoomToolkit.workstreamScaffold")(fu
         node.key,
         `forkFrom forms a cycle; a fork chain must end at a node or child that is not a fork. ${NOTHING}`,
       );
+    const purpose = trimmed(node.purpose)!;
     commandNodes.push({
       threadId: node.threadId,
       graphKey: node.key,
       role: identity.role,
       title: trimmed(node.title)!,
-      purpose: trimmed(node.purpose)!,
+      purpose,
       blockedBy: edges.blockedBy,
-      ...(gateRework === undefined ? {} : { routes: gateRoutes(gateRework, node.gate?.maxRounds) }),
+      ...(gateRework === undefined
+        ? {}
+        : {
+            routes: gateRoutes(gateRework, node.gate?.maxRounds),
+            kickoffBriefPath: yield* asToolError(writeWorkstreamBrief(node.threadId, purpose)),
+          }),
       spawnGeneration: parent.activeRunId ?? requestId,
       ...(forkFrom === undefined ? {} : { forkFromThreadId: forkFrom }),
       // Explicit, else inherited along the fork chain.
@@ -181,6 +189,9 @@ export const workstreamScaffold = Effect.fn("LoomToolkit.workstreamScaffold")(fu
   }
 
   const keyOf = new Map(nodes.map((node) => [node.threadId as string, node.key]));
+  const keysWhere = (gated: boolean) =>
+    nodes.filter((node) => (node.gate !== undefined) === gated).map((node) => node.key);
+  const [gateKeys, unbriefedKeys] = [keysWhere(true), keysWhere(false)];
   yield* dispatch({
     type: "thread.scaffold",
     commandId: stableCommandId(caller, requestId, "workstream-scaffold"),
@@ -201,7 +212,15 @@ export const workstreamScaffold = Effect.fn("LoomToolkit.workstreamScaffold")(fu
   return appendWarnings(
     `Scaffolded ${nodes.length} Workstream node(s): ${nodes
       .map((node) => `${node.key} → ${node.threadId}`)
-      .join(", ")}. Each awaits a brief (${t("workstream_brief")}) before it can launch.`,
+      .join(", ")}.${
+      unbriefedKeys.length === 0
+        ? ""
+        : ` Awaiting a brief (${t("workstream_brief")}) before launch: ${unbriefedKeys.join(", ")}.`
+    }${
+      gateKeys.length === 0
+        ? ""
+        : ` Gate nodes (${gateKeys.join(", ")}) launch on their purpose when their target hands back.`
+    }`,
     [
       ...modelWarnings,
       ...resolved.flatMap(({ node, edges }) =>

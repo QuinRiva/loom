@@ -8,6 +8,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  DOCUMENT_QUERY_ROLE,
   EventId,
   MessageId,
   ProviderInstanceId,
@@ -38,6 +39,7 @@ import {
   LoomCacheBroadcast,
   layer as LoomCacheBroadcastLayer,
 } from "../projection/LoomCacheBroadcast.ts";
+import { documentQueryClient } from "../query/queryPosture.ts";
 import { reactToAskEvent } from "../userInput/askUserQuestion.ts";
 import { LoomAgentRoutesLive } from "./loomAgentRoutes.ts";
 
@@ -166,6 +168,35 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
         assert.notInclude(profile.activeTools, ASK);
         assert.include(profile.activeTools, "mcp__t3-code__workstream_spawn");
       }),
+  );
+
+  // The tool declaration is the author's prompt-cache key: a query thread the human talks to must
+  // still declare what its un-engaged child author declares, and keep its own prompt capture.
+  it.effect("a query thread is profiled as its author for human input, as itself for capture", () =>
+    Effect.gen(function* () {
+      const { threadId: parent } = yield* seedThread({ threadId: "routes-q-parent" as ThreadId });
+      const author = "routes-q-author" as ThreadId;
+      yield* spawnChild({ parentThreadId: parent, threadId: author, role: "planner" });
+      const query = "routes-q-query" as ThreadId;
+      yield* spawnChild({
+        parentThreadId: null,
+        threadId: query,
+        role: DOCUMENT_QUERY_ROLE,
+        forkFromThreadId: author,
+      });
+      yield* seedUserMessage(query, "message:routes:q-human", true);
+      const issued = yield* (yield* McpSessionRegistry.McpSessionRegistry).issue({
+        threadId: query,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        capabilities: new Set(["workstream"]),
+        client: documentQueryClient(query),
+      });
+      const profile = (yield* call(issued.config.authorizationHeader, "GET", "/session-profile"))
+        .body;
+      assert.deepInclude(profile, { hasParent: true, humanEngaged: false });
+      assert.notInclude(profile.activeTools, ASK);
+      assert.match(profile.promptDebugPath, /prompt-debug\/routes-q-query\.md$/);
+    }),
   );
 
   it.effect("ask opens the question and wait returns the answer", () =>

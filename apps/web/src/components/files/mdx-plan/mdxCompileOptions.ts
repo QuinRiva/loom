@@ -8,6 +8,7 @@ import type { ReferenceLinkRule } from "@t3tools/client-runtime/reference-links"
 import { remarkReferenceLinks } from "~/loom/remarkReferenceLinks";
 
 import { type PlanSections, remarkHeadingAnchors } from "./headingAnchors";
+import { remarkGlossary } from "./glossary";
 import { remarkKicker } from "./kicker";
 import { assertLiteralAttributeExpression, type MdxAttrExpression } from "./mdxAttrs";
 import { ALLOWED_HTML_TAGS, PLAN_BLOCK_TAGS } from "./planBlockTags";
@@ -100,9 +101,15 @@ const PLAN_GUARD_PLUGINS = [
 ];
 
 /** Guards plus `remarkHeadingAnchors` (heading slugs and section bounds, shared so
- * worker, linter and render agree on what a question's `refs` name) and
- * `remarkKicker` (frontmatter `kicker:` above the title, whole documents only). */
-const PLAN_REMARK_PLUGINS = [...PLAN_GUARD_PLUGINS, remarkHeadingAnchors, remarkKicker];
+ * worker, linter and render agree on what a question's `refs` name), `remarkKicker`
+ * (frontmatter `kicker:` above the title, whole documents only) and `remarkGlossary`
+ * (links glossary terms in prose; a section peek has no glossary). */
+const PLAN_REMARK_PLUGINS = [
+  ...PLAN_GUARD_PLUGINS,
+  remarkHeadingAnchors,
+  remarkKicker,
+  remarkGlossary,
+];
 
 export type PlanMdxComponent = React.ComponentType<{ components?: Record<string, unknown> }>;
 

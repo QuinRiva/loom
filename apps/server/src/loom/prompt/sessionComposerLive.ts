@@ -1,10 +1,11 @@
 /**
- * The production session composer. Everything but the per-launch relocation clause is the thread's
- * launch identity: written at its first compose and replayed verbatim later, and by a fork's first
- * launch only. A `retro-reviewer` composes with its server-owned overlay; a `handoff-drafter`
- * replays its source's record, or composes fresh when the source has none.
+ * The production session composer. All but the per-launch relocation clause is launch identity,
+ * written at first compose and replayed later, and by a fork's first launch only. A `retro-reviewer`
+ * composes with its overlay; a `handoff-drafter` replays its source's record (or composes fresh); a
+ * `document-query` thread replays its author's current record every launch, plus `T3_LOOM_QUERY_FORK`.
  */
 import {
+  DOCUMENT_QUERY_ROLE,
   LOOM_CACHE_HORIZON_MS,
   type LoomThreadWorkstream,
   type OrchestrationV2AppThread,
@@ -30,6 +31,7 @@ import {
   LoomExtensionPath,
   LoomExtensionPathLive,
 } from "../../provider/Drivers/Pi/loomExtension.ts";
+import { LOOM_QUERY_FORK_ENV } from "../query/queryPosture.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
 import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_TOOLS } from "../handoff/retroDraft.ts";
@@ -160,6 +162,23 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
     projectRoot: string,
     longShare: number,
   ) {
+    if (workstream?.role === DOCUMENT_QUERY_ROLE && workstream.forkFromThreadId !== null) {
+      const author = workstream.forkFromThreadId;
+      const source = yield* readLaunchIdentity(identityDir, author);
+      if (Option.isNone(source))
+        return yield* new LoomForkSourceIdentityMissing({
+          threadId: thread.id,
+          sourceThreadId: author,
+        });
+      const record: LaunchIdentityRecord = {
+        ...source.value,
+        env: { ...source.value.env, [LOOM_QUERY_FORK_ENV]: "1" },
+        replayedFrom: author,
+      };
+      // Written so the session-profile route serves the author's tools as this thread's.
+      yield* writeLaunchIdentity(identityDir, thread.id, record);
+      return record;
+    }
     const own = yield* readLaunchIdentity(identityDir, thread.id);
     if (Option.isSome(own) && own.value.replayedFrom === undefined) return own.value;
     const firstLaunch = Option.isNone(own);
