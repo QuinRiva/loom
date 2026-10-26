@@ -496,6 +496,7 @@ export default function ChatView(props: ChatViewProps) {
           updatedAt: fallbackUpdatedAt,
           lastVisitedAt: fallbackLastVisitedAt,
         });
+  const readServerThreadStable = useStableCallback(() => serverThread); // loom: header menu
   const promptRef = useRef("");
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
@@ -3283,6 +3284,7 @@ export default function ChatView(props: ChatViewProps) {
             {...(activeDraftLogicalProjectKey
               ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
               : {})}
+            readRouteThread={readServerThreadStable} // loom
           />
         </header>
 

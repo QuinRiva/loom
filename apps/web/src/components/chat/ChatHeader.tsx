@@ -5,6 +5,7 @@ import {
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models"; // loom
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -55,6 +56,7 @@ interface ChatHeaderProps {
   rightPanelOpen: boolean;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
+  readRouteThread: () => EnvironmentThreadShell | null; // loom: see useThreadActionMenu
 }
 
 function resolveRenameCommit(input: {
@@ -80,6 +82,7 @@ export const ChatHeader = memo(function ChatHeader({
   rightPanelOpen,
   onNewThreadInProject,
   onOpenProjectSettings,
+  readRouteThread, // loom
 }: ChatHeaderProps) {
   const activeProjectName = activeProject?.isScratch ? "No project" : activeProject?.title;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
@@ -196,6 +199,7 @@ export const ChatHeader = memo(function ChatHeader({
     projectCwd: activeProjectCwd,
     onStartRename: startRename,
     canShareWithGuest,
+    readRouteThread, // loom
   });
   const titleButtonRef = useRef<HTMLButtonElement | null>(null);
   const titleMenuTimerRef = useRef<number | null>(null);
