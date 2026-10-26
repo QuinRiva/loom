@@ -841,10 +841,30 @@ const make = Effect.gen(function* () {
     },
   );
 
+  // loom: materialising reads a file per secret and the settlement sweep reads settings per thread,
+  // so reuse it until the cached settings object changes or a write ends (a write may roll back).
+  let memo:
+    | { readonly source: ServerSettings; readonly epoch: number; readonly value: ServerSettings }
+    | undefined;
+  let writeEpoch = 0;
+  const endWrite = Effect.sync(() => {
+    writeEpoch += 1;
+  });
+  const materializeCached = (settings: ServerSettings) =>
+    Effect.suspend(() => {
+      const epoch = writeEpoch;
+      return memo?.source === settings && memo.epoch === epoch
+        ? Effect.succeed(memo.value)
+        : materializeSettingsSecrets(settings).pipe(
+            Effect.tap((value) => Effect.sync(() => (memo = { source: settings, epoch, value }))),
+          );
+    });
+
   const materializeChanges = (changes: Stream.Stream<ServerSettings>) =>
     changes.pipe(
       Stream.mapEffect((settings) =>
-        materializeSettingsSecrets(settings).pipe(
+        // loom: subscribers share one materialisation per change
+        materializeCached(settings).pipe(
           Effect.catch((error: ServerSettingsError) =>
             Effect.logWarning("failed to materialize settings secrets", {
               operation: error.operation,
@@ -1035,13 +1055,13 @@ const make = Effect.gen(function* () {
         yield* Cache.set(settingsCache, cacheKey, { settings: next, parseFailure: Option.none() });
         yield* emitChange(next);
         return resolveTextGenerationProvider(materialized);
-      }),
+      }).pipe(Effect.ensuring(endWrite)), // loom:
     );
 
   const withSettingsSnapshot: ServerSettingsService["Service"]["withSettingsSnapshot"] = (use) =>
     writeSemaphore.withPermits(1)(
       getSettingsFromCache.pipe(
-        Effect.flatMap(materializeSettingsSecrets),
+        Effect.flatMap(materializeCached), // loom:
         Effect.map(resolveTextGenerationProvider),
         Effect.flatMap(use),
       ),
@@ -1151,7 +1171,7 @@ const make = Effect.gen(function* () {
     start,
     ready: Deferred.await(startedDeferred),
     getSettings: getSettingsFromCache.pipe(
-      Effect.flatMap(materializeSettingsSecrets),
+      Effect.flatMap(materializeCached), // loom:
       Effect.map(resolveTextGenerationProvider),
     ),
     updateSettings: (patch) =>

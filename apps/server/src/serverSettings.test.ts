@@ -1544,6 +1544,54 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.include(persisted, '"valueRedacted": true');
     }).pipe(Effect.provide(layerServerSettings())),
   );
+  // loom: the settlement sweep reads settings once per thread; secrets must not be re-read each time.
+  it.effect("reads secrets once per settings change and serves the rotated value after one", () => {
+    let secretReads = 0;
+    const layerCountingSecretStore = Layer.effect(
+      ServerSecretStore.ServerSecretStore,
+      Effect.map(ServerSecretStore.ServerSecretStore, (store) => ({
+        ...store,
+        get: (name: string) => Effect.suspend(() => (secretReads++, store.get(name))),
+      })),
+    ).pipe(Layer.provide(ServerSecretStore.layer));
+    const instanceId = ProviderInstanceId.make("codex_secret_reads");
+    const setKey = (value: string) => ({
+      providerInstances: {
+        [instanceId]: {
+          driver: ProviderDriverKind.make("codex"),
+          environment: [{ name: "OPENROUTER_API_KEY", value, sensitive: true }],
+        },
+      },
+    });
+    const readKey = (settings: ServerSettings) =>
+      settings.providerInstances[instanceId]?.environment?.[0]?.value;
+
+    return Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      yield* serverSettings.updateSettings(setKey("sk-old"));
+      assert.equal(readKey(yield* serverSettings.getSettings), "sk-old");
+      const readsAfterFirst = secretReads;
+      for (let i = 0; i < 5; i++) yield* serverSettings.getSettings;
+      yield* serverSettings.withSettingsSnapshot(() => Effect.void);
+      assert.equal(secretReads, readsAfterFirst);
+
+      yield* serverSettings.updateSettings(setKey("sk-rotated"));
+      assert.equal(readKey(yield* serverSettings.getSettings), "sk-rotated");
+    }).pipe(
+      Effect.provide(
+        ServerSettingsModule.layer.pipe(
+          Layer.provide(layerCountingSecretStore),
+          Layer.provideMerge(Layer.fresh(SqlitePersistence.layerMemory)),
+          Layer.provideMerge(
+            Layer.fresh(
+              ServerConfig.layerTest(process.cwd(), { prefix: "t3code-server-settings-test-" }),
+            ),
+          ),
+        ),
+      ),
+    );
+  });
+
   it.effect("rolls back provider secret changes when the settings file commit fails", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
