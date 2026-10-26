@@ -9,6 +9,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
+import { formatWakeTimestamp } from "../../../loom/orchestration/dispatcher/wakes.ts";
 import { emptyWorkstream } from "../../../loom/projection/LoomStore.ts";
 import {
   appendWarnings,
@@ -114,13 +115,13 @@ describe("renderWorkstreamList", () => {
       [
         "Workstream: 3 thread(s). Indentation shows lineage (parent above its children).",
         '- root (you) [orchestrator] "Root" status=in_progress',
-        `    last-activity: ${AT}`,
+        `    last-activity: ${formatWakeTimestamp(AT)}`,
         '  - child [coder] "Do the thing" status=in_progress attention=needs_guidance+awaiting_input',
-        `      last-activity: ${AT} — started`,
+        `      last-activity: ${formatWakeTimestamp(AT)} — started`,
         "      report: /reports/child.md",
         "      session: /sessions/child.jsonl",
         '  - dep [reviewer] "(untitled)" status=blocked',
-        `      last-activity: ${AT}`,
+        `      last-activity: ${formatWakeTimestamp(AT)}`,
         "      waits-on: child",
       ].join("\n"),
     );
@@ -213,9 +214,9 @@ describe("renderWorkstreamList", () => {
       [
         "Workstream: 3 thread(s). Indentation shows lineage (parent above its children).",
         '- root (you) [orchestrator] "Root" status=in_progress',
-        `    last-activity: ${AT}`,
+        `    last-activity: ${formatWakeTimestamp(AT)}`,
         '  - live [thread] "Live" status=in_progress',
-        `      last-activity: ${AT}`,
+        `      last-activity: ${formatWakeTimestamp(AT)}`,
         "      waits-on: finished",
         '  - finished [thread] "Done" status=done',
         "      report: /reports/finished.md",

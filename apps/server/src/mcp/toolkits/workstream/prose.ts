@@ -167,7 +167,7 @@ export const LOOM_TOOL_PROSE = {
   },
   goal_continue: {
     description:
-      "Continue this goal in a fresh context window: a held sibling session on the same goal, worktree, branch and model, launched by the human's first send with your brief as its first turn (a pointer back to this thread is appended, so it can consult you). Use it when a substantial hunk of work is done and the next phase should start clean. Bring the goal up to date first, with mcp__t3-code__goal_update and the task tree, since the successor starts from them. A new goal in a new worktree is mcp__t3-code__goal_handoff.",
+      "Continue this goal in a fresh context window: a held sibling root session on the same goal, worktree, branch and model, launched by the human's first send with your brief as its first turn (a pointer back to this thread is appended, so it can consult you). Use it when a substantial hunk of work is done and the next phase should start clean. Bring the goal up to date first, with mcp__t3-code__goal_update and the task tree, since the successor starts from them. A new goal in a new worktree is mcp__t3-code__goal_handoff.",
     promptSnippet:
       "stage a fresh-context continuation session on THIS goal + worktree, pre-loaded with a handoff brief; a human's first send launches it.",
     promptGuidelines: "",

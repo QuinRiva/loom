@@ -115,16 +115,30 @@ export const reportItemFields = (
   };
 };
 
-/** Formats an event time for a rendered wake item as `2026-07-07 14:32Z`; null/unparseable → "". */
-export const formatWakeTimestamp = (iso: string | null): string => {
+/**
+ * Formats an event time for prose a human or model reads as `2026-07-08 00:32 AEST`, in the
+ * server's local zone (the human's clock, `date` and git all read local); `timeZone` pins it in
+ * tests. Null/unparseable → "".
+ */
+export const formatWakeTimestamp = (iso: string | null, timeZone?: string): string => {
   if (iso === null) return "";
   const parsed = DateTime.make(iso);
   if (Option.isNone(parsed)) return "";
-  const parts = DateTime.toPartsUtc(parsed.value);
-  const pad = (n: number) => `${n}`.padStart(2, "0");
-  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)} ${pad(parts.hour)}:${pad(
-    parts.minute,
-  )}Z`;
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("en-AU", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      timeZoneName: "short",
+    })
+      .formatToParts(DateTime.toEpochMillis(parsed.value))
+      .map((part) => [part.type, part.value]),
+  );
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute} ${p.timeZoneName}`;
 };
 
 /** Age of a stalled episode for rungs ≥ 1: `6h`, `3d`. */

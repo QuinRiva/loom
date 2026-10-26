@@ -1,15 +1,13 @@
 ---
 name: mdx-visual-recap
 description: >-
-  Author a recap of work that already exists — or a decision/review batch
-  (sign-off gate, audit verdicts, PR-style review) — as a reviewable MDX
-  document that opens with the verdict and its numbers for a named reader,
-  using T3 Code's block vocabulary including the review blocks (FieldDiff,
-  Card, Details, ReviewChoice) that hold per-item before/after evidence and
-  tri-state verdicts inline. Use when the document describes or reviews
-  existing changes and the reader must triage items and record decisions
-  in-app. For a plan of work not yet written, use mdx-visual-plan; to explain,
-  orient or diagnose without asking for decisions, use mdx-visual-explainer.
+  Author a recap of work that already exists (a branch, a thread's work, an
+  incident) or a decision batch (a sign-off gate, audit verdicts, a PR-style
+  review) as a reviewable MDX document. Use when the document describes or
+  reviews existing changes, or the reader must triage items and record
+  decisions in-app. For a plan of work not yet written use mdx-visual-plan; to
+  explain, orient or diagnose without asking for decisions use
+  mdx-visual-explainer.
 pi_global: true
 pi_global_requires: [mdx-doc-core]
 ---

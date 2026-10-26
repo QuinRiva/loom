@@ -359,6 +359,70 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
     }),
   );
 
+  it.effect("brief-needed waits for a resolved gate's pair report, then carries it", () =>
+    Effect.gen(function* () {
+      const [parent, coder, reviewer, dependent] = [
+        "race-parent",
+        "race-coder",
+        "race-reviewer",
+        "race-dependent",
+      ].map((id) => ThreadId.make(id));
+      yield* seedThread({ threadId: parent! });
+      yield* spawnChild({ parentThreadId: parent!, threadId: coder!, graphKey: "coder" });
+      yield* spawnChild({
+        parentThreadId: parent!,
+        threadId: reviewer!,
+        graphKey: "reviewer",
+        role: "reviewer",
+        blockedBy: [coder!],
+        routes: [
+          { on: ["needs_rework"], kind: "loop", to: coder! },
+          { on: ["fixed_inline"], kind: "resolve" },
+        ],
+      });
+      // Unbriefed on purpose: its brief is to build on the gate's results.
+      yield* spawnChild({
+        parentThreadId: parent!,
+        threadId: dependent!,
+        graphKey: "dependent",
+        blockedBy: [reviewer!],
+      });
+      yield* setBrief(coder!, writeFile("race-coder.md", "Build it."));
+      yield* setBrief(reviewer!, writeFile("race-reviewer.md", "Review it."));
+      yield* runPass;
+      yield* submit(coder!);
+      yield* runPass;
+      yield* submit(reviewer!, "needs_rework");
+      yield* runPass;
+      yield* submit(coder!);
+      yield* runPass;
+      const briefNeeded = withPayload(parent!, "notice", "brief-needed");
+
+      // The pass that resolves the gate reads the coder as still open, so the pair is not
+      // reportable yet: the dependent is brief-needed, but its notice waits for that news.
+      yield* submit(reviewer!, "fixed_inline");
+      yield* runPass;
+      assert.equal((yield* row(coder!)).outcome, "done");
+      assert.isEmpty(yield* briefNeeded);
+
+      yield* runPass;
+      const notices = yield* briefNeeded;
+      assert.lengthOf(notices, 1);
+      const items = notices[0]!.loom!.controlPayload!.items;
+      assert.deepEqual(
+        items.map((item) => [item.threadId, item.kind]),
+        [
+          [dependent!, undefined],
+          [reviewer!, "gate-resolved"],
+          [coder!, "terminal"],
+        ],
+      );
+      yield* runPass;
+      assert.lengthOf(yield* briefNeeded, 1);
+      assert.isEmpty(yield* withPayload(parent!, "digest"));
+    }),
+  );
+
   it.effect("the cancel cascade runs in the pass and is not re-sent", () =>
     Effect.gen(function* () {
       const [a, b, c] = ["cascade-a", "cascade-b", "cascade-c"].map((id) => ThreadId.make(id));

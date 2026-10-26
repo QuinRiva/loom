@@ -1,11 +1,8 @@
 ---
 name: mdx-visual-explainer
 description: >-
-  Author an explainer — a document whose job is to make a named reader
-  understand something (a system, a change, a diagnosis, the state of a piece
-  of work) rather than to approve or decide — as a reviewable MDX document
-  that opens with the summary and mental model, gives the mechanism with one
-  literal example per piece, and ends with what to do next. Use when the
+  Author an explainer as a reviewable MDX document: its job is to make the
+  reader understand something, not to approve or decide anything. Use when the
   request is "help me understand", "walk me through", "what is going on with",
   "why does this happen", re-orienting after time away, or "explain it so I
   can explain it to others". For a proposal of work not yet written use
