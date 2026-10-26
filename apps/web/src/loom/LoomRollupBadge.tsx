@@ -23,14 +23,14 @@ import { Popover, PopoverPopup, PopoverTrigger } from "../components/ui/popover"
 import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { buildThreadRouteParams } from "../threadRoutes";
-import { environmentSnapshotAtom } from "../state/shell";
+import { loomEnvironmentSnapshotAtom } from "../state/threads";
 import { attentionLabel } from "./loomAttention";
 
 const EMPTY_ROLLUPS: ReadonlyMap<ThreadId, WorkstreamRollup> = new Map();
 
 const rollupsAtom = Atom.family((environmentId: EnvironmentId) =>
   Atom.make((get) => {
-    const threads = get(environmentSnapshotAtom(environmentId))?.threads;
+    const threads = get(loomEnvironmentSnapshotAtom(environmentId))?.threads;
     if (!threads) return EMPTY_ROLLUPS;
     const byId = workstreamIndexOf(threads);
     const parents = new Set(threads.flatMap((thread) => thread.lineage.parentThreadId ?? []));

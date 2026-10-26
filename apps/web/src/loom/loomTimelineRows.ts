@@ -15,7 +15,7 @@ import * as DateTime from "effect/DateTime";
 import { Atom } from "effect/reactivity";
 
 import type { MessagesTimelineRow } from "~/components/chat/MessagesTimeline.logic";
-import { environmentSnapshotAtom } from "~/state/shell";
+import { loomEnvironmentSnapshotAtom } from "~/state/threads";
 
 export type LoomHandoffState = "staged" | "launched" | "done" | "cancelled";
 export type LoomReceiptState = "waiting" | "drafting" | "failed" | "handed-off";
@@ -150,7 +150,8 @@ const loomRowsAtom = Atom.family((threadKey: string) => {
   let previous = EMPTY_ROWS;
   let previousKey = "";
   return Atom.make((get) => {
-    const threads = ref === null ? null : get(environmentSnapshotAtom(ref.environmentId))?.threads;
+    const threads =
+      ref === null ? null : get(loomEnvironmentSnapshotAtom(ref.environmentId))?.threads;
     if (!ref || !threads) return EMPTY_ROWS;
     const rows = handoffReceiptRows(threads, ref.threadId);
     // Shell churn is constant; hand back the same array unless a row changed.

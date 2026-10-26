@@ -40,9 +40,13 @@ export const environmentThreadDetails = createEnvironmentThreadDetailAtoms(
 );
 // loom: archived roots opened from thread search join the shells (state/loom/shelllessThreads)
 export const shelllessThreads = createShelllessThreadAtoms(connectionAtomRuntime);
+// loom: the snapshot Loom's raw-thread readers use: shell, mounted families and shell-less roots
+export const loomEnvironmentSnapshotAtom = shelllessThreads.withShelllessThreads(
+  threadEnvironment.snapshotAtom,
+);
 export const environmentThreadShells = createEnvironmentThreadShellAtoms({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
-  snapshotAtom: shelllessThreads.withShelllessThreads(threadEnvironment.snapshotAtom), // loom
+  snapshotAtom: loomEnvironmentSnapshotAtom, // loom
 });
 
 /** Keeps the subagent tree under `rootThreadId` in the thread list while the caller shows it. */

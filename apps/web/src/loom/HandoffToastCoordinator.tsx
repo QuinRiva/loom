@@ -6,7 +6,7 @@ import { useEffect, useRef } from "react";
 
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { useEnvironmentIds } from "~/state/environments";
-import { environmentSnapshotAtom } from "~/state/shell";
+import { loomEnvironmentSnapshotAtom } from "~/state/threads";
 import { buildThreadRouteParams } from "~/threadRoutes";
 
 import { handoffReceiptRows, type LoomTimelineRow } from "./loomTimelineRows";
@@ -24,7 +24,7 @@ export function HandoffToastCoordinator() {
 }
 
 function EnvironmentHandoffToasts({ environmentId }: { environmentId: EnvironmentId }) {
-  const threads = useAtomValue(environmentSnapshotAtom(environmentId))?.threads;
+  const threads = useAtomValue(loomEnvironmentSnapshotAtom(environmentId))?.threads;
   const activeThreadId = useParams({ strict: false }).threadId;
   const navigate = useNavigate();
   const previous = useRef<ReadonlyMap<string, LoomTimelineRow> | null>(null);

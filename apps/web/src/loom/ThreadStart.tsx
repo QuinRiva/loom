@@ -18,7 +18,7 @@ import { BotIcon } from "lucide-react";
 import { cn } from "../lib/utils";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useThreadShell } from "../state/entities";
-import { environmentSnapshotAtom } from "../state/shell";
+import { loomEnvironmentSnapshotAtom } from "../state/threads";
 import { buildThreadRouteParams } from "../threadRoutes";
 import type { SidebarThreadSummary } from "../types";
 import { useConversationJumpStore } from "./conversationJump";
@@ -132,7 +132,7 @@ function OriginText({
 export function useOpenHandoffOrigin(environmentId: EnvironmentId) {
   const navigate = useNavigate();
   return (originId: ThreadId, destinationId: ThreadId) => {
-    const threads = appAtomRegistry.get(environmentSnapshotAtom(environmentId))?.threads ?? [];
+    const threads = appAtomRegistry.get(loomEnvironmentSnapshotAtom(environmentId))?.threads ?? [];
     const destination = threads.find((thread) => thread.id === destinationId);
     const at =
       handoffReceiptRows(threads, originId).find((row) =>
