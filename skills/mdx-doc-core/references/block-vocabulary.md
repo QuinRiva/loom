@@ -501,8 +501,10 @@ has one.
 
 ### `<Glossary>` — the document's coined terms
 
-A list of `<Term>` entries, rendered where it is placed (conventionally last,
-at the top level). Each `name` is the term as it appears in prose; the body is
+A list of `<Term>` entries, rendered where it is placed, conventionally last.
+It must sit at the top level: nested in a container it renders but links
+nothing, and inside `<Details>` its terms are not registered until the
+disclosure is opened. Each `name` is the term as it appears in prose; the body is
 a sentence or two of inline markdown. Every occurrence of a name in body prose
 (any case, plural too) becomes a dotted link that shows its definition on
 hover or tap; headings, tables, code and links are left plain.
