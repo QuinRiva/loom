@@ -42,7 +42,6 @@ import {
 } from "@t3tools/client-runtime/state/thread-search";
 import { shelllessArchivedMatches } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom: archived roots
 import { ArchivedSearchResultRow } from "../loom/ArchivedSearchResultRow"; // loom: archived roots
-import { formatRelativeTimeLabel } from "../timestampFormat"; // loom: archived roots
 import { foldSearchQuery, rankMessageMatches } from "@t3tools/shared/paletteSearch";
 import { findForMessageMatch, requestThreadFindQuery } from "./chat/threadFindActionBus";
 import {
@@ -223,6 +222,7 @@ import { TooltipProvider } from "./ui/tooltip";
 import { composerDraftHasUserContent, DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
 import {
+  RelativeTimeLabel, // loom: archived search rows
   SidebarSearchResultRow,
   SortableThreadRow,
   type SidebarProviderEntry,
@@ -2973,7 +2973,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         project={
                           projectByKey.get(`${match.environmentId}:${match.projectId}`) ?? null
                         }
-                        time={formatRelativeTimeLabel(match.updatedAt)}
+                        time={<RelativeTimeLabel timestamp={match.updatedAt} />}
                         isHighlighted={activeSearchResultIndex === index}
                         isRouteActive={routeRowThreadKey === threadKey}
                         resultId={`sidebar-thread-search-result-${index}`}
