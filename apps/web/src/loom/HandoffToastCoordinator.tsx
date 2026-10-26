@@ -13,11 +13,9 @@ import { handoffReceiptRows, type LoomTimelineRow } from "./loomTimelineRows";
 import { HANDOFF_FAILURE_REASON } from "./LoomTimelineRowView";
 
 /**
- * loom: the away-from-thread backstop for `/handoff`. The receipt row in the
- * source thread is the primary surface; this toasts a drafter's settlement
- * observed in this session — a failure always (it must reach the human
- * wherever they are), a success only when the source thread is not on screen.
- * The first snapshot only seeds, so a reload never replays old handoffs.
+ * loom: the away-from-thread backstop for `/handoff` beside the source thread's receipt row: it
+ * toasts a drafter's settlement seen this session, a failure always and a success only when the
+ * source thread is off screen. The first snapshot only seeds, so a reload never replays old handoffs.
  */
 export function HandoffToastCoordinator() {
   return useEnvironmentIds().map((environmentId) => (
@@ -63,7 +61,7 @@ function EnvironmentHandoffToasts({ environmentId }: { environmentId: Environmen
             type: "error",
             title: "Handoff needs you",
             // A string, so the toast offers Copy: the explanation's last on-screen copy.
-            description: `${HANDOFF_FAILURE_REASON}${explanation ? ` — ${explanation}` : ""}`,
+            description: `${HANDOFF_FAILURE_REASON}${explanation ? ` ${explanation}` : ""}`,
             timeout: 0,
             actionProps: { children: "Open drafter", onClick: () => open(row.drafterThreadId!) },
           }),
