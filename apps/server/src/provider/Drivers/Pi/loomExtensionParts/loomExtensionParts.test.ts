@@ -13,6 +13,7 @@ import { LOOM_EXTENSION_PARTS, type LoomExtensionPart } from "../loomExtension.t
 import { backgroundJobsPart } from "./backgroundJobs.ts";
 import { cacheWarmingGatePart } from "./cacheWarmingGate.ts";
 import { commandGuardsPart } from "./commandGuards.ts";
+import { instructionGuardPart } from "./instructionGuard.ts";
 import { pgrepSelfMatchPart } from "./pgrepSelfMatch.ts";
 import { promptDebugPart } from "./promptDebug.ts";
 import { SEARCH_GUARD_TIMEOUT_SECONDS, searchGuardPart } from "./searchGuard.ts";
@@ -962,6 +963,72 @@ describe("command-guards part", () => {
     expect(
       handlers.get("tool_result")!({ toolName: "bash", toolCallId: "nope" }, ctx),
     ).toBeUndefined();
+  });
+});
+
+describe("instruction-guard part", () => {
+  const SKILL = "/home/u/skills/llm-instruction-change/SKILL.md";
+  const PROMPT = `<skill>\n<name>llm-instruction-change</name>\n<description>Rules.</description>\n<location>${SKILL}</location>\n</skill>`;
+  /** One session: each call is a tool result through the guard, returning the appended note. */
+  const session = (prompt = PROMPT) => {
+    const toolResult = loadPart(instructionGuardPart).get("tool_result")!;
+    return (toolName: string, path: string, isError = false) =>
+      (
+        toolResult(
+          {
+            toolName,
+            toolCallId: `tc-${counter++}`,
+            input: { path },
+            content: [{ type: "text", text: "ok" }],
+            isError,
+          },
+          { cwd: WORKTREE, getSystemPrompt: () => prompt } as never,
+        ) as { content: Array<{ text: string }> } | undefined
+      )?.content
+        .slice(1)
+        .map((c) => c.text)
+        .join("");
+  };
+
+  it("notes an edit of a model-read file once per file, and never a non-matching one", () => {
+    const call = session();
+    expect(call("edit", "apps/server/src/loom/prompt/prose.ts")).toBe(
+      "\n\n[t3 instruction guard] A model reads `apps/server/src/loom/prompt/prose.ts`, so this edit changes an LLM instruction. The protocol for that is the llm-instruction-change skill at `/home/u/skills/llm-instruction-change/SKILL.md`.",
+    );
+    expect(call("edit", `${WORKTREE}/apps/server/src/loom/prompt/prose.ts`)).toBeUndefined();
+    for (const path of [
+      "roles/coder.md",
+      ".t3code/roles/orchestrator.md",
+      "skills/ship/SKILL.md",
+      "~/.pi/agent/AGENTS.md",
+      "apps/web/CLAUDE.md",
+      "apps/server/src/mcp/toolkits/workstream/defs.ts",
+      "apps/server/src/loom/handoff/retroDraft.ts",
+      "apps/server/src/loom/goals/goalTaskMarkdown.ts",
+      "apps/server/src/loom/prompt/goalContext.ts",
+    ]) {
+      expect(call("write", path), path).toContain("[t3 instruction guard]");
+    }
+    for (const path of [
+      "apps/server/src/loom/prompt/prose.test.ts",
+      "apps/server/src/loom/prompt/sessionComposerLive.ts",
+      "apps/server/src/loom/goals/goalTasks.ts",
+      "docs/roles.md",
+      "skills/ship/references/gotchas.md",
+      "README.md",
+    ]) {
+      expect(call("edit", path), path).toBeUndefined();
+    }
+    expect(call("read", "roles/reviewer.md")).toBeUndefined();
+  });
+
+  it("stays silent after a failed edit, after the skill is read, and where the prompt lists no such skill", () => {
+    const call = session();
+    expect(call("edit", "AGENTS.md", true)).toBeUndefined();
+    expect(call("edit", "AGENTS.md")).toContain("[t3 instruction guard]");
+    expect(call("read", SKILL)).toBeUndefined();
+    expect(call("edit", "roles/coder.md")).toBeUndefined();
+    expect(session("<skill><name>ship</name></skill>")("edit", "AGENTS.md")).toBeUndefined();
   });
 });
 
