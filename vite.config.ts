@@ -26,7 +26,6 @@ const TEST_EXCLUDE = [
   "**/dist/**",
   "**/dist-electron/**",
   "**/.{idea,git,cache,output,temp}/**",
-  "**/quarantine/**", // loom: pull-9 quarantine, never tested
 ];
 
 // Directories whose tests belong to a package's own test config. desktop also
@@ -197,7 +196,6 @@ export default defineConfig({
       "apps/mobile/modules/t3-highlights/Vendor/**",
       "apps/mobile/modules/t3-highlights/cpp/generated/**",
       "*.icon/**",
-      "quarantine/**", // loom: pull-9 quarantine, never formatted
     ],
     sortPackageJson: {},
     overrides: [
@@ -214,7 +212,6 @@ export default defineConfig({
       ".repos",
       ".repos/**",
       "infra/task-cache/vendor/**",
-      "quarantine/**", // loom: pull-9 quarantine, never linted
       "dist",
       "dist-electron",
       "node_modules",

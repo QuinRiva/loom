@@ -1,7 +1,8 @@
 /**
  * loom: the worktree-readiness breadcrumb (DL-73) and the pnpm install rewrite,
  * re-hung in pull 9 (DL-97) on upstream's `ProjectService` harness. The V1-harness
- * originals are in `quarantine/apps/server/src/project/ProjectSetupScriptRunner.test.ts`.
+ * originals are `quarantine/apps/server/src/project/ProjectSetupScriptRunner.test.ts` at tag
+ * `loom-quarantine-final`.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it, vi } from "@effect/vitest";

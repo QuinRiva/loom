@@ -167,7 +167,7 @@ const sameSet = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
 const loopTargetsOf = (routes: ReadonlyArray<WorkstreamRoute>) =>
   routes.flatMap((route) => (route.kind === "loop" && route.to !== undefined ? [route.to] : []));
 const UUID_SHAPED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// mcp__t3-code__notify_thread's ordered-pair cap (V1 `@t3tools/shared/notify`, quarantined until 3a).
+// mcp__t3-code__notify_thread's ordered-pair cap (V1 `@t3tools/shared/notify`).
 export const NOTIFY_PAIR_HOURLY_CAP = 10;
 export const NOTIFY_PAIR_WINDOW_MS = 60 * 60 * 1000;
 

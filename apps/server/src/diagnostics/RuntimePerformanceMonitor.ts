@@ -6,7 +6,7 @@ import * as NodeV8 from "node:v8";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-// loom: pi stdout backpressure detached in pull 9 (ledger DT-83): its source, Loom's pi RpcProcess, is quarantined.
+// loom: pi stdout backpressure detached in pull 9 (ledger DT-83): its source, Loom's V1 pi RpcProcess, is deleted.
 
 const SAMPLE_INTERVAL_MS = 60_000;
 const EVENT_LOOP_DELAY_RESOLUTION_MS = 20;
