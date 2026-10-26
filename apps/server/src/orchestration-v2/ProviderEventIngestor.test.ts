@@ -1451,7 +1451,7 @@ layer("ProviderEventIngestorV2", (it) => {
     }),
   );
 
-  it.effect("stores served tool image bytes as attachment files, not in events or projections", () =>
+  it.effect("stores served tool image bytes as attachment files, not in the log", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const { attachmentsDir } = yield* ServerConfig.ServerConfig;

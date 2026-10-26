@@ -227,7 +227,9 @@ export function readToolOutputImage(block: unknown): ToolOutputImage | null {
   const image = { mimeType: mimeType.toLowerCase() };
   if (typeof data === "string") return { ...image, data };
   // loom: a block whose bytes ingest stored as an attachment
-  return typeof block.attachmentId === "string" ? { ...image, attachmentId: block.attachmentId } : image;
+  return typeof block.attachmentId === "string"
+    ? { ...image, attachmentId: block.attachmentId }
+    : image;
 }
 
 function outputBlocks(value: unknown): ReadonlyArray<unknown> {
