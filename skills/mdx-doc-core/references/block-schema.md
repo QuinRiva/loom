@@ -486,3 +486,16 @@ Props:
     - `label` — `string` **(required)**
     - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
 - `aside` — `string` _(optional)_
+
+## `<Glossary>` — `glossary`
+
+Container block: renders nested plan blocks written **between its tags** as children.
+
+_No attributes._
+
+## `<Term>` — `glossary-term`
+
+Props:
+
+- `name` — `string` **(required)**
+- `definition` — `string` _(optional)_ — written as **prose between the tags**, not an attribute

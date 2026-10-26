@@ -499,6 +499,21 @@ a `## MDX compile pipeline` heading in the body.
 `<QuestionForm>`; only use `<VisualQuestions>` when porting a plan that already
 has one.
 
+### `<Glossary>` — the document's coined terms
+
+A list of `<Term>` entries, rendered where it is placed (conventionally last,
+at the top level). Each `name` is the term as it appears in prose; the body is
+a sentence or two of inline markdown. Every occurrence of a name in body prose
+(any case, plural too) becomes a dotted link that shows its definition on
+hover or tap; headings, tables, code and links are left plain.
+
+```mdx
+<Glossary>
+  <Term name="reading unit">The span of text the recursion tagged as one thing.</Term>
+  <Term name="node">One entry in the document tree; every node has one reading unit.</Term>
+</Glossary>
+```
+
 ## Review blocks (decision / recap documents)
 
 These four blocks close the gap between an MDX plan and a hand-built decision
