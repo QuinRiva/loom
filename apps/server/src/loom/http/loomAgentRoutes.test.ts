@@ -28,6 +28,7 @@ import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import type { McpCapability } from "../../mcp/McpInvocationContext.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import * as EventSink from "../../orchestration-v2/EventSink.ts";
+import { SCHEDULING } from "../../mcp/toolkits/workstream/families.ts";
 import {
   dispatch,
   LoomOrchestratorTestLayer,
@@ -174,7 +175,7 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
   );
 
   it.effect(
-    "a role with no tool profile is served the orchestrator's, not every registered tool",
+    "a role with no tool profile is served the orchestrator's less scheduling, not every tool",
     () =>
       Effect.gen(function* () {
         const { threadId: parent } = yield* seedThread({
@@ -191,7 +192,12 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
           });
         const orchestrator = yield* profileOf("routes-free-orch" as ThreadId, "orchestrator");
         const freeText = yield* profileOf("routes-free-text" as ThreadId, "work-hygiene sweep");
-        assert.deepEqual(freeText.activeTools, orchestrator.activeTools);
+        // The orchestrator's tools less scheduling, which only a role naming its tools can keep.
+        assert.deepEqual(
+          freeText.activeTools,
+          orchestrator.activeTools.filter((name: string) => !SCHEDULING.includes(name as never)),
+        );
+        assert.include(freeText.denyList, "mcp__t3-code__schedule_task");
         assert.include(freeText.activeTools, "mcp__t3-code__workstream_spawn");
         assert.notInclude(freeText.activeTools, "mcp__t3-code__preview_open");
       }),

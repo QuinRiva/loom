@@ -19,8 +19,9 @@ import { listRoleOverlays, loadRoleOverlay } from "./roleOverlay.ts";
 /** What the loader auto-unions into every restricted role allowlist. */
 const LIFELINE = [...LEAF_CORE];
 
-/** The fixture orchestrator's profile: what every role without `tools:` takes. */
-const ORCH_PROFILE = ["read", "bash", ...LIFELINE, ...DELEGATION_PROVIDER_TOOLS, ...HISTORY];
+/** The fixture orchestrator's profile; every role without `tools:` takes it less scheduling. */
+const DEFAULT_PROFILE = ["read", "bash", ...LIFELINE, ...DELEGATION_PROVIDER_TOOLS, ...HISTORY];
+const ORCH_PROFILE = [...DEFAULT_PROFILE, ...SCHEDULING];
 
 /**
  * `<tmp>/builtin/` stands in for the server's roles (orchestrator with a profile, and a
@@ -41,7 +42,7 @@ const fixture = (builtin: Record<string, string> = {}, project?: Record<string, 
   };
   write(builtinDir, {
     "orchestrator.md":
-      "---\ntools: [read, bash]\ntoolsets: [delegation, history]\n---\nORCH OVERLAY",
+      "---\ntools: [read, bash]\ntoolsets: [delegation, history, scheduling]\n---\nORCH OVERLAY",
     "coder.md": "CODER OVERLAY",
     ...builtin,
   });
@@ -61,10 +62,10 @@ describe("loadRoleOverlay", () => {
     });
   });
 
-  it("a role without `tools:` takes the orchestrator's profile; no frontmatter → the whole file is the prompt", () => {
+  it("a role without `tools:` takes the orchestrator's profile less scheduling; no frontmatter → the whole file is the prompt", () => {
     expect(loadRoleOverlay({ role: "coder", ...fixture().lookup })).toEqual({
       prompt: "CODER OVERLAY",
-      tools: ORCH_PROFILE,
+      tools: DEFAULT_PROFILE,
       delegation: true,
     });
   });
@@ -72,9 +73,9 @@ describe("loadRoleOverlay", () => {
   it.each([
     ["an unknown (free-text) role", "data-wrangler", {}],
     ["an empty file", "empty", { "empty.md": "   \n" }],
-  ])("%s gets the orchestrator's profile and no prompt", (_case, role, builtin) => {
+  ])("%s gets the default profile and no prompt", (_case, role, builtin) => {
     expect(loadRoleOverlay({ role, ...fixture(builtin).lookup })).toEqual({
-      tools: ORCH_PROFILE,
+      tools: DEFAULT_PROFILE,
       delegation: true,
     });
   });
@@ -163,19 +164,25 @@ describe("loadRoleOverlay", () => {
     },
   );
 
-  it.each(["orchestrator", "assessor", "coder", "planner", "researcher", "reviewer", "shipper"])(
-    "only the built-in orchestrator keeps the scheduled-task tools (%s)",
-    (role) => {
-      const tools = loadRoleOverlay({ role, projectRoot: fixture().lookup.projectRoot }).tools;
-      for (const tool of SCHEDULING)
-        expect(tools.includes(tool), `${role} ${tool}`).toBe(role === "orchestrator");
-    },
-  );
+  it.each([
+    "orchestrator",
+    "assessor",
+    "coder",
+    "planner",
+    "researcher",
+    "reviewer",
+    "shipper",
+    "data-wrangler",
+  ])("only the built-in orchestrator keeps the scheduled-task tools (%s)", (role) => {
+    const tools = loadRoleOverlay({ role, projectRoot: fixture().lookup.projectRoot }).tools;
+    for (const tool of SCHEDULING)
+      expect(tools.includes(tool), `${role} ${tool}`).toBe(role === "orchestrator");
+  });
 
   // The role files' allowlists are long, and `vp check --fix` reformats them:
   // prettier's canonical form for a long flow sequence puts the bracket block on
   // the lines AFTER the key. Both wrap shapes must parse, or a reformat silently
-  // drops the whole allowlist and the role falls back to the orchestrator's profile.
+  // drops the whole allowlist and the role falls back to the default profile.
   it.each([
     ["hand-wrapped", ["tools: [read, bash,", "  edit, write,", "  fd, rg]"]],
     [
@@ -229,7 +236,7 @@ describe("loadRoleOverlay", () => {
     expect(loadRoleOverlay({ role: "skilled", ...lookup })).toEqual({
       prompt: "BODY",
       skills: [NodePath.join(tmp, "skills", "one"), NodePath.join(tmp, "skills", "two")],
-      tools: ORCH_PROFILE,
+      tools: DEFAULT_PROFILE,
       delegation: true,
     });
   });
@@ -276,7 +283,7 @@ describe("built-in + project composition", () => {
     const { tmp, repo, write, lookup } = fixture({}, { "coder.md": "PROJECT CODER" });
     const composed = {
       prompt: "CODER OVERLAY\n\nPROJECT CODER",
-      tools: ORCH_PROFILE,
+      tools: DEFAULT_PROFILE,
       delegation: true,
     };
     expect(loadRoleOverlay({ role: "coder", ...lookup })).toEqual(composed);
@@ -336,7 +343,7 @@ describe("built-in + project composition", () => {
     ]);
   });
 
-  it("a project-only role is the whole role, with the orchestrator's profile when it names no tools", () => {
+  it("a project-only role is the whole role, with the default profile when it names no tools", () => {
     const { tmp, lookup } = fixture(
       {},
       { "slack-inbox.md": "---\nskills: [skills/inbox]\n---\nINBOX" },
@@ -344,7 +351,7 @@ describe("built-in + project composition", () => {
     expect(loadRoleOverlay({ role: "slack-inbox", ...lookup })).toEqual({
       prompt: "INBOX",
       skills: [NodePath.join(tmp, "repo", "skills", "inbox")],
-      tools: ORCH_PROFILE,
+      tools: DEFAULT_PROFILE,
       delegation: true,
     });
   });

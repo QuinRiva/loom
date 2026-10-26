@@ -37,7 +37,7 @@ export interface RoleOverlay {
   readonly skills?: ReadonlyArray<string>;
   /** ACTIVE-tool profile, not an allowlist: unlisted tools stay registered but deferred (reachable via
    * `tool_search`). LEAF_CORE and `toolsets:` families are auto-unioned in, so a role lists only
-   * the tools it works with. A role that declares no `tools:` takes the orchestrator's profile. */
+   * the tools it works with. A role that declares no `tools:` takes the orchestrator's, less scheduling. */
   readonly tools: ReadonlyArray<string>;
   /** Whether this role can spawn children: its profile keeps the `delegation` toolset. Gates
    * the roles-catalogue block, so a leaf that later finds delegation via `tool_search` sees only the
@@ -181,7 +181,7 @@ export const listRoleOverlays = (input: RoleLookup): ReadonlyArray<RoleSummary> 
 /**
  * Read fresh at session start; the body is the prompt overlay. No role means the orchestrator. A
  * role without `tools:` (a project role naming none, a free-text role) takes the orchestrator's
- * profile, or pi declares every registered tool. Slugified to `[a-z0-9-]`, blocking traversal.
+ * profile less scheduling, or pi declares every registered tool. Slugified to `[a-z0-9-]`, blocking traversal.
  */
 export const loadRoleOverlay = (
   input: RoleLookup & { readonly role: string | null },
@@ -194,9 +194,10 @@ export const loadRoleOverlay = (
   const builtinDir = input.builtinDir ?? BUILTIN_ROLES_DIR;
   const overlayDir = findOverlayDir(input.projectRoot);
   const role = composeRole(slug, builtinDir, overlayDir);
-  const { tools, toolsets } = role?.tools.length
-    ? role
-    : composeRole(DEFAULT_ROLE, builtinDir, overlayDir)!;
+  const own = role?.tools.length ? role : undefined;
+  const { tools, toolsets: declared } = own ?? composeRole(DEFAULT_ROLE, builtinDir, overlayDir)!;
+  // The default withholds scheduling: creating recurring agent runs takes a role that names its tools.
+  const toolsets = own ? declared : declared.filter((name) => name !== "scheduling");
   // Unknown toolset names are ignored: a typo costs the role that family until
   // the frontmatter is fixed, exactly as an unknown tool name does in pi.
   const resident = toolsets.flatMap((name) => TOOLSETS[name as keyof typeof TOOLSETS] ?? []);
