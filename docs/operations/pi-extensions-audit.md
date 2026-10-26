@@ -59,9 +59,9 @@ the session. `pi.sendUserMessage` starts a run whenever pi is idle.
 
 These add context or act inside a turn only:
 
-- **`pi-session-search`** and **`pi-knowledge-search`** (formerly bundled by `pi-total-recall`,
-  whose `pi-memory` component was retired 2026-10-20): their hooks use `pi.sendMessage` without
-  `triggerTurn`, and `pi-session-search`'s `setInterval` only syncs the index.
+- **`pi-session-search`** (formerly bundled by `pi-total-recall`, whose `pi-memory` component
+  was retired 2026-10-20): its hooks use `pi.sendMessage` without `triggerTurn`, and its
+  `setInterval` only syncs the index.
 - **`pi-btw` 0.4.1**: answers use `pi.sendMessage` without a trigger. `sendThreadToMain` runs
   inside the `/btw` command handler, so it is part of that command's turn.
 - **`pi-image-tools`** uses `triggerTurn: false`.
