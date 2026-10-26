@@ -1,14 +1,7 @@
-// loom: the id format of the usage-limit windows SubscriptionUsagePoller folds
-// into a provider instance's published `usageLimits`.
-//
-// Upstream merges an instance's windows by id (last writer wins), and loom runs
-// one pi instance over several subscription accounts — two global ones
-// (`claudeAgent`, `codex`) plus any pooled `usageSources` an instance declares.
-// So the id must carry the account, or the pooled accounts overwrite each
-// other and the Limits page shows one flapping account. The server encodes,
-// the failover settings card decodes; this is the only place either knows the
-// shape. A window an adapter emitted natively (`five_hour`, `primary`) does
-// not decode and is not an account row.
+// loom: the id format of the usage-limit windows SubscriptionUsagePoller publishes. Upstream merges
+// windows by id (last writer wins) and loom runs one pi instance over several accounts, so the id
+// carries the account. The server encodes, the failover settings card decodes; only this module
+// knows the shape. Natively emitted windows (`five_hour`, `primary`) do not decode as accounts.
 
 export type UsageWindowKind = "primary" | "secondary";
 

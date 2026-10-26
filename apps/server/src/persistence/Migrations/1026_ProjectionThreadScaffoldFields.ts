@@ -1,15 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// Scaffold-first graph authoring (workstream-scaffold plan §1a + "Key scoping"):
-// two nullable child-only columns.
-// - graph_key: the symbolic graph key assigned at scaffold time, unique-forever
-//   + immutable among a parent's children. Null for legacy spawns / roots. The
-//   decider's key-uniqueness check reads it back from the SQL-hydrated command
-//   read model, so it must round-trip through this column.
-// - kickoff_brief_path: absolute path to the child's kickoff-brief markdown
-//   file. Null until workstream_brief attaches one; the dispatcher gates a
-//   child's first launch on it being non-null.
+// Child-only columns, null for roots and legacy spawns. `graph_key` is unique and immutable among
+// a parent's children and must round-trip here: the decider's key-uniqueness check reads it back.
+// `kickoff_brief_path` stays null until workstream_brief attaches one; the dispatcher gates a
+// child's first launch on it.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const columns = yield* sql<{ name: string }>`PRAGMA table_info(projection_threads)`;

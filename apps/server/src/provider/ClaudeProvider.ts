@@ -455,14 +455,9 @@ export function resolveClaudeEffort(
 }
 
 /**
- * Normalize a resolved Claude effort value into one suitable for the Claude
- * CLI's `--effort` flag.
- *
- * Mirrors the mapping used when invoking the Claude Agent SDK
- * ({@link getEffectiveClaudeAgentEffort} in ClaudeAdapter): `ultracode` is a
- * Claude Code setting that pairs with `xhigh`, `ultrathink` is filtered out
- * because it is a prompt-prefix mode, and older model compatibility mappings
- * are preserved for current Claude Code behavior.
+ * Maps a resolved Claude effort onto the CLI's `--effort` flag, mirroring the Agent SDK mapping
+ * ({@link getEffectiveClaudeAgentEffort}): `ultracode` pairs with `xhigh`, `ultrathink` (a
+ * prompt-prefix mode) is filtered out, and older-model compatibility mappings are kept.
  */
 export function normalizeClaudeCliEffort(
   effort: string | null | undefined,
@@ -662,18 +657,10 @@ const liveProbeProcesses = new Set<NodeChildProcess.ChildProcess>();
 let probeExitHookInstalled = false;
 
 /**
- * Spawn the probe subprocess ourselves so we keep a handle on it.
- *
- * The SDK terminates an aborted child on unref'd timers — stdin EOF, SIGTERM
- * ~2s later, SIGKILL ~5s after that — so a child that ignores stdin EOF only
- * dies if this process happens to outlive the abort by ~7s. The SDK's own
- * `process.on("exit")` backstop does not cover this: it skips any child whose
- * `killed` flag is set, which SIGTERM sets even when the child survives it.
- * Under `Restart=always` a shutdown mid-probe therefore reparents the child to
- * systemd, where it keeps counting against this service's memory.
- *
- * Killing synchronously from our own exit hook closes that window without
- * making shutdown wait on anything.
+ * The SDK kills an aborted child on unref'd timers (~7 s to SIGKILL), and its `process.on("exit")`
+ * backstop skips children whose `killed` flag SIGTERM already set, so under `Restart=always` a
+ * shutdown mid-probe reparents a surviving child to systemd. Spawning it ourselves lets our own
+ * exit hook kill it synchronously, without making shutdown wait.
  */
 function spawnClaudeCapabilitiesProbeProcess(options: ClaudeSpawnOptions): ClaudeSpawnedProcess {
   const child = NodeChildProcess.spawn(options.command, options.args, {

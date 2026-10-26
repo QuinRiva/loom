@@ -442,14 +442,9 @@ function readEnvPath(env: NodeJS.ProcessEnv): string | undefined {
 
 // loom: worktree-local node_modules/.bin on a spawned child's PATH.
 /**
- * Prepend `<cwd>/node_modules/.bin` to PATH so a child process spawned in a
- * worktree resolves that worktree's workspace binaries (e.g. `vp`) before
- * anything inherited from the server's environment. Without this, a server
- * launched from the primary checkout leaks that checkout's `node_modules/.bin`
- * into every worktree session, so a bare `vp` resolves to the wrong install.
- *
- * Prepend-wins (never strips inherited entries), dedupes, and returns a fresh
- * env object — the input is never mutated.
+ * Prepends `<cwd>/node_modules/.bin` to PATH so a worktree child resolves its own workspace
+ * binaries (e.g. `vp`), not the server checkout's. Prepend-wins (never strips inherited entries),
+ * dedupes, and returns a fresh env; the input is never mutated.
  */
 export function withLocalNodeModulesBin(
   env: NodeJS.ProcessEnv,

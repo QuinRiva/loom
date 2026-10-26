@@ -1,11 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// Classification of a session's last error (e.g. "quota_exhausted"), persisted
-// alongside `last_error` so the exhaustion resume sweep can find limit-stalled
-// sessions across restarts without re-parsing the raw string. Nullable TEXT:
-// genuinely unknown for sessions that never errored (and for errors predating
-// classification).
+// Classification of a session's last error (e.g. "quota_exhausted"), so the exhaustion resume sweep
+// finds limit-stalled sessions across restarts without re-parsing `last_error`. NULL when unknown.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const columns = yield* sql<{ name: string }>`PRAGMA table_info(projection_thread_sessions)`;

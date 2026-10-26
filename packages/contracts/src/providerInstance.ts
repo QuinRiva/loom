@@ -47,14 +47,10 @@ export const ProviderInstanceEnvironment = Schema.Array(ProviderInstanceEnvironm
 export type ProviderInstanceEnvironment = typeof ProviderInstanceEnvironment.Type;
 
 /**
- * loom: a subscription-usage source an instance polls for its own account usage.
- *
- * Driver-agnostic on purpose: Loom reads each source's OAuth token fresh off
- * disk every poll cycle and hits the provider's usage endpoint, so a router
- * proxy that pools several subscriptions (each with its own token file kept
- * fresh by the proxy) reports accurately without Loom knowing anything about
- * the proxy. `kind` is a closed literal today (only Anthropic OAuth) but is
- * shaped as a union so more kinds can be added without a schema break.
+ * loom: a subscription-usage source an instance polls for its own account usage. Driver-agnostic:
+ * Loom reads each source's OAuth token fresh off disk every cycle, so a router proxy pooling
+ * several subscriptions reports accurately without Loom knowing the proxy. `kind` is a union so
+ * more kinds can join without a schema break.
  */
 export const ProviderUsageSourceKind = Schema.Literals(["anthropic-oauth"]);
 export type ProviderUsageSourceKind = typeof ProviderUsageSourceKind.Type;

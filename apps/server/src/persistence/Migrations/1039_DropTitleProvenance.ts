@@ -2,19 +2,10 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as Effect from "effect/Effect";
 
 /**
- * Retire loom's title-provenance ladder (migration 1025) in favour of
- * upstream's `ThreadTitleState`, which now owns thread titles end to end
- * (first-turn generation, refine, compare-and-set).
- *
- * Backfill before dropping: a `curated` thread title was a deliberate one — a
- * workstream child's brief title, a `/handoff` or `/retro` fork label, a manual
- * rename — and upstream expresses exactly that as `titleState.source =
- * "manual"`, the state its generator refuses to overwrite. Without this, an
- * existing never-started child would have its brief title regenerated on its
- * first turn. `default`/`seed`/`derived` titles stay NULL (generatable), which
- * is what upstream's `canReplaceThreadTitle` seed check already expects. Rows
- * that already carry a title state keep it. Goal titles have no upstream
- * counterpart; the column simply goes.
+ * Retires title provenance (1025) for upstream's `ThreadTitleState`. A `curated` thread title (brief
+ * title, fork label, manual rename) backfills to `source = "manual"` so the generator never
+ * overwrites it; other titles stay NULL (generatable) and existing title states are kept. Goal
+ * titles have no upstream counterpart; the column just goes.
  */
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

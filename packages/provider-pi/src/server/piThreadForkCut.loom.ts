@@ -1,10 +1,7 @@
 /**
- * Where a `mcp__t3-code__thread_fork` fork's pi session ends (O3): at the call
- * that created it — the assistant message holding the call plus the tool
- * results answering it — so the fork carries the turn it was called from, as
- * V1's did. Upstream's `forkThread` cuts at a run boundary, and the staged fork
- * is pinned to the caller's last completed run (the calling run is still
- * running), which would drop that turn.
+ * A `thread_fork` fork's pi session ends at the call that created it (the assistant message plus
+ * its tool results), so the fork keeps its calling turn; upstream's run-boundary cut, pinned to the
+ * caller's last completed run, would drop it.
  *
  * @module orchestration-v2/Adapters/piThreadForkCut
  */

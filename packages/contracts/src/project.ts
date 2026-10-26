@@ -522,11 +522,9 @@ export class ProjectReadFileError extends Schema.TaggedError<ProjectReadFileErro
 }
 
 /**
- * loom: read-only preview of a file addressed by absolute path, deliberately NOT
- * constrained to a workspace root. This exists so chat file chips can open
- * files the control plane embeds outside any workspace (e.g. workstream report
- * paths under the durable state dir). There is intentionally no absolute WRITE
- * counterpart — out-of-workspace files are previewable but never editable.
+ * loom: read-only preview of a file by absolute path, deliberately NOT confined to a workspace, so
+ * chat file chips can open control-plane paths outside any workspace (e.g. workstream reports).
+ * There is intentionally no absolute WRITE counterpart.
  */
 export const ProjectReadAbsoluteFileInput = Schema.Struct({
   absolutePath: TrimmedNonEmptyString.check(
@@ -570,13 +568,9 @@ export class ProjectReadAbsoluteFileError extends Schema.TaggedError<ProjectRead
 }
 
 /**
- * loom: resolve unanchored chat file references — a bare `prices.json`, an
- * unprefixed `src/models/x.py` — against the workspace's path index (the one
- * behind @-mentions), so a reference agents write relative to wherever they
- * happened to `cd` still finds its file. Each reference matches indexed files
- * whose path ends with it on a segment boundary; `path` is the absolute path of
- * the one file that matches, or null when none or several do. An index query,
- * never a filesystem walk.
+ * loom: resolve unanchored chat file references (`prices.json`, `src/models/x.py`) against the
+ * @-mention path index, matching indexed paths that end with one on a segment boundary. `path` is
+ * the sole match's absolute path, or null for none or several. An index query, never a walk.
  */
 export const ProjectLocateFilesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
@@ -606,12 +600,9 @@ export class ProjectLocateFilesError extends Schema.TaggedError<ProjectLocateFil
 }
 
 /**
- * loom: read-only listing of a directory addressed by absolute path, deliberately
- * NOT constrained to a workspace root. Sibling of the absolute-file read: it
- * lets chat directory chips open a browsable listing for out-of-workspace
- * output dirs (e.g. data-analysis deliverables under a home directory). Like
- * the absolute read it is POSIX-oriented, symlink-resolved, and read-only —
- * there is intentionally no write counterpart.
+ * loom: read-only listing of a directory by absolute path, deliberately NOT confined to a
+ * workspace, so chat directory chips can browse out-of-workspace output dirs. Like the absolute
+ * file read it is POSIX-oriented, symlink-resolved and read-only, with no write counterpart.
  */
 export const ProjectListAbsoluteDirectoryInput = Schema.Struct({
   absolutePath: TrimmedNonEmptyString.check(

@@ -1,11 +1,9 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// Pull 9 Phase 2 §5: Loom's sidecar record, one row per Loom thread keyed by
-// V2's thread id — written only by the Loom projector inside V2's commit
-// transaction (`loom/projection/loomProjection.ts`). Plus DL-196's
-// `attention_episodes` (the raise event id per standing reason) and DL-199's
-// `unarchived_at` (bounds the unarchive cascade).
+// Loom's sidecar record, one row per Loom thread keyed by V2's thread id, written only by the Loom
+// projector inside V2's commit transaction. `attention_episodes` holds the raise event id per
+// standing reason; `unarchived_at` bounds the unarchive cascade.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`

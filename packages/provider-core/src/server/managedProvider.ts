@@ -47,36 +47,10 @@ function withUsageLimits(
 export type EnrichableField = "models" | "slashCommands" | "skills";
 
 /**
- * Keep a periodic base refresh from publishing a snapshot that has *lost*
- * palette content the last one had.
- *
- * Two ways `checkProvider` regresses, and authority differs per field per
- * provider:
- *
- *  - Fields the enrichment step **owns** (`enrichmentOwnedFields`) are ones
- *    the base probe cannot see at all (Loom's quarantined pi driver, DT-23, was
- *    the one caller; no live driver passes any in pull 9 Phase 1). The previous
- *    value always wins there, because the base's is a placeholder rather than
- *    an observation.
- *  - Every other field stays **base-authoritative**, so live changes surface
- *    immediately (Claude re-reads `~/.claude/skills` from disk and Codex
- *    re-runs `skills/list` on every check). Those only carry forward when the
- *    base reports *empty*, which is the shape a failed or timed-out probe
- *    takes.
- *
- * Without this the `$` palette and model picker blank for the seconds until
- * enrichment lands — every refresh interval, forever.
- *
- * A base snapshot that reports the provider as *not installed* is never carried
- * forward from: its emptiness is an observation (the executable is gone), not a
- * probe that failed to see anything.
- *
- * Genuine loss still propagates: `enrichSnapshot` publishes its own
- * observations directly, a base-authoritative provider surfaces any
- * non-empty change immediately, and a disabled provider reports its emptiness
- * verbatim. The residual corner is a base-authoritative provider losing *all*
- * of its skills at once, which is indistinguishable from a failed probe and so
- * stays until the next restart or settings change.
+ * Stops a periodic base refresh publishing a snapshot that lost palette content (the `$` palette and
+ * model picker would blank until enrichment lands). Enrichment-owned fields keep the previous value;
+ * others stay base-authoritative, carried forward only when the base is empty (a failed probe) and
+ * not "not installed". A base-authoritative provider losing every skill at once stays until restart.
  */
 function carryForwardEnrichment(input: {
   readonly base: ServerProvider;
@@ -112,11 +86,8 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     readonly publishSnapshot: (snapshot: ServerProvider) => Effect.Effect<void>;
   }) => Effect.Effect<void>;
   /**
-   * Fields `enrichSnapshot` re-probes and republishes itself, so the base
-   * check's values for them are placeholders to be ignored rather than
-   * observations. No live driver passes this in pull 9 Phase 1 (Loom's
-   * quarantined pi driver did, DT-23); every other driver's enrichment merely
-   * attaches a version advisory and passes these fields through untouched.
+   * Fields `enrichSnapshot` re-probes and republishes itself, so the base check's values for them are
+   * placeholders, not observations. No live driver passes this today.
    */
   readonly enrichmentOwnedFields?: ReadonlyArray<EnrichableField>;
   readonly refreshInterval?: Duration.Input;
@@ -269,10 +240,8 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     refreshSemaphore.withPermits(1)(applySnapshotBase(nextSettings, options));
 
   // Providers call this on every token-usage tick, usually without changing the snapshot.
-  // loom: both usage-limit writers share this envelope "fold, republish only if
-  // the fold moved something". The fold functions hand back the same object
-  // when nothing changed, which is the common case for Codex's per-tick
-  // notification and for every retraction after the first.
+  // loom: both usage-limit writers share this "fold, republish only if it moved" envelope; folds
+  // return the same object when nothing changed (Codex's per-tick notification, repeat retractions).
   const updateUsageLimits = Effect.fnUntraced(function* (
     fold: (previous: ServerProvider["usageLimits"]) => ServerProvider["usageLimits"],
   ) {

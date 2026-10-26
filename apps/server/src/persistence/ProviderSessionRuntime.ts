@@ -88,13 +88,9 @@ export class ProviderSessionRuntimeRepository extends Context.Service<
 
     // loom: retention support for stopped runtime rows.
     /**
-     * Delete every `stopped` row whose thread has been deleted, in one
-     * statement, returning the pruned thread ids.
-     *
-     * Deletion is the only irreversible thread lifecycle state (archive has
-     * unarchive), so archived threads keep their resume pointer. The status
-     * predicate sits in the same statement, so a row a concurrent start or
-     * recovery promoted back to `running` is never removed.
+     * Deletes every `stopped` row whose thread is deleted, returning the pruned thread ids. Archived
+     * threads keep their resume pointer (archive is reversible). The status predicate shares the
+     * statement, so a row a concurrent start promoted back to `running` is never removed.
      */
     readonly deleteStoppedForDeletedThreads: () => Effect.Effect<
       ReadonlyArray<ThreadId>,

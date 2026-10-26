@@ -15,11 +15,9 @@ export interface DependencyGateThread {
 }
 
 /**
- * The single "deps satisfied" predicate. A `blockedBy` entry gates execution
- * only when it names a **known sibling** (a thread with the same
- * `parentThreadId`) whose outcome is not yet `done`. `cancelled` does **not**
- * release (an abandoned dependency keeps its dependents blocked).
- * Self-references, dangling/unknown ids, and non-siblings never gate.
+ * The single "deps satisfied" predicate: a `blockedBy` entry gates only when it names a known
+ * sibling (same `parentThreadId`) whose outcome is not `done`; `cancelled` does **not** release.
+ * Self-references, unknown ids and non-siblings never gate.
  */
 export const areDependenciesSatisfied = <T extends DependencyGateThread>(
   thread: T,
@@ -53,11 +51,9 @@ export interface StartStateDependencyThread extends DependencyGateThread {
 }
 
 /**
- * The deadlocked members of a node set (a subtree's descendants, or one
- * parent's children), or `null`. Asserted conservatively: every incomplete node
- * is released (not held), not yet started, and has unsatisfied dependencies. A
- * held node or a started one means "idle", not deadlocked. The single source
- * for the web rollup's "Deadlocked" badge and the dispatcher's deadlock notice.
+ * The deadlocked members of a node set, or `null`, asserted conservatively: every incomplete node
+ * is released, unstarted and has unsatisfied dependencies (a held or started node is idle). Shared
+ * by the web rollup's "Deadlocked" badge and the dispatcher's deadlock notice.
  */
 export const deadlockedNodes = <T extends StartStateDependencyThread>(
   nodes: ReadonlyArray<T>,

@@ -30,11 +30,9 @@ const writeSession = (
   return path;
 };
 
-// A pi resume is `--session <path> --cwd <dir>`: pi opens the named path
-// outright, so the file's project dir is irrelevant, but pi also skips its own
-// header read and would silently open a non-session file as an EMPTY
-// conversation. The probe therefore scopes exactly as the launch does (global,
-// by name) and validates exactly what the launch cannot (the header).
+// A pi resume (`--session <path> --cwd <dir>`) opens the path outright and skips pi's header read,
+// so a non-session file would open as an EMPTY conversation. The probe scopes as the launch does
+// (global, by name) and validates what the launch cannot (the header).
 describe("resolveResumableSessionFile (what a resume will really open)", () => {
   it("accepts a valid session in the project dir for the launch cwd", () => {
     const root = makeRoot();
@@ -51,11 +49,8 @@ describe("resolveResumableSessionFile (what a resume will really open)", () => {
     );
   });
 
-  // The relocated-worktree case the `--cwd` patch exists for: loom deletes a
-  // completed sub-thread's worktree at fan-in, so the session file stays under
-  // the DEAD worktree's project dir while the resume launches from elsewhere.
-  // `--session <path>` opens it regardless, so refusing here would strand a
-  // thread that is genuinely recoverable.
+  // loom deletes a completed sub-thread's worktree at fan-in, so its session file stays under the
+  // dead worktree's project dir; `--session <path>` still opens it, so refusing would strand it.
   it("accepts a session under ANOTHER project dir (the relocated-worktree resume)", () => {
     const root = makeRoot();
     const path = writeSession(piProjectSessionDir("/tmp/reaped/worktree", root), SESSION_ID, {

@@ -1,11 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// `/handoff` fork-drafter (plan §4 Phase 1): durable per-thread count of the
-// `goal_handoff` calls a handoff-drafter root has placed (one
-// `thread.handoff-recorded` event each). The settlement reactor reads it at the
-// drafter's turn end to decide converge-and-archive (≥1) vs raise-attention (0).
-// Additive column, default 0 so every pre-handoff row loads unchanged.
+// Count of `goal_handoff` calls a handoff-drafter root has placed (one `thread.handoff-recorded`
+// each). At turn end the settlement reactor converges and archives on 1+, raises attention on 0.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const columns = yield* sql<{ name: string }>`PRAGMA table_info(projection_threads)`;

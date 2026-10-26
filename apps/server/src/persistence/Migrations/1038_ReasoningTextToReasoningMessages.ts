@@ -2,23 +2,10 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as Effect from "effect/Effect";
 
 /**
- * Carries the fork's retired "ephemeral reasoning v2" data onto upstream's
- * model.
- *
- * Loom used to hang a thinking trace off the assistant row it preceded, as a
- * `reasoning_text` column. Upstream persists the trace as its own message row
- * with `role = 'reasoning'`, which is what the server writes and the client
- * renders now — so without this migration every historical thought disappears
- * from the timeline.
- *
- * One reasoning row per assistant row that carries text, stamped one
- * millisecond before its assistant message so it sorts above the answer it led
- * to (`ORDER BY created_at, message_id`). The id is derived from the assistant
- * id, so `INSERT OR IGNORE` makes a re-run a no-op.
- *
- * `reasoning_text` itself is left in place here; the column and its two
- * siblings are dropped by migration 1041, once the copy had been verified
- * against real data. See `docs/upstream-sync/26-reasoning-rehome.md`.
+ * Copies loom's `reasoning_text` column onto upstream's `role = 'reasoning'` message rows, or every
+ * historical thought disappears. Each row is stamped 1 ms before its assistant message so it sorts
+ * above it, with an id derived from the assistant id so INSERT OR IGNORE makes re-runs no-ops.
+ * Migration 1041 drops the old columns.
  */
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

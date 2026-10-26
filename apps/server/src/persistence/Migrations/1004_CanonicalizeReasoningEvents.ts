@@ -1,11 +1,5 @@
-// Enabling runtime-data fix carried alongside the DB goals/tasks migration.
-// It is NOT unrelated collateral: the goals/tasks dogfood work failed to start
-// because legacy `thread.message-reasoning` rows used an incremental
-// `reasoningDelta` shape that no longer decodes. This migration canonicalises
-// those rows to the current full-text reasoning payload so the dogfood server
-// boots and the goals/tasks pipeline can be exercised end to end. See
-// progress.md ("Notes / findings") for the author-session consult that
-// confirmed keeping it in this branch.
+// Canonicalises legacy `thread.message-reasoning` rows from the incremental `reasoningDelta` shape,
+// which no longer decodes and stopped the server booting, to the current full-text payload.
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Effect from "effect/Effect";
 

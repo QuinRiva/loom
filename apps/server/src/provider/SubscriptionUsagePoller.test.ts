@@ -119,12 +119,9 @@ describe("toLimitsWindows", () => {
   });
 });
 
-// ── The cliproxy hub stand-down, end to end ─────────────────────────────────
-//
-// A registered hub is the authority on Claude quota, so both Anthropic arms of
-// this poller must stop publishing limits AND take back what they published —
-// while the pooled accounts keep feeding loom's failover telemetry, which has
-// no other source.
+// The cliproxy hub stand-down end to end: a registered hub is the Claude quota authority, so both
+// Anthropic arms stop publishing limits and retract what they published, while pooled accounts
+// keep feeding loom's failover telemetry, which has no other source.
 
 const PI = ProviderInstanceId.make("pi");
 const POOLED = ["carl@", "jacob@"];

@@ -491,11 +491,9 @@ export interface EmergentGoalPromptInput {
 }
 
 /**
- * loom: interpret what a developer is trying to achieve from the
- * transcript-so-far and distil it into a short emergent GOAL. The thread title
- * is upstream's concern (`buildThreadTitlePrompt`) and is deliberately not
- * produced here. The wire field for the goal objective is `description` so it
- * maps 1:1 onto the existing `goal.create` / `goal.meta.update` command field.
+ * loom: distil the transcript-so-far into a short emergent GOAL (the title is upstream's
+ * `buildThreadTitlePrompt`). The objective's wire field is `description`, matching the
+ * `goal.create` / `goal.meta.update` command field.
  */
 export function buildEmergentGoalPrompt(input: EmergentGoalPromptInput) {
   const prompt = buildPromptFromMessage({

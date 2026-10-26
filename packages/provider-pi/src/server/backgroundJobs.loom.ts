@@ -1,8 +1,7 @@
 /**
- * The `loom-jobs` status line Loom's pi extension sends (`backgroundJobs.ts` under
- * apps/server's `loomExtensionParts/`): how many background jobs are running, and, on the update
- * sent just before a job's wake message, the chip summary for the turn that wake starts. The
- * adapter pins the session while `running > 0` and labels the next unprompted run with `wake`.
+ * The `loom-jobs` status line Loom's pi extension sends: the running job count and, just before a
+ * job's wake message, the chip summary for its turn. The adapter pins the session while
+ * `running > 0` and labels the next unprompted run `wake`.
  *
  * @module provider-pi/server/backgroundJobs.loom
  */

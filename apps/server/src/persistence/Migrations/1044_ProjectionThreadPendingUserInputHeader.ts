@@ -3,16 +3,10 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import { whenV1TableExists } from "../v1Projections.loom.ts";
 
-// Agent-question arrival surfaces (plans/agent-question-redesign, increment 3):
-// the oldest open question's first header and its asked-at, so the sidebar row,
-// board card and notification can say WHICH question is waiting and for how
-// long. Folded by `refreshThreadShellSummary` beside `pending_user_input_count`;
-// persisted (not derived at read time) because every shell read would otherwise
-// pay a correlated activity scan per row.
-//
-// The projection never refolds old rows on a code change, so threads already
-// holding an open question are backfilled here under the same terminal-wins rule
-// as the count (Migration 1033): open iff requested and never resolved.
+// The oldest open question's first header and asked-at, so the sidebar, board card and notification
+// can name the waiting question. Persisted beside `pending_user_input_count` because deriving it
+// would cost every shell read an activity scan per row. Backfilled under the count's terminal-wins
+// rule (Migration 1033): open iff requested and never resolved.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const columns = yield* sql<{ name: string }>`PRAGMA table_info(projection_threads)`;

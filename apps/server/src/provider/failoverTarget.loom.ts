@@ -1,9 +1,7 @@
 /**
- * The cross-vendor reroute's one decision (pull 9 Phase 3 track 3c, the
- * strategy's failover ruling): a single `providerFailover.fallbackTarget` slug
- * replaces V1's chain grammar. The fallback is only worth taking when it is a
- * DIFFERENT vendor than the exhausted model — a same-vendor fallback is what
- * CLI Proxy's account rotation already does inside a call.
+ * The cross-vendor reroute decision for the single `providerFailover.fallbackTarget` slug: take it
+ * only when its vendor differs from the exhausted model's, since CLI Proxy's account rotation
+ * already covers same-vendor fallback inside a call.
  *
  * @module provider/failoverTarget
  */

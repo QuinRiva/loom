@@ -1,16 +1,9 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// loom: title provenance (stale/empty-goal fix §4). Adds `title_provenance` to
-// both projection_threads and projection_goals so the decider can refuse to let
-// automation (seed/LLM) clobber a human/tool-curated title.
-//
-// Backfill heuristic (conservative): the placeholder "New thread" title has
-// never carried a real subject, so it backfills to `default` (freely
-// replaceable by automation). EVERY other existing title is backfilled to
-// `curated` — the safe choice: it means the migration can never make an
-// already-meaningful title clobberable by a late LLM interpretation. New rows
-// created after this migration carry a real provenance from their event.
+// loom: title provenance on threads and goals, so the decider can stop automation (seed/LLM)
+// clobbering a curated title. Backfill: "New thread" becomes `default` (replaceable); every other
+// existing title becomes `curated`, so the migration can never make a meaningful title clobberable.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 

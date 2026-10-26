@@ -1,19 +1,8 @@
 /**
- * Account-usage fetchers for the driver-independent subscription-usage poller.
- *
- * The endpoints, request headers, and response field meanings are derived from
- * `@latentminds/pi-quotas@0.2.6` (MIT, https://github.com/latentminds-ai/pi-quotas),
- * re-expressed as Effect-native `HttpClient` calls + `Schema` decoders because
- * the repo lint plugin (`effect-tsgo`) forbids raw `fetch`/`Date`. Each fetcher
- * maps straight onto the shared {@link AccountUsageWindow} contract rather than
- * carrying pi-quotas' intermediate window type.
- *
- * Scales verified live (2026-06-30): Anthropic `utilization` and Codex
- * `used_percent` are BOTH already 0-100, so they map to `usedPercent` with no
- * rescaling — only a defensive clamp. Codex `reset_at` is epoch seconds;
- * Anthropic `resets_at` is already an ISO-8601 string.
- *
- * @module provider/quotas/piQuotas
+ * Account-usage fetchers derived from `@latentminds/pi-quotas@0.2.6` (MIT), as Effect `HttpClient`
+ * calls and `Schema` decoders (lint forbids raw `fetch`/`Date`). Verified live: Anthropic
+ * `utilization` and Codex `used_percent` are both 0-100 (clamped, not rescaled); Codex `reset_at`
+ * is epoch seconds, Anthropic `resets_at` an ISO-8601 string.
  */
 import * as DateTime from "effect/DateTime";
 
@@ -177,11 +166,8 @@ const codexWindow = (
   const windowDurationMins = source.limit_window_seconds
     ? Math.round(source.limit_window_seconds / 60)
     : fallbackMins;
-  // The slot name is not authoritative: weekly-limited plans report the 7-day
-  // window IN `primary_window` (with `secondary_window: null`). Classify by the
-  // window's own duration when the API supplies one, so a 7-day window can
-  // never masquerade as the 5-hour meter (which would poison every consumer
-  // that picks boundaries by kind).
+  // Weekly-limited plans report the 7-day window IN `primary_window`, so classify by the window's
+  // own duration when given: a 7-day window posing as the 5-hour meter poisons every consumer.
   const kind = source.limit_window_seconds
     ? source.limit_window_seconds > 24 * 60 * 60
       ? "secondary"

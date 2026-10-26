@@ -48,15 +48,9 @@ const onFreshDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
 const LAST_RECONCILED_LOOM_ID = 1032;
 
 /**
- * The last id the fork lane currently ships, which legitimately grows with every
- * new fork migration — unlike `LAST_RECONCILED_LOOM_ID`, which is frozen.
- *
- * Derived, deliberately: the property being asserted is DENSITY (no holes, or a
- * future upstream migration can never run again), not a specific final id, and
- * pinning a literal here would mean every new fork migration edits an unrelated
- * assertion. The historical tail keeps its independent oracle
- * (`PRODUCTION_FORK_TAIL`), so the drift this test guards against is still caught
- * there rather than here.
+ * The fork lane's current last id, which grows with each fork migration (unlike the frozen
+ * `LAST_RECONCILED_LOOM_ID`). Derived because the assertion is density (a hole means a future
+ * upstream migration never runs), not a final id; `PRODUCTION_FORK_TAIL` is the independent oracle.
  */
 const CURRENT_LOOM_LANE_END = loomMigrationEntries.at(-1)![0];
 
@@ -75,16 +69,10 @@ const SYNTHETIC_FORK_ID = CURRENT_LOOM_LANE_END + 1;
 const SYNTHETIC_UPSTREAM_ID = CURRENT_UPSTREAM_LANE_END + 1;
 
 /**
- * INDEPENDENT ORACLE for the historical fork tail: ids `33..64` of the shared
- * ledger, transcribed from the real production database
- * (`SELECT migration_id, name FROM effect_sql_migrations`), **not** derived from
- * `loomMigrationEntries`.
- *
- * This exists because deriving the fixture from the same list the production code
- * derives from makes the test drift with the code: a rename or a bad filter
- * changes both sides and the assertion still passes. That is precisely how the
- * live-list-derived-tail defect reached a production smoke run. Any edit that
- * changes what reconciliation expects of a pre-split database must break here.
+ * INDEPENDENT ORACLE for the historical fork tail: ids `33..64` of the shared ledger, transcribed
+ * from the production database, **not** derived from `loomMigrationEntries`. A fixture derived
+ * from the code's own list drifts with it; any change to what reconciliation expects of a
+ * pre-split database must break here.
  */
 const PRODUCTION_FORK_TAIL: ReadonlyArray<readonly [id: number, name: string]> = [
   [33, "ProjectionThreadsGoalSlug"],
@@ -170,18 +158,10 @@ const range = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, i) => from + i);
 
 /**
- * Normalised schema fingerprint.
- *
- * Tables are compared by their **column set** (name, type, nullability,
- * default, primary-key membership) and their **indexes/constraints**, not by
- * the raw `sqlite_master` text — because the raw text preserves the *ordinal
- * position* in which `ADD COLUMN` appended each column, which necessarily
- * differs between the two orderings and is the one difference we do not care
- * about. Nothing in the server depends on ordinal position: there are no
- * positional `INSERT`s (every insert names its columns), and the single
- * `SELECT *` (`ProjectionSnapshotQuery.ts`) is a subquery whose outer query
- * names every column it projects. Views, triggers and explicit indexes are
- * still compared verbatim, where the text genuinely is the contract.
+ * Normalised schema fingerprint: tables compare by column set (name, type, nullability, default,
+ * PK membership) and indexes, not raw `sqlite_master` text, whose `ADD COLUMN` ordinal order differs
+ * between the two orderings. Nothing depends on ordinal position (no positional INSERTs; the one
+ * `SELECT *` is a subquery). Views, triggers and explicit indexes still compare verbatim.
  */
 const schemaFingerprint = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -333,14 +313,9 @@ describe("lane ordering does not change the resulting schema", () => {
     Effect.gen(function* () {
       const twoLane = yield* onFreshDb(
         Effect.gen(function* () {
-          // Cap BOTH lanes at the reconciliation point: the equivalence claim
-          // is split-reconstruction == historical interleave for the SHARED
-          // history. Migrations added after the split — fork ids 1033+ and every
-          // upstream id a later cadence pull lands — legitimately EXTEND the
-          // schema beyond that history (same principle the row-identity test
-          // above scopes to `<= LAST_RECONCILED_LOOM_ID`), so comparing the full
-          // current schema to the frozen historical one would spuriously fail
-          // the moment any post-split migration adds a column.
+          // Cap BOTH lanes at the reconciliation point: the claim covers the SHARED history
+          // only, and post-split migrations (fork 1033+, later upstream ids) legitimately
+          // extend the schema, so a full current-schema comparison would fail on any new column.
           yield* runUpstreamThrough(34);
           yield* runLoomMigrations({ toMigrationInclusive: LAST_RECONCILED_LOOM_ID });
           return yield* schemaFingerprint;
@@ -519,11 +494,9 @@ describe.each(unexpectedLedgers)("unexpected ledger state: %s", (_description, r
   );
 });
 
-// §6(9): atomicity, on the worker-backed file path the real server uses (not the
-// in-process memory client the tests above use). The transaction must open
-// *before* the marker check, so a failure after the marker's CREATE TABLE leaves
-// no marker behind — a surviving marker would be a false "done" that strands
-// every fork migration as unapplied.
+// Atomicity on the worker-backed file path the real server uses. The transaction must open before
+// the marker check: a marker surviving a later failure would be a false "done" that strands every
+// fork migration as unapplied.
 it.live(
   "reconciliation is atomic on the worker-backed path: a failure after marker creation leaves no marker",
   () =>
@@ -596,11 +569,9 @@ it.live("both lanes migrate and are idempotent on the worker-backed file path", 
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
-// Regression guard for a defect found during the production smoke: the expected
-// historical ledger tail is a FROZEN FACT. Deriving it from the live fork-entry
-// list made adding fork migration 1033 shift the tail, so an unreconciled
-// production database was rejected as corrupt. Adding fork migrations must never
-// affect reconciliation of a database that predates the lane split.
+// The expected historical ledger tail is a FROZEN FACT: deriving it from the live fork-entry list
+// made adding fork migration 1033 reject an unreconciled production database as corrupt. Adding
+// fork migrations must never affect reconciliation of a pre-split database.
 describe("adding future fork migrations does not break reconciliation", () => {
   it.effect("an unreconciled ledger still reconciles once the fork lane has grown", () =>
     onFreshDb(
@@ -625,14 +596,9 @@ describe("adding future fork migrations does not break reconciliation", () => {
           "the historical fork tail must equal the real production ledger's rows 33..64",
         );
 
-        // Reconcile an UNRECONCILED ledger while the fork lane has already grown
-        // past 1032. Order is the whole point: the original defect derived the
-        // expected tail from the live fork-entry list, so a grown list shifted
-        // the expectation and rejected an unreconciled database as corrupt.
-        // Reconciling before growing the list (as this test first did) cannot
-        // catch it — the marker short-circuits before the tail is consulted.
-        // Asserting the frozen length above is also not enough on its own: it
-        // pins the constant but never exercises the comparison that used it.
+        // Reconcile an UNRECONCILED ledger after the fork lane has grown past 1032; order is the
+        // point. Reconciling first cannot catch the defect (the marker short-circuits before the
+        // tail is read), and asserting the frozen length alone never exercises that comparison.
         yield* reconcileMigrationLedgers();
 
         assert.deepStrictEqual(

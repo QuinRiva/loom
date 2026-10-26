@@ -33,19 +33,10 @@ function modelIdForModelSlug(slug: string): string {
 }
 
 /**
- * Resolve a full {@link ModelSelection} to the health-registry lookup pair
- * `(accountKey, modelId)`, handling BOTH routing shapes:
- *  - **pi driver** selections carry a `provider/modelId` slug in `model`, so the
- *    account comes from the slug namespace ({@link accountKeyForModelSlug}).
- *  - **direct** `codex`/`claudeAgent` driver selections carry a bare `modelId`
- *    in `model` and the subscription account IN `instanceId` (the registry key
- *    space is `providerInstanceId ?? providerName`). Using the slug alone here
- *    would return `accountKey: null` and wrongly treat an exhausted direct-
- *    driver thread as healthy (§6/§9).
- *
- * `isPiSubscriptionSlug` flags the pi-slug case — the only shape that tier-2
- * failover reroutes (direct drivers get classification + resume + UI only, §9),
- * so callers gate {@link resolveFailoverTarget} on it.
+ * Resolves a {@link ModelSelection} to the health-registry pair `(accountKey, modelId)`. pi
+ * selections carry a `provider/modelId` slug; direct `codex`/`claudeAgent` ones carry the account
+ * in `instanceId`, where the slug alone would read an exhausted thread as healthy. Only the pi-slug
+ * shape (`isPiSubscriptionSlug`) is rerouted by failover; gate {@link resolveFailoverTarget} on it.
  */
 export function subscriptionScopeForSelection(
   selection: {
@@ -66,11 +57,9 @@ export function subscriptionScopeForSelection(
       isPiSubscriptionSlug: true,
     };
   }
-  // An instance that declares its own `usageSources` (a router/pooled proxy)
-  // meters exhaustion under its OWN instance id — the key the poller feeds and
-  // the health registry marks — even when the slug namespace has no static
-  // subscription mapping (e.g. `cliproxy/*`). This is what makes an exhausted
-  // pooled instance actually gate fallback/resume/spawn, not just the pill.
+  // An instance declaring its own `usageSources` (a pooled proxy) meters exhaustion under its own
+  // instance id, even when the slug namespace has no static mapping (e.g. `cliproxy/*`), so an
+  // exhausted pooled instance gates fallback, resume and spawn, not just the pill.
   if (usageSourceInstances.has(selection.instanceId)) {
     return {
       accountKey: selection.instanceId,
@@ -103,11 +92,8 @@ export const usageSourceInstances = (
   );
 
 /**
- * Compact, timezone-independent phrasing of when an exhaustion window resets,
- * for server-side control-plane messages (resume-wake reasons, spawn warnings)
- * whose reader's local timezone is unknown. Relative ("in ~2h 14m") rather than
- * an absolute clock time so it can never mislead across timezones. Null/invalid
- * `resetsAt` degrades to "when the limit resets".
+ * When an exhaustion window resets, phrased relatively ("in ~2h 14m") for server-side messages
+ * whose reader's timezone is unknown. Null or invalid `resetsAt` gives "when the limit resets".
  */
 export function formatResetHint(resetsAt: string | null, nowMs: number): string {
   if (resetsAt === null) return "when the limit resets";
@@ -124,12 +110,9 @@ export function formatResetHint(resetsAt: string | null, nowMs: number): string 
 }
 
 /**
- * Subscription-limit (quota-exhaustion) error phrasing, distinct from the
- * transient capacity/plumbing regex. Matches the wording providers use when a
- * 5h/weekly window is spent — NOT generic 429/overload/"rate limit" (that is
- * transient and only counts as exhaustion when corroborated by an active mark,
- * see §5.3). Deliberately excludes bare "rate limit" phrasing so a plain
- * capacity 429 stays on the transient ladder unless a mark corroborates it.
+ * Subscription-limit wording, distinct from the transient capacity regex. Bare "rate limit" and
+ * generic 429/overload are excluded on purpose: they stay on the transient ladder unless an active
+ * exhaustion mark corroborates them.
  */
 export const PI_QUOTA_ERROR_RE =
   /usage limit|weekly limit|monthly limit|quota|limit reached|reached your .*limit|out of.*(credits|quota)|resets? at|5.?hour limit/i;

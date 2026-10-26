@@ -181,9 +181,8 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
     .spawn(
       ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-        // loom: resolve the session worktree's own binaries (e.g. `vp`) before
-        // anything inherited from the server's PATH, which may point at a
-        // different checkout or the deployed release (issue #342).
+        // loom: resolve the session worktree's own binaries (e.g. `vp`) before anything inherited
+        // from the server's PATH, which may point at a different checkout or the deployed release.
         env:
           options.cwd === undefined
             ? options.env

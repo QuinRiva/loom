@@ -57,13 +57,10 @@ export type ProviderUsageLimitsUpdate = typeof ProviderUsageLimitsUpdate.Type;
 
 // loom: hub login health (`apps/server/src/usage/cliproxyLogin.loom.ts`).
 /**
- * The pre-emptive re-login schedule for one hub account
- * (`apps/server/src/usage/hubLogins.loom.ts`), judged on the server's local
- * calendar. `later` until `leadWeekdays` weekdays before `dueBy`, `due` through
- * `dueBy`, `overdue` after. `mayExpireAt` absent: no login date on record, so
- * the account is due now. `early`: `dueBy` was pulled before the account's own
- * last safe day to keep the pool's expiries spread out. `kind: "token"` is a
- * long-lived `claude setup-token` token, re-minted rather than logged in.
+ * Pre-emptive re-login schedule for one hub account (server-local calendar): `later`, then `due`
+ * from `leadWeekdays` weekdays before `dueBy`, then `overdue`. No `mayExpireAt`: no login on
+ * record, due now. `early`: `dueBy` pulled forward to spread the pool's expiries. `kind: "token"`:
+ * a `claude setup-token` token, re-minted rather than logged in.
  */
 export const UsageLimitSourceRelogin = Schema.Struct({
   phase: Schema.Literals(["later", "due", "overdue"]),
@@ -78,11 +75,9 @@ export const UsageLimitSourceRelogin = Schema.Struct({
 export type UsageLimitSourceRelogin = typeof UsageLimitSourceRelogin.Type;
 
 /**
- * Whether the source can still sign in to an account. `refreshFailing`
- * is the warning: the hub's refreshes are failing but the current access token
- * still works until `expiresAt`. `dead` means requests on the account fail
- * until it is logged in again; `expiresAt` is then when it stopped, when known.
- * `reason` is the hub's own status text (`token expired`, `unauthorized`).
+ * Whether the source can still sign in to an account. `refreshFailing` warns that hub refreshes
+ * fail while the access token works until `expiresAt`; `dead` means requests fail until re-login
+ * (`expiresAt` then says when it stopped, if known). `reason` is the hub's own status text.
  */
 export const UsageLimitSourceLogin = Schema.Struct({
   status: Schema.Literals(["healthy", "refreshFailing", "dead"]),

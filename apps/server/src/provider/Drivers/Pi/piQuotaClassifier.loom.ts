@@ -1,14 +1,7 @@
 /**
- * Loom's pi quota classifier (pull 9 Phase 3 track 3c, P3-11).
- *
- * Upstream's `UsageLimitRecoveryWorker` parks and resumes a thread whose run
- * failed with `class: "usage_limit"` and a future `resetAt`; upstream's pi
- * adapter reports every model error as `provider_error`. `classifyPiFailure`
- * reads pi's error text (plus Loom's provider-health marks when the text names
- * no reset) and says whether the failure is a usage limit and when it resets,
- * so the adapter hunk can make pi's quota errors look like upstream's.
- *
- * Pure: the caller passes the health snapshot and the clock.
+ * Makes pi's quota errors look like upstream's `class: "usage_limit"` with a `resetAt`, so
+ * `UsageLimitRecoveryWorker` parks and resumes the thread (upstream's pi adapter says
+ * `provider_error`). Reads pi's error text, plus health marks when it names no reset. Pure.
  *
  * @module provider/Drivers/Pi/piQuotaClassifier
  */

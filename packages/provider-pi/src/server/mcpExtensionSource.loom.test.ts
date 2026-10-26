@@ -1,9 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * The bridge's two Loom hunks: a tool listed with Loom's `_meta` prose is
- * registered in pi with that snippet and those guidelines (a tool without
- * `_meta` gets none: upstream dropped the generic fallback, DL-905), and no
- * orchestration instructions are appended.
+ * The bridge's two Loom hunks: a tool listed with Loom's `_meta` prose registers in pi with that
+ * snippet and guidelines (none without `_meta`), and no orchestration instructions are appended.
  * The shipped source runs against a stub `pi` and a stub MCP server.
  */
 import * as NodeHttp from "node:http";

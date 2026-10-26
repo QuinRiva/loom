@@ -90,16 +90,10 @@ export function applyUsageLimitsUpdate(input: {
 }
 
 /**
- * loom: drop the published windows of accounts a feeder has stood down.
- *
- * `applyUsageLimitsUpdate` only ever upserts and `resolveUsageLimitsAfterProbe`
- * holds what it published across probes, so a reading nobody refreshes any more
- * would otherwise sit frozen on the card until the server restarts. That is
- * exactly what happens when a cliproxy hub takes over Claude quota and the
- * poller's Anthropic arms stand down. Matching is by account prefix
- * (`usageWindowAccountPrefix`), so one account's whole set — 5-hour, weekly and
- * every per-model carve-out — goes together and the other accounts on the card
- * (Codex) are untouched. Unchanged input returns `previous` so no republish.
+ * loom: drop the published windows of accounts a feeder has stood down (e.g. a cliproxy hub taking
+ * over Claude quota); upserts and probe-holding would otherwise freeze them until restart. Matches
+ * by `usageWindowAccountPrefix`, so one account's whole set goes and other accounts stay. Unchanged
+ * input returns `previous`, so nothing republishes.
  */
 export function removeUsageLimitWindows(input: {
   readonly previous: ServerProviderUsageLimits | undefined;
@@ -131,13 +125,9 @@ function usageWindowEquals(a: ServerProviderUsageWindow, b: ServerProviderUsageW
 }
 
 /**
- * loom: a probe that carries no limits at all (`probed === undefined`) is
- * uninformative and keeps the published reading. pi never reads its own quota —
- * the subscription-usage poller is its only feeder — and the other drivers omit
- * the field on their not-installed and timed-out paths for the same "we did not
- * look" reason. Signing out is the one silent probe that is authoritative: those
- * windows belong to an account that is gone, so an `unauthenticated` probe
- * clears them.
+ * loom: a probe with no limits (`probed === undefined`) is uninformative and keeps the published
+ * reading: pi never reads its own quota, and other drivers omit it when they did not look. An
+ * `unauthenticated` probe is the exception and clears them, since the account is gone.
  */
 export function resolveUsageLimitsAfterProbe(input: {
   readonly published: ServerProviderUsageLimits | undefined;

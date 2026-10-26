@@ -1,12 +1,7 @@
 /**
- * Pi error texts that `classifyPiFailure` reads as usage limits, shared with
- * 3c-2's reroute tests and Phase 4's QA replays.
- *
- * Provenance: "recorded" texts are verbatim from V1's tests or from pi session
- * transcripts of the CLI Proxy (`~/cli-proxy` usage baseline, Aug–Sep 2026);
- * "composed" texts are pi-ai 1.0.3's own templates (`provider-retry.js`
- * `Server requested Ns retry delay`, `openai-codex-responses.js` "Try again in
- * ~N min") wrapped around a recorded body or the documented field values.
+ * Pi error texts `classifyPiFailure` reads as usage limits. "recorded" texts are verbatim from
+ * V1's tests or CLI Proxy session transcripts; "composed" ones wrap pi-ai 1.0.3's retry templates
+ * around a recorded body.
  *
  * @module provider/Drivers/Pi/piQuotaClassifier.fixtures
  */

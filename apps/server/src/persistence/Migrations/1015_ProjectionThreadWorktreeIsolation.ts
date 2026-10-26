@@ -1,11 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// Worktree isolation (docs plan workstream-worktree-isolation §1/§3): per-thread
-// isolation policy + fan-in settlement.
-// - isolation: 'isolated' | 'shared' | 'attached' (default 'shared' — today's
-//   shared-worktree behaviour for pre-isolation rows).
-// - fan_in_state: 'none' | 'completed' | 'conflicted' (default 'none').
+// Worktree isolation: `isolation` is 'isolated' | 'shared' | 'attached' (default 'shared', the
+// pre-isolation behaviour); `fan_in_state` is 'none' | 'completed' | 'conflicted' (default 'none').
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const columns = yield* sql<{ name: string }>`PRAGMA table_info(projection_threads)`;

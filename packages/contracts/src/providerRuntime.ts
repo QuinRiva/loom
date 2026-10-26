@@ -334,11 +334,8 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   durationMs: Schema.optional(NonNegativeInt),
   compactsAutomatically: Schema.optional(Schema.Boolean),
   // loom: usage-ledger fields (costUsd … usesSubscriptionPricing).
-  // Dollar cost of this single assistant message, taken verbatim from the
-  // provider's own authoritative figure (pi's `usage.cost.total`). A per-message
-  // delta — summing across token-usage events reconstructs cumulative spend, so
-  // it is replay-safe. Only pi carries a cost today; other adapters leave it
-  // unset and no cost is shown for them.
+  // Dollar cost of this one assistant message, verbatim from the provider (pi's `usage.cost.total`).
+  // A per-message delta, so summing events is replay-safe; only pi sets it.
   costUsd: Schema.optional(NonNegativeNumber),
   // Model attribution for the usage ledger. `model` is the slug the request was
   // made with; `resolvedModel` is the concrete inference model when the provider
@@ -346,12 +343,9 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   // anthropic/vertex paths).
   model: Schema.optional(TrimmedNonEmptyStringSchema),
   resolvedModel: Schema.optional(TrimmedNonEmptyStringSchema),
-  // Real backend provider identity for the usage ledger: the `providerID` half
-  // of pi/OpenCode's `providerID/modelID` slug (e.g. `google-vertex-claude`,
-  // `anthropic`, `openai-codex`) — the model's actual vendor/backend, NOT the
-  // driver kind. This is what usage is scoped and grouped by, so Anthropic vs
-  // Vertex vs OpenAI are distinguishable. Unset when an adapter can't resolve a
-  // real backend (never fabricated).
+  // Real backend for the usage ledger: the `providerID` half of the `providerID/modelID` slug
+  // (e.g. `google-vertex-claude`), NOT the driver kind, so usage groups by vendor. Unset when an
+  // adapter cannot resolve one (never fabricated).
   providerId: Schema.optional(TrimmedNonEmptyStringSchema),
   // Cache-write prompt tokens, split out because cache writes are billed at a
   // premium and dominate cost in agent workloads. `inputTokens` keeps its

@@ -1,11 +1,9 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// One whole-source snapshot per (human message, review source): the boundaries of the
-// "since your message" review intervals (plans/change-review/plan.mdx §2). The ref lives in
-// `git_common_dir`, which is kept so a sweep can delete it after the worktree is gone. Plain
-// table, not event-sourced: a snapshot is a side effect of a message, and losing one only
-// merges two adjacent intervals. Starts empty.
+// One whole-source snapshot per (human message, review source), bounding the "since your message"
+// review intervals. `git_common_dir` is kept so a sweep can delete the ref once the worktree is gone.
+// Plain table, not event-sourced: losing a snapshot only merges two adjacent intervals.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`

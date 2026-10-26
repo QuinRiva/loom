@@ -1,12 +1,7 @@
-// Loom (fork) additions to the settings contracts, relocated out of the
-// upstream-owned `settings.ts` so upstream merges touch one-line splice points.
-// See `plans/2026-07-07-fork-seam-campaign.md` (Slice A).
-//
-// Unlike `orchestration.loom.ts`, importing `ModelSelection` (from
-// `modelSelection.ts`, its home since upstream's V2) here is safe: `settings.ts`
-// already imports it, and there is no value cycle back into `settings.ts`
-// (nothing imports settings.ts from this file). `PiSettings` lives in
-// `@t3tools/provider-pi/settings` since upstream's provider packages (pull 10).
+// Loom additions to the settings contracts, kept out of upstream's `settings.ts` so merges touch
+// one-line splice points. Importing `ModelSelection` here is safe (unlike `orchestration.loom.ts`):
+// nothing here value-imports `settings.ts`, so there is no cycle. `PiSettings` lives in
+// `@t3tools/provider-pi/settings`.
 
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -14,13 +9,10 @@ import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 
-// Capability-based model selection (plans/2026-07-13-capability-based-model-selection.md).
-// A parent expresses task SHAPE in one token; the server resolves deterministically
-// against operator-maintained `workstreamModelProfiles`. See §3 for the vocabulary.
-//
-// `explore` — open-ended/prototype work, vague objective, plan likely to change.
-// `thorough` — edge cases, migrations, hardening, review gates.
-// `mechanical` — bounded, self-contained, high-volume work (extraction, renames).
+// Capability-based model selection: a parent states task SHAPE in one token and the server resolves
+// it against operator-maintained `workstreamModelProfiles`. `explore`: open-ended, plan likely to
+// change. `thorough`: edge cases, migrations, hardening, review gates. `mechanical`: bounded,
+// high-volume work (extraction, renames).
 export const TaskShape = Schema.Literals(["explore", "thorough", "mechanical"]);
 export type TaskShape = typeof TaskShape.Type;
 
@@ -62,13 +54,10 @@ export const WorkstreamModelProfile = Schema.Struct({
 });
 export type WorkstreamModelProfile = typeof WorkstreamModelProfile.Type;
 
-// Cross-vendor reroute (pull 9 Phase 3, 3c-2): when a pi thread's vendor has no
-// healthy account, Loom moves it onto ONE fallback model of another vendor
-// (`fallbackTarget`, a pi slug such as "cliproxy/claude-opus-5-5"); null ⇒ no
-// reroute, the thread parks until its window resets. Resume-on-reset is
-// upstream's `autoResumeLimitedThreads`; the chain editor and pause are gone.
-// Each key carries its default so the server's sparse settings.json write, which
-// strips default-valued keys before encoding, can encode a partial value.
+// Cross-vendor reroute: when a pi thread's vendor has no healthy account, Loom moves it to ONE
+// fallback model of another vendor (`fallbackTarget`, a pi slug); null parks it until the window
+// resets (resume is upstream's `autoResumeLimitedThreads`). Each key carries its default so the
+// sparse settings.json write, which strips default-valued keys, can encode a partial value.
 const ProviderFailoverSettingsFields = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(true))),
   fallbackTarget: Schema.NullOr(TrimmedNonEmptyString).pipe(
@@ -192,11 +181,9 @@ export const LoomClientSettingsPatchFields = {
 
 // Spread into `ServerSettings`.
 export const LoomServerSettingsFields = {
-  // Named model presets for Workstream spawns. Keyed by a plain slug; the
-  // value is a full `ModelSelection`. `mcp__t3-code__workstream_spawn` resolves a preset by
-  // explicit `modelPreset` name, or — when neither model field is given — by
-  // the child's `role` (a preset named after the role). Default empty so
-  // existing spawns inherit the parent's selection exactly as before.
+  // Named model presets for workstream spawns (slug to full `ModelSelection`). `workstream_spawn`
+  // resolves one by explicit `modelPreset`, or, with no model field given, by the child's `role`.
+  // Default empty, so spawns otherwise inherit the parent's selection.
   workstreamModelPresets: Schema.Record(TrimmedNonEmptyString, ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),

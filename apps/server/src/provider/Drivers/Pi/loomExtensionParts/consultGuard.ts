@@ -1,8 +1,7 @@
-// loom: Loom extension part — a consult fork (`T3_LOOM_CONSULT_FORK=1`, set by
-// `loom/workstream/consult.ts`) refuses pi's `edit` and `write`, the two tools whose only
-// purpose is changing files, and `bg_start` (a fork's job would outlive its answer). A blocking `tool_call` hook, not a narrower tool set: hooks are
-// not declarations, so the fork's request prefix stays the target's (a warm cache). Bash stays
-// open for inspection; the server refuses every state-changing MCP call on its own.
+// loom: Loom extension part: a consult fork (`T3_LOOM_CONSULT_FORK=1`) refuses pi's `edit`,
+// `write` and `bg_start` (a job would outlive the answer). A blocking `tool_call` hook, not a
+// narrower tool set, keeps the fork's request prefix (and warm cache) the target's. Bash stays open
+// for inspection; the server refuses every state-changing MCP call itself.
 import type { LoomExtensionPart } from "../loomExtension.ts";
 
 export const consultGuardPart: LoomExtensionPart = {

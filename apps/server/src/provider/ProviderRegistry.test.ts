@@ -1936,25 +1936,14 @@ it.layer(
       }),
     );
 
-    // loom: RETIRED — "propagates real Codex probe failures to the aggregator
-    // at boot". This guarded a real historical bug where a background probe
-    // FAILURE (codex spawning a missing binary → ENOENT → "not installed"
-    // error snapshot) failed to propagate into `getProviders` at boot via the
-    // aggregator's `syncLiveSources`. In the pi-only fork that behaviour is no
-    // longer representable: codex is not in `BUILT_IN_DRIVERS`, and the only
-    // shipped driver is pi (upstream's `PiDriver`/`PiProvider` since pull 9;
-    // Loom's never-probing driver is quarantined), whose probe-failure path is
-    // upstream's to test.
-    // The only residue that still has a live behaviour behind it — an explicit
-    // `providerInstances` entry for an unshipped driver surfacing as an
-    // "unavailable" shadow in `getProviders` — is already covered by the
-    // "includes unavailable instance snapshots in getProviders" test below.
+    // loom: RETIRED "propagates real Codex probe failures to the aggregator at boot": codex is not in
+    // `BUILT_IN_DRIVERS` in the pi-only fork, and pi's probe-failure path is upstream's to test. The
+    // unshipped-driver "unavailable" shadow is covered by "includes unavailable instance snapshots in
+    // getProviders" below.
 
-    // loom: the pi-flavoured rewrite of "re-probes when settings change the codex
-    // binaryPath" was deleted in pull 9: it pinned Loom's quarantined PiDriver
-    // (string `customModels` surfacing as snapshot models); upstream's PiDriver
-    // takes object `customModels` (DL-84). Phase 2 re-expresses it on upstream's
-    // PiProvider if the hot-reload coverage is wanted.
+    // loom: the pi rewrite of "re-probes when settings change the codex binaryPath" was deleted: it
+    // pinned Loom's quarantined PiDriver. Re-express it on upstream's PiProvider if hot-reload
+    // coverage is wanted.
 
     it.effect("includes unavailable instance snapshots in getProviders", () =>
       Effect.gen(function* () {
@@ -2022,18 +2011,9 @@ it.layer(
       }),
     );
 
-    // loom: pi-flavoured rewrite of "keeps cursor disabled and skips probing
-    // when the provider setting is disabled". The upstream test asserted the
-    // registry lists all six legacy providers and that a disabled one reports
-    // `status: "disabled"` without its probe ever touching the spawner. In the
-    // pi-only fork the only shipped driver is pi, so the live registry-level
-    // contract is: `providers.pi.enabled: false` flows through hydration →
-    // `PiDriver.create` → `buildServerProvider` (which forces `status:
-    // "disabled"` when `enabled` is false) and surfaces in `getProviders`.
-    //
-    // The "skips probing" half is not asserted here: this test predates
-    // upstream's `PiProvider` (pull 9) and only pins the observable contract —
-    // the disabled snapshot.
+    // loom: pi rewrite of "keeps cursor disabled and skips probing when the provider setting is
+    // disabled": `providers.pi.enabled: false` flows through hydration and `buildServerProvider` to a
+    // `status: "disabled"` snapshot in `getProviders`. The "skips probing" half is not asserted.
     it.effect("surfaces the pi provider as disabled when its setting is disabled", () =>
       Effect.gen(function* () {
         const serverSettings = yield* makeMutableServerSettingsService(

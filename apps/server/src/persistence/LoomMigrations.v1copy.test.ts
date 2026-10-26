@@ -22,13 +22,10 @@ import { migrationManifest, runMigrations } from "./Migrations.ts";
 
 const at = "2026-01-01T00:00:00.000Z";
 
-// t-migrate (pull 9 Phase 2 §7): a V1 `state.sqlite` as the live install has it
-// (upstream lane at 054, Loom lane at 1045) is copied to `statev2.sqlite` by
-// `initializeV2Database` and migrated by the live Sqlite layer: the Loom lane runs
-// to its head (1063), V1's goal, consult, peer-message and usage-ledger rows survive
-// the renames (1048, 1049), upstream's ledger is exactly upstream's manifest, and
-// 1062 rebuilds the search index from the renamed goal tables with no trigger left
-// on a V1 table.
+// A V1 `state.sqlite` as the live install has it (upstream lane 054, Loom lane 1045), copied to
+// `statev2.sqlite` and migrated by the live layer: Loom runs to its head (1063), V1's goal,
+// consult, peer-message and usage-ledger rows survive the renames (1048, 1049), upstream's ledger
+// matches its manifest, and 1062 rebuilds search from the renamed goal tables with no V1 trigger.
 it.effect(
   "migrates a copied V1 database to the Loom head with the renamed tables' rows intact",
   () => {

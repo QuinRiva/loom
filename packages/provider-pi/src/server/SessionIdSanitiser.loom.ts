@@ -2,38 +2,18 @@
 import * as NodeFS from "node:fs";
 
 /**
- * Loom's defence at its own boundary for a latent pi defect: codex (OpenAI
- * Responses) tool calls carry two ids, which pi stores JOINED as
- * `call_<rand>|fc_<rand>` in the session jsonl. Anthropic validates every
- * `tool_use.id` against `^[a-zA-Z0-9_-]+$` on the FULL history it replays each
- * turn, so the `|` triggers a fatal, non-retryable HTTP 400 the instant a
- * codex-origin session is dispatched onto an Anthropic-family model (a manual
- * switch or the cross-vendor reroute). This module rewrites the offending ids
- * on disk so the replayed history is accepted.
- *
- * The transform mirrors the fix-codex-session skill: replace every character
- * outside `[a-zA-Z0-9_-]` with `_`. It is DETERMINISTIC (a given id always maps
- * to the same output) so call/result pairs stay matched, and IDEMPOTENT (a
- * clean history is left byte-for-byte untouched). It is one-way with respect to
- * codex, which is why it runs ONLY for Anthropic-family resumes.
- *
- * Pull 9 (3c-2): it takes the session FILE (the provider thread's
- * `nativeThreadRef`), never a thread name, and runs from the pi adapter's resume
- * path immediately before `switch_session` — the moment a fresh pi process is
- * about to load the file (P3-12).
- *
- * @module provider/Drivers/Pi/SessionIdSanitiser
+ * pi stores codex tool-call ids joined as `call_<rand>|fc_<rand>`, and Anthropic rejects a replayed
+ * `tool_use.id` outside `^[a-zA-Z0-9_-]+$` with a fatal 400. This rewrites such characters to `_`
+ * on disk (deterministic, so call/result pairs match; idempotent) for Anthropic-family resumes only,
+ * being one-way, from the resume path just before `switch_session` loads the session file.
  */
 
 const VALID_TOOL_ID = /^[a-zA-Z0-9_-]+$/;
 const INVALID_TOOL_ID_CHAR = /[^a-zA-Z0-9_-]/g;
 
-/** True when a pi model slug (`provider/modelId`) dispatches to Anthropic's
- * Messages API — the backends that enforce the `tool_use.id` pattern. Besides
- * the `anthropic` and `google-vertex-claude` namespaces, any model id naming a
- * Claude model counts: Loom's own pool is `cliproxy/claude-*` (CLI Proxy, an
- * `anthropic-messages` provider), and Bedrock's Anthropic ids are
- * `anthropic.claude…`, while Bedrock's other models never match. */
+/** True when a pi slug dispatches to Anthropic's Messages API, which enforces the `tool_use.id`
+ * pattern: the `anthropic` and `google-vertex-claude` namespaces, or any id naming a Claude model
+ * (`cliproxy/claude-*`, Bedrock's `anthropic.claude…`). */
 export const slugRoutesToAnthropic = (slug: string): boolean => {
   const slash = slug.indexOf("/");
   const provider = slash === -1 ? slug : slug.slice(0, slash);
@@ -82,11 +62,9 @@ const sanitiseSessionEntries = (entries: ReadonlyArray<Record<string, unknown>>)
 };
 
 /**
- * Sanitise a pi session jsonl in place. Returns true iff something was
- * rewritten; a missing file or already-clean history is a no-op returning
- * false. Blank, non-message and unparseable lines are preserved verbatim, so
- * only tool-id fields ever change. Must only run while no live pi process owns
- * the file (the resume path, before `switch_session`).
+ * Sanitises a pi session jsonl in place; true iff something was rewritten. Everything but tool-id
+ * fields is preserved verbatim. Run only while no live pi process owns the file (the resume path,
+ * before `switch_session`).
  */
 export const sanitisePiSessionFile = (path: string): boolean => {
   let raw: string;
