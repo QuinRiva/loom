@@ -1,15 +1,7 @@
 /**
- * On-disk workstream reports (Phase 3 plan seam 7), ported from V1's
- * `workstreamReport.ts`. A sub-thread's hand-back
- * is a markdown file under `<stateDir>/workstream-reports/` (durable, never the
- * worktree); its absolute path is event-sourced onto the sidecar as
- * `reportPath`, so the parent — whose cwd is its own worktree — reads it
- * directly. The quiescence rail writes a synthesised report beside them.
- *
- * Two tracks land this seam (3a-2 for `mcp__t3-code__workstream_submit`, 3b for the
- * quiescence rail); integration keeps one copy.
- *
- * @module loom/workstream/report
+ * Workstream reports under `<stateDir>/workstream-reports/` (durable, never the worktree), path
+ * event-sourced as `reportPath` so the parent reads it directly. The quiescence rail's synthesised
+ * reports land beside them.
  */
 import type { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -95,11 +87,9 @@ export const synthesisedReportFileName = (threadId: ThreadId, runId: string) =>
   `${fileStem(threadId)}.quiescent-${fileStem(runId.split(`${encodeURIComponent(threadId)}:`).at(-1)!)}.md`;
 
 /**
- * Writes the quiescence rail's report for a thread that ended `runId` without
- * submitting — the fixed header (with `grace` rendered by the caller, e.g.
- * "10 min") plus the human-started line when the human started that turn, a blank
- * line, then its last assistant message — and returns its
- * absolute path (`synthesisedReportFileName`).
+ * Writes the synthesised report for a thread that ended `runId` without submitting: header (`grace`
+ * rendered by the caller), a human-started line when applicable, then its last assistant message.
+ * Returns the absolute path.
  */
 export const writeSynthesisedReport = (
   threadId: ThreadId,

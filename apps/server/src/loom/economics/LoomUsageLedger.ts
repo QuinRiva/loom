@@ -1,19 +1,7 @@
 /**
- * LoomUsageLedger — seam 11's two spend queries over `loom_usage_ledger`
- * (migration 1049: V1's ledger renamed; V2 rows written by `UsageLedgerReactor`,
- * one per terminal provider turn). 3d's Cost tab and context chips build
- * against exactly these signatures and test with their own fixture layer.
- *
- * `cachedTokens` = cache read + cache write; `inputTokens` is pure input (V1's
- * column meaning). A read failure is a defect: the queries carry no error.
- *
- * `threadSpend` also counts each provider turn the ledger has no row for yet (a
- * running turn, or one whose terminal row the reactor has still to write) at
- * the live `tokenUsage.costUsd` the pi adapter reports mid-turn. Cost only: the
- * live report carries no per-turn tokens. Without it a child's single long turn
- * shows no spend until it ends.
- *
- * @module loom/economics/LoomUsageLedger
+ * Spend queries over `loom_usage_ledger`. `cachedTokens` = cache read + write; `inputTokens` is pure
+ * input. A read failure is a defect. `threadSpend` also counts provider turns with no ledger row
+ * yet at the live `tokenUsage.costUsd` (cost only), so a long-running turn shows spend before it ends.
  */
 import type { IsoDateTime, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";

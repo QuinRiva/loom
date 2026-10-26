@@ -1,12 +1,7 @@
 /**
- * The reroute sweep on the real orchestrator (plan track 3c, Tests): the
- * cross-vendor reroute, the move-back, the no-reset resume, what it leaves to
- * upstream's limit recovery (disjoint by condition), and seam 13b — upstream's
- * own limit-resume on a cancelled Loom thread is an accepted no-op.
- *
- * The testkit's single provider instance (`codex`) stands in for a pi instance:
- * the fake `ProviderRegistry` reports it as driver `pi` with a two-vendor
- * catalogue, and the thread's selection carries pi slugs.
+ * The reroute sweep on the real orchestrator: cross-vendor reroute, move-back, no-reset resume, and
+ * upstream's limit-resume on a cancelled Loom thread as a no-op. The testkit's `codex` instance
+ * stands in for pi: the fake registry reports driver `pi` with a two-vendor catalogue.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";

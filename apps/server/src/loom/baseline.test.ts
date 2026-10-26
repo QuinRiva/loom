@@ -1,10 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * The Loom turn baseline (Phase 3 plan P3-17, smoke step 23) on a real git repo:
- * two Loom threads share one checkout; B edits a file between A's run 1 and run 2.
- * A's run-2 baseline is its own start-of-run snapshot, so A's file summary and turn
- * diff exclude B's edit; a thread without a sidecar keeps upstream's previous-checkpoint
- * base. Rollback in a shared checkout is upstream's `isCheckpointRestoreIsolated`.
+ * The Loom turn baseline on a real git repo: two threads share a checkout and B edits between A's
+ * runs, yet A's run-2 summary and diff exclude B's edit. A thread without a sidecar keeps
+ * upstream's previous-checkpoint base.
  */
 import * as NodePath from "node:path";
 

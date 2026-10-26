@@ -1,16 +1,8 @@
 /**
- * The liveness heartbeat (Phase 3 plan "Liveness"; P3-8, P3-9): when each Loom
- * thread last showed agent activity, held in memory and fed by
- * `OrchestratorV2.streamDomainEvents`. Nothing is persisted — after a restart
- * every thread reads as last seen at process start, which is also the sweep's
- * floor, so persistence would buy nothing.
- *
- * A beat is a `turn-item.updated` (every tool output chunk, so a tool that
- * prints periodically stays alive), a `provider-turn.updated` or a
- * `run-attempt.updated` on a thread with a sidecar row. A `user_message` item is
- * not agent activity — the stall nudge itself writes one — so it is no beat.
- *
- * @module loom/orchestration/liveness/heartbeat
+ * When each Loom thread last showed agent activity, in memory only (after a restart every thread
+ * reads as seen at process start, the sweep's floor anyway). Beats: `turn-item.updated` (so a
+ * printing tool stays alive), `provider-turn.updated`, `run-attempt.updated`. A `user_message`
+ * item is no beat: the stall nudge itself writes one.
  */
 import type { OrchestrationV2DomainEvent, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";

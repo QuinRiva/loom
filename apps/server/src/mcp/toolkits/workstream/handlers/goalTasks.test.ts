@@ -1,9 +1,7 @@
 /**
- * The goal tools on V2's real orchestrator and `LoomStoreV2`: anchored branch
- * scoping (read, add, tick, rewrite), restoring deleted tasks by resubmission,
- * the unanchored child's rewrite refusal, the owner-only goal_update,
- * and exactly one `goal.updated` on the broadcast per write — none for a
- * refusal or a no-change rewrite.
+ * The goal tools on the real orchestrator: anchored branch scoping, restore by resubmission, the
+ * unanchored child's rewrite refusal, owner-only goal_update, and exactly one `goal.updated` per
+ * write (none for a refusal or no-change rewrite).
  */
 import { assert, it } from "@effect/vitest";
 import { CommandId, GoalId, ProjectId, ThreadId } from "@t3tools/contracts";

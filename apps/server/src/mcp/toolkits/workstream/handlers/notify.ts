@@ -1,19 +1,8 @@
 /**
- * `mcp__t3-code__notify_thread`: a one-way push to any live thread, steer-or-start and never
- * an abort. The peer-message record lands FIRST (`thread.peer-message.record`
- * on the sender): it is the cap's ledger, the board's edge and the control
- * plane's durable queue, and the arm refuses it for a finished, archived or
- * deleted target — so a refused record sends nothing. Then the message itself
- * goes out as ONE direct `message.dispatch` (never `sendToThread`, which drops
- * `loom`) with origin `notify`, under the deterministic id 3b's
- * deferred-delivery rail uses for the same record, so whichever lands second
- * replays the receipt instead of delivering twice; a landed message is marked
- * delivered. A delivery that fails leaves the record pending for that rail.
- * Like the rail's, the immediate delivery is Loom's steered tier with no
- * `deliveryIntent`: upstream's `auto` steers a run whose provider turn has not
- * started, and that rejection's receipt would expire the record (DL-660).
- *
- * @module mcp/toolkits/workstream/handlers/notify
+ * `notify_thread`: steer-or-start, never an abort. The peer-message record lands first (cap ledger,
+ * board edge, durable queue; refused for a finished target), then ONE direct `message.dispatch` under
+ * the deferred-delivery rail's id so whichever lands second replays the receipt. Steered tier with no
+ * `deliveryIntent`: upstream's `auto` would reject a not-yet-started turn and expire the record.
  */
 import {
   CommandId,

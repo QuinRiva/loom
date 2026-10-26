@@ -46,7 +46,7 @@ const layerServices = Layer.mergeAll(
   IdAllocator.layer,
   ThreadCommandExecutor.layer,
   LoomStore.layer, // loom: ProjectService soft-deletes the project's goals
-  ServerSettings.layerTest(), // loom: #292
+  ServerSettings.layerTest(), // loom: autoPull via project settings
   Layer.succeed(WorkspacePaths.WorkspacePaths, {
     normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
     resolveRelativePathWithinRoot: ({ workspaceRoot, relativePath }) =>

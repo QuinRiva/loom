@@ -1,15 +1,8 @@
 /**
- * The PR toolkit on Loom threads (Phase 3 plan seam 13; smoke steps 14 and 15), on
- * the real orchestrator: a PR-watch wake reaches a Loom thread holding
- * `awaiting_acceptance` and the hold survives it (rule 4 clears only on a
- * human-authored or orchestrator turn), and settle-on-merge settles a childless
- * shipper whose outcome is done but never a root with an unfinished sub-thread.
- *
- * Upstream refuses `thread.pull-request.watch` on every `subagent`-lineage thread
- * ("its parent thread watches pull requests"); every Loom child has that lineage
- * (DL-375), so the one marked clause of DL-305 exempts a thread with a Loom sidecar
- * row: the shipper child watches its own PR, and an upstream subagent with no row is
- * still refused.
+ * A PR-watch wake reaches a Loom thread holding `awaiting_acceptance` without clearing the hold;
+ * settle-on-merge settles a childless done shipper, never a root with unfinished children. Every
+ * Loom child has `subagent` lineage, which upstream refuses PR watches for, so a Loom sidecar row
+ * exempts it; an upstream subagent with no row is still refused.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";

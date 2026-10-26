@@ -1,9 +1,7 @@
 /**
- * `mcp__t3-code__snooze_thread` through to the snooze rail, on V2's real
- * orchestrator: the tool only records the request; the pass applies
- * `thread.snooze` once the asking turn has ended idle (so `isSnoozed` holds),
- * and an inbound message afterwards un-snoozes it. A pending question or a
- * Loom attention flag drops the request; `cancel` withdraws it.
+ * The tool only records the request; the pass applies `thread.snooze` once the asking turn ended
+ * idle, and a later inbound message un-snoozes. A pending question or Loom attention flag drops
+ * the request; `cancel` withdraws it.
  */
 import { assert, it } from "@effect/vitest";
 import {

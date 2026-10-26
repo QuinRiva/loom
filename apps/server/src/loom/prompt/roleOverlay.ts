@@ -1,11 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * A thread's role: the server's built-in `roles/<role>.md` composed with the
- * project's `.t3code/roles/<role>.md` — prompt overlay, skills, and the
- * active-tool profile the session-profile route serves (out of quarantine for
- * pull 9; names are the prefixed `mcp__t3-code__*` forms from `families.ts`).
- *
- * @module loom/prompt/roleOverlay
+ * A thread's role: the built-in `roles/<role>.md` composed with the project's
+ * `.t3code/roles/<role>.md`, giving prompt overlay, skills and active-tool profile.
  */
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -39,24 +35,13 @@ export interface RoleOverlay {
    * holding `.t3code/`) and passed to pi as repeated `--skill` args (additive
    * to normal discovery). */
   readonly skills?: ReadonlyArray<string>;
-  /** ACTIVE-tool profile from frontmatter. Not an allowlist: pi launches with
-   * its full tool registry and the provider-tool extension selects this set as
-   * the active tools at session start, so unlisted tools stay registered but
-   * deferred (reachable mid-session through pi's `tool_search`) while pi's
-   * selection-conditioned schemas, snippets and guidelines shrink to the
-   * profile. The loader auto-unions LEAF_CORE into any role `tools:`
-   * list — a role narrows its working tools without losing its lifeline to the
-   * workstream — plus the families named in `toolsets:`. Role files therefore
-   * list only the tools the role actually works with. Absent → no profile →
-   * pi's default active surface (every registered tool). */
+  /** ACTIVE-tool profile, not an allowlist: unlisted tools stay registered but deferred (reachable via
+   * `tool_search`). LEAF_CORE and `toolsets:` families are auto-unioned in, so a role lists only
+   * the tools it works with. Absent means pi's default surface. */
   readonly tools?: ReadonlyArray<string>;
-  /** EFFECTIVE delegation capability: whether this role's launch surface can
-   * spawn/manage children. True when the role declares no tool restriction at
-   * all (full surface) or names the `delegation` toolset. The composer keys the
-   * roles-catalogue block off it, so a leaf that never spawns doesn't carry the
-   * catalogue. A leaf that finds the delegation tools through `tool_search`
-   * mid-session gets no catalogue — only the built-in names on the spawn
-   * tools' `role` parameter (defs.ts), which roleOverlay.test.ts pins. */
+  /** Whether this role can spawn children: no tool restriction, or the `delegation` toolset. Gates
+   * the roles-catalogue block, so a leaf that later finds delegation via `tool_search` sees only the
+   * built-in role names on the spawn tools' `role` parameter. */
   readonly delegation: boolean;
 }
 
@@ -116,11 +101,8 @@ const parseRoleFile = (
   };
 };
 
-/** The project's `.t3code/roles/`: the nearest one at or above `projectRoot`,
- * bounded by the repo top level (the first ancestor holding a `.git` entry — a
- * directory, or a worktree's file). Outside any repo only `projectRoot` itself
- * is read. The nearest directory wins: a role it lacks means no addition, not
- * "keep looking". */
+/** The nearest `.t3code/roles/` at or above `projectRoot`, bounded by the repo top level (only
+ * `projectRoot` outside a repo). The nearest wins: a role it lacks means no addition. */
 const findOverlayDir = (projectRoot: string): string | undefined => {
   const dirs = [NodePath.resolve(projectRoot)];
   while (dirs.at(-1)! !== NodePath.dirname(dirs.at(-1)!)) dirs.push(NodePath.dirname(dirs.at(-1)!));
@@ -167,13 +149,9 @@ interface RoleLookup {
 }
 
 /**
- * Enumerate the defined roles — the union of the built-ins and the project's
- * `.t3code/roles/` — each with a one-line summary from the composed role's first
- * non-empty body line. Each built-in opens with `You are a <role> sub-thread.
- * <summary>` or `You are the orchestrator: <summary>`; the identity lead-in is
- * trimmed and the substantive remainder used, degrading to the whole first line
- * when the pattern doesn't match. orchestrator is listed first, the rest
- * alphabetically. Read fresh each call (no cache), like `loadRoleOverlay`.
+ * Built-in and project roles, each summarised from its first body line with the `You are a <role>
+ * sub-thread.` / `You are the orchestrator:` lead-in trimmed (whole line if unmatched).
+ * Orchestrator first, the rest alphabetical; read fresh each call.
  */
 export const listRoleOverlays = (input: RoleLookup): ReadonlyArray<RoleSummary> => {
   const builtinDir = input.builtinDir ?? BUILTIN_ROLES_DIR;
@@ -201,15 +179,9 @@ export const listRoleOverlays = (input: RoleLookup): ReadonlyArray<RoleSummary> 
 };
 
 /**
- * Resolve a thread role to its overlay, read fresh at session start (no cache):
- * the server's built-in `roles/<role>.md` composed with the project's
- * `.t3code/roles/<role>.md` (see `composeRole`). A file may open with YAML
- * frontmatter carrying `skills` (paths), `tools` (the active-tool profile) and
- * `toolsets` (families to keep resident); the rest is the system-prompt
- * overlay. null/empty role → the root orchestrator. A free-text/unknown role
- * with neither file yields `undefined` (permissive spawning: no profile, and the
- * composer treats it as delegation-capable). Role is slugified to `[a-z0-9-]`,
- * which also blocks path traversal.
+ * Read fresh at session start. Frontmatter may carry `skills`, `tools` and `toolsets`; the body is
+ * the prompt overlay. Empty role means the root orchestrator; an unknown role with no file yields
+ * `undefined` (no profile, delegation-capable). Slugified to `[a-z0-9-]`, blocking path traversal.
  */
 export const loadRoleOverlay = (
   input: RoleLookup & { readonly role: string | null },

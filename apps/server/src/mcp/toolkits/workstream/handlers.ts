@@ -1,10 +1,6 @@
 /**
- * The handler record registration serves: one handler per tool
- * (`handlers/*.ts`), checked against the defs' decoded inputs. Services are
- * captured when the record is built, so every handler runs with the server's
- * context.
- *
- * @module mcp/toolkits/workstream/handlers
+ * One handler per tool, checked against the defs' decoded inputs. Services are captured when the
+ * record is built, so every handler runs with the server's context.
  */
 import * as Effect from "effect/Effect";
 import type * as Context from "effect/Context";

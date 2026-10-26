@@ -216,7 +216,7 @@ const make = Effect.acquireRelease(
 
 export const layer = Layer.effect(McpSessionRegistry, make);
 
-// loom: kept for the workstream toolkit's mcpHttp.testkit.ts after upstream deleted it (#24058).
+// loom: kept for the workstream toolkit's mcpHttp.testkit.ts after upstream deleted it.
 export const issueActiveMcpCredential = (
   request: McpCredentialRequest,
 ): Effect.Effect<McpIssuedCredential | undefined> =>

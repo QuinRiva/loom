@@ -1,14 +1,7 @@
 /**
- * Shared dev-fixture config resolution — builds a `ServerConfig` for a scratch
- * home, so the seeder and the verifier read/write exactly the sqlite a dev
- * server on the same home serves (state under `<home>/userdata`).
- *
- * The home is `--home-dir <dir>` when given, else the worktree's own `.t3` —
- * never an ambient `T3CODE_HOME`: inside T3 Code that names the live install,
- * and a seed once written there broke every parent wake. A home a live server
- * holds is refused either way.
- *
- * @module dev/seedConfig
+ * Builds a `ServerConfig` for a scratch home so the seeder and verifier use the sqlite a dev server
+ * on that home serves. The home is `--home-dir` or the worktree's `.t3`, never an ambient
+ * `T3CODE_HOME` (inside T3 Code that is the live install). A home a live server holds is refused.
  */
 // Dev-only fixture tooling (not shipped); see seedWorkstream.ts.
 // @effect-diagnostics nodeBuiltinImport:off globalErrorInEffectFailure:off
@@ -37,12 +30,9 @@ export const buildSeedConfig = Effect.gen(function* () {
     );
   }
   const baseDir = path.resolve(t3Home);
-  // Mirror a dev-runner-launched server exactly: it sets both `VITE_DEV_SERVER_URL`
-  // (devUrl) and an explicit `T3CODE_HOME`. `deriveServerPaths` keys the state dir
-  // off `devUrl !== undefined && !baseDirIsExplicit`, so an explicit home resolves
-  // `<baseDir>/userdata/state.sqlite` regardless of devUrl — the exact path the
-  // server serves. The seed's home is always explicit, so pass
-  // `baseDirIsExplicit: true` or the seed would write to a `dev/` dir nothing reads.
+  // Mirror a dev-runner-launched server: `deriveServerPaths` only uses a `dev/` state dir when the
+  // base dir is not explicit, and the seed's home always is, so pass `baseDirIsExplicit: true` or the
+  // seed would write to a `dev/` dir nothing reads.
   const devUrl = new URL("http://localhost:5733");
   const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
     baseDirIsExplicit: true,

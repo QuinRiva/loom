@@ -3222,11 +3222,9 @@ export const layerWsRpc = (
                   },
                 })),
               );
-              // loom: fold the provider snapshots with live exhaustion marks so an
-              // account-wide limit (or a manual pause) surfaces on the provider
-              // card (§8.2). Upstream's usage-limit sources are a third input
-              // folded the same way. Seeded from the current values so a change on
-              // any one input re-derives from the last known value of the others.
+              // loom: fold provider snapshots, live exhaustion marks and upstream's usage-limit sources
+              // so an account-wide limit or manual pause shows on the provider card. Seeded from current
+              // values so a change on one input re-derives from the others' last known values.
               type ProviderStatusInput = {
                 readonly providers?: ReadonlyArray<ServerProvider>;
                 readonly marks?: ReadonlyArray<ExhaustionMark>;

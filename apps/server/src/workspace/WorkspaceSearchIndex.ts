@@ -532,11 +532,9 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
     };
   });
 
-  // loom: the one indexed file whose path ends with `reference` on a segment
-  // boundary, or null when none or several do. `**/` also matches at the root,
-  // and a page of 2 is enough because `totalMatched` counts the whole index.
-  // References that are not plain relative paths never reach the matcher, so a
-  // client cannot smuggle a wider glob in.
+  // loom: the one indexed file whose path ends with `reference` on a segment boundary, else null.
+  // `**/` also matches at the root; a page of 2 suffices since `totalMatched` counts the whole index.
+  // Only plain relative paths reach the matcher, so a client cannot smuggle a wider glob in.
   const locateFiles: WorkspaceSearchIndex["Service"]["locateFiles"] = (references) =>
     Effect.forEach(references, (reference) =>
       LOCATE_UNSAFE_REFERENCE.test(reference)

@@ -1,12 +1,7 @@
 /**
- * loom: forking a thread imported from V1. Such a thread has no V2 run, only the
- * provider thread the importer bound to its pi session (`LoomV1WorkstreamImporter`),
- * so `thread.fork.prepare` writes a fork transfer with no `runId` whose source is
- * that binding, and upstream's fork resolution finds the source provider thread
- * here instead of through a run. Pi then forks the whole session file, which is
- * the whole conversation: the source is idle by construction (it has no run).
- *
- * @module orchestration-v2/runlessFork.loom
+ * loom: a V1-imported thread has no V2 run, only the provider thread bound to its pi session, so
+ * `thread.fork.prepare` writes a run-less transfer and upstream's fork resolution finds the source
+ * here. Pi forks the whole session file; the source is idle by construction.
  */
 import type {
   OrchestrationV2ContextSourcePoint,

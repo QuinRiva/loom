@@ -1,9 +1,7 @@
 /**
- * A Loom control message steered into a turn that ends before the effect
- * worker delivers it (DL-661): upstream's steer follow-up re-dispatches it as a
- * new turn under the same message id, and the stored message must keep its
- * `loom` field — without it the card renders as raw text and the target's
- * turn-start rules see an anonymous agent message.
+ * A Loom control message steered into a turn that ends before delivery is re-dispatched by upstream
+ * as a new turn under the same id, and must keep its `loom` field: without it the card renders raw
+ * and turn-start rules see an anonymous agent message.
  */
 import { assert, it } from "@effect/vitest";
 import {

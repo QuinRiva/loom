@@ -1,9 +1,7 @@
 /**
- * The usage ledger on the real orchestrator (plan track 3c, Tests; seam 11): the
- * reactor's pipeline turns terminal provider turns into `loom_usage_ledger` rows
- * (read back from the event store in order, so no sleeps), a replay adds nothing,
- * a live turn update adds no row (its live cost still counts in `threadSpend`),
- * and the two seam-11 queries sum and rank.
+ * The usage ledger on the real orchestrator: terminal provider turns become `loom_usage_ledger` rows,
+ * a replay adds nothing, a live turn update adds no row (its cost still counts in `threadSpend`),
+ * and the spend queries sum and rank.
  */
 import { assert, it } from "@effect/vitest";
 import {

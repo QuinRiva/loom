@@ -1,12 +1,7 @@
 /**
- * The 23 Loom tools served on `/mcp`: input schema, error mode and hints per
- * tool, with the prose (description, snippet) read from `prose.ts`. The
- * Effect schema is the single source: handlers receive its
- * decoded type and `parameters` (the JSON schema `tools/list` serves) is
- * derived from it, so the two cannot drift (DL-336). `mcp__t3-code__ask_user_question` is
- * registered by Loom's pi extension, not here.
- *
- * @module mcp/toolkits/workstream/defs
+ * Loom's `/mcp` tools: input schema, error mode and hints, prose from `prose.ts`. The Effect schema
+ * is the single source, so handler input types and the served JSON `parameters` cannot drift.
+ * `ask_user_question` is registered by Loom's pi extension, not here.
  */
 import * as Effect from "effect/Effect";
 import type * as JsonSchema from "effect/JsonSchema";

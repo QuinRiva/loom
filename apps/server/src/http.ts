@@ -278,13 +278,9 @@ function isLoopbackHostname(hostname: string): boolean {
 }
 
 /**
- * `Cache-Control` for a served asset. Mutable workspace-backed assets (the
- * artefact viewer's HTML entry and its relative subresources) must be
- * revalidated every request so a reload after the agent regenerates the file
- * never renders stale bytes; the viewer's reload cache-busts only the entry
- * document, not `./style.css` & friends, so without this the browser would
- * reuse a cached subresource for up to the previous max-age. Immutable,
- * content-addressed attachments keep the long cache.
+ * Mutable workspace-backed assets revalidate every request: the artefact viewer's reload busts
+ * only the entry document's cache, so a regenerated `./style.css` would otherwise be served stale.
+ * Immutable content-addressed attachments keep the long cache.
  */
 export function assetCacheControl(mutable: boolean): string {
   return mutable ? "private, no-cache" : "private, max-age=3600";

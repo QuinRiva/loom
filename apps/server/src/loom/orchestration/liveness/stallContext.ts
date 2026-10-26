@@ -1,10 +1,6 @@
 /**
- * Informed-recovery context for a State-C stall (liveness §3c): the last
- * meaningful thing the stalled run did, so the recovery nudge can say what
- * happened instead of re-prompting blind. Under V2 it reads the run's turn
- * items from the projection (V1 parsed the pi session transcript).
- *
- * @module loom/orchestration/liveness/stallContext
+ * The last meaningful thing a State-C stalled run did, read from its projected turn items, so the
+ * recovery nudge can say what happened instead of re-prompting blind.
  */
 import type { OrchestrationV2TurnItem, RunId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";

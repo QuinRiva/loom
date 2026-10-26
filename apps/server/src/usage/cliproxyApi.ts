@@ -187,17 +187,10 @@ export const carriedAccounts = (
   );
 
 /**
- * loom: an account's usage from the hub's own readings of Anthropic's
- * rate-limit headers on real traffic (`model_quotas`), for when `oauth/usage`
- * refuses: always for a one-year token, and for about half the reads of a
- * browser login. Each window comes from the freshest model reading that
- * carries it; the per-model weekly (`7d_oi`) is named for its model
- * (`claude-fable-5-1` is `Fable`). A reading older than `CARRY_FORWARD_MS` is
- * dropped, as a carried one would be, so a quiet account shows no usage rather
- * than hours-old usage — except a window it shows exhausted, which stays so
- * until its reset however long the account then goes without traffic.
- * `checkedAt` is when the hub took the freshest reading used. Undefined when
- * there is none.
+ * loom: usage from the hub's `model_quotas` (rate-limit headers on real traffic) for when
+ * `oauth/usage` refuses. Each window comes from the freshest reading carrying it; readings older than
+ * `CARRY_FORWARD_MS` drop, except an exhausted window, which holds until its reset. `checkedAt` is the
+ * freshest reading used; undefined when none.
  */
 export const trafficUsageLimits = (quotas: ModelQuotas | null | undefined, now: number) => {
   const readings = Object.entries(quotas ?? {})
@@ -588,13 +581,9 @@ export const makeCliproxyApi = Effect.gen(function* () {
       };
     });
     return yield* read.pipe(
-      // loom: a failed read takes the fresher of the hub's traffic reading and
-      // the account's last good reading (checkedAt and all), under the current
-      // login; with neither, the hub's reason when it gave one. A browser
-      // login's traffic reading keeps the carried windows it lacks (the Fable
-      // weekly, when the account had no Fable traffic lately) rather than
-      // blanking them for a poll; a token seat's traffic is its only reading,
-      // so its stale windows drop as `trafficUsageLimits` says.
+      // loom: a failed read takes the fresher of the hub's traffic reading and the last good reading
+      // under the current login, else the hub's reason. A browser login keeps carried windows its
+      // traffic lacks (e.g. the Fable weekly); a token seat's stale windows drop.
       Effect.catch((error) => {
         const traffic = trafficUsageLimits(account.model_quotas, DateTime.toEpochMillis(now));
         const keep =

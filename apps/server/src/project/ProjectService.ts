@@ -16,7 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings"; // loom: #292
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings"; // loom: autoPull via project settings
 
 import { withCommandMetrics } from "../observability/Metrics.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
@@ -96,7 +96,7 @@ export class ProjectOperationError extends Schema.TaggedError<ProjectOperationEr
       "list-threads",
       "delete-thread",
       "dispatch-project-command",
-      "update-project-settings", // loom: #292
+      "update-project-settings", // loom: autoPull via project settings
     ]),
     projectId: Schema.optional(ProjectId),
     workspaceRoot: Schema.optional(Schema.String),
@@ -161,7 +161,7 @@ export const make = Effect.gen(function* () {
   const toProject = (
     row: ProjectStore.ProjectRow,
     enrichment: ProjectEnrichmentService.ProjectEnrichment | null,
-    autoPull: boolean, // loom: #292
+    autoPull: boolean, // loom: autoPull via project settings
   ): Project => ({
     id: row.projectId,
     title: row.title,
@@ -170,7 +170,7 @@ export const make = Effect.gen(function* () {
     faviconPath: row.faviconPath ?? enrichment?.faviconPath ?? null,
     defaultModelSelection: row.defaultModelSelection,
     defaultThreadEnvMode: row.defaultThreadEnvMode,
-    autoPull, // loom: #292
+    autoPull, // loom: autoPull via project settings
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     createdAt: row.createdAt,
@@ -183,8 +183,8 @@ export const make = Effect.gen(function* () {
       row.deletedAt === null
         ? yield* projectEnrichment.getAvailable(row.workspaceRoot)
         : yield* projectEnrichment.peek(row.workspaceRoot);
-    // loom: #292 — report the auto-pull policy actually in force, which lives in
-    // the project's settings override, not the legacy projection column.
+    // loom: report the auto-pull policy in force, from the project's settings override, not the
+    // legacy projection column.
     const settings = yield* serverSettings.getSettings.pipe(
       Effect.mapError(
         (cause) =>
@@ -385,7 +385,7 @@ export const make = Effect.gen(function* () {
         ...(input.defaultModelSelection === undefined
           ? {}
           : { defaultModelSelection: input.defaultModelSelection }),
-        // loom: #292 — autoPull is routed to settings below, not the projection.
+        // loom: autoPull is routed to settings below, not the projection.
         ...(input.projectIcon === undefined ? {} : { projectIcon: input.projectIcon }),
         ...(input.faviconPath === undefined ? {} : { faviconPath: input.faviconPath }),
         ...(input.defaultThreadEnvMode === undefined
@@ -393,9 +393,8 @@ export const make = Effect.gen(function* () {
           : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
       });
-      // loom: #292 — the auto-pull policy reads only the project's settings
-      // override, so write it there; the per-key map merges into the existing
-      // entry atomically. An explicit false must override an environment default.
+      // loom: auto-pull reads only the project's settings override, so write it there (the per-key
+      // map merges atomically). An explicit false must override an environment default.
       if (input.autoPull !== undefined) {
         yield* serverSettings
           .updateSettings({ projectAutoPullOverrides: { [input.projectId]: input.autoPull } })

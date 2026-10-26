@@ -32,11 +32,8 @@ import { fileHeaderMimeType } from "./fileHeaderMimeType.ts";
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
 // loom: out-of-workspace reads/listings and the larger .mdx plan budget.
 /**
- * Upper bound a per-request `maxBytes` can raise the read cap to (8 MiB). Only
- * the `.mdx` plan preview opts in; the ceiling keeps an oversized/hostile
- * request from reading unbounded bytes into memory. Deliberately above any
- * plausible decision document (largest observed artefact ~1.25 MB) yet far
- * below a runaway read.
+ * The ceiling a per-request `maxBytes` (only the `.mdx` plan preview) can raise the read cap to: well
+ * above any plausible decision document (~1.25 MB observed), well below a runaway read.
  */
 const PROJECT_READ_FILE_PLAN_MAX_BYTES = 8 * 1024 * 1024;
 

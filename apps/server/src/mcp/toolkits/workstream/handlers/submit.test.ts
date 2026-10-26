@@ -1,9 +1,7 @@
 /**
- * mcp__t3-code__workstream_submit and mcp__t3-code__workstream_set_outcome on V2's real orchestrator: the
- * routing echo for terminal / loop / resolve / needs_human / yield, the D19
+ * workstream_submit and set_outcome on the real orchestrator: the routing echo per outcome, the hold
  * and response-block refusals before any report is written, and the self-issued `done` guard
- * (pending rework, unresolved gate) against a parent's `done` with the arm's
- * warning.
+ * (pending rework, unresolved gate) versus a parent's `done` with the arm's warning.
  */
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@t3tools/contracts";

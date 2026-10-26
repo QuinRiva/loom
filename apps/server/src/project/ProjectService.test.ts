@@ -25,7 +25,7 @@ import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts"; // loom: #292
+import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts"; // loom: autoPull via project settings
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
@@ -65,7 +65,7 @@ const layerTestFor = (
   >,
 ) =>
   RuntimeLayer.layerProjectService.pipe(
-    Layer.provideMerge(ServerSettings.layerTest()), // loom: #292
+    Layer.provideMerge(ServerSettings.layerTest()), // loom: autoPull via project settings
     Layer.provideMerge(ProjectEnrichmentService.layer),
     Layer.provideMerge(layerWorkspacePaths),
     Layer.provideMerge(projectMetadataLayer),
@@ -84,7 +84,7 @@ const layerProjectServiceDependencies = Layer.mergeAll(
   IdAllocator.layer,
   ThreadCommandExecutor.layer,
   LoomStore.layer, // loom: ProjectService soft-deletes the project's goals
-  ServerSettings.layerTest(), // loom: #292
+  ServerSettings.layerTest(), // loom: autoPull via project settings
 ).pipe(
   Layer.provideMerge(LegacyV1ThreadImporter.layer.pipe(Layer.provide(RuntimeLayer.layerEventSink))),
   Layer.provideMerge(ProjectEnrichmentService.layer),
@@ -213,7 +213,7 @@ it.layer(layerTest)("ProjectService", (it) => {
     }),
   );
 
-  // loom: #292: a project update's autoPull must reach the policy auto-pull reads.
+  // loom: a project update's autoPull must reach the policy auto-pull reads.
   it.effect("routes autoPull into the auto-pull policy", () =>
     Effect.gen(function* () {
       const service = yield* ProjectService.ProjectService;

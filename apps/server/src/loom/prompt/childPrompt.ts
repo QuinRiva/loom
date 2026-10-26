@@ -1,10 +1,6 @@
 /**
- * The first-turn text a child receives: its brief inside the kickoff wrapper
- * (`workstreamChildPrompt` in `prose.ts`), or the raw brief for a role-less
- * child — led, for a `forkFrom` child either way, by the copied-history clause.
- * The dispatcher's kickoff is its only sender.
- *
- * @module loom/prompt/childPrompt
+ * A child's first-turn text: its brief in the kickoff wrapper (raw for a role-less child), led for
+ * a `forkFrom` child by the copied-history clause. The dispatcher's kickoff is its only sender.
  */
 import type { LoomThreadWorkstream, ThreadId } from "@t3tools/contracts";
 import { gateLoopTargetOf } from "@t3tools/shared/workstreamGraph";

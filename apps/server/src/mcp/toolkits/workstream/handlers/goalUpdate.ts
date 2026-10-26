@@ -1,11 +1,7 @@
 /**
- * `mcp__t3-code__goal_update`: the caller's active goal's title, objective and slug through
- * `LoomStoreV2.goals.upsert`, then published. A slug stays unique among the
- * project's goals (deleted ones included), as V1's decider required. Only the
- * goal's owner may call it (DL-670): a child's edit would become every later
- * child's "parent's objective".
- *
- * @module mcp/toolkits/workstream/handlers/goalUpdate
+ * `goal_update`: the active goal's title, objective and slug, upserted then published. A slug stays
+ * unique among the project's goals, deleted included. Owner only: a child's edit would become every
+ * later child's "parent's objective".
  */
 import * as Effect from "effect/Effect";
 

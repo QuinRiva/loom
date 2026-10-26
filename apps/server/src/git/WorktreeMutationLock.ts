@@ -9,16 +9,9 @@ import * as Semaphore from "effect/Semaphore";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 /**
- * WorktreeMutationLock — a per-worktree-path mutex (worktree-isolation plan §3,
- * review finding 3). Provisioning (`WorktreeProvisioner`, on the dispatcher
- * worker) and fan-in (`WorkstreamFanInReactor`, on its own worker) both mutate
- * the *parent* worktree's git state (`commit -A`, `merge`), on separate fibres.
- * Without serialisation a sibling's provisioning snapshot commit can race a
- * fan-in merge in the same worktree — index.lock contention, or worse, an
- * `add -A && commit` concluding another child's in-flight conflicted merge.
- * Both callers wrap their parent-worktree git ops in `withLock(worktreePath, …)`
- * so mutations on one worktree are strictly serial; distinct worktrees stay
- * concurrent.
+ * Per-worktree-path mutex. Provisioning and fan-in both mutate the parent worktree's git state
+ * (`commit -A`, `merge`) on separate fibres; unserialised, a provisioning snapshot commit can race a
+ * fan-in merge or commit another child's conflicted merge. Distinct worktrees stay concurrent.
  */
 export class WorktreeMutationLock extends Context.Service<
   WorktreeMutationLock,

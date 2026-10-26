@@ -1372,9 +1372,8 @@ function createTerminalSpawnEnv(
   if (!fishFeatures?.includes("query-term")) {
     spawnEnv[fishFeaturesKey] = fishFeatures ? `${fishFeatures},no-query-term` : "no-query-term";
   }
-  // loom: strip AppImage runtime env leakage (issue #1699), then resolve the
-  // terminal's own worktree binaries (e.g. `vp`) before anything inherited from
-  // the server's PATH, which may point at a different checkout.
+  // loom: strip AppImage runtime env leakage, then resolve the terminal's own worktree binaries
+  // (e.g. `vp`) before the server's PATH, which may point at a different checkout.
   return withLocalNodeModulesBin(stripAppImageRuntimeEnv(spawnEnv), cwd, platform);
 }
 

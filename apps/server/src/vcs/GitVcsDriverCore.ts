@@ -4480,11 +4480,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const removeWorktree: GitVcsDriver.GitVcsDriver["Service"]["removeWorktree"] = Effect.fn(
     "removeWorktree",
   )(function* (input) {
-    // loom: provenance guard (foreignHomeGuard.loom.ts). A typed failure, not a
-    // silent success: in both removers the branch delete is sequenced on the
-    // removal succeeding, so refusing here also refuses the branch delete. The
-    // location rule (a recorded path under this home's `worktreesDir`) belongs to
-    // the record-driven removers, not this primitive.
+    // loom: provenance guard (foreignHomeGuard.loom.ts). A typed failure, not silent success: the
+    // branch delete is sequenced on removal succeeding, so it is refused too. The location rule
+    // belongs to the record-driven removers, not this primitive.
     if (yield* refuseForeignHomeSideEffect("GitVcsDriver.removeWorktree", input.path)) {
       return yield* new GitCommandError({
         ...gitCommandContext({
@@ -4740,11 +4738,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       }),
     );
 
-  // Worktree isolation (design §3): stage everything and commit, or report the
-  // tree was already clean. `git diff --cached --quiet` exits 1 when the index
-  // holds changes; that is our "something to commit" signal.
-  // True when the worktree is mid-merge (a `MERGE_HEAD` ref exists) — e.g. a
-  // fan-in merge that conflicted and crashed before `merge --abort`.
+  // Worktree isolation: `commitAll` stages and commits, or reports a clean tree.
+  // True when the worktree is mid-merge (`MERGE_HEAD` exists), e.g. a fan-in merge that conflicted
+  // and crashed before `merge --abort`.
   const hasMergeHead = (cwd: string) =>
     executeGit(
       "GitVcsDriver.hasMergeHead",
@@ -4775,11 +4771,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         { allowNonZeroExit: true },
       );
       if (staged.exitCode === 0) {
-        // Clean tree: nothing to commit, but still report the resulting HEAD so
-        // callers get the current tip (the fan-in `finalCommitSha` marker needs
-        // the child branch tip even when the child committed nothing new at
-        // fan-in). `committed:false` remains the "did we create a commit" signal.
-        // A repo with no HEAD yet (unborn branch) has nothing to resolve → null.
+        // Clean tree: still report HEAD (fan-in's `finalCommitSha` needs the child tip even when it
+        // committed nothing); `committed: false` is the "created a commit" signal. Unborn HEAD gives null.
         const head = yield* executeGit(
           "GitVcsDriver.commitAll.revParseHead",
           cwd,

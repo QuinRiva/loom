@@ -30,13 +30,9 @@ export type WorkstreamTreeThread = OrchestrationV2ThreadShell & {
 };
 
 /**
- * The whole tree `member` belongs to (archived included) from
- * `LoomStoreV2.listWorkstreamTree`, each node joined with its V2 shell, its pi
- * session file (the provider thread's native ref) and its anchor's live task
- * text. Shells are read per tree member, not as a whole-database snapshot. A
- * root before its first Loom write is a tree of itself. Shared by
- * `workstream_list` and the `/retro` launcher's manifest; `lean` skips the
- * session and anchor reads the lean list does not render.
+ * The whole tree `member` belongs to (archived included), each node joined with its shell, pi
+ * session file and anchor task text; shells are read per member, never a whole-database snapshot.
+ * Shared by `workstream_list` and the `/retro` manifest; `lean` skips session and anchor reads.
  */
 export const workstreamTreeView = Effect.fn("LoomToolkit.workstreamTreeView")(function* (
   member: OrchestrationV2ThreadShell,

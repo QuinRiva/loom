@@ -1,17 +1,8 @@
 /**
- * Restart recovery for Loom threads (plan §3 table, w8; DL-195, DL-199): after
- * upstream's startup reconciliation holds every queued run, `releaseHeldQueues`
- * resumes a live thread's held control wake (behind upstream's restart
- * continuation, run first when its effect is still due — DL-376), leaves a thread owed a human
- * held (and rule 0 makes its continuation an accepted no-op), and cancels a
- * dead thread's queued runs — on the real orchestrator and recovery service.
- *
- * Seam 20 (Phase 3 3b-4, smoke step 17; DL-690): a continued thread's stashed steer
- * rides its restart continuation exactly once — first, and past a human-held queue —
- * or, with no continuation, starts as a control message; the stash of a flagged or done
- * thread stays on disk, and the dispatcher's redelivery rail then carries a flagged
- * thread's stash into the next human-started turn (DL-387). A stash from a turn that
- * ended any other way (a Stop, a cancel) is discarded, never delivered (DL-694).
+ * Restart recovery: `releaseHeldQueues` resumes a live thread's held wake, keeps a human-owed thread
+ * held and cancels a dead thread's queue. A continued thread's stashed steer rides its continuation
+ * once; a flagged or done thread's stash waits for the next human-started turn; a stash from a
+ * Stop or cancel is discarded.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";

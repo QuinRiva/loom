@@ -1,16 +1,7 @@
 /**
- * The Loom substrate's test layer (plans/upstream-pull9-phase2-substrate/plan.mdx
- * §7): V2's real orchestrator, event sink, SQL projection (with the Loom fold)
- * and receipts over `SqlitePersistence.layerMemory` — which runs every migration, so
- * the `loom_*` tables exist — with a stub provider adapter whose `openSession`
- * opens an inert session (nothing runs; an interrupt is accepted) only when a
- * test asks for one (`seedRunningRun({ live: true })`). Nothing mocks the
- * engine; a "running" thread is seeded through the real `EventSinkV2`.
- *
- * Usage: `it.layer(LoomOrchestratorTestLayer)("…", (it) => …)`, then the
- * helpers below inside `it.effect`.
- *
- * @module loom/testkit/loomOrchestratorLayer
+ * V2's real orchestrator, sink, projection and receipts over `SqlitePersistence.layerMemory` (every
+ * migration runs), with a stub adapter whose inert session opens only on
+ * `seedRunningRun({ live: true })`. Nothing mocks the engine.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -228,14 +219,9 @@ export const seededRunIds = (threadId: ThreadId, ordinal = 1) => ({
 });
 
 /**
- * A running run (provider thread, run, attempt, root node, running provider turn
- * and its user message) written through the real `EventSinkV2.writeWithEffects`,
- * so the thread has a blocking run exactly as a live turn would leave it. With
- * `live`, the provider thread is bound to an open (inert) provider session, so
- * upstream's `run.interrupt` takes its real path and enqueues
- * `provider-turn.interrupt`; without it upstream refuses the interrupt. With
- * `turn: false` the provider turn is left out: the gap between a run going
- * `running` and its adapter reporting the turn started.
+ * A running run written through the real `EventSinkV2`, as a live turn leaves it. `live` binds an
+ * inert provider session so upstream's `run.interrupt` takes its real path (otherwise refused);
+ * `turn: false` omits the provider turn, the gap before the adapter reports it started.
  */
 export const seedRunningRun = Effect.fn("loom.testkit.seedRunningRun")(function* (input: {
   readonly threadId: ThreadId;

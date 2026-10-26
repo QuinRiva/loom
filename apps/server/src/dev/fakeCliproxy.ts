@@ -1,25 +1,8 @@
 /**
- * A fake CLIProxyAPI hub for the hub login reminder: the management calls Loom
- * makes (`auth-files`, `auth-files/download`, `api-call`, `anthropic-auth-url`,
- * `oauth-callback`, `get-auth-status`), over five pooled Claude accounts, so
- * the whole in-app login runs without a real sign-in and never touches the
- * real hub. A callback whose code is `login:<email>` logs that account in two
- * seconds later: a fresh device id and `last_refresh` = then, as a browser
- * login does. Any other code fails the exchange, as a bad code does.
- *
- * `POST /fake/account {email, ...}` edits an account for a scenario:
- * `status: "error"` + `status_message: "token expired"` signs it out,
- * `lastRefreshHoursAgo` moves its refresh clock, `token: true` makes it a
- * one-year `claude setup-token` token.
- *
- * Device ids are `fake-device-<email>` until a login, so a dev state
- * directory's `hub-logins.json` can name them as fingerprints.
- *
- * Run: `vp run dev:fake-hub [--port 18417]`, then point a scratch dev
- * instance's `settings.json` at it:
- * `"usageLimitSources": {"fake": {"kind": "cliproxy", "url": "http://127.0.0.1:18417", "managementKey": "fake", "enabled": true}}`.
- *
- * @module dev/fakeCliproxy
+ * A fake CLIProxyAPI hub (five pooled Claude accounts) so the in-app hub login runs without a real
+ * sign-in. Callback code `login:<email>` logs that account in 2s later; any other code fails.
+ * `POST /fake/account {email, ...}` edits an account. Run `vp run dev:fake-hub [--port 18417]` and
+ * point a scratch instance's `usageLimitSources` at it with `"managementKey": "fake"`.
  */
 // Dev-only fixture tooling (not shipped): plain node http, Date and JSON keep it legible.
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off globalConsole:off preferSchemaOverJson:off

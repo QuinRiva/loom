@@ -1,10 +1,7 @@
 /**
- * `mcp__t3-code__ask_user_question` on the real orchestrator (3a-4): the request on its
- * dedicated node, the respond hunk with and without a live waiter, rule 6's
- * supersede and the run-end close. The reactor is fed each command's committed
- * events (the dispatch result, or the receipt's events by command id), so every
- * step is deterministic; the long-poll waits on its Deferred under the
- * TestClock, whose slice never elapses.
+ * `ask_user_question` on the real orchestrator: the request node, the respond hunk with and without a
+ * live waiter, supersede and run-end close. The reactor is fed each command's committed events, so
+ * every step is deterministic; the long-poll waits on its Deferred under the TestClock.
  */
 import { assert, it } from "@effect/vitest";
 import {

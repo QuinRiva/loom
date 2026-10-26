@@ -1,13 +1,7 @@
 /**
- * `mcp__t3-code__workstream_scaffold`: a whole child graph in one `thread.scaffold`, all or
- * nothing. References are a node key (this call's, or an existing child's
- * graph key) or `thread:<id>`; a fork node inherits its source's identity along
- * the fork chain. Nodes are created unbriefed, so none starts before
- * `mcp__t3-code__workstream_brief`. The arm validates the graph (live siblings, cycles,
- * unique and non-UUID keys) under the caller's lock; its refusal names nodes
- * by key.
- *
- * @module mcp/toolkits/workstream/handlers/scaffold
+ * `workstream_scaffold`: a whole child graph in one all-or-nothing `thread.scaffold`. References are
+ * node keys or `thread:<id>`; nodes start unbriefed so none runs before `workstream_brief`. The arm
+ * validates live siblings, cycles and unique non-UUID keys under the caller's lock.
  */
 import {
   GoalTaskId,

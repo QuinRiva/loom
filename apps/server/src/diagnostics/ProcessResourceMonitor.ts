@@ -32,12 +32,9 @@ export interface ProcessResourceSample {
 }
 
 /**
- * A cheap process-health verdict over the trailing window for one child's
- * provider process subtree, read from samples already collected. `active` is
- * the honest one-bit signal the slow-tool notice needs: peak CPU across the
- * subtree cleared {@link PROCESS_TREE_ACTIVE_CPU_THRESHOLD} at some read in the
- * window (grinding), vs no meaningful CPU (may be genuinely stuck — or blocked
- * on I/O/network, hence the hedge in the copy).
+ * Trailing-window health of one child's provider process subtree. `active` means peak subtree CPU
+ * cleared {@link PROCESS_TREE_ACTIVE_CPU_THRESHOLD} at some read; inactive may be stuck or merely
+ * blocked on I/O, hence the hedge in the slow-tool notice copy.
  */
 export interface ProcessTreeActivity {
   readonly peakCpuPercent: number;
@@ -50,16 +47,9 @@ export interface ProcessTreeActivity {
 const PROCESS_TREE_ACTIVE_CPU_THRESHOLD = 1;
 
 /**
- * Pure trailing-window health read for the process subtree whose provider
- * command line contains `marker` (the child's pi `--session-id`, which the
- * dispatcher passes). Locates the matching root pid(s) among windowed samples,
- * expands to their full descendant subtree via observed ppid edges, and reports
- * the peak per-read CPU across it. Returns `null` when the marker root is not
- * present in the LATEST monitor read — a remote/SSH-hosted provider whose
- * process is not local, an exited process (gone from the newest `ps` snapshot,
- * even if a stale sample lingers in the window), or a monitor with no samples
- * yet — so the caller degrades to the plain notice instead of turning a
- * missing/gone measurement into a misleading CPU claim.
+ * Peak per-read CPU of the subtree rooted where the command line contains `marker` (the child's pi
+ * `--session-id`). `null` when that root is absent from the LATEST read (remote provider, exited
+ * process, no samples yet), so the caller shows the plain notice, not a misleading CPU claim.
  */
 export function recentProcessTreeActivity(input: {
   readonly samples: ReadonlyArray<ProcessResourceSample>;
@@ -71,11 +61,8 @@ export function recentProcessTreeActivity(input: {
   const windowed = input.samples.filter((sample) => sample.sampledAtMs >= windowStartMs);
   if (windowed.length === 0) return null;
 
-  // The root must be LIVE now: present in the newest read within the window, not
-  // merely somewhere in the trailing window. A process that exited drops out of
-  // the latest `ps` snapshot, so its lingering older samples must not keep
-  // reporting activity. The subtree topology is likewise read from the latest
-  // read (the current tree), so only currently-observed processes are summarised.
+  // The root must be in the newest read, not merely in the window: an exited process's lingering
+  // samples must not report activity. The subtree topology is read from that latest read too.
   const latestSampledAtMs = Math.max(...windowed.map((sample) => sample.sampledAtMs));
   const latestRead = windowed.filter((sample) => sample.sampledAtMs === latestSampledAtMs);
   const rootPids = new Set(

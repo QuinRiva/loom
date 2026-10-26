@@ -1,13 +1,7 @@
 /**
- * `mcp__t3-code__snooze_thread`: the calling thread snoozes ITSELF (never another
- * thread), deferred to the end of its turn. A snooze applied mid-turn is undone
- * the moment the run completes (`isSnoozed` reads a completion after `snoozedAt`
- * as a wake), so this only records the request; the dispatcher's snooze rail
- * (`loom/orchestration/dispatcher/snoozeRail.ts`) dispatches `thread.snooze` once
- * the turn has ended idle. Upstream's own snooze tool needs the `orchestration`
- * capability, which a Loom credential lacks.
- *
- * @module mcp/toolkits/workstream/handlers/snoozeThread
+ * `snooze_thread`: the caller snoozes ITSELF. A mid-turn snooze is undone when the run completes,
+ * so this only records the request and the dispatcher's snooze rail applies it once the turn ended
+ * idle. Upstream's snooze tool needs the `orchestration` capability a Loom credential lacks.
  */
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";

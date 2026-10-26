@@ -1,10 +1,7 @@
 /**
- * mcp__t3-code__workstream_prompt, mcp__t3-code__workstream_stop, mcp__t3-code__workstream_request_attention and
- * mcp__t3-code__workstream_set_dependencies on V2's real orchestrator: the prompt is one
- * stored message with `loom.origin` orchestrator that clears a standing hold;
- * on an unstarted briefed child it amends the brief and starts nothing, once
- * started it steers; an unbriefed child is refused; stop interrupts without
- * raising; dependencies carry the parent.
+ * Prompt, stop, request_attention and set_dependencies on the real orchestrator: a prompt is one
+ * orchestrator-origin message that clears a hold; on an unstarted briefed child it amends the brief,
+ * once started it steers; an unbriefed child is refused; stop never raises; dependencies carry the parent.
  */
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@t3tools/contracts";

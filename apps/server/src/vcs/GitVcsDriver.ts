@@ -1459,18 +1459,9 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       return new Set(pathLists.flat().filter((path) => path.length > 0));
     }),
 
-    // Deleted as one atomic `--stdin` transaction: partial deletion is the
-    // dangerous outcome, because a surviving stale baseline ref wins the
-    // once-per-turn capture check at the next turn start and anchors the next
-    // diff to a pre-revert tree. Deleting a *packed* ref needs
-    // `packed-refs.lock`, so this can lose a brief race with another git
-    // process — absorbed by the shared `GIT_LOCK_RETRY`. Deletion is idempotent
-    // (a missing ref exits 0), so re-running the whole batch is safe. Failure
-    // is NOT swallowed: it surfaces as a revert-failure activity rather than a
-    // silent wrong diff.
-    // De-duplicated because a transaction rejects repeated refs outright
-    // (`fatal: multiple updates for ref 'X' not allowed`) — uniqueness is a
-    // precondition of batching that the previous per-ref loop did not have.
+    // One atomic `--stdin` transaction: a surviving stale baseline ref would anchor the next diff to a
+    // pre-revert tree. Idempotent, so `GIT_LOCK_RETRY` absorbs `packed-refs.lock` races; failure
+    // surfaces as a revert-failure activity. De-duplicated: a transaction rejects repeated refs.
     deleteCheckpointRefs: Effect.fn("GitVcsDriver.checkpoints.deleteCheckpointRefs")(
       function* (input) {
         yield* execute({

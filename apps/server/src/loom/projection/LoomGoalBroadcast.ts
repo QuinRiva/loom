@@ -1,14 +1,7 @@
 /**
- * Goal broadcast (plans/upstream-pull9-phase2-substrate/plan.mdx §4, D21,
- * DL-200): goals are plain tables, so a goal write emits no thread event and
- * the shell stream would never carry it. This PubSub carries unsequenced
- * `goal.updated` / `goal.removed` shell-stream items instead: Phase 3a's
- * handlers publish after their write, and the reactor below publishes after a
- * projector-folded cascade (last-thread archive, unarchive, sole-thread
- * rename, last-thread delete). `ws.ts` merges the items — and puts `goals` on
- * the authoritative snapshot — only for subscribers that pass `loom: true`.
- *
- * @module loom/projection/LoomGoalBroadcast
+ * Goals are plain tables, so a write emits no thread event. This PubSub carries unsequenced
+ * `goal.updated` / `goal.removed` shell items: handlers publish after their write, the reactor below
+ * after a projector-folded cascade. `ws.ts` merges them only for `loom: true` subscribers.
  */
 import type {
   LoomCacheShellStreamItem,
@@ -112,15 +105,9 @@ export const loomSnapshotGoals = (projects: ReadonlyArray<OrchestrationProjectSh
   ).pipe(Effect.map((goals) => ({ goals: goals.flat().map(toGoalShell) })));
 
 /**
- * The shell subscription's goal surface (DL-200): `goals` for the
- * authoritative snapshot and the live goal items, both empty unless the
- * subscriber passed `loom: true`. The subscription is taken here, before the
- * snapshot loads, so no write between snapshot and tail is lost. The live
- * consult items (`LoomThreadConsult.subscribeLive`) ride the same tail: they
- * have no snapshot field, since a subscription opens with the running ones.
- * So do the cache-row updates (`LoomCacheBroadcast`): kept off the snapshot, which
- * carries each thread's persisted `workstream.cache` instead.
- * This tail is therefore goals, consults and cache rows, not goals alone.
+ * The `loom: true` shell tail: snapshot `goals`, plus live goal, consult and cache-row items. The
+ * subscription is taken before the snapshot loads so no write between them is lost. Consults and
+ * cache rows have no snapshot field here (a thread's persisted `workstream.cache` carries the latter).
  */
 export const loomShellGoals = Effect.fn("loom.shellGoals")(function* (input: {
   readonly loom?: boolean;

@@ -1,10 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - fixture role files on disk.
 /**
- * The real composer over the real orchestrator and Loom store: byte-stable
- * output, the write-once launch identity, first-launch fork replay and the drafter
- * exceptions to it, the child
- * readership clause, cache retention, the extension path and the relocation
- * clause.
+ * The real composer over the real orchestrator and Loom store: byte-stable output, write-once launch
+ * identity, first-launch fork replay and its drafter exceptions, the child readership clause, cache
+ * retention, the extension path and the relocation clause.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";

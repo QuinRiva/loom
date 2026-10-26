@@ -1,12 +1,7 @@
 /**
- * Who made an agent's commit. Every pi process Loom composes commits as `Loom agent` (the
- * email stays git's `user.email`, so GitHub credit is unchanged) and puts a `git` shim first
- * on its PATH that adds `Loom-Thread:` and `Pi-Session:` trailers to each `git commit`, naming
- * the thread and pi session that made it. The work-model doctrine tells agents that a commit in
- * the human's name is an agent's unless it says otherwise, and to read the trailer for which.
- * Other commit-making commands (merge, rebase, cherry-pick) carry the name but no trailers.
- *
- * @module loom/workstream/agentGitIdentity
+ * Loom's pi processes commit as `Loom agent` (email unchanged, so GitHub credit holds) with a `git`
+ * shim first on PATH adding `Loom-Thread:` and `Pi-Session:` trailers to each `git commit`. Merge,
+ * rebase and cherry-pick carry the name but no trailers.
  */
 import type { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -17,11 +12,9 @@ import * as Path from "effect/Path";
 export const AGENT_GIT_NAME = "Loom agent";
 
 /**
- * The shim. It drops every PATH entry that resolves to itself (so the real git, and anything git
- * runs, never re-enters it, whatever the entry's spelling), finds the subcommand past git's
- * global options in one scan, and only on `commit` — under a git that has `--trailer` (2.32+) —
- * rebuilds the arguments with the trailers right after it (before any `--` pathspec). A no-op
- * without `LOOM_THREAD_ID`.
+ * Drops every PATH entry resolving to itself (so git never re-enters it), finds the subcommand past
+ * git's global options, and only on `commit` under git 2.32+ (`--trailer`) inserts the trailers
+ * before any `--` pathspec. A no-op without `LOOM_THREAD_ID`.
  */
 export const GIT_SHIM_SOURCE = `#!/bin/sh
 # Loom's git shim (apps/server/src/loom/workstream/agentGitIdentity.ts): on \`git commit\` in a

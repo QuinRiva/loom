@@ -1,14 +1,7 @@
 /**
- * Loom's open-session composition seam (pull 9 strategy Area G; Phase 3 plan seam 4).
- *
- * `ProviderSessionManager.open` asks the composer for the thread's prompt,
- * skills, extensions and env on every provider process spawn and passes them on
- * the open-session input as `loom`; `buildPiRpcLaunch` turns them into argv and
- * the spawn env. This module is the seam only (upstream files import it, so it
- * stays import-light); the production composer is `sessionComposerLive.ts`,
- * wired by `LoomSessionComposerLive` in `loom/serverLayers.ts`.
- *
- * @module loom/prompt/sessionComposer
+ * Loom's open-session composition seam: `ProviderSessionManager.open` asks it for the prompt, skills,
+ * extensions and env on every provider spawn. Kept import-light because upstream files import it;
+ * the production composer is `sessionComposerLive.ts`.
  */
 import { type LoomOpenSessionFields, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";

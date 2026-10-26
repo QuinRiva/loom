@@ -8,11 +8,8 @@ import { TestClock } from "effect/testing";
 
 import { GIT_LOCK_RETRY } from "./gitLockRetry.ts";
 
-// Git ops on a worktree race the agent's own git subprocess (index.lock /
-// packed-refs.lock contention). The retry schedule must absorb a brief failure
-// but stay bounded so a genuinely-broken op still surfaces promptly. The
-// backoff runs against the test clock, so advance it past the total window to
-// flush retries.
+// The retry must absorb brief index.lock / packed-refs.lock contention yet stay bounded so a broken
+// op still surfaces. Backoff runs on the test clock, so advance it past the window to flush retries.
 describe("GIT_LOCK_RETRY", () => {
   it.effect("absorbs a failing-then-succeeding op (transient index.lock race)", () =>
     Effect.gen(function* () {

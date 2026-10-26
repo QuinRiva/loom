@@ -1,13 +1,7 @@
 /**
- * `mcp__t3-code__workstream_submit`: writes the caller's report and dispatches
- * `thread.work.submit`; the arm routes the outcome and the echo reports what
- * it decided (from the `thread.outcome-recorded` / `thread.route-taken` events
- * it committed), so "yielded" and a rework route read as NOT done. A
- * completing submit is refused while a hold stands (D19), and any submit
- * without a response block, before any report is written; inside a gate loop
- * each round keeps its own report file.
- *
- * @module mcp/toolkits/workstream/handlers/submit
+ * `workstream_submit`: writes the report, dispatches `thread.work.submit` and echoes the route the arm
+ * committed, so "yielded" and rework read as NOT done. A completing submit is refused while a hold
+ * stands, and any submit without a response block, before writing; each gate round has its own file.
  */
 import { holdErasedByCompletion, routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
 import * as Effect from "effect/Effect";

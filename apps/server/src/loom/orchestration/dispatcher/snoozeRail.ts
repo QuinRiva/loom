@@ -1,19 +1,8 @@
 /**
- * The snooze rail: applies a thread's own deferred snooze
- * (`mcp__t3-code__snooze_thread`, `loom_thread_snooze_requests`) once the turn
- * that asked for it has ended idle. Mid-turn the snooze would be undone by the
- * run's completion (`isSnoozed`); dispatched after it, `snoozedAt` postdates
- * `latestRunCompletedAt`, so the thread stays snoozed until a message
- * un-snoozes it (`dispatchMessage` clears `snoozedUntil`) or the time lapses.
- * A terminal `run.updated` triggers a pass, so it lands right after the turn.
- *
- * A request is consumed once: applied, or dropped when a message arrived or a
- * run was requested after it (the turn that asked is no longer the latest), when a question or approval is
- * pending (even mid-turn), or when the turn did not end in a state the human may
- * safely not see — a Loom attention flag, a failed or interrupted run, an
- * archived thread, a wake time already past.
- *
- * @module loom/orchestration/dispatcher/snoozeRail
+ * Applies a thread's deferred snooze once the asking turn ended idle: mid-turn, run completion
+ * would undo it. Consumed once: applied, or dropped when a later message or run exists, a question
+ * or approval is pending, or the turn ended unsafe to hide (attention flag, failed or interrupted
+ * run, archived thread, wake time already past).
  */
 import { CommandId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";

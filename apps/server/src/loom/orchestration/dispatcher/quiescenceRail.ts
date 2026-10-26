@@ -1,14 +1,7 @@
 /**
- * The quiescence rail (Phase 3 plan "The quiescence rail"): a started Loom
- * child that ended its turn without `mcp__t3-code__workstream_submit` and has
- * stayed idle past its grace gets a synthesised report from its last assistant
- * message and a `quiescent` submit under `server:loom:quiescent:<threadId>:<runId>`.
- * The arm routes it to `yield` (before any rework interception, so a quiet gate
- * coder is parked, never looped to its reviewer), raises `awaiting_orchestrator`
- * and records `lastOutcome.synthesised`; the yield rail wakes the parent on the
- * next pass. `quiescenceCandidate` (Phase 2) decides; this step only feeds it.
- *
- * @module loom/orchestration/dispatcher/quiescenceRail
+ * A started child that ended its turn without `workstream_submit` and stayed idle past its grace
+ * gets a synthesised report and a `quiescent` submit, routed to `yield` before any rework
+ * interception so a quiet gate coder is parked, never looped to its reviewer.
  */
 import { CommandId } from "@t3tools/contracts";
 import { isWaitingInGate } from "@t3tools/shared/workstreamGraph";

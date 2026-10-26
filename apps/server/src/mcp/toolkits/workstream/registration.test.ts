@@ -83,11 +83,9 @@ it.effect("a credential without workstream is refused before the handler runs", 
   }),
 );
 
-// Gate `hosted`: an outside agent signed in through upstream's MCP OAuth gets a scope with no
-// thread and no `workstream` capability. Loom's tools are hand-registered (outside
-// McpToolAccess), so requireWorkstreamCaller is their only gate; it must refuse before decoding
-// the payload or running a handler. The scope comes from upstream's real authenticator, so a
-// later pull that widens the client capability set shows up here.
+// An outside agent signed in via upstream's MCP OAuth has no thread and no `workstream` capability.
+// Loom's tools bypass McpToolAccess, so requireWorkstreamCaller must refuse before decoding or
+// running a handler. The scope comes from upstream's real authenticator, so a widening shows here.
 
 /** The scope upstream gives an outside agent signed in through MCP OAuth. */
 const oauthScope = Effect.gen(function* () {

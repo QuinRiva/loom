@@ -178,13 +178,9 @@ const decodeAssetClaims = Schema.decodeUnknownOption(AssetClaimsJson);
 const encodeAssetClaims = Schema.encodeSync(AssetClaimsJson);
 
 /**
- * A resolved asset ready to be served. `mutable` distinguishes an asset backed
- * by a live workspace path (the agent can rewrite it in place, so a byte-stale
- * cached copy is wrong after the agent regenerates it) from a content-addressed
- * attachment (its bytes never change for a given id). The HTTP layer maps this
- * to `Cache-Control`: mutable assets must be revalidated per request so an
- * artefact viewer reload picks up fresh subresources; immutable ones keep a
- * long cache.
+ * `mutable` marks an asset backed by a live workspace path, which the agent can rewrite in place,
+ * as opposed to a content-addressed attachment whose bytes never change. The HTTP layer maps it to
+ * `Cache-Control`: mutable assets revalidate per request, immutable ones keep a long cache.
  */
 export type ResolvedAsset =
   | {

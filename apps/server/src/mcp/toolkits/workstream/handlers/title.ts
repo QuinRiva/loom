@@ -1,11 +1,7 @@
 /**
- * `mcp__t3-code__set_thread_title`: the calling thread renames ITSELF (never another
- * thread) through upstream's `thread.metadata.update` — the command behind
- * upstream's own rename (`ThreadMetadataMcpService`, which a Loom credential
- * cannot reach: it needs the `orchestration` capability). An explicit title
- * clears any in-flight title regeneration, so it is not overwritten later.
- *
- * @module mcp/toolkits/workstream/handlers/title
+ * `set_thread_title`: the caller renames ITSELF via upstream's `thread.metadata.update` (upstream's
+ * rename tool needs the `orchestration` capability a Loom credential lacks). An explicit title clears
+ * any in-flight title regeneration so it is not overwritten.
  */
 import { CommandId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";

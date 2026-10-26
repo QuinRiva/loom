@@ -1,13 +1,7 @@
 /**
- * loom: what a V1 message's Loom columns become on import (DL-610).
- *
- * V1 stamped every Loom-composed user-role message with
- * `projection_thread_messages.origin` (absent = a human) and, for digests and
- * yields, `control_payload_json`. V2 recognises the same messages by
- * `message.loom` and `createdBy: "agent"` — exactly what the dispatcher writes
- * on a new control message — so an imported one renders, settles and counts
- * as human the same way. A payload that does not decode is dropped: the card
- * falls back to the message's raw text.
+ * loom: V1's `origin` (absent means human) and `control_payload_json` become `message.loom` and
+ * `createdBy: "agent"`, as the dispatcher writes, so imports render, settle and count as human the
+ * same way. An undecodable payload is dropped and the card falls back to raw text.
  */
 import {
   ControlPayload,
@@ -52,11 +46,8 @@ export function importedLoomFields(row: LegacyLoomMessageColumns): {
 }
 
 /**
- * loom: V1 `consult_thread` calls on import (T3). V1 rendered each consult from
- * its `thread.consult-recorded` event; V2's card renders a consult turn item.
- * The importer (and Loom migration 1054, for threads already imported) turns
- * each V1 event into the completed `mcp__t3-code__consult_thread` item a V2
- * consult is, placed among the thread's runless items by time.
+ * loom: each V1 `thread.consult-recorded` event becomes the completed `consult_thread` turn item V2's
+ * card renders, placed among the thread's runless items by time (here and in migration 1054).
  */
 export interface LegacyConsultRow {
   readonly event_id: string;

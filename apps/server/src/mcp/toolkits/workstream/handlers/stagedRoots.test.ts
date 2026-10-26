@@ -1,11 +1,7 @@
 /**
- * mcp__t3-code__goal_handoff, mcp__t3-code__goal_continue, mcp__t3-code__thread_fork and mcp__t3-code__set_thread_title on V2's real
- * orchestrator. The launch service is a stub that records what it was asked
- * and dispatches the initial message as the real one would, so the test sees
- * the ordering that matters: the thread carries its goal BEFORE its first
- * message, and that message is the brief. `held` is written by exactly the two
- * staged-root tools, never by the handoff. The handoff's duplicate judge is a
- * stub answering per `judgeMode`.
+ * goal_handoff, goal_continue, thread_fork and set_thread_title on the real orchestrator, with a stub
+ * launch service: the thread carries its goal BEFORE its first message, which is the brief; `held`
+ * is written only by the two staged-root tools. The duplicate judge answers per `judgeMode`.
  */
 import { assert, it } from "@effect/vitest";
 import {

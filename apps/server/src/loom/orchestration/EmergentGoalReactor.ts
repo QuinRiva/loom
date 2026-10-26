@@ -1,23 +1,8 @@
 /**
- * Emergent goal ("every session has a goal", Phase 3 plan P3-16; V1's
- * `deriveEmergentGoal` in `ProviderCommandReactor`). When a goal-less ROOT thread
- * STARTS one of its first two runs — at the message, as V1 did (DL-671) — the
- * transcript so far is distilled into a goal through `buildEmergentGoalPrompt`:
- * written to `loom_goals` under the deterministic id `goal:emergent:<threadId>`,
- * published on the goal broadcast, and attached with `thread.goal.set` under
- * `server:loom:emergent-goal:<threadId>`. Run 1 creates the goal only on a confident
- * answer; run 2 takes the best guess, and so does a goal tool called by the goal-less
- * root (`EmergentGoals.derive`, awaiting a derivation already in flight), so a root's
- * first turn can lay out its plan. Workstream children never derive one (they inherit the parent's goal), nor does a `/retro`
- * reviewer (goal-less by design). A goal set while the generation runs wins: the derivation re-checks before writing, and the
- * orchestrator drops an emergent `thread.goal.set` on a thread that already has a goal.
- *
- * The generation is Loom's Pi one-shot (`makePiOneShot`) on the text-generation
- * model selection.
- * No effect-outbox kind: at-most-once is the goal id plus the command receipt, and a
- * run is attempted once per process (a failure logs and waits for run 2 or a goal tool).
- *
- * @module loom/orchestration/EmergentGoalReactor
+ * When a goal-less ROOT starts one of its first two runs, distils the transcript into
+ * `goal:emergent:<threadId>`: run 1 only on a confident answer, run 2 or a goal tool on the best
+ * guess. Children and `/retro` reviewers never derive one; a goal set meanwhile wins. No outbox kind:
+ * at-most-once is the goal id plus the command receipt; a failure logs and waits for run 2.
  */
 import {
   CommandId,

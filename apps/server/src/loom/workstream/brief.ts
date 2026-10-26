@@ -1,12 +1,7 @@
 /**
- * On-disk kickoff briefs, ported from V1's `workstreamBrief.ts`. A brief is the
- * markdown a child's first turn is composed from; it lives under
- * `<stateDir>/workstream-briefs/` and its absolute path is event-sourced onto
- * the sidecar as `kickoffBriefPath` (the brief half of a child's start
- * precondition). A brief may be overwritten before kickoff while a kickoff
- * reads it, so the write is atomic: a temp sibling renamed into place.
- *
- * @module loom/workstream/brief
+ * On-disk kickoff briefs under `<stateDir>/workstream-briefs/`, path event-sourced as
+ * `kickoffBriefPath`. A brief may be overwritten while a kickoff reads it, so writes are atomic
+ * (temp sibling renamed into place).
  */
 import type { ThreadId } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";

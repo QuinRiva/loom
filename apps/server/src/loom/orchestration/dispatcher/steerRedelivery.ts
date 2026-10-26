@@ -1,21 +1,8 @@
 /**
- * Seam 20's second half (Phase 3 plan Track 3b; DL-387, DL-455): a steer stashed on a
- * thread the startup pass did not continue (rule 0's not-continued set: flagged,
- * done, request-parked) stays on disk, and the next turn a human or the parent
- * starts on that thread carries it. No `dispatchMessage` hunk is authorised for
- * this (P3-21), so it is a dispatcher rail over the stashes the startup pass
- * LEFT (`PassContext.leftStashes`) — never over the stash directory, which during
- * any live turn also mirrors that turn's own undelivered steers (DL-691).
- *
- * The text comes from the startup snapshot, never read back from the file: pi's next
- * `queue_update` on the thread overwrites the file, and that overwrite never delivered
- * the left steer. Once a turn a human or the parent started after startup exists, the
- * steer goes out as the same steered control message the startup pass sends (same id,
- * so the two paths are mutually exclusive): upstream's conversion steers it into that
- * turn while it runs, and it starts the follow-up turn when that turn already ended.
- * The file is then removed only if it still holds the startup text.
- *
- * @module loom/orchestration/dispatcher/steerRedelivery
+ * Redelivers a steer the startup pass stashed but did not continue (flagged, done, request-parked)
+ * in the next human- or parent-started turn. Reads only `PassContext.leftStashes` and the startup
+ * snapshot text: the stash dir also mirrors live turns' steers and pi overwrites the file. Same id as
+ * the startup send, so the paths are exclusive; the file goes only if it still holds that text.
  */
 import * as Effect from "effect/Effect";
 
