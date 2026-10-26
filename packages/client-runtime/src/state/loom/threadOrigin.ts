@@ -5,17 +5,10 @@ import type {
 } from "@t3tools/contracts";
 
 /**
- * Whose words opened a root the human did not write, for the sidebar's rail:
- * - `agent`: an orchestrator's own `goal_handoff`, or a root an agent-made
- *   scheduled task launched (`createdBy: "agent"`, no handoff origin);
- * - `requested`: the human's `/handoff` (its hidden drafter wrote the brief);
- * - `continued`: a `goal_continue` successor, held or launched with the
- *   predecessor's brief unedited (`kickoffOrigin: "kickoff"`) — the human
- *   pressed Send, but the brief is the agent's;
- * - `null`: the human's own threads, a continuation whose brief they edited
- *   before launching (or launched before that was recorded), forks, imports,
- *   and workstream children (never listed).
- * A pure function of the shell, so web and mobile share it.
+ * Whose words opened a root the human did not write: `agent` (an orchestrator's `goal_handoff`, or a
+ * root an agent-made scheduled task launched), `requested` (the human's `/handoff`), `continued` (a
+ * `goal_continue` successor launched with its predecessor's brief unedited, so the brief is the
+ * agent's). Null for the human's own threads, edited continuations, forks, imports and children.
  */
 export type ThreadStart = "agent" | "requested" | "continued";
 

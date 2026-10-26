@@ -148,13 +148,9 @@ export const make = Effect.gen(function* () {
   const sessions = yield* RpcSession.RpcSessionFactory;
   const httpClient = yield* HttpClient.HttpClient;
 
-  // loom: classify a rejected cookie-auth upgrade as blocked-on-sign-in.
-  // A browser WebSocket hides the HTTP status of a rejected upgrade, so a
-  // cookie-authenticated primary connection whose socket fails to establish is
-  // indistinguishable from a transient outage at the socket layer. Probe the
-  // environment's auth session endpoint over HTTP: a reachable server that
-  // reports the session as unauthenticated means the upgrade was rejected
-  // (expired/invalid session), which is blocked-on-sign-in, not transient.
+  // loom: a browser WebSocket hides a rejected upgrade's HTTP status, so a failed cookie-auth
+  // connection looks transient. Probe the auth session endpoint over HTTP: a reachable server
+  // reporting the session unauthenticated means blocked-on-sign-in, not a transient outage.
   const reclassifyEstablishmentFailure = Effect.fnUntraced(function* (
     prepared: PreparedConnection,
     error: ConnectionAttemptError,

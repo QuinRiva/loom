@@ -1,14 +1,8 @@
 /**
- * loom: a thread's prompt-cache liveness, as the sidebar's fuel ring and hover
- * card show it (and the mobile list later): when the cache really goes cold if
- * nobody replies, counting the keep-alive pings pi will send. Anthropic reports
- * no expiry, so the cache is taken to live `ttl` after its last touch — the end
- * of the last real request or ping — and pi's idle schedule is replayed from
- * the row's facts: a ping `delay` after the last request's dispatch, then
- * `delay` after each ping, while the next falls within the arm's horizon of
- * that dispatch. A ping that has not landed by pi's own refresh deadline is not
- * coming, and the estimate falls back to the last touch. A cold reply re-writes
- * the whole context instead of reading it.
+ * loom: when a thread's prompt cache really goes cold if nobody replies, counting pi's keep-alive
+ * pings. Anthropic reports no expiry, so the cache lives `ttl` past its last touch (request or ping);
+ * pings are replayed from the row: `delay` after the last dispatch, then after each ping, within the
+ * arm's horizon. A ping not landed by pi's own refresh deadline is not coming.
  */
 import {
   LOOM_CACHE_HORIZON_MS,

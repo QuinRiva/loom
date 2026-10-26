@@ -1,10 +1,7 @@
 /**
- * Workstream selectors over V2 thread shells: the sidecar (`thread.workstream`),
- * lineage children, and the derived board column (Phase 3 plan, track 3d).
- * Columns are derived, never stored; yielded is not a column but the
+ * Workstream selectors over V2 thread shells: the sidecar (`thread.workstream`), lineage children
+ * and the derived board column. Columns are derived, never stored; yielded is not a column but the
  * `awaiting_orchestrator` attention reason.
- *
- * @module state/loom/workstream
  */
 import type {
   LoomThreadShellFields,

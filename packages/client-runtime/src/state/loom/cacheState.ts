@@ -6,14 +6,10 @@ import type {
 } from "@t3tools/contracts";
 
 /**
- * Live cache rows from the shell stream's `cache.updated` items (each write of a
- * thread's request, ping or keep-alive plan, coalesced server-side), held here
- * rather than on the shell snapshot: the snapshot is persisted on every write,
- * and these arrive every few minutes per idle thread. The server publishes after
- * the write, so a row here is never older than the snapshot it followed; a new
- * authoritative snapshot supersedes them all ({@link clearLoomCacheState}). An
- * enrichment-only snapshot (project identities, no threads) does not. Readers take the
- * live row when there is one, else the snapshot's `workstream.cache`.
+ * Live `cache.updated` rows, kept off the shell snapshot (persisted on every write) since they arrive
+ * every few minutes per idle thread. The server publishes after the write, so a row is never older
+ * than its snapshot; a new authoritative snapshot supersedes them all ({@link clearLoomCacheState}),
+ * an enrichment-only one (no threads) does not. Readers prefer the live row to `workstream.cache`.
  */
 const rows = new Map<string, LoomThreadCache>();
 const listeners = new Map<string, Set<() => void>>();
