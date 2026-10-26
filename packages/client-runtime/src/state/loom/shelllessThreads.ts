@@ -1,12 +1,7 @@
 /**
- * Shells for threads the shell stream does not carry: an archived root opened
- * from thread search. The stream drops archived threads, yet the thread view
- * is built on a shell, so a route that opens one asks `loom.threadShell` for
- * it and the answer joins the environment's shell snapshot. A live shell for
- * the same id always wins (an unarchive brings it back on the stream). Only
- * opened threads are fetched, one small read each, never the whole archive.
- *
- * @module state/loom/shelllessThreads
+ * Shells for archived roots opened from search, which the stream drops: the route asks
+ * `loom.threadShell` for each opened one and the answer joins the environment's snapshot.
+ * A live shell for the same id always wins (an unarchive brings it back on the stream).
  */
 import {
   type EnvironmentId,

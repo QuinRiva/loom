@@ -454,7 +454,8 @@ function ThreadNavigationSidebarPane(
   const { onSelectThread, onOpenThreadPullRequests } = props;
   // A row listed for a message match opens the thread at that message, by
   // tap or by shortcut.
-  const handleSelectThread = (thread: EnvironmentThreadShell) => {
+  // loom: by id, so an archived search hit (no shell) opens too
+  const handleSelectThread = (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => {
     const key = threadSearchMatchKey({ environmentId: thread.environmentId, threadId: thread.id });
     const messageId = contentOnlyThreadKeys.has(key)
       ? threadSearchMatchByKey.get(key)?.messageId

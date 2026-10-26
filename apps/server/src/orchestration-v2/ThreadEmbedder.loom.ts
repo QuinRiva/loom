@@ -1,10 +1,10 @@
 // @effect-diagnostics preferSchemaOverJson:off nodeBuiltinImport:off - settings are compared by a JSON key, never parsed; sha1 of a root document is a sync hash.
 /**
- * ThreadEmbedder — the semantic half of thread search (plans/thread-content-search).
+ * ThreadEmbedder: the semantic half of thread search (plans/thread-content-search).
  *
  * Keeps `loom_thread_embeddings` (one vector per root thread) in agreement with
  * the current root documents under the configured provider, by a hash sweep at
- * startup, every two minutes and on a provider change — not by event plumbing.
+ * startup, every two minutes and on a provider change, not by event plumbing.
  * Vectors carry the identity `<provider>/<model>/<dim>`; only rows matching the
  * current provider are held in memory and searched, and the sweep re-embeds the
  * rest. Provider `none`, or one that cannot be reached, means `nearest` answers

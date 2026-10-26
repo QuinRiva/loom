@@ -7,6 +7,7 @@ import {
   type EnvironmentThreadSearchMatch,
   type ShownOrder,
 } from "@t3tools/client-runtime/state/thread-search";
+import { threadSearchExcerptLabel } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom
 import { THREAD_JUMP_KEYBINDING_COMMANDS } from "@t3tools/contracts";
 import {
   foldSearchQuery,
@@ -155,6 +156,14 @@ function PaletteRow(props: {
                 ))
               : props.item.title}
           </Text>
+          {props.item.archived ? (
+            // loom: an archived root, found by content search
+            <View className="rounded-full border border-border-subtle px-1.5 py-0.5">
+              <Text className={cn("text-3xs font-t3-bold", mutedForegroundClassName)}>
+                Archived
+              </Text>
+            </View>
+          ) : null}
           {/* The second line shows the snippet or hint, so keep where the thread
               lives, unless the hint already names it. */}
           {(props.searchMatch ||
@@ -260,7 +269,7 @@ export function CommandPalette(props: {
     () =>
       new Map(
         search.matches
-          .filter((match) => match.source === "user" || match.source === "assistant")
+          .filter((match) => threadSearchExcerptLabel(match) !== null) // loom: every source
           .map((match) => [scopedThreadKey(match.environmentId, match.threadId), match]),
       ),
     [search.matches],
@@ -424,8 +433,32 @@ export function CommandPalette(props: {
         (right.threadSearch ? threadRecentUse(right.threadSearch) : 0) -
         (left.threadSearch ? threadRecentUse(left.threadSearch) : 0),
     );
-    return [...actions, ...projectItems, ...threadItems];
+    // loom: archived roots have no shell, so their search hits become items built from the match
+    const archivedItems = search.matches.flatMap((match): CommandPaletteItem[] =>
+      match.archivedAt === null
+        ? []
+        : [
+            {
+              key: scopedThreadKey(match.environmentId, match.threadId),
+              kind: "thread",
+              title: match.title || "Untitled thread",
+              archived: true,
+              searchTerms: [],
+              threadSearch: { title: match.title, activityAt: Date.parse(match.updatedAt) },
+              run: () =>
+                selectDetail({
+                  name: "Thread",
+                  params: {
+                    environmentId: String(match.environmentId),
+                    threadId: String(match.threadId),
+                  },
+                }),
+            },
+          ],
+    );
+    return [...actions, ...projectItems, ...threadItems, ...archivedItems];
   }, [
+    search.matches, // loom
     selectTab,
     activeThread,
     activeThreadRef,

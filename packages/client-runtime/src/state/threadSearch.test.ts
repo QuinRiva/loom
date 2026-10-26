@@ -168,6 +168,12 @@ it("keeps the previous results visible only while a refined or widened query is 
         source: "user" as const,
         snippet: "websocket reconnect",
         messageCreatedAt: null,
+        // loom: the widened match describes the root
+        title: "Thread A",
+        archivedAt: null,
+        updatedAt: "2026-07-30T00:00:00.000Z",
+        matchedThreadId: null,
+        matchedThreadTitle: null,
       },
     ],
   };

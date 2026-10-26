@@ -1722,11 +1722,8 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
             </span>
             {props.searchMatch ? (
               <ThreadSearchMatchExcerpt
-                match={{
-                  source: props.searchMatch.source,
-                  snippet: props.searchMatch.snippet,
-                  query: props.searchMatchQuery ?? props.searchQuery,
-                }}
+                // loom: every source, and the sub-thread that produced the hit
+                match={{ ...props.searchMatch, query: props.searchMatchQuery ?? props.searchQuery }}
               />
             ) : null}
           </span>

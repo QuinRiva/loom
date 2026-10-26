@@ -152,15 +152,11 @@ export function reduceCommandPaletteUiState(
   }
 }
 
-// loom: every indexed source, the sub-thread that produced the hit, and the
-// root's position in the server's fused ranking.
+// loom: every indexed source and the sub-thread that produced the hit.
 export type CommandPaletteThreadContentMatch = Pick<
   OrchestrationThreadSearchMatch,
   "source" | "snippet" | "matchedThreadId" | "matchedThreadTitle"
-> & {
-  readonly query: string;
-  readonly position: number;
-};
+> & { readonly query: string };
 
 export interface CommandPaletteItem {
   readonly kind: "action" | "submenu";

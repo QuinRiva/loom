@@ -69,7 +69,8 @@ export function HomeRouteScreen() {
     else setLocalSearchQuery(query);
   };
   const handleSelectThread = useCallback(
-    (thread: EnvironmentThreadShell) =>
+    // loom: by id, so an archived search hit (no shell) opens too
+    (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) =>
       selectDetail({
         name: "Thread",
         params: { environmentId: String(thread.environmentId), threadId: String(thread.id) },

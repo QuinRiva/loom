@@ -200,9 +200,13 @@ the matching message; on an iPad with a keyboard, `Cmd+K` opens the same
 palette.
 <!-- loom: thread-content search -->
 
-Results also come from the reports of a thread's sub-threads, and archived
-threads are included and marked **Archived**; opening one shows it without
-unarchiving it, and **Unarchive** under the conversation brings it back.
+**In messages** reads a top-level thread's own messages and final answers, its
+purpose and goal, and the reports of every sub-thread, matching related
+wordings as well as exact ones; it does not read sub-threads' own messages or
+briefs. An excerpt says where the words were found (for example
+"Sub-thread: Review" under "Report:"). Archived threads are included and
+marked **Archived**; opening one shows it without unarchiving it, and
+**Unarchive** under the conversation brings it back.
 
 Use **Settings → Keybindings** to find or customize shortcuts for searching files
 and copying a thread reference. A copied reference uses the thread's pull request

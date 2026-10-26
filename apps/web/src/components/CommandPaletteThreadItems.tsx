@@ -35,7 +35,11 @@ import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { formatRelativeTimeLabel } from "../timestampFormat";
-import { buildThreadActionItems, ITEM_ICON_CLASS } from "./CommandPalette.logic";
+import {
+  buildThreadActionItems,
+  type CommandPaletteActionItem, // loom
+  ITEM_ICON_CLASS,
+} from "./CommandPalette.logic";
 import { useEnvironmentLookups, useProjectLookups } from "./CommandPaletteLookups";
 import { ThreadCommandSubtitle } from "./ThreadCommandSubtitle";
 import {
@@ -44,6 +48,7 @@ import {
   ThreadSearchPullRequestNumber,
 } from "./ThreadStatusIndicators";
 import { CacheFuelRing } from "../loom/CacheFuelRing"; // loom: prompt-cache liveness
+import { ArchivedBadge } from "../loom/ArchivedSearchResultRow"; // loom: archived roots
 
 function useProviderEntryByEnvironmentAndInstanceId() {
   const { environments } = useEnvironments();
@@ -195,7 +200,39 @@ export function useCommandPaletteThreadItems(input: {
     },
   });
 
-  const itemByValue = new Map(threadItems.map((item) => [item.value, item]));
+  // loom: an archived root has no shell, so its row is built from the match; it ranks with
+  // the listed threads by title and, failing that, in the messages section.
+  const archivedThreadItems = messageSearch.matches.flatMap((match): CommandPaletteActionItem[] => {
+    if (match.archivedAt === null) return [];
+    const projectTitle = projectByKey.get(`${match.environmentId}:${match.projectId}`)?.title;
+    return [
+      {
+        kind: "action",
+        value: `thread:${match.environmentId}:${match.threadId}`,
+        searchTerms: [match.title],
+        threadSearch: {
+          id: match.threadId,
+          title: match.title,
+          projectTitle: projectTitle ?? null,
+          activityAt: Date.parse(match.updatedAt),
+        },
+        title: match.title || "Untitled thread",
+        ...(projectTitle ? { description: projectTitle } : {}),
+        timestamp: formatRelativeTimeLabel(match.updatedAt),
+        icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+        titleTrailingContent: <ArchivedBadge />,
+        run: async () => {
+          await navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(scopeThreadRef(match.environmentId, match.threadId)),
+          });
+        },
+      },
+    ];
+  });
+  const itemByValue = new Map(
+    [...threadItems, ...archivedThreadItems].map((item) => [item.value, item]), // loom
+  );
   const itemForMatch = (match: EnvironmentThreadSearchMatch) =>
     itemByValue.get(`thread:${match.environmentId}:${match.threadId}`);
   const rankedMessageItems = rankMessageMatches(
@@ -220,10 +257,14 @@ export function useCommandPaletteThreadItems(input: {
           source: match.source,
           snippet: match.snippet,
           query: messageSearch.query,
+          matchedThreadId: match.matchedThreadId, // loom
+          matchedThreadTitle: match.matchedThreadTitle, // loom
         },
         // Opens the thread with find on the word at the matched message, so it is in view.
         run: async () => {
           await item.run();
+          // loom: only a root's own message is in the timeline that opens
+          if (match.messageId === undefined) return;
           requestThreadFindQuery(
             scopedThreadKey(scopeThreadRef(match.environmentId, match.threadId)),
             findForMessageMatch(match, messageSearch.query),
@@ -248,7 +289,7 @@ export function useCommandPaletteThreadItems(input: {
     .flatMap((value) => messageItemByValue.get(value) ?? []);
 
   return {
-    threadItems,
+    threadItems: [...threadItems, ...archivedThreadItems], // loom: + archived roots
     threadMessageItems,
     now,
     isSearchPending: messageSearch.isPending,

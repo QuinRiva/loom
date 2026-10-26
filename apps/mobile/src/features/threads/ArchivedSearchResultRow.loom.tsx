@@ -9,6 +9,8 @@ import { cn } from "../../lib/cn";
 import { relativeTime } from "../../lib/time";
 import { selectedThreadRowColors, THREAD_LIST_V2_MONO_FONT } from "./thread-list-v2-row-appearance";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
+import { requestThreadMessageJump } from "./threadMessageJump";
+import { scopedThreadKey } from "../../lib/scopedEntities";
 
 /**
  * A search hit on a root the client holds no shell for (archived roots), drawn
@@ -40,9 +42,16 @@ export const ArchivedSearchResultRow = memo(function ArchivedSearchResultRow(pro
       className={
         sidebarPane ? cn("rounded-xl", selected ? "bg-thread-selected" : "bg-drawer") : "bg-screen"
       }
-      onPress={() =>
-        props.onSelectThread({ environmentId: match.environmentId, id: match.threadId })
-      }
+      onPress={() => {
+        // A root's own message hit opens at that message, as listed rows do.
+        if (match.messageId) {
+          requestThreadMessageJump(
+            scopedThreadKey(match.environmentId, match.threadId),
+            match.messageId,
+          );
+        }
+        props.onSelectThread({ environmentId: match.environmentId, id: match.threadId });
+      }}
     >
       <View
         className={cn(

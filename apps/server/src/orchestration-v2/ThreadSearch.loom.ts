@@ -1,29 +1,8 @@
 // @effect-diagnostics preferSchemaOverJson:off - id arrays are passed to SQLite as json_each() parameters.
 /**
- * Thread content search (plans/thread-content-search): root threads only,
- * ranked by fusing the FTS5 index (`loom_thread_search`) with the
- * ThreadEmbedder's nearest roots.
- *
- * - Lexical: one MATCH per query term gives each document its term coverage; a
- *   root scores as its single best document (most terms, then kind-weighted
- *   bm25), credited from anywhere in its tree (V2's `lineage.rootThreadId`).
- * - Fusion: reciprocal rank fusion (k = 60) of the semantic top-50 and the
- *   lexical roots whose best document contains EVERY term — partial-term
- *   lexical matches would outvote a correct semantic #1.
- * - No embedder (provider `none`, unavailable, still loading): the full lexical
- *   order, partial matches included.
- * - `includeArchived: false` drops archived roots (and so their subtrees), and
- *   `projectId` other projects' roots, from both candidate sets before ranking,
- *   so they never take a result slot.
- * - `scope: "roots"` (the default; Carl's ruling for the human surfaces) ranks a
- *   root by its own title, purpose, messages and goal plus every report in its
- *   tree; `"all"` (the agent tool) adds sub-threads' text and goal tasks. The
- *   semantic side is per root either way.
- * - `layer` serves upstream's `ThreadSearch` service: `search` is this ranking,
- *   `searchThreads` its hits for upstream's agent tool, and `searchOlderSettled`
- *   upstream's own (`make`), forwarded.
- *
- * @module ThreadSearch
+ * Thread content search over `loom_thread_search` (+ the embedder's nearest roots, fused by RRF),
+ * credited to roots; `scope: "roots"` (default, the human surfaces) reads a root's own text and
+ * every report in its tree, `"all"` (the agent tool) sub-threads and tasks too. See doc 38 §4.
  */
 import {
   MessageId,
@@ -81,7 +60,7 @@ export const toTerms = (query: string) => {
 };
 
 /**
- * Each term quoted; the last one is a prefix so results move while typing — from
+ * Each term quoted; the last one is a prefix so results move while typing, from
  * 3 characters, as expanding a 1–2 character prefix costs 0.5–1 s.
  */
 const matchTerms = (terms: ReadonlyArray<string>) =>
@@ -235,6 +214,8 @@ export const makeThreadSearch = Effect.gen(function* () {
       const scores = new Map<string, number>();
       const vote = (ids: ReadonlyArray<string>) =>
         ids.forEach((id, index) => scores.set(id, (scores.get(id) ?? 0) + 1 / (RRF_K + index + 1)));
+      // RRF (k = 60) of the semantic top-50 and the full-coverage lexical roots: partial-term
+      // matches would outvote a correct semantic #1. With no embedder, the full lexical order.
       vote(hits.filter((hit) => hit.coverage === terms.length).map((hit) => hit.rootId));
       vote(nearest);
       fused = [...scores]
@@ -336,9 +317,10 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const loom = yield* makeThreadSearch;
     const upstream = yield* makeUpstreamThreadSearch;
+    // Clients omit the limit; 30 roots fill the palette and sidebar with room to spare.
     const search = (input: OrchestrationSearchThreadsInput) =>
       loom
-        .searchThreads(input)
+        .searchThreads({ limit: 30, ...input })
         .pipe(Effect.mapError((cause) => new ThreadSearchError({ operation: "query", cause })));
     return ThreadSearch.of({
       search,

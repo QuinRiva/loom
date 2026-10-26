@@ -1,6 +1,4 @@
-// loom: 3d-3 — Loom's sidebar helpers, split out of the upstream-owned
-// Sidebar.logic.ts so upstream edits there never collide with the fork's
-// additions. Pure; consumed by Sidebar.tsx's marked hunks.
+// loom: Loom's sidebar helpers, kept apart from upstream's Sidebar.logic.ts.
 import {
   ownAttentionOf,
   type WorkstreamAttentionReason,
@@ -10,11 +8,9 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell
 import { attentionLabel } from "../loom/loomAttention";
 
 /**
- * The Loom attention a row shows instead of its upstream state, or null.
- * Attention outranks state, except that a pending approval or question — the
- * row's own or a subagent's (upstream's Approval / Input pills, pull 12 §7.1
- * row 1) — outranks every Loom reason but `error`. A row is never a workstream
- * child, so never brief-needed.
+ * The Loom attention a row shows instead of its upstream state, or null. A pending approval
+ * or question (the row's or a subagent's; pull 12 §7.1 row 1) outranks every Loom reason but
+ * `error`. A row is never a workstream child, so never brief-needed.
  */
 export function loomAttentionOf(
   thread: Pick<

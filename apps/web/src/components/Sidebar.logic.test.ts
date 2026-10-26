@@ -335,7 +335,6 @@ describe("resolveSidebarThreadStatus", () => {
   });
 });
 
-// loom: content hits rank on the server now; searchSidebarThreads is only the local title/PR fallback
 describe("searchSidebarThreads", () => {
   const searchThread = (id: string, title: string, latestUserMessageAt: string) => ({
     environmentId: localEnvironmentId,

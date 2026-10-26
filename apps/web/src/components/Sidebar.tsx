@@ -34,11 +34,15 @@ import {
 } from "@t3tools/client-runtime/state/thread-inbox";
 import { sortSettledThreads } from "@t3tools/client-runtime/state/thread-sort";
 import {
+  type EnvironmentThreadSearchMatch, // loom
   nextShownOrder,
   threadSearchMatchKey,
   threadSearchSubject,
   type ShownOrder,
 } from "@t3tools/client-runtime/state/thread-search";
+import { shelllessArchivedMatches } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom: archived roots
+import { ArchivedSearchResultRow } from "../loom/ArchivedSearchResultRow"; // loom: archived roots
+import { formatRelativeTimeLabel } from "../timestampFormat"; // loom: archived roots
 import { foldSearchQuery, rankMessageMatches } from "@t3tools/shared/paletteSearch";
 import { findForMessageMatch, requestThreadFindQuery } from "./chat/threadFindActionBus";
 import {
@@ -1178,6 +1182,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           threadSearch.matches,
           (match) => {
             const thread = threadByMatchKey.get(threadSearchMatchKey(match));
+            // loom: an archived root has no shell; it ranks by its match
+            if (!thread && match.archivedAt !== null) {
+              return { title: match.title, activityAt: Date.parse(match.updatedAt) };
+            }
             return thread ? threadSearchSubject(thread, null) : undefined;
           },
           foldSearchQuery(threadSearchQuery),
@@ -1199,6 +1207,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const { titleMatches: threadTitleResults, contentMatches: threadContentResults } =
     searchSidebarThreads(searchableThreads, threadSearchQuery, new Set(messageOrder.keys));
   const threadSearchResults = [...threadTitleResults, ...threadContentResults];
+  // loom: archived roots' hits follow the listed rows, drawn from the match alone.
+  const archivedSearchResults = shelllessArchivedMatches({
+    matches: messageOrder.keys.flatMap((key) => serverMatchByKey.get(key) ?? []),
+    isInScope: (match) =>
+      scopedProjectKeys === null ||
+      scopedProjectKeys.has(`${match.environmentId}:${match.projectId}`),
+  });
   // Only rows listed for their messages show one, and open find on it.
   const threadSearchMatchByKey = new Map(
     threadContentResults.flatMap((thread) => {
@@ -1210,9 +1225,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       return match ? [[key, match] as const] : [];
     }),
   );
-  const threadSearchResultKeys = threadSearchResults.map((thread) =>
-    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-  );
+  const threadSearchResultKeys = [
+    ...threadSearchResults.map((thread) =>
+      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+    ),
+    ...archivedSearchResults.map((match) =>
+      // loom
+      scopedThreadKey(scopeThreadRef(match.environmentId, match.threadId)),
+    ),
+  ];
 
   // The highlight follows its thread, so rows that arrive late do not move
   // it under Enter; a new query starts at the top.
@@ -1314,6 +1335,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     navigateToThread(ref);
     if (match) requestThreadFindQuery(scopedThreadKey(ref), findForMessageMatch(match, query));
   };
+  // loom: an archived root opens shell-less (ThreadRouteView); find needs its timeline first.
+  const selectArchivedSearchResult = (match: EnvironmentThreadSearchMatch) => {
+    clearThreadSearch();
+    navigateToThread(scopeThreadRef(match.environmentId, match.threadId));
+  };
   const handleThreadSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "Escape" && isSearchingThreads) {
@@ -1322,23 +1348,24 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       clearThreadSearch();
       return;
     }
-    if (threadSearchResults.length === 0) return;
+    const resultCount = threadSearchResultKeys.length; // loom: + archived roots
+    if (resultCount === 0) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveSearchResultIndex((index) => (index + 1) % threadSearchResults.length);
+      setActiveSearchResultIndex((index) => (index + 1) % resultCount);
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveSearchResultIndex(
-        (index) => (index - 1 + threadSearchResults.length) % threadSearchResults.length,
-      );
+      setActiveSearchResultIndex((index) => (index - 1 + resultCount) % resultCount);
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
       const result = threadSearchResults[activeSearchResultIndex];
+      const archived = archivedSearchResults[activeSearchResultIndex - threadSearchResults.length]; // loom
       if (result) selectThreadSearchResult(result);
+      else if (archived) selectArchivedSearchResult(archived); // loom
     }
   };
 
@@ -2867,7 +2894,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               }}
               onSearchKeyDown={handleThreadSearchKeyDown}
               isSearching={isSearchingThreads}
-              searchResultCount={threadSearchResults.length}
+              searchResultCount={threadSearchResultKeys.length} // loom: + archived roots
               activeSearchResultIndex={activeSearchResultIndex}
               onClearSearch={clearThreadSearch}
             />
@@ -2876,7 +2903,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       >
         <SidebarGroup className="flex-1" role="presentation">
           {isSearchingThreads ? (
-            threadSearchResults.length > 0 ? (
+            threadSearchResultKeys.length > 0 ? ( // loom: + archived roots
               <TooltipProvider
                 key="sidebar-thread-search-tooltips-150"
                 delay={150}
@@ -2930,6 +2957,30 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         onHighlight={() => setActiveSearchResultIndex(index)}
                         onSelect={() => selectThreadSearchResult(thread)}
                         onFileDropThreads={handleThreadFileDrop}
+                      />
+                    );
+                  })}
+                  {archivedSearchResults.map((match, archivedIndex) => {
+                    // loom: an archived root has no shell; its row is drawn from the match.
+                    const index = threadSearchResults.length + archivedIndex;
+                    const threadKey = scopedThreadKey(
+                      scopeThreadRef(match.environmentId, match.threadId),
+                    );
+                    return (
+                      <ArchivedSearchResultRow
+                        key={threadKey}
+                        match={match}
+                        project={
+                          projectByKey.get(`${match.environmentId}:${match.projectId}`) ?? null
+                        }
+                        time={formatRelativeTimeLabel(match.updatedAt)}
+                        isHighlighted={activeSearchResultIndex === index}
+                        isRouteActive={routeRowThreadKey === threadKey}
+                        resultId={`sidebar-thread-search-result-${index}`}
+                        resultKey={threadKey}
+                        searchQuery={threadSearch.query}
+                        onHighlight={() => setActiveSearchResultIndex(index)}
+                        onSelect={() => selectArchivedSearchResult(match)}
                       />
                     );
                   })}

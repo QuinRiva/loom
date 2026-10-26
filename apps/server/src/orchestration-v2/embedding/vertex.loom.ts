@@ -10,8 +10,8 @@ import { EmbeddingError, type EmbeddingProvider, splitTitle } from "./EmbeddingP
  *
  * - `gemini-embedding-001`: `:predict` in `location`, one text per request,
  *   `task_type` framing (+ `title` on documents).
- * - `gemini-embedding-2`: `:embedContent` on `global` only — thread text leaves
- *   the configured region — with in-text framing.
+ * - `gemini-embedding-2`: `:embedContent` on `global` only (thread text leaves
+ *   the configured region), with in-text framing.
  */
 export const makeVertexProvider = (settings: {
   readonly project: string;
