@@ -128,6 +128,10 @@ exploration to a sub-agent when the surface is large and fold the findings
 back. Planning is read-only: the plan file is the one write, and source edits
 wait for approval — a plan that has already changed the code is not a proposal.
 
+**Pin the words before the design.** When the plan introduces concepts the
+codebase does not name, or leans on terms it uses loosely, settle them with the
+`domain-modeling` skill first; it knows what a planner may write.
+
 ## The plan skeleton
 
 Top to bottom (worked versions, for UI and for backend work, are in
