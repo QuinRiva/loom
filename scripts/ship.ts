@@ -59,6 +59,23 @@ export class ShipProtectedBranchError extends Schema.TaggedError<ShipProtectedBr
   }
 }
 
+export class ShipUntrackedFilesError extends Schema.TaggedError<ShipUntrackedFilesError>()(
+  "ShipUntrackedFilesError",
+  {
+    paths: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    return [
+      "Refusing to ship: the commit step would publish these untracked files:",
+      ...this.paths.map((path) => `  ${path}`),
+      "Commit the ones that belong to the change by path (git add <path> && git commit),",
+      "re-run with --include-untracked if every listed file belongs to it,",
+      "or move or delete the strays.",
+    ].join("\n");
+  }
+}
+
 export class ShipProcessError extends Schema.TaggedError<ShipProcessError>()("ShipProcessError", {
   operation: Schema.Literals(["spawn", "communicate"]),
   kind: Schema.String,
@@ -229,6 +246,19 @@ export function assertShippableBranch(
   return PROTECTED_BRANCHES.includes(branch as (typeof PROTECTED_BRANCHES)[number])
     ? Effect.fail(new ShipProtectedBranchError({ branch }))
     : Effect.succeed(branch);
+}
+
+/**
+ * Refuse when the commit step's `git add -A` would sweep in untracked files the
+ * shipper did not opt into. Pure so the guard is unit-testable.
+ */
+export function assertNoUntrackedFiles(
+  paths: ReadonlyArray<string>,
+  includeUntracked: boolean,
+): Effect.Effect<void, ShipUntrackedFilesError> {
+  return paths.length > 0 && !includeUntracked
+    ? Effect.fail(new ShipUntrackedFilesError({ paths }))
+    : Effect.void;
 }
 
 const collectStream = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
@@ -411,8 +441,14 @@ export const runShip = Effect.fn("runShip")(function* (options: {
   readonly title?: string | undefined;
   readonly body?: string | undefined;
   readonly dryRun: boolean;
+  readonly includeUntracked: boolean;
 }) {
   const branch = yield* assertShippableBranch(yield* getCurrentBranch());
+  const untracked = yield* captureGit(["ls-files", "-z", "--others", "--exclude-standard"]);
+  yield* assertNoUntrackedFiles(
+    untracked.stdout.split("\0").filter((path) => path.length > 0),
+    options.includeUntracked,
+  );
   const steps = planShipSteps({
     branch,
     message: options.message,
@@ -463,12 +499,19 @@ export const shipCommand = Command.make(
       Flag.withDescription("Print the ordered ship sequence without running git/gh/vp."),
       Flag.withDefault(false),
     ),
+    includeUntracked: Flag.Boolean("include-untracked").pipe(
+      Flag.withDescription(
+        "Commit untracked files too; without it the ship refuses when any exist (gitignored paths are not counted).",
+      ),
+      Flag.withDefault(false),
+    ),
   },
-  ({ message, title, body, mergeOnly, dryRun }) =>
+  ({ message, title, body, mergeOnly, dryRun, includeUntracked }) =>
     runShip({
       message,
       mergeOnly,
       dryRun,
+      includeUntracked,
       title: Option.getOrUndefined(title),
       body: Option.getOrUndefined(body),
     }),

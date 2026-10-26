@@ -1,7 +1,12 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import { assertShippableBranch, planShipSteps, type ShipStep } from "./ship.ts";
+import {
+  assertNoUntrackedFiles,
+  assertShippableBranch,
+  planShipSteps,
+  type ShipStep,
+} from "./ship.ts";
 
 function stepKinds(steps: ReadonlyArray<ShipStep>): ReadonlyArray<string> {
   return steps.map((step) => step.kind);
@@ -21,6 +26,17 @@ it.effect("passes through a feature branch", () =>
   Effect.gen(function* () {
     const branch = yield* assertShippableBranch("t3code/ship-skill");
     assert.equal(branch, "t3code/ship-skill");
+  }),
+);
+
+it.effect("refuses untracked files unless --include-untracked", () =>
+  Effect.gen(function* () {
+    const paths = ["recaps/draft/recap.mdx", "zz-stray.mdx"];
+    const error = yield* assertNoUntrackedFiles(paths, false).pipe(Effect.flip);
+    assert.equal(error._tag, "ShipUntrackedFilesError");
+    assert.deepEqual(error.paths, paths);
+    yield* assertNoUntrackedFiles(paths, true);
+    yield* assertNoUntrackedFiles([], false);
   }),
 );
 

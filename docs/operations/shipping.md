@@ -55,8 +55,12 @@ to this repo's issues (GitHub redirects a PR number to the PR).
 - **Honour the project's merge authority** (above).
 - **The work must be ready.** If the checks fail, or the working tree carries
   changes beyond what you are shipping, stop and report that rather than
-  shipping around it. The script commits the whole tree (`git add -A`), so a
-  stray untracked file ships with you.
+  shipping around it. The script commits every pending change (`git add -A`),
+  but refuses before any step, `--dry-run` included, while untracked files
+  exist, and names them. Commit the ones that belong to the change by explicit
+  path, move or delete the strays, or pass `--include-untracked` when every
+  listed file is part of the change. Gitignored paths (`.artifacts/`) do not
+  count.
 - **Agent commits are marked as such, automatically.** A pi process Loom launches
   commits as author `Loom agent` (the configured email, so GitHub credit is
   unchanged); its `git commit` calls add `Loom-Thread:` and `Pi-Session:`
@@ -78,12 +82,14 @@ yourself when you have touched native mobile code.
 ## The sequence (what `scripts/ship.ts` does)
 
 Run `pnpm ship -m "<concise summary>"`; add `--merge-only` for an upstream-sync
-branch (below) and `--dry-run` to preview the steps. In order, the script:
+branch (below), `--dry-run` to preview the steps and `--include-untracked` to
+commit untracked files too (above). In order, the script:
 
 1. `gh repo set-default QuinRiva/loom`: pins the PR target to `origin`, not the
    upstream fork parent (see the gotcha below).
-2. Commits any pending changes with your summary message (skipped when the
-   tree is clean).
+2. Commits pending changes with your summary message (skipped when the tree is
+   clean). Untracked files are included only with `--include-untracked`;
+   otherwise the script has already refused.
 3. Fetches and rebases onto current `origin/main` (skipped with `--merge-only`).
 4. Runs the gate: `vp check`, `vp run typecheck`, the unmarked-delta sweep.
 5. Pushes the branch with `git push -u origin HEAD`.
