@@ -1,5 +1,5 @@
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { type EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { type EnvironmentId, type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
@@ -315,10 +315,12 @@ describe("resolveThreadGroupKey / isThreadGone", () => {
     [ThreadId.make("thread-B"), ThreadId.make("thread-A")],
     [ThreadId.make("thread-Z"), ThreadId.make("root-2")], // its root's shell is not loaded
   ]);
-  const lineage = (live: boolean) => new Map([[env, { live, parents }]]);
+  /** `removed`: threads the shell saw archived or deleted since its latest authoritative snapshot. */
+  const lineage = (...removed: ReadonlyArray<ScopedThreadRef>) =>
+    new Map([[env, { removed: new Map(removed.map((ref) => [ref.threadId, 1])), parents }]]);
 
   it("walks sub-agent edges to the workstream root", () => {
-    expect([refR, refA, refB].map((tab) => resolveThreadGroupKey(lineage(true), tab))).toEqual([
+    expect([refR, refA, refB].map((tab) => resolveThreadGroupKey(lineage(), tab))).toEqual([
       gR,
       gR,
       gR,
@@ -326,16 +328,17 @@ describe("resolveThreadGroupKey / isThreadGone", () => {
   });
 
   it("names an unloaded root by its id, and returns null for an absent thread", () => {
-    expect(resolveThreadGroupKey(lineage(true), refZ)).toBe(gS);
-    expect(resolveThreadGroupKey(lineage(true), refC)).toBeNull();
+    expect(resolveThreadGroupKey(lineage(), refZ)).toBe(gS);
+    expect(resolveThreadGroupKey(lineage(), refC)).toBeNull();
     expect(resolveThreadGroupKey(new Map(), refA)).toBeNull();
   });
 
-  it("calls a thread gone only when a live snapshot lacks it", () => {
-    expect(isThreadGone(lineage(true), refC)).toBe(true);
-    expect(isThreadGone(lineage(false), refC)).toBe(false);
+  // The cold shell omits settled roots and their idle sub-threads, so absence alone is not gone.
+  it("calls a thread gone only when the shell saw it removed and it has not come back", () => {
+    expect(isThreadGone(lineage(refC), refC)).toBe(true);
+    expect(isThreadGone(lineage(), refC)).toBe(false);
     expect(isThreadGone(new Map(), refC)).toBe(false);
-    expect(isThreadGone(lineage(true), refA)).toBe(false);
+    expect(isThreadGone(lineage(refA), refA)).toBe(false);
   });
 });
 
