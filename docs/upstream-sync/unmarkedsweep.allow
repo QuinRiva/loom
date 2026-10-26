@@ -46,3 +46,7 @@ apps/server/src/orchestration-v2/testkit/fixtures/thread_rollback_after_stop/pi_
 # pull 13 (DL-1415): the root manifest cannot carry a marker. Loom's scripts:
 # dev:seed, dev:seed:verify, dev:fake-hub, cockpit, cockpit:build, ship.
 package.json
+
+# pull 13 (DL-1473): JSON cannot carry a marker. Loom-only files and the +1 raises
+# (FileBrowserPanel, MarkdownCodeBlock) are Loom's entries; next pull keeps them.
+scripts/effect-budget.json
