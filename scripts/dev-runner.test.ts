@@ -833,9 +833,12 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
               const spawnerLayer = Layer.succeed(
                 ChildProcessSpawner.ChildProcessSpawner,
                 ChildProcessSpawner.make((command) => {
-                  spawned.push(
-                    (command as unknown as { readonly args: ReadonlyArray<string> }).args,
-                  );
+                  const { args, options } = command as unknown as {
+                    readonly args: ReadonlyArray<string>;
+                    readonly options?: { readonly env?: NodeJS.ProcessEnv };
+                  };
+                  // loom: the env's T3CODE_HOME is the live home migrate-dev-db refuses to rebuild
+                  spawned.push([...args, `T3CODE_HOME=${options?.env?.T3CODE_HOME}`]);
                   return Effect.succeed(mockProcess(0));
                 }),
               );
@@ -859,7 +862,11 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           ); // loom: port-scoped home
           assert.includeMembers(
             [...(seedArgs ?? [])],
-            ["--source", path.join(home, ".t3", "userdata", "statev2.sqlite")],
+            [
+              "--source",
+              path.join(home, ".t3", "userdata", "statev2.sqlite"),
+              `T3CODE_HOME=${path.join(home, ".t3")}`,
+            ],
           );
           // loom: an ambient T3CODE_HOME is the live install (the cockpit's ~/.t3/cockpit)
           const live = path.join(root, "live");
@@ -868,7 +875,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           const [liveArgs] = yield* spawnedArgs(undefined, { T3CODE_HOME: live });
           assert.includeMembers(
             [...(liveArgs ?? [])],
-            ["--source", path.join(live, "userdata", "statev2.sqlite")],
+            ["--source", path.join(live, "userdata", "statev2.sqlite"), `T3CODE_HOME=${live}`],
           );
 
           // Either database means the worktree already has data.

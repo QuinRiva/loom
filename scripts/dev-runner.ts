@@ -656,7 +656,8 @@ const prepareFirstStart = Effect.fn("dev-runner.prepareFirstStart")(function* (i
       yield* runRepoScript(
         "apps/server/scripts/migrate-dev-db.ts",
         ["--base-dir", input.worktreeHome, "--source", source],
-        input.env,
+        // loom: migrate-dev-db reads T3CODE_HOME as the live home its guard protects, not the dev home
+        { ...input.env, T3CODE_HOME: liveHome },
       );
     }
   }
