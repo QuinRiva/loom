@@ -2617,7 +2617,7 @@ code {
 /* loom: from here to upstream's `@layer components` block is fork-only UI (the
    MDX plan surface). Pull 9 pruned the dead ultrathink pill/word, the composer
    chip selection overlay (upstream styles it inline) and the workstream graph
-   rules (WorkstreamGraph.tsx is quarantined). */
+   rules (WorkstreamGraph.tsx is deleted). */
 
 /* -------------------------------------------------------------------------- */
 /* MDX plan base GFM prose                                                    */

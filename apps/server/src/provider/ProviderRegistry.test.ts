@@ -1942,7 +1942,7 @@ it.layer(
     // getProviders" below.
 
     // loom: the pi rewrite of "re-probes when settings change the codex binaryPath" was deleted: it
-    // pinned Loom's quarantined PiDriver. Re-express it on upstream's PiProvider if hot-reload
+    // pinned Loom's deleted V1 PiDriver. Re-express it on upstream's PiProvider if hot-reload
     // coverage is wanted.
 
     it.effect("includes unavailable instance snapshots in getProviders", () =>
