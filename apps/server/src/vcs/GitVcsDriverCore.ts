@@ -515,7 +515,7 @@ function classifyGitFailure(stderr: string): GitCommandFailureReason | null {
     .filter(
       (line) =>
         GIT_DIAGNOSTIC_LINE_PATTERN.test(line) ||
-        (!line.startsWith("remote:") && SSH_TRANSPORT_REFUSAL_PATTERN.test(line)),
+        (!/^remote:/.test(line) && SSH_TRANSPORT_REFUSAL_PATTERN.test(line)),
     )
     .join("\n");
   if (diagnostics.length === 0) return null;
