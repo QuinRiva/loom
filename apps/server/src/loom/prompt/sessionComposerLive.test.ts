@@ -221,21 +221,23 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
     ),
   );
 
-  it.effect("composes a root created with a role under that role's project overlay", () =>
-    withComposer(1, (composer) =>
-      Effect.gen(function* () {
-        const checkout = tempCheckout();
-        writeProjectRole(checkout, "slack-inbox", "- SLACK INBOX RULE");
-        const { threadId } = yield* seedRoot("inbox", checkout, "slack-inbox");
-        const { appendSystemPrompt } = yield* composer.compose(threadId);
-        assert.isTrue(
-          appendSystemPrompt.startsWith(
-            `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(threadId, null, yield* paths)}\n\n- SLACK INBOX RULE\n\n`,
-          ),
-        );
-        assert.notInclude(appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
-      }),
-    ),
+  it.effect(
+    "composes a root created with a role under that role's project overlay and the orchestrator's tools",
+    () =>
+      withComposer(1, (composer) =>
+        Effect.gen(function* () {
+          const checkout = tempCheckout();
+          writeProjectRole(checkout, "slack-inbox", "- SLACK INBOX RULE");
+          const { threadId } = yield* seedRoot("inbox", checkout, "slack-inbox");
+          const { appendSystemPrompt } = yield* composer.compose(threadId);
+          assert.isTrue(
+            appendSystemPrompt.startsWith(
+              `${ORCHESTRATOR_HEAD}\n\n${threadIdentityClause(threadId, null, yield* paths)}\n\n- SLACK INBOX RULE\n\n`,
+            ),
+          );
+          assert.notInclude(appendSystemPrompt, CHILD_READERSHIP_CLAUSE);
+        }),
+      ),
   );
 
   it.effect("gives a child the readership clause, its role, short retention and no catalogue", () =>
@@ -480,7 +482,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           );
           assert.isTrue(
             (yield* composer.compose(fresh)).appendSystemPrompt.startsWith(
-              `${WORK_MODEL_ADDENDUM}\n\n${threadIdentityClause(fresh, null, yield* paths)}`,
+              `${ORCHESTRATOR_HEAD}\n\n${threadIdentityClause(fresh, null, yield* paths)}`,
             ),
           );
         }),

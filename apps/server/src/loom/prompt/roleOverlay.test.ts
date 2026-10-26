@@ -19,9 +19,12 @@ import { listRoleOverlays, loadRoleOverlay } from "./roleOverlay.ts";
 /** What the loader auto-unions into every restricted role allowlist. */
 const LIFELINE = [...LEAF_CORE];
 
+/** The fixture orchestrator's profile: what every role without `tools:` takes. */
+const ORCH_PROFILE = ["read", "bash", ...LIFELINE, ...DELEGATION_PROVIDER_TOOLS, ...HISTORY];
+
 /**
- * `<tmp>/builtin/` stands in for the server's roles (orchestrator + coder
- * always present); `<tmp>/repo/` is a git checkout (empty `.git` file, as a
+ * `<tmp>/builtin/` stands in for the server's roles (orchestrator with a profile, and a
+ * profile-less coder, always present); `<tmp>/repo/` is a git checkout (empty `.git` file, as a
  * worktree carries) with an optional `.t3code/roles/`; `<tmp>/repo/sub/dir` is
  * the project root a thread launches from.
  */
@@ -36,7 +39,12 @@ const fixture = (builtin: Record<string, string> = {}, project?: Record<string, 
       NodeFS.writeFileSync(NodePath.join(dir, name), content, "utf8");
     }
   };
-  write(builtinDir, { "orchestrator.md": "ORCH OVERLAY", "coder.md": "CODER OVERLAY", ...builtin });
+  write(builtinDir, {
+    "orchestrator.md":
+      "---\ntools: [read, bash]\ntoolsets: [delegation, history]\n---\nORCH OVERLAY",
+    "coder.md": "CODER OVERLAY",
+    ...builtin,
+  });
   NodeFS.mkdirSync(projectRoot, { recursive: true });
   NodeFS.writeFileSync(NodePath.join(repo, ".git"), "", "utf8");
   if (project) write(NodePath.join(repo, ".t3code", "roles"), project);
@@ -45,34 +53,40 @@ const fixture = (builtin: Record<string, string> = {}, project?: Record<string, 
 };
 
 describe("loadRoleOverlay", () => {
-  it("defaults a null role to the orchestrator overlay", () => {
-    expect(loadRoleOverlay({ role: null, ...fixture().lookup })).toEqual({
+  it.each([null, "!!!"])("defaults a role of %s to the orchestrator", (role) => {
+    expect(loadRoleOverlay({ role, ...fixture().lookup })).toEqual({
       prompt: "ORCH OVERLAY",
+      tools: ORCH_PROFILE,
       delegation: true,
     });
   });
 
-  it("loads a named role overlay; no frontmatter → the whole file is the prompt", () => {
-    // No `tools:` restriction at all → full surface → delegation-capable.
+  it("a role without `tools:` takes the orchestrator's profile; no frontmatter → the whole file is the prompt", () => {
     expect(loadRoleOverlay({ role: "coder", ...fixture().lookup })).toEqual({
       prompt: "CODER OVERLAY",
+      tools: ORCH_PROFILE,
       delegation: true,
     });
   });
 
-  it("returns undefined for an unknown role (permissive spawning)", () => {
-    expect(loadRoleOverlay({ role: "analyst", ...fixture().lookup })).toBeUndefined();
+  it.each([
+    ["an unknown (free-text) role", "data-wrangler", {}],
+    ["an empty file", "empty", { "empty.md": "   \n" }],
+  ])("%s gets the orchestrator's profile and no prompt", (_case, role, builtin) => {
+    expect(loadRoleOverlay({ role, ...fixture(builtin).lookup })).toEqual({
+      tools: ORCH_PROFILE,
+      delegation: true,
+    });
   });
 
   it("slugifies the role, blocking path traversal", () => {
     // "../coder" → slug "coder" (separators stripped), never escapes roles/.
-    expect(loadRoleOverlay({ role: "../coder", ...fixture().lookup })).toEqual({
-      prompt: "CODER OVERLAY",
-      delegation: true,
-    });
+    expect(loadRoleOverlay({ role: "../coder", ...fixture().lookup }).prompt).toBe("CODER OVERLAY");
     // A traversal path collapses to a harmless in-dir slug (no `/` survives), so it
-    // can only ever resolve a roles/<slug>.md that doesn't exist → undefined.
-    expect(loadRoleOverlay({ role: "../../etc/passwd", ...fixture().lookup })).toBeUndefined();
+    // can only ever resolve a roles/<slug>.md that doesn't exist → no prompt.
+    expect(
+      loadRoleOverlay({ role: "../../etc/passwd", ...fixture().lookup }).prompt,
+    ).toBeUndefined();
   });
 
   it("built-in only: parses skills (block list, resolved against the built-in root) and tools (inline list, lifeline-unioned)", () => {
@@ -100,18 +114,18 @@ describe("loadRoleOverlay", () => {
         "---\ntools: [read_full, mcp__t3-code__workstream_submit]\n---\nASSESSOR OVERLAY",
     });
     const overlay = loadRoleOverlay({ role: "assessor", ...lookup });
-    expect([...(overlay?.tools ?? [])].sort()).toEqual(["read_full", ...LIFELINE].sort());
+    expect([...overlay.tools].sort()).toEqual(["read_full", ...LIFELINE].sort());
     // Every lifeline tool present exactly once, even when the role names one itself.
-    expect(
-      overlay?.tools?.filter((tool) => tool === "mcp__t3-code__workstream_submit"),
-    ).toHaveLength(1);
+    expect(overlay.tools.filter((tool) => tool === "mcp__t3-code__workstream_submit")).toHaveLength(
+      1,
+    );
     // The dormant families are NOT resident for a role that doesn't name them.
     for (const dormant of [
       ...DELEGATION_PROVIDER_TOOLS,
       ...HUMAN_INPUT_PROVIDER_TOOLS,
       ...PULL_REQUESTS,
     ]) {
-      expect(overlay?.tools).not.toContain(dormant);
+      expect(overlay.tools).not.toContain(dormant);
     }
   });
 
@@ -126,7 +140,7 @@ describe("loadRoleOverlay", () => {
       ].join("\n"),
     });
     const overlay = loadRoleOverlay({ role: "orchestrator", ...lookup });
-    expect([...(overlay?.tools ?? [])].sort()).toEqual(
+    expect([...overlay.tools].sort()).toEqual(
       [
         "read",
         "bash",
@@ -136,32 +150,32 @@ describe("loadRoleOverlay", () => {
         ...PULL_REQUESTS,
       ].sort(),
     );
-    expect(overlay?.delegation).toBe(true);
+    expect(overlay.delegation).toBe(true);
   });
 
   it.each(["orchestrator", "planner", "researcher", "reviewer"])(
     "the built-in %s keeps thread search resident in place of pi's session search",
     (role) => {
       const overlay = loadRoleOverlay({ role, projectRoot: fixture().lookup.projectRoot });
-      for (const tool of HISTORY) expect(overlay?.tools).toContain(tool);
+      for (const tool of HISTORY) expect(overlay.tools).toContain(tool);
       for (const tool of ["session_search", "session_list", "session_read"])
-        expect(overlay?.tools).not.toContain(tool);
+        expect(overlay.tools).not.toContain(tool);
     },
   );
 
   it.each(["orchestrator", "assessor", "coder", "planner", "researcher", "reviewer", "shipper"])(
     "only the built-in orchestrator keeps the scheduled-task tools (%s)",
     (role) => {
-      const tools = loadRoleOverlay({ role, projectRoot: fixture().lookup.projectRoot })?.tools;
+      const tools = loadRoleOverlay({ role, projectRoot: fixture().lookup.projectRoot }).tools;
       for (const tool of SCHEDULING)
-        expect(tools?.includes(tool), `${role} ${tool}`).toBe(role === "orchestrator");
+        expect(tools.includes(tool), `${role} ${tool}`).toBe(role === "orchestrator");
     },
   );
 
   // The role files' allowlists are long, and `vp check --fix` reformats them:
   // prettier's canonical form for a long flow sequence puts the bracket block on
   // the lines AFTER the key. Both wrap shapes must parse, or a reformat silently
-  // drops the whole allowlist and the role reverts to every registered tool.
+  // drops the whole allowlist and the role falls back to the orchestrator's profile.
   it.each([
     ["hand-wrapped", ["tools: [read, bash,", "  edit, write,", "  fd, rg]"]],
     [
@@ -183,7 +197,7 @@ describe("loadRoleOverlay", () => {
       "shipper.md": ["---", ...frontmatter, "---", "SHIP"].join("\n"),
     });
     const overlay = loadRoleOverlay({ role: "shipper", ...lookup });
-    expect([...(overlay?.tools ?? [])].sort()).toEqual(
+    expect([...overlay.tools].sort()).toEqual(
       ["read", "bash", "edit", "write", "fd", "rg", ...LIFELINE].sort(),
     );
   });
@@ -201,11 +215,11 @@ describe("loadRoleOverlay", () => {
       ].join("\n"),
     });
     const overlay = loadRoleOverlay({ role: "reviewer", ...lookup });
-    expect([...(overlay?.tools ?? [])].sort()).toEqual(
+    expect([...overlay.tools].sort()).toEqual(
       ["read", ...LIFELINE, ...HUMAN_INPUT_PROVIDER_TOOLS].sort(),
     );
     // human-input alone is not delegation.
-    expect(overlay?.delegation).toBe(false);
+    expect(overlay.delegation).toBe(false);
   });
 
   it("frontmatter keys are each optional; body-only frontmatter file keeps just the prompt", () => {
@@ -215,19 +229,9 @@ describe("loadRoleOverlay", () => {
     expect(loadRoleOverlay({ role: "skilled", ...lookup })).toEqual({
       prompt: "BODY",
       skills: [NodePath.join(tmp, "skills", "one"), NodePath.join(tmp, "skills", "two")],
+      tools: ORCH_PROFILE,
       delegation: true,
     });
-  });
-
-  it("returns undefined for an unknown (free-text) role — the composer treats that as capable", () => {
-    // Documented pairing with the session composer: `undefined` overlay means
-    // no allowlist, so the thread keeps its delegation tools and the roles catalogue.
-    expect(loadRoleOverlay({ role: "data-wrangler", ...fixture().lookup })).toBeUndefined();
-  });
-
-  it("returns undefined for an empty file", () => {
-    const { lookup } = fixture({ "empty.md": "   \n" });
-    expect(loadRoleOverlay({ role: "empty", ...lookup })).toBeUndefined();
   });
 });
 
@@ -270,25 +274,29 @@ describe("listRoleOverlays", () => {
 describe("built-in + project composition", () => {
   it("walks up from the project root to the repo's .t3code/roles, and no further", () => {
     const { tmp, repo, write, lookup } = fixture({}, { "coder.md": "PROJECT CODER" });
-    const composed = { prompt: "CODER OVERLAY\n\nPROJECT CODER", delegation: true };
+    const composed = {
+      prompt: "CODER OVERLAY\n\nPROJECT CODER",
+      tools: ORCH_PROFILE,
+      delegation: true,
+    };
     expect(loadRoleOverlay({ role: "coder", ...lookup })).toEqual(composed);
     expect(loadRoleOverlay({ role: "coder", ...lookup, projectRoot: repo })).toEqual(composed);
 
     // Above the `.git` entry is outside the repo: never read.
     const { tmp: other, lookup: bare } = fixture();
     write(NodePath.join(other, ".t3code", "roles"), { "coder.md": "ABOVE THE REPO" });
-    expect(loadRoleOverlay({ role: "coder", ...bare })?.prompt).toBe("CODER OVERLAY");
+    expect(loadRoleOverlay({ role: "coder", ...bare }).prompt).toBe("CODER OVERLAY");
 
     // No `.git` anywhere above: only the project root itself is read.
     const loose = NodePath.join(tmp, "loose");
     write(NodePath.join(loose, ".t3code", "roles"), { "coder.md": "LOOSE" });
     NodeFS.mkdirSync(NodePath.join(loose, "inner"));
-    expect(loadRoleOverlay({ role: "coder", ...lookup, projectRoot: loose })?.prompt).toBe(
+    expect(loadRoleOverlay({ role: "coder", ...lookup, projectRoot: loose }).prompt).toBe(
       "CODER OVERLAY\n\nLOOSE",
     );
     expect(
       loadRoleOverlay({ role: "coder", ...lookup, projectRoot: NodePath.join(loose, "inner") })
-        ?.prompt,
+        .prompt,
     ).toBe("CODER OVERLAY");
   });
 
@@ -297,7 +305,7 @@ describe("built-in + project composition", () => {
       { "coder.md": "You are a coder sub-thread. Ship it.\n\n- built-in bullet\n" },
       { "coder.md": "\n- project bullet\n" },
     );
-    expect(loadRoleOverlay({ role: "coder", ...lookup })?.prompt).toBe(
+    expect(loadRoleOverlay({ role: "coder", ...lookup }).prompt).toBe(
       "You are a coder sub-thread. Ship it.\n\n- built-in bullet\n\n- project bullet",
     );
   });
@@ -320,7 +328,7 @@ describe("built-in + project composition", () => {
       { "reviewer.md": "---\ntools: [read, bash]\ntoolsets: [human-input]\n---\nREVIEW" },
       { "reviewer.md": "- extra" },
     );
-    expect(loadRoleOverlay({ role: "reviewer", ...lookup })?.tools).toEqual([
+    expect(loadRoleOverlay({ role: "reviewer", ...lookup }).tools).toEqual([
       "read",
       "bash",
       ...LIFELINE,
@@ -328,18 +336,27 @@ describe("built-in + project composition", () => {
     ]);
   });
 
-  it("a project-only role is the whole role; unknown and empty compositions are undefined", () => {
+  it("a project-only role is the whole role, with the orchestrator's profile when it names no tools", () => {
     const { tmp, lookup } = fixture(
-      { "empty.md": "  \n" },
-      { "slack-inbox.md": "---\nskills: [skills/inbox]\n---\nINBOX", "empty.md": "" },
+      {},
+      { "slack-inbox.md": "---\nskills: [skills/inbox]\n---\nINBOX" },
     );
     expect(loadRoleOverlay({ role: "slack-inbox", ...lookup })).toEqual({
       prompt: "INBOX",
       skills: [NodePath.join(tmp, "repo", "skills", "inbox")],
+      tools: ORCH_PROFILE,
       delegation: true,
     });
-    expect(loadRoleOverlay({ role: "data-wrangler", ...lookup })).toBeUndefined();
-    expect(loadRoleOverlay({ role: "empty", ...lookup })).toBeUndefined();
+  });
+
+  it("the default profile is the project's composed orchestrator", () => {
+    const { lookup } = fixture({}, { "orchestrator.md": "---\ntools: [read_full]\n---\n- extra" });
+    expect(loadRoleOverlay({ role: "slack-inbox", ...lookup }).tools).toEqual([
+      "read_full",
+      ...LIFELINE,
+      ...DELEGATION_PROVIDER_TOOLS,
+      ...HISTORY,
+    ]);
   });
 });
 
@@ -352,8 +369,8 @@ describe("the shipped roles/ directory", () => {
     for (const role of names) {
       const overlay = loadRoleOverlay({ role, projectRoot });
       // Non-empty, and no frontmatter leaked into the body (an unclosed `---`).
-      expect(overlay?.prompt, role).toMatch(/^(?!---)\S/);
-      expect(overlay?.tools?.length, role).toBeGreaterThan(LIFELINE.length);
+      expect(overlay.prompt, role).toMatch(/^(?!---)\S/);
+      expect(overlay.tools.length, role).toBeGreaterThan(LIFELINE.length);
     }
   });
 

@@ -173,6 +173,30 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
       }),
   );
 
+  it.effect(
+    "a role with no tool profile is served the orchestrator's, not every registered tool",
+    () =>
+      Effect.gen(function* () {
+        const { threadId: parent } = yield* seedThread({
+          threadId: "routes-free-parent" as ThreadId,
+        });
+        const profileOf = (threadId: ThreadId, role: string) =>
+          Effect.gen(function* () {
+            yield* spawnChild({ parentThreadId: parent, threadId, role });
+            return (yield* call(
+              yield* credential(threadId, ["workstream"]),
+              "GET",
+              "/session-profile",
+            )).body;
+          });
+        const orchestrator = yield* profileOf("routes-free-orch" as ThreadId, "orchestrator");
+        const freeText = yield* profileOf("routes-free-text" as ThreadId, "work-hygiene sweep");
+        assert.deepEqual(freeText.activeTools, orchestrator.activeTools);
+        assert.include(freeText.activeTools, "mcp__t3-code__workstream_spawn");
+        assert.notInclude(freeText.activeTools, "mcp__t3-code__preview_open");
+      }),
+  );
+
   // The tool declaration is the author's prompt-cache key: a query thread the human talks to must
   // still declare what its un-engaged child author declares, and keep its own prompt capture.
   it.effect("a query thread is profiled as its author for human input, as itself for capture", () =>
