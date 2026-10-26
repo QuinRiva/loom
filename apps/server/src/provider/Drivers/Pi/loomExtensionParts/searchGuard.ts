@@ -12,13 +12,19 @@ import type { LoomExtensionPart } from "../loomExtension.ts";
 export const SEARCH_GUARD_TIMEOUT_SECONDS = 30;
 
 /**
- * The teaching escalation ladder, shared by the block reason and the timeout
- * hint. 99% of "file not found" cases mean a wrong location assumption, not a
- * file that a wider search will find.
+ * The teaching escalation ladder, shared by the block reason and both hints. 99% of "file not
+ * found" cases mean a wrong location assumption, and a hunted browser or linter is usually provided.
  */
-const LADDER_BASE =
+const LADDER_HEAD =
   "When a file is not where you expected, searching wider almost never finds it: " +
   "you are usually in the wrong directory, repo, or worktree. Escalate in order: " +
+  "(0) if what you are hunting is a tool or a capability (a browser, a simulator, a linter a skill named), it is probably provided: ";
+
+/** Rung 0's tool clause, only where pi registered `tool_search` (it does when any tool is deferred). */
+const LADDER_TOOL_SEARCH = "`tool_search` loads loom's tools, and ";
+
+const LADDER_BASE =
+  "a skill's bundled files resolve against the skill's own directory, not your cwd; " +
   "(1) verify the exact paths your brief gave you (`pwd`, `git rev-parse --show-toplevel`, `ls <path>`): brief paths are authoritative; " +
   "(2) run a focused, bounded search: a named subtree, `find <dir> -maxdepth 3 -name <name>`, or `rg --files -g <name>` inside your worktree";
 
@@ -41,18 +47,21 @@ const path = process.getBuiltinModule("node:path");
 const os = process.getBuiltinModule("node:os");
 
 const TIMEOUT_SECONDS = ${SEARCH_GUARD_TIMEOUT_SECONDS};
-// The consult rung only where this session has the tool (a Loom thread's workstream toolkit).
-const hasConsultTool = () => {
+// A rung naming a tool only where this session has it.
+const hasTool = (name) => {
   try {
-    return pi.getAllTools().some((tool) => tool.name === ${JSON.stringify(CONSULT_TOOL)});
+    return pi.getAllTools().some((tool) => tool.name === name);
   } catch {
     return false;
   }
 };
-const ladder = () =>
+// An already-bounded search is not told to bound itself.
+const ladder = (bounded = false) =>
+  ${JSON.stringify(LADDER_HEAD)} +
+  (hasTool("tool_search") ? ${JSON.stringify(LADDER_TOOL_SEARCH)} : "") +
   ${JSON.stringify(LADDER_BASE)} +
-  (hasConsultTool() ? ${JSON.stringify(LADDER_CONSULT)} : "") +
-  ${JSON.stringify(LADDER_TAIL)};
+  (hasTool(${JSON.stringify(CONSULT_TOOL)}) ? ${JSON.stringify(LADDER_CONSULT)} : "") +
+  (bounded ? "." : ${JSON.stringify(LADDER_TAIL)});
 
 // Recursive searchers the guard reasons about. rg/fd are gitignore-aware (a
 // foreign worktree walk is usually fine); find/grep walk everything.
@@ -210,14 +219,16 @@ const isDepthBounded = (head, tokens) =>
 /**
  * Analyse one bash command against the worktree. Returns:
  *   { verdict: "allow" } |
- *   { verdict: "block", root } |
- *   { verdict: "allow", searchy: true }   (pure unbounded search → auto-bound)
+ *   { verdict: "block", root, vast } |
+ *   { verdict: "allow", searchy, boundedVast }   (searchy: pure unbounded search → auto-bound;
+ *     boundedVast: the vast root an explicitly bounded walker covers → ladder note)
  */
 const analyseBashCommand = (command, worktree) => {
   const segments = splitSegments(command);
   let cwd = worktree;
   let sawUnboundedWalker = false;
   let allSafe = segments.length > 0;
+  let boundedVast;
   for (const segment of segments) {
     const parsed = tokenise(segment);
     if (parsed.redirectsToFile) allSafe = false;
@@ -237,8 +248,8 @@ const analyseBashCommand = (command, worktree) => {
     if (tokens.some((t) => FIND_SIDE_EFFECTS.has(t))) allSafe = false;
     // Explicitly bounded walker (timeout prefix or depth bound): the escape
     // hatch. Passes the block layer AND is never re-bound by the auto-timeout.
-    if (timeoutBounded || isDepthBounded(head, tokens)) continue;
-    sawUnboundedWalker = true;
+    const bounded = timeoutBounded || isDepthBounded(head, tokens);
+    if (!bounded) sawUnboundedWalker = true;
     const recursive =
       head === "find" ||
       head === "rg" ||
@@ -263,10 +274,11 @@ const analyseBashCommand = (command, worktree) => {
       const foreign = !isWithin(worktree, resolved);
       // rg/fd skip gitignored trees: only vast roots are dangerous for them.
       const dangerous = head === "rg" || head === "fd" ? vast : vast || foreign;
-      if (dangerous) return { verdict: "block", root: resolved };
+      if (bounded) boundedVast ??= vast ? resolved : undefined;
+      else if (dangerous) return { verdict: "block", root: resolved, vast };
     }
   }
-  return { verdict: "allow", searchy: sawUnboundedWalker && allSafe };
+  return { verdict: "allow", searchy: sawUnboundedWalker && allSafe, boundedVast };
 };
 
 const blockReason = (root) =>
@@ -277,18 +289,26 @@ const timeoutHint = () =>
   "\\n\\n[t3 search guard] This search was auto-bounded to " + TIMEOUT_SECONDS +
   "s because unbounded filesystem searches are the top cause of stuck threads; partial output above. " + ladder();
 
+const boundedHint = (root) =>
+  "\\n\\n[t3 search guard] Your bound let this search walk " + root + ". " + ladder(true);
+
 // toolCallIds whose timeout the guard injected, so the timeout hint is only
 // appended to timeouts the guard itself caused.
 const injected = new Set();
+// toolCallId -> the vast root an explicitly bounded search walked: it runs, and hears the ladder.
+const boundedVast = new Map();
 pi.on("tool_call", (event, ctx) => {
   try {
     if (event.toolName === "bash") {
       const command = event.input?.command;
       if (typeof command !== "string") return undefined;
+      const analysis = analyseBashCommand(command, ctx.cwd);
       // An explicit tool-level timeout is the documented escape hatch: the
       // model has bounded the command itself, so neither block nor re-bound.
-      if (event.input.timeout !== undefined) return undefined;
-      const analysis = analyseBashCommand(command, ctx.cwd);
+      const explicit = event.input.timeout !== undefined;
+      const vastRoot = analysis.boundedVast ?? (explicit && analysis.vast ? analysis.root : undefined);
+      if (vastRoot !== undefined) boundedVast.set(event.toolCallId, vastRoot);
+      if (explicit) return undefined;
       if (analysis.verdict === "block") {
         return { block: true, reason: blockReason(analysis.root) };
       }
@@ -314,14 +334,16 @@ pi.on("tool_call", (event, ctx) => {
 });
 pi.on("tool_result", (event) => {
   try {
-    if (event.toolName !== "bash" || !injected.delete(event.toolCallId)) return undefined;
-    if (!event.isError) return undefined;
+    if (event.toolName !== "bash") return undefined;
+    const notes = [];
     const text = event.content?.map((c) => c.text ?? "").join("\\n") ?? "";
-    if (!text.includes("Command timed out after")) return undefined;
-    return {
-      content: [...event.content, { type: "text", text: timeoutHint() }],
-      isError: true,
-    };
+    if (injected.delete(event.toolCallId) && event.isError && text.includes("Command timed out after")) {
+      notes.push(timeoutHint());
+    }
+    const root = boundedVast.get(event.toolCallId);
+    if (boundedVast.delete(event.toolCallId)) notes.push(boundedHint(root));
+    if (notes.length === 0) return undefined;
+    return { content: [...(event.content ?? []), ...notes.map((note) => ({ type: "text", text: note }))] };
   } catch {
     return undefined;
   }

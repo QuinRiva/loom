@@ -1,7 +1,7 @@
 // loom: Loom extension part: guards for shell mistakes agents repeat (`rg -rn`, kill by pattern or
-// of pi's group, `gh api` fields with no `-X`, backticks in an unquoted heredoc, a long foreground
-// `sleep`). Clear intent is rewritten with a note, else blocked with the fix and bypass. Permissive
-// on doubt; handlers catch everything (a thrown `tool_call` handler blocks every tool in pi).
+// of pi's group, `gh api` fields with no `-X`, unquoted backtick heredocs, a long `sleep`, a browser
+// by hand). Clear intent is rewritten or noted, else blocked with the fix and bypass. Permissive on
+// doubt; handlers catch everything (a thrown `tool_call` handler blocks every tool in pi).
 import type { LoomExtensionPart } from "../loomExtension.ts";
 
 const NOTE = "[t3 command guard]";
@@ -21,10 +21,12 @@ const HEREDOC_REWRITE_NOTE = `${NOTE} Quoted your heredoc delimiter (FROM became
 
 const HEREDOC_WARN_NOTE = `${NOTE} Your unquoted heredoc FROM has backticks or \`$(\` in its body, which bash ran as command substitution before delivery. If the body was meant literally (markdown, a Slack message), send it again with a quoted delimiter (TO). If the substitution was intended, ignore this.`;
 
+const BROWSER_NOTE = `${NOTE} Loom provides a headless browser: \`html_preview\` renders an HTML document to a screenshot with its console output and \`preview_*\` drives a live tab at any URL, both loaded with \`tool_search\` (query "browser screenshot"); if you need a browser of your own, carry on.`;
+
 export const commandGuardsPart: LoomExtensionPart = {
   name: "command-guards",
   source: String.raw`
-const MESSAGES = ${JSON.stringify({ KILL_MESSAGE, GROUP_KILL_MESSAGE, GH_MESSAGE, SLEEP_MESSAGE, RG_NOTE, HEREDOC_REWRITE_NOTE, HEREDOC_WARN_NOTE })};
+const MESSAGES = ${JSON.stringify({ KILL_MESSAGE, GROUP_KILL_MESSAGE, GH_MESSAGE, SLEEP_MESSAGE, RG_NOTE, HEREDOC_REWRITE_NOTE, HEREDOC_WARN_NOTE, BROWSER_NOTE })};
 const fill = (text, values) => text.replace(/\b(FROM|TO|ENDPOINT|SLEEP|MINUTES)\b/g, (key) => values[key]);
 const code = (text) => "\x60" + text + "\x60";
 
@@ -165,6 +167,29 @@ const killsGroup = (tokens) => {
   });
 };
 
+// A browser installed, launched or hunted for by hand: a browser binary run or looked up, a
+// playwright/puppeteer package install, playwright install, its cache dir listed, a script's launch
+// call. Noted once per session, never blocked: some threads render with a browser on purpose.
+const BROWSER_BINARY = /^(chromium(-browser)?|(google-)?chrome(-stable)?|chrome-headless-shell|firefox)$/;
+const BROWSER_PACKAGE = /^(@playwright\/test|playwright(-core)?|puppeteer(-core)?)(@.*)?$/;
+const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun", "pip", "pip3", "uv"]);
+const BROWSER_SCRIPT = /\b(chromium|firefox|webkit|puppeteer)\.launch\(/;
+const hasBrowserTool = () => {
+  try {
+    return pi.getAllTools().some((tool) => /(^|__)html_preview$/.test(tool.name));
+  } catch {
+    return false;
+  }
+};
+const handRollsBrowser = (head, values) =>
+  BROWSER_BINARY.test(head) ||
+  ((head === "which" || head === "whereis") && values.some((v) => BROWSER_BINARY.test(v) || /^(playwright|puppeteer)$/.test(v))) ||
+  (PACKAGE_MANAGERS.has(head) && values.some((v) => /^(i|install|add)$/.test(v)) && values.some((v) => BROWSER_PACKAGE.test(v))) ||
+  values.some((v, i) => /^playwright(@.*)?$/.test(v.split("/").pop()) && values[i + 1] === "install") ||
+  (head.startsWith("$") && values.some((v) => /^--headless(=|$)/.test(v))) ||
+  values.some((v) => v.includes("ms-playwright") && !/^[A-Za-z_]\w*=/.test(v));
+let browserNoted = false;
+
 const KILL_PIPELINES = [/\bpgrep\b[^;&\n]*\|\s*xargs\b[^;&|\n]*\bkill\b/, /\bkill\b[^;&|\n]*(\$\(|\x60)\s*pgrep\b/];
 
 const analyse = (command) => {
@@ -178,8 +203,10 @@ const analyse = (command) => {
   const unquoted = text.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, (s) =>
     s[0] === '"' && /\$\(|\x60/.test(s) ? s : s.replace(/[^\n]/g, " "));
   if (KILL_PIPELINES.some((re) => re.test(unquoted))) blocks.add(MESSAGES.KILL_MESSAGE);
+  let browser = BROWSER_SCRIPT.test(command);
   for (const tokens of commands(text)) {
     const head = tokens[0].value.split("/").pop();
+    browser ||= handRollsBrowser(head, tokens.map((t) => t.value));
     if (head === "rg") edits.push(...rgEdits(tokens));
     // -P (children of a PID) and -F (a pidfile) select by PID, not by name.
     else if (head === "pkill" && !tokens.some((t) => /^(-[PF]|--parent|--pidfile)/.test(t.raw))) {
@@ -214,6 +241,10 @@ const analyse = (command) => {
   let rewritten = command;
   for (const e of [...edits].sort((a, b) => b.start - a.start)) {
     rewritten = rewritten.slice(0, e.start) + e.text + rewritten.slice(e.end);
+  }
+  if (browser && !browserNoted && hasBrowserTool()) {
+    browserNoted = true;
+    notes.push(MESSAGES.BROWSER_NOTE);
   }
   return { command: rewritten, notes: [...edits.map((e) => e.note), ...notes] };
 };
