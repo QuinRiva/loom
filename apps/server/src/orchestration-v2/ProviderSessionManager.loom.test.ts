@@ -235,9 +235,7 @@ const openWith = (
           IdAllocator.layer,
           mcpRegistry,
           McpProviderSessions.layer,
-        ).pipe(
-          Layer.provideMerge(NodeServices.layer),
-        ),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
       Effect.exit,
     );
