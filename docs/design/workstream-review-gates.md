@@ -68,7 +68,7 @@ The control plane is an event-sourced command pipeline:
   `apps/server/src/orchestration/roleOverlay.ts`.
 - **Renderer** — `apps/web/src/components/WorkstreamGraph.tsx` +
   `apps/web/src/lib/workstreamGraph.ts` (`computeForkJoinLayout`): the
-  fork–join band layout from `docs/plans/workstream-fork-join-graph.md`. Edge
+  fork–join band layout. Edge
   kinds today: solid `spine`, bezier `fork`, dashed-amber `waits-on`. Lane
   styling lives in `apps/web/src/lib/workstreamPresentation.ts`
   (`COLUMN_ORDER`, `STATUS_STYLES`).
@@ -501,9 +501,9 @@ survives because it is all in durable events).
 > one combined section. The action-required rails (idle backstop, error,
 > attention, yield, fan-in conflict) stay immediate and byte-identical. The
 > losslessness/holdback machinery described below is unchanged — only the
-> delivery vehicle and copy changed. See
-> `docs/design/workstream-notice-coalescing.md` for the tiering, the
-> `isHeldForCounterpartFanIn` pair holdback, and the digest flush conditions.
+> delivery vehicle and copy changed. The tiering, pair holdback and digest
+> flush conditions now live in
+> `apps/server/src/loom/orchestration/dispatcher/digest.ts` and `rails.ts`.
 
 **Terminal-child delta noticing (supersedes the generation-join barrier).** The
 dispatcher no longer waits for an entire `(parentThreadId, spawnGeneration)`
@@ -721,7 +721,7 @@ children in favour of "submit"), and `roles/planner.md` / `researcher.md` /
   `lastOutcome` (`clean` emerald / `fixed_inline` emerald-outline /
   `needs_rework ⟲n` amber / `yielded` violet); "waiting on rework" /
   "awaiting re-review" badge from the shared `isWaitingInGate`.
-- `docs/design/workstream-graph-state-rollup.md` interplay: the rollup's
+- Graph-state rollup interplay: the rollup's
   liveness-first algorithm needs no structural change — a mid-loop gate always
   has one active party, so the graph reads `active`. Threads in `yielded`
   should map into the rollup's `attention`-adjacent bucket via a new
@@ -845,6 +845,3 @@ submit-protocol parts; the gate-pattern parts require Phase 3.
 - `apps/server/src/orchestration/workstreamReport.ts` — report storage (R2).
 - `apps/web/src/lib/workstreamGraph.ts` / `workstreamPresentation.ts` /
   `components/WorkstreamGraph.tsx` — renderer touchpoints.
-- `docs/plans/workstream-fork-join-graph.md`,
-  `docs/design/workstream-graph-state-rollup.md`,
-  `docs/research/workstream-dag-visualization.md` — visualisation lineage.
