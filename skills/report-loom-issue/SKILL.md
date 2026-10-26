@@ -197,5 +197,5 @@ asks you to triage. `duplicate`, `invalid`,
 only when told to.
 
 The footer's `Thread:` id (and the id a commenter signed off with) is a Loom
-thread, consultable (`consult_thread`) for as long as its session exists on
+thread, consultable (`mcp__t3-code__consult_thread`) for as long as its session exists on
 this machine; the AIT and PE Jira boards carry the same pointer.
