@@ -52,6 +52,7 @@ const ITEM_KIND_LABELS: Record<LoomControlItemKind, string> = {
   "slow-tool": "slow tool",
   spinning: "spinning",
   "dead-episode": "dead",
+  "human-message": "human message",
 };
 
 /** The synthesised-yield marker (seam 8's wording). */

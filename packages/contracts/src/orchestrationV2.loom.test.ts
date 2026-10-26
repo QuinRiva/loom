@@ -301,6 +301,7 @@ describe("Loom sidecar contract splices", () => {
         items: [
           { kind: "gate-resolved", title: "Gate resolved" },
           { kind: "dead-episode", threadId: "child-2", title: "Reviewer" },
+          { kind: "human-message", threadId: "child-3", title: "Coder" },
         ],
       },
       { kind: "notice", notice: "gate-rework", heading: "Rework", items: [] },

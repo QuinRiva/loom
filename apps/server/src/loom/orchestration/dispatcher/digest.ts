@@ -35,7 +35,7 @@ export const FYI_DIGEST_FLUSH_MS = 120_000;
 
 /** A non-terminal digest entry: one pre-rendered line plus its card carriers. */
 export interface DigestExtra {
-  readonly kind: Exclude<LoomControlItemKind, "terminal" | "gate-resolved">;
+  readonly kind: Exclude<LoomControlItemKind, "terminal" | "gate-resolved" | "human-message">;
   readonly line: string;
   readonly childId?: ThreadId;
   readonly role?: string | null;

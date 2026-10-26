@@ -84,6 +84,8 @@ export const LoomControlItemKind = Schema.Literals([
   "slow-tool",
   "spinning",
   "dead-episode",
+  // Never emitted since 23 Oct 2026, but stored digests carry it and must still decode.
+  "human-message",
 ]);
 export type LoomControlItemKind = typeof LoomControlItemKind.Type;
 
