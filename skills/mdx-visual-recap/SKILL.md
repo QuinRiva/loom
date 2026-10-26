@@ -190,8 +190,11 @@ the 8 MiB transport ceiling `planLint` enforces (warn above 6 MB, error above
 ## Validate before presenting
 
 ```
-node apps/web/scripts/lint-plan.mjs recaps/<slug>/recap.mdx --out recaps/<slug>/render.html --png
+bash ../mdx-doc-core/scripts/lint-doc.sh recaps/<slug>/recap.mdx --out recaps/<slug>/render.html --png
 ```
+
+The script path resolves against this skill's directory, the document paths
+against your working directory.
 
 The render-health gate, in two stages against the real renderer modules:
 **lint** (compile gate, block registry, zod schemas, the duplicate
