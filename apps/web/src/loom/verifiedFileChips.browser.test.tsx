@@ -62,6 +62,7 @@ function meta(filePath: string): MarkdownFileLinkMeta {
 function Harness({ metas }: { metas: ReadonlyArray<MarkdownFileLinkMeta> }) {
   const chip = makeVerifiedFileLinkChip({
     environmentId: ENV,
+    cwd: CWD,
     renderChip: (fileLinkMeta) => <b data-upstream-chip>{fileLinkMeta.basename}</b>,
   });
   return (
@@ -141,6 +142,20 @@ describe("makeVerifiedFileLinkChip", () => {
     // No environment (the /preview harness) cannot verify anything either.
     expect(await verifyChipTargetBeforeOpen(null, `${CWD}/unknown.ts`)).toBe(true);
     expect(toastAdd).not.toHaveBeenCalled();
+  });
+
+  // Upstream #14510 finds a bare name or a repository-relative path at open, so the literal path's
+  // absence must not draw "missing?" over a link upstream would open.
+  it("keeps upstream's chip for a link upstream re-resolves at open", async () => {
+    setup();
+    using _fetcher = stubFetcher(fetcherFor({}));
+    const bare = { ...meta(`${CWD}/notes.md`), workspaceLookupPath: "notes.md" };
+    const repoRelative = { ...meta(`${CWD}/w/src/a.ts`), workspaceLookupPath: "w/src/a.ts" };
+    const plain = { ...meta(`${CWD}/src/gone.ts`), workspaceLookupPath: "src/gone.ts" };
+    await using screen = await render(<Harness metas={[bare, repoRelative, plain]} />);
+    await vi.waitFor(() => expect(readPathExistence(ENV, plain.filePath)).toBeDefined());
+    await vi.waitFor(() => expect(missingChips(screen.container)).toHaveLength(1));
+    expect(upstreamChips(screen.container)).toHaveLength(2);
   });
 
   // Artifact routing now lives in upstream's chip (`onOpenArtifact`), so the

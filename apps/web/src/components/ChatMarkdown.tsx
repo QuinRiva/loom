@@ -225,6 +225,7 @@ import {
   useScannedPathTargets,
   makeUnanchoredInlineCodeChip,
   makeVerifiedFileLinkChip,
+  upstreamResolvesAtOpen,
   messageDirectoryBasesKey,
   useVerifiedScannedPath,
   verifyChipTargetBeforeOpen,
@@ -888,7 +889,9 @@ function useChatMarkdownState({
             : undefined
         }
         // loom: see verifyChipTarget.
-        onVerifyBeforeOpen={verifyChipTarget}
+        onVerifyBeforeOpen={
+          upstreamResolvesAtOpen(fileLinkMeta, cwd) ? undefined : verifyChipTarget
+        }
         // loom: see artifactTarget above.
         onOpenArtifact={
           artifactTarget
@@ -948,6 +951,7 @@ function useChatMarkdownState({
   // renders exactly upstream's chip.
   const verifiedFileLinkChip = makeVerifiedFileLinkChip({
     environmentId,
+    cwd,
     renderChip: fileLinkChip,
   });
   // loom: a bare `prices.json` or unprefixed `src/x.py` is a guess at a place,

@@ -1,4 +1,8 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  needsWorkspaceBasenameLookup,
+  stripRepeatedWorkspacePrefix,
+} from "@t3tools/client-runtime/workspace-basename-lookup";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -89,6 +93,19 @@ function MissingFileChip(props: {
 }
 
 /**
+ * Upstream re-resolves this link at open (#14510: a bare name, or a repository-relative path in a
+ * subfolder project), so the literal path's absence is not a verdict and Loom skips its checks.
+ */
+export function upstreamResolvesAtOpen(meta: MarkdownFileLinkMeta, cwd: string | undefined) {
+  const lookup = meta.workspaceLookupPath;
+  return (
+    lookup !== null &&
+    cwd !== undefined &&
+    (needsWorkspaceBasenameLookup(lookup) || stripRepeatedWorkspacePrefix(lookup, cwd) !== null)
+  );
+}
+
+/**
  * `false` means do not open: the store now holds `exists: false` and the toast
  * says why. An unverifiable path (no environment, failed stat) opens, because an
  * unhealthy RPC must not block a working link.
@@ -117,13 +134,14 @@ export async function verifyChipTargetBeforeOpen(
  */
 function VerifiedFileChip(props: {
   environmentId: EnvironmentId | null;
+  cwd: string | undefined;
   meta: MarkdownFileLinkMeta;
   copyMarkdown: string;
   className?: string | undefined;
   mediaSource?: string | undefined;
   renderChip: FileLinkChipRenderer;
 }) {
-  const paths = [props.meta.filePath];
+  const paths = upstreamResolvesAtOpen(props.meta, props.cwd) ? [] : [props.meta.filePath];
   const lookupExistence = usePathExistence(props.environmentId, paths);
   return lookupExistence(props.meta.filePath)?.exists === false ? (
     <MissingFileChip
@@ -143,12 +161,14 @@ function VerifiedFileChip(props: {
  */
 export function makeVerifiedFileLinkChip(input: {
   environmentId: EnvironmentId | null;
+  cwd: string | undefined;
   renderChip: FileLinkChipRenderer;
 }): FileLinkChipRenderer {
-  const { environmentId, renderChip } = input;
+  const { environmentId, cwd, renderChip } = input;
   return (fileLinkMeta, copyMarkdown, className, mediaSource) => (
     <VerifiedFileChip
       environmentId={environmentId}
+      cwd={cwd}
       meta={fileLinkMeta}
       copyMarkdown={copyMarkdown}
       className={className}
