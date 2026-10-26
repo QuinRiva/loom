@@ -18,6 +18,19 @@ vp i
 vp run dev
 ```
 
+<!-- loom: worktree bootstrap and setup state -->
+
+A linked worktree gets its install from the project's worktree setup script (Loom's runs
+`scripts/bootstrap-worktree.sh`; see [worktree development](../internals/worktree-development.md)).
+It runs in the background and records its state in
+`"$(git rev-parse --git-dir)/t3code-setup-state.json"`: `ready`, proceed; `pending`, wait and
+re-check rather than running `vp i`; `failed`, read its `detail` and the setup output, then fix or
+report rather than reinstalling. With no file at all, no setup script ran here, so run `vp i`
+yourself. If module resolution looks broken in a worktree, the script probably did not run.
+
+Need a second checkout? `git worktree add` it next to the current worktree, not in `/tmp`, and
+remove it when done.
+
 Open the pairing URL printed by the dev runner. The bare origin does not authenticate
 a new browser.
 
@@ -80,17 +93,60 @@ The main checkout defaults to `~/.t3/dev`. An explicit `--home-dir` wins in both
 The first start in a worktree seeds its empty database from a read-only copy of
 `~/.t3/userdata`; `--no-seed` or `T3CODE_DEV_SEED=0` skips that.
 Never run a development server against the live `~/.t3/userdata`.
-See [test data](../../AGENTS.md#test-data) for copying a consistent database snapshot.
+See [test data](#test-data) for copying a consistent database snapshot.
+
+<!-- loom: server-side worktree home default and the live-server refusal -->
+
+The server enforces the same default: a checkout provisioned under `<home>/worktrees/` runs on its
+own `.t3` even when booted by hand as `node apps/server/src/bin.ts serve`, and one INFO line at
+startup names the rule that chose the home. Passing `--base-dir "$PWD/.t3"` still says it
+explicitly, and remains the habit worth keeping. A boot also refuses outright when another live
+server already holds that home's database (`statev2.sqlite`); clear it by deleting
+`<stateDir>/server-runtime.json` only when you know that pid is not a server.
 
 Read ports from the `[dev-runner]` output. Worktrees derive stable preferences from their paths,
 but occupied ports can shift them. `T3CODE_PORT_OFFSET` or `T3CODE_DEV_INSTANCE` can select a
 different preference when needed.
+
+Stop what you started, by the PID you tracked; never by matching a name or path
+([the three ways to hurt yourself](../../AGENTS.md#the-three-ways-to-hurt-yourself)).
+
+### Test data
+
+<!-- loom: test data (moved from AGENTS.md) -->
+
+An empty database is a bad test. The first start seeds one (above); to refresh or enlarge it, seed
+your worktree's `.t3` with a copy of real data instead of pointing at live state:
+
+- Run `vp run migrate-dev-db --base-dir <baseDir>` with your dev server stopped, where `<baseDir>`
+  is the port-scoped home the `[dev-runner]` line prints (`<worktree>/.t3/dev-instances/<port>`);
+  without `--base-dir` it rebuilds `<worktree>/.t3`, which `vp run dev` does not read.
+  <!-- loom: dev-instance home --> It rebuilds that home's `userdata/statev2.sqlite` from a
+  read-only slice of `$T3CODE_HOME/userdata/statev2.sqlite`, the developer's real data, with no
+  `--source` needed (it falls back to `~/.t3` when `T3CODE_HOME` is unset).
+  <!-- loom: $T3CODE_HOME source --> It keeps recent projects and their stopped threads, and drops
+  scheduled tasks, pending work, and auth sessions, so your dev server never runs the developer's
+  agents. Raise `--projects` and `--threads-per-project` for more data; `--root <thread>` keeps one
+  workstream tree.
+- Refresh `statev2.sqlite`, not `state.sqlite`. The server copies the V1 `state.sqlite` only when
+  `statev2.sqlite` is missing.
+- Bring `secrets` and `settings.json` only if the flow under test needs them.
+- Copy in, never symlink. Data flows one way: into your sandbox, never back out.
 
 ### Sharing and remote debugging
 
 `vp run dev --share` publishes the web port over the machine's tailnet and prints a pairing URL
 for that origin. Give the tester the complete URL, including its token. The dev runner removes
 its mapping on exit.
+
+<!-- loom: agent sharing steps and token scopes -->
+
+For an agent, sharing is three steps: run `vp run dev --share` in the background, wait for the
+`pairingUrl:` line in its output, then give that full URL to an unpaired browser. Do not wire up
+`tailscale serve` by hand, open the URL yourself, or consume the user's pairing link. A browser
+with the [reusable dev cookie](#reusable-dev-credential) can use the bare origin. If a normal
+one-time token was consumed, mint a fresh one with `node apps/server/src/bin.ts pair`. It carries
+standard scopes, while the startup URL carries admin scopes needed for Connections settings.
 
 Leave `VITE_HTTP_URL` and `VITE_WS_URL` unset. Vite proxies the backend through the browser's
 origin so the same build works over localhost and remote connections.
@@ -158,6 +214,15 @@ commit, pull request, or public output. Every server still seeds its own auth da
 startup and keeps its own SQLite data, signing key, and revocation state. Desktop and non-dev
 servers ignore the value. See [environment authentication](../internals/environment-auth.md#reusable-dev-credential)
 for the security model.
+
+## Vendored references
+
+<!-- loom: .repos guidance (moved from AGENTS.md) -->
+
+`.repos/` holds read-only checkouts of the libraries this repo leans on (`.repos/effect-smol/LLMS.md`
+is the Effect library's own guide). Prefer their patterns over invented ones; never edit or import
+from them. Sync with `vpr sync:repos` when bumping the matching dependency. If a path is missing
+(sparse checkout), read it with `git show origin/main:.repos/<path>`.
 
 ## Checks
 

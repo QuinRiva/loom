@@ -114,22 +114,12 @@ The most common defect in this repo is a change that works on the path you teste
 
 - `vp i` installs. Worktrees get this from the project's worktree setup script (Loom's runs `scripts/bootstrap-worktree.sh`); if module resolution looks broken, it probably did not run.
 - Setup runs in the background. Read `"$(git rev-parse --git-dir)/t3code-setup-state.json"`: `ready`, proceed; `pending`, wait and re-check, and do not run `vp i`; `failed`, read its `detail` and fix or report rather than reinstalling. With no file at all, no setup script ran here, so run `vp i` yourself. <!-- loom: setup state file -->
-- `vp run dev` starts server and web. In a worktree, state defaults to that worktree's gitignored `.t3`, which deliberately outranks an ambient `T3CODE_HOME` so you cannot land on shared state by accident. An explicit `--home-dir` still wins. The server enforces the same default: a checkout provisioned under `<home>/worktrees/` runs on its own `.t3` even when booted by hand as `node apps/server/src/bin.ts serve`, and one INFO line at startup names the rule that chose the home. Passing `--base-dir "$PWD/.t3"` still says it explicitly, and remains the habit worth keeping. A boot also refuses outright when another live server already holds that home's database (`statev2.sqlite`); clear it by deleting `<stateDir>/server-runtime.json` only when you know that pid is not a server.
-- Ports derive from the worktree path and are stable across restarts, but read the real ones from the `[dev-runner]` line since occupied ports shift.
-- Sharing over the tailnet is three steps: run `vp run dev --share` in the background, wait for the `pairingUrl:` line in its output, then give that full URL to an unpaired browser. Do not wire up `tailscale serve` by hand, open the URL yourself, or consume the user's pairing link. A browser with the reusable dev cookie can use the bare origin. If a normal one-time token was consumed, mint a fresh one with `node apps/server/src/bin.ts pair`. It carries standard scopes, while the startup URL carries admin scopes needed for Connections settings.
-- To reuse web dev auth across worktrees, configure one fixed `T3CODE_DEV_AUTH_TOKEN` in the main checkout's gitignored `.env`. The `t3.json` setup links that file into worktrees. Never commit or publish the token or a startup URL. See [Reusable dev credential](docs/operations/development.md#reusable-dev-credential).
+- `vp run dev` starts server and web. In a worktree, state defaults to that worktree's gitignored `.t3`, which deliberately outranks an ambient `T3CODE_HOME` so you cannot land on shared state by accident. An explicit `--home-dir` still wins. Ports, the server-side home rule, sharing over the tailnet and the reusable dev credential: [Development](docs/operations/development.md#choosing-a-dev-process). <!-- loom: moved to docs -->
 - Stop what you started, by the PID you tracked. See rule 1.
-- Need a second checkout? `git worktree add` it next to this worktree, not in `/tmp`. Remove it when done.
 
 ## Test data
 
-An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:
-
-- The first `vp run dev` in a worktree does this for you when its database is missing. `--no-seed` or `T3CODE_DEV_SEED=0` skips it.
-- Run `vp run migrate-dev-db --base-dir <baseDir>` with your dev server stopped, where `<baseDir>` is the port-scoped home the `[dev-runner]` line prints (`<worktree>/.t3/dev-instances/<port>`); without `--base-dir` it rebuilds `<worktree>/.t3`, which `vp run dev` does not read. <!-- loom: dev-instance home --> It rebuilds that home's `userdata/statev2.sqlite` from a read-only slice of `$T3CODE_HOME/userdata/statev2.sqlite`, the developer's real data, with no `--source` needed (it falls back to `~/.t3` when `T3CODE_HOME` is unset). <!-- loom: $T3CODE_HOME source --> It keeps recent projects and their stopped threads, and drops scheduled tasks, pending work, and auth sessions, so your dev server never runs the developer's agents. Raise `--projects` and `--threads-per-project` for more data.
-- Refresh `statev2.sqlite`, not `state.sqlite`. The server copies the V1 `state.sqlite` only when `statev2.sqlite` is missing.
-- Bring `secrets` and `settings.json` only if the flow under test needs them.
-- Copy in, never symlink. Data flows one way: into your sandbox, never back out.
+An empty database is a bad test. The first `vp run dev` in a worktree seeds its `.t3` from a read-only slice of the developer's real data; refresh or enlarge it with `vp run migrate-dev-db` ([Test data](docs/operations/development.md#test-data)). Copy in, never symlink: data flows one way, into your sandbox, never back out. <!-- loom: moved to docs -->
 
 ## Verifying
 
@@ -137,35 +127,8 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 - Smallest proof that the change works: `vp test run <files>` for the tests you touched, targeted lint and typecheck for the scope you changed, then the completion gates above.
 - Test meaningful logic or observable behaviour. Do not render components to static markup to assert props or attributes, or add tests that merely assert callback wiring or mirror the implementation.
 - Backend behaviour changes ship with focused tests for that behaviour.
-- The server is event-sourced, and side effects run after the command commits. In tests, drain the effect worker (`OrchestrationEffectWorkerV2.drain`) or await the specific persisted event or `Deferred` that marks the milestone. Never wait on sleeps or polling. A test that needs a timeout to pass is wrong.
-  - `it.effect` runs on a `TestClock`; `Effect.sleep` only advances through `TestClock.adjust`. `it.live` is wall-clock and only for subprocess or network fixtures.
-  - No `yieldNow` or `sleep` polling loops. Await the `Deferred`, take from the `Queue`, or drain the worker.
-  - No per-test timeout argument or `retry`. The project timeout is the ceiling, and flaky tests are fixed, not retried.
-  - No `performance.now()` or `Date.now()` deltas. Assert on events and counts, not elapsed time.
-  - Browser tests assert through `expect.element` or `vi.waitFor`, never `requestAnimationFrame` or `transitionend`.
-  - `vi.mock` factories must not spread a real module that pulls in Shiki or the diff workers.
-  - `it.skip` and friends need a tracking issue on the line above: `// quarantine: #1234 <why>`.
-  - Lint enforces this: `t3code/no-test-timeout-or-unreasoned-skip`, `t3code/no-frame-waits-in-browser-tests`, `t3code/no-wall-clock-in-tests`, `t3code/no-real-time-wait-in-tests`, `t3code/no-polling-loop-in-tests`.
-- Web browser tests are `*.browser.test.tsx` or `*.browser.test.ts` and render with `await using screen = await render(...)` from `apps/web/test/render.tsx`. `t3code/require-disposable-render` errors on the old patterns.
-  - Acquire what the test drives after mounting (fake timers it advances, spies it sets up after mounting) after the render, so it disposes before the unmount. Anything the first render reads comes before it.
-  - A helper that renders and then waits or clicks puts the screen in an `AsyncDisposableStack` and `move()`s it out only on success, so a failed wait still unmounts.
-  - `rerender` needs a fresh element on every call.
-  - No lifecycle hooks and no module-level mutable state. Shared mock state that `vi.mock` factories read is reset by a `setup()` call at the top of the test.
-  - `router` is on by default. Pass `router: false` only with a one-line comment saying why.
-
-  ```tsx
-  it("saves on Enter", async () => {
-    const onSave = vi.fn();
-    using _now = vi.spyOn(Date, "now").mockReturnValue(0);
-    await using screen = await render(<TitleEditor onSave={onSave} />, { router: "/threads/1" });
-    await userEvent.type(screen.getByRole("textbox"), "Title{Enter}");
-    expect(onSave).toHaveBeenCalledWith("Title");
-  });
-  ```
-
-- User-visible frontend changes get one live pass: web via the dev-verify recipe or the preview harness (Live frontend verification, above), mobile via `test-t3-mobile`. Subagents do not launch their own dev servers unless their brief says to.
-
-For authorized mobile verification, a missing or outdated native client is an install step, not a blocker. Run `vp run mobile:install <ios|android> [device-id]` on the device host before starting Metro; it targets the only booted simulator or connected Android device when the id is omitted. It installs the dev client for this checkout's native fingerprint from the shared cache in seconds and builds only when no machine has built it yet, so prefer it over `expo run:*`, `xcodebuild`, or `gradlew`, which rebuild from scratch. Its stdout is one JSON line; build output goes to the log it names. See `test-t3-mobile` for the full workflow.
+- Server tests drain the effect worker or await the persisted event that marks the milestone, never a sleep, a poll or a timeout; web browser tests render through the disposable `render` from `apps/web/test/render.tsx`. Lint enforces the mechanics; the reasons and the conventions lint cannot see are in [Testing](docs/internals/testing.md): read it before writing a server or browser test. <!-- loom: moved to docs -->
+- User-visible frontend changes get one live pass: web via the dev-verify recipe or the preview harness (Live frontend verification, above), mobile via `test-t3-mobile`, whose skill covers installing the native client (`vp run mobile:install`). Subagents do not launch their own dev servers unless their brief says to.
 
 ## Pull requests
 
@@ -195,18 +158,11 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 ## How it works
 
-Clients send typed WebSocket requests. The server turns them into _commands_. The _orchestrator_ (`apps/server/src/orchestration-v2/Orchestrator.ts`) serializes commands and decides _events_ without doing any I/O. The _event sink_ commits those events, the _projections_ the UI reads, the _command receipt_, and _outbox_ effects in one transaction. The _effect worker_ then runs the effects, such as starting a provider turn or capturing a checkpoint, and feeds results back as commands. Provider CLIs run as subprocesses; per-provider _adapters_ translate their native protocols into orchestration events. Each turn ends with a _checkpoint_, a hidden git ref, so the app can diff and restore.
-
-Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/internals/glossary.md`
+Request → command → event → effect, with the orchestrator deciding events without I/O and the effect worker running them after the commit: the architecture and its constraints are in `docs/internals/overview.md`, the vocabulary in `docs/internals/glossary.md`. <!-- loom: moved to docs -->
 
 ## Where code lives
 
-- `apps/server` - WebSocket, orchestration, providers, checkpointing. Effect-heavy: read [Effect services](docs/internals/effect-services.md) before adding server code, and `.repos/effect-smol/LLMS.md` for the Effect library itself.
-- `apps/web` - React/Vite UI. `apps/desktop` wraps it, `apps/mobile` is React Native, `apps/marketing` is the site.
-- `packages/contracts` - Effect/Schema contracts plus small derived helpers. No heavy runtime logic.
-- `packages/shared` - shared runtime utils, subpath exports, no barrel.
-- `packages/client-runtime` - client code shared by web and mobile.
-- `.repos/` - vendored read-only references. Prefer their patterns over invented ones. Never edit or import from them. Sync with `vpr sync:repos` when bumping the matching dependency. If it is missing (sparse checkout), read a file with `git show origin/main:.repos/<path>`.
+`apps/server` (Effect-heavy: read [Effect services](docs/internals/effect-services.md) before adding server code), `apps/web` with `apps/desktop` wrapping it, `apps/mobile`, `packages/contracts` (schemas and small helpers, no heavy runtime logic), `packages/shared` (subpath exports, no barrel) and `packages/client-runtime` (shared by web and mobile). `.repos/` is vendored read-only reference code: prefer its patterns, never edit or import from it ([Vendored references](docs/operations/development.md#vendored-references)). <!-- loom: moved to docs -->
 
 ## Taste
 
