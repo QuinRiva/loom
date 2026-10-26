@@ -494,7 +494,10 @@ export const briefNeededRail: PassStep = {
           // parent has heard how each one ended, earlier or piggybacked on this notice (a resolved
           // gate reports as one pair only once both parties are stamped, a pass after the
           // reviewer). A dependency terminalDeltas never reports (archived, an imported row with
-          // no submit) has no news to wait for.
+          // no submit) has no news to wait for, nor does one whose news an unresolved gate holds
+          // back while a reviewer of that gate has not started: that reviewer is usually this
+          // very node, so waiting would be circular, and otherwise the wait has no bound.
+          const siblings = siblingNodes(ctx, parentId);
           const awaitingNews = node.blockedBy.some((depId) => {
             const dep = ctx.nodesById.get(depId);
             return (
@@ -502,6 +505,9 @@ export const briefNeededRail: PassStep = {
               dep?.parentThreadId === parentId &&
               dep.archivedAt === null &&
               dep.lastOutcome?.eventId != null &&
+              unresolvedGateSourcesOf(depId, siblings).every(
+                ({ kickoffAt }) => kickoffAt !== null,
+              ) &&
               !toldAbout(delivered, depId, Date.parse(dep.lastOutcome.at)) &&
               !pending.some(
                 ({ member, extra }) =>
