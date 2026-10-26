@@ -112,10 +112,10 @@ comment and `return false`. `AgentAwarenessRelay.test.ts` green (11 tests).
   `CHAT_MARKDOWN_REHYPE_PLUGINS`; loom's PR #79 clickable-file-links plugin
   (`rehypeChatFilePaths`, deferred until streaming completes) is layered on top:
   `isStreaming ? CHAT_MARKDOWN_REHYPE_PLUGINS : [...CHAT_MARKDOWN_REHYPE_PLUGINS,
-rehypeChatFilePaths]`. (The sanitize schema's loom `file`/`thread` href
+  rehypeChatFilePaths]`. (The sanitize schema's loom `file`/`thread` href
   protocols auto-merged intact.)
 - **`ChatView.tsx`** — kept loom's guarded `useThread/useThreadShell/
-useThreadSyncError(routeKind === "server" ? … : null)` trio (downstream
+  useThreadSyncError(routeKind === "server" ? … : null)` trio (downstream
   `isServerThread = serverThread !== null` depends on it) over upstream's
   unconditional `useThread`; unioned loom's timeline pagination props
   (`hasMoreOlder/loadingOlder/onLoadOlder`) with upstream's `hideEmptyPlaceholder`.
@@ -136,7 +136,7 @@ useThreadSyncError(routeKind === "server" ? … : null)` trio (downstream
   upstream's `replace` option (both consumed in the body).
 - **`state/shell.ts`** — unioned imports and both atoms: loom's `goalsAtom`
   (goals ride the shell snapshot) and upstream's `allEnvironmentShellsBootstrapped
-Atom` (#4055).
+  Atom` (#4055).
 - **`_chat.index.tsx`** — see the resolved decision below (upstream's draft-hero
   landing adopted; loom's goal overview retired as deferred product scope).
 
@@ -152,7 +152,7 @@ Atom` (#4055).
   `stripAppImageRuntimeEnv` (#1699) then loom's `withLocalNodeModulesBin`:
   `withLocalNodeModulesBin(stripAppImageRuntimeEnv(spawnEnv), cwd, platform)`.
 - **`scripts/dev-runner.ts`** (3 hunks) — kept loom's port-scoped `T3CODE_HOME:
-resolvedHome` (the multi-worktree dev-instance isolation) and **deleted the
+  resolvedHome` (the multi-worktree dev-instance isolation) and **deleted the
   upstream `if (configuredBaseDir …)` block that auto-merged in cleanly** but
   would have destroyed that isolation (a marker-less semantic trap); kept loom's
   IPv4-loopback `HOST` binding (VS Code Remote SSH) while adopting upstream's
@@ -162,7 +162,7 @@ resolvedHome` (the multi-worktree dev-instance isolation) and **deleted the
   `--no-browser`/`T3CODE_NO_BROWSER` is unaffected — separate flag).
 - **`ProviderRegistry.test.ts`** — took loom's (empty) side: upstream added a
   registry-level test asserting 5 providers (`claudeAgent/codex/cursor/grok/
-opencode`), incompatible with loom's **pi-only driver registry** (an
+  opencode`), incompatible with loom's **pi-only driver registry** (an
   intentional prior drop; `getProviders` returns `["pi"]`). Loom already replaced
   the sibling "lists all six legacy providers" test for the same reason.
 - **`packages/shared/package.json`** — unioned loom's `./accountUsage` and
@@ -172,7 +172,7 @@ opencode`), incompatible with loom's **pi-only driver registry** (an
 ## Marker-less semantic merge issues (caught by tsgo + tests)
 
 1. **`scripts/dev-runner.ts`** — upstream's `if (configuredBaseDir …) { … } else
-{ delete output.T3CODE_HOME }` block auto-merged as clean text but would have
+   { delete output.T3CODE_HOME }` block auto-merged as clean text but would have
    overridden loom's port-scoped `T3CODE_HOME: resolvedHome`. Deleted to preserve
    loom's per-port dev isolation. (Also required renaming stray `noBrowser` →
    `browser` in `dev-runner.test.ts` after upstream's flag rename, and restoring

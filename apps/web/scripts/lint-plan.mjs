@@ -1,43 +1,8 @@
 #!/usr/bin/env node
-/**
- * Headless render-health check for an MDX plan/recap — the gate an agent runs
- * before handing a document to a human:
- *
- *   node apps/web/scripts/lint-plan.mjs plans/<slug>/plan.mdx [--out <file.html> [--png]]
- *
- * Two stages, both against the renderer's REAL module graph so neither can
- * drift from what the app accepts:
- *   1. lint   — `src/components/files/mdx-plan/planLint.ts` (AST rules, zod
- *               schemas, mermaid parse, wireframe sanitiser, compile gate).
- *   2. render — `compilePlanMdx` + `renderToStaticMarkup` with the real
- *               `PLAN_BLOCK_COMPONENTS` registry under eager mount, i.e. the
- *               drive `mdxPlan.test.ts` uses. Only lint-clean documents reach
- *               it. This catches what no static pass can see: a block whose
- *               component throws or degrades to an error card on payloads its
- *               schema accepts.
- *
- * Exit 0 ⇒ the document renders in-app. Non-zero ⇒ errors (broken/degraded
- * render); warnings (silent degradation) are reported but do not fail the run.
- *
- * `--out <file.html>` keeps the markup stage 2 already produces, as a standalone
- * page with the app's compiled stylesheet inlined — the cheap way to LOOK at a
- * document (open the file) instead of booting a dev server to click through to
- * it. An image under the output file's own directory is rewritten to a relative
- * src, so the page shows real screenshots both opened directly (`file://`) and
- * through the app's HTML preview, whose iframe cannot load a `file://`
- * subresource. Write the page BESIDE the document (`<doc-dir>/render.html`) and
- * that holds for every image the document references.
- *
- * `--png` screenshots that page with the playwright chromium already installed
- * for the browser tests, as page-height PNG slices beside it
- * (`render-1.png`, `render-2.png`, …) — the way an agent LOOKS at its document
- * with the `read` tool, with no browser tool to load. Slices rather than one
- * tall image: a model downsamples anything much over a megapixel, and a whole
- * long document in one PNG shrinks to an unreadable strip.
- *
- * Outside a browser that graph needs two things, which this script provides:
- * DOM globals (jsdom) and vite-powered module loading (tsx + `~` alias).
- */
+/** Render-health gate for an MDX plan/recap, on the renderer's real module graph (jsdom + vite):
+ * `node apps/web/scripts/lint-plan.mjs <doc>.mdx [--out <doc-dir>/render.html [--png]]`. Lints with
+ * `planLint.ts`, then renders lint-clean docs; exit 0 means it renders in-app. `--out` writes a standalone
+ * page (images beside it get relative srcs); `--png` slices it into page-height PNGs a model can read. */
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
@@ -200,12 +165,10 @@ async function renderFindings(mdxSource) {
   };
 }
 
-/** The rendered document as a standalone page: the app's compiled stylesheet
- * inlined, the same root wrapper `MdxPlanRenderer` mounts under, and the same
- * `data-plan-bleed` stamps it writes after mount, so blocks get the prose
- * measure and the wide-block bleed they have in-app. The bleed budget keys off
- * the window (`100vw`) the way the panel's keys off the panel, so the page
- * opened in the app's HTML preview lays out at the panel's width. */
+/** Standalone page with the app's stylesheet, `MdxPlanRenderer`'s root wrapper and its
+ * `data-plan-bleed` stamps, so blocks get the in-app measure and bleed. The bleed budget
+ * keys off `100vw` as the panel's keys off the panel, so the app's HTML preview lays it
+ * out at the panel's width. */
 async function writeStandalonePage(html, target) {
   const css = (await server.transformRequest("/src/index.css?direct"))?.code ?? "";
   const { stampBleedingBlocks } = await server.ssrLoadModule(

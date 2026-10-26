@@ -185,7 +185,7 @@ changed source files; new registry unit test PASS (8).
 - Question: Codex explicit `limit_reached` reaches the health registry how, given
   the poller dropped the flag and it wasn't on `AccountUsageSnapshot`?
 - Decision: **Option 1** — add an optional, provider-agnostic `limitReached?:
-boolean` to `AccountUsageSnapshot`, populate in the poller's `feed()`, and mark
+  boolean` to `AccountUsageSnapshot`, populate in the poller's `feed()`, and mark
   account-wide on it. Confidence: **medium**. (Do NOT collapse into ≥99%.)
 
 ## Delivered

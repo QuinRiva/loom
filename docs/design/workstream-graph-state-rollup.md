@@ -248,7 +248,7 @@ activeWorkerCount = nodes.filter(isActiveWorker).length;
   - `connecting` sessions. A spinning-up worker is not yet doing work, so it does
     not inflate the headline number — but it **does** count as `isLive` for the
     _state_ gate (§4 step 1) so the row does not flicker through `idle`/`needs
-you` during a reconnect. The two predicates differ on exactly this one case,
+    you` during a reconnect. The two predicates differ on exactly this one case,
     deliberately.
 - **Scope:** over **all descendants** (§6), so the "37" reflects the whole
   subtree, not just direct children.

@@ -138,7 +138,7 @@ same parent run are coalesced into one "completion cohort" wake message (see §F
   `workspaceStrategy: root | existing_worktree{worktreePath} | worktree{baseRef, branch?, startFromOrigin?}`
   (`OrchestrationV2ThreadLaunchWorkspaceStrategy`, `orchestrationV2.ts:511`), or by moving the
   _calling_ thread with `t3_worktree_handoff`. The shared instructions tell agents that `git
-worktree add` in a prompt does not rebind a thread.
+  worktree add` in a prompt does not rebind a thread.
 - **Merge-back is context, not code.** `thread.merge_back` creates a `merge_back` `ContextTransfer`
   resolved as `fork_delta_context` (a `fork_delta_summary` handoff of the child's delta since the
   fork point), injected with the next run on the target. There is no git merge or branch fan-in.
@@ -391,7 +391,7 @@ and no tool for agents to read or update one (no `goal` concept in
 Adjacent things that are _not_ goals or trees:
 
 - **Todo lists** — provider-native live progress (`todo_list` turn items / `PlanArtifact
-kind:"todo_list"`, steps `pending|running|completed`) scoped to a single run. Child todo lists stay
+  kind:"todo_list"`, steps `pending|running|completed`) scoped to a single run. Child todo lists stay
   nested under their node and do not replace the root's (`feature-lifecycles.md`, "Plans And Todo
   Lists").
 - **Proposed plans** — `proposed_plan` artifacts from plan mode; implementing one creates a new run
@@ -557,13 +557,13 @@ The wake is a durable mailbox offer: delivery is at-least-once with stable messa
 
 - **Approvals** — provider callbacks become `RuntimeRequest`s (`orchestrationV2.ts:966`) with kind
   from `ProviderRequestKind` (command, file-read, file-change, …) or `dynamic_tool_call | user_input |
-auth_refresh`; status `pending|resolved|expired|cancelled`; `responseCapability live | message |
-not_resumable`. The request's node is `waiting` and the shell carries `pendingRuntimeRequest`;
+  auth_refresh`; status `pending|resolved|expired|cancelled`; `responseCapability live | message |
+  not_resumable`. The request's node is `waiting` and the shell carries `pendingRuntimeRequest`;
   UI `ComposerPendingApprovalPanel`; response via
   `runtime-request.respond{decision}`. After restart, requests without live callback state are
   `not_resumable`.
 - **Structured user questions** — `user_input_request` nodes/turn items and `PlanArtifact
-kind:"questions"`; questions carry `header`, `question`, `options[{label, description, value?}]`,
+  kind:"questions"`; questions carry `header`, `question`, `options[{label, description, value?}]`,
   `multiSelect`, `allowCustomAnswer`, `required`. Sources: Codex `requestUserInput`, Claude
   AskUserQuestion, OpenCode, ACP, Grok's xAI extension (`extractXAiAskUserQuestions`,
   `provider/acp/XAiAcpExtension.ts`), Pi extension dialogs (`select|input|editor` → user input,
@@ -639,9 +639,9 @@ kind:"questions"`; questions carry `header`, `question`, `options[{label, descri
   server-only `OrchestrationV2InternalCommand` (`:2923`: `thread.pull-request-watch.sync`,
   `checkpoint.rollback.fail`, `thread.background-work.settle`).
 - **Projections** (one table per entity): `orchestration_v2_projection_{threads, runs, run_attempts,
-nodes, subagents, provider_sessions, provider_session_bindings, provider_threads, provider_turns,
-runtime_requests, messages, plans, turn_items, checkpoint_scopes, checkpoints, context_handoffs,
-context_transfers, metadata}`, plus `orchestration_v2_turn_item_positions`.
+  nodes, subagents, provider_sessions, provider_session_bindings, provider_threads, provider_turns,
+  runtime_requests, messages, plans, turn_items, checkpoint_scopes, checkpoints, context_handoffs,
+  context_transfers, metadata}`, plus `orchestration_v2_turn_item_positions`.
   `ProjectionMaintenance.ts` verifies projection sequence/schema against the event log.
 - **Durable effect outbox:** `orchestration_v2_effect_outbox` (+ `_next`), claimed by
   `EffectWorker.ts`; effect kinds `provider-turn.start|interrupt|steer|restart`,

@@ -104,7 +104,7 @@ Consequences you will see:
   the registry. The agent still runs; the worktree simply has no `node_modules`, so agents
   in QA cannot run tests, typecheck or builds there. Keep QA briefs to local edits and git.
 - The journal is noisy with `thread branch pull request lookup failed`, `Background Git
-fetch failed`, `automatic thread settlement skipped` and favicon warnings for the
+  fetch failed`, `automatic thread settlement skipped` and favicon warnings for the
   un-cloned projects. All expected.
 
 **Reversal** (if you want internet in QA): delete the line `-p PrivateNetwork=yes` in

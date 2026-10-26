@@ -192,7 +192,7 @@ the behavioural caveats.
 
 - **Fable 5** — never route security/crypto/bio-adjacent work (safety
   classifier interrupts/reroutes mid-run); mark it `unsuitableFor:
-["security-sensitive"]`. No ZDR; premium cost.
+  ["security-sensitive"]`. No ZDR; premium cost.
 - **Opus 5.5** — the default coder and the strongest all-rounder here: built for
   long-running agents (best Terminal-Bench of anything in the matrix) and
   cheaper than both Fable 5 and Opus 5. Still Anthropic-shaped, so the

@@ -148,7 +148,7 @@ New flow for reasoning:
    - **Buffered mode** (`enableAssistantStreaming = false`): accumulate only; no
      transient publish.
    - At each existing live-completion point: `ReasoningStreamBus.publish(
-{kind:"complete"})` (transient, both modes).
+     {kind:"complete"})` (transient, both modes).
    - **At segment/turn finalization** (the `getAssistantMessageIdsForTurn` close
      loop + session-exit): dispatch **one** `thread.message.reasoning.complete`
      carrying the full joined text, then clear the buffer + active state. The

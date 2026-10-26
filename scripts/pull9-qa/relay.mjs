@@ -1,13 +1,7 @@
-// QA-ONLY. Host side of the QA unit's network boundary, run as its own small unit
-// (qa_start_bridge in lib.sh). The QA unit has PrivateNetwork=yes; these are the only
-// flows across it (the inner halves are socat relays in sandbox-entry.sh):
-//   out: <qa>/run/cliproxy.sock → 127.0.0.1:8317 — HTTP-aware ALLOW-LIST: only POST to
-//        cliproxy's inference paths is forwarded (pi's anthropic-messages client calls
-//        /v1/messages); /v0/management/* and everything else is answered 403 here,
-//        because a management key is reachable from QA data (old transcripts).
-//   in:  127.0.0.1:13940 → <qa>/run/server.sock (server mode only), opened O_PATH|O_NOFOLLOW
-//        and connected through /proc/self/fd so QA cannot swap in a symlink to a host socket.
-//   usage: node relay.mjs <qa>/run <server|probe>
+// QA-ONLY host side of the PrivateNetwork QA unit (usage: node relay.mjs <qa>/run <server|probe>).
+// out: <qa>/run/cliproxy.sock -> 127.0.0.1:8317, forwarding only POSTs to cliproxy's inference paths
+// (QA data can reach a management key, so everything else is 403). in: 127.0.0.1:13940 -> <qa>/run/server.sock,
+// opened O_PATH|O_NOFOLLOW via /proc/self/fd so QA cannot swap in a symlink to a host socket.
 import * as NodeFS from "node:fs";
 import * as NodeHttp from "node:http";
 import * as NodeNet from "node:net";

@@ -95,7 +95,7 @@ first screen is holding something else.
 ## 3. Hierarchy: overview before detail
 
 - **Number the sections** (`## 1. The causes`, `## 2. Evidence, one example per
-cause`). A long document needs a spine the reader can hold and a question can
+  cause`). A long document needs a spine the reader can hold and a question can
   point at; numbers are the cheapest one.
 - **Overview before detail.** The first section after the answer gives the whole
   picture at the altitude of a table or a short ranked list — causes ranked,

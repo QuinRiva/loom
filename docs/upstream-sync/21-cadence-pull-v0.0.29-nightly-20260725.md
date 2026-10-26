@@ -39,7 +39,7 @@ those positions in `Migrations.ts`.
 
 - **Safe to re-home:** both migrations are self-contained, idempotent
   column-adds (`PRAGMA table_info` guard + `ALTER TABLE projection_threads ADD
-COLUMN`). They carry **no internal numbering references** and **no ordering
+  COLUMN`). They carry **no internal numbering references** and **no ordering
   dependency** on upstream's own 030–032 (they only touch `projection_threads`,
   which exists well before loom's divergence). No code anywhere reads the
   settled/snoozed columns by migration number — the projections
@@ -50,7 +50,7 @@ COLUMN`). They carry **no internal numbering references** and **no ordering
   `state.sqlite` (1.5 GB, ledger at migration 64 before the run) under a
   sandboxed temp `--base-dir`. It logged **"Migrations ran successfully"** with
   exactly `migrations: [ '65_ProjectionThreadsSettled',
-'66_ProjectionThreadsSnoozed' ]`. The migrated ledger then lists **65 once and
+  '66_ProjectionThreadsSnoozed' ]`. The migrated ledger then lists **65 once and
   66 once** (`MAX(migration_id)=66`, `COUNT(*)=66`, contiguous 1–66), and all
   four columns (`settled_override`, `settled_at`, `snoozed_until`, `snoozed_at`)
   exist on `projection_threads`. `GET /` → **200**; all workstream services
@@ -99,7 +99,7 @@ reworked the shell catch-up seam that loom's **PR #115 fail-loud silent-drop
 fix** owns. Upstream's rework rests on three pillars incompatible with #115:
 
 1. a **swallowing** `retryShellProjectionRead` helper (`Effect.orElseSucceed(()
-=> Option.none())`) feeding new `projectUpsertOrRemove`/`threadUpsertOrRemove`
+   => Option.none())`) feeding new `projectUpsertOrRemove`/`threadUpsertOrRemove`
    helpers — the exact `Option.none()` re-collapse #115 removed, which makes a
    _failed_ lookup indistinguishable from a genuinely-absent row and silently
    drops it from catch-up;
@@ -181,7 +181,7 @@ simplification consistent with the merged body).
   `trailingEvents` (attention-cleared, atomic `in_progress` kickoff for
   `ready`/`yielded`/reopen, reopen-observability warning), returning
   `[...lifecycleResetEvents, userMessageEvent, turnStartRequestedEvent,
-...trailingEvents]`. Loom's exported `withEventBase` survives.
+  ...trailingEvents]`. Loom's exported `withEventBase` survives.
 - **`ProviderCommandReactor.ts`:** loom's fork idle-gate (`shouldRefuseForkLaunch`
   - D2 deterministic refusal) kept, then upstream's `pendingTurnStart` "starting"
     session-set appended. Both new session literals gained loom's required

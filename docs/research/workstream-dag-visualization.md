@@ -202,7 +202,7 @@ Concrete, cited UX choices from well-regarded DAG/flow tools — and what to ado
 
 6. **There is no vendored reference to copy.** AGENTS.md lists _CodexMonitor_ as
    a strong reference, but inspection of the cloned repo (`/tmp/pi-github-repos/
-Dimillian/CodexMonitor`, also checked against `.repos/` which only contains
+   Dimillian/CodexMonitor`, also checked against `.repos/` which only contains
    `alchemy-effect` and `effect-smol`) shows it has **no graph/DAG library and no
    node-graph view at all** — no `reactflow`/`xyflow`/`dagre`/`elkjs`/`d3-dag`/
    `cytoscape` anywhere. It renders agent hierarchy as a **nested sidebar**

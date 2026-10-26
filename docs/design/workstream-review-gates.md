@@ -27,7 +27,7 @@ resolved here against the code as it stands.
 The control plane is an event-sourced command pipeline:
 
 - **Contracts** — `packages/contracts/src/orchestration.ts`. `ThreadPlanLane =
-planned | ready | in_progress | done | cancelled`. Commands
+  planned | ready | in_progress | done | cancelled`. Commands
   (`thread.plan-lane.set`, `thread.report.set`, `thread.turn.start`, …) decode
   into events (`thread.plan-lane-set`, `thread.report-set`, …) applied by the
   projector.
@@ -157,7 +157,7 @@ transaction:
 
 - `thread.report-set` (pointer, as today), then
 - `thread.outcome-recorded` — new event: `{ threadId, outcome, round,
-decision, contested?, counts?, updatedAt }` where `decision` is the routing
+  decision, contested?, counts?, updatedAt }` where `decision` is the routing
   verdict (`terminal | loop | resolve | yield | cap-breach | attention`), then
 - the lane events the decision implies (see §5).
 

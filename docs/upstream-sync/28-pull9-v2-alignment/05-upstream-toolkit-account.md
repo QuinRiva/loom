@@ -79,7 +79,7 @@ Every tool call carries an `McpInvocationScope` resolved from the bearer token
 (`McpInvocationContext.ts:43`). Since #15219 a scope has two possible callers:
 
 - a **thread caller** — a provider session T3 launched for one thread (`thread: {threadId,
-providerSessionId, providerInstanceId}`); this is the only kind the session registry issues
+  providerSessionId, providerInstanceId}`); this is the only kind the session registry issues
   today (`McpSessionRegistry.ts:124–166`, `resolve` returns only thread scopes at `:168`);
 - a **client caller** — "an agent T3 Code did not launch, signed in through MCP OAuth", with a
   `runtimeModeCeiling` (`McpInvocationContext.ts:29–34`). The type and every branch for it exist
@@ -446,13 +446,13 @@ the caller's (`runtime_mode_escalation_denied` / `interaction_mode_escalation_de
 - **Reach for it** for parallel or cross-model sub-work whose answer the parent needs — research,
   implementation, a review round.
 - **Inputs.** `task` (the whole prompt); `target {providerInstanceId?, driverKind?, model?,
-options?}`; `title`; `role` (`implementation | research | review | design | test | general`,
+  options?}`; `title`; `role` (`implementation | research | review | design | test | general`,
   prompt prefix only); `mode` (`async` default, `wait`); `timeoutMs` (wait only, default 10 min,
   max 60 min); `runtimeMode` / `interactionMode` (`inherit` or narrower); `clientRequestId`.
 - **Returns.** `DelegateTaskResult`: `taskId` (keep it), `childThreadId` (backing storage),
   `childRunId` (the original run), `status`, `workState`, `summary` (the result once published),
   `resultContextTransferId`, `hasPendingChildRuns`, `latestTerminal{RunId, Status, Summary,
-ResultContextTransferId}`, provider/model, `waitTimedOut`.
+  ResultContextTransferId}`, provider/model, `waitTimedOut`.
 - **Preconditions.** Thread caller (`thread_credential_required`); mid-turn, checked against the
   newest active run (§1.10); target resolvable and healthy; modes narrower or equal. Idempotent
   per `clientRequestId` within the credential. A terminal result in the response acknowledges
@@ -504,7 +504,7 @@ ResultContextTransferId}`, provider/model, `waitTimedOut`.
 - **Reach for it** for "check this every hour", a weekday-morning digest, or a recurring wake-up
   in this thread.
 - **Inputs.** `prompt`; `schedule` (`{type:"interval", everyMs}` or `{type:"fixed_time",
-timeOfDay, weekdays?}`); `projectId?`; `title?`; `enabled?` (default true);
+  timeOfDay, weekdays?}`); `projectId?`; `title?`; `enabled?` (default true);
   `bindToCurrentThread?` (default true when the target project is the caller's); `clientRequestId`.
 - **Returns.** Scheduled-task summary: id, title, prompt, enabled, project, `boundThreadId`,
   schedule, `nextRunAt`, `lastRunStatus`.
@@ -559,7 +559,7 @@ timeOfDay, weekdays?}`); `projectId?`; `title?`; `enabled?` (default true);
 - **Inputs.** `threads[1..20] {prompt?, title?, target?, runtimeMode?, interactionMode?}`,
   `clientRequestId?`.
 - **Returns.** `threads[] {threadId, runId, status, title, createdBy, creationSource,
-providerInstanceId, model}`.
+  providerInstanceId, model}`.
 - **Preconditions.** Thread caller; mid-turn (same check as `delegate_task`). Project, branch and
   worktree path are always the caller's. Entries without a prompt are created idle. No lineage;
   the parent records a `thread_created` card. Created sequentially; a failure part-way leaves the
@@ -630,7 +630,7 @@ providerInstanceId, model}`.
 - **Inputs.** `threadId`, `message`, `mode` (`auto` default, `queue`, `steer`, `restart`),
   `clientRequestId?`.
 - **Returns.** `{threadId, messageId, runId, status, delivery: started | queued | steered |
-restarted}`.
+  restarted}`.
 - **Preconditions.** Capability. Another thread: mid-turn and within modes. Self: within modes
   only (always true), no mid-turn check — so an agent can queue a follow-up turn for itself.
   Archived target refused. Idempotent per `clientRequestId`. Does not create or reopen a delegated
@@ -772,7 +772,7 @@ agent does not see _why_ a settle or queue edit was refused.
 
 - **Purpose.** Read a thread's provider/model selection and modes.
 - **Inputs.** `threadId?`. **Returns.** `{threadId, modelSelection, runtimeMode,
-interactionMode}`. Read tier.
+  interactionMode}`. Read tier.
 - **Code.** `thread/tools.ts:174–187`; `thread/handlers.ts:168–179`.
 
 #### `t3_thread_configure`
@@ -806,7 +806,7 @@ interactionMode}`. Read tier.
   `merge_back` transfer consumed by the target's next run; queued messages on the target fail
   while it is pending.
 - **Code.** `thread/tools.ts:210–220`; `thread/handlers.ts:137–153`; `Orchestrator.ts:3442–3583,
-4703–4709`.
+  4703–4709`.
 - **Docs differ.** The tool says "a related thread in the same project"; the decider accepts only
   fork → its parent. `feature-lifecycles.md` describes merge-back as triggered by "the next
   source-thread message with merge-back intent"; code has an explicit command (inventory §M6).
@@ -816,7 +816,7 @@ interactionMode}`. Read tier.
 - **Purpose.** See a thread's context transfers (forks, handoffs, merge-backs, subagent spawns and
   results) and their status.
 - **Inputs.** `threadId?`. **Returns.** `transfers[] {id, sourceThreadId, targetThreadId,
-status}` — no type, points or resolution. Read tier.
+  status}` — no type, points or resolution. Read tier.
 - **Code.** `thread/tools.ts:221–237`; `thread/handlers.ts:154–167`.
 
 #### `t3_thread_search`
@@ -895,7 +895,7 @@ by outcome (`alreadyLinked`, `wasLinked`, `wasWatching`).
 
 - **Purpose.** See a thread's linked PRs with last-known host state and how they stack.
 - **Returns.** `pullRequests[] {identity, source, watching, state, title, headBranch, baseBranch,
-isDraft, stack}`, `chains[]` bottom to top. Read: any thread, no mid-turn check.
+  isDraft, stack}`, `chains[]` bottom to top. Read: any thread, no mid-turn check.
 - **Code.** `pullRequests/tools.ts:273–289`; `pullRequests/handlers.ts:368–371`.
 
 #### `watch_pull_request`
@@ -926,7 +926,7 @@ isDraft, stack}`, `chains[]` bottom to top. Read: any thread, no mid-turn check.
   `startFromOrigin?` (default the server setting); `path?` (absolute); `runSetupScript?` (default
   true); `continuationPrompt?`.
 - **Returns.** `{worktreePath, branch, baseRef, startedFromOrigin, setupScript{status},
-continuation{status, delivery?}, note}`.
+  continuation{status, delivery?}, note}`.
 - **Lifecycle.** Re-pointing the thread detaches its provider session, so the current turn ends
   shortly after; call it last. With `continuationPrompt` the remaining work is queued and starts a
   new turn inside the worktree with the conversation preserved; without it the thread idles until

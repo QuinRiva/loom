@@ -508,7 +508,7 @@ already in the tree.
 
 - **`apps/server/src/vcs/VcsDriverRegistry.ts`** - the null-expiry behaviour is
   present: `onSuccess: (handle) => (handle === null ? Duration.zero :
-DETECTION_CACHE_TTL)`. `git diff 36f4314ab HEAD` on this file is exactly two
+  DETECTION_CACHE_TTL)`. `git diff 36f4314ab HEAD` on this file is exactly two
   hunks: loom's deliberate 10-minute TTL (2 s upstream, with loom's comment) and
   a parameter rename `detected` -> `handle`. A directory that becomes a git repo
   is therefore **not** cached as "no VCS". (The cited "upstream commit

@@ -26,12 +26,9 @@ import { thirdPartyLicensesPlugin } from "../../scripts/lib/third-party-licenses
 import { tailwindPlugins } from "./vite/tailwind";
 import { warmBundledDevPlugin } from "./vite/warmBundledDev";
 
-// loom: the `.mdx` plan compiler runs in a Web Worker (compileWorker.ts). Vite bundles
-// workers with the `browser` export condition, which for
-// `decode-named-character-reference` (a micromark dep) resolves to a build that
-// touches `document` at module load — crashing in the DOM-less worker. Its
-// `default`/`worker` condition is a DOM-free, canonical implementation, so alias
-// the specifier to that build everywhere (identical decoding, no DOM).
+// loom: the `.mdx` plan compiler runs in a Web Worker, which Vite bundles with the `browser`
+// condition; `decode-named-character-reference`'s browser build touches `document` at load and
+// crashes there. Alias it everywhere to its DOM-free `default` build (identical decoding).
 function resolveDecodeNamedCharacterReferenceNodeBuild(): string {
   const repoRoot = NodePath.resolve(
     NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)),

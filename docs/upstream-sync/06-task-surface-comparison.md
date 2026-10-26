@@ -52,7 +52,7 @@ affordances**, none of which is objective-decomposition tracking:
 
 - **Contract** (`packages/contracts/src/orchestration.ts`):
   `OrchestrationProposedPlan { id, turnId, planMarkdown, implementedAt,
-implementationThreadId, createdAt, updatedAt }`. The body is a single opaque
+  implementationThreadId, createdAt, updatedAt }`. The body is a single opaque
   **`planMarkdown` blob** — not a structured list of tracked items.
 - **Origin = the model.** `apps/server/.../ProviderRuntimeIngestion.ts` turns an
   agent runtime event into the plan; the agent runs in `interactionMode: "plan"`
@@ -74,7 +74,7 @@ implementationThreadId, createdAt, updatedAt }`. The body is a single opaque
 
 - `ChatMarkdown.tsx` renders `- [ ]` / `- [x]` list items as interactive
   checkboxes (`onTaskListChange`, `findTaskListMarkerOffset`, `aria-label="Toggle
-task"`); `files/FilePreviewPanel.tsx` + `filePreviewMode.setMarkdownTaskChecked`
+  task"`); `files/FilePreviewPanel.tsx` + `filePreviewMode.setMarkdownTaskChecked`
   let you tick a checkbox inside a previewed markdown file and write it back. This
   is the "file preview comments and task toggles" work (#3115). It is a **markdown
   editing affordance** — no entity, no persistence, no objective. Pure UI.
@@ -99,9 +99,9 @@ task"`); `files/FilePreviewPanel.tsx` + `filePreviewMode.setMarkdownTaskChecked`
 ## Our goal/task model (for contrast)
 
 - **Contract** (`packages/contracts/src/orchestration.ts`): `OrchestrationGoal
-{ id, projectId, slug, title, description, tasks[…] }` with a recursively nested
+  { id, projectId, slug, title, description, tasks[…] }` with a recursively nested
   `OrchestrationGoalTask { id, goalId, parentTaskId, text, done, position,
-children[] }`. A goal is **project-scoped and durable**; it lives in the
+  children[] }`. A goal is **project-scoped and durable**; it lives in the
   `OrchestrationReadModel.goals[]` array alongside threads, not inside any thread.
 - **Origin = humans _and_ agents, deliberately.** Authored via the command
   surface (`GoalCreateCommand`, `GoalTaskCreate/Update/DeleteCommand`) and the MCP
