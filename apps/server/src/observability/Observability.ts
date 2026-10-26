@@ -16,6 +16,7 @@ import * as ServerConfig from "../config.ts";
 import * as ResourceAttribution from "../resourceTelemetry/ResourceAttribution.ts";
 import * as ServerLogger from "../serverLogger.ts";
 import * as BrowserTraceCollector from "./BrowserTraceCollector.ts";
+import { withoutSqlStatementSpans } from "./sqlStatementSpans.loom.ts"; // loom:
 
 export const layer = Layer.unwrap(
   Effect.gen(function* () {
@@ -72,7 +73,7 @@ export const layer = Layer.unwrap(
         });
 
         return Layer.mergeAll(
-          Layer.succeed(Tracer.Tracer, tracer),
+          Layer.succeed(Tracer.Tracer, yield* withoutSqlStatementSpans(tracer)), // loom: statement spans opt-in
           BrowserTraceCollector.layer(sink),
         );
       }),

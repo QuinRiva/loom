@@ -56,7 +56,10 @@ records instead carry OTLP resource, scope, and optional status fields.
 The `TraceRecord`, `EffectTraceRecord`, and `OtlpTraceRecord` schemas live in
 `packages/shared/src/observability.ts`.
 
-SQL statement spans (named `sqlite`) and `sql.transaction` spans carry `db.connection` and
+<!-- loom: sqlite statement spans are opt-in -->
+
+SQL statement spans (named `sqlite`) are recorded only when `T3CODE_TRACE_SQL_STATEMENTS=true`; they
+were over half the trace file's bytes. They and `sql.transaction` spans carry `db.connection` and
 `db.lock_wait_ms`. `db.connection` is `writer` for the main connection, which runs on the event loop,
 or `reader` for the read-only connection in a worker thread. `db.lock_wait_ms` is the part of the
 span spent waiting for that connection, behind other SQL. That wait does not block the event loop,
@@ -600,6 +603,7 @@ Local trace file:
 - `T3CODE_TRACE_BATCH_WINDOW_MS`: flush window, default `1000`
 - `T3CODE_TRACE_MIN_LEVEL`: minimum trace level, default `Info`
 - `T3CODE_TRACE_TIMING_ENABLED`: enable timing metadata, default `true`
+- `T3CODE_TRACE_SQL_STATEMENTS`: record per-statement `sqlite` spans, default `false` <!-- loom: -->
 
 OTLP export:
 
@@ -683,8 +687,9 @@ Current high-value span and metric boundaries include:
 - provider session and turn operations
 - git command execution and git hook events
 - terminal session lifecycle
-- sqlite query execution, except the statements inside `orchestrationV2.EventSink.write`, which
-  its `sql.transaction` span times as one
+- sqlite transactions (`sql.transaction`); per-statement `sqlite` spans only with
+  `T3CODE_TRACE_SQL_STATEMENTS=true`, and never inside `orchestrationV2.EventSink.write`, which its
+  `sql.transaction` span times as one <!-- loom: -->
 - event loop stalls (`server.eventLoop.stall`)
 
 ### Current Constraints
