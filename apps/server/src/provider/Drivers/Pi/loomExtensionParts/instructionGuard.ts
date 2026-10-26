@@ -5,7 +5,7 @@
 import type { LoomExtensionPart } from "../loomExtension.ts";
 
 const NOTE =
-  "[t3 instruction guard] A model reads FILE, so this edit changes an LLM instruction. The protocol for that is the llm-instruction-change skill at SKILL; an instruction edit ships through a reviewer gate showing its +N/−M word count.";
+  "[t3 instruction guard] A model reads FILE, so this edit changes an LLM instruction. The protocol for that is the llm-instruction-change skill at SKILL.";
 
 export const instructionGuardPart: LoomExtensionPart = {
   name: "instruction-guard",
@@ -18,7 +18,7 @@ const MODEL_READ = [
   /\/roles\/[^/]+\.md$/,
   /\/skills\/[^/]+\/SKILL\.md$/,
   /\/(AGENTS|CLAUDE)\.md$/,
-  /\/apps\/server\/src\/loom\/prompt\/[^/]+(?<!\.test)\.ts$/,
+  /\/apps\/server\/src\/loom\/prompt\/(prose|goalContext|provenance)\.ts$/,
   /\/apps\/server\/src\/mcp\/toolkits\/workstream\/(prose|defs)\.ts$/,
   /\/apps\/server\/src\/loom\/handoff\/(retroDraft|handoffDraft)\.ts$/,
   /\/apps\/server\/src\/loom\/goals\/goalTaskMarkdown\.ts$/,

@@ -993,7 +993,7 @@ describe("instruction-guard part", () => {
   it("notes an edit of a model-read file once per file, and never a non-matching one", () => {
     const call = session();
     expect(call("edit", "apps/server/src/loom/prompt/prose.ts")).toBe(
-      "\n\n[t3 instruction guard] A model reads `apps/server/src/loom/prompt/prose.ts`, so this edit changes an LLM instruction. The protocol for that is the llm-instruction-change skill at `/home/u/skills/llm-instruction-change/SKILL.md`; an instruction edit ships through a reviewer gate showing its +N/−M word count.",
+      "\n\n[t3 instruction guard] A model reads `apps/server/src/loom/prompt/prose.ts`, so this edit changes an LLM instruction. The protocol for that is the llm-instruction-change skill at `/home/u/skills/llm-instruction-change/SKILL.md`.",
     );
     expect(call("edit", `${WORKTREE}/apps/server/src/loom/prompt/prose.ts`)).toBeUndefined();
     for (const path of [
@@ -1005,11 +1005,13 @@ describe("instruction-guard part", () => {
       "apps/server/src/mcp/toolkits/workstream/defs.ts",
       "apps/server/src/loom/handoff/retroDraft.ts",
       "apps/server/src/loom/goals/goalTaskMarkdown.ts",
+      "apps/server/src/loom/prompt/goalContext.ts",
     ]) {
       expect(call("write", path), path).toContain("[t3 instruction guard]");
     }
     for (const path of [
       "apps/server/src/loom/prompt/prose.test.ts",
+      "apps/server/src/loom/prompt/sessionComposerLive.ts",
       "apps/server/src/loom/goals/goalTasks.ts",
       "docs/roles.md",
       "skills/ship/references/gotchas.md",
