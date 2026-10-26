@@ -144,7 +144,7 @@ describe("makeVerifiedFileLinkChip", () => {
     expect(toastAdd).not.toHaveBeenCalled();
   });
 
-  // Upstream #14510 finds a bare name or a repository-relative path at open, so the literal path's
+  // Upstream finds a bare name or a repository-relative path at open, so the literal path's
   // absence must not draw "missing?" over a link upstream would open.
   it("keeps upstream's chip for a link upstream re-resolves at open", async () => {
     setup();

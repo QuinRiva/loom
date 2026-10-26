@@ -93,7 +93,7 @@ function MissingFileChip(props: {
 }
 
 /**
- * Upstream re-resolves this link at open (#14510: a bare name, or a repository-relative path in a
+ * Upstream re-resolves this link at open (a bare name, or a repository-relative path in a
  * subfolder project), so the literal path's absence is not a verdict and Loom skips its checks.
  */
 export function upstreamResolvesAtOpen(meta: MarkdownFileLinkMeta, cwd: string | undefined) {

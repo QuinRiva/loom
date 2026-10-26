@@ -356,7 +356,7 @@ it.effect("releases a session without a composed idle timeout at the default", (
   }),
 );
 
-// Upstream #24808 hides watch_pull_request from subagent credentials; a Loom child must keep it (Gate 2a D1).
+// Upstream hides watch_pull_request from subagent credentials; a Loom child must keep it.
 it.effect.each([
   { workstream: true, subagent: false },
   { workstream: false, subagent: true },
@@ -367,10 +367,10 @@ it.effect.each([
       const { exit, subagent: issued } = yield* openWith(
         undefined,
         undefined,
-        Layer.mock(LoomStoreV2)({
-          getWorkstream: (threadId) =>
+        Layer.succeed(LoomStoreV2, {
+          getWorkstream: (threadId: ThreadId) =>
             Effect.succeed(workstream ? ({ threadId } as unknown as LoomThreadWorkstream) : null),
-        }),
+        } as unknown as LoomStoreV2["Service"]),
       );
       assert.isTrue(Exit.isSuccess(exit));
       assert.equal(issued, subagent);

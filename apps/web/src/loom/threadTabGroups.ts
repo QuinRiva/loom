@@ -1,9 +1,8 @@
 /**
- * loom: thread-tab group keys (each tab's workstream root, walking `lineage.parentThreadId` across
- * `subagent` edges in its environment's family-merged snapshot; a fork is a root) and tab liveness.
- * The cold shell omits settled roots and their idle sub-threads, so absence is not gone: only a
- * removal the shell saw since its latest authoritative snapshot prunes. The index keeps its
- * identity until an edge, the thread set or the removals change.
+ * loom: thread-tab group keys (each tab's root via `subagent` edges in the family-merged snapshot;
+ * a fork is a root) and liveness. The cold shell omits settled roots and their idle sub-threads, so
+ * absence is not gone: only a removal the shell saw since its latest authoritative snapshot prunes.
+ * The index keeps its identity until an edge, the thread set or the removals change.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
