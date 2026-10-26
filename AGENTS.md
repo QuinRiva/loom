@@ -189,7 +189,7 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 ## Plans and work artifacts
 
-- Do not commit implementation plans, research notes, or agent scratch files. Keep temporary working material outside the worktree. `.plans/` is gitignored only as a safety net for legacy tooling.
+- <!-- loom: plan policy pending --> Plans, recaps and explainers written under the MDX skills (`plans/`, `recaps/`, `explainers/`) are committed with the work; how they are kept current over a feature's life and retired is an open decision, being worked out under the goal "Plan lifecycle and task-tree relation". Agent scratch (progress logs, fixtures, raw tool dumps) stays out of the tree.
 - Track active maintainer work in the GitHub issue or project item that owns it. External proposals follow `CONTRIBUTING.md` and belong in Ideas discussions.
 - A merged PR is the implementation record. Close or update its tracking item when the work lands; do not preserve a second checklist in the repository.
 
