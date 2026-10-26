@@ -1,30 +1,8 @@
 /**
- * loom: centre-panel thread tabs — the durable open-tab set, grouped per
- * orchestration tree.
- *
- * Threads open as tabs in the centre panel, mirroring how the right panel tabs
- * its surfaces. Tabs are **grouped by their lineage root**: a root orchestrator
- * thread and all of its subthreads form one group, and switching to a thread
- * under a *different* root shows that root's own strip of tabs. The active tab
- * is a pure mirror of the URL (see `useThreadTabsSync`), so effect ordering
- * never decides which tab is active; the active *group* is derived from the
- * active thread (the group that contains `activeKey`), never stored as a
- * competing source of truth.
- *
- * The store stays pure: it never computes lineage itself. The sync hook has the
- * shell map, so it supplies the group key to the seed/open/reopen actions and
- * drives regrouping (moving a tab into its real root group once its lineage is
- * known). Close/reorder/pin locate the group that
- * contains the ref themselves.
- *
- * Tier 1 (durable UI store) per `docs/architecture/loom-ui-state-tiers.md`, with
- * the same deliberate variance as before: it is workspace-scoped rather than
- * keyed by `scopedThreadKey` — it *contains* many thread refs (now bucketed by
- * group) rather than being scoped under one. It carries versioned migration and
- * the seed-not-override write policy (the seed appends-if-absent within its group
- * and never reorders). Unlike the per-thread stores it prunes: `removeThread`
- * drops a thread archived or deleted, judged against a live V2 snapshot (see the
- * tier doc's orphan-keys section and `threadTabGroups`).
+ * loom: centre-panel thread tabs, the durable open-tab set grouped by lineage root. The active tab
+ * mirrors the URL (`useThreadTabsSync`) and the active group derives from it, never stored; callers
+ * pass group keys, so the store never computes lineage. Tier 1 but workspace-scoped, seeding append-
+ * if-absent without reordering; unlike per-thread stores, `removeThread` prunes against a live snapshot.
  */
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";

@@ -1,13 +1,8 @@
 /**
- * loom: the usage-meter plan's fixture states (`plans/usage-meter-redesign/build_plan.py`),
- * built as real presentations — a cliproxy hub snapshot, or the pi instance's
- * token-file windows — and replayed through the reading ring, so the preview
- * harness and the tests draw exactly what the live meter would.
- *
- * Minutes are minutes from local midnight; `rate` is the 5-hour burn in points
- * per hour; weekly resets are hours from now.
- *
- * @module loom/subscriptionMeter.fixtures
+ * loom: the usage meter's fixture states, built as real presentations (a cliproxy hub snapshot, or
+ * the pi instance's token-file windows) and replayed through the reading ring, so the preview harness
+ * and tests draw exactly what the live meter would. Minutes are from local midnight; `rate` is the
+ * 5-hour burn in points per hour; weekly resets are hours from now.
  */
 import {
   EnvironmentId,
@@ -45,7 +40,7 @@ export interface MeterFixtureState {
 export const METER_FIXTURE_STATES: readonly MeterFixtureState[] = [
   {
     id: "normal",
-    title: "Normal mid-week — Thu 12:31, real reading 25 Sep",
+    title: "Normal mid-week: Thu 12:31, real reading 25 Sep",
     day: [2026, 8, 24],
     now: 12 * 60 + 31,
     subs: [
@@ -59,7 +54,7 @@ export const METER_FIXTURE_STATES: readonly MeterFixtureState[] = [
   },
   {
     id: "danger",
-    title: "Danger — Tue 10:00, 50% left, slightly over pace",
+    title: "Danger: Tue 10:00, 50% left, slightly over pace",
     day: [2026, 8, 22],
     now: 10 * 60,
     subs: [
@@ -73,7 +68,7 @@ export const METER_FIXTURE_STATES: readonly MeterFixtureState[] = [
   },
   {
     id: "lateday",
-    title: "Late afternoon — Thu 16:30, 70% left, well over pace",
+    title: "Late afternoon: Thu 16:30, 70% left, well over pace",
     day: [2026, 8, 24],
     now: 16 * 60 + 30,
     subs: [
@@ -87,7 +82,7 @@ export const METER_FIXTURE_STATES: readonly MeterFixtureState[] = [
   },
   {
     id: "last36",
-    title: "Last 36 hours — Fri 09:30, weeklies reset 4 h to 38 h out",
+    title: "Last 36 hours: Fri 09:30, weeklies reset 4 h to 38 h out",
     day: [2026, 8, 25],
     now: 9 * 60 + 30,
     subs: [

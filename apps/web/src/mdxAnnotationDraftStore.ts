@@ -7,12 +7,9 @@ import type { DraftId } from "./composerDraftStore";
 import { resolveStorage } from "./lib/storage";
 
 /**
- * In-progress (unsubmitted) MDX-plan comment drafts, keyed by composer target
- * (`DraftId` / server thread) + the comment's anchor. Kept separate from the
- * composer draft store so an unfinished annotation survives dismiss→reopen and
- * page reloads — "return things as you left them" — without threading a new
- * field through the composer store's schema/migrations. Only an explicit submit
- * or discard clears an entry.
+ * Separate from the composer draft store so an unfinished annotation survives dismiss, reopen
+ * and reloads without a new field in the composer store's schema and migrations. Only an
+ * explicit submit or discard clears an entry.
  */
 interface MdxAnnotationDraftStoreState {
   drafts: Record<string, string>;

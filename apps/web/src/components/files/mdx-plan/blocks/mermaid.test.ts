@@ -8,11 +8,9 @@ import { PLAN_BLOCKS, parsePlanBlock, serializePlanBlock } from "../registry";
 import { mermaidBlock, renderMermaidSvg, TONE_THEME_CSS } from "./mermaid";
 
 /**
- * Vocabulary v2 `<Mermaid>`: node tones reach the rendered SVG through Mermaid's
- * own class syntax + our `themeCSS`, the legend decodes them, and an unknown
- * `tone-*` class is a lint warning. The render case drives the real mermaid
- * runtime (jsdom has no layout, so text measurement is stubbed) over the graph
- * the fan-in recap draws.
+ * Node tones reach the SVG via Mermaid class syntax and our `themeCSS`, the legend
+ * decodes them, and an unknown `tone-*` class warns. The render case drives the real
+ * mermaid runtime with text measurement stubbed (jsdom has no layout).
  */
 
 const GRAPH = [

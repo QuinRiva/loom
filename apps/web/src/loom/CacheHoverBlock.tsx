@@ -1,9 +1,7 @@
 /**
- * loom: the "Prompt cache" block in a sidebar row's hover card — the detail
- * behind the fuel ring: which cache, when it was last touched and until when
- * keep-alive pings hold it warm (or when it expires), the context and model
- * price, and what a cold reply costs over a warm one (API-list dollars, to the
- * cent). Mounted only while the card is open.
+ * loom: the "Prompt cache" block in a sidebar row's hover card: which cache, its last touch, until
+ * when pings hold it warm (or when it expires), the context and model price, and what a cold reply
+ * costs over a warm one (API-list dollars). Mounted only while the card is open.
  */
 import {
   cacheWarmReadUsd,

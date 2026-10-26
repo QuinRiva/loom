@@ -1,13 +1,7 @@
 /**
- * Dev fixture verifier — proves the seeded workstream reads back as the web
- * shell serves it: every seeded thread's `workstream` on the joined shell with
- * the column and attention the seed meant, the goal and its tree, the control
- * cards on the root, a real checkpoint ref per started thread, and nothing a
- * booting server would act on (an empty effect outbox, and nothing 3b's
- * dispatcher pass would send, now or a day later). Read-only: the effect worker
- * does not run and the pass's dispatches are intercepted.
- *
- * Run: `vp run dev:seed:verify` (this worktree's `.t3`) or `vp run dev:seed:verify --home-dir <scratch>`
+ * Dev fixture verifier: the seeded workstream reads back as the web shell serves it, with nothing a
+ * booting server would act on (empty outbox, no dispatch now or a day later). Read-only.
+ * Run: `vp run dev:seed:verify` (this worktree's `.t3`) or with `--home-dir <scratch>`.
  *
  * @module dev/verifySeed
  */
@@ -68,37 +62,36 @@ const columnOf = (ws: LoomThreadShellFields, byId: ReadonlyMap<ThreadId, StartNo
  * orchestrator's `dispatch` records the command and answers `LoomDispatchDeferredError` (a
  * receipted episode never reaches it), so nothing is written.
  */
-const dispatcherWouldSend = (atMs: number) =>
-  Effect.gen(function* () {
-    const real = yield* Orchestrator.OrchestratorV2;
-    const attempted: string[] = [];
-    const recording = Orchestrator.OrchestratorV2.of({
-      ...real,
-      dispatch: (command) =>
-        Effect.fail(
-          new LoomDispatchDeferredError({
-            commandId: command.commandId,
-            commandType: command.type,
-            threadId: (command as { readonly threadId: ThreadId }).threadId,
-            reason: (attempted.push(`${command.type} ${command.commandId}`), "verify: read-only"),
-          }),
-        ),
-    });
-    const clock = yield* Clock.Clock;
-    yield* Effect.flatMap(WorkstreamDispatcher, (dispatcher) => dispatcher.runPass).pipe(
-      Effect.provide(WorkstreamDispatcherLive),
-      Effect.provideService(Orchestrator.OrchestratorV2, recording),
-      Effect.provide(ServerSettings.layerTest()),
-      Effect.provideService(Clock.Clock, {
-        ...clock,
-        currentTimeMillisUnsafe: () => atMs,
-        currentTimeMillis: Effect.succeed(atMs),
-        currentTimeNanosUnsafe: () => BigInt(atMs) * 1_000_000n,
-        currentTimeNanos: Effect.succeed(BigInt(atMs) * 1_000_000n),
-      }),
-    );
-    return attempted;
+const dispatcherWouldSend = Effect.fn("verifySeed.dispatcherWouldSend")(function* (atMs: number) {
+  const real = yield* Orchestrator.OrchestratorV2;
+  const attempted: string[] = [];
+  const recording = Orchestrator.OrchestratorV2.of({
+    ...real,
+    dispatch: (command) =>
+      Effect.fail(
+        new LoomDispatchDeferredError({
+          commandId: command.commandId,
+          commandType: command.type,
+          threadId: (command as { readonly threadId: ThreadId }).threadId,
+          reason: (attempted.push(`${command.type} ${command.commandId}`), "verify: read-only"),
+        }),
+      ),
   });
+  const clock = yield* Clock.Clock;
+  yield* Effect.flatMap(WorkstreamDispatcher, (dispatcher) => dispatcher.runPass).pipe(
+    Effect.provide(WorkstreamDispatcherLive),
+    Effect.provideService(Orchestrator.OrchestratorV2, recording),
+    Effect.provide(ServerSettings.layerTest()),
+    Effect.provideService(Clock.Clock, {
+      ...clock,
+      currentTimeMillisUnsafe: () => atMs,
+      currentTimeMillis: Effect.succeed(atMs),
+      currentTimeNanosUnsafe: () => BigInt(atMs) * 1_000_000n,
+      currentTimeNanos: Effect.succeed(BigInt(atMs) * 1_000_000n),
+    }),
+  );
+  return attempted;
+});
 
 const verifyProgram = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;

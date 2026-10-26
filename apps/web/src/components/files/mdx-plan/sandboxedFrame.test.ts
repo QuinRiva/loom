@@ -24,13 +24,9 @@ import {
 import { PLAN_BLOCKS, PLAN_BLOCK_COMPONENTS, parsePlanBlock, serializePlanBlock } from "./registry";
 
 /**
- * The sandboxed-iframe surfaces (`<Prototype>` C4, `<HtmlBlock>` B5) are the
- * untrusted-content boundary: the iframe sandbox + `srcdoc` CSP is THE security
- * mechanism (D9). These lock in the exact `sandbox`/CSP invariants a security
- * review depends on — no `allow-same-origin` on the prototype; on HtmlBlock
- * `allow-same-origin` alone (never with scripts), a CSP with no `'self'`, no
- * load-time navigation, and no link activation — plus whole-block annotatability and the MDX wire
- * round-trip.
+ * Locks the exact `sandbox`/CSP strings the security review depends on: no
+ * `allow-same-origin` on Prototype; HtmlBlock same-origin alone, a CSP with no `'self'`,
+ * no load-time navigation and no link activation. Plus annotatability and round-trip.
  */
 
 function parse(html: string): HTMLElement {

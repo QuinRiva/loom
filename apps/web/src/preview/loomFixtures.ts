@@ -1,10 +1,6 @@
 /**
- * Loom preview fixture data (Phase 3 track 3d-1): V2 shell and message shapes
- * for the workstream graph (`WorkstreamPanel`, one thread per derived column),
- * the goal panel (`GoalTasksPanel`, a nested tree with an anchored thread) and
- * the control cards (`ControlDigestCard`, every seam-6 kind — the same payloads
- * the dev seed writes). 3d-2/3d-3 register fixtures in `fixtures.tsx` that
- * render their components against this data; nothing here renders.
+ * V2 shell and message shapes for the workstream graph, goal panel and control cards (the
+ * same payloads the dev seed writes). Data only; nothing here renders.
  *
  * @module preview/loomFixtures
  */
@@ -462,7 +458,7 @@ export const loomPreviewHandbackMessages: ReadonlyArray<OrchestrationV2Conversat
   handbackMessage("digest", "[T3 Workstream control plane]\n\nFYI digest (preview).", {
     kind: "digest",
     heading:
-      "FYI digest — the following items completed and were fully routed since you last heard.",
+      "FYI digest: the following items completed and were fully routed since you last heard.",
     items: [
       {
         kind: "gate-resolved",
@@ -526,7 +522,7 @@ export const loomPreviewHandbackMessages: ReadonlyArray<OrchestrationV2Conversat
       {
         threadId: T.quiescent,
         role: "researcher",
-        title: "Went quiet — report synthesised",
+        title: "Went quiet: report synthesised",
         status: "yielded",
         icon: "↩️",
         reportPath: `${REPORTS}/${T.quiescent}.quiescent-run-1.md`,

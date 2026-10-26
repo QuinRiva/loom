@@ -1,10 +1,8 @@
 /**
- * loom: the goal panel's task edits as `loom.goal.task.rewrite` inputs (3d-3).
- *
- * Each edit submits the smallest branch that contains it — the task itself for
- * a tick or rename, its parent for a removal or an added child — so an edit
- * never rewrites (and so never clobbers) the rest of a tree agents are also
- * writing. Only top-level adds and removals submit the whole tree.
+ * loom: the goal panel's task edits as `loom.goal.task.rewrite` inputs. Each submits the smallest
+ * branch containing it (the task for a tick or rename, its parent for a removal or added child), so
+ * an edit never clobbers the rest of a tree agents are also writing. Only top-level adds and
+ * removals submit the whole tree.
  */
 import type {
   GoalTaskId,

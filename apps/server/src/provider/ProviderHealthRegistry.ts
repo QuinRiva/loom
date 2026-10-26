@@ -1,29 +1,7 @@
 /**
- * ProviderHealthRegistry — ephemeral exhaustion state for subscription accounts.
- *
- * Also holds the account-usage telemetry the marks derive from ("what the
- * provider reported") beside the marks themselves ("what T3 concluded"): the
- * {@link SubscriptionUsagePoller} feeds it, marks derive from two automatic
- * sources, expire on a TTL, and are consumed by routing
- * (chunk C), the resume sweep (chunk D), and spawn headroom. The telemetry is
- * server-internal only — the user-facing usage surface is upstream's Limits
- * page, which the poller feeds separately (see `accountUsage.loom.ts`).
- *
- * Marks are keyed `(accountKey, modelScope)` where `accountKey` is the
- * account routing key (`providerInstanceId ?? providerName`) and
- * `modelScope` is `"*"` (account-wide) or a pi modelId. A model is exhausted iff
- * its own model-scoped mark is active OR the account's `"*"` mark is active.
- *
- * Sources (§4.4, strongest first):
- *  1. Explicit provider flags — Codex `limitReached` ⇒ account-wide mark.
- *  2. Telemetry threshold — any window ≥99% ⇒ mark (scoped if the window is
- *     scoped) with `until = resetsAt`. Proactive (D4).
- *  3. Classified limit errors — {@link ProviderHealthRegistryShape.markExhausted}
- *     (source "error"); default 30-min TTL when no resetsAt is known.
- *
- * Clearing is automatic: `until` passed ⇒ inert (checked at query time); fresh
- * telemetry <97% for a key ⇒ its telemetry/error marks drop; restart ⇒ clean
- * slate (no persistence — repopulates from the next poll).
+ * Ephemeral exhaustion marks keyed `(accountKey, modelScope)` (`"*"` = account-wide), from Codex
+ * `limitReached`, any window >=99% (until `resetsAt`) or classified errors (30-min TTL). They lapse
+ * at `until`, drop on fresh telemetry <97%, and are not persisted: a restart repopulates on poll.
  *
  * @module ProviderHealthRegistry
  */
@@ -114,18 +92,10 @@ export const matches = (mark: ExhaustionMark, accountKey: string, modelId?: stri
   (mark.modelScope === ACCOUNT_WIDE_SCOPE || mark.modelScope === modelId);
 
 /**
- * Collapse pooled accounts of one instance into a single best-remaining view
- * before exhaustion marks are derived (§4). The registry stores one snapshot
- * per account (distinguished by `accountLabel`), but routing and exhaustion key
- * by the instance alone: the router fails over between the pooled accounts, so
- * the instance is only exhausted when EVERY account is. An account is only as
- * healthy as its worst window, so per window label (account-wide, or one model
- * carve-out) we keep the windows of the ONE account whose worst window under
- * that label is lowest (ties: the one that resets first). Taking the minimum per
- * window kind across accounts instead (DL-77 defect 2) read account A's spent
- * 5-hour window and account B's spent weekly window as a healthy instance. The
- * explicit `limitReached` flag counts only when ALL accounts set it.
- * Single-account instances pass through unchanged.
+ * Collapse an instance's pooled accounts into one view: the router fails over between them, so
+ * the instance is exhausted only when every account is. Per window label, keep the windows of the
+ * one account whose worst window is lowest (ties: earliest reset); a per-window minimum across
+ * accounts reads two half-spent accounts as healthy. `limitReached` counts only when all set it.
  */
 export const aggregateAccountsBestRemaining = (
   snapshots: ReadonlyArray<AccountUsageSnapshot>,
@@ -191,11 +161,9 @@ export const deriveFromTelemetry = (
         flagPercent = window.usedPercent;
         flagUntil = window.resetsAt;
       }
-      // Routing scope: an unscoped window is account-wide ("*"); a scoped window
-      // routes to its resolved modelId. A scoped window whose display name did
-      // NOT map to a modelId is display-only (§4.2) — it must NEVER produce a
-      // routing mark (else an unmapped "Fable" at 100% would exhaust the whole
-      // account), nor clear the account-wide error mark.
+      // Unscoped is account-wide ("*"); a scoped window whose name mapped to no modelId is
+      // display-only: it must never mark (an unmapped "Fable" at 100% would exhaust the account)
+      // nor clear the account-wide error mark.
       const routingScope =
         window.scope === undefined ? ACCOUNT_WIDE_SCOPE : (window.scope.modelId ?? null);
       if (routingScope === null) continue;
@@ -257,50 +225,53 @@ export const ProviderHealthRegistryLive = Layer.effect(
       yield* PubSub.publish(changesPubSub, activeMarks(telemetry, error, nowMs));
     }).pipe(Effect.asVoid);
 
-    const isExhausted: ProviderHealthRegistryShape["isExhausted"] = (accountKey, modelId, now) =>
-      Effect.gen(function* () {
-        const [telemetry, error] = yield* Effect.all([Ref.get(telemetryRef), Ref.get(errorRef)]);
-        const at = now ?? (yield* Clock.currentTimeMillis);
-        const hit = (mark: ExhaustionMark) =>
-          matches(mark, accountKey, modelId) && isActive(mark, at);
-        return Array.from(telemetry.values()).some(hit) || Array.from(error.values()).some(hit);
-      });
+    const isExhausted: ProviderHealthRegistryShape["isExhausted"] = Effect.fn(
+      "ProviderHealthRegistry.isExhausted",
+    )(function* (accountKey, modelId, now) {
+      const [telemetry, error] = yield* Effect.all([Ref.get(telemetryRef), Ref.get(errorRef)]);
+      const at = now ?? (yield* Clock.currentTimeMillis);
+      const hit = (mark: ExhaustionMark) =>
+        matches(mark, accountKey, modelId) && isActive(mark, at);
+      return Array.from(telemetry.values()).some(hit) || Array.from(error.values()).some(hit);
+    });
 
-    const exhaustedUntil: ProviderHealthRegistryShape["exhaustedUntil"] = (accountKey, modelId) =>
-      Effect.gen(function* () {
-        const [telemetry, error] = yield* Effect.all([Ref.get(telemetryRef), Ref.get(errorRef)]);
-        const now = yield* Clock.currentTimeMillis;
-        const relevant = [...telemetry.values(), ...error.values()].filter(
-          (mark) => matches(mark, accountKey, modelId) && isActive(mark, now),
-        );
-        if (relevant.length === 0) return null;
-        // Available again only once every active mark clears; a null (unknown)
-        // until dominates.
-        if (relevant.some((mark) => mark.until === null)) return null;
-        return relevant.reduce(
-          (latest, mark) =>
-            latest === null || Date.parse(mark.until!) > Date.parse(latest) ? mark.until : latest,
-          null as string | null,
-        );
-      });
+    const exhaustedUntil: ProviderHealthRegistryShape["exhaustedUntil"] = Effect.fn(
+      "ProviderHealthRegistry.exhaustedUntil",
+    )(function* (accountKey, modelId) {
+      const [telemetry, error] = yield* Effect.all([Ref.get(telemetryRef), Ref.get(errorRef)]);
+      const now = yield* Clock.currentTimeMillis;
+      const relevant = [...telemetry.values(), ...error.values()].filter(
+        (mark) => matches(mark, accountKey, modelId) && isActive(mark, now),
+      );
+      if (relevant.length === 0) return null;
+      // Available again only once every active mark clears; a null (unknown)
+      // until dominates.
+      if (relevant.some((mark) => mark.until === null)) return null;
+      return relevant.reduce(
+        (latest, mark) =>
+          latest === null || Date.parse(mark.until!) > Date.parse(latest) ? mark.until : latest,
+        null as string | null,
+      );
+    });
 
-    const markExhausted: ProviderHealthRegistryShape["markExhausted"] = (mark) =>
-      Effect.gen(function* () {
-        const nowMs = yield* Clock.currentTimeMillis;
-        const resolved: ExhaustionMark =
-          mark.source === "error" && mark.until === null
-            ? {
-                ...mark,
-                until: DateTime.formatIso(DateTime.makeUnsafe(nowMs + ERROR_MARK_DEFAULT_TTL_MS)),
-              }
-            : mark;
-        yield* Ref.update(errorRef, (marks) => {
-          const next = new Map(marks);
-          next.set(markKey(resolved.accountKey, resolved.modelScope), resolved);
-          return next;
-        });
-        yield* publish;
+    const markExhausted: ProviderHealthRegistryShape["markExhausted"] = Effect.fn(
+      "ProviderHealthRegistry.markExhausted",
+    )(function* (mark) {
+      const nowMs = yield* Clock.currentTimeMillis;
+      const resolved: ExhaustionMark =
+        mark.source === "error" && mark.until === null
+          ? {
+              ...mark,
+              until: DateTime.formatIso(DateTime.makeUnsafe(nowMs + ERROR_MARK_DEFAULT_TTL_MS)),
+            }
+          : mark;
+      yield* Ref.update(errorRef, (marks) => {
+        const next = new Map(marks);
+        next.set(markKey(resolved.accountKey, resolved.modelScope), resolved);
+        return next;
       });
+      yield* publish;
+    });
 
     const snapshot = Effect.gen(function* () {
       const nowMs = yield* Clock.currentTimeMillis;
@@ -309,19 +280,18 @@ export const ProviderHealthRegistryLive = Layer.effect(
     });
 
     // Fresh telemetry rebuilds the telemetry marks and clears reset error marks.
-    const applyUsage: ProviderHealthRegistryShape["applyUsage"] = (snapshot) =>
-      Effect.gen(function* () {
-        const snapshots = Array.from(
-          (yield* Ref.updateAndGet(usageRef, (store) =>
-            mergeAccountUsage(store, snapshot),
-          )).values(),
-        );
-        const nowMs = yield* Clock.currentTimeMillis;
-        const derived = deriveFromTelemetry(snapshots, yield* Ref.get(errorRef), nowMs);
-        yield* Ref.set(telemetryRef, derived.telemetry);
-        yield* Ref.set(errorRef, derived.error);
-        yield* publish;
-      });
+    const applyUsage: ProviderHealthRegistryShape["applyUsage"] = Effect.fn(
+      "ProviderHealthRegistry.applyUsage",
+    )(function* (snapshot) {
+      const snapshots = Array.from(
+        (yield* Ref.updateAndGet(usageRef, (store) => mergeAccountUsage(store, snapshot))).values(),
+      );
+      const nowMs = yield* Clock.currentTimeMillis;
+      const derived = deriveFromTelemetry(snapshots, yield* Ref.get(errorRef), nowMs);
+      yield* Ref.set(telemetryRef, derived.telemetry);
+      yield* Ref.set(errorRef, derived.error);
+      yield* publish;
+    });
 
     return {
       applyUsage,

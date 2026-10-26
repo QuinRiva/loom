@@ -1,46 +1,13 @@
 /*
- * Render-layer sanitiser for model-authored wireframe HTML — the SECOND trust
- * boundary of the MDX-plan vertical (the MDX remark guard does NOT cover it).
- *
- * Wireframe `html` arrives as a JSON *string-literal* attribute
- * (`<Screen html="<div>…</div>" />`); the MDX guard passes that string through
- * unread — correctly, it is data — and the block injects it via
- * `dangerouslySetInnerHTML` into the LIVE page DOM (not an iframe, so the
- * annotation layer keeps ONE geometry model: `range.getClientRects()` over the
- * laid-out artboard, exactly as prose). That makes this the point where raw
- * untrusted HTML must be neutralised.
- *
- * Ported (behaviour-preserving) from BuilderIO's `@agent-native/core`
- * `client/blocks/library/sanitize-html.ts` — the security-critical piece, kept
- * as-is rather than reimprovised. It uses the browser's OWN parser + URL
- * normalisation (which decodes entities and collapses whitespace), so obfuscated
- * schemes (`java\tscript:`, `&#106;avascript:`) can't survive:
- *   - drops dangerous elements (script/style/iframe/object/embed/…), including
- *     SVG SMIL animators (animate/set/…) that could animate an `href` to
- *     `javascript:` after sanitisation, and raw-text elements (`xmp`) that hide
- *     attributes from the walker;
- *   - strips every `on*` event-handler attribute;
- *   - removes URL attributes whose *browser-resolved* scheme isn't safe;
- *   - removes inline styles carrying `expression()`/`javascript:` AND — because
- *     we render into the live DOM and expose no separate CSS field — viewport
- *     escapes (`position:fixed`/`sticky`, huge `z-index`) that could overlay the
- *     host app (clickjacking / UI-redress). The viewport regex is BuilderIO's
- *     own `DANGEROUS_VIEWPORT_CSS`, applied here at the inline-style point.
- *   - optionally strips host/Tailwind theme classes so a mockup can't leak app
- *     CSS (the wireframe tier strips; the later design tier passes
- *     `preserveThemeClasses` to keep branded styling — the C3 hook).
- *
- * Only the browser (DOMParser) path is load-bearing; a conservative regex
- * fallback covers non-DOM code paths (SSR) so the function never returns raw
- * unsanitised HTML.
+ * Second trust boundary: wireframe `html` passes the MDX guard as data and is injected
+ * into the LIVE page DOM, so raw untrusted HTML is neutralised here. Ported from
+ * BuilderIO's `sanitize-html.ts`; it relies on the browser's own parser so obfuscated
+ * schemes cannot survive. The regex fallback (SSR) never returns raw HTML.
  */
 
-// SMIL animation elements (`animate`/`set`/…) can rewrite an attribute (e.g. a
-// link's `href`) to `javascript:` AFTER static sanitisation, so a later click
-// runs arbitrary JS (B1). They have no purpose in a low-fidelity wireframe, so
-// they are dropped outright rather than URL-checked. `xmp` is a raw-text element
-// (like `textarea`/`title`/`noembed`) whose contents parse as TEXT, hiding an
-// `<img onerror>` from the attribute walker (S2) — also dropped.
+// SMIL animators can rewrite an `href` to `javascript:` after sanitisation, and `xmp`
+// parses its contents as text, hiding `<img onerror>` from the attribute walker.
+// Neither has a use in a wireframe, so both are dropped outright.
 const BLOCKED_TAGS =
   "script,style,iframe,object,embed,link,meta,base,form,noscript,frame,frameset,applet,marquee,portal,xmp,animate,set,animatetransform,animatemotion,animatecolor";
 
@@ -72,14 +39,9 @@ const URL_ATTRS = new Set([
 
 const SAFE_SCHEMES = new Set(["http:", "https:", "mailto:", "tel:", "ftp:"]);
 
-// The renderer OWNS these annotation-id namespaces: `assignBlockIds` stamps
-// `data-plan-block-type`/`data-plan-block-id`, `stampWireframeNodes` stamps
-// `data-wf-node`. Foreign wireframe HTML carrying any of them pollutes the id
-// namespace (whole-block anchor collision → `querySelector` first-match hijack;
-// defeats wireframe node-pin capture via `closest("[data-plan-block-type]")`;
-// `data-wf-node` collision/counter drift; canvas connector/annotation target
-// hijack — SF1). Strip them on the way in, exactly as theme classes are, so a
-// mockup can't inject app annotation ids.
+// The renderer owns these annotation-id namespaces. Foreign HTML carrying them
+// would hijack whole-block anchors, node pins and canvas targets (first-match
+// `querySelector`), so strip them on the way in, like theme classes.
 const RESERVED_ANNOTATION_ATTRS = new Set([
   "data-plan-block-type",
   "data-plan-block-id",
@@ -126,12 +88,9 @@ const DANGEROUS_STYLE =
 const DANGEROUS_VIEWPORT_CSS =
   /(?:^|[;{\s])position\s*:\s*(?:fixed|sticky|absolute)\b|(?:^|[;{\s])z-index\s*:\s*[1-9]\d{4,}\b/i;
 
-// The inline-style guards match raw text, so CSS comments (`position/**/:/**/fixed`)
-// and CSS escapes (`\66\69\78\65\64` = `fixed`) slip past. Normalise both away
-// before testing (ported from BuilderIO's `cssSafetyText`/`decodeCssSafetyEscapes`).
-// This is defence-in-depth on top of the structural containment fix in `.wf-surface`
-// (position:relative + contain:layout paint), which traps escaping descendants
-// regardless of any regex bypass.
+// Normalise CSS comments (`position/**/:/**/fixed`) and escapes (`\66\69\78\65\64`)
+// away before the raw-text style guards test. Defence in depth: `.wf-surface`
+// containment traps escaping descendants regardless of any regex bypass.
 function cssSafetyText(value: string): string {
   const noComments = value.replace(/\/\*[\s\S]*?\*\//g, "");
   return noComments
@@ -262,7 +221,7 @@ function sanitizeElementAttributes(root: ParentNode, options?: SanitizeElementOp
           DANGEROUS_VIEWPORT_CSS.test(cssSafetyText(attr.value));
         options?.onStrip?.(
           viewport
-            ? `entire style attribute removed — position:absolute/fixed/sticky and huge z-index are not allowed (ALL declarations in that attribute are lost; use static layout)`
+            ? `entire style attribute removed: position:absolute/fixed/sticky and huge z-index are not allowed (ALL declarations in that attribute are lost; use static layout)`
             : `entire style attribute removed (dangerous CSS)`,
         );
         el.removeAttribute(attr.name);

@@ -36,6 +36,7 @@ apps/mobile/.generated/
 apps/mobile/.android-cache/
 /.generated/
 artifacts/app-store/screenshots/
+artifacts/mobile-e2e/
 /.artifacts/
 # loom: `lint-plan.mjs --out <doc-dir>/render.html --png` — the rendered page and
 # its PNG slices an agent writes beside a plan/recap to look at it. Never part of

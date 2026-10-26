@@ -23,12 +23,9 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { WorkstreamModelPill } from "./WorkstreamModelPill";
 
 /**
- * Active-now strip: one chip per descendant that is running (the activity
- * rollup) or flagged (the attention rollup) — the two read separately, never
- * fused into one state. Flagged threads sort first; one click enters the
- * thread. Renders nothing for an idle, unflagged workstream. Each row pairs a
- * sentence (left) with a figure (right): title / age, activity / current step,
- * model / cost and tool count. Ages tick on the shared minute clock.
+ * One chip per descendant that is running (the activity rollup) or flagged (the attention
+ * rollup); the two read separately, never fused into one state. Ages tick on the shared
+ * minute clock.
  */
 export function WorkstreamActiveStrip({
   nodes,

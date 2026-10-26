@@ -1,16 +1,8 @@
 /**
- * loom: a changed file opened from the Files surface, shown whole: old left, new right, changes
- * highlighted and every unchanged line present, so the code around a change is on screen
- * (plans/change-review/plan.mdx §4). It renders through the Diff panel's code view with
- * `expandUnchanged`, never a `FileDiff` inside the file tab's `Virtualizer` (20 to 25 fps on a
- * fling), and fetches both sides before rendering once, so the page never jumps from hunks to the
- * whole file.
- *
- * Above the size cap both full files are never handed to the renderer up front: highlighting them
- * is what freezes the page (380 ms at 10,000 lines), so the file opens from its own patch in hunk
- * mode with expand buttons, and "Show whole file" opts in.
- *
- * @module loom/review/FileChangeView
+ * loom: a changed file shown whole (old left, new right) through the Diff panel's code view with
+ * `expandUnchanged`, never a `FileDiff` in the file tab's `Virtualizer` (20 to 25 fps on a fling).
+ * Both sides load before the one render, so the page never jumps. Above the size cap it opens from
+ * its patch in hunk mode: highlighting both whole files freezes the page (380 ms at 10,000 lines).
  */
 import {
   type FileContents,
@@ -37,7 +29,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../../components/ui/toolt
 import type { DraftId } from "../../composerDraftStore";
 import { useClientSettings } from "../../hooks/useSettings";
 import { useStableCallback } from "../../hooks/useStableCallback";
-import { useTheme } from "../../hooks/useTheme";
+import { useRenderedAppearance } from "../../hooks/useTheme";
 import { createGitDiffFileContentsLoader } from "../../lib/diffFileContents";
 import {
   buildFileDiffContentVersion,
@@ -90,6 +82,8 @@ function fileDiffStub(
     isPartial: true,
     deletionLines: [],
     additionLines: [],
+    deletionCharacterCount: 0,
+    additionCharacterCount: 0,
   };
 }
 
@@ -117,7 +111,7 @@ export function FileChangeView({
   patch,
   composerDraftTarget,
 }: FileChangeViewProps) {
-  const { resolvedTheme } = useTheme();
+  const resolvedTheme = useRenderedAppearance(); // the diff worker pool resolves only this theme
   const layout = useReviewBaselineStore((state) => state.fileChangeLayout);
   const wordWrap = useClientSettings((settings) => settings.wordWrap);
   const { path, previousPath, status } = file;
@@ -313,6 +307,7 @@ export function FileChangeView({
               collapsed: false,
             },
           ]}
+          pendingFiles={[]}
           sectionId="loom-file-change"
           sectionTitle="Changes"
           composerDraftTarget={composerDraftTarget}

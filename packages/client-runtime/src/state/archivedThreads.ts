@@ -27,6 +27,7 @@ export function makeArchivedThreadsEnvironmentKey(
   );
 }
 
+// loom: exported for apps/web/src/loom/useArchiveMembershipRefresh.ts
 export function parseArchivedThreadsEnvironmentKey(key: string): ReadonlyArray<EnvironmentId> {
   if (key.length === 0) {
     return [];

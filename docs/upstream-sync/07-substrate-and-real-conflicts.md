@@ -42,10 +42,10 @@ Substrate facts (all verified live in this worktree):
 - Branch fast-forwarded to `origin/main` (`e9e86648b`); Phase 1 docs committed
   locally on top (`edc0cd715`, **not pushed**).
 - `git replace --graft 6c82133 477795697` created; `git merge-base HEAD
-upstream/main` → **`477795697`** ✓. The graft ref is global to the shared clone,
+  upstream/main` → **`477795697`** ✓. The graft ref is global to the shared clone,
   reversible with `git replace -d 6c82133`, and has **not** been pushed.
 - `git merge-base HEAD upstream/main` measured against `upstream/main =
-2448212367` (v0.0.28, 289 commits past baseline). `filter-repo` was **not** run.
+  2448212367` (v0.0.28, 289 commits past baseline). `filter-repo` was **not** run.
 - Conflicts measured with `git merge --no-commit --no-ff upstream/main` →
   `git status --porcelain` → `git merge --abort`. Working tree ends **clean**.
   (`git merge-tree --write-tree` is git 2.38+; this clone is git 2.30.2, so the

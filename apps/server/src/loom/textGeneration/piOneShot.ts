@@ -1,12 +1,7 @@
 /**
- * Loom's one-shot model call. Upstream's `TextGeneration` has no free-form op
- * and Loom's structured op is not re-added (DT-44/DT-54), so Loom's own
- * generations (the emergent goal, the handoff duplicate check) run here: the
- * same ephemeral, tools-off `pi --mode rpc` launch upstream's
- * `PiTextGeneration` uses, on the project's text-generation instance, which
- * must be Pi. Extensions stay on: cliproxy is extension-registered.
- *
- * @module loom/textGeneration/piOneShot
+ * Loom's free-form one-shot model call (upstream's `TextGeneration` has none): the same ephemeral,
+ * tools-off `pi --mode rpc` launch as `PiTextGeneration`, on the project's text-generation instance,
+ * which must be Pi. Extensions stay on because cliproxy is extension-registered.
  */
 import { type ProjectId, TextGenerationError } from "@t3tools/contracts";
 import { PiSettings } from "@t3tools/provider-pi/settings";

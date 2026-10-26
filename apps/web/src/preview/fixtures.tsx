@@ -71,7 +71,7 @@ const WIDE_TABLE_MARKDOWN = `Comparison of provider capabilities across a wide s
 | Meta | llama-4-405b | 256k | Yes | Partial | No | Medium | 32k | Open | Self-hostable, strong price/performance on-prem |
 `;
 
-const NARROW_TABLE_MARKDOWN = `A small table should stay narrow and hug its content — it must not stretch to the bleed budget:
+const NARROW_TABLE_MARKDOWN = `A small table should stay narrow and hug its content. It must not stretch to the bleed budget:
 
 | Key | Value |
 | --- | --- |
@@ -135,7 +135,7 @@ const path = "apps/web/src/index.ts";
 
 const PROSE_AND_CODE_PATH_LINKS_MARKDOWN = `An orchestrator-style reply that hands back file paths as plain prose and inside a fenced block, the two shapes agents actually produce.
 
-The verdict and the register are at /Users/julius/project/_findings/verdict.md and /Users/julius/project/_findings/findings_register.md — open both.
+The verdict and the register are at /Users/julius/project/_findings/verdict.md and /Users/julius/project/_findings/findings_register.md, open both.
 
 A relative hit with a position carries through: src/markdown-links.ts:42 should link too.
 
@@ -216,7 +216,7 @@ const CONSULT_REPORT_CODE_BLOCKS_MARKDOWN = `To the reviewer:
    - \`"Tenant's Solicitors"\`
    - \`"Tenant Consultant"\`
 
-   Those support many conclusions, but they are extraction fields—not quotations from packet pages with provenance/citations. \`measurement_report.md\` only provides summary conclusions. No separate quote/citation file was committed, so the assertion that packet evidence was read is not auditable at the requested verbatim-document level.
+   Those support many conclusions, but they are extraction fields, not quotations from packet pages with provenance/citations. \`measurement_report.md\` only provides summary conclusions. No separate quote/citation file was committed, so the assertion that packet evidence was read is not auditable at the requested verbatim-document level.
 
 3. **Why generic entity-absence semantics changed**
 
@@ -251,7 +251,7 @@ const CONSULT_REPORT_CODE_BLOCKS_MARKDOWN = `To the reviewer:
        assert result.risk_factors == []
    \`\`\`
 
-   A strategy-specific special case would duplicate semantics in the tenant strategy, while changing comparison absence policy would only address empty lists—not missing entities—and would conflate input optionality with comparison meaning.
+   A strategy-specific special case would duplicate semantics in the tenant strategy, while changing comparison absence policy would only address empty lists (not missing entities) and would conflate input optionality with comparison meaning.
 
 4. **Fast-forward/no-force evidence**
 
@@ -297,19 +297,9 @@ const CONSULT_REPORT_CODE_BLOCKS_MARKDOWN = `To the reviewer:
    Together, the ancestor check, absence of \`--force\`, normal \`old..new\` push output, and matching PR head establish a fast-forward push.`;
 
 /**
- * Minimal repro for the empty-code-block defect (#: fenced blocks nested inside
- * a list item render chrome only — language badge, wrap/copy buttons, rounded
- * container — with a completely empty body, and the copy button yields "").
- *
- * The five cases below are a discriminator, not decoration: the two OUTSIDE a
- * list item (top level, blockquote) render their body correctly, and the three
- * INSIDE a list item render empty. That isolates the trigger to the `p`/`li`
- * component overrides' `renderSkillInlineMarkdownChildren` pass rewriting the
- * nested `code` element's string child into a `<SkillInlineText>` element, which
- * `extractCodeBlock`/`nodeToPlainText` cannot read (the text lives in a `text`
- * prop, not `children`), so Shiki is handed "".
- *
- * A correct fix shows the body text in ALL FIVE blocks.
+ * Fenced blocks nested in a list item once rendered an empty body: the `p`/`li` overrides turned
+ * the code string into a `<SkillInlineText>` whose `text` prop `extractCodeBlock` cannot read.
+ * The two blocks outside a list item are the control; all five must show their body text.
  */
 const LIST_NESTED_CODE_BLOCK_MARKDOWN = `A: top level (renders correctly today):
 
@@ -361,7 +351,7 @@ const SKILL_TOKEN_MARKDOWN = `Chips belong here: run $probe before $librarian in
 
 - List-item prose also gets a chip: use $probe first.
 
-Inline code must stay literal: \`use $probe now\` — no chip, and it copies verbatim.
+Inline code must stay literal: \`use $probe now\`: no chip, and it copies verbatim.
 
 - List-item inline code, same rule: \`$probe --dry-run\`.
 
@@ -375,11 +365,9 @@ Inline code must stay literal: \`use $probe now\` — no chip, and it copies ver
 `;
 
 /**
- * The three chip states loom's verification seam produces, in one message:
- * a file that exists (upstream's live chip), one the server reports as gone
- * (the muted "missing?" chip, not a dead link), and a non-file link (untouched
- * by the seam). The harness has no backend, so the fixture drives the shared
- * existence store directly — the same injection point its unit tests use.
+ * The three chip states loom's verification seam produces: an existing file, one the server
+ * reports gone (muted, not a dead link), and a non-file link. With no backend, the fixture
+ * drives the shared existence store directly, as its unit tests do.
  */
 const FILE_CHIP_STATES_CWD = "/Users/julius/project";
 const FILE_CHIP_STATES_PRESENT = `${FILE_CHIP_STATES_CWD}/src/main.ts`;
@@ -518,7 +506,7 @@ const SCANNED_PATH_VERIFICATION_MARKDOWN = `Prose: the verdict is at ${SCANNED_P
 
 A sentence must read exactly as written: see apps/web/src/ChatView.tsx here.
 
-The same two inside a fenced block — only the first line is clickable, and the block's text is unchanged:
+The same two inside a fenced block. Only the first line is clickable, and the block's text is unchanged:
 
 \`\`\`text
 ${SCANNED_PATH_VERIFIED}
@@ -527,11 +515,8 @@ ${SCANNED_PATH_MISSING}
 `;
 
 /**
- * The harness has no backend, so the existence fixtures drive the shared
- * existence store directly — the same injection point their unit tests use. Installed once
- * at module load (this module is DEV-only and tree-shaken out of a production
- * build): installing the stub *resets* the store, so doing it per mount would
- * race a mounted subject's path registration.
+ * Installed once at module load (this module is DEV-only): installing the stub *resets* the
+ * existence store, so doing it per mount would race a mounted subject's path registration.
  */
 const PREVIEW_PATH_METADATA: Record<string, FilesystemEntryMetadata | null> = {
   [FILE_CHIP_STATES_PRESENT]: { kind: "file" },
@@ -658,11 +643,9 @@ const PENDING_USER_INPUT_WIZARD: ReadonlyArray<UserInputQuestion> = [
 ];
 
 /**
- * The panel wired to real answer state through the shared transition, the way
- * `ChatView` wires it. Advancing is the whole of the wizard's behaviour, so a
- * fixture holding a frozen `answers={{}}` could never show Next enabling or the
- * next question opening. Dismiss and submit are inert: the harness has no
- * backend, and dispatch is not what these fixtures are for.
+ * Wired to real answer state the way `ChatView` wires it, since a frozen `answers={{}}` could
+ * never show Next enabling or the next question opening. Dismiss and submit are inert: the
+ * harness has no backend.
  */
 function PendingUserInputPreview({
   questions,
@@ -763,25 +746,16 @@ function pendingUserInputFixture(
 }
 
 /**
- * The annotation-layer defect case: a `<Card>` wrapping a **closed** `<Details>`
- * wrapping a 12-cell `<Table>`, with wrapping prose before and after. It
- * exercises all four MDX-annotation rendering defects at once:
- *  - **A** — toggle the panel button (container width changes while the viewport
- *    stays wide, so the capped `max-w-4xl` root only re-centres); highlights must
- *    track, not drift into the gutter.
- *  - **B** — hover the card / table and "Comment on this block": a block anchor
- *    must draw ONE outline ring, not a card-sized fill plus a pill per cell.
- *  - **C** — comment on content inside the closed `<Details>`: it must collapse
- *    to a badge on the summary, never paint phantom pills over the prose below.
- *  - **D** — add `dark` to `<html>` and hover the floating "Comment" button: it
- *    must stay opaque, not go transparent.
+ * A: toggle the panel and highlights must track. B: a block comment draws ONE outline ring, not
+ * a pill per cell. C: a comment inside the closed `<Details>` collapses to a badge on its
+ * summary. D: with `dark` on `<html>`, the floating "Comment" button stays opaque.
  */
 const MDX_ANNOTATION_FIXTURE_SOURCE = [
   "# Annotation layer defect fixture",
   "",
-  "This paragraph before the card is deliberately long prose so a reviewer can select a multi-line span and comment on it, exercising the text-anchor per-line highlight path. It needs enough words to wrap across several lines at the capped measure — no PR trains, merge order, benchmark tables, scale considerations, just filler that wraps and wraps.",
+  "This paragraph before the card is deliberately long prose so a reviewer can select a multi-line span and comment on it, exercising the text-anchor per-line highlight path. It needs enough words to wrap across several lines at the capped measure: no PR trains, merge order, benchmark tables, scale considerations, just filler that wraps and wraps.",
   "",
-  '<Card heading="S4 — the face-rent finding" tone="warning" badge="STAGE">',
+  '<Card heading="S4: the face-rent finding" tone="warning" badge="STAGE">',
   "",
   "The body of the card is prose too, so commenting on the whole card must draw a single outline ring rather than a giant translucent fill plus a loose grid of pills.",
   "",
@@ -795,25 +769,20 @@ const MDX_ANNOTATION_FIXTURE_SOURCE = [
   "",
   "</Card>",
   "",
-  "This paragraph after the card is exactly where the closed-details phantom rects used to land — a rect covering “— no PR trains, merge order, benchmark tables, scale co” at non-word-aligned offsets. With defect C fixed it stays clean.",
+  "This paragraph after the card is exactly where the closed-details phantom rects used to land: a rect covering “: no PR trains, merge order, benchmark tables, scale co” at non-word-aligned offsets. With defect C fixed it stays clean.",
 ].join("\n");
 
 /**
- * A plan document exercising wide-block bleed: a split `<Diff>` with lines far
- * longer than the prose measure, a narrow `<Table>`, a short `<Code>` block, and
- * the same wide diff nested inside `<Columns>` and a `<Details>`.
- *
- * Expected: the top-level diff bleeds past the `max-w-4xl` measure up to the
- * panel budget; prose, the narrow table, and the short code block stay at the
- * measure; and the nested diffs stay inside their container, scrolling
- * internally.
+ * Expected: the top-level diff bleeds past the `max-w-4xl` measure up to the panel budget;
+ * prose, the narrow table and the short code block stay at the measure; the diffs nested in
+ * `<Columns>` and `<Details>` stay inside their container, scrolling internally.
  */
 const MDX_WIDE_BLOCK_FIXTURE_SOURCE = [
   "# Wide-block bleed in a plan document",
   "",
-  "This paragraph must keep the readable prose measure no matter how wide the panel gets — the bleed is for artefacts only, and a line of body copy that runs the full width of a large display is exactly what the capped column exists to prevent.",
+  "This paragraph must keep the readable prose measure no matter how wide the panel gets: the bleed is for artefacts only, and a line of body copy that runs the full width of a large display is exactly what the capped column exists to prevent.",
   "",
-  "## Top-level diff (split) — must bleed",
+  "## Top-level diff (split): must bleed",
   "",
   `<Diff filename="apps/web/src/components/files/mdx-plan/MdxPlanRenderer.tsx" mode="split" before={${JSON.stringify(
     [
@@ -841,11 +810,11 @@ const MDX_WIDE_BLOCK_FIXTURE_SOURCE = [
   "",
   `<Code language="ts" filename="lane.ts" code={${JSON.stringify('type Lane = "planned" | "ready";')}} />`,
   "",
-  "## Prose-heavy artefact — must not stretch to the cap",
+  "## Prose-heavy artefact: must not stretch to the cap",
   "",
-  '<DataModel entities={[{ id: "thread", name: "Thread", fields: [{ name: "id", type: "uuid", pk: true }, { name: "plan_lane", type: "text", note: "planned | ready | in_progress | done | cancelled — only done releases dependents" }, { name: "attention", type: "text", nullable: true, note: "awaiting_acceptance | needs_guidance; cleared automatically when the thread resumes" }] }]} />',
+  '<DataModel entities={[{ id: "thread", name: "Thread", fields: [{ name: "id", type: "uuid", pk: true }, { name: "plan_lane", type: "text", note: "planned | ready | in_progress | done | cancelled (only done releases dependents)" }, { name: "attention", type: "text", nullable: true, note: "awaiting_acceptance | needs_guidance; cleared automatically when the thread resumes" }] }]} />',
   "",
-  "## Nested — must NOT break out of its container",
+  "## Nested: must NOT break out of its container",
   "",
   "<Columns>",
   "",
@@ -861,7 +830,7 @@ const MDX_WIDE_BLOCK_FIXTURE_SOURCE = [
   "",
   "<Column>",
   "",
-  "The neighbouring column must keep its half of the row — if the nested diff bled, this text would be pushed out or overlapped.",
+  "The neighbouring column must keep its half of the row. If the nested diff bled, this text would be pushed out or overlapped.",
   "",
   "</Column>",
   "",
@@ -881,16 +850,9 @@ const MDX_WIDE_BLOCK_FIXTURE_SOURCE = [
 ].join("\n");
 
 /**
- * Reproduces the file-preview panel's layout chain for a plan document: a
- * viewport publishing `--timeline-available-width` from a ResizeObserver
- * (`FilePreviewPanel`'s `BleedFrame`, via the shared
- * {@link useTimelineAvailableWidthVar}) wrapping the annotation layer. Rendering
- * the plan bare would misreport wide-block bleed.
- *
- * The side-panel toggle changes the document container width without narrowing
- * the viewport (annotation defect A); the narrow toggle squeezes the panel to a
- * phone-ish width, where the bleed must collapse back to the measure rather than
- * overflow.
+ * Reproduces `FilePreviewPanel`'s `BleedFrame` chain ({@link useTimelineAvailableWidthVar}), since
+ * a bare plan would misreport wide-block bleed. The side-panel toggle narrows the container but
+ * not the viewport; the narrow toggle must collapse the bleed back to the measure.
  */
 function PlanPanelPreview({ source }: { source: string }) {
   const [panelOpen, setPanelOpen] = useState(false);
@@ -913,7 +875,7 @@ function PlanPanelPreview({ source }: { source: string }) {
       {panelOpen ? (
         <div className="w-72 shrink-0 rounded-lg border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
           Simulated file-explorer panel. Opening/closing it changes the document container width
-          while the viewport stays wide — highlights must track.
+          while the viewport stays wide. Highlights must track.
         </div>
       ) : null}
       <div
@@ -934,16 +896,14 @@ function PlanPanelPreview({ source }: { source: string }) {
 }
 
 /**
- * A table wide enough to overflow its own `overflow-x-auto` scroller inside a
- * capped panel, for the intra-block text-selection + scroller-drift case: select
- * a phrase in a cell → it anchors to that phrase (fill highlight, not a whole-
- * table ring); scroll the table sideways → the highlight tracks the words and is
- * clipped to the scrollport instead of drifting across the page.
+ * Overflows its own `overflow-x-auto` scroller: a phrase selected in a cell anchors to that
+ * phrase, not the whole table, and scrolling sideways keeps the highlight on the words,
+ * clipped to the scrollport.
  */
 const MDX_SCROLLING_TABLE_FIXTURE_SOURCE = [
   "# Intra-cell selection in a horizontally scrolling table",
   "",
-  "Select a phrase inside one cell below. It must highlight only that phrase, not outline the whole table. Then scroll the table sideways with its own scrollbar — the highlight must stay on the words and never spill onto the rest of the page.",
+  "Select a phrase inside one cell below. It must highlight only that phrase, not outline the whole table. Then scroll the table sideways with its own scrollbar: the highlight must stay on the words and never spill onto the rest of the page.",
   "",
   `<Table columns={["Block type", "Anchoring behaviour", "Round-trip note", "Scroller behaviour"]} rows={${JSON.stringify(
     [
@@ -972,12 +932,9 @@ const MDX_SCROLLING_TABLE_FIXTURE_SOURCE = [
 ].join("\n");
 
 /**
- * Query threads (plans/plan-query-threads): the plan's "after" mockup — one
- * pending comment (solid amber badge) and two query pins (hollow accent "?",
- * dashed underline, no fill). Selecting prose offers Comment and Query; Query
- * opens the card in query mode. Submitting a question succeeds after a beat
- * (the real binding navigates to the query thread); a question containing
- * "fail" shows the inline error instead.
+ * Query threads: the plan's "after" mockup, one pending comment and two query pins. Selecting
+ * prose offers Comment and Query; a question succeeds after a beat, and one containing "fail"
+ * shows the inline error.
  */
 const MDX_QUERY_PINS_SOURCE = [
   "# Plan: SQLite read lane v2",
@@ -1078,11 +1035,9 @@ const mdxScrollingTableFixture: PreviewFixture = {
 };
 
 /**
- * A stylesheet-driven mockup grid inside one `<HtmlBlock>` — the shape plan
- * authors use to compare options side by side. The frame is same-origin with
- * scripts off, so selecting text in ONE card pins a comment to that card (a
- * highlight inside the frame that tracks in-frame scroll and panel resizes),
- * while hovering anywhere over the frame still offers the whole-block comment.
+ * The frame is same-origin with scripts off, so selecting text in ONE card pins a comment to
+ * that card (tracking in-frame scroll and panel resizes), while hovering the frame still offers
+ * the whole-block comment.
  */
 const MDX_HTML_BLOCK_CARDS_HTML = [
   "<!doctype html><html><head><style>",
@@ -1131,11 +1086,35 @@ const mdxAnnotationFixture: PreviewFixture = {
   ),
 };
 
+const MDX_MERMAID_FIXTURE_SOURCE = [
+  "# Mermaid block",
+  "",
+  "A lazily loaded Mermaid diagram with tone classes and a legend. Hover it and use 'Comment on this block' to annotate it.",
+  "",
+  `<Mermaid source={${JSON.stringify(
+    [
+      "flowchart LR",
+      "  merge[S1 merge]:::tone-neutral --> gate[Gate 1]:::tone-info",
+      "  gate --> server[S2a server]:::tone-success",
+      "  gate --> web[S2b web]:::tone-success",
+      "  gate --> search[S2c search]:::tone-warning",
+      "  server & web & search --> integrate[S3 integrate]:::tone-accent",
+    ].join("\n"),
+  )}} caption="Pull 13 tracks" legend={[{ tone: "success", label: "green" }, { tone: "warning", label: "in flight" }]} />`,
+].join("\n");
+
+const mdxMermaidFixture: PreviewFixture = {
+  id: "mdx-mermaid",
+  title: "Mermaid block",
+  description: "The MDX plan Mermaid block renders through the lazily imported `mermaid` runtime.",
+  render: () => <PlanPanelPreview key="mdx-mermaid" source={MDX_MERMAID_FIXTURE_SOURCE} />,
+};
+
 const mdxWideBlockFixture: PreviewFixture = {
   id: "mdx-wide-blocks",
   title: "Wide blocks (bleed)",
   description:
-    "Non-prose blocks use the width the panel offers. The top-level split diff must bleed past the max-w-4xl measure and become readable; prose and the short code block must keep the measure; the diffs inside <Columns> and <Details> must stay in their container. Comment on a bled diff — its badge must sit in the gutter beside the block, never on top of it. Then hit 'Narrow panel': the bleed must collapse cleanly with no horizontal page scrollbar.",
+    "Non-prose blocks use the width the panel offers. The top-level split diff must bleed past the max-w-4xl measure and become readable; prose and the short code block must keep the measure; the diffs inside <Columns> and <Details> must stay in their container. Comment on a bled diff: its badge must sit in the gutter beside the block, never on top of it. Then hit 'Narrow panel': the bleed must collapse cleanly with no horizontal page scrollbar.",
   render: () => <PlanPanelPreview key="mdx-wide-blocks" source={MDX_WIDE_BLOCK_FIXTURE_SOURCE} />,
 };
 
@@ -1215,7 +1194,7 @@ export const MDX_QUESTION_REFS_FIXTURE_SOURCE = [
   "",
   "## Data model changes",
   "",
-  "One new column on `thread`, one on `thread_edge`. No backfill of historical rows is planned — closed threads are already terminal.",
+  "One new column on `thread`, one on `thread_edge`. No backfill of historical rows is planned: closed threads are already terminal.",
   "",
   '<Table columns={["Table", "Column", "Type", "Note"]} rows={[["thread", "plan_lane", "text", "planned | ready | in_progress | done | cancelled"], ["thread", "attention", "text (nullable)", "awaiting_acceptance | needs_guidance; cleared on resume"], ["thread_edge", "released_at", "timestamptz (nullable)", "set when the upstream lane first reaches done"]]} />',
   "",
@@ -1223,15 +1202,15 @@ export const MDX_QUESTION_REFS_FIXTURE_SOURCE = [
   "",
   "Three slices, each shippable on its own. Slice 0 is the only one that touches the wire contract.",
   "",
-  "### Slice 0 — lane column and writes",
+  "### Slice 0: lane column and writes",
   "",
   "Add the column, write it from the existing transitions, read it nowhere. Purely additive; safe to land mid-week.",
   "",
-  "### Slice 1 — release keyed on the lane",
+  "### Slice 1: release keyed on the lane",
   "",
   "Dependents wait until the upstream lane is `done`. This is the behaviour change, and the one a flag would protect.",
   "",
-  "### Slice 2 — backfill",
+  "### Slice 2: backfill",
   "",
   "Stamp a lane on threads created before slice 0. A one-shot script, run once per environment, idempotent.",
   "",
@@ -1271,7 +1250,7 @@ export const MDX_QUESTION_REFS_FIXTURE_SOURCE = [
       title: "Do old threads need a lane stamped on them at all?",
       subtitle: "They are already closed, so nothing downstream is waiting on them.",
       mode: "single",
-      refs: [{ label: "Slice 2 \u2014 backfill", anchor: "slice-2-backfill" }],
+      refs: [{ label: "Slice 2: backfill", anchor: "slice-2-backfill" }],
       options: [
         { id: "yes", label: "Yes, stamp every historical thread" },
         { id: "no", label: "No, leave the column null for closed threads", recommended: true },
@@ -1298,10 +1277,10 @@ export const MDX_QUESTION_REFS_FIXTURE_SOURCE = [
       options: [
         {
           id: "block",
-          label: "No \u2014 dependents stay blocked and a human decides",
+          label: "No, dependents stay blocked and a human decides",
           recommended: true,
         },
-        { id: "release", label: "Yes \u2014 treat it like done for release purposes" },
+        { id: "release", label: "Yes, treat it like done for release purposes" },
       ],
     },
     {
@@ -1317,7 +1296,7 @@ const mdxQuestionRefsFixture: PreviewFixture = {
   id: "mdx-question-refs",
   title: "Open questions with section refs (peek)",
   description:
-    "Scroll to the bottom Open Questions. Each question carries chips naming the plan sections it depends on \u2014 click one to reveal that section without leaving the form. Q1 has two refs (one is a whole delivery order with sub-sections), Q3 points at a section whose body is a <Table>, Q4 at one holding a <Code> block. 'Go to section' scrolls the document and tints the heading. The peek spans the question's own column and grows to fit its content, so a wide block lays out at the form's measure; scrolling inside it must not dismiss it. Select text in the body first to check a highlight still tracks while a peek is open.",
+    "Scroll to the bottom Open Questions. Each question carries chips naming the plan sections it depends on. Click one to reveal that section without leaving the form. Q1 has two refs (one is a whole delivery order with sub-sections), Q3 points at a section whose body is a <Table>, Q4 at one holding a <Code> block. 'Go to section' scrolls the document and tints the heading. The peek spans the question's own column and grows to fit its content, so a wide block lays out at the form's measure; scrolling inside it must not dismiss it. Select text in the body first to check a highlight still tracks while a peek is open.",
   render: () => (
     <PlanPanelPreview key="mdx-question-refs" source={MDX_QUESTION_REFS_FIXTURE_SOURCE} />
   ),
@@ -1395,6 +1374,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       mdxAnnotationFixture,
       mdxScrollingTableFixture,
       mdxHtmlBlockCardsFixture,
+      mdxMermaidFixture,
       mdxQueryPinsFixture,
     ],
   },
@@ -1457,14 +1437,14 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "prose-and-code-path-links",
         "Prose & code-block path links",
         PROSE_AND_CODE_PATH_LINKS_MARKDOWN,
-        "Prose and fenced blocks alike read exactly as written — the path substring itself is the clickable span, never a basename chip, and the fence's text is byte-identical (select and copy to check). Non-paths (dates, and/or, urls) stay plain.",
+        "Prose and fenced blocks alike read exactly as written: the path substring itself is the clickable span, never a basename chip, and the fence's text is byte-identical (select and copy to check). Non-paths (dates, and/or, urls) stay plain.",
         "/Users/julius/project",
       ),
       markdownFixture(
         "prose-and-code-path-links-streaming",
         "Prose & code path links (streaming)",
         PROSE_AND_CODE_PATH_LINKS_MARKDOWN,
-        "While streaming, both scanners are deferred: the SAME content renders as inert text until the message completes — satisfying the 'no per-token rescans' requirement.",
+        "While streaming, both scanners are deferred: the SAME content renders as inert text until the message completes, satisfying the 'no per-token rescans' requirement.",
         "/Users/julius/project",
         true,
       ),
@@ -1472,7 +1452,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         id: "thread-mention",
         title: "Thread mentions (t3-thread://)",
         description:
-          "loom: a `[Title](t3-thread://v1/<id>)` mention leads with the thread's live state — a static dot in its board colour (primary in progress, hollow amber blocked, amber halo needs attention, hollow grey cancelled and greyed), a green check when done, nothing for a quiet root — and the favicon only for another project. The tooltip names the state. The ChatMarkdown paragraph below resolves nothing (no backend), so it shows the muted unavailable form. Colon-bearing workstream ids survive; a legacy `thread://` mention is plain text.",
+          "loom: a `[Title](t3-thread://v1/<id>)` mention leads with the thread's live state: a static dot in its board colour (primary in progress, hollow amber blocked, amber halo needs attention, hollow grey cancelled and greyed), a green check when done, nothing for a quiet root, and the favicon only for another project. The tooltip names the state. The ChatMarkdown paragraph below resolves nothing (no backend), so it shows the muted unavailable form. Colon-bearing workstream ids survive; a legacy `thread://` mention is plain text.",
         render: () => <ThreadMentionStatesFixture />,
       },
       markdownFixture("long-prose", "Long prose", LONG_PROSE_MARKDOWN),
@@ -1487,20 +1467,20 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "list-nested-code-blocks",
         "List-nested code blocks (real corpus)",
         CONSULT_REPORT_CODE_BLOCKS_MARKDOWN,
-        "Ground truth: the verbatim reviewer message from the reported session. Nine fences (text/python/bash/json), every one indented inside an ordered-list item — all nine must show their body text.",
+        "Ground truth: the verbatim reviewer message from the reported session. Nine fences (text/python/bash/json), every one indented inside an ordered-list item: all nine must show their body text.",
       ),
       {
         id: "scanned-path-verification",
         title: "Prose & in-fence paths: verified vs missing",
         description:
-          "loom's loose scanners under verification: a prose path and an in-fence path become clickable IN PLACE — the sentence and the fence read exactly as written — and only once the server confirms the file exists; the missing twin of each stays inert.",
+          "loom's loose scanners under verification: a prose path and an in-fence path become clickable IN PLACE (the sentence and the fence read exactly as written) and only once the server confirms the file exists; the missing twin of each stays inert.",
         render: () => <ScannedPathVerificationFixture />,
       },
       {
         id: "file-chip-states",
         title: "File chips: present, missing, non-file link",
         description:
-          "loom's verification seam over upstream's chip renderer: an existing path renders upstream's chip unchanged, a path the server reports as gone renders muted with a 'missing — moved or deleted?' tooltip instead of a dead link, and a plain web link is untouched. The legacy thread:// mention renders as a plain link.",
+          "loom's verification seam over upstream's chip renderer: an existing path renders upstream's chip unchanged, a path the server reports as gone renders muted with a 'missing (moved or deleted?)' tooltip instead of a dead link, and a plain web link is untouched. The legacy thread:// mention renders as a plain link.",
         render: () => <FileChipStatesFixture />,
       },
       {

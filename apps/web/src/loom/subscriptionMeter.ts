@@ -1,22 +1,8 @@
 /**
- * loom: the derive behind the always-on subscription meter — the accepted
- * "Timeline" design (`plans/usage-meter-redesign/plan.mdx`).
- *
- * A pool is every account sharing a driver, from whatever source reports it:
- * native provider instances, cliproxy hub snapshots, and the pi instance's
- * account-encoded windows (`@t3tools/shared/usageWindowId`), which are split
- * back into one account per encoded account. Within a driver, accounts merge
- * on their display label (email local part or pi label) and the fresher
- * reading wins. Each account's 5-hour window is a bar on one wall-clock axis
- * per pool: the bar's end is its reset, a single now-line crosses every row,
- * and ▼ marks where the current burn empties the window when that lands
- * before the reset. Weekly windows surface only as ▲ risk / ▽ opportunity.
- *
- * The burn rate is not on the wire, so it is derived here from a ring of the
- * last readings per account-window. Pure apart from that ring; the component
- * memoises the derive on the limits slice and the countdown tick.
- *
- * @module loom/subscriptionMeter
+ * loom: the derive behind the always-on subscription meter. A pool is every account sharing a driver
+ * from any source (native instances, cliproxy hub snapshots, pi's account-encoded windows split back
+ * per account); accounts merge on display label, the fresher reading winning. The burn rate is not
+ * on the wire, so it is derived from a ring of recent readings; pure apart from that ring.
  */
 import {
   ProviderDriverKind,
@@ -89,11 +75,10 @@ function scopeOf(window: ServerProviderUsageWindow): string | undefined {
 }
 
 /**
- * Every account, one per driver + display label. The fresher reading wins; an
- * email from either side is kept. An account with neither email nor label (the
- * poller's direct-auth Claude reading, an unmatchable probable duplicate of a
- * labelled source) is dropped from a pool that has named members, and kept
- * when it is the pool's only account (Codex's direct reading).
+ * Every account, one per driver and display label; the fresher reading wins and either side's email
+ * is kept. An account with neither email nor label (the poller's direct-auth Claude reading, a likely
+ * duplicate of a labelled source) is dropped from a pool with named members, kept when it is the
+ * pool's only account (Codex's direct reading).
  */
 export function meterAccounts(presentations: LimitPresentations): readonly LimitAccount[] {
   const merged = new Map<string, LimitAccount>();
@@ -142,12 +127,9 @@ const RATE_MIN_SPAN = 10 * MINUTE;
 /** A new window moves its reset by hours; readings jitter it by seconds. */
 const RESET_MOVED = 5 * MINUTE;
 /**
- * Publishes closer together than this are one poll. The poller reads every 5
- * minutes, but a pi instance's `checkedAt` moves whenever *any* of its accounts
- * publishes — seven near-simultaneous publishes per cycle — so a token-file
- * account sees its instance restamped several times a cycle, mostly with its
- * own value unchanged. Counting those as readings would fill the ring within
- * seconds and never span the ten minutes a rate needs.
+ * Publishes closer together than this are one poll: a pi instance's `checkedAt` moves whenever any
+ * of its accounts publishes (seven times per 5-minute cycle), mostly with a given account's value
+ * unchanged. Counting those would fill the ring in seconds, never spanning the ten minutes a rate needs.
  */
 const POLL_GAP = 4 * MINUTE;
 
@@ -436,19 +418,10 @@ let memo: { readonly key: string; readonly view: MeterView } | null = null;
 const held = new Map<string, LimitAccount>();
 
 /**
- * The pools to draw, each marked live or stale.
- *
- * Provider limits are runtime snapshot state: a reconnect, a server restart, or
- * a provider republishing its snapshot delivers a `serverConfig` with none
- * until the poller publishes again — and it goes per provider rather than all
- * at once — and a hub can drop an account whose read failed. The meter is on
- * screen permanently, so each account's last reading is held rather than
- * blinking out, until it is {@link HOLD_MS} old; a pool with no live row is
- * marked stale. Nothing is drawn only when there has never been a reading, and
- * a reload starts empty again.
- *
- * Cached on the limits slice and the tick, because the presentations atom
- * updates on every `serverConfig` change and the sidebar is always mounted.
+ * The pools to draw, each live or stale. Limits are runtime snapshot state that a reconnect, restart
+ * or republish empties until the poller publishes again (per provider), so each account's last
+ * reading is held until {@link HOLD_MS} old and a pool with no live row is marked stale. Cached on
+ * the limits slice and tick: the presentations atom updates on every `serverConfig` change.
  */
 export function readMeter(presentations: LimitPresentations, now: number): MeterView {
   const key = `${limitsFingerprint(presentations)}|${Math.floor(now / METER_TICK_MS)}`;

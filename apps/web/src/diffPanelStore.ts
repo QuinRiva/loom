@@ -118,11 +118,8 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     }),
     {
       name: "t3code:diff-panel-state:v1",
-      // loom: Loom shipped its own v2 (a `coder` selection kind, TurnId turn
-      // selections), which upstream's v2 would load unmigrated; v3 reset it.
-      // v4 (3d-4) re-added `coder`; v5 removes it for good (change review
-      // replaced By coder): a stored `coder` selection falls back to the
-      // default, the rest of v3/v4 state carries over, anything older resets.
+      // loom: Loom's own v2 differs from upstream's v2, so anything below v3 resets. A stored
+      // `coder` selection (v4 only) falls back to the default; the rest of v3/v4 carries over.
       version: 5,
       migrate: migrateDiffPanelState, // loom:
       storage: createJSONStorage(() =>
@@ -152,6 +149,29 @@ export function migrateDiffPanelState(
     branchBaseRefByThreadKey: state.branchBaseRefByThreadKey ?? {},
   };
 }
+
+interface DiffPanelSessionStoreState {
+  collapsedFileKeysByScopeKey: Record<string, ReadonlySet<string>>;
+  updateCollapsedFileKeys: (
+    scopeKey: string,
+    defaults: ReadonlySet<string>,
+    update: (current: ReadonlySet<string>) => ReadonlySet<string>,
+  ) => void;
+}
+
+// Session-only so folds survive right-panel switches without changing reload defaults.
+export const useDiffPanelSessionStore = create<DiffPanelSessionStoreState>()((set) => ({
+  collapsedFileKeysByScopeKey: {},
+  updateCollapsedFileKeys: (scopeKey, defaults, update) =>
+    set((state) => {
+      const current = state.collapsedFileKeysByScopeKey[scopeKey] ?? defaults;
+      const next = update(current);
+      if (next === current) return state;
+      return {
+        collapsedFileKeysByScopeKey: { ...state.collapsedFileKeysByScopeKey, [scopeKey]: next },
+      };
+    }),
+}));
 
 export function selectThreadDiffPanelSelection(
   byThreadKey: Record<string, DiffPanelSelection>,

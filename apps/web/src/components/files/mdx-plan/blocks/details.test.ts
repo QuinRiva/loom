@@ -7,12 +7,9 @@ import { DetailsRead } from "./details";
 import { PlanEagerMountContext } from "../planEagerMount";
 
 /**
- * `<Details>` lazy-mounting (B2): a collapsed disclosure does NOT mount its
- * children until first opened (halving initial DOM on evidence-heavy docs), then
- * keeps them mounted so re-opening is instant. The {@link PlanEagerMountContext}
- * escape hatch forces eager mounting — the annotation layer sets it when a
- * comment may be anchored inside a closed drill-down (so it resolves as
- * `collapsed`, not `detached`).
+ * `<Details>` mounts children on first open and keeps them mounted;
+ * {@link PlanEagerMountContext} forces eager mounting so a comment inside a closed
+ * drill-down resolves as `collapsed`, not `detached`.
  */
 
 const DRILL = "DRILL_CONTENT";
@@ -94,11 +91,8 @@ describe("Details lazy mount", () => {
   });
 
   it("mounts (and retains) children when the eager context flips false → true", async () => {
-    // Reachable by switching threads in one workspace: FilePreviewPanel is keyed
-    // by environment, so the same <Details> instance survives while the draft
-    // target's comments (and thus the eager flag) change. A persisted comment
-    // inside a never-opened disclosure for the newly-selected thread must not
-    // degrade to `detached` — the children have to mount on the transition.
+    // FilePreviewPanel is keyed by environment, so a thread switch keeps this <Details>
+    // instance while the eager flag flips; children must mount on the transition.
     const { container, root, rerender } = await renderDetails({ eager: false });
     expect(container.textContent).not.toContain(DRILL); // lazy while eager=false
 

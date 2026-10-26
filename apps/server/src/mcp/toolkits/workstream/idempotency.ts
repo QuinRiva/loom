@@ -1,12 +1,7 @@
 /**
- * Deterministic ids for handlers that create things (spawn, scaffold,
- * mcp__t3-code__goal_task_add, mcp__t3-code__goal_handoff, mcp__t3-code__goal_continue, mcp__t3-code__thread_fork), in upstream's
- * `stableCommandId` shape (`OrchestratorMcpService.ts`): the credential's
- * `requestNamespace`, the operation and the request key. With the agent's
- * `clientRequestId` a retry reproduces the same ids, so the command receipt
- * makes it a no-op; without one the key is a fresh uuid.
- *
- * @module mcp/toolkits/workstream/idempotency
+ * Deterministic ids for creating handlers in upstream's `stableCommandId` shape: namespace, operation
+ * and request key. With a `clientRequestId` a retry reproduces the ids and the command receipt makes
+ * it a no-op; without one the key is a fresh uuid.
  */
 // @effect-diagnostics nodeBuiltinImport:off - a pure digest, no service needed.
 import * as NodeCrypto from "node:crypto";

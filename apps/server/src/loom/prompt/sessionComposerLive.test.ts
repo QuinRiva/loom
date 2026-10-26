@@ -1,10 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - fixture role files on disk.
 /**
- * The real composer over the real orchestrator and Loom store: byte-stable
- * output, the write-once launch identity, first-launch fork replay and the drafter
- * exceptions to it, the child
- * readership clause, cache retention, the extension path and the relocation
- * clause.
+ * The real composer over the real orchestrator and Loom store: byte-stable output, write-once launch
+ * identity, first-launch fork replay and its drafter exceptions, the child readership clause, cache
+ * retention, the extension path and the relocation clause.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -520,7 +518,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         const after = yield* composer.compose(moved);
         assert.equal(
           after.appendSystemPrompt,
-          `${before.appendSystemPrompt}\n\nYour work here previously happened in a different working directory; you are now in \`${elsewhere}\`. The files you see are this tree's CURRENT state, which may have moved on since you last ran, and any absolute paths you remember are historical — re-verify before reading or editing.`,
+          `${before.appendSystemPrompt}\n\nYour work here previously happened in a different working directory; you are now in \`${elsewhere}\`. The files you see are this tree's CURRENT state, which may have moved on since you last ran, and any absolute paths you remember are historical; re-verify before reading or editing.`,
         );
         assert.notInclude(
           (yield* composer.compose(stayed)).appendSystemPrompt,

@@ -65,22 +65,10 @@ import {
 } from "./anchoring";
 
 /**
- * Annotation layer over a rendered MDX plan. Adds the reviewer experience the
- * `.md` path never had: select prose (or a whole non-prose block) → capture a
- * portable {@link PlanCommentAnchor} → compose a comment → it flows through the
- * existing composer review-comment plumbing (`addReviewComment` →
- * `appendReviewCommentsToPrompt`) as the injected user turn on send.
- *
- * It also hosts the interactive answer surface for question blocks
- * (`PlanQuestionAnswersContext`): option clicks / write-ins in
- * `<QuestionForm>`/`<VisualQuestions>` upsert per-question review comments that
- * ride the same channel (see `../questionAnswers.ts`).
- *
- * Pending comments are re-resolved against the live DOM every layout change so
- * highlights track the text; when an anchor no longer resolves (the plan text
- * moved/changed) the comment degrades to a clean "detached" card rather than
- * being dropped. Highlight/affordance positions are stored relative to the
- * wrapper, so they are scroll-invariant and only recomputed on layout changes.
+ * Annotation layer over a rendered MDX plan: selections become portable anchors and
+ * comments that ride the composer's review-comment channel, as do question-block
+ * answers. Anchors re-resolve on every layout change; one that no longer resolves
+ * degrades to a "detached" card rather than being dropped.
  */
 
 /**
@@ -157,11 +145,9 @@ const COMPOSER_EST_HEIGHT = 220;
 const GAP = 12;
 
 /**
- * Place the composer *beside* a target rect so it never covers the passage
- * being annotated: prefer the right gutter, flip to the left when there isn't
- * room, and only fall back to below the rect when neither side fits. All values
- * are relative to the wrapper and clamped into view; the reviewer can still drag
- * it anywhere afterwards. `rect`/`wrapper` are viewport rects.
+ * Place the composer beside a viewport `rect` so it never covers the annotated
+ * passage: right gutter, else left, else below. Returns wrapper-relative values
+ * clamped into view.
  */
 function placeBeside(rect: DOMRect, wrapper: DOMRect): { top: number; left: number } {
   const relTop = rect.top - wrapper.top;
@@ -176,11 +162,9 @@ function placeBeside(rect: DOMRect, wrapper: DOMRect): { top: number; left: numb
   return { top: clampTop(rect.bottom - wrapper.top + GAP), left: below };
 }
 
-/** The element an anchor's range targets, used for the visibility test and the
- * single-box paint of a block anchor. A block anchor's range `selectNode`s an
- * element (its parent is the range's `startContainer`, the element itself the
- * child at `startOffset`); a text anchor's range starts inside a text node whose
- * enclosing element is what we test. */
+/** The element an anchor's range targets. A block anchor's range `selectNode`s
+ * its element (the child at `startOffset`); a text anchor's starts in a text node
+ * whose parent element is the target. */
 function anchorElement(range: Range): Element | null {
   const container = range.startContainer;
   if (container.nodeType === Node.ELEMENT_NODE) {
@@ -192,11 +176,9 @@ function anchorElement(range: Range): Element | null {
   return container.parentElement;
 }
 
-/** The nearest ancestor that scrolls its own content (a wide `<Table>`, `<Diff>`
- * or `<Code>` block's inner scroller), or `null` when nothing between the node
- * and the plan root scrolls. A text highlight inside one must be clipped to it —
- * otherwise scrolling the block carries the highlight out of the scrollport and
- * paints it over the rest of the page. */
+/** The nearest ancestor between the node and the plan root that scrolls its own
+ * content (a wide `<Table>`, `<Diff>` or `<Code>`), or `null`. A highlight inside
+ * one must be clipped to it, or scrolling carries the highlight over the page. */
 function scrollportOf(node: Node, root: Element): Element | null {
   let el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
   while (el && el !== root) {
@@ -303,11 +285,9 @@ export function MdxPlanAnnotationLayer({
   const clearAnnotationDraft = useMdxAnnotationDraftStore((store) => store.clearDraft);
   const annotationDrafts = useMdxAnnotationDraftStore((store) => store.drafts);
   const fileComments = (draft?.reviewComments ?? []).filter((c) => isMdxAnchorComment(c, filePath));
-  // Decision counter (C2): a 140-item tier-(b) batch is the real doc the review-
-  // blocks spec deferred this for. `M` = every <ReviewChoice> authored in the
-  // source (stable regardless of lazy-mount state inside <Details>); `N` = the
-  // items with a persisted decision (the review-choice comment is the wire truth
-  // for "decided"). Presentation only — no bulk actions.
+  // Decision counter, presentation only. `M` counts <ReviewChoice> tags in the source
+  // (stable under lazy mounts inside <Details>); `N` counts persisted review-choice
+  // comments, the wire truth for "decided".
   const reviewChoiceTotal = (source.match(/<ReviewChoice[\s/>]/g) ?? []).length;
   const decidedCount = fileComments.filter((c) => isReviewChoiceCommentId(c.id)).length;
 
@@ -426,13 +406,9 @@ export function MdxPlanAnnotationLayer({
     }
     const wrapperRect = wrapper.getBoundingClientRect();
     setWrapperWidth(wrapperRect.width);
-    // Badges live in the gutter just outside the widest thing the document
-    // paints, never on the last highlighted rect — for a block anchor that rect
-    // lands mid-block (the floating "9"/"10" the reviewer saw). That is usually
-    // the capped content column (`[data-plan-root]`), but a non-prose block may
-    // bleed past it (`[data-plan-bleed]`, see the wide-block bleed rules in
-    // `index.css`); keying off the root alone would park badges ON TOP of a bled
-    // diff. `.plan-mdx`'s bleed inset reserves the room this needs.
+    // Badges sit in the gutter outside the widest painted thing: the content column,
+    // or a block that bleeds past it (`[data-plan-bleed]`), so a badge never lands
+    // on a bled diff. `.plan-mdx`'s bleed inset reserves the room.
     const gutterLeft = Math.min(
       Array.from(root.querySelectorAll(`[${PLAN_BLEED_ATTR}]`)).reduce(
         (right, block) => Math.max(right, block.getBoundingClientRect().right),
@@ -490,21 +466,10 @@ export function MdxPlanAnnotationLayer({
       // a closed <details> / hidden tab hides.
       const frame = hostFrameOf(range.startContainer, root);
       const element = anchorElement(range);
-      // Content inside a closed <details> / hidden tab panel is laid out but
-      // NOT painted (current Chromium uses `content-visibility:hidden`, not
-      // `display:none`, so it still reports live, wrongly-placed rects). An
-      // explicit visibility test — not `getClientRects().length === 0`, which
-      // never fires on this browser — both drops those phantom rects and
-      // classifies the anchor as COLLAPSED (badge on the enclosing surface,
-      // revealed on navigate).
-      //
-      // A TEXT anchor spans text nodes, so test BOTH endpoints: flattenDocument
-      // concatenates adjacent text nodes with no separator, so the re-found
-      // start offset can land on the boundary of a preceding VISIBLE node (a
-      // <summary>) while the quote body lives in the following hidden
-      // paragraph — testing the start alone would read it as visible. A BLOCK
-      // anchor is a single element (its range's END offset points at the next
-      // sibling), so only the start element is meaningful.
+      // Hidden <details>/tab content still reports live, wrongly placed rects (Chromium
+      // uses `content-visibility:hidden`), so test visibility explicitly. A text anchor
+      // tests both endpoints: its start can sit on a preceding visible <summary>. A
+      // block anchor's end offset points at the next sibling, so only its start counts.
       const visible = (el: Element | null): boolean =>
         !el ||
         el.checkVisibility({
@@ -529,13 +494,8 @@ export function MdxPlanAnnotationLayer({
         }
         return detachedPlacement;
       }
-      // Split the paint by anchor kind. A TEXT anchor is a genuine multi-line
-      // prose selection → one rect per line box (`getClientRects()`). A BLOCK
-      // anchor (`visual`/`wireframe`) selects a whole element; painting its
-      // range's rects draws the element's border box PLUS a line box per
-      // descendant text node (20 rects for a Card, 13 for a 12-cell Table). It
-      // wants ONE box from the element, drawn as a ring so it reads as "this
-      // block is annotated", not "everything here is selected".
+      // A text anchor paints one rect per line box. A block anchor paints ONE ring from
+      // its element: its range's rects include a line box per descendant text node.
       // An in-frame highlight clips to the frame (its text can scroll inside it).
       const port = isText ? (frame ?? scrollportOf(range.startContainer, root)) : null;
       const portRect = port?.getBoundingClientRect();
@@ -620,13 +580,8 @@ export function MdxPlanAnnotationLayer({
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(recompute);
     };
-    // (observeResize, not a raw ResizeObserver: upstream's no-raw-resize-observer.)
-    // Boxes are measured relative to the WRAPPER, so the wrapper is the
-    // measurement reference that must be observed — `root` is `max-w-4xl`, so
-    // toggling a side panel re-centres it without changing its border box and
-    // an observer on `root` alone stays silent (defect A). Observe both. (A bled
-    // block DOES resize with the panel, but it lives under `root`, so the
-    // wrapper observation already covers it.)
+    // Boxes are wrapper-relative, so observe the wrapper too: `root` is `max-w-4xl`
+    // and re-centres on a side-panel toggle without changing its border box.
     const stopResize = observeResize([root, wrapper], schedule);
     const mutationObserver = new MutationObserver(schedule);
     mutationObserver.observe(root, {
@@ -636,11 +591,9 @@ export function MdxPlanAnnotationLayer({
       characterData: true,
     });
     window.addEventListener("resize", schedule);
-    // A block with its own scroller (a wide table, diff or code block) moves its
-    // text with neither a mutation nor a resize, so nothing above fires and a
-    // text highlight inside it drifts off the words it quotes. Listen in the
-    // capture phase for scrolls originating INSIDE the plan; document/page
-    // scroll cannot move a wrapper-relative box, so it is deliberately ignored.
+    // A block's own scroller moves its text with no mutation or resize, so listen
+    // for capture-phase scrolls inside the plan. Page scroll cannot move a
+    // wrapper-relative box, so it is ignored.
     const onInnerScroll = (event: Event) => {
       if (event.target instanceof Node && root.contains(event.target)) schedule();
     };
@@ -733,11 +686,9 @@ export function MdxPlanAnnotationLayer({
     });
   });
 
-  // HtmlBlock frames are separate (same-origin) documents: selections, hovers,
-  // clicks and scrolls inside one never reach the wrapper's handlers, so listen
-  // in each frame directly — wired once its srcdoc has loaded (a re-render of
-  // the srcdoc loads a fresh document, which is wired again). A handful of
-  // listeners and one resize observation per frame, none per element.
+  // HtmlBlock frames are separate same-origin documents whose events never reach
+  // the wrapper, so listen in each frame once its srcdoc loads (a srcdoc
+  // re-render loads a fresh document, which is wired again).
   useEffect(() => {
     if (!root) return;
     const controller = new AbortController();

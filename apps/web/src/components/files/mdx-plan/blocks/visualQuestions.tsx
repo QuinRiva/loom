@@ -9,14 +9,9 @@ import {
 } from "./questionForm";
 
 /**
- * The `<VisualQuestions>` block — a visual-intake question block with the SAME
- * question/option shape as `<QuestionForm>` (BuilderIO marks it deprecated in
- * favour of `question-form`). It reuses the shared question list renderer,
- * stamping its own `data-plan-block-type="visual-questions"` so the annotation
- * layer distinguishes the two. The BuilderIO schema additionally allows per-
- * option `wireframe`/`diagram` previews; those are deprecated authoring-editor
- * fields with no read surface, so the port mirrors `<QuestionForm>` exactly and
- * omits them.
+ * `<VisualQuestions>` (deprecated upstream in favour of `question-form`): the same shape
+ * and renderer as `<QuestionForm>` under its own block type. BuilderIO's per-option
+ * `wireframe`/`diagram` previews are editor-only fields with no read surface, so omitted.
  */
 
 const visualQuestionsSchema = questionFormSchema as unknown as z.ZodType<QuestionFormData>;

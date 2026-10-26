@@ -1,10 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - brief fixtures are written and the synthesised report read synchronously.
 /**
- * The quiescence rail on the real orchestrator (smoke steps 3, 6, 9): a quiet
- * control-started child gets a synthesised report and yields; a human-started
- * turn under the null human grace, and a child with a live child, do not; a
- * quiet gate coder mid-rework yields and is never looped to its reviewer.
- * The control grace is 0 through the settings layer, so "past grace" is now.
+ * A quiet control-started child gets a synthesised report and yields; a human-started turn under the
+ * null human grace, and a child with a live child, do not; a quiet gate coder mid-rework yields and
+ * is never looped to its reviewer. The control grace is 0, so "past grace" is now.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";

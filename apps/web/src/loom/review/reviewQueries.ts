@@ -1,10 +1,8 @@
 /**
- * loom: the change-review reads (plans/change-review/plan.mdx §5) and the live interval's refresh
- * signal. A live diff and the interval list refresh on mount, on an explicit refresh, and when any
- * thread sharing the worktree finishes a run (or the thread itself starts one, by when its new
- * message has been snapshotted); the server coalesces the captures those refreshes ask for.
- *
- * @module loom/review/reviewQueries
+ * loom: the change-review reads and the live interval's refresh signal. A live diff and the interval
+ * list refresh on mount, on an explicit refresh, and when any thread sharing the worktree finishes a
+ * run (or the thread itself starts one, once its new message is snapshotted); the server coalesces
+ * the captures those refreshes ask for.
  */
 import type { FileDiffContentsLoader } from "@pierre/diffs";
 import {

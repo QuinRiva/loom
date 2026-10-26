@@ -1,23 +1,7 @@
 /**
- * UsageLedgerReactor — writes one `loom_usage_ledger` row per terminal provider
- * turn (plan seam 11): every `provider-turn.updated` whose turn has ended and
- * carries upstream's per-turn `turnTokenUsage` (the pi adapter's marked hunk
- * fills it from pi's per-message usage; `tokenUsage`'s token counts are pi's
- * session-wide totals and are never read here). The cost is the adapter's
- * pi-priced `tokenUsage.costUsd` (DR-8), absent ⇒ 0.
- *
- * Row derivation: `event_id` = the domain event id; `run_id` = the event's run
- * (else the provider turn's attempt's run); `provider_id` / `requested_model` =
- * the run's `modelSelection.model` split at its first `/` into pi's
- * `providerID` / `modelID`, as V1 stored them (`provider_id` NULL and the whole
- * slug as the model when it has no namespace); `resolved_model` NULL (pi reports none per turn);
- * `input_tokens` is pure input (upstream's input includes the cache buckets),
- * as V1's column was. `INSERT OR IGNORE` on the event id and the unique
- * provider-turn index make a replayed or repeated terminal event a no-op.
- *
- * Starts after activation, like the other Loom reactors.
- *
- * @module loom/economics/UsageLedgerReactor
+ * One `loom_usage_ledger` row per ended provider turn carrying `turnTokenUsage` (pi's `tokenUsage`
+ * counts are session totals, never read). The model slug splits at its first `/` as V1 stored it;
+ * `input_tokens` excludes cache buckets. `INSERT OR IGNORE` makes a replayed event a no-op.
  */
 import type { OrchestrationV2DomainEvent } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";

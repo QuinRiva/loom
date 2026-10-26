@@ -12,18 +12,10 @@ import type { PlanBlock, PlanBlockReadProps } from "../blockTypes";
 import { glossaryKey } from "../glossary";
 
 /**
- * The `<Glossary>` / `<Term>` blocks: the document's coined vocabulary, defined
- * once and rendered where the author puts it (conventionally last) as a compact
- * definition list. The `remarkGlossary` compile pass (`../glossary.ts`) links
- * each term's occurrences in body prose to `<GlossaryTerm>`, which opens the
- * definition in a card: on hover, or on a tap/click, so it works on touch.
- *
- * ONE card per document: `<GlossaryScope>` (wrapped around the document by the
- * same pass) owns a detached popover, and every occurrence is a lightweight
- * trigger carrying its term as the payload, so a long document mounts one
- * popover rather than one per occurrence. The card portals out of
- * `[data-plan-root]`, so an open card adds no text to the annotation layer's
- * text-quote search space.
+ * `<Glossary>` / `<Term>`: the document's coined vocabulary as a definition list. Occurrences in
+ * prose (`remarkGlossary`) open the definition on hover or tap. ONE detached popover per
+ * document (`<GlossaryScope>`), portalled out of `[data-plan-root]` so an open card adds no text
+ * to the annotation layer's text-quote search space.
  */
 
 interface GlossaryEntry {

@@ -23,6 +23,8 @@ import type {
   VcsStatusStreamEvent,
   VcsStatusSubscriptionInput,
 } from "@t3tools/contracts";
+import { DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL } from "@t3tools/contracts";
+import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import { mergeGitStatusParts } from "@t3tools/shared/git";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -33,7 +35,6 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { refuseForeignHomeSideEffect } from "../workspace/foreignHomeGuard.loom.ts"; // loom: foreign-home guard (DL-191)
 
-const DEFAULT_VCS_STATUS_REFRESH_INTERVAL = Duration.seconds(30);
 // Spread the steady-state poll cadence so pollers for different worktrees whose
 // timers align (e.g. after a reconnect opens many sessions at once) don't fire a
 // synchronised burst of git subprocesses. Applied to the success delay only;
@@ -93,7 +94,7 @@ function addUniqueDiagnosticValue(values: Array<string>, value: string | undefin
   }
 }
 
-export function remoteRefreshFailureDiagnostics(cause: Cause.Cause<unknown>) {
+function remoteRefreshFailureDiagnostics(cause: Cause.Cause<unknown>) {
   const failureTags: Array<string> = [];
   const failureOperations: Array<string> = [];
   const defectTags: Array<string> = [];
@@ -160,9 +161,23 @@ interface PollerRegistration {
   readonly registered: Deferred.Deferred<void> | null;
 }
 
-interface StreamStatusOptions {
-  readonly automaticRemoteRefreshInterval?: Effect.Effect<Duration.Duration, never>;
-}
+export class VcsAutomaticFetchInterval extends Context.Reference<Effect.Effect<Duration.Duration>>(
+  "t3/vcs/VcsAutomaticFetchInterval",
+  { defaultValue: () => Effect.succeed(DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL) },
+) {}
+
+export const layerAutomaticFetchInterval = Layer.effect(
+  VcsAutomaticFetchInterval,
+  Effect.gen(function* () {
+    const serverSettings = yield* ServerSettings.ServerSettingsService;
+    return serverSettings.getSettings.pipe(
+      Effect.map(
+        (settings) => resolveServerBackgroundActivitySettings(settings).automaticGitFetchInterval,
+      ),
+      Effect.orElseSucceed(() => DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL),
+    );
+  }),
+);
 
 export class VcsAutoPullPolicy extends Context.Reference<{
   readonly isEnabled: (cwd: string) => Effect.Effect<boolean, never>;
@@ -198,7 +213,7 @@ const withRefreshJitter = (interval: Duration.Duration): Effect.Effect<Duration.
     ),
   );
 
-export function remoteRefreshFailureDelay(
+function remoteRefreshFailureDelay(
   consecutiveFailures: number,
   configuredInterval: Duration.Duration,
 ) {
@@ -221,13 +236,15 @@ export class VcsStatusBroadcaster extends Context.Service<
     readonly refreshLocalStatus: (
       cwd: string,
     ) => Effect.Effect<VcsStatusLocalResult, GitManagerServiceError>;
-    readonly refreshStatus: (cwd: string) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
+    readonly refreshStatus: (
+      cwd: string,
+      options?: { readonly localOnly?: boolean },
+    ) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
     readonly refreshPullRequestStatus: (
       cwd: string,
     ) => Effect.Effect<VcsStatusRemoteResult | null, GitManagerServiceError>;
     readonly streamStatus: (
       input: VcsStatusSubscriptionInput,
-      options?: StreamStatusOptions,
     ) => Stream.Stream<VcsStatusStreamEvent, GitManagerServiceError>;
   }
 >()("t3/vcs/VcsStatusBroadcaster") {}
@@ -242,8 +259,9 @@ const normalizeCwd = (cwd: string) =>
     Effect.orElseSucceed(() => cwd),
   );
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
+  const automaticFetchInterval = yield* VcsAutomaticFetchInterval;
   const autoPullPolicy = yield* VcsAutoPullPolicy;
   const workflow = yield* GitWorkflowService.GitWorkflowService;
   const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
@@ -257,7 +275,7 @@ export const make = Effect.gen(function* () {
   );
   const cacheRef = yield* Ref.make(new Map<string, CachedVcsStatus>());
   // One permit per cwd for remote reads that write the cache. Without it a
-  // periodic poll that started before `gh pr create` can finish after the
+  // periodic poll that started before an agent creates a PR can finish after the
   // turn-end refresh and overwrite the fresh PR with its stale `pr: null`.
   const remoteWriteLocks = yield* KeyedLock.make<string>();
   const withRemoteWriteLock = <A, E, R>(cwd: string, effect: Effect.Effect<A, E, R>) =>
@@ -415,10 +433,13 @@ export const make = Effect.gen(function* () {
       cwd,
       Effect.gen(function* () {
         const latest = yield* getCachedStatus(cwd);
+        const refreshUpstream = !Duration.isZero(yield* automaticFetchInterval);
         const [local, remote] = yield* Effect.all(
           [
             latest?.local ? Effect.succeed(latest.local.value) : workflow.localStatus({ cwd }),
-            latest?.remote ? Effect.succeed(latest.remote.value) : workflow.remoteStatus({ cwd }),
+            latest?.remote
+              ? Effect.succeed(latest.remote.value)
+              : workflow.remoteStatus({ cwd }, { refreshUpstream }),
           ],
           { concurrency: "unbounded" },
         );
@@ -473,8 +494,7 @@ export const make = Effect.gen(function* () {
             errorTag: error._tag,
           });
           if (!pullAttempted) return null;
-          // A pull or its follow-up reads can fail after local state has changed.
-          // Let a failed reconciliation reach the caller instead of publishing old status.
+          // Pull can change local state before failing; propagate reconciliation failures instead of publishing stale status.
           yield* workflow.invalidateLocalStatus(cwd);
           const local = yield* workflow.localStatus({ cwd });
           yield* updateCachedStatus(cwd, local, remote, { publish: true });
@@ -567,11 +587,15 @@ export const make = Effect.gen(function* () {
           // loom: upstream auto-pulls inside its per-cwd remote refresh; the repo
           // batch does it per entry, defaulting the policy scope to this
           // repository's subscribers (upstream's demandCwds).
-          const pulled = yield* maybeAutoPull(
-            entry.cwd,
-            remote,
-            options?.policyCwds ?? [...poller.subscribers.keys()],
-          );
+          // loom: upstream skips the pull without a fetch (a cached behind count cannot justify it).
+          const pulled =
+            options?.refreshUpstream === false
+              ? null
+              : yield* maybeAutoPull(
+                  entry.cwd,
+                  remote,
+                  options?.policyCwds ?? [...poller.subscribers.keys()],
+                );
           if (pulled !== null) return;
           if (
             remote &&
@@ -612,119 +636,133 @@ export const make = Effect.gen(function* () {
       nextDelayMs: Duration.toMillis(nextDelay),
     });
 
-  const makeRemoteRefreshLoop = (
+  const makeRemoteRefreshLoop = Effect.fn("VcsStatusBroadcaster.makeRemoteRefreshLoop")(function* (
     repositoryKey: string,
     wake: Queue.Queue<void>,
     registered: Deferred.Deferred<void>,
-  ) =>
-    Effect.gen(function* () {
-      // The fiber is forked before the poller record commits to `pollersRef`;
-      // wait for the registration rather than relying on scheduler ordering (a
-      // missed read would exit the loop for good and wedge the repo).
-      yield* Deferred.await(registered);
-      const consecutiveFailuresRef = yield* Ref.make(0);
-      const readCycle = Effect.gen(function* () {
-        const poller = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
-        if (!poller) return null;
-        const intervals = yield* pollerIntervals(poller);
-        const enabled = intervals.filter(
-          ({ cwd, interval }) => !Duration.isZero(interval) || poller.initialPending.has(cwd),
-        );
-        const nonZeroIntervals = intervals
-          .map(({ interval }) => interval)
-          .filter((interval) => !Duration.isZero(interval));
-        const activeInterval = nonZeroIntervals.reduce(
-          (shortest, interval) =>
-            Duration.toMillis(shortest) <= Duration.toMillis(interval) ? shortest : interval,
-          nonZeroIntervals[0] ?? DEFAULT_VCS_STATUS_REFRESH_INTERVAL,
-        );
-        return { poller, enabled, activeInterval };
-      });
-
-      const initial = yield* readCycle;
-      if (!initial) return;
-      if (initial.poller.initialPending.size === 0) {
-        yield* Effect.raceFirst(Effect.sleep(initial.activeInterval), Queue.take(wake));
-      }
-
-      while (true) {
-        const cycle = yield* readCycle;
-        if (!cycle) return;
-        const cwds = cycle.enabled.map(({ cwd }) => cwd);
-        let nextDelay = cycle.activeInterval;
-        let failed = false;
-        // Upstream's background-policy gate, re-homed onto the per-repository
-        // poller: a tick runs only while at least one subscribed cwd still wants
-        // background work (an initial refresh always does — the subscriber is
-        // waiting on its first status).
-        const policyAllows =
-          cycle.poller.initialPending.size > 0 ||
-          (yield* Effect.forEach(
-            cwds,
-            (demandCwd) =>
-              backgroundPolicy.shouldRunScopeWork({ type: "vcs-status", cwd: demandCwd }),
-            { concurrency: "unbounded" },
-          )).some(Boolean);
-        if (cwds.length > 0 && policyAllows) {
-          const exit = yield* withRemoteWriteLocks(
-            cwds, // loom: upstream's stale-poll race fix, on the batch path (DL-99)
-            refreshRepositoryRemoteStatus(repositoryKey, cwds, {
-              refreshUpstream: cycle.enabled.some(({ interval }) => !Duration.isZero(interval)),
-            }),
-          ).pipe(Effect.exit);
-          if (Exit.isSuccess(exit)) {
-            yield* clearInitialPending(repositoryKey, cwds);
-            yield* Ref.set(consecutiveFailuresRef, 0);
-            nextDelay = yield* withRefreshJitter(cycle.activeInterval);
-          } else {
-            failed = true;
-            const interruptionReasons = exit.cause.reasons.filter(Cause.isInterruptReason);
-            if (interruptionReasons.length > 0) {
-              return yield* Effect.failCause(Cause.fromReasons<never>(interruptionReasons));
-            }
-            const consecutiveFailures = yield* Ref.updateAndGet(
-              consecutiveFailuresRef,
-              (count) => count + 1,
-            );
-            nextDelay = remoteRefreshFailureDelay(consecutiveFailures, cycle.activeInterval);
-            yield* logRefreshFailure(repositoryKey, exit.cause, consecutiveFailures, nextDelay);
-          }
-        }
-
-        const current = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
-        if (!failed && current?.initialPending.size) continue;
-        yield* Effect.raceFirst(Effect.sleep(nextDelay), Queue.take(wake));
-      }
+  ) {
+    // The fiber is forked before the poller record commits to `pollersRef`;
+    // wait for the registration rather than relying on scheduler ordering (a
+    // missed read would exit the loop for good and wedge the repo).
+    yield* Deferred.await(registered);
+    const consecutiveFailuresRef = yield* Ref.make(0);
+    const readCycle = Effect.gen(function* () {
+      const poller = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
+      if (!poller) return null;
+      const intervals = yield* pollerIntervals(poller);
+      const enabled = intervals.filter(
+        ({ cwd, interval }) => !Duration.isZero(interval) || poller.initialPending.has(cwd),
+      );
+      const nonZeroIntervals = intervals
+        .map(({ interval }) => interval)
+        .filter((interval) => !Duration.isZero(interval));
+      const activeInterval = nonZeroIntervals.reduce(
+        (shortest, interval) =>
+          Duration.toMillis(shortest) <= Duration.toMillis(interval) ? shortest : interval,
+        nonZeroIntervals[0] ?? DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL, // loom: per-repository poller
+      );
+      return { poller, enabled, activeInterval };
     });
+
+    const initial = yield* readCycle;
+    if (!initial) return;
+    if (initial.poller.initialPending.size === 0) {
+      yield* Effect.raceFirst(Effect.sleep(initial.activeInterval), Queue.take(wake));
+    }
+
+    while (true) {
+      const cycle = yield* readCycle;
+      if (!cycle) return;
+      const cwds = cycle.enabled.map(({ cwd }) => cwd);
+      let nextDelay = cycle.activeInterval;
+      let failed = false;
+      // Upstream's background-policy gate, re-homed onto the per-repository
+      // poller: a tick runs only while at least one subscribed cwd still wants
+      // background work (an initial refresh always does — the subscriber is
+      // waiting on its first status).
+      const policyAllows =
+        cycle.poller.initialPending.size > 0 ||
+        (yield* Effect.forEach(
+          cwds,
+          (demandCwd) =>
+            backgroundPolicy.shouldRunScopeWork({ type: "vcs-status", cwd: demandCwd }),
+          { concurrency: "unbounded" },
+        )).some(Boolean);
+      if (cwds.length > 0 && policyAllows) {
+        const exit = yield* withRemoteWriteLocks(
+          cwds, // loom: upstream's stale-poll race fix, on the batch path (DL-99)
+          refreshRepositoryRemoteStatus(repositoryKey, cwds, {
+            refreshUpstream: cycle.enabled.some(({ interval }) => !Duration.isZero(interval)),
+          }),
+        ).pipe(Effect.exit);
+        if (Exit.isSuccess(exit)) {
+          yield* clearInitialPending(repositoryKey, cwds);
+          yield* Ref.set(consecutiveFailuresRef, 0);
+          nextDelay = yield* withRefreshJitter(cycle.activeInterval);
+        } else {
+          failed = true;
+          const interruptionReasons = exit.cause.reasons.filter(Cause.isInterruptReason);
+          if (interruptionReasons.length > 0) {
+            return yield* Effect.failCause(Cause.fromReasons<never>(interruptionReasons));
+          }
+          const consecutiveFailures = yield* Ref.updateAndGet(
+            consecutiveFailuresRef,
+            (count) => count + 1,
+          );
+          nextDelay = remoteRefreshFailureDelay(consecutiveFailures, cycle.activeInterval);
+          yield* logRefreshFailure(repositoryKey, exit.cause, consecutiveFailures, nextDelay);
+        }
+      }
+
+      const current = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
+      if (!failed && current?.initialPending.size) continue;
+      yield* Effect.raceFirst(Effect.sleep(nextDelay), Queue.take(wake));
+    }
+  });
 
   const refreshStatus: VcsStatusBroadcaster["Service"]["refreshStatus"] = Effect.fn(
     "VcsStatusBroadcaster.refreshStatus",
-  )(function* (rawCwd) {
+  )(function* (rawCwd, options) {
     const cwd = yield* withFileSystem(normalizeCwd(rawCwd));
-    // The write lock spans the read and the cache write, so a slower read that
-    // started earlier cannot land on top of this refresh's fresher result.
+    if (options?.localOnly) {
+      return yield* withRemoteWriteLock(
+        cwd,
+        Effect.gen(function* () {
+          yield* workflow.invalidateLocalStatus(cwd);
+          const local = yield* workflow.localStatus({ cwd });
+          const previous = yield* getCachedStatus(cwd);
+          if (previous?.local?.value.refName !== local.refName) {
+            yield* workflow.invalidateRemoteStatus(cwd);
+            return yield* updateCachedStatus(cwd, local, null, { publish: true });
+          }
+          yield* updateCachedLocalStatus(cwd, local, { publish: true });
+          return mergeGitStatusParts(local, previous?.remote?.value ?? null);
+        }),
+      );
+    }
+    // Full invalidation also bypasses GitManager's slow PR cache.
     return yield* withRemoteWriteLock(
       cwd,
       Effect.gen(function* () {
+        const refreshUpstream = !Duration.isZero(yield* automaticFetchInterval);
         yield* workflow.invalidateStatus(cwd);
         const repositoryKey = (yield* Ref.get(repositoryKeyByCwdRef)).get(cwd);
         if (!repositoryKey) {
           // Local after remote: the fetch can move the base that the Changes totals compare with.
-          const remote = yield* workflow.remoteStatus({ cwd });
+          const remote = yield* workflow.remoteStatus({ cwd }, { refreshUpstream });
           const local = yield* workflow.localStatus({ cwd });
-          const pulled = yield* maybeAutoPull(cwd, remote, [rawCwd]);
+          // Without a fetch, the cached behind count cannot justify an automatic pull.
+          const pulled = refreshUpstream ? yield* maybeAutoPull(cwd, remote, [rawCwd]) : null;
           if (pulled !== null) return mergeGitStatusParts(pulled.local, pulled.remote);
           return yield* updateCachedStatus(cwd, local, remote, { publish: true });
         }
 
-        // loom: an explicit refresh is scoped to the requesting cwd: the repo-wide
-        // reads it performs are shared anyway, and its siblings (including ones
-        // with automatic refresh disabled) keep their own cadence.
-        // The batch keys off the cached branch, so read local first, then again after the
-        // fetch (upstream's "local after remote": the fetch can move the base).
+        // loom: an explicit refresh is scoped to the requesting cwd; its siblings keep their own
+        // cadence. The batch keys off the cached branch, so read local first, then again after
+        // the fetch (which can move the base).
         yield* updateCachedLocalStatus(cwd, yield* workflow.localStatus({ cwd }));
         yield* refreshRepositoryRemoteStatus(repositoryKey, [cwd], {
-          refreshUpstream: true,
+          refreshUpstream, // loom: upstream's zero-interval rule
           policyCwds: [rawCwd],
         });
         const local = yield* refreshLocalStatusCore(cwd);
@@ -757,8 +795,7 @@ export const make = Effect.gen(function* () {
             { concurrency: "unbounded" },
           )).some(Boolean);
           if (!shouldRefresh) return null;
-          // Resolve the checked-out branch again. A cached PR can belong to
-          // the previous branch after an agent checks out another branch.
+          // Re-resolve the branch; cached PRs may belong to a checkout's previous branch.
           const remote = yield* workflow.remoteStatus(
             { cwd },
             { refreshUpstream: false, refreshMissingPullRequest: true },
@@ -771,7 +808,6 @@ export const make = Effect.gen(function* () {
   const retainRemotePoller = Effect.fn("VcsStatusBroadcaster.retainRemotePoller")(function* (
     cwd: string,
     demandCwd: string,
-    automaticRemoteRefreshInterval: Effect.Effect<Duration.Duration, never>,
     refreshImmediately: boolean,
   ) {
     const repository = yield* workflow.resolveRemoteStatusRepository(cwd);
@@ -784,7 +820,7 @@ export const make = Effect.gen(function* () {
         const subscribers = new Map(existing.subscribers);
         subscribers.set(cwd, {
           count: (subscriber?.count ?? 0) + 1,
-          interval: subscriber?.interval ?? automaticRemoteRefreshInterval,
+          interval: subscriber?.interval ?? automaticFetchInterval,
         });
         const initialPending = new Set(existing.initialPending);
         if (refreshImmediately) initialPending.add(cwd);
@@ -808,7 +844,7 @@ export const make = Effect.gen(function* () {
           fiber,
           wake,
           repository,
-          subscribers: new Map([[cwd, { count: 1, interval: automaticRemoteRefreshInterval }]]),
+          subscribers: new Map([[cwd, { count: 1, interval: automaticFetchInterval }]]),
           initialPending: refreshImmediately ? new Set([cwd]) : new Set(),
         });
         const registration: PollerRegistration = { wakeNow: null, registered };
@@ -864,7 +900,7 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  const streamStatus: VcsStatusBroadcaster["Service"]["streamStatus"] = (input, options) =>
+  const streamStatus: VcsStatusBroadcaster["Service"]["streamStatus"] = (input) =>
     Stream.unwrap(
       Effect.gen(function* () {
         const cwd = yield* withFileSystem(normalizeCwd(input.cwd));
@@ -876,8 +912,6 @@ export const make = Effect.gen(function* () {
           yield* retainRemotePoller(
             cwd,
             input.cwd,
-            options?.automaticRemoteRefreshInterval ??
-              Effect.succeed(DEFAULT_VCS_STATUS_REFRESH_INTERVAL),
             cachedStatus?.remote === null || cachedStatus?.remote === undefined,
           );
         }

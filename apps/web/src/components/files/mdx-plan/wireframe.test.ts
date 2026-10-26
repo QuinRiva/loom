@@ -9,12 +9,9 @@ import { ScreenRead, stampWireframeNodes } from "./blocks/screen";
 import { sanitizeWireframeHtml } from "./sanitizeWireframeHtml";
 
 /**
- * The wireframe surface is the SECOND trust boundary of the MDX-plan vertical:
- * `html` is a passed-through string literal the MDX guard never reads, sanitised
- * only at the block render point before live-DOM injection. These exercise the
- * same exploit-shape rigour as the MDX guard's `mdxPlan.test.ts` — a hole here
- * runs arbitrary browser JS from an authored `.mdx`. They also cover the
- * `data-wf-node` stamping contract the Wave A1 node-pin anchor consumes.
+ * The wireframe sanitiser is the second trust boundary: a hole here runs arbitrary
+ * browser JS from an authored `.mdx`. Exploit shapes mirror `mdxPlan.test.ts`; also
+ * covers the `data-wf-node` stamping contract.
  */
 
 /** Parse a sanitised fragment into a live DOM to assert over structure. */
@@ -114,13 +111,9 @@ describe("sanitizeWireframeHtml — dangerous inline styles", () => {
 });
 
 /*
- * Security regressions for the independent review (docs/mdx-wireframe-sanitiser-review.md).
- * NOTE: jsdom does NOT replicate the browser's SVG SMIL runtime, CSS cascade, or
- * foreign-content parsing — which is why the original passing jsdom suite missed
- * B1 (the reviewer confirmed exec only in real Chromium). These assert on the
- * sanitised OUTPUT (deterministic node/attr/style removal), which is jsdom-safe:
- * if the dangerous node/attribute/style is absent from the output it cannot run,
- * regardless of the runtime jsdom can't model.
+ * jsdom does not model SVG SMIL, the CSS cascade or foreign-content parsing, so these
+ * assert on the sanitised OUTPUT: a dangerous node, attribute or style absent from the
+ * output cannot run, whatever the runtime.
  */
 describe("sanitizeWireframeHtml — SVG SMIL href animation [B1]", () => {
   it("drops <animate>/<set>/<animateTransform>/… so href can't be animated to javascript:", () => {

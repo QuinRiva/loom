@@ -14,11 +14,10 @@ export function ComposerActivityRow({
   readonly phase: ThreadSyncPhase;
   readonly threadRef: ScopedThreadRef;
 }) {
-  // loom: upstream's phase has no error arm, so a detail subscription that
-  // failed renders an indefinite "Loading messages..." with no reason. The
-  // phase cannot carry the distinction — the same atom is set both by a
-  // failure that retries 250ms later and by one that parks — so surface the
-  // diagnostic beside the label rather than claiming the load is terminal.
+  // loom: upstream's phase has no error arm, so a failed detail subscription would show an
+  // indefinite "Loading messages...". The same atom is set by a failure that retries 250ms
+  // later and by one that parks, so show the diagnostic beside the label rather than
+  // claiming the load is terminal.
   const syncError = useThreadSyncError(threadRef);
   return (
     <ComposerBanner.Row>

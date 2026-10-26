@@ -12,11 +12,9 @@ const NO_SHELL_ATOM = Atom.make(AsyncResult.initial<{ readonly thread: null }>()
 );
 
 /**
- * An archived root opened from thread search has no shell on the stream. Once
- * the live snapshot is authoritative and still lacks the route's thread, ask
- * for that one shell and join it to the shells (state/loom/shelllessThreads),
- * so the thread view renders it as any other. True while that answer is
- * outstanding; a thread that does not exist answers null and the route bounces.
+ * An archived root opened from search has no shell on the stream: once the snapshot is
+ * authoritative and still lacks it, fetch that one shell (state/loom/shelllessThreads).
+ * True while the answer is outstanding; a missing thread answers null and the route bounces.
  */
 export function useAwaitingShelllessThread(
   ref: ScopedThreadRef | null,

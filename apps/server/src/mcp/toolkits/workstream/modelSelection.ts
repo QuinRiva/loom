@@ -1,12 +1,7 @@
 /**
- * A child's model at spawn (ported from V1's `WorkstreamSpawnHttp.ts`):
- * explicit `modelSelection` > `modelPreset` > `taskShape` (resolved against the
- * operator's capability profiles, bucketed by live headroom) > a preset named
- * after the role > the parent's selection. The resolution is one pure function
- * (`resolveSpawnModelSelection`); `resolveChildModel` reads the settings,
- * provider catalogue and health registry once and calls it. Every selection it
- * returns uses upstream's `thinking` option id — V1's pi driver called it
- * `thinkingLevel`, and presets or inherited selections may still carry that.
+ * A child's model at spawn: explicit `modelSelection` > `modelPreset` > `taskShape` (capability
+ * profiles bucketed by live headroom) > a preset named after the role > the parent's. Returned
+ * selections use upstream's `thinking` option id; presets may still carry V1's `thinkingLevel`.
  *
  * @module mcp/toolkits/workstream/modelSelection
  */
@@ -308,7 +303,7 @@ const FIRST_CHOICE_LOSS: Record<HeadroomBucket, string> = {
 const PICK_CAVEAT: Record<HeadroomBucket, string> = {
   healthy: "",
   demoted: "running on low headroom",
-  skipped: "every shape match exhausted — the child waits for the earliest reset",
+  skipped: "every shape match exhausted: the child waits for the earliest reset",
 };
 const BUCKET_ORDER: ReadonlyArray<HeadroomBucket> = ["healthy", "demoted", "skipped"];
 
@@ -337,7 +332,7 @@ const resolveShapeSelection = (input: {
     kind: "fall-through",
     warnings: [
       ...warnings,
-      `taskShape "${input.shape}"${input.sensitive === undefined ? "" : ` (sensitive: ${input.sensitive})`} ${why} — falling through to the role preset / inherited model.`,
+      `taskShape "${input.shape}"${input.sensitive === undefined ? "" : ` (sensitive: ${input.sensitive})`} ${why}: falling through to the role preset / inherited model.`,
     ],
   });
   if (Object.keys(input.profiles).length === 0) {
@@ -360,7 +355,7 @@ const resolveShapeSelection = (input: {
       const notes = [
         entry.candidate.name === top.candidate.name
           ? ""
-          : `${FIRST_CHOICE_LOSS[top.bucket]} — substituted`,
+          : `${FIRST_CHOICE_LOSS[top.bucket]}, substituted`,
         PICK_CAVEAT[entry.bucket],
       ].filter((note) => note !== "");
       return {

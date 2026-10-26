@@ -6,15 +6,9 @@ import {
 } from "../components/chat/timelineLayout";
 
 /**
- * Reproduces the exact layout chain a `ChatMarkdown` renders inside on a real
- * thread: a scrolling viewport that publishes `--timeline-available-width` from
- * a ResizeObserver, wrapping each row's `messages-timeline-row-frame` and its
- * centred `chat-content-lane` column (`MessagesTimeline` `renderItem`). Wide-block
- * bleed keys off that variable, so previewing a component here matches what the
- * timeline produces — rendering it bare would misreport table layout.
- *
- * The padding (`px-3 sm:px-5`) mirrors the `LegendList` scroll container in
- * `MessagesTimeline` so the measured content width matches production.
+ * Reproduces `MessagesTimeline`'s layout chain, since wide-block bleed keys off
+ * `--timeline-available-width` and a bare render would misreport table layout. The padding
+ * mirrors the `LegendList` scroll container so the measured width matches production.
  */
 export function TimelineLayoutFrame({ children }: { children: ReactNode }) {
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null);

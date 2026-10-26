@@ -1,15 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// Pull 9 QA fix (W5): what the board card's tool count and context chip read
-// (`LoomStore.shellFields`).
-// - The partial index lets the shell read count a thread's tool turn items
-//   from the index alone. Keep its type list aligned with that query.
-// - `loom_thread_imported_metrics` keeps V1's own figures for each thread
-//   (`projection_threads`, columns from 1012), copied once: V2's copy of the
-//   V1 database is seeded before migrations run, so this sees every V1
-//   thread. An imported card adds V2's tool items to V1's count and shows V1's
-//   context until V2 reports one.
+// What the board card's tool count and context chip read (`LoomStore.shellFields`). The partial
+// index lets the shell count tool turn items from the index alone; keep its type list aligned with
+// that query. `loom_thread_imported_metrics` copies V1's figures once; an imported card adds V2's
+// tool items to V1's count and shows V1's context until V2 reports one.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`

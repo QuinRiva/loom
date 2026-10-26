@@ -5,16 +5,9 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 
 /**
- * Where the document being rendered lives, so a block can resolve a path the
- * author wrote *relative to the document* (`<Image src="shots/before.png">`).
- * The renderer runs in the browser and the file lives on the environment host,
- * so this carries exactly what the app's other file-relative image surface
- * (`FileMarkdownPreview` → `ChatMarkdown`) needs: the document's directory, and
- * the thread whose identity a signed asset URL is issued against.
- *
- * Provided by `FilePreviewPanel`. Absent in the headless renderer
- * (`scripts/lint-plan.mjs` provides `baseDir` only, no thread) and in component
- * tests — a block MUST degrade rather than throw when it is missing.
+ * Where the rendered document lives, so a block can resolve a document-relative path
+ * and request a signed asset URL for the thread. Provided by `FilePreviewPanel`; absent
+ * in tests and partial in `lint-plan.mjs` (`baseDir` only), so blocks must degrade.
  */
 export interface PlanDocumentLocation {
   /** Absolute directory holding the document — the base for a relative `src`. */

@@ -111,7 +111,7 @@ them:
   literals). Text-quote subset populated first; visual/canvas fields reserved.
 - **Block registration** (`apps/web/src/components/files/mdx-plan/blockTypes.ts`):
   a **slim** `PlanBlock<TData> = { schema: ZodType<TData>; mdx: BlockMdxConfig<TData>;
-Read: FC<PlanBlockReadProps<TData>> }`. `BlockMdxConfig<TData>` is
+  Read: FC<PlanBlockReadProps<TData>> }`. `BlockMdxConfig<TData>` is
   `{ tag; toAttrs; fromAttrs; childrenField? }` (BuilderIO's shape, verbatim).
   `PlanBlockReadProps<TData> = { data: TData; blockId: string }`. Deliberately
   drops BuilderIO's `BlockSpec` editor/container/placement/icon machinery — a

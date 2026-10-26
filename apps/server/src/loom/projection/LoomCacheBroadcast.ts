@@ -1,22 +1,8 @@
 /**
- * Cache-fact broadcast (plans/prompt-cache-keeping, Workstream D; cache gauge effective expiry):
- * the facts a client needs to say when a thread's prompt cache really goes cold. The pi
- * adapter's hook reports a real request's dispatch and end and each idle `cache_warm` ping, and
- * the warmer's death with its process; Loom's pi extension reports the idle keep-alive plan
- * (`POST /loom/agent/cache-warming`). Patches are coalesced per thread to one write per
- * {@link COALESCE_WINDOW} (the leading patch at once; the patches arriving inside the window
- * merged, later keys winning, and written when it closes), so no fact is dropped.
- * {@link touchWriterLive} writes each to `loom_thread_cache`, which the snapshot carries to seed a
- * client, then publishes the row as it now stands as an unsequenced `cache.updated` shell-stream
- * item that `loomShellGoals` merges for `loom: true` subscribers — after the write, so a client
- * never holds a row a fresh snapshot lacks. The items never reach the persisted client snapshot.
- *
- * The service has no dependencies, so it is built once below the
- * provider-instance registry (`LoomProviderHealthLive`) where both the pi
- * drivers and the runtime see it; the writer sits with the Loom store, which
- * the drivers cannot reach.
- *
- * @module loom/projection/LoomCacheBroadcast
+ * Facts a client needs to say when a thread's prompt cache goes cold (request start/end, idle
+ * pings, the warmer's plan and death), coalesced per thread to one write per {@link COALESCE_WINDOW}
+ * then published as an unsequenced `cache.updated` item after the write, so a client never holds a
+ * row a fresh snapshot lacks. Dependency-free so it can sit below the provider-instance registry.
  */
 import type { LoomCacheShellStreamItem, LoomThreadCachePatch, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";

@@ -1,13 +1,7 @@
 /**
- * Target resolution for the global `mcp__t3-code__consult_thread` / `mcp__t3-code__notify_thread` (any
- * thread the server knows, active or archived, across projects): an id (see
- * `resolveThreadRef`), or a fuzzy sidebar name ranked over `getShellSnapshot`. Titles are
- * non-unique, so an ambiguous name returns ranked candidates for the caller to
- * confirm — acting on the wrong thread is costly — and nothing runs. Ported
- * from V1's `threadResolve.ts` (DT-22); the session file is NOT resolved here:
- * consult reads it from the provider thread's `nativeThreadRef`.
- *
- * @module loom/workstream/threadResolve
+ * Resolves `consult_thread` / `notify_thread` targets across every thread and project: an id, or a
+ * fuzzy sidebar name. Titles are non-unique, so an ambiguous name returns ranked candidates and
+ * nothing runs; acting on the wrong thread is costly.
  */
 import { type OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -18,12 +12,9 @@ import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 export const THREAD_REF_PREFIX = "thread:";
 
 /**
- * The ids a thread reference may name, the reference as given first. Ids come
- * both bare (`<uuid>`) and prefixed (`thread:<uuid>`, `thread:mcp:…`), and
- * agents both strip the prefix and add it (scaffold's documented `thread:<id>`
- * form), so the one alias is the reference with `thread:` removed or added.
- * Only that prefix is equated — never an id segment — so a reference names at
- * most one thread besides itself.
+ * The reference, then its one alias with the `thread:` prefix removed or added: agents both strip
+ * and add it. Only that prefix is equated, never an id segment, so a reference names at most one
+ * other thread.
  */
 export const threadIdAliases = (ref: string): ReadonlyArray<ThreadId> => {
   const text = ref.trim();

@@ -1,10 +1,6 @@
 /**
- * The liveness sweep's one resume after a provider failure, and the failure
- * predicates it shares with State A and the quiescence rail. A leaf module:
- * `quiescence.ts` imports it, and the sweep cannot be imported from there
- * (sweep → dispatcher → quiescence rail).
- *
- * @module loom/orchestration/liveness/errorResume
+ * The liveness sweep's one resume after a provider failure, and failure predicates shared with
+ * State A and the quiescence rail. A leaf module so `quiescence.ts` can import it without a cycle.
  */
 import type {
   LoomThreadWorkstream,
@@ -28,11 +24,9 @@ export const isFailedSession = (
   shell.lastErrorClass !== "usage_limit";
 
 /**
- * A successful submit is the strongest liveness proof: when the thread's last
- * recorded outcome is at or after its latest run ended, a stale failure is
- * superseded and must not out-vote it. Pure and timestamp-keyed (V1 2026-07-08
- * incident: a reviewer recovered from a provider error and submitted, yet was
- * marked dead). It also exempts a party parked waiting-in-gate post-submit.
+ * A submit at or after the latest run ended supersedes a stale failure: a reviewer that recovered
+ * from a provider error and submitted must not be marked dead. Also exempts a party parked
+ * waiting-in-gate after submitting.
  */
 export const submitSupersedesFailure = (
   row: Pick<LoomThreadWorkstream, "lastOutcome">,
@@ -46,12 +40,9 @@ export const submitSupersedesFailure = (
 export const ERROR_RESUME_MESSAGE_ID = /^message:server:loom:error-resume:/;
 
 /**
- * The latest run failed on a provider error and the sweep still owes it its one
- * resume: that run was not itself a resume (one per failure episode; the run's
- * persisted `userMessageId` says so, so a restart cannot grant a second), and
- * no other actor owns the thread — no flag, outcome, submit since, open runtime
- * request, archive or settle, and no run after it (queued, or one a human or the
- * parent started since the sweep read the shell).
+ * The latest run failed on a provider error and still owes its one resume: it was not itself a
+ * resume (persisted `userMessageId`, so a restart cannot grant a second), and nothing else owns the
+ * thread: no flag, outcome, later submit, open request, archive, settle or later run.
  */
 export const awaitsErrorResume = (
   shell: Pick<

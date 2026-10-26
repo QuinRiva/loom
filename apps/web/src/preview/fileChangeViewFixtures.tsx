@@ -1,9 +1,7 @@
 /**
- * loom: `FileChangeView` on the three file sizes the whole-file research measured (516, 3,246 and
- * 9,692 lines), each the real source file as its new side against a synthetic older side with six
- * edits. The 9,692-line file is over the size cap, so it opens from its patch in hunk mode; "Show
- * whole file" is the opt-in. The header's change counter sits above each, as the Files surface
- * shows it. Registered in `loomPreviewGroups.tsx`.
+ * loom: `FileChangeView` on real files of 516, 3,246 and 9,692 lines against a synthetic older
+ * side with six edits. The 9,692-line file is over the size cap, so it opens from its patch in
+ * hunk mode and "Show whole file" is the opt-in.
  */
 import type { FileDiffContentsLoader } from "@pierre/diffs";
 

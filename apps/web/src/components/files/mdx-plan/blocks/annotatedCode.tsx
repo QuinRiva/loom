@@ -8,12 +8,8 @@ import { useShikiHtml } from "../shiki";
 import { WrapToggle } from "./wrapToggle";
 
 /**
- * The `<AnnotatedCode>` block — a code walkthrough with margin notes keyed to
- * line ranges. Reuses the app's shared Shiki highlighter (via `useShikiHtml`),
- * renders one highlighted block, and lists each annotation with its `lines`
- * badge + label + note. Schema + MDX round-trip ported verbatim from
- * `@agent-native/core` `annotated-code.config.ts` (`code` is a multiline string
- * attribute; `annotations` is a JSON array prop).
+ * `<AnnotatedCode>`: one Shiki-highlighted block (the app's shared highlighter) plus
+ * margin notes keyed to line ranges.
  */
 
 export interface CodeAnnotation {

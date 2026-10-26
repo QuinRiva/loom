@@ -1,11 +1,8 @@
 /**
- * loom: how a `[Title](t3-thread://v1/<id>)` mention reads in chat. Upstream
- * leads every mention with its project's favicon, which says nothing when an
- * orchestrator names its own sub-threads. A mention instead leads with the
- * target's live state: a static dot in its board-column colour, a check once
- * done, nothing when there is no state worth showing. Only a thread in another
- * project keeps the favicon, because there it identifies something. Upstream's
- * `MarkdownThreadLink` resolves the thread and renders this.
+ * loom: how a `[Title](t3-thread://v1/<id>)` mention reads in chat (rendered by upstream's
+ * `MarkdownThreadLink`). Instead of upstream's project favicon, which says nothing when an
+ * orchestrator names its own sub-threads, it leads with the target's live state: a static column
+ * dot, a check once done, or nothing. Only a thread in another project keeps the favicon.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -56,12 +53,9 @@ export type ThreadMentionStatus =
   | "running";
 
 /**
- * The mention's status, or null for nothing worth showing. A settled outcome
- * wins, then attention, then a workstream child's board column. A root has no
- * plan column (`deriveBoardColumn` would call an un-started root blocked, and a
- * started one stays "in progress" long after it went quiet), so a root shows
- * only staging or a turn running now. `index` needs only the thread's
- * `blockedBy` siblings: the one lookup the column and `brief-needed` read.
+ * The mention's status, or null: a settled outcome wins, then attention, then a workstream child's
+ * board column. A root has no plan column (`deriveBoardColumn` would call an unstarted root blocked),
+ * so it shows only staging or a running turn. `index` needs only the thread's `blockedBy` siblings.
  */
 export function threadMentionStatus(
   thread: OrchestrationV2ThreadShell,
@@ -131,7 +125,7 @@ const STATUS_LABELS = {
 } satisfies Record<ThreadMentionStatus, string>;
 
 const UNAVAILABLE =
-  "Not in this thread list — archived, deleted, or in another environment. The label is what the message wrote.";
+  "Not in this thread list: archived, deleted, or in another environment. The label is what the message wrote.";
 
 /**
  * The rendered mention, from resolved facts (the preview renders it directly).

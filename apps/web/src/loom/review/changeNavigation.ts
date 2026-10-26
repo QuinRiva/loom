@@ -1,11 +1,8 @@
 /**
- * loom: where an opened changed file's changes are, for the change ruler beside its scrollbar and
- * the "n of m" counter in its header. Positions are rows of the code view as it renders them (the
- * index each line carries in `data-line-index`), never DOM heights: the view is virtualised, so
- * most rows have no height to measure. With every unchanged line shown, a row is a line of the
- * file (unified adds a row per deleted line; split pairs the two sides).
- *
- * @module loom/review/changeNavigation
+ * loom: where an opened changed file's changes are, for the change ruler and the "n of m" counter.
+ * Positions are code-view rows (each line's `data-line-index`), never DOM heights: the view is
+ * virtualised, so most rows have no height. With every unchanged line shown, a row is a file line
+ * (unified adds a row per deleted line; split pairs the two sides).
  */
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { create } from "zustand";

@@ -155,7 +155,7 @@ for Phase 3 — include it only if cheap. All NULL/0-defaulted and additive.
      and minimal; reuse the same payload keys (`toolUses`, `usedTokens`,
      `maxTokens`).
    - In `refreshThreadShellSummary` (where `cumulativeCostUsd =
-deriveCumulativeCostUsd(activities)` is computed and passed to `upsert`),
+     deriveCumulativeCostUsd(activities)` is computed and passed to `upsert`),
      also compute and pass the new fields. Note the **semantic difference**: cost
      is a _sum_ over all activities; these metrics are _latest-snapshot_ (the
      newest `context-window.updated` payload). Both are deterministic on replay

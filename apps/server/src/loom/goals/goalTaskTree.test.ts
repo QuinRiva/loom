@@ -1,10 +1,7 @@
 /**
- * The rules of task-tree branch scoping
- * (plans/task-tree-branch-scoping/plan.mdx): round-trip identity holds PER
- * SCOPE (a bound thread's branch view resubmitted to a branch rewrite is a
- * no-op), a branch rewrite can only reach inside the branch, the anchor is
- * undeletable and unmovable, and the elided open-plan view is mechanically
- * unusable as a rewrite submission rather than silently destructive.
+ * Task-tree branch scoping: round-trip identity holds per scope, a branch rewrite reaches only
+ * inside its branch, the anchor is undeletable and unmovable, and the elided open-plan view is
+ * rejected as a rewrite submission rather than silently destructive.
  */
 import { GoalId, GoalTaskId, type LoomGoalTask } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";

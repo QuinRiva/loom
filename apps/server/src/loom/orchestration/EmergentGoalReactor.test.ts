@@ -1,9 +1,7 @@
 /**
- * The emergent goal (P3-16) on the real orchestrator with a stub generator: a
- * goal-less root gets `goal:emergent:<threadId>` (published, attached under
- * `server:loom:emergent-goal:<threadId>`) once; run 1 needs a confident answer,
- * a forced derivation (run 2, or a goal tool) takes the best guess; a child or a `/retro`
- * reviewer never derives one; a goal set while the generation runs is never overwritten.
+ * The emergent goal with a stub generator: a goal-less root gets `goal:emergent:<threadId>` once;
+ * run 1 needs a confident answer, a forced derivation (run 2, or a goal tool) takes the best guess;
+ * a child or `/retro` reviewer never derives one; a goal set mid-generation is never overwritten.
  */
 import { assert, it } from "@effect/vitest";
 import { CommandId, GoalId, MessageId, ProjectId, ThreadId } from "@t3tools/contracts";

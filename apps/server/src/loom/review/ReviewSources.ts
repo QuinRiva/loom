@@ -1,15 +1,7 @@
 /**
- * The sources a review snapshot covers (plans/change-review/plan.mdx §3): the worktree's own
- * repo, every git repository nested inside it, and the declared artefact folders.
- *
- * Enumeration asks git, never the disk: nested-repo candidates are the collapsed untracked and
- * ignored directories `git ls-files --directory` reports (git never descends into an ignored
- * tree), plus `.gitmodules` paths, each confirmed by one stat of `<dir>/.git`. Artefact folders
- * are declared only, in `<worktree>/.t3code/review.json` (`.artifacts/` when that file is
- * absent), because ignored directories also hold logs, caches and `.env`. Nothing walks upward
- * and every source root must resolve inside the worktree.
- *
- * @module loom/review/ReviewSources
+ * A review snapshot covers the worktree repo, nested repos (found via git, never a disk walk) and the
+ * declared artefact folders in `.t3code/review.json` (default `.artifacts/`); ignored dirs also hold
+ * logs and `.env`, so nothing undeclared. Every root must resolve inside the worktree.
  */
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";

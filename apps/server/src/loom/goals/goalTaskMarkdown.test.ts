@@ -1,9 +1,6 @@
 /**
- * The rewrite contract's acceptance test: parsing `renderGoalTaskTree` output
- * reproduces the tree exactly, so `mcp__t3-code__goal_task_list` output resubmitted verbatim
- * to `mcp__t3-code__goal_tasks_rewrite` is a zero-change no-op. Everything else here is the
- * strict-on-meaning half of the parse rules (`plans/goal-task-tree-redesign/plan.mdx`), ported
- * onto `LoomStoreV2`'s task entries (the store stamps `createdAt`).
+ * Parsing `renderGoalTaskTree` output reproduces the tree exactly, so `goal_task_list` output
+ * resubmitted to `goal_tasks_rewrite` is a no-op; the rest covers the strict-on-meaning parse rules.
  */
 import { GoalId, GoalTaskId, type LoomGoalTask } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";

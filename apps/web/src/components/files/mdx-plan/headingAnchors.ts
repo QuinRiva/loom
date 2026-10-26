@@ -1,16 +1,8 @@
 /**
- * Stable ids for markdown headings in an MDX plan, and the source bounds of the
- * section each heading opens. A question in the bottom `<QuestionForm>` can name
- * the section it depends on (`refs: [{ label, anchor }]`); the reader peeks at
- * that section in place instead of losing their spot in the form.
- *
- * ONE notion of "section", derived from the mdast the compile pipeline already
- * walks (see {@link ./mdxCompileOptions}): the worker, the main-thread
- * `evaluate` path and the linter all call this same function on the same tree,
- * so an anchor that lints clean is both the id the renderer emits AND a slice
- * the peek can compile. A second, text-level notion (a line scanner) drifted
- * from this one — phantom headings inside nested fences and template literals,
- * and slices that cut through JSX — so there is deliberately only one.
+ * Heading slug ids and the source bounds of each heading's section, which a question's
+ * `refs` anchor peeks at. The worker, `evaluate` path and linter all run this on the
+ * same mdast, so a lint-clean anchor is both a rendered id and a compilable slice; a
+ * second, text-level scanner drifted (phantom headings in fences), so there is one.
  */
 
 type HeadingNode = {

@@ -1,17 +1,7 @@
 /**
- * The markdown seam of the declarative whole-tree rewrite (`mcp__t3-code__goal_tasks_rewrite`
- * / `t3 goal task rewrite`): read format IS write format. `goalTaskRender.ts`
- * turns a tree into the indented `- [x] text (id)` checklist every read surface
- * emits; this module turns that checklist back into the entries
- * `LoomStoreV2.tasks.replaceTree` takes.
- *
- * The contract both directions honour is ROUND-TRIP IDENTITY: parsing
- * `renderGoalTaskTree(tree)` reproduces that tree's tasks exactly, so an
- * unedited `mcp__t3-code__goal_task_list` output resubmitted verbatim changes nothing.
- *
- * Pure functions only — id minting lives at the edge that calls these.
- *
- * @module loom/goals/goalTaskMarkdown
+ * Parses the `- [x] text (id)` checklist back into `tasks.replaceTree` entries: read format IS
+ * write format, and the contract is ROUND-TRIP IDENTITY (an unedited `goal_task_list` output
+ * resubmitted verbatim changes nothing). Pure functions; id minting lives at the caller's edge.
  */
 import { GoalTaskId } from "@t3tools/contracts";
 
@@ -40,7 +30,7 @@ export type ParsedGoalTaskMarkdown =
 /** Validates text written by add/update, where every supplied text is new. */
 export const validateGoalTaskText = (text: string): string | undefined =>
   text.length > MAX_GOAL_TASK_TEXT_LENGTH
-    ? `Task text is ${text.length.toLocaleString("en-US")} characters; the limit is ${MAX_GOAL_TASK_TEXT_LENGTH}. The tree is the human's at-a-glance view of the plan — a task records THAT work exists, never its details. State the work as a short plain-language item (e.g. "Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101)"); put coordinates in the task's thread, findings and verdicts in a report or memo, and draft content in its artefact. Keep the goal description a short objective, not a journal.`
+    ? `Task text is ${text.length.toLocaleString("en-US")} characters; the limit is ${MAX_GOAL_TASK_TEXT_LENGTH}. The tree is the human's at-a-glance view of the plan: a task records THAT work exists, never its details. State the work as a short plain-language item (e.g. "Fix renamed tenants vanishing from the client's lease tab (re-key by tenant id; AIT-101)"); put coordinates in the task's thread, findings and verdicts in a report or memo, and draft content in its artefact. Keep the goal description a short objective, not a journal.`
     : undefined;
 
 /**
@@ -76,11 +66,9 @@ const indentDepth = (indent: string): number =>
   [...indent].reduce((units, char) => units + (char === "\t" ? 2 : 1), 0) >> 1;
 
 /**
- * Parses an indented markdown checklist into a flat, topologically ordered
- * list. Tolerant on whitespace, strict on meaning: an unparseable line, an
- * `(id)` that is not a task of this goal (a stale read), a repeated id, or a
- * submission with no task lines all fail the whole submission. `knownTaskIds`
- * holds the goal's live AND deleted tasks: resubmitting a deleted one restores it.
+ * Parses an indented markdown checklist into a flat, topologically ordered list. Tolerant on
+ * whitespace, strict on meaning: an unparseable line, an unknown or repeated `(id)` or no task
+ * lines fails the whole submission. `knownTaskIds` includes deleted tasks: resubmitting restores one.
  */
 export const parseGoalTaskMarkdown = (
   markdown: string,
@@ -108,7 +96,7 @@ export const parseGoalTaskMarkdown = (
     if (id !== undefined && (knownTaskIds.has(id) || UUID_SHAPE.test(id))) {
       if (!knownTaskIds.has(id)) {
         return {
-          error: `Line "${raw.trim()}" carries task id ${id}, which is not a task in this goal — your view of the tree is stale (or the id was mistyped). Re-read the tree (${agentToolName("goal_task_list")}, or \`t3 goal show\`) and rewrite from what it returns; drop the "(id)" to submit the line as a new task.`,
+          error: `Line "${raw.trim()}" carries task id ${id}, which is not a task in this goal: your view of the tree is stale (or the id was mistyped). Re-read the tree (${agentToolName("goal_task_list")}, or \`t3 goal show\`) and rewrite from what it returns; drop the "(id)" to submit the line as a new task.`,
         };
       }
       if (seen.has(id)) {
@@ -141,11 +129,10 @@ export const parseGoalTaskMarkdown = (
 };
 
 /**
- * Resolves parsed lines against the current tree into store entries — minting
- * ids for new lines — and summarises the diff (added / restored / edited /
- * moved / removed), listing every removed task as a resubmittable line. `current` is in tree order (`flattenGoalTasks`): positions are
- * re-derived densely from document order, so "moved" compares a task's RANK
- * among its siblings, never the stored position integer.
+ * Resolves parsed lines against the current tree into store entries, minting ids for new lines,
+ * and summarises the diff, listing every removed task as a resubmittable line. `current` is in tree
+ * order; positions are re-derived densely from document order, so "moved" compares a task's RANK
+ * among its siblings, never the stored position.
  */
 export const resolveGoalTaskRewrite = (input: {
   readonly lines: ReadonlyArray<GoalTaskLine & { readonly position: number }>;

@@ -1,10 +1,7 @@
-// Loom's WebSocket RPCs (Pull 9 Phase 3, seam 21), spliced into `WsRpcGroup`
-// by ONE marked line in `rpc.ts`; the handlers are `apps/server/src/loom/wsMethods.ts`
-// and the scopes a marked block in `auth/RpcAuthorization.ts`.
-//
-// Seam 21 (integrated): 3b's drafter methods (`loom.handoffDraft` / `loom.retroDraft`,
-// typed by `HandoffDraft*` / `RetroDraft*` in `server.ts`), 3d's goal methods and
-// seam 11's two spend reads served by 3c's `LoomUsageLedger` (DL-432/433/438).
+// Loom's WebSocket RPCs, spliced into `WsRpcGroup` by ONE marked line in `rpc.ts`; handlers are in
+// `apps/server/src/loom/wsMethods.ts`, scopes in a marked block of `auth/RpcAuthorization.ts`.
+// Covers the drafter methods (`loom.handoffDraft` / `loom.retroDraft`, typed in `server.ts`), the
+// goal methods, and two spend reads served by `LoomUsageLedger`.
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 

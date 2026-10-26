@@ -1,21 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// Repairs control-message rows written before DL-610/DL-613, so each renders as
-// the card a new one gets. On a fresh cut-over every statement is a no-op:
-// migrations run before the V1 importer, which now stamps its rows itself.
-// Each fix lands in the projection and in the event that wrote it, so a
-// projection rebuild keeps it.
-//
-// 1. Imported V1 messages (DL-610). V1's `origin` column, plus
-//    `control_payload_json`, becomes `message.loom` and `createdBy: "agent"` on
-//    the message and its turn item, as the dispatcher writes a new control
-//    message. Rows without a V1 origin (a human's) are never touched.
-// 2. V2 control wakes (DL-613). A yield, digest or gate notice carries upstream's
-//    `notification`, which projected its turn item as a bare activity row
-//    ("FYI: 1 workstream update"). The item becomes the `user_message` it was
-//    built as. Its `inputIntent` did not survive; the wake's run has completed,
-//    where `turn_start` and `queued_turn` render alike.
+// Repairs control-message rows written before they were stamped, in the projection and the writing
+// event so a rebuild keeps it; a no-op on a fresh cut-over. Imported V1 rows with a V1 `origin` get
+// `message.loom` + `createdBy: "agent"` (a human's row is untouched); V2 control wakes' bare
+// `notification` activity items become the `user_message` they were built as.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 

@@ -51,16 +51,16 @@ initial snapshot and live updates. Add to `packages/contracts/src/server.ts`:
 - `GoalTaskNode` — recursive: `{ text: string, done: boolean, children: ReadonlyArray<self> }`
   (use `Schema.suspend` for the recursion, mirroring any existing recursive schema in the repo).
 - `GoalIndexEntry` — `{ projectId: ProjectId, slug, title, goalParagraph, worktreePath, branch,
-packagePath, tasks: Array<GoalTaskNode>, progress: GoalTaskProgress }`. Must match the TS interface
+  packagePath, tasks: Array<GoalTaskNode>, progress: GoalTaskProgress }`. Must match the TS interface
   in `apps/server/src/goal/GoalsService.ts:34-43`.
 - `GoalIndexStreamEvent` — single struct (not a union): `{ version: Schema.Literal(1),
-type: Schema.Literal("goals"), goals: Schema.Array(GoalIndexEntry) }`.
+  type: Schema.Literal("goals"), goals: Schema.Array(GoalIndexEntry) }`.
 
 Add to `packages/contracts/src/rpc.ts`:
 
 - `WS_METHODS.subscribeGoals: "subscribeGoals"` (near `:222-224`).
 - `WsSubscribeGoalsRpc = Rpc.make(WS_METHODS.subscribeGoals, { payload: Schema.Struct({}),
-success: GoalIndexStreamEvent, error: <reuse EnvironmentAuthorizationError>, stream: true })`.
+  success: GoalIndexStreamEvent, error: <reuse EnvironmentAuthorizationError>, stream: true })`.
 - Register `WsSubscribeGoalsRpc` in `WsRpcGroup`.
 
 ## Server changes
@@ -89,7 +89,7 @@ success: GoalIndexStreamEvent, error: <reuse EnvironmentAuthorizationError>, str
 4. **`apps/server/src/ws.ts`** — add `[WS_METHODS.subscribeGoals]` handler modeled on
    `subscribeServerLifecycle` (`:1547`): emit `{ version:1, type:"goals", goals: <rescan or list> }`
    as the snapshot, then concat `goalsService.streamChanges.pipe(Stream.map(goals => ({version:1,
-type:"goals", goals})))`. Add the scope-map entry near `:202` using the existing read scope used by
+   type:"goals", goals})))`. Add the scope-map entry near `:202` using the existing read scope used by
    `subscribeServerConfig` (`AuthOrchestrationReadScope`).
 5. **`apps/server/src/goal/http.ts:42-46`** — `GET /api/goals` now reads from the warm cache
    (`goalsService.list()`) instead of `rescan()` on every request, since the watcher keeps the cache

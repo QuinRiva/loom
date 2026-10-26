@@ -16,8 +16,9 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { resolveProjectSettings } from "@t3tools/shared/projectSettings"; // loom: #292
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings"; // loom: autoPull via project settings
 
+import { withCommandMetrics } from "../observability/Metrics.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as LegacyV1ThreadImporter from "../orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
@@ -95,7 +96,7 @@ export class ProjectOperationError extends Schema.TaggedError<ProjectOperationEr
       "list-threads",
       "delete-thread",
       "dispatch-project-command",
-      "update-project-settings", // loom: #292
+      "update-project-settings", // loom: autoPull via project settings
     ]),
     projectId: Schema.optional(ProjectId),
     workspaceRoot: Schema.optional(Schema.String),
@@ -160,7 +161,7 @@ export const make = Effect.gen(function* () {
   const toProject = (
     row: ProjectStore.ProjectRow,
     enrichment: ProjectEnrichmentService.ProjectEnrichment | null,
-    autoPull: boolean, // loom: #292
+    autoPull: boolean, // loom: autoPull via project settings
   ): Project => ({
     id: row.projectId,
     title: row.title,
@@ -169,7 +170,7 @@ export const make = Effect.gen(function* () {
     faviconPath: row.faviconPath ?? enrichment?.faviconPath ?? null,
     defaultModelSelection: row.defaultModelSelection,
     defaultThreadEnvMode: row.defaultThreadEnvMode,
-    autoPull, // loom: #292
+    autoPull, // loom: autoPull via project settings
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     createdAt: row.createdAt,
@@ -182,8 +183,8 @@ export const make = Effect.gen(function* () {
       row.deletedAt === null
         ? yield* projectEnrichment.getAvailable(row.workspaceRoot)
         : yield* projectEnrichment.peek(row.workspaceRoot);
-    // loom: #292 — report the auto-pull policy actually in force, which lives in
-    // the project's settings override, not the legacy projection column.
+    // loom: report the auto-pull policy in force, from the project's settings override, not the
+    // legacy projection column.
     const settings = yield* serverSettings.getSettings.pipe(
       Effect.mapError(
         (cause) =>
@@ -283,8 +284,7 @@ export const make = Effect.gen(function* () {
         `Command ${command.commandId} was already used by ${receipt.commandType} for ${receipt.projectId}.`,
       );
     }
-    // A retried command re-plans against the state it already produced, so its
-    // first receipt, not the new plan, decides the outcome.
+    // Retries re-plan against their own effects; the first receipt determines the outcome.
     if (receipt.status === "accepted") return;
     const rejection = Option.getOrUndefined(decodeProjectCommandRejection(receipt.error));
     switch (rejection?._tag) {
@@ -301,7 +301,7 @@ export const make = Effect.gen(function* () {
           rejection ?? receipt.error ?? "The command was previously rejected.",
         );
     }
-  });
+  }, withCommandMetrics);
 
   const readCommitted = Effect.fn("ProjectService.readCommitted")(function* (projectId: ProjectId) {
     const row = yield* readRow(projectId, { includeDeleted: true });
@@ -385,7 +385,7 @@ export const make = Effect.gen(function* () {
         ...(input.defaultModelSelection === undefined
           ? {}
           : { defaultModelSelection: input.defaultModelSelection }),
-        // loom: #292 — autoPull is routed to settings below, not the projection.
+        // loom: autoPull is routed to settings below, not the projection.
         ...(input.projectIcon === undefined ? {} : { projectIcon: input.projectIcon }),
         ...(input.faviconPath === undefined ? {} : { faviconPath: input.faviconPath }),
         ...(input.defaultThreadEnvMode === undefined
@@ -393,9 +393,8 @@ export const make = Effect.gen(function* () {
           : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
       });
-      // loom: #292 — the auto-pull policy reads only the project's settings
-      // override, so write it there; the per-key map merges into the existing
-      // entry atomically. An explicit false must override an environment default.
+      // loom: auto-pull reads only the project's settings override, so write it there (the per-key
+      // map merges atomically). An explicit false must override an environment default.
       if (input.autoPull !== undefined) {
         yield* serverSettings
           .updateSettings({ projectAutoPullOverrides: { [input.projectId]: input.autoPull } })
@@ -508,11 +507,7 @@ export const make = Effect.gen(function* () {
     );
   });
 
-  // A machine-disabled provider instance that a deleted project's override
-  // once turned on must not stay probed and alive forever. Nothing else
-  // removes the entry, so deletion is where it goes; best-effort because a
-  // settings write failure should not block the deletion it is cleaning up
-  // after, and a server crash before a replay never revisits this project.
+  // Best-effort cleanup releases disabled instances kept alive by overrides; crashes have no replay to revisit deletion.
   const clearProjectSettingsOverrides = (projectId: ProjectId) =>
     serverSettings.updateSettings({ projectSettingsOverrides: { [projectId]: null } }).pipe(
       Effect.asVoid,
@@ -527,8 +522,7 @@ export const make = Effect.gen(function* () {
   const deleteProject: ProjectService["Service"]["delete"] = Effect.fn("ProjectService.delete")(
     function* (input) {
       const { projectId } = input;
-      // A deleted row still reaches commit, so a retried command id replays its
-      // receipt and any other command id is rejected as not found.
+      // Read deleted rows so retries replay receipts and other command ids fail as not found.
       const existing = yield* readRow(projectId, { includeDeleted: true });
       if (Option.isNone(existing)) {
         return yield* new ProjectNotFoundError({ projectId });

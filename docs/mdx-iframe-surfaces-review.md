@@ -91,7 +91,7 @@ With `allow-scripts allow-forms` only (no `allow-same-origin`/`allow-popups`/`al
 - **`navigator.sendBeacon`** → returned `true` (the browser's known _optimistic_ return),
   **but nothing reached the sink** — CSP blocked the actual connection. ✓
 - **CSP-relaxation bypass** — author body injecting a _second_ `<meta http-equiv="CSP"
-content="img-src *; default-src *">` then loading a remote pixel → **still blocked**
+  content="img-src *; default-src *">` then loading a remote pixel → **still blocked**
   (multiple CSP policies combine as intersection; a later policy cannot loosen the head
   policy). ✓
 - **Sink server total hits across all probes: 0.** Nothing left any frame.

@@ -1,12 +1,7 @@
 /**
- * Loom's tool families and the upstream withhold list, as the names pi sees
- * (`mcp__t3-code__<name>`). Replaces V1's `mcp/toolPaths.ts`: there are no
- * routes any more, only names. The role profiles (3a-5) union LEAF_CORE into
- * every role and the other families by `toolsets:`; every other permitted tool
- * stays `deferred` behind pi's `tool_search`, and UPSTREAM_WITHHELD_TOOLS are
- * registered `hidden`, so no search surfaces them.
- *
- * @module mcp/toolkits/workstream/families
+ * Loom's tool families and upstream withhold list as pi sees them (`mcp__t3-code__<name>`). Roles
+ * get LEAF_CORE plus their `toolsets:`; other permitted tools stay `deferred` behind `tool_search`,
+ * and UPSTREAM_WITHHELD_TOOLS are registered `hidden` so no search surfaces them.
  */
 import { AttachmentToolkit } from "../attachment/tools.ts";
 import { EnvironmentToolkit } from "../environment/tools.ts";

@@ -5,17 +5,9 @@ import type { PlanSections } from "./headingAnchors";
 import { compilePlanDocument, compilePlanSection } from "./mdxCompileOptions";
 
 /**
- * Web Worker that compiles `.mdx` plan source off the main thread. Only the
- * parse/transform/compile step (the CPU-heavy work — seconds at multi-MB) runs
- * here; the main thread instantiates the returned function-body module with
- * `run(...)` (cheap). This keeps the tab interactive while a large decision
- * document compiles.
- *
- * The security guards live in the shared `mdxCompileOptions` module and run
- * DURING this compile — an `import`/`export`, a raw `{expression}`, a non-literal
- * attribute expression, or an unknown tag is rejected/rewritten here, before any
- * executable module is produced. The worker emits an inert string; nothing runs
- * until the main thread's guarded `run(...)`.
+ * Compiles `.mdx` plan source off the main thread (seconds at multi-MB). The shared
+ * guards run during this compile, so the worker emits an inert function-body string
+ * and nothing executes until the main thread's `run(...)`.
  */
 
 export interface CompileRequest {

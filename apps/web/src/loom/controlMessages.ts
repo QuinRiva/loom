@@ -1,17 +1,8 @@
 /**
- * loom: how a control-plane message renders (3d-3, seam 6).
- *
- * A Loom thread's transcript mixes what the human typed, what another thread
- * sent (a parent's steer, a kickoff brief, a `mcp__t3-code__notify_thread` push) and what
- * the control plane injected (digests, yields, notices). The control payload
- * rides `message.loom.controlPayload` on the thread projection's message (the
- * turn item carries only the text), and is the card's source of truth; the
- * text stays the exact bytes the model received, behind "show raw payload".
- *
- * Fallback rule (DL-434): anything this module does not know — a payload
- * kind, a notice, an item kind added after this build — renders the
- * message's raw text as markdown instead of a card. Never throw on payload
- * shape: the text is always a faithful rendering.
+ * loom: how a control-plane message renders. Its payload rides `message.loom.controlPayload` (the
+ * turn item carries only text) and is the card's source of truth; the text stays the exact bytes the
+ * model received. Anything this module does not know (a payload, notice or item kind added later)
+ * renders the raw text as markdown instead of a card; never throw on payload shape.
  */
 import type {
   ControlPayload,

@@ -1,32 +1,8 @@
 /**
- * Settles `/handoff` drafters (Phase 3 plan Track 3b, DT-22/24), ported from V1's
- * `HandoffDrafterReactor` onto V2. A drafter is a Loom root with role
- * `handoff-drafter` (`handoffDraft.ts`); once its kickoff run has ended the pass
- * decides, from durable state only:
- *
- * - **success** — the drafter placed ≥1 handoff (`mcp__t3-code__goal_handoff` records it on the
- *   drafter's own row): outcome `done`, then `thread.archive` (archived-after-handoff
- *   is how the drafter is hidden; upstream's archive detaches its provider session
- *   through the outbox, so V1's stop-before-archive dance is not needed);
- * - **guidance** — the run ended with no handoff, or the kickoff is still not
- *   finished past `HANDOFF_HUNG_GRACE_MS`: `needs_guidance` on the SOURCE (the
- *   thread the human typed `/handoff` in) when it has a live Loom row, else on the
- *   drafter, which then stays visible as the recovery surface.
- *
- * It also launches a drafter whose source was mid-turn: the fork deferred, so
- * once a run ends the pass re-sends the fork and kickoff (`dispatchDraftFork`);
- * a refused fork raises `needs_guidance` as above. A `document-query` thread
- * (`loom/query/documentQuery.ts`) gets this launch leg only: the fork, then the overlay
- * and the first question from its brief as one message; it is never settled, and a refused fork
- * flags the query thread itself, where the human is waiting.
- *
- * Every command has a deterministic `server:` id under the receipt discipline
- * (`dispatchServerCommand`), so a pass is an idempotent recompute: a coalescing
- * worker runs it on a drafter's run end or handoff record, and on a 60 s tick (the
- * hung leg is timer-driven; the tick's first beat recovers drafters a restart
- * stranded).
- *
- * @module loom/handoff/HandoffDrafterReactor
+ * Settles `/handoff` drafters from durable state once the kickoff run ends: a handoff means `done`
+ * then `thread.archive`; none, or a kickoff unfinished past `HANDOFF_HUNG_GRACE_MS`, raises
+ * `needs_guidance` on the source if it has a live Loom row, else the drafter. Re-sends a fork a
+ * mid-turn source deferred; a `document-query` thread gets only that leg. Deterministic `server:` ids.
  */
 import {
   CommandId,
@@ -138,8 +114,8 @@ const make = Effect.gen(function* () {
         ),
     );
 
-  const settle = (row: LoomThreadWorkstream, nowMs: number) =>
-    Effect.gen(function* () {
+  const settle = Effect.fn("HandoffDrafterReactor.settle")(
+    function* (row: LoomThreadWorkstream, nowMs: number) {
       const id = (step: string) =>
         CommandId.make(`server:loom:handoff-settle:${step}:${row.threadId}`);
       const createdAt = DateTime.formatIso(yield* DateTime.now);
@@ -206,16 +182,19 @@ const make = Effect.gen(function* () {
           reason: "needs_guidance",
         });
       }
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Cause.hasInterruptsOnly(cause)
-          ? Effect.failCause(cause)
-          : Effect.logWarning("loom.handoff-drafter.settle-failed", {
-              threadId: row.threadId,
-              cause: Cause.pretty(cause),
-            }),
+    },
+    (effect, row, nowMs) =>
+      effect.pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause)
+            : Effect.logWarning("loom.handoff-drafter.settle-failed", {
+                threadId: row.threadId,
+                cause: Cause.pretty(cause),
+              }),
+        ),
       ),
-    );
+  );
 
   const pass = Effect.gen(function* () {
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);

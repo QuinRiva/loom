@@ -134,11 +134,8 @@ describe("WorkspaceLease", () => {
 
   it.effect("interrupting a queued hold does not corrupt the path's permit accounting", () =>
     Effect.gen(function* () {
-      // Round-1 review finding 1. A hold that queues behind an in-flight removal
-      // and is then interrupted (user cancel, superseded launch, shutdown) must
-      // leave the pool exactly as it found it. Getting this wrong in the
-      // permissive direction is the production incident re-armed: one spare
-      // permit and `withExclusive` succeeds while a live process holds the tree.
+      // A hold queued behind an in-flight removal and then interrupted must leave the pool as it
+      // found it: one spare permit lets `withExclusive` succeed while a live process holds the tree.
       const lease = yield* makeWorkspaceLease;
       const gate = yield* Deferred.make<void>();
 

@@ -1,12 +1,8 @@
 /**
- * mcp__t3-code__notify_thread and mcp__t3-code__consult_thread on V2's real orchestrator. Notify: one
- * direct message with origin `notify` under the rail's shared id, the record
- * marked delivered, steer-or-queue never an abort, terminal targets refused
- * by the record before anything is sent, and the hourly cap counted from the
- * ledger even for a sender without a sidecar row. Consult: the session file
- * is the provider thread's strong pi `nativeThreadRef` (the fork transport is
- * stubbed), a weak or non-pi ref is refused loudly, and an ambiguous name
- * returns candidates without consulting.
+ * Notify: one direct message under the rail's id, record marked delivered, never an abort, terminal
+ * targets refused before sending, hourly cap counted even without a sidecar row. Consult: reads the
+ * strong pi `nativeThreadRef` (fork stubbed), refuses weak or non-pi refs, and an ambiguous name
+ * returns candidates.
  */
 import { assert, it } from "@effect/vitest";
 import {

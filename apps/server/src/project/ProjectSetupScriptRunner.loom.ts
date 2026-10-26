@@ -1,16 +1,8 @@
 /**
- * loom: the worktree-readiness breadcrumb and setup-command tweaks that ride on
- * upstream's `ProjectSetupScriptRunner`.
- *
- * Every worktree agent's system prompt tells it to poll
- * `$(git rev-parse --git-dir)/t3code-setup-state.json` before running anything
- * that needs the project environment: `pending` → keep reading/editing,
- * `ready` → proceed, `failed` → inspect `detail`. The runner writes it at three
- * points: `pending` before the command is typed, `failed` if it cannot be
- * typed, and the settled outcome once the completion sentinel (or a terminal
- * exit) arrives — or after `SETUP_STATE_TIMEOUT`, because nothing upstream
- * settles a script that hangs, and an agent polling `pending` would wait
- * forever.
+ * loom: the `$(git rev-parse --git-dir)/t3code-setup-state.json` breadcrumb worktree agents poll:
+ * `pending` before the command is typed, `failed` if it cannot be, then the settled outcome on the
+ * completion sentinel or terminal exit, or at `SETUP_STATE_TIMEOUT`, since nothing upstream settles
+ * a hanging script and a `pending` poller would wait forever.
  */
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import * as Cause from "effect/Cause";
@@ -60,28 +52,33 @@ const worktreeSetupStatePath = Effect.fn("worktreeSetupStatePath")(function* (
 });
 
 /** Best effort: a breadcrumb that cannot be written is logged, never fatal. */
-export const writeWorktreeSetupState = (
-  fs: FileSystem.FileSystem,
-  path: Path.Path,
-  worktreePath: string,
-  state: Omit<WorktreeSetupState, "updatedAt">,
-) =>
-  Effect.gen(function* () {
+export const writeWorktreeSetupState = Effect.fn(
+  "ProjectSetupScriptRunner.writeWorktreeSetupState",
+)(
+  function* (
+    fs: FileSystem.FileSystem,
+    path: Path.Path,
+    worktreePath: string,
+    state: Omit<WorktreeSetupState, "updatedAt">,
+  ) {
     const statePath = yield* worktreeSetupStatePath(fs, path, worktreePath);
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     yield* fs.writeFileString(
       statePath,
       `${yield* encodeWorktreeSetupState({ ...state, updatedAt })}\n`,
     );
-  }).pipe(
-    Effect.catchCause((cause) =>
-      Effect.logWarning("ProjectSetupScriptRunner failed to write worktree setup state", {
-        worktreePath,
-        status: state.status,
-        cause: Cause.pretty(cause),
-      }),
+  },
+  (effect, fs, path, worktreePath, state) =>
+    effect.pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("ProjectSetupScriptRunner failed to write worktree setup state", {
+          worktreePath,
+          status: state.status,
+          cause: Cause.pretty(cause),
+        }),
+      ),
     ),
-  );
+);
 
 /** The breadcrumb for a settled run, or `None` when `SETUP_STATE_TIMEOUT` elapsed first. */
 export const settledWorktreeSetupState = (
@@ -101,15 +98,11 @@ export const settledWorktreeSetupState = (
   });
 
 /** A `bun install` setup script in a pnpm checkout runs pnpm's frozen install instead. */
-export const setupInstallCommand = (
-  fs: FileSystem.FileSystem,
-  path: Path.Path,
-  cwd: string,
-  command: string,
-) =>
-  Effect.gen(function* () {
+export const setupInstallCommand = Effect.fn("ProjectSetupScriptRunner.setupInstallCommand")(
+  function* (fs: FileSystem.FileSystem, path: Path.Path, cwd: string, command: string) {
     return command.trim() === "bun install" &&
       (yield* fs.exists(path.join(cwd, "pnpm-lock.yaml")).pipe(Effect.orElseSucceed(() => false)))
       ? "pnpm install --frozen-lockfile"
       : command;
-  });
+  },
+);

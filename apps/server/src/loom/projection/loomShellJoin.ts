@@ -1,12 +1,7 @@
 /**
- * The shell join (plans/upstream-pull9-phase2-substrate/plan.mdx §4): attaches
- * `workstream` to each V2 thread shell that has a sidecar row — one store call
- * per snapshot. Threads without a row carry no key, so upstream's shell shape
- * is unchanged for them. Wrapped around the orchestrator's `getShellSnapshot` /
- * `getThreadShell`, so every consumer that reads through the orchestrator sees
- * the joined shape.
- *
- * @module loom/projection/loomShellJoin
+ * Attaches `workstream` to each V2 thread shell with a sidecar row (one store call per snapshot);
+ * other threads keep upstream's shape. Wraps `getShellSnapshot` / `getThreadShell`, so every
+ * orchestrator reader sees the joined shape.
  */
 import type {
   OrchestrationV2ThreadShell,
@@ -42,3 +37,27 @@ export const joinLoomThreadShell =
     shell === null
       ? Effect.succeed(null)
       : joinShells(loomStore)([shell]).pipe(Effect.map((joined) => joined[0]!));
+
+/**
+ * Loom's rollup badge counts every descendant of an active root, so the cold shell keeps what
+ * upstream drops: a Loom child of a live root, and any Loom thread with a reason the rollup reads
+ * (stored flag, failed unfinished run, or an un-started child that may be owed a brief).
+ */
+export const keepsLoomChildInColdShell = (
+  thread: Pick<OrchestrationV2ThreadShell, "workstream" | "status" | "lastErrorClass" | "lineage">,
+  roots: ReadonlyMap<string, Pick<OrchestrationV2ThreadShell, "archivedAt" | "settledOverride">>,
+): boolean => {
+  const workstream = thread.workstream;
+  if (workstream === undefined) return false;
+  const root =
+    workstream.parentThreadId === null ? undefined : roots.get(thread.lineage.rootThreadId);
+  return (
+    (root !== undefined && root.archivedAt === null && root.settledOverride !== "settled") ||
+    workstream.attention.length > 0 ||
+    (workstream.outcome === null &&
+      ((thread.status === "failed" &&
+        thread.lastErrorClass != null &&
+        thread.lastErrorClass !== "usage_limit") ||
+        (workstream.parentThreadId !== null && workstream.kickoffAt === null && !workstream.held)))
+  );
+};

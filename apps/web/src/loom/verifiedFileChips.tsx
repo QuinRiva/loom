@@ -1,4 +1,8 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  needsWorkspaceBasenameLookup,
+  stripRepeatedWorkspacePrefix,
+} from "@t3tools/client-runtime/workspace-basename-lookup";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -31,32 +35,10 @@ import {
 } from "./unanchoredFileReferences";
 
 /**
- * Loom's file-chip seam over upstream's `fileLinkChip` renderer (slice 1 of the
- * chat-surface re-home). Upstream renders every syntactically resolvable path
- * as a live chip; a chip whose file has since been moved or deleted therefore
- * looks identical to one that works, and clicking it fails somewhere else. One
- * behaviour is re-attached here, and nothing else — an existing file renders
- * exactly upstream's chip:
- *
- *  - **existence verification** against the shared, batched stat store
- *    (`usePathExistence`): a path the server reports as gone renders a visibly
- *    "missing" chip instead of a dead link. An unverified path (no connected
- *    environment, e.g. the `/preview` harness, or a stat still in flight) keeps
- *    upstream's behaviour, so nothing flickers from live to missing and back.
- *    This optimistic polarity is only for references that name one place;
- *    unanchored inline code is {@link makeUnanchoredInlineCodeChip}'s.
- *  - **click-time re-verification** ({@link verifyChipTargetBeforeOpen}): the
- *    store only revalidates at its TTL, so a chip can be clicked inside the
- *    window where its file has already moved. The click re-stats the path, and
- *    a gone file flips the chip and toasts instead of opening nothing "as if it
- *    were a bug".
- *  - **hover re-verification of a missing chip**: the reverse direction. A file
- *    that comes back would otherwise wait out the store's TTL, so hovering the
- *    chip a human is questioning marks it due immediately.
- *
- * Artifact-viewer routing lives in upstream's `fileLinkChip` itself (an
- * `onOpenArtifact` primary-action override), so an artifact chip keeps the
- * upstream context menu.
+ * Loom's seam over upstream's `fileLinkChip`: a chip whose file the server reports
+ * gone renders "missing"; an unverified path keeps upstream's chip so nothing
+ * flickers. The click re-stats inside the store's TTL window, and hovering a
+ * missing chip marks it due so a file that came back recovers at once.
  */
 export type FileLinkChipRenderer = (
   fileLinkMeta: MarkdownFileLinkMeta,
@@ -67,7 +49,7 @@ export type FileLinkChipRenderer = (
 
 const MISSING_CHIP_CLASS_NAME =
   "chat-markdown-file-link opacity-70 line-through decoration-muted-foreground/60";
-const MISSING_CHIP_TITLE = "Missing — moved or deleted?";
+const MISSING_CHIP_TITLE = "Missing (moved or deleted?)";
 
 function MissingFileChip(props: {
   environmentId: EnvironmentId | null;
@@ -91,7 +73,7 @@ function MissingFileChip(props: {
             className={cn(MISSING_CHIP_CLASS_NAME, "select-text", props.className)}
             data-markdown-copy={props.copyMarkdown}
             data-file-missing="true"
-            aria-label={`${props.meta.basename} — ${MISSING_CHIP_TITLE}`}
+            aria-label={`${props.meta.basename}: ${MISSING_CHIP_TITLE}`}
             onPointerEnter={recheck}
           >
             <FileTagChipContent
@@ -111,11 +93,22 @@ function MissingFileChip(props: {
 }
 
 /**
- * Re-verify a chip target at the moment it is clicked. `false` means do not
- * open: the store now holds `exists: false`, which re-renders that chip as
- * {@link MissingFileChip}, and the toast says why. A path that cannot be
- * verified — no connected environment, or a failed stat — opens as before,
- * because an unhealthy RPC must not block a working link.
+ * Upstream re-resolves this link at open (a bare name, or a repository-relative path in a
+ * subfolder project), so the literal path's absence is not a verdict and Loom skips its checks.
+ */
+export function upstreamResolvesAtOpen(meta: MarkdownFileLinkMeta, cwd: string | undefined) {
+  const lookup = meta.workspaceLookupPath;
+  return (
+    lookup !== null &&
+    cwd !== undefined &&
+    (needsWorkspaceBasenameLookup(lookup) || stripRepeatedWorkspacePrefix(lookup, cwd) !== null)
+  );
+}
+
+/**
+ * `false` means do not open: the store now holds `exists: false` and the toast
+ * says why. An unverifiable path (no environment, failed stat) opens, because an
+ * unhealthy RPC must not block a working link.
  */
 export async function verifyChipTargetBeforeOpen(
   environmentId: EnvironmentId | null,
@@ -128,29 +121,27 @@ export async function verifyChipTargetBeforeOpen(
     stackedThreadToast({
       type: "error",
       title: `${basenameOfPath(filePath)} has moved or been deleted`,
-      description: `${filePath} is no longer there — it existed when this was written.`,
+      description: `${filePath} is no longer there. It existed when this was written.`,
     }),
   );
   return false;
 }
 
 /**
- * One chip, subscribed to its own path. The subscription belongs here rather
- * than to the hosting message for the same reason the scanned-path leaf owns
- * one: a result that lands — or changes — after the message rendered has to
- * repaint the chip, and the host has no reason to re-render just then.
- * Registration is ref-counted and stats are batched per environment, so N chips
- * still cost one RPC, and only the chips repaint rather than whole messages.
+ * Each chip subscribes to its own path so a late result repaints the chip, not
+ * the hosting message. Registration is ref-counted and stats are batched per
+ * environment, so N chips cost one RPC.
  */
 function VerifiedFileChip(props: {
   environmentId: EnvironmentId | null;
+  cwd: string | undefined;
   meta: MarkdownFileLinkMeta;
   copyMarkdown: string;
   className?: string | undefined;
   mediaSource?: string | undefined;
   renderChip: FileLinkChipRenderer;
 }) {
-  const paths = [props.meta.filePath];
+  const paths = upstreamResolvesAtOpen(props.meta, props.cwd) ? [] : [props.meta.filePath];
   const lookupExistence = usePathExistence(props.environmentId, paths);
   return lookupExistence(props.meta.filePath)?.exists === false ? (
     <MissingFileChip
@@ -170,12 +161,14 @@ function VerifiedFileChip(props: {
  */
 export function makeVerifiedFileLinkChip(input: {
   environmentId: EnvironmentId | null;
+  cwd: string | undefined;
   renderChip: FileLinkChipRenderer;
 }): FileLinkChipRenderer {
-  const { environmentId, renderChip } = input;
+  const { environmentId, cwd, renderChip } = input;
   return (fileLinkMeta, copyMarkdown, className, mediaSource) => (
     <VerifiedFileChip
       environmentId={environmentId}
+      cwd={cwd}
       meta={fileLinkMeta}
       copyMarkdown={copyMarkdown}
       className={className}
@@ -186,12 +179,9 @@ export function makeVerifiedFileLinkChip(input: {
 }
 
 /**
- * One unanchored inline-code span (see `unanchoredFileReferences`): plain code
- * until a candidate or the index confirms a file, then upstream's chip for that
- * file. It subscribes to both stores itself, like {@link VerifiedFileChip}, so
- * an answer that lands after the message rendered upgrades just this span. All
- * lookups are issued together — base directory, message directories, index —
- * so the chip costs one coalesced round of RPCs, not a chain.
+ * One unanchored inline-code span: plain code until a candidate or the index
+ * confirms a file, then upstream's chip. All lookups are issued together so the
+ * chip costs one coalesced round of RPCs, not a chain.
  */
 function UnanchoredFileChip(props: {
   environmentId: EnvironmentId | null;
@@ -305,18 +295,10 @@ function cachedMetaResolver(cwd: string | undefined, baseDir: string | undefined
 }
 
 /**
- * Resolver for loom's two *loose* path scanners — plain prose and inside fenced
- * code blocks. Their opposite polarity to {@link makeVerifiedFileLinkChip} is the
- * whole point: a markdown link is an explicit authored reference, so it stays a
- * chip until proven missing, whereas a scanned substring is a guess and only
- * becomes clickable once the server confirms a **file** is there. Directories
- * stay plain text — upstream's chip is file-shaped (editor, media, file panel).
- *
- * Candidate discovery is bounded and block-aware
- * ({@link extractMessagePathCandidates}) and deferred entirely while streaming,
- * matching the renderers: re-scanning a growing message on every token would be
- * pure waste. With no connected environment (the `/preview` harness) nothing can
- * be verified, so hits render as chips on the syntactic gate alone.
+ * Resolver for the loose prose and fenced-block path scanners: the opposite
+ * polarity to {@link makeVerifiedFileLinkChip}, since a scanned substring is a
+ * guess and becomes clickable only once the server confirms a file. Scanning is
+ * deferred while streaming; with no environment, hits pass on syntax alone.
  */
 export function useScannedPathTargets(input: {
   environmentId: EnvironmentId | null;
@@ -348,26 +330,16 @@ export function useScannedPathTargets(input: {
 }
 
 /**
- * `ThreadLinkChip` — the chip Loom's workstream rows (consult cards, handoff
- * destinations) use for a thread id with a fixed label. Markdown thread links
- * (`t3-thread://v1/<id>`) render through upstream's `MarkdownThreadLink` instead.
- *
- * The chip navigates when the id resolves to a live thread in the message's own
- * environment (ids are only unique within one, so it is resolved by scoped ref).
- * It cannot when it does not: the shell snapshot and the thread-detail read both
- * filter `archived_at IS NULL`, so an archived, deleted or foreign thread has
- * nothing to open — navigating would bounce the human back to the thread list.
- * Those stay inert and say so on hover rather than pretending to be a link.
- *
- * A markdown surface with no environment at all (a file or composer-context
- * preview) is a different fact and gets different copy: nothing was looked up,
- * so claiming the thread is gone would be a lie.
+ * Thread chip for Loom's workstream rows. It navigates only when the id resolves
+ * to a live thread in the message's own environment: shell and detail reads skip
+ * archived rows, so an archived, deleted or foreign thread stays inert and says
+ * so on hover. With no environment at all nothing was looked up, hence other copy.
  */
 const UNRESOLVED_THREAD_CHIP_TITLE =
-  "Not found here — this thread is archived, deleted, or in another environment.";
+  "Not found here: this thread is archived, deleted, or in another environment.";
 
 const UNSCOPED_THREAD_CHIP_TITLE =
-  "Not linkable here — this view is not tied to an environment, so the thread cannot be opened.";
+  "Not linkable here: this view is not tied to an environment, so the thread cannot be opened.";
 
 export function ThreadLinkChip({
   label,
@@ -393,7 +365,7 @@ export function ThreadLinkChip({
             <ContextChip
               kind="mention"
               className="cursor-help opacity-70"
-              aria-label={`${label} — ${inertTitle}`}
+              aria-label={`${label}: ${inertTitle}`}
             />
           }
         >

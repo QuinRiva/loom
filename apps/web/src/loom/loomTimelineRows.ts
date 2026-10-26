@@ -1,23 +1,8 @@
 /**
- * loom: the handoff receipts spliced into a thread's timeline, derived from
- * the V2 shell alone, so they survive a reload and reach every client:
- *
- * - **`/handoff`** — one row per drafter forked from this thread (role
- *   `handoff-drafter`, `forkFromThreadId === this`): waiting while this thread's
- *   turn runs (a mid-turn `/handoff` forks once it ends), drafting while its run is
- *   live, failed when the run ended without placing a handoff, handed off once
- *   it did. An archived (settled) drafter leaves the snapshot; its row then
- *   reads from the `handoffDestinations` markers `goal_handoff` copies onto
- *   this thread, attributed to the drafter.
- * - **`goal_handoff`** — one row per marker this thread's own agent placed.
- * - **`goal_continue`** — one row per root that continues this thread
- *   (`workstream.continuesThreadId === this`).
- *
- * A `consult_thread` call is not a row here: it is a turn item, rendered as
- * its own card (`ConsultCardRow.tsx`).
- *
- * Placement is insertion, not a re-sort: each row lands before the first
- * strictly later row, above the working indicator when nothing later exists.
+ * loom: the handoff receipts spliced into a thread's timeline, derived from the V2 shell alone so
+ * they survive a reload and reach every client: one row per `/handoff` drafter forked from this
+ * thread (read from its `handoffDestinations` markers once archived), per `goal_handoff` marker this
+ * thread placed, and per root continuing it. Rows are inserted before the first later row, not sorted.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -30,7 +15,7 @@ import * as DateTime from "effect/DateTime";
 import { Atom } from "effect/reactivity";
 
 import type { MessagesTimelineRow } from "~/components/chat/MessagesTimeline.logic";
-import { environmentSnapshotAtom } from "~/state/shell";
+import { loomEnvironmentSnapshotAtom } from "~/state/threads";
 
 export type LoomHandoffState = "staged" | "launched" | "done" | "cancelled";
 export type LoomReceiptState = "waiting" | "drafting" | "failed" | "handed-off";
@@ -165,7 +150,8 @@ const loomRowsAtom = Atom.family((threadKey: string) => {
   let previous = EMPTY_ROWS;
   let previousKey = "";
   return Atom.make((get) => {
-    const threads = ref === null ? null : get(environmentSnapshotAtom(ref.environmentId))?.threads;
+    const threads =
+      ref === null ? null : get(loomEnvironmentSnapshotAtom(ref.environmentId))?.threads;
     if (!ref || !threads) return EMPTY_ROWS;
     const rows = handoffReceiptRows(threads, ref.threadId);
     // Shell churn is constant; hand back the same array unless a row changed.

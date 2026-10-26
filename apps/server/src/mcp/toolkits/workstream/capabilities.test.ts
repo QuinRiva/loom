@@ -37,75 +37,78 @@ const thread = v2PullRequestThread({
   settledAt: null,
 });
 
-it.effect("a Loom credential is denied delegate_task and t3_thread_send, and links a PR", () =>
-  Effect.gen(function* () {
-    const dispatched: Array<OrchestrationV2ServerCommand> = [];
-    const mcp = yield* serveMcp(
-      {
-        orchestrator: {
-          getThreadShell: (id) => Effect.succeed(id === LOOM_TEST_THREAD ? thread : null),
-          dispatch: (command) =>
-            Effect.sync(() => {
-              dispatched.push(command);
-              return { sequence: 1, storedEvents: [] };
-            }),
-        },
-        // Upstream's tool access admits only a caller that owns a live run, before any handler.
-        threadManagement: {
-          getThreadShell: (id) =>
-            Effect.succeed(
-              id === LOOM_TEST_THREAD ? { ...thread, activeRunId: RunId.make("run-live") } : null,
-            ),
-        },
-        loomStore: { getWorkstream: () => Effect.succeed(null) },
-        projects: {
-          getShell: () =>
-            Effect.succeed(
-              Option.some({
-                id: PROJECT_ID,
-                title: "Loom",
-                workspaceRoot: "/workspace/loom",
-                defaultModelSelection: null,
-                scripts: [],
-                repositoryIdentity: null,
-                createdAt: "2026-10-01T00:00:00.000Z",
-                updatedAt: "2026-10-01T00:00:00.000Z",
+it.effect(
+  "a Loom credential is denied delegate_task, t3_thread_send and t3_background_wait, and links a PR",
+  () =>
+    Effect.gen(function* () {
+      const dispatched: Array<OrchestrationV2ServerCommand> = [];
+      const mcp = yield* serveMcp(
+        {
+          orchestrator: {
+            getThreadShell: (id) => Effect.succeed(id === LOOM_TEST_THREAD ? thread : null),
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatched.push(command);
+                return { sequence: 1, storedEvents: [] };
               }),
-            ),
+          },
+          // Upstream's tool access admits only a caller that owns a live run, before any handler.
+          threadManagement: {
+            getThreadShell: (id) =>
+              Effect.succeed(
+                id === LOOM_TEST_THREAD ? { ...thread, activeRunId: RunId.make("run-live") } : null,
+              ),
+          },
+          loomStore: { getWorkstream: () => Effect.succeed(null) },
+          projects: {
+            getShell: () =>
+              Effect.succeed(
+                Option.some({
+                  id: PROJECT_ID,
+                  title: "Loom",
+                  workspaceRoot: "/workspace/loom",
+                  defaultModelSelection: null,
+                  scripts: [],
+                  repositoryIdentity: null,
+                  createdAt: "2026-10-01T00:00:00.000Z",
+                  updatedAt: "2026-10-01T00:00:00.000Z",
+                }),
+              ),
+          },
         },
-      },
-      { threadId: LOOM_TEST_THREAD, capabilities: ["workstream", "pull-requests"] },
-    );
-
-    for (const [name, args] of [
-      ["delegate_task", { task: "do it" }],
-      ["t3_thread_send", { threadId: "other", message: "hi" }],
-    ] as const) {
-      const denied = yield* mcp.callTool(name, args);
-      expect(denied.content.map((block) => block.text).join("\n"), name).toContain(
-        "capability_denied",
+        { threadId: LOOM_TEST_THREAD, capabilities: ["workstream", "pull-requests"] },
       );
-    }
-    const worktree = yield* mcp.callTool("t3_worktree_status", {});
-    expect(worktree.isError, "t3_worktree_status").toBe(true);
 
-    const linked = yield* mcp.callTool("link_pull_request", {
-      url: "https://github.com/QuinRiva/loom/pull/42",
-    });
-    expect(linked.isError ?? false).toBe(false);
-    expect(dispatched).toMatchObject([
-      { type: "thread.pull-request.link", threadId: LOOM_TEST_THREAD, number: 42 },
-    ]);
+      for (const [name, args] of [
+        ["delegate_task", { task: "do it" }],
+        ["t3_thread_send", { threadId: "other", message: "hi" }],
+        ["t3_background_wait", { taskIds: ["task-1"] }],
+      ] as const) {
+        const denied = yield* mcp.callTool(name, args);
+        expect(denied.content.map((block) => block.text).join("\n"), name).toContain(
+          "capability_denied",
+        );
+      }
+      const worktree = yield* mcp.callTool("t3_worktree_status", {});
+      expect(worktree.isError, "t3_worktree_status").toBe(true);
 
-    // Loom's own tools are served: the submit reaches its handler (no sidecar row here).
-    const loom = yield* mcp.callTool("workstream_submit", {
-      markdown: "<!-- response -->\nreport\n<!-- /response -->",
-    });
-    expect(loom.content).toEqual([
-      {
-        type: "text",
-        text: `Thread ${LOOM_TEST_THREAD} is not a workstream thread; there is nothing to submit to.`,
-      },
-    ]);
-  }).pipe(Effect.scoped, Effect.provide(mcpTestLayer)),
+      const linked = yield* mcp.callTool("link_pull_request", {
+        url: "https://github.com/QuinRiva/loom/pull/42",
+      });
+      expect(linked.isError ?? false).toBe(false);
+      expect(dispatched).toMatchObject([
+        { type: "thread.pull-request.link", threadId: LOOM_TEST_THREAD, number: 42 },
+      ]);
+
+      // Loom's own tools are served: the submit reaches its handler (no sidecar row here).
+      const loom = yield* mcp.callTool("workstream_submit", {
+        markdown: "<!-- response -->\nreport\n<!-- /response -->",
+      });
+      expect(loom.content).toEqual([
+        {
+          type: "text",
+          text: `Thread ${LOOM_TEST_THREAD} is not a workstream thread; there is nothing to submit to.`,
+        },
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(mcpTestLayer)),
 );

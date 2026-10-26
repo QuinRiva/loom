@@ -33,11 +33,7 @@ import { sortModelsForProviderInstance } from "./modelOrdering";
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
 const DEFAULT_TEXT_GENERATION_INSTANCE_ID = ProviderInstanceId.make("pi");
 
-/**
- * Custom instances intentionally do not read the legacy per-driver bucket;
- * otherwise one custom model added to `claude_openrouter` can appear on the
- * stock `claudeAgent` instance.
- */
+// Legacy per-driver buckets would leak custom-instance models into stock instances.
 function readInstanceCustomModels(
   settings: UnifiedSettings,
   instanceId: ProviderInstanceId,
@@ -64,11 +60,8 @@ export interface AppModelOption {
   badge?: "new";
   isCustom: boolean;
   /**
-   * Excluded from casual browsing by the instance's model preferences
-   * (hide-list, or not selected while allow-list mode is on). Excluded
-   * options stay in the list so an explicit selection (picker search
-   * escape hatch, persisted thread model) still resolves; the picker
-   * simply keeps them out of the default views.
+   * loom: hidden by the instance's model preferences but kept in the list, so an explicit
+   * selection (picker search, a persisted thread model) still resolves.
    */
   excluded?: boolean;
   isDefault?: boolean;
@@ -180,7 +173,8 @@ function getAppModelOptions(
   // Built-ins come from the server snapshot; custom rows come exclusively
   // from the config bucket below (see note in getAppModelOptionsForInstance).
   const rawModels = getProviderModels(providers, provider);
-  const builtInServerModels = rawModels.filter((model) => !model.isCustom);
+  // Server custom-model snapshots can lag removals; rebuild custom rows from settings.
+  const builtInServerModels = rawModels.filter((model) => !model.isCustom); // loom: also seeds builtInModelSlugs
   const options: AppModelOption[] = builtInServerModels.map(toAppModelOption);
   const seen = new Set(options.map((option) => option.slug));
   const builtInModelSlugs = new Set(builtInServerModels.map((model) => model.slug));
@@ -211,14 +205,9 @@ export function getAppModelOptionsForInstance(
   entry: ProviderInstanceEntry,
   selectedModel?: string | null,
 ): AppModelOption[] {
-  // Custom rows are sourced canonically from the instance's config bucket
-  // (readInstanceCustomModels), NOT from the server snapshot. Drivers such
-  // as pi echo `config.customModels` back into their live catalogue as
-  // `isCustom` models; that echo lags behind settings writes, so a removed
-  // slug would otherwise linger in the picker after the settings list
-  // dropped it. Filtering server `isCustom` models here keeps the config
-  // bucket the single source of truth — matching the settings card's
-  // `deriveProviderModelsForDisplay`.
+  // loom: custom rows come from the config bucket, not the server snapshot: pi echoes
+  // `config.customModels` back as `isCustom` models, and that echo lags settings writes, so a
+  // removed slug would linger. Matches the settings card's `deriveProviderModelsForDisplay`.
   const builtInServerModels = entry.models.filter((model) => !model.isCustom);
   const options: AppModelOption[] = builtInServerModels.map(toAppModelOption);
   const seen = new Set(options.map((option) => option.slug));
@@ -303,6 +292,22 @@ export function resolveAppModelSelectionForInstance(
   );
 }
 
+// New drafts carry the stored selection; capabilities resolve its raw options later.
+export function resolveEffectiveDefaultModelSelection(
+  settings: UnifiedSettings,
+  providers: ReadonlyArray<ServerProvider>,
+  selection: ModelSelection,
+): ModelSelection {
+  const model = resolveAppModelSelectionForInstance(
+    selection.instanceId,
+    settings,
+    providers,
+    selection.model,
+    { preserveUnavailableSelection: true },
+  );
+  return model === null || model === selection.model ? selection : { ...selection, model };
+}
+
 export function getCustomModelOptionsByInstance(
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
@@ -347,9 +352,7 @@ export function resolveAppModelSelectionState(
     selectedEntry ?? entries.find((candidate) => candidate.enabled && candidate.isAvailable);
   if (entry) {
     const selectedModel = selectedEntry ? selection.model : null;
-    // A saved model the catalog no longer lists, or a new fallback instance,
-    // gets the driver's cheap text generation default. The catalog's own
-    // default is the flagship chat model, which is too expensive here.
+    // Use the cheap generation default; the catalog default is the expensive chat flagship.
     const options = getAppModelOptionsForInstance(settings, entry);
     const model =
       resolveSelectableModel(entry.driverKind, selectedModel, options) ??

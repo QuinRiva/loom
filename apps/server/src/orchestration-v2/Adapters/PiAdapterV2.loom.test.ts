@@ -120,6 +120,8 @@ const RPC_DATA: Record<string, unknown> = {
 const makeFakePi = Effect.gen(function* () {
   const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
   const requests: Array<PiRpcRecord> = [];
+  // How many prompts pi has received, offered on each one, so a test awaits a count.
+  const promptCounts = yield* Queue.unbounded<number>();
   const spawns: Array<ReadonlyArray<string>> = [];
   // The session file's bytes at the moment each switch_session frame reached pi.
   const switchedFiles: Array<string | null> = [];
@@ -146,13 +148,23 @@ const makeFakePi = Effect.gen(function* () {
                   NodeFS.existsSync(path) ? NodeFS.readFileSync(path, "utf8") : null,
                 );
               }
-              return emit({
-                type: "response",
-                id: record["id"],
-                command: String(record["type"]),
-                success: true,
-                data: RPC_DATA[String(record["type"])],
-              });
+              const prompted =
+                record["type"] === "prompt"
+                  ? Queue.offer(
+                      promptCounts,
+                      requests.filter((request) => request["type"] === "prompt").length,
+                    )
+                  : Effect.void;
+              return Effect.andThen(
+                prompted,
+                emit({
+                  type: "response",
+                  id: record["id"],
+                  command: String(record["type"]),
+                  success: true,
+                  data: RPC_DATA[String(record["type"])],
+                }),
+              );
             },
             { discard: true },
           ),
@@ -167,7 +179,7 @@ const makeFakePi = Effect.gen(function* () {
   );
   // pi's stdout ends: the process went away.
   const close = Queue.end(stdout);
-  return { spawner, emit, close, requests, spawns, switchedFiles };
+  return { spawner, emit, close, requests, promptCounts, spawns, switchedFiles };
 });
 
 const openRuntime = Effect.fnUntraced(function* (
@@ -623,12 +635,9 @@ describe("PiAdapterV2 (loom) — sanitiser before switch_session", () => {
 });
 
 // ── Gate `hooks`: the driver the server builds runs Loom's live hooks ─────────────────────
-//
-// `LoomPiAdapterHooks` is a reference that silently falls back to the passthrough, so a
-// context that lacks `LoomProviderHealthLive` turns off quota classification, the resume
-// sanitiser and steer mirroring with no compile error. This builds pi exactly as the
-// instance registry does (`PiAdapterV2Driver.create` inside a registry layer) with
-// `LoomProviderHealthLive` provided below it, as `server.ts` does, and probes the sanitiser.
+// `LoomPiAdapterHooks` silently falls back to the passthrough, so a context missing
+// `LoomProviderHealthLive` loses quota classification, the resume sanitiser and steer mirroring
+// with no compile error. Builds pi as the registry and `server.ts` do; probes the sanitiser.
 
 /** Resume CODEX_HISTORY under an Anthropic model through the driver; what pi loaded. */
 const resumeThroughDriver = Effect.fnUntraced(function* (withLoomLayer: boolean) {
@@ -755,12 +764,7 @@ describe("PiAdapterV2 (loom) — assistant citations", () => {
         providerTurnId: providerTurnId as never,
         message: message(`and ${cite("Also this")}`),
       });
-      while (fake.requests.filter((request) => request["type"] === "prompt").length < 2) {
-        yield* Effect.yieldNow;
-      }
-      const [turn, steer] = fake.requests
-        .filter((request) => request["type"] === "prompt")
-        .map((request) => String(request["message"]));
+      const [turn, steer] = yield* prompts(fake, 2);
       for (const [prompt, comment] of [
         [turn!, "Why?"],
         [steer!, "Also this"],
@@ -799,14 +803,18 @@ const stamped = (
 const PARENT_ID = ThreadId.make("thread-pi-loom-parent");
 
 /** The prompts pi received, in order, once `count` have arrived. */
-const prompts = (fake: { readonly requests: ReadonlyArray<PiRpcRecord> }, count: number) =>
-  Effect.gen(function* () {
-    while (fake.requests.filter((request) => request["type"] === "prompt").length < count)
-      yield* Effect.yieldNow;
-    return fake.requests
-      .filter((request) => request["type"] === "prompt")
-      .map((request) => String(request["message"]));
-  });
+const prompts = Effect.fn("PiAdapterV2.loom.test.prompts")(function* (
+  fake: {
+    readonly requests: ReadonlyArray<PiRpcRecord>;
+    readonly promptCounts: Queue.Queue<number>;
+  },
+  count: number,
+) {
+  while ((yield* Queue.take(fake.promptCounts)) < count);
+  return fake.requests
+    .filter((request) => request["type"] === "prompt")
+    .map((request) => String(request["message"]));
+});
 
 /** Starts one turn on `thread`, then steers each of `steers` into it; returns every prompt sent. */
 const sendAll = Effect.fnUntraced(function* (
@@ -1083,8 +1091,8 @@ describe("PiAdapterV2 (loom) — cache facts", () => {
   );
 });
 
-// Issue #342: every pi child (sessions, consults, goal reactor, text-gen) must resolve
-// its worktree's own binaries first, or a bare `vp` lands on another checkout's install.
+// Every pi child (sessions, consults, goal reactor, text-gen) must resolve its worktree's own
+// binaries first, or a bare `vp` lands on another checkout's install.
 describe("PiRpc (loom) — worktree-local node_modules/.bin", () => {
   it.effect("prepends <cwd>/node_modules/.bin to the spawned pi's PATH", () =>
     Effect.gen(function* () {

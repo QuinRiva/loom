@@ -1,14 +1,7 @@
 /**
- * A thread's launch identity: the composed prompt, skills, extensions, env,
- * model selection and active-tool profile its first pi launch used, written
- * once to `<workstreamLaunchIdentityDir>/<threadId>.json`. Every later compose
- * for the thread returns these bytes (a relaunch after a role-file edit stays
- * byte-identical, so its cached prefix survives), a fork launches once from its
- * source's record verbatim (the acknowledge-then-fork cache prefix) and is
- * itself from its relaunch on, and the session-profile route serves the
- * recorded profile so the served profile is the launched one (plan P3-23, seam 4).
- *
- * @module loom/workstream/launchIdentity
+ * A thread's first-launch prompt, skills, extensions, env, model and tool profile, written once.
+ * Later composes return these bytes so a relaunch keeps its cached prefix; a fork launches once
+ * from its source's record. The session-profile route serves the recorded profile.
  */
 import { ModelSelection, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";

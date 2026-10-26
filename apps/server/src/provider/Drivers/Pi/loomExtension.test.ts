@@ -1,11 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * Loom's pi extension, built from its parts and run against a stub `pi` and a
- * stub `fetch` (the pattern of `piT3McpExtensionSource.test.ts`): the profile
- * at `session_start`, the per-turn re-assertion (P3-4) keeping `tool_search` discoveries,
- * the deny-list and the human-input rule, `mcp__t3-code__ask_user_question` across a
- * dropped poll, 3c's parts assembled in (the prompt-debug capture), and pi's system message
- * hoisted to the head of each request.
+ * Loom's pi extension, built from its parts and run against a stub `pi` and `fetch`: the profile
+ * and its per-turn re-assertion, the deny-list and human-input rule, ask_user_question across a
+ * dropped poll, the prompt-debug part, and the system message hoisted to the head of each request.
  */
 import * as NodeFS from "node:fs";
 import * as NodeModule from "node:module";
@@ -297,7 +294,8 @@ describe("Loom pi extension", () => {
       systemPrompt: "SYSTEM PROMPT BYTES",
       systemPromptOptions: { appendSystemPrompt: "LOOM ADDENDUM", cwd: "/work" },
     });
-    await new Promise((resume) => setImmediate(resume)); // the capture is fire-and-forget
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a macrotask boundary for the fire-and-forget capture, not a wait for time
+    await new Promise((resume) => setImmediate(resume));
 
     const captured = NodeFS.readFileSync(promptDebugPath, "utf8");
     assert.include(captured, "LOOM ADDENDUM");

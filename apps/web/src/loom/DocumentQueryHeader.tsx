@@ -1,9 +1,7 @@
 /**
- * loom: what a query thread (role `document-query`) shows of itself
- * (plans/plan-query-threads/plan.mdx §4 and §5 step 12): a header chip naming the
- * author it is a read-only fork of, with the document and the author one click
- * away; and, while the fork waits behind a mid-turn author, one muted row over
- * the empty conversation.
+ * loom: what a query thread (role `document-query`) shows of itself (plan-query-threads §4, §5
+ * step 12): a header chip naming the author it is a read-only fork of, the document and author
+ * one click away; and, while the fork waits behind a mid-turn author, one muted row.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { DOCUMENT_QUERY_ROLE, type ScopedThreadRef, type ThreadId } from "@t3tools/contracts";

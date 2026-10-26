@@ -6,25 +6,10 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
 import { PlanEagerMountContext } from "../planEagerMount";
 
 /**
- * The `<Details>` block (§2) — a collapsible `passChildren` container for
- * progressive disclosure (bulk evidence, full production records) that used to
- * force a companion HTML file. The body is ordinary MDX: prose and any nested
- * blocks, including another `<Details>`.
- *
- * Uncontrolled-with-default: the open state is local component state seeded from
- * the authored `open`, synced via `onToggle`, so a user's expand/collapse is NOT
- * reset by the annotation layer re-rendering, AND a programmatic open (the
- * collapsed-annotation "open on navigate" affordance sets `details.open = true`)
- * flows back into React state through the native `toggle` event — the layer never
- * has to mutate `open` during overlay recomputation.
- *
- * Children are mounted lazily — not until the disclosure is first opened — then
- * kept mounted (an opened-once flag survives collapse, so re-opening is instant).
- * On an evidence-heavy document this roughly halves the initial DOM/render cost,
- * since 40–60% of nodes live inside drill-downs a reviewer may never open. The
- * {@link PlanEagerMountContext} escape hatch forces eager mounting when the
- * annotation layer has pending comments that may be anchored inside a closed
- * `<Details>` (so they resolve as `collapsed`, not `detached`).
+ * `<Details>`: a collapsible container. Open state is local, seeded from `open` and synced
+ * via `onToggle`, so re-renders do not reset it and a programmatic open flows back in.
+ * Children mount on first open and stay mounted, unless {@link PlanEagerMountContext}
+ * forces eager mounting so pending comments inside resolve as `collapsed`.
  */
 
 export interface DetailsData {
@@ -52,12 +37,8 @@ export function DetailsRead({ data, blockId, children }: PlanBlockReadProps<Deta
   // Once opened (or eager, or authored-open), children stay mounted so a
   // re-open is instant and their state survives a collapse.
   const [mounted, setMounted] = useState(eager || initialOpen);
-  // Latch on eager becoming true AFTER first render too: the surrounding
-  // FilePreviewPanel is keyed by environment (not thread), so this instance
-  // survives a thread switch that flips the eager flag false → true as the
-  // active draft's comments change. Mount-and-retain then, so a persisted
-  // comment inside a never-opened disclosure resolves as `collapsed`, not
-  // `detached`. Retained if eager later flips back to false.
+  // Latch eager after first render too: FilePreviewPanel is keyed by environment, so a
+  // thread switch can flip eager false → true on this instance. Retained if it flips back.
   if (eager && !mounted) setMounted(true);
   return (
     <details

@@ -1,7 +1,5 @@
-/**
- * Do not import t3code modules from the string body. The Pi process resolves
- * `@earendil-works/pi-coding-agent` and `typebox` from the user's pi install.
- */
+// No T3 imports inside the string; resolve Pi and typebox from the user's Pi install.
+// loom: no T3_CODE_ORCHESTRATION_INSTRUCTIONS import: Pi gets no orchestration instructions (DL-905).
 
 export const PI_T3_MCP_EXTENSION_FILENAME = "pi-t3-mcp-extension.ts";
 
@@ -12,15 +10,12 @@ export const T3_PI_MCP_EXTENSION_PATH_ENV = "T3_PI_MCP_EXTENSION_PATH";
 // loom: JSON array of unprefixed t3-code tool names the bridge registers `hidden` (Loom's withheld tools).
 export const T3_LOOM_HIDDEN_TOOLS_ENV = "T3_LOOM_HIDDEN_TOOLS"; // loom:
 
-/**
- * Pi tools whose confirmations the bridge raises as file-change approvals.
- * Auto-accept edits skips them; the adapter keys the approval kind off them.
- */
+// These tools trigger file-change approvals, bypassed by Auto-accept edits.
 export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
 
 export const PI_T3_MCP_EXTENSION_SOURCE = `\
 import { stripFrontmatter, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-// loom: node:http for post() — see there
+// loom: node:http for post(); see there
 import { request as httpRequest } from "node:http";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
@@ -94,7 +89,13 @@ function parseSseOrJson(body: string, contentType: string): JsonRpcResponse {
 function jsonSchemaToTypebox(schema: Record<string, unknown> | undefined) {
   const unsafe = (Type as { Unsafe?: (value: unknown) => unknown }).Unsafe;
   if (typeof unsafe === "function" && schema !== undefined) {
-    return unsafe(schema);
+    // Zero-argument MCP tools may omit "properties", which some OpenAI-compatible
+    // servers reject. Declare it, as Pi does for its own MCP tools.
+    return unsafe({
+      ...schema,
+      type: schema.type ?? "object",
+      ...(schema.properties === undefined ? { properties: {} } : {}),
+    });
   }
   return Type.Object({}, { additionalProperties: true });
 }

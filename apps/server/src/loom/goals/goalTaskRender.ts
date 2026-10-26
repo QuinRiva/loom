@@ -1,16 +1,8 @@
 /**
- * Every read surface of a goal's task tree — `mcp__t3-code__goal_task_list`, the goal tools'
- * echoes and `t3 goal show` — renders the same `- [x] text (id)` indented form;
- * this is the single place that shape lives.
- *
- * One invariant holds for the scoped renderings: a rendering is either
- * COMPLETE within its declared scope — so resubmitting it to the matching
- * `mcp__t3-code__goal_tasks_rewrite` scope is a verbatim no-op — or it is mechanically
- * unusable as a rewrite submission. The elided/annotated views carry marker
- * lines with no `- ` bullet, which `parseGoalTaskMarkdown` rejects outright
- * rather than reading them as a new task whose siblings were deleted.
- *
- * @module loom/goals/goalTaskRender
+ * The single home of the `- [x] text (id)` rendering every goal-tree read surface shares. A scoped
+ * rendering is either COMPLETE within its scope, so resubmitting it to the matching
+ * `goal_tasks_rewrite` scope is a no-op, or unusable as a submission: elided views carry
+ * bullet-less marker lines that `parseGoalTaskMarkdown` rejects.
  */
 import type { GoalTaskId, LoomGoalTask } from "@t3tools/contracts";
 
@@ -92,7 +84,7 @@ export const renderGoalTaskBranch = (
   (spine.length === 0
     ? ""
     : `Where your branch sits in the goal (read-only context, not rewrite input):\n${renderSpine(spine)}\n\n`) +
-  `Your branch — its root line is your anchor, and this block is the complete source a branch rewrite takes:\n${renderGoalTaskTree([anchor]).trimEnd()}`;
+  `Your branch: its root line is your anchor, and this block is the complete source a branch rewrite takes:\n${renderGoalTaskTree([anchor]).trimEnd()}`;
 
 /** Where an out-of-branch add landed: its ancestor spine, then the added line. */
 const renderGoalTaskPlacement = (spine: ReadonlyArray<LoomGoalTask>, added: LoomGoalTask): string =>
@@ -126,11 +118,9 @@ export const renderTasks = (tasks: ReadonlyArray<LoomGoalTask>): string =>
   tasks.length === 0 ? "(no tasks yet)" : renderGoalTaskTree(tasks).trimEnd();
 
 /**
- * What a goal_task_* mutation answers with: "complete within the scope you
- * own, plus a pulse", never a bare confirmation. A bound thread gets its whole
- * branch and the goal's numbers (and, when it just placed a task outside its
- * branch, that line with its spine); an unbound child gets the open plan; the
- * root gets the open plan plus the footer saying it is not rewrite input.
+ * A goal_task_* mutation's answer, never a bare confirmation: a bound thread gets its whole branch
+ * and the goal's numbers (plus, for a task placed outside its branch, that line with its spine); an
+ * unbound child the open plan; the root the open plan plus a footer saying it is not rewrite input.
  */
 export const renderGoalTaskEcho = (input: {
   readonly summary: string;
@@ -145,7 +135,7 @@ export const renderGoalTaskEcho = (input: {
   if (anchor === null) {
     return input.isChild
       ? `${input.summary}\n\n${open}`
-      : `${input.summary}\n\n${open}\n\nDone subtrees are elided above, so this echo is NOT rewrite input — rewrite from a fresh ${agentToolName("goal_task_list")} (scope "tree"), which returns the complete tree.`;
+      : `${input.summary}\n\n${open}\n\nDone subtrees are elided above, so this echo is NOT rewrite input. Rewrite from a fresh ${agentToolName("goal_task_list")} (scope "tree"), which returns the complete tree.`;
   }
   const placed =
     input.placedTaskId !== undefined && !isWithinGoalTaskBranch(anchor, input.placedTaskId)

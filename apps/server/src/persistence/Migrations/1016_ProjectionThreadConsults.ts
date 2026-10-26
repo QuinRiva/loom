@@ -1,13 +1,9 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// consult_thread observability: one row per recorded consult (keyed by the
-// originating event id, so re-projection is idempotent). The asker shell's
-// `consults` edge summary is aggregated from these rows at query time
-// (COUNT + latest target title / question preview per asker→target pair), so
-// no derived counters need maintaining. The full question + answer of each
-// consult live on the `thread.consult-recorded` event, not here — this table
-// only carries the bounded preview the shell needs.
+// One row per recorded consult, keyed by the originating event id so re-projection is idempotent.
+// The asker's `consults` summary aggregates these at query time; the full question and answer live
+// on `thread.consult-recorded`, and this row carries only the bounded preview.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`

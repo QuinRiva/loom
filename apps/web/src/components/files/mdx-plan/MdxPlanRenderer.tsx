@@ -21,30 +21,10 @@ import { loadPlanDocument } from "./planCompileClient";
 import { PLAN_BLOCK_COMPONENTS } from "./registry";
 
 /**
- * Secure runtime MDX renderer for `.mdx` plan files. Compiles MDX OFF the main
- * thread (a dedicated Web Worker) and instantiates + renders the result on the
- * main thread through the closed plan-block registry. This is a NEW render path
- * for `.mdx`; the `.md` react-markdown path (`ChatMarkdown`) is untouched.
- *
- * The security model + remark guards live in {@link ./mdxCompileOptions}; the
- * worker applies the exact same guard set during compile (before any executable
- * module exists), and the linter/tests reuse the same module — so the two paths
- * cannot drift. Per decision D2 the render accepts `unsafe-eval` (`run(...)` uses
- * the `Function` constructor) under a strict CSP; the app sets no CSP today. The
- * guard + closed registry bound the eval surface to our own trusted components.
- *
- * Off-thread compile keeps the tab interactive while an evidence-heavy decision
- * document (multi-MB) compiles — the parse/transform dominates the cost, and it
- * no longer blocks the main thread. A lightweight "compiling…" placeholder shows
- * until the module is ready.
- *
- * Annotation hook (Phase 2): the rendered output lives under one stable
- * container (`data-plan-root`, exposed via `containerRef`), and every block —
- * top-level or nested inside a container block (`Columns`/`Tabs`) — carries a
- * stable `data-plan-block-id` (authored `id` when present, else an assigned
- * unique `plan-block-N`; see {@link assignBlockIds}). That gives the annotation
- * layer a Range root plus a block-level fallback anchor at any nesting depth
- * without re-architecting this renderer.
+ * Runtime renderer for `.mdx` plans: compiles in a Web Worker so multi-MB documents
+ * keep the tab interactive, then runs the module on the main thread through the
+ * closed block registry. `run(...)` needs `unsafe-eval`; the guards in
+ * {@link ./mdxCompileOptions} bound that eval surface to our own components.
  */
 
 export { compilePlanMdx } from "./mdxCompileOptions";
@@ -70,13 +50,10 @@ class PlanRenderErrorBoundary extends Component<
   }
 }
 
-/** Assign a stable, unique `data-plan-block-id` to every block lacking one — both
- * top-level children (headings, prose, blocks) AND blocks nested inside container
- * blocks (`Columns`/`Tabs`, Wave B6). Authored ids are left untouched; the rest
- * draw from a single document-wide counter so ids never collide across nesting
- * depth. The walk is deterministic (same DOM → same ids), so anchors persist
- * across re-renders. Nested non-block wrappers are skipped — only elements with a
- * `data-plan-block-type` are stamped below the top level. Exported for verification. */
+/** Stamp a unique `data-plan-block-id` on every unstamped top-level child and nested
+ * `data-plan-block-type` block, from one document-wide counter so ids never collide
+ * across nesting depth. Authored ids are kept, and the walk is deterministic (same
+ * DOM, same ids), so anchors persist across re-renders. */
 export function assignBlockIds(root: HTMLElement): void {
   let counter = 0;
   const stamp = (el: HTMLElement) => {
@@ -96,29 +73,10 @@ export function assignBlockIds(root: HTMLElement): void {
 }
 
 /**
- * Non-prose block types allowed to escape the prose measure, and how they take
- * the extra width (the CSS lives under `.plan-mdx [data-plan-bleed]` in
- * `index.css`). This map is the single source of truth: the CSS keys off the
- * stamped attribute and the annotation layer queries it to place its comment
- * gutter outside the widest bled block.
- *
- * - `hug` — the block's max-content is meaningful (a diff, code, a table, a
- *   file tree), so it takes only the width its content wants, capped at the
- *   bleed budget, and stays at the measure when it wants less.
- * - `stretch` — fixed-geometry surfaces whose contents are absolutely
- *   positioned or `w-full`, so max-content reports ~nothing; they take the
- *   budget outright.
- *
- * `columns` hugs too: a grid of short items stays at the measure, while a grid
- * of prose-bearing cards takes the panel's width, so four cards sit side by
- * side instead of three plus an orphan (each track stays a readable column).
- *
- * Deliberately absent: prose-bearing blocks (`callout`, `card`, `checklist`,
- * `details`, `review-choice`, `question-form`, `api-endpoint`,
- * `visual-questions`) keep the readable measure (a lone card hugging its
- * paragraph would take the whole budget as one line), and `wireframe`/`design`
- * artboards are sized by their device preset, which is semantic, not a
- * rendering accident.
+ * Non-prose blocks that may escape the prose measure; `.plan-mdx [data-plan-bleed]` in
+ * `index.css` and the annotation gutter both key off the stamp. `hug`: content width,
+ * capped at the bleed budget. `stretch`: absolutely positioned or `w-full` contents
+ * report ~no max-content, so take the budget. Prose blocks and device-sized artboards are absent.
  */
 const BLEED_MODE_BY_BLOCK_TYPE: Record<string, "hug" | "stretch"> = {
   "annotated-code": "hug",
@@ -144,11 +102,9 @@ const BLEED_MODE_BY_BLOCK_TYPE: Record<string, "hug" | "stretch"> = {
  * layer's query for "content that escapes the prose column". */
 export const PLAN_BLEED_ATTR = "data-plan-bleed";
 
-/** Mark the TOP-LEVEL non-prose blocks that may bleed past the prose measure.
- * Only direct children of the root are considered, so a block nested inside a
- * container block (`Columns`/`Tabs`/`Details`/`Card`/a canvas) never breaks out
- * of its container. Exported for `lint-plan.mjs --out`, whose static page must
- * bleed the same blocks the panel does. */
+/** Mark the TOP-LEVEL non-prose blocks that may bleed past the prose measure, so a
+ * nested block never breaks out of its container. Exported for `lint-plan.mjs --out`,
+ * whose static page must bleed the same blocks the panel does. */
 export function stampBleedingBlocks(root: HTMLElement): void {
   for (const child of Array.from(root.children)) {
     // vocabulary v2: table — a GFM table in prose hugs like the `<Table>` block.
@@ -194,15 +150,9 @@ const OUTLINE_CHIP =
   "shrink-0 truncate rounded-full px-2.5 py-1 hover:bg-accent hover:text-foreground";
 
 /**
- * The sticky header row above the document: a section outline (one chip per H2,
- * click to jump) once the document is long enough to need one, plus the host's
- * `stickyEnd` slot. Jumping to a section that has H3s opens a second, lighter
- * row of its sub-section chips — only the chosen section's, so a document with
- * many sub-sections keeps a compact outline. It sits OUTSIDE `[data-plan-root]`
- * on purpose — inside, it would take a top-level block id (shifting every
- * persisted `plan-block-N` anchor after it) and add its text to the text-quote
- * search space. No scroll listener and no scroll-spy: the open section is the
- * last chip clicked, and the chrome otherwise just sticks.
+ * Sticky section outline (a chip per H2, then the chosen section's H3s) plus the host's
+ * `stickyEnd` slot. It sits OUTSIDE `[data-plan-root]` so it takes no block id (which
+ * would shift every persisted `plan-block-N` anchor) and stays out of quote search.
  */
 function PlanStickyHeader({
   outline,

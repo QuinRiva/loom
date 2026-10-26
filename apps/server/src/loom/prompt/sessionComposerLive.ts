@@ -1,26 +1,8 @@
 /**
- * The production session composer (Phase 3a-5).
- *
- * The prompt, in reading order: the work-model addendum, the child-readership
- * clause (children only), the identity clause, the role overlay, the ship
- * policy, the role catalogue (only when the surface delegates), the goal
- * context (a child's always; a root's only when it joins work in progress), and — appended per launch, never recorded — the relocation clause.
- * Everything but the relocation clause is the thread's launch identity: written
- * once at its first compose and replayed verbatim by every later compose, and
- * by a `forkFrom` child's or a V2 fork's (thread_fork) first compose (P3-23) —
- * that first launch only: the fork's next compose is its own (DL-740, V1's
- * fork-once replay).
- * A `retro-reviewer` (a fresh root, not a fork) composes with its server-owned
- * overlay. A `handoff-drafter` replays its source when the source has a record
- * and composes fresh when it has none (an upstream-only thread the human was
- * chatting to). A `document-query` thread replays its author's CURRENT record on every launch,
- * never composing its own (the declared tools are the author's prompt-cache key, plan
- * query-threads §2.3), with `T3_LOOM_QUERY_FORK` added: the read-only guard and credential. `env` carries `PI_CACHE_RETENTION` (DL-300), the
- * arm for life, and, per launch, the agent git identity, whose shim directory rides
- * `pathPrepend`. A 1-hour root's launch adds, outside the identity, the keep-alive
- * policy: pi's idle-warming horizon and a longer idle release.
- *
- * @module loom/prompt/sessionComposerLive
+ * The production session composer. All but the per-launch relocation clause is launch identity,
+ * written at first compose and replayed later, and by a fork's first launch only. A `retro-reviewer`
+ * composes with its overlay; a `handoff-drafter` replays its source's record (or composes fresh); a
+ * `document-query` thread replays its author's current record every launch, plus `T3_LOOM_QUERY_FORK`.
  */
 import {
   DOCUMENT_QUERY_ROLE,
@@ -110,126 +92,122 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
   );
 
   /** The thread's identity from scratch: its role, ship policy, catalogue and goal as of now. */
-  const composeIdentity = (
+  const composeIdentity = Effect.fn("sessionComposerLive.composeIdentity")(function* (
     thread: OrchestrationV2AppThread,
     workstream: LoomThreadWorkstream | null,
     projectRoot: string,
     longShare: number,
-  ) =>
-    Effect.gen(function* () {
-      // A V2 `fork` (thread_fork, a UI fork) is a root the human drives; only `subagent` is a child.
-      const isChild = thread.lineage.relationshipToParent === "subagent";
-      const overlay =
-        workstream?.role === RETRO_REVIEWER_ROLE
-          ? {
-              prompt: RETRO_REVIEWER_OVERLAY_PROMPT,
-              delegation: false,
-              tools: RETRO_REVIEWER_TOOLS,
-            }
-          : loadRoleOverlay({ role: workstream?.role ?? null, projectRoot });
-      const catalogue =
-        overlay === undefined || overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
-      const goal =
-        workstream?.goalId == null ? null : yield* loomStore.goals.get(workstream.goalId);
-      const appendSystemPrompt = [
-        WORK_MODEL_ADDENDUM,
-        isChild ? CHILD_READERSHIP_CLAUSE : undefined,
-        threadIdentityClause(
-          thread.id,
-          isChild ? thread.lineage.parentThreadId : null,
-          loomPaths(config),
-        ),
-        overlay?.prompt,
-        shipPolicyPromptBlock(resolveMergeAuthority(projectRoot)),
-        catalogue.length > 0
-          ? [
-              "Available roles for spawning children (built in; a project may add its own under `.t3code/roles/`). A free-text role may still be used when none fits:",
-              ...catalogue.map((role) => `- ${role.name}: ${role.summary}`),
-            ].join("\n")
-          : undefined,
-        // A root the human or a handoff starts has said nothing yet that a goal could
-        // summarise; only a root joining work in progress (its goal already has tasks) needs it.
-        goal === null || goal.deletedAt !== null || (!isChild && goal.tasks.length === 0)
-          ? undefined
-          : goalContextInstruction(goal, {
-              asChildBackground: isChild,
-              anchorTaskId: workstream?.anchorTaskId ?? null,
-            }),
-      ]
-        .filter((part): part is string => part !== undefined && part.trim().length > 0)
-        .join("\n\n");
-      return {
-        appendSystemPrompt,
-        skills: overlay?.skills ?? [],
-        extensions: [extensionPath],
-        env: {
-          PI_CACHE_RETENTION: cacheRetentionForThread(thread.id, !isChild, longShare),
-        },
-        modelSelection: thread.modelSelection,
-        tools: overlay?.tools ?? [],
-      } satisfies LaunchIdentityRecord;
-    });
+  ) {
+    // A V2 `fork` (thread_fork, a UI fork) is a root the human drives; only `subagent` is a child.
+    const isChild = thread.lineage.relationshipToParent === "subagent";
+    const overlay =
+      workstream?.role === RETRO_REVIEWER_ROLE
+        ? {
+            prompt: RETRO_REVIEWER_OVERLAY_PROMPT,
+            delegation: false,
+            tools: RETRO_REVIEWER_TOOLS,
+          }
+        : loadRoleOverlay({ role: workstream?.role ?? null, projectRoot });
+    const catalogue =
+      overlay === undefined || overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
+    const goal = workstream?.goalId == null ? null : yield* loomStore.goals.get(workstream.goalId);
+    const appendSystemPrompt = [
+      WORK_MODEL_ADDENDUM,
+      isChild ? CHILD_READERSHIP_CLAUSE : undefined,
+      threadIdentityClause(
+        thread.id,
+        isChild ? thread.lineage.parentThreadId : null,
+        loomPaths(config),
+      ),
+      overlay?.prompt,
+      shipPolicyPromptBlock(resolveMergeAuthority(projectRoot)),
+      catalogue.length > 0
+        ? [
+            "Available roles for spawning children (built in; a project may add its own under `.t3code/roles/`). A free-text role may still be used when none fits:",
+            ...catalogue.map((role) => `- ${role.name}: ${role.summary}`),
+          ].join("\n")
+        : undefined,
+      // A root the human or a handoff starts has said nothing yet that a goal could
+      // summarise; only a root joining work in progress (its goal already has tasks) needs it.
+      goal === null || goal.deletedAt !== null || (!isChild && goal.tasks.length === 0)
+        ? undefined
+        : goalContextInstruction(goal, {
+            asChildBackground: isChild,
+            anchorTaskId: workstream?.anchorTaskId ?? null,
+          }),
+    ]
+      .filter((part): part is string => part !== undefined && part.trim().length > 0)
+      .join("\n\n");
+    return {
+      appendSystemPrompt,
+      skills: overlay?.skills ?? [],
+      extensions: [extensionPath],
+      env: {
+        PI_CACHE_RETENTION: cacheRetentionForThread(thread.id, !isChild, longShare),
+      },
+      modelSelection: thread.modelSelection,
+      tools: overlay?.tools ?? [],
+    } satisfies LaunchIdentityRecord;
+  });
 
   /**
-   * Own record → the fork source's record verbatim → a fresh composition; first one written.
-   * A replayed record serves the fork's first launch only; its next compose is fresh and final.
-   * The source is a `forkFrom` child's sibling, which must have a record, or a V2 fork's
-   * lineage parent (thread_fork, a UI fork), which composes fresh as a root when it has none
-   * (a V1-imported source never relaunched under V2).
+   * Own record → the fork source's record verbatim → a fresh composition; the first one is written.
+   * A replayed record serves the fork's first launch only. The source is a `forkFrom` child's
+   * sibling (must have a record) or a V2 fork's lineage parent, which composes fresh as a root when
+   * it has none (a V1-imported source never relaunched under V2).
    */
-  const launchIdentity = (
+  const launchIdentity = Effect.fn("sessionComposerLive.launchIdentity")(function* (
     thread: OrchestrationV2AppThread,
     workstream: LoomThreadWorkstream | null,
     projectRoot: string,
     longShare: number,
-  ) =>
-    Effect.gen(function* () {
-      if (workstream?.role === DOCUMENT_QUERY_ROLE && workstream.forkFromThreadId !== null) {
-        const author = workstream.forkFromThreadId;
-        const source = yield* readLaunchIdentity(identityDir, author);
-        if (Option.isNone(source))
-          return yield* new LoomForkSourceIdentityMissing({
-            threadId: thread.id,
-            sourceThreadId: author,
-          });
-        const record: LaunchIdentityRecord = {
-          ...source.value,
-          env: { ...source.value.env, [LOOM_QUERY_FORK_ENV]: "1" },
-          replayedFrom: author,
-        };
-        // Written so the session-profile route serves the author's tools as this thread's.
-        yield* writeLaunchIdentity(identityDir, thread.id, record);
-        return record;
-      }
-      const own = yield* readLaunchIdentity(identityDir, thread.id);
-      if (Option.isSome(own) && own.value.replayedFrom === undefined) return own.value;
-      const firstLaunch = Option.isNone(own);
-      const forkFrom = firstLaunch ? (workstream?.forkFromThreadId ?? null) : null;
-      const sourceThreadId =
-        forkFrom ??
-        (firstLaunch && thread.lineage.relationshipToParent === "fork"
-          ? thread.lineage.parentThreadId
-          : null);
-      const source =
-        sourceThreadId === null
-          ? Option.none<LaunchIdentityRecord>()
-          : Option.map(yield* readLaunchIdentity(identityDir, sourceThreadId), (record) => ({
-              ...record,
-              replayedFrom: sourceThreadId,
-            }));
-      if (forkFrom !== null && Option.isNone(source) && workstream?.role !== HANDOFF_DRAFTER_ROLE)
-        return yield* Effect.fail(
-          new LoomForkSourceIdentityMissing({ threadId: thread.id, sourceThreadId: forkFrom }),
-        );
-      const record = Option.isSome(source)
-        ? source.value
-        : yield* composeIdentity(thread, workstream, projectRoot, longShare);
+  ) {
+    if (workstream?.role === DOCUMENT_QUERY_ROLE && workstream.forkFromThreadId !== null) {
+      const author = workstream.forkFromThreadId;
+      const source = yield* readLaunchIdentity(identityDir, author);
+      if (Option.isNone(source))
+        return yield* new LoomForkSourceIdentityMissing({
+          threadId: thread.id,
+          sourceThreadId: author,
+        });
+      const record: LaunchIdentityRecord = {
+        ...source.value,
+        env: { ...source.value.env, [LOOM_QUERY_FORK_ENV]: "1" },
+        replayedFrom: author,
+      };
+      // Written so the session-profile route serves the author's tools as this thread's.
       yield* writeLaunchIdentity(identityDir, thread.id, record);
       return record;
-    });
+    }
+    const own = yield* readLaunchIdentity(identityDir, thread.id);
+    if (Option.isSome(own) && own.value.replayedFrom === undefined) return own.value;
+    const firstLaunch = Option.isNone(own);
+    const forkFrom = firstLaunch ? (workstream?.forkFromThreadId ?? null) : null;
+    const sourceThreadId =
+      forkFrom ??
+      (firstLaunch && thread.lineage.relationshipToParent === "fork"
+        ? thread.lineage.parentThreadId
+        : null);
+    const source =
+      sourceThreadId === null
+        ? Option.none<LaunchIdentityRecord>()
+        : Option.map(yield* readLaunchIdentity(identityDir, sourceThreadId), (record) => ({
+            ...record,
+            replayedFrom: sourceThreadId,
+          }));
+    if (forkFrom !== null && Option.isNone(source) && workstream?.role !== HANDOFF_DRAFTER_ROLE)
+      return yield* Effect.fail(
+        new LoomForkSourceIdentityMissing({ threadId: thread.id, sourceThreadId: forkFrom }),
+      );
+    const record = Option.isSome(source)
+      ? source.value
+      : yield* composeIdentity(thread, workstream, projectRoot, longShare);
+    yield* writeLaunchIdentity(identityDir, thread.id, record);
+    return record;
+  });
 
-  const compose = (threadId: ThreadId) =>
-    Effect.gen(function* () {
+  const compose = Effect.fn("sessionComposerLive.compose")(
+    function* (threadId: ThreadId) {
       const { thread, providerSessions } = yield* projections.getThreadRecords(threadId, [
         "providerSessions",
       ]);
@@ -273,10 +251,13 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
         pathPrepend: gitShimDir,
         ...(retention === "long" && { idleTimeoutMs: LONG_ROOT_IDLE_TIMEOUT_MS }),
       } satisfies LoomOpenSessionFields;
-    }).pipe(
-      Effect.provide(context),
-      Effect.mapError((cause) => new LoomSessionComposerError({ threadId, cause })),
-    );
+    },
+    (effect, threadId) =>
+      effect.pipe(
+        Effect.provide(context),
+        Effect.mapError((cause) => new LoomSessionComposerError({ threadId, cause })),
+      ),
+  );
 
   return { compose } satisfies LoomSessionComposerShape;
 });

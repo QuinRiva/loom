@@ -526,14 +526,15 @@ it.effect(
           assert.strictEqual(entry.status, expected.status, label("ledger status"));
           assert.strictEqual(entry.session_status, expected.session, label("session status"));
           const row = rows.get(fixture.id);
+          // An archived row's sidecar is migration 1062's backfill (thread search), not the importer's.
           assert.strictEqual(
             row !== undefined,
-            expected.status === "imported",
+            expected.status === "imported" || expected.status.startsWith("archived-"),
             label("sidecar row"),
           );
           assert.strictEqual(
             entry.sidecar_written,
-            row === undefined ? 0 : 1,
+            expected.status === "imported" ? 1 : 0,
             label("sidecar_written"),
           );
 
@@ -585,7 +586,7 @@ it.effect(
             );
           }
 
-          if (row === undefined) continue;
+          if (row === undefined || expected.status !== "imported") continue;
           const started = fixture.turns === true || fixture.userMessage === true;
           assert.strictEqual(
             row.kickoffAt,
@@ -682,7 +683,7 @@ it.effect(
           model: "claude-x",
         });
 
-        // verify.sql C, E and F — every invariant 0.
+        // verify.sql C, E and F: every invariant 0 (archived rows are 1062's backfill, not the import).
         const zero = (statement: string) =>
           sql
             .unsafe<{ n: number }>(statement)
@@ -693,7 +694,7 @@ it.effect(
         yield* zero(`SELECT COUNT(*) AS n FROM loom_thread_workstream WHERE outcome_event_id IS NOT NULL OR unarchived_event_id IS NOT NULL OR last_route IS NOT NULL
         OR json_extract(last_outcome, '$.eventId') IS NOT NULL`);
         yield* zero(`SELECT COUNT(*) AS n FROM loom_thread_workstream w
-        WHERE kickoff_at IS NULL AND EXISTS (SELECT 1 FROM projection_thread_messages u WHERE u.thread_id = w.thread_id AND u.role = 'user')`);
+        WHERE w.archived_at IS NULL AND kickoff_at IS NULL AND EXISTS (SELECT 1 FROM projection_thread_messages u WHERE u.thread_id = w.thread_id AND u.role = 'user')`);
         yield* zero(`SELECT COUNT(*) AS n FROM loom_thread_workstream w, json_each(w.blocked_by) d
         WHERE NOT EXISTS (SELECT 1 FROM loom_thread_workstream x WHERE x.thread_id = d.value)
           AND NOT EXISTS (SELECT 1 FROM json_each(w.attention) a WHERE a.value = 'needs_guidance')`);
@@ -701,7 +702,7 @@ it.effect(
         WHERE json_extract(r.value, '$.to') IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM loom_thread_workstream x WHERE x.thread_id = json_extract(r.value, '$.to'))`);
         yield* zero(`SELECT COUNT(*) AS n FROM loom_thread_workstream w JOIN orchestration_v2_projection_threads p USING (thread_id)
-        WHERE w.parent_thread_id IS NOT NULL
+        WHERE w.parent_thread_id IS NOT NULL AND w.archived_at IS NULL
           AND (json_extract(p.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'
             OR json_extract(p.payload_json, '$.lineage.parentThreadId') IS NOT w.parent_thread_id)`);
         yield* zero(`SELECT COUNT(*) AS n FROM projection_threads t JOIN orchestration_v2_projection_threads p USING (thread_id)

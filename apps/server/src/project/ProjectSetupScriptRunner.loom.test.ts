@@ -12,6 +12,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Queue from "effect/Queue";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerSettings from "../serverSettings.ts";
@@ -64,6 +65,7 @@ const runWith = <A, E, R>(
   terminal: Pick<TerminalService, "open" | "write"> &
     Partial<Pick<TerminalService, "subscribe" | "closeIdle">>,
   effect: Effect.Effect<A, E, R>,
+  fileSystem: Layer.Layer<FileSystem.FileSystem> = Layer.empty as never,
 ) =>
   effect.pipe(
     Effect.provide(
@@ -81,6 +83,7 @@ const runWith = <A, E, R>(
             }),
             ServerSettings.layerTest(),
             NodeServices.layer,
+            fileSystem,
           ),
         ),
       ),
@@ -96,11 +99,14 @@ describe("ProjectSetupScriptRunner (loom)", () => {
       const path = yield* Path.Path;
       const worktreePath = yield* fs.makeTempDirectory({ prefix: "t3-setup-pnpm-" });
       yield* fs.writeFileString(path.join(worktreePath, "pnpm-lock.yaml"), "");
-      const write = vi.fn((_input: Parameters<TerminalService["write"]>[0]) => Effect.void);
+      const writes = yield* Queue.unbounded<Parameters<TerminalService["write"]>[0]>();
 
-      yield* runWith(
+      const written = yield* runWith(
         makeProject("bun install", worktreePath),
-        { open: () => Effect.succeed(terminalSession(worktreePath)), write },
+        {
+          open: () => Effect.succeed(terminalSession(worktreePath)),
+          write: (input) => Queue.offer(writes, input).pipe(Effect.asVoid),
+        },
         Effect.gen(function* () {
           const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
           yield* runner.runForThread({
@@ -108,14 +114,17 @@ describe("ProjectSetupScriptRunner (loom)", () => {
             projectCwd: worktreePath,
             worktreePath,
           });
+          // A quiet shell is typed into after upstream's readiness fallback.
+          yield* TestClock.adjust("3 seconds");
+          return yield* Queue.take(writes);
         }),
       );
 
-      expect(write).toHaveBeenCalledWith({
+      expect(written).toEqual({
         threadId: "thread-1",
         terminalId: "setup-setup",
         data: expect.stringMatching(
-          /^\( pnpm install --frozen-lockfile\r\); printf '\\n__T3_SETUP_DONE___[0-9a-f]{32}:%s\\n' "\$\?"\r$/,
+          /^ \( pnpm install --frozen-lockfile\r\); printf '\\n__T3_SETUP_DONE___[0-9a-f]{32}:%s\\n' "\$\?"\r$/,
         ) as unknown as string,
       });
     }).pipe(Effect.provide(NodeServices.layer)),
@@ -141,34 +150,45 @@ describe("ProjectSetupScriptRunner (loom)", () => {
       yield* fs.writeFileString(path.join(worktreePath, ".git"), `gitdir: ${gitDir}\n`);
       const readState = fs
         .readFileString(path.join(gitDir, WORKTREE_SETUP_STATE_FILE))
-        .pipe(Effect.map((raw) => JSON.parse(raw) as WorktreeSetupState));
-      // The settled breadcrumb is written by a detached fiber through real file
-      // I/O, so poll on the live clock (the timeout case drives the test clock).
-      const awaitStateStatus = (status: string) =>
-        Effect.gen(function* () {
-          for (let attempt = 0; attempt < 500; attempt++) {
-            if ((yield* readState).status === status) break;
-            yield* Effect.sleep(10).pipe(TestClock.withLive);
-          }
-          return yield* readState;
-        });
+        .pipe(Effect.flatMap((raw) => Effect.try(() => JSON.parse(raw) as WorktreeSetupState)));
+      // A detached fiber writes the settled breadcrumb, so each state write is signalled.
+      const stateWrites = yield* Queue.unbounded<void>();
+      const signallingFileSystem = Layer.succeed(FileSystem.FileSystem, {
+        ...fs,
+        writeFileString: (file, data, options) =>
+          fs
+            .writeFileString(file, data, options)
+            .pipe(
+              Effect.ensuring(
+                file.endsWith(WORKTREE_SETUP_STATE_FILE)
+                  ? Queue.offer(stateWrites, undefined)
+                  : Effect.void,
+              ),
+            ),
+      });
+      // A read can land mid-write (truncated file); the write's own signal follows it.
+      const awaitStateStatus = Effect.fn("awaitStateStatus")(function* (status: string) {
+        while (true) {
+          const state = yield* readState.pipe(Effect.option);
+          if (Option.isSome(state) && state.value.status === status) return state.value;
+          yield* Queue.take(stateWrites);
+        }
+      });
 
-      let listener: ((event: TerminalEvent) => Effect.Effect<void>) | null = null;
-      let written = "";
+      const listeners = new Set<(event: TerminalEvent) => Effect.Effect<void>>();
+      const writes = yield* Queue.unbounded<string>();
       const closeIdle = vi.fn((_input: Parameters<TerminalService["closeIdle"]>[0]) => Effect.void);
 
       return yield* runWith(
         makeProject("echo setup", "/repo/project"),
         {
           open: () => Effect.succeed(terminalSession(worktreePath)),
-          write: (input) => Effect.sync(() => void (written = input.data)),
+          write: (input) => Queue.offer(writes, input.data).pipe(Effect.asVoid),
           closeIdle,
           subscribe: (next) =>
             Effect.sync(() => {
-              listener = next;
-              return () => {
-                listener = null;
-              };
+              listeners.add(next);
+              return () => listeners.delete(next);
             }),
         },
         Effect.gen(function* () {
@@ -188,20 +208,24 @@ describe("ProjectSetupScriptRunner (loom)", () => {
           yield* afterStart;
           if (settle === null) return { state: yield* awaitStateStatus("failed"), closeIdle };
 
-          const sentinel = /__T3_SETUP_DONE___[0-9a-f]{32}:/.exec(written)?.[0];
+          yield* TestClock.adjust("3 seconds");
+          const sentinel = /__T3_SETUP_DONE___[0-9a-f]{32}:/.exec(yield* Queue.take(writes))?.[0];
           expect(sentinel).toBeDefined();
-          yield* listener!({
+          const output: TerminalEvent = {
             type: "output",
             threadId: "thread-1",
             terminalId: "setup-setup",
+            sequence: 1,
             // The prompt redraw after the sentinel is what upstream's completion waits for.
             data: `${sentinel}${settle}\r\n$ `,
-          });
+          };
+          yield* Effect.forEach([...listeners], (listener) => listener(output), { discard: true });
           return {
             state: yield* awaitStateStatus(settle === 0 ? "ready" : "failed"),
             closeIdle,
           };
         }),
+        signallingFileSystem,
       );
     }).pipe(Effect.provide(NodeServices.layer));
 
@@ -242,9 +266,9 @@ describe("ProjectSetupScriptRunner (loom)", () => {
       const statePath = path.join(gitDir, WORKTREE_SETUP_STATE_FILE);
       const ready = '{"status":"ready","scriptId":"setup"}';
       yield* fs.writeFileString(statePath, ready);
-      const write = vi.fn((_input: Parameters<TerminalService["write"]>[0]) => Effect.void);
+      const writes = yield* Queue.unbounded<string>();
 
-      yield* runWith(
+      const written = yield* runWith(
         makeProject("bun install", worktreePath, [
           {
             id: "clean",
@@ -255,7 +279,10 @@ describe("ProjectSetupScriptRunner (loom)", () => {
             runOnSettle: true,
           },
         ]),
-        { open: () => Effect.succeed(terminalSession(worktreePath)), write },
+        {
+          open: () => Effect.succeed(terminalSession(worktreePath)),
+          write: (input) => Queue.offer(writes, input.data).pipe(Effect.asVoid),
+        },
         Effect.gen(function* () {
           const runner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
           yield* runner.runForThread({
@@ -264,10 +291,12 @@ describe("ProjectSetupScriptRunner (loom)", () => {
             worktreePath,
             trigger: "settle",
           });
+          yield* TestClock.adjust("3 seconds");
+          return yield* Queue.take(writes);
         }),
       );
 
-      expect(write.mock.calls[0]?.[0].data).toBe("bun install\r");
+      expect(written).toBe(" bun install\r");
       expect(yield* fs.readFileString(statePath)).toBe(ready);
     }).pipe(Effect.provide(NodeServices.layer)),
   );

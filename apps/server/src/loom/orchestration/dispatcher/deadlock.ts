@@ -1,11 +1,8 @@
 /**
- * The deadlock notice (V1 issue #280), ported with logic unchanged minus the
- * fan-in clauses: every unfinished child of a parent is not held, not started
- * and waiting on another stuck sibling, so only re-planning the graph can
- * release one. `deadlockedNodes` (shared with the board's badge) decides; this
- * module keys the episode and composes the text.
- *
- * @module loom/orchestration/dispatcher/deadlock
+ * The deadlock notice, ported from V1 minus the fan-in clauses: every unfinished child of a parent
+ * is not held, not started and waiting on another stuck sibling, so only re-planning the graph can
+ * release one. `deadlockedNodes` (shared with the board's badge) decides; this module keys the
+ * episode and composes the text.
  */
 import type { LoomThreadWorkstream, ThreadId } from "@t3tools/contracts";
 import {
@@ -55,5 +52,5 @@ export const buildDeadlockMessage = <
         `- ${child.role ?? "sub-thread"} \`${child.id}\`${child.title ? ` (“${child.title}”)` : ""}: ${describeUnsatisfiedDependency(child, siblingsById) ?? "waiting"}`,
     ),
     "",
-    "A reviewer must not wait on work that waits on the thread it reviews. Ways out: re-point dependencies (`mcp__t3-code__workstream_set_dependencies`), dissolve a review gate (`mcp__t3-code__workstream_set_outcome` done on the reviewer — cancelling it would block the dependents that wait on it), or cancel nodes you no longer need.",
+    "A reviewer must not wait on work that waits on the thread it reviews. Ways out: re-point dependencies (`mcp__t3-code__workstream_set_dependencies`), dissolve a review gate (`mcp__t3-code__workstream_set_outcome` done on the reviewer; cancelling it would block the dependents that wait on it), or cancel nodes you no longer need.",
   ].join("\n");

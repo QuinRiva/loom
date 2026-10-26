@@ -1,21 +1,7 @@
 /**
- * `mcp__t3-code__goal_handoff` (P3-15): a NEW goal and its root session in a fresh worktree
- * of the target project, started on the brief at once (not held). The order is
- * the point: the thread exists and carries the goal BEFORE its first message,
- * so the first session composes with the goal context. Upstream's launch
- * claims an existing empty thread (`reuseExistingThread`) and holds the
- * brief's run in `preparing` until the worktree and setup script are ready, so
- * the brief is the first message and its turn runs in the new worktree:
- *
- *   goals.upsert → thread.create → thread.goal.set →
- *   ThreadLaunchService.launch(worktree, initialMessage = brief) →
- *   thread.handoff.record on the caller.
- *
- * A cheap model first checks the inbox for an open thread already doing the
- * work (`findHandoffDuplicates`); a likely duplicate refuses with its candidates
- * unless `notDuplicateOf` overrides, and a failed check proceeds.
- *
- * Ported from V1's `GoalHandoffHttp.ts` (which staged the root for a human send).
+ * `mcp__t3-code__goal_handoff`: a new goal and root in a fresh worktree, started on the brief. The
+ * thread carries the goal before its first message so the first session composes with it. A cheap
+ * model refuses a likely duplicate unless `notDuplicateOf` overrides; a failed check proceeds.
  *
  * @module mcp/toolkits/workstream/handlers/goalHandoff
  */
@@ -75,7 +61,7 @@ export const goalHandoff = Effect.fn("LoomToolkit.goalHandoff")(function* (
   if (matches.length !== 1)
     return yield* fail(
       projectRef === undefined || projectRef.length === 0
-        ? `This thread's project is an inbox — handoffs must name a target project. Pass 'project' as one of: ${titles}.`
+        ? `This thread's project is an inbox: handoffs must name a target project. Pass 'project' as one of: ${titles}.`
         : `Project '${projectRef}' ${matches.length === 0 ? "was not found" : "is ambiguous"}. Active projects: ${titles}.`,
     );
   const project = matches[0]!;

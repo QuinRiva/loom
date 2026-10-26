@@ -1,10 +1,7 @@
 /**
- * loom: a promoted query-thread exchange reaches its author as a chip in the author's composer
- * (plans/plan-query-threads/plan.mdx §2.5). The composer draft is client state, so the
- * promotion (an event on the query thread) is seeded into it once per client, never forced: the
- * id is recorded on seed (`workstreamUiStore`, tier 1), so deleting the chip dismisses it for
- * good, and editing or sending it is the human's as with any annotation. Mounted by the
- * author's ChatView.
+ * loom: a promoted query-thread exchange seeds once per client into the author's composer as a
+ * chip, never forced: the id is recorded on seed (`workstreamUiStore`, tier 1), so deleting the
+ * chip dismisses it for good. Mounted by the author's ChatView.
  */
 import { useAtomValue } from "@effect/atom-react";
 import {

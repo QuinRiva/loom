@@ -45,6 +45,10 @@ export interface EnvironmentConnectionLease {
 export type RouteCheck = "answered" | "silent" | "unchecked";
 
 const ROUTE_CHECK_TIMEOUT_MS = 2_500;
+// Preferred direct routes share one head start, so a relay connection does not
+// wait the full probe timeout for a LAN the device has already left. A route
+// that misses it connects over relay, then upgrades with a second reconnect.
+const ROUTE_CHECK_HEAD_START_MS = 500;
 
 export class ConnectionDriver extends Context.Service<
   ConnectionDriver,
@@ -78,6 +82,7 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
     routes.length === 1
       ? []
       : yield* Effect.forEach(routes, (route) => Effect.forkChild(checkRoute(route)));
+  const headStart = yield* Effect.forkChild(Effect.sleep(ROUTE_CHECK_HEAD_START_MS));
   const attemptScope = yield* Scope.Scope;
   let transient: ConnectionAttemptError | undefined;
   let blocked: ConnectionAttemptError | undefined;
@@ -95,11 +100,17 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
     }
     return result;
   });
-  const silent: Array<ConnectionRoute> = [];
+  const silent: Array<{ readonly route: ConnectionRoute; readonly index: number }> = [];
   for (const [index, route] of routes.entries()) {
-    const check = checks.length === 0 ? "unchecked" : yield* Fiber.join(checks[index]!);
+    const check =
+      checks.length === 0
+        ? "unchecked"
+        : yield* Effect.raceFirst(
+            Fiber.join(checks[index]!),
+            Fiber.join(headStart).pipe(Effect.as<RouteCheck>("silent")),
+          );
     if (check === "silent") {
-      silent.push(route);
+      silent.push({ route, index });
       continue;
     }
     const result = yield* attempt(route);
@@ -107,7 +118,16 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
     // An incompatible server is the same server on every route.
     if (result.failure.reason === "unsupported") return yield* result.failure;
   }
-  for (const route of silent) {
+  // A slow route that answered after the head start goes before one that is
+  // still dead, which can hold an attempt open far longer than its probe.
+  const late = yield* Effect.forEach(silent, ({ index }) => Fiber.join(checks[index]!), {
+    concurrency: "unbounded",
+  });
+  const retry = [
+    ...silent.filter((_, position) => late[position] !== "silent"),
+    ...silent.filter((_, position) => late[position] === "silent"),
+  ];
+  for (const { route } of retry) {
     const result = yield* attempt(route);
     if (result._tag === "Success") return result.success;
     if (result.failure.reason === "unsupported") return yield* result.failure;
@@ -122,19 +142,15 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
   );
 });
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const resolver = yield* ConnectionResolver.ConnectionResolver;
   const sessions = yield* RpcSession.RpcSessionFactory;
   const httpClient = yield* HttpClient.HttpClient;
 
-  // loom: classify a rejected cookie-auth upgrade as blocked-on-sign-in.
-  // A browser WebSocket hides the HTTP status of a rejected upgrade, so a
-  // cookie-authenticated primary connection whose socket fails to establish is
-  // indistinguishable from a transient outage at the socket layer. Probe the
-  // environment's auth session endpoint over HTTP: a reachable server that
-  // reports the session as unauthenticated means the upgrade was rejected
-  // (expired/invalid session), which is blocked-on-sign-in, not transient.
+  // loom: a browser WebSocket hides a rejected upgrade's HTTP status, so a failed cookie-auth
+  // connection looks transient. Probe the auth session endpoint over HTTP: a reachable server
+  // reporting the session unauthenticated means blocked-on-sign-in, not a transient outage.
   const reclassifyEstablishmentFailure = Effect.fnUntraced(function* (
     prepared: PreparedConnection,
     error: ConnectionAttemptError,

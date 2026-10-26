@@ -3,16 +3,9 @@ import { z } from "zod";
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 
 /**
- * The `<Diagram>` block — a simple positioned box-and-arrow renderer. Nodes carry
- * `x`/`y` as 0–100 percentages; edges are drawn as SVG arrows between node
- * centres; notes are free-floating labels. No Mermaid / roughjs — this is the
- * lightweight positional graph.
- *
- * Wire contract: the graph is authored as flat top-level attributes —
- * `nodes`/`edges`/`notes` (JSON-literal array expressions) plus a `caption`
- * string. `toAttrs`/`fromAttrs` are a straight flat map (no `data={…}` wrapper),
- * so authored `<Diagram nodes={…} edges={…} />` round-trips byte-stably and
- * matches the runtime `diagramSchema` shape.
+ * `<Diagram>`: a lightweight positioned box-and-arrow graph (node `x`/`y` are 0–100
+ * percentages). `nodes`/`edges`/`notes`/`caption` are flat top-level attributes with no
+ * `data={…}` wrapper, so authored source round-trips byte-stably.
  */
 
 export interface DiagramNode {

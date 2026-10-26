@@ -22,12 +22,9 @@ interface StagedKickoffCardProps {
 }
 
 /**
- * loom: the empty-conversation offer on a staged (held) root — a `mcp__t3-code__goal_continue`
- * successor or a `mcp__t3-code__thread_fork` root (Phase 2 D10, plan P3-19b): its kickoff
- * brief rendered as markdown, with Launch (send it as the first message through
- * the composer's ordinary send — that human message is what clears `held`) and
- * Edit first (drop it into the composer as a draft). There is no release
- * control: the first human message is the release.
+ * loom: the kickoff offer on a staged (held) root, from `goal_continue` or `thread_fork`.
+ * Launch sends the brief through the composer's ordinary send; there is no release control,
+ * because the first human message is what clears `held`.
  */
 export const StagedKickoffCard = memo(function StagedKickoffCard({
   environmentId,

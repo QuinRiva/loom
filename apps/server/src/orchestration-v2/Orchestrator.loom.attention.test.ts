@@ -1,9 +1,7 @@
 /**
- * t-attention (plan §2 rule 4, D19, DL-194, DL-195): a stored hold survives
- * every non-human turn and clears only when a human's or the parent's turn
- * starts, or an outcome is written. Also rule 0 (a continuation of a thread
- * that is not continued is an accepted no-op) and the server-side
- * `humanAuthored` stamp.
+ * A stored hold survives every non-human turn and clears only when a human's or the parent's turn
+ * starts, or an outcome is written. Also: continuing a not-continued thread is an accepted no-op,
+ * and the server-side `humanAuthored` stamp.
  */
 import { assert, describe, it } from "@effect/vitest";
 import {

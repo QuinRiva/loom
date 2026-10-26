@@ -1,31 +1,8 @@
 /**
- * Loom's pi extension: one file assembled from named parts and loaded by the
- * composer as the `--extension` before upstream's bridge (DR-13). It reads
- * upstream's `T3_MCP_URL` / `T3_MCP_BEARER_TOKEN` and talks to the two REST
- * survivors beside `/mcp` (P3-3, `loom/http/loomAgentRoutes.ts`). Parts here:
- * `toolProfile` (the session profile applied at `session_start` and re-asserted
- * at every `before_agent_start`, P3-4, keeping `tool_search` discoveries, and Loom's
- * preamble in place of pi's tools/rules/docs sections) and
- * `askUserQuestion` (`mcp__t3-code__ask_user_question` over ask + long-poll),
- * then 3c's `search-guard`, `command-guards` (rewrite or block shell commands agents
- * repeatedly mistype), `pgrep-self-match` (a bash call naming pgrep/pkill that the guard let
- * through runs base64-encoded so its pattern never matches the tool shell's own argv),
- * `prompt-debug`, and `cacheWarmingGate` (no idle cache
- * warming after a successful submit; a 1-hour root's idle keep-alive ping always warms;
- * the resulting plan is reported to `/cache-warming` for the sidebar's cache gauge) and
- * `consultGuard` (a consult fork refuses `edit` / `write`), `queryGuard` (so does a query
- * thread) and `systemHead` (pi's system message
- * moved to the head of each request, so a `tool_search` load appends instead of rewriting the
- * prompt cache) and `backgroundJobs` (`bg_start` / `bg_wait`, a wake when a job exits, the
- * `loom-jobs` status line the adapter reads as a session pin, and a refused submit while a job runs)
- * (`loomExtensionParts/`).
- *
- * A part's `source` is the body of `(pi, ctx) => { … }` with
- * `ctx = { profile(), endpoint, token }`; module-level `loomFetch(ctx, method,
- * path, body?, signal?)` and `pause(ms, signal?)` are in scope. The string
- * imports nothing: pi loads it from the cache dir, outside this package.
- *
- * @module provider/Drivers/Pi/loomExtension
+ * Loom's pi extension: one file assembled from `loomExtensionParts/`, loaded as the `--extension`
+ * before upstream's bridge. A part's `source` is the body of `(pi, ctx) => { … }` with
+ * `ctx = { profile(), endpoint, token }` and `loomFetch`/`pause` in scope. It imports nothing:
+ * pi loads it from the cache dir, outside this package.
  */
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -137,7 +114,7 @@ export const askUserQuestionPart: LoomExtensionPart = {
   source: `
 const prose = ${json(proseOf("ask_user_question"))};
 const REFUSAL = ${json(HUMAN_INPUT_REFUSAL)};
-// Registered hidden — so tool_search cannot surface it — until a human has written to the
+// Registered hidden (so tool_search cannot surface it) until a human has written to the
 // thread; the profile part's apply() calls syncHumanInput() each turn to re-register it direct.
 let askExposure;
 const registerAsk = (exposure) => {

@@ -1,24 +1,8 @@
 /**
- * Account-scoped subscription usage — loom's server-internal telemetry shape.
- *
- * Upstream owns the user-facing usage story (`ServerProviderUsageLimits` on the
- * provider instance, rendered by the Usage → Limits page), and the
- * {@link SubscriptionUsagePoller} feeds it for pi. What upstream's shape cannot
- * express is what loom's *failover* needs: per-subscription-account keying
- * (loom runs one pi instance over several accounts), Codex's explicit
- * `limitReached`, and per-model carve-out windows resolved to model ids. So the
- * exhaustion side keeps this richer shape, entirely inside the server — nothing
- * here crosses the wire.
- *
- * Two keys, as before:
- *   - **routing key** (`providerInstanceId ?? providerName`): the instance an
- *     account belongs to. Exhaustion marks and failover routing key by this, so
- *     pooled accounts of one instance share it (the router fails over between
- *     them; the instance is exhausted only when ALL its accounts are).
- *   - **storage key** (routing key + label): distinguishes pooled accounts
- *     within one instance. Falls back to the routing key when there is no label.
- *
- * @module provider/accountUsage.loom
+ * Account-scoped subscription usage, server-internal (nothing crosses the wire): failover needs
+ * per-account keying, Codex's `limitReached` and per-model windows that upstream's shape lacks.
+ * The routing key (`providerInstanceId ?? providerName`) keys exhaustion marks and failover, so an
+ * instance is exhausted only when ALL its pooled accounts are; the storage key adds the label.
  */
 
 /** `primary` ≈ the 5-hour rolling window, `secondary` ≈ the weekly window. */

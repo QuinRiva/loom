@@ -1,17 +1,6 @@
 /**
- * Loom fork-owned server layer bundles.
- *
- * Loom (fork of `pingdotgg/t3code`) adds its own provider sweeps to the server
- * layer graph. To keep `server.ts` mergeable against upstream, those additions
- * live here as named bundles and are spliced into the upstream composition with
- * one `// loom:`-marked line each, rather than scattered `provideMerge` steps.
- *
- * Pull 9 (Phase 1) split this file: the V1-engine bundles (reactors, read lane,
- * provisioner, worktree lock/lease, MCP HTTP routes) are in
- * `quarantine/apps/server/src/loom/serverLayers.ts` (detach ledger DT-24); the
- * provider-layer halves below have no engine dependency and survive.
- *
- * @module loom/serverLayers
+ * Loom's server layer bundles, spliced into upstream's `server.ts` with one `// loom:` line each so
+ * that file stays mergeable.
  */
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -57,22 +46,9 @@ import { SubscriptionUsagePollerLive } from "../provider/SubscriptionUsagePoller
 import { LoomAskReactorLive } from "./userInput/askUserQuestion.ts";
 
 /**
- * Track 3c's driver economics (plan seam 19), reaching the runtime through
- * `LoomProviderRuntimeLive`:
- *
- * - `RerouteSweepLive` — the cross-vendor reroute, move-back and no-reset resume
- *   for pi threads stopped on a usage limit (3c-2; `loom_thread_reroute`, 1050).
- * - `UsageLedgerReactorLive` — one `loom_usage_ledger` row per terminal provider
- *   turn (3c-3; 1049).
- * - `LoomUsageLedger.layer` — seam 11's `threadSpend` / `topSpend`, exposed to
- *   the runtime for 3d's ws methods.
- *
- * The fourth member, the pi adapter's live hooks ({@link LoomPiAdapterHooksLive}:
- * quota classifier, resume sanitiser, steer stash), cannot sit here: drivers
- * are built inside the provider-instance registry, which captures its context
- * below this position, so the hooks ride {@link LoomProviderHealthLive}.
- * Every service these read is already in the runtime here except the Loom
- * sidecar store, which this export brings.
+ * Reroute sweep, usage-ledger reactor and spend queries, plus the Loom sidecar store. The pi adapter
+ * hooks cannot sit here: drivers are built inside the provider-instance registry, which captures its
+ * context below this position, so they ride {@link LoomProviderHealthLive}.
  */
 export const LoomDriverEconomicsLive = Layer.mergeAll(
   RerouteSweepLive,
@@ -87,15 +63,9 @@ export const LoomProviderRuntimeLive = Layer.mergeAll(
 );
 
 /**
- * The pi adapter's Loom hooks (Phase 3 track 3c). The quota classifier reads
- * the health marks at classification time, so a quota error with no reset in
- * its text takes the account window's; a usage limit it finds is marked on the
- * model (until its reset, or the registry's 30-minute default), which is what
- * the reroute sweep waits on before resuming a failure upstream cannot arm. The
- * sanitiser rewrites codex tool ids before an Anthropic-family resume (3c-2);
- * the steer stash keeps steers pi accepted in `<stateDir>/pending-steering/`
- * until their turn ends, for 3b's startup pass to redeliver (3c-3, seam 20). Cache touches
- * (a request ending, an idle ping) go to {@link LoomCacheBroadcast} for the sidebar's ring.
+ * The quota classifier marks a found usage limit on the model (until reset, else 30 min), which the
+ * reroute sweep waits on; the sanitiser rewrites codex tool ids before an Anthropic resume; the steer
+ * stash keeps accepted steers until their turn ends; cache touches go to {@link LoomCacheBroadcast}.
  */
 export const LoomPiAdapterHooksLive = Layer.effect(
   LoomPiAdapterHooks,
@@ -141,30 +111,18 @@ export const LoomPiAdapterHooksLive = Layer.effect(
 );
 
 /**
- * Exhaustion state (`ProviderHealthRegistryLive`), which also holds the
- * ephemeral account-usage telemetry the marks derive from (fed by
- * `SubscriptionUsagePoller`). Its `providerFailover` settings subscription is
- * detached in pull 9 (ledger DT-92).
- *
- * It also carries {@link LoomPiAdapterHooksLive}: this export sits below the
- * provider-instance registry in `server.ts`, so every `PiAdapterV2Driver.create`
- * yields the live hooks with no `server.ts` line of their own. The cache-touch broadcast is
- * built here for the same reason and merged out, so the runtime (the shell stream, the
- * touch writer in {@link LoomGoalBroadcastLive}) shares the drivers' instance.
+ * Exhaustion state and account-usage telemetry, plus {@link LoomPiAdapterHooksLive} and the cache
+ * broadcast: this export sits below the provider-instance registry in `server.ts`, so every pi
+ * driver and the runtime share one instance with no `server.ts` line of their own.
  */
 export const LoomProviderHealthLive = LoomPiAdapterHooksLive.pipe(
   Layer.provideMerge(Layer.mergeAll(ProviderHealthRegistryLive, LoomCacheBroadcast.layer)),
 );
 
 /**
- * Loom's sidecar store and the goal broadcast (with its cascade reactor),
- * exposed to the runtime so `ws.ts` (and Phase 3a's handlers) can read goals
- * and publish/subscribe goal shell items. Pull 9 Phase 2 §4. (The Phase 2
- * re-drive reactor that lived here is absorbed into 3b's dispatcher pass.)
- * Also `mcp__t3-code__consult_thread`'s fork transport (3a-3), which the MCP toolkit captures,
- * the emergent-goal deriver the goal tools and the emergent-goal reactor share (DL-671),
- * and the model behind `mcp__t3-code__goal_handoff`'s duplicate check.
- * Also the writer persisting cache touches from {@link LoomProviderHealthLive}'s broadcast.
+ * Loom's sidecar store, goal broadcast and cascade reactor for `ws.ts` and the handlers; also
+ * `consult_thread`'s fork transport, the emergent-goal deriver, the `goal_handoff` duplicate
+ * checker's model, and the writer persisting cache touches.
  */
 export const LoomGoalBroadcastLive = EmergentGoalsLive.pipe(
   Layer.provide(EmergentGoalGeneratorPiLive),
@@ -180,12 +138,9 @@ export const LoomGoalBroadcastLive = EmergentGoalsLive.pipe(
 );
 
 /**
- * The workstream control plane (Phase 3 Track 3b), every worker started after
- * server activation: the dispatcher pass — re-drive, promotion and every wake —
- * the liveness sweep (which advises through the dispatcher), the emergent-goal
- * reactor, the `/handoff` drafter reactor and the review-snapshot reactor (a worktree snapshot
- * per human message, plans/change-review). The startup pass itself is
- * `loomStartupRecovery`'s (DL-386).
+ * The workstream control plane, every worker started after activation: dispatcher pass, liveness
+ * sweep, emergent-goal, `/handoff` drafter and review-snapshot reactors. The startup pass is
+ * `loomStartupRecovery`'s.
  */
 export const LoomControlPlaneLive = Layer.mergeAll(
   WorkstreamLivenessSweepLive, // loom: 3b-3 — the sweep hands slow-tool/spinning advisories to the dispatcher

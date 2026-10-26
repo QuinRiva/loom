@@ -222,7 +222,7 @@ All gated by Z3 + Z4.
   manifests, re-add only the fork's genuine new deps, then **regenerate** `pnpm-lock.yaml`
   (don't merge it). Re-sync `.repos/` from upstream tooling.
 - **Z20 plans/docs/goals artefacts — DROP from merge.** `.plans/**`, `docs/{design,plans,
-research}/**`, `goals/**` (now non-authoritative), `progress.md`, `.pi/manager/**`,
+  research}/**`, `goals/**` (now non-authoritative), `progress.md`, `.pi/manager/**`,
   `AGENTS.md` edits — fork-only, no conflict, not features. Carry through or drop freely;
   **keep this `docs/upstream-sync/` set.**
 - **Z7 follow-up (later, optional):** verify the re-registered other harnesses actually

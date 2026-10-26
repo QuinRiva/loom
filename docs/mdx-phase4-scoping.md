@@ -76,7 +76,7 @@ path, and it must be understood precisely:
   because the rough.js overlay must measure laid-out elements — and they
   compensate with a DOM-based sanitiser (`sanitizeWireframeHtml`): parse via
   `DOMParser`, drop blocked tags (`script,style,iframe,object,embed,link,meta,
-base,form,noscript,frame,frameset,applet,marquee,portal`), strip every `on*`
+  base,form,noscript,frame,frameset,applet,marquee,portal`), strip every `on*`
   handler, strip URL attributes whose **browser-resolved** scheme isn't safe
   (defeats `java\tscript:` / entity obfuscation), strip dangerous inline styles
   (`expression()`, `position:fixed`, huge `z-index`), and strip host/Tailwind

@@ -5,13 +5,9 @@ import * as Effect from "effect/Effect";
 import { EmbeddingError, type EmbeddingProvider, splitTitle } from "./EmbeddingProvider.loom.ts";
 
 /**
- * Vertex AI, native REST (its OpenAI-compatible embeddings route returns HTTP
- * 500 for the Gemini embedding models). Auth is Application Default Credentials.
- *
- * - `gemini-embedding-001`: `:predict` in `location`, one text per request,
- *   `task_type` framing (+ `title` on documents).
- * - `gemini-embedding-2`: `:embedContent` on `global` only — thread text leaves
- *   the configured region — with in-text framing.
+ * Vertex AI native REST (its OpenAI-compatible route returns 500 for Gemini embeddings), ADC auth.
+ * `gemini-embedding-001`: `:predict` in `location`, one text per request, `task_type` framing.
+ * `gemini-embedding-2`: `:embedContent` on `global` only (text leaves the region), in-text framing.
  */
 export const makeVertexProvider = (settings: {
   readonly project: string;

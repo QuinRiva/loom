@@ -1,11 +1,7 @@
 /**
- * A query thread's read-only posture, as the three places that enforce it name it: the env
- * flag the session composer sets (the pi `query-guard` part refuses `edit` / `write` under it),
- * and the read-only MCP client `ProviderSessionManager` issues on that flag, whose label
- * `callLoomTool` reads to pick the query thread's allow-list over a consult fork's. A leaf:
- * the session manager imports it, so it must not reach back into the MCP toolkit.
- *
- * @module loom/query/queryPosture
+ * A query thread's read-only posture: the env flag the composer sets (the pi `query-guard` part
+ * refuses `edit` / `write` under it) and the read-only MCP client issued on it, whose label
+ * `callLoomTool` reads to pick the query allow-list. A leaf: the session manager imports it.
  */
 import type { ThreadId } from "@t3tools/contracts";
 

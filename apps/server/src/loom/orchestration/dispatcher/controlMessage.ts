@@ -1,17 +1,7 @@
 /**
- * The one builder of a Loom control dispatch (Phase 3 plan "Wake tiers, ids and
- * modes"; strategy risk 7) and the deterministic `server:` command ids every
- * wake keys on. A tier decides the mode and no caller passes one:
- * decision-bearing wakes are `steered` (`queue_after_active`, which upstream's
- * delegated-completion block converts to a steer when the target is running and
- * steerable); FYI wakes are `fyi` (`start_if_idle`, which fails with
- * `LoomDispatchDeferredError` and no receipt while the target is busy).
- *
- * The message id is derived from the command id, so a retried episode lands as
- * the same message; 3b-2 reads "already delivered" from the target's stored
- * messages by that id.
- *
- * @module loom/orchestration/dispatcher/controlMessage
+ * The one builder of a Loom control dispatch and its deterministic `server:` command ids. The tier
+ * picks the mode: `steered` wakes queue after the active turn (upstream steers them in), `fyi` wakes
+ * start only if idle. The message id derives from the command id, so a retry lands as the same message.
  */
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- a pure, synchronous digest; Effect's Crypto is effectful.
 import * as NodeCrypto from "node:crypto";
@@ -100,7 +90,7 @@ export const notifyMarkCommandId = (recordId: string) =>
 /** `thread.peer-message.expire` on the sender when the target finished first or refused it. */
 export const notifyExpireCommandId = (recordId: string) =>
   `server:workstream-notify-expire:${recordId}`;
-/** The `needs_guidance` raise on a thread that reads busy but silent while FYI wakes wait on it (V1 #304). */
+/** The `needs_guidance` raise on a thread that reads busy but silent while FYI wakes wait on it. */
 export const wakeDeferredCommandId = (threadId: ThreadId, silentSince: string) =>
   `server:workstream-wake-deferred:${threadId}:${silentSince}`;
 /** `thread.fork.prepare` on a forkFrom child, issued at promotion (P3-28). */

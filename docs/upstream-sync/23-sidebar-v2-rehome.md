@@ -123,7 +123,7 @@ v2 on for nightly and dev builds") will arrive with:
 4. `apps/web/src/branding.logic.ts` + `branding.test.ts` — **new** upstream code:
    `resolveSidebarV2Default(stageLabel)` (on for `nightly`/`dev`, off otherwise)
    and `resolveSidebarV2Enabled({enabled, configuredByUser, settingsHydrated,
-stageLabel})`. Lands clean (new functions, no loom code there).
+   stageLabel})`. Lands clean (new functions, no loom code there).
 5. `apps/web/src/hooks/useSettings.ts` — upstream's `useSidebarV2Enabled()` body
    delegates to `resolveSidebarV2Enabled`. **This is the one real conflict.**
 

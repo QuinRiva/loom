@@ -1,12 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// The sidebar's agent-started cue: a `goal_handoff` destination root records who
-// started it (`handoff_origin`, JSON `HandoffOrigin`), stamped by the projector on
-// `thread.handoff-recorded`. Backfilled from the callers' existing
-// `handoff_destinations` by the projector's rule (`stampHandoffOrigin`): a
-// `/handoff` drafter, or a source whose record names another drafter, credits the
-// human's source thread as `human` (which wins); any other caller is the `agent`.
+// Who started a `goal_handoff` destination root (`handoff_origin`, JSON `HandoffOrigin`), stamped
+// on `thread.handoff-recorded`. Backfilled from `handoff_destinations` by `stampHandoffOrigin`'s
+// rule: a `/handoff` drafter, or a source naming another drafter, credits the human (which wins);
+// any other caller is `agent`.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`ALTER TABLE loom_thread_workstream ADD COLUMN handoff_origin TEXT`;

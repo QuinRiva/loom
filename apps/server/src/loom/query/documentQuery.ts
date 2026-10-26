@@ -1,19 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * Query threads (plans/plan-query-threads/plan.mdx §2): the MDX viewer's Query asks about a
- * passage in a read-only, visible fork of the document's author (`documentAuthor.ts`: the
- * thread that signed it, else the viewing thread). One
- * query thread serves one revision (the file's content hash) of one document: a question on
- * that revision lands in the live thread as a new human turn; a question after a rewrite
- * supersedes it (outcome done, archived) and forks afresh.
- *
- * The fork is the `/handoff` drafter's (`launchDraftFork`): spawn, `thread.fork.prepare`, then
- * ONE human message carrying the overlay and the first question, so the question is the
- * thread's first turn (a separate kickoff turn drew a reply of its own). A mid-turn author
- * defers the fork; the spawn's `kickoffBriefPath` brief carries the first question so
- * `HandoffDrafterReactor` can send the fork and that message once the author's run ends.
- *
- * @module loom/query/documentQuery
+ * Query threads (plan-query-threads §2): a read-only, visible fork of the document's author per
+ * revision; a question after a rewrite supersedes it and forks afresh. The fork is
+ * `launchDraftFork`'s, its first turn ONE message (overlay then question); a mid-turn author
+ * defers it, and `HandoffDrafterReactor` sends both from the spawn's brief when the run ends.
  */
 import * as NodeCrypto from "node:crypto";
 
@@ -100,10 +90,8 @@ export type DocumentQueryQuestionInput = Omit<DocumentQueryInput, "sourceThreadI
 
 /**
  * The question as the human's own message: one `review-comment` record carrying the passage
- * (`mdxAnchor`), referenced inline ahead of the question text, as the composer's
- * `buildMessageContext` builds an annotation. The record's comment text is empty: the question
- * is the message body, so the agent reads it once. The first question carries the overlay ahead
- * of it (`joinDocumentQueryKickoff`).
+ * (`mdxAnchor`) with empty comment text, referenced ahead of the question body so the agent
+ * reads it once. The first question carries the overlay ahead of it.
  */
 export const buildQuestionDispatch = (input: {
   readonly threadId: ThreadId;
@@ -237,8 +225,8 @@ export const buildDocumentQueryCommands = (
  * fork the author afresh, supersede stale live ones, send the question and record it on the
  * query thread's sidecar. Fails with `LoomWsMethodError`.
  */
-export const askDocumentQuery = (input: DocumentQueryInput) =>
-  Effect.gen(function* () {
+export const askDocumentQuery = Effect.fn("documentQuery.askDocumentQuery")(
+  function* (input: DocumentQueryInput) {
     const orchestrator = yield* OrchestratorV2;
     const store = yield* LoomStoreV2;
     const { author, authorSource, contents, filePath } = yield* resolveDocumentAuthor({
@@ -321,15 +309,15 @@ export const askDocumentQuery = (input: DocumentQueryInput) =>
       authorThreadId,
       authorSource,
     };
-  }).pipe(
-    Effect.catchIf(
-      (error) => error._tag !== "LoomWsMethodError",
-      (cause) =>
-        Effect.fail(
-          new LoomWsMethodError({ method, message: `${method} failed to ask the query.`, cause }),
-        ),
-    ),
-  );
+  },
+  Effect.catchIf(
+    (error) => error._tag !== "LoomWsMethodError",
+    (cause) =>
+      Effect.fail(
+        new LoomWsMethodError({ method, message: `${method} failed to ask the query.`, cause }),
+      ),
+  ),
+);
 
 /**
  * `loom.documentQueryPromote`: a human turn on the query thread asking the fork to distil the
@@ -337,8 +325,8 @@ export const askDocumentQuery = (input: DocumentQueryInput) =>
  * call records the promotion; this only queues the turn. The thread stays open: one review pass
  * may promote several exchanges.
  */
-export const promoteDocumentQuery = (input: DocumentQueryPromoteInput) =>
-  Effect.gen(function* () {
+export const promoteDocumentQuery = Effect.fn("documentQuery.promoteDocumentQuery")(
+  function* (input: DocumentQueryPromoteInput) {
     const promoteMethod = LOOM_WS_METHODS.documentQueryPromote;
     const row = yield* (yield* LoomStoreV2).getWorkstream(input.queryThreadId);
     if (row?.role !== DOCUMENT_QUERY_ROLE || row.deletedAt !== null)
@@ -368,16 +356,16 @@ export const promoteDocumentQuery = (input: DocumentQueryPromoteInput) =>
       dispatchMode: { type: "queue_after_active" },
     });
     return { dispatched: true as const };
-  }).pipe(
-    Effect.catchIf(
-      (error) => error._tag !== "LoomWsMethodError",
-      (cause) =>
-        Effect.fail(
-          new LoomWsMethodError({
-            method: LOOM_WS_METHODS.documentQueryPromote,
-            message: "Could not send the promote turn.",
-            cause,
-          }),
-        ),
-    ),
-  );
+  },
+  Effect.catchIf(
+    (error) => error._tag !== "LoomWsMethodError",
+    (cause) =>
+      Effect.fail(
+        new LoomWsMethodError({
+          method: LOOM_WS_METHODS.documentQueryPromote,
+          message: "Could not send the promote turn.",
+          cause,
+        }),
+      ),
+  ),
+);

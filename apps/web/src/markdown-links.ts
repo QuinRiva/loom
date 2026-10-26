@@ -1,8 +1,9 @@
-import { fileBasename, workspaceRelativeFilePath } from "@t3tools/shared/path";
+import { fileBasename, isAbsolutePath, workspaceRelativeFilePath } from "@t3tools/shared/path";
 import {
   inlineCodeFilePathCandidate,
   isRelativeFilePath,
   normalizeMarkdownLinkDestination,
+  parseMarkdownFileLink,
   resolveMarkdownFileLinkTarget,
 } from "@t3tools/shared/markdownLinks";
 import { parseFileUrlHref, splitFilePathPosition } from "@t3tools/shared/fileLinks";
@@ -12,6 +13,7 @@ import { isTerminalLinkActivation, splitPathAndPosition } from "./terminal-links
 
 export interface MarkdownFileLinkMeta {
   filePath: string;
+  workspaceLookupPath: string | null;
   targetPath: string;
   displayPath: string;
   workspaceRelativePath: string | null;
@@ -66,11 +68,9 @@ export function resolveInlineCodeFileLinkMeta(
       : null;
   }
 
-  // loom: upstream's candidate test additionally demands a path separator or a
-  // `:line` suffix, so a bare `package.json` / `AGENTS.md` never reaches it. The
-  // gate above already required a known file extension, and a bare span is
-  // unanchored, so ChatMarkdown renders it as plain code until a file is
-  // confirmed (`~/loom/unanchoredFileReferences`); it resolves directly here.
+  // loom: upstream's candidate test demands a separator or `:line`, so a bare `AGENTS.md`
+  // falls through and resolves directly; ChatMarkdown keeps such an unanchored span plain code
+  // until the file is confirmed (`~/loom/unanchoredFileReferences`).
   const candidate = inlineCodeFilePathCandidate(text) ?? text;
   return resolveMarkdownFileLinkMeta(
     candidate,
@@ -102,11 +102,8 @@ function workspaceRelativePath(path: string, workspaceRoot: string | undefined):
 }
 
 /**
- * Extensions we are confident denote a real file when they appear as the whole
- * extension of a *bare* code span (no path separator). This is what keeps
- * property accesses like `foo.bar`, `this.state`, `Math.max` or `os.path` from
- * being mistaken for file references while still linking `package.json`,
- * `README.md`, `tsconfig.json`, etc.
+ * loom: extensions that denote a real file in a *bare* code span, so `this.state` or `os.path`
+ * stay code while `package.json` and `README.md` link.
  */
 const KNOWN_INLINE_FILE_EXTENSIONS = new Set([
   "astro",
@@ -217,21 +214,10 @@ function hasPathSeparator(text: string): boolean {
 }
 
 /**
- * Strict, purely-syntactic gate for treating a bare string as a file path. A
- * path reference is overwhelmingly outnumbered by identifiers, commands, types,
- * prose fragments, dates, and flag values, so we only accept a string that
- * carries clear path intent: an explicit absolute/relative prefix, a known file
- * extension, or a path separator paired with a `:line` position suffix. A
- * separator alone is not enough (`a/b`, `and/or`, `01/02/2026`); a bare
- * `name:line` alone is not enough (`error:1`, `port:3000`). Shared by the
- * inline-code, prose, and code-block scanners so detection is identical
- * everywhere — a missed link is cheap, a wrong chip is noise.
- *
- * A separator or a position suffix turns a leading hostname into a URL rather
- * than a path (`example.com/index.html`, `example.com:8080`), so those shapes
- * run {@link looksLikeHostname}. A separator-less bare filename does not: its
- * extension merely collides with a country TLD (`AGENTS.md`, `notes.io`), and
- * such a span only becomes a chip once the file is confirmed to exist.
+ * loom: only clear path intent passes (a prefix, a known extension, or a separator with `:line`;
+ * not `and/or` or `port:3000`), identically for every scanner: a missed link is cheap, a wrong
+ * chip is noise. A separator or position suffix makes a leading hostname a URL, so those run
+ * {@link looksLikeHostname}; a bare `notes.io` only chips once the file is confirmed.
  */
 export function isLinkablePathText(rawText: string): boolean {
   const text = rawText.trim();
@@ -265,11 +251,9 @@ export function isLinkablePathText(rawText: string): boolean {
 }
 
 /**
- * Whether a resolved file path can be served by the out-of-workspace read-only
- * preview surface. Only POSIX absolute paths qualify: the server reads them with
- * host `path.isAbsolute`, so a Windows drive path (`C:\…`) would be rejected on a
- * POSIX host and must instead fall back to the editor. Preview initially targets
- * POSIX absolute paths by design; everything else defers to the editor.
+ * loom: only POSIX absolute paths qualify, because the server checks with host
+ * `path.isAbsolute` and would reject a Windows drive path on a POSIX host; the rest defer to
+ * the editor.
  */
 export function isAbsolutePreviewablePath(path: string): boolean {
   return path.startsWith("/");
@@ -293,10 +277,20 @@ export function resolveMarkdownFileLinkMeta(
 ): MarkdownFileLinkMeta | null {
   const targetPath = resolveMarkdownFileLinkTarget(href, cwd, baseDir);
   if (!targetPath) return null;
-  return buildFileLinkMetaFromTarget(targetPath, cwd);
+  const source = href ? parseMarkdownFileLink(href) : null;
+  return {
+    ...buildFileLinkMetaFromTarget(targetPath, cwd),
+    workspaceLookupPath:
+      source !== null &&
+      !isAbsolutePath(source.path) &&
+      baseDir !== undefined &&
+      workspaceRelativeFilePath(baseDir, cwd) === "."
+        ? source.path
+        : null,
+  };
 }
 
-function buildFileLinkMetaFromTarget(targetPath: string, cwd?: string): MarkdownFileLinkMeta {
+function buildFileLinkMetaFromTarget(targetPath: string, cwd?: string) {
   const { path, line, column } = splitFilePathPosition(targetPath);
   return {
     filePath: path,

@@ -1,10 +1,7 @@
 /**
- * Shared internals for the `node:sqlite` persistence clients: the synchronous
- * connection implementation (DatabaseSync + prepared-statement cache) and the
- * Rpc protocol used between the main-thread worker client and the sqlite
- * worker thread. Both `NodeSqliteClient` (in-process, used for `:memory:`
- * databases) and `SqliteWorker` (worker thread, used for file-backed
- * databases) execute statements through this module.
+ * Shared internals for the `node:sqlite` clients: the synchronous connection (DatabaseSync plus a
+ * prepared-statement cache) and the Rpc protocol to the sqlite worker thread. `NodeSqliteClient`
+ * (in-process, `:memory:`) and `SqliteWorker` (file-backed) both execute through it.
  *
  * @module NodeSqliteConnection
  */
@@ -245,14 +242,9 @@ export interface SqliteWorkerData {
 }
 
 /**
- * Rpc protocol between the main-thread proxy `Connection` and the sqlite
- * worker. Payloads and results are passed through as-is — rows are
- * primitives / strings / Uint8Arrays / bigints, all of which structured
- * clone handles natively. `Schema.Any` (not `Schema.Unknown`) is load-
- * bearing: the Rpc pipeline encodes via `Schema.toCodecJson`, under which
- * `Unknown` maps to a JSON-value validator that rejects bigints and
- * Uint8Arrays, while `Any` passes values through untouched. `SqlError` is a
- * Schema tagged error, so it round-trips the boundary intact.
+ * Rpc protocol between the main-thread proxy `Connection` and the sqlite worker; rows pass through
+ * structured clone as-is. `Schema.Any`, not `Schema.Unknown`, is load-bearing: under
+ * `Schema.toCodecJson`, `Unknown` is a JSON-value validator that rejects bigints and Uint8Arrays.
  */
 export const SqliteWorkerRpcs = RpcGroup.make(
   Rpc.make("Execute", {

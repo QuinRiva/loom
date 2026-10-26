@@ -1,13 +1,9 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// Effort/health meter: per-thread latest context-window snapshot, folded from
-// the durable activity log (the newest `context-window.updated` activity's
-// `toolUses`/`usedTokens`/`maxTokens`) so it is deterministic on replay. Unlike
-// cost (a SUM, REAL NOT NULL DEFAULT 0), these are a LATEST-SNAPSHOT and are
-// genuinely unknown for non-pi threads / before the first activity — so they are
-// INTEGER with a NULL default, letting the UI suppress the chip rather than show
-// a misleading 0.
+// Latest context-window snapshot per thread, folded from the newest `context-window.updated`
+// activity so it is deterministic on replay. NULL (unlike cost's SUM default 0) for non-pi threads
+// and before the first activity, so the UI suppresses the chip rather than show a misleading 0.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const columns = yield* sql<{ name: string }>`PRAGMA table_info(projection_threads)`;

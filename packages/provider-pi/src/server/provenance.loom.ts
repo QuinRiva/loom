@@ -1,25 +1,7 @@
-// LOOM-ONLY. Who wrote each message a model reads, said in-band. Loom records
-// authorship as server-stamped metadata (`createdBy`, `creationSource`,
-// `scheduledTaskId`, `senderThreadId`, `loom.origin`, `loom.humanAuthored`); the
-// pi adapter sends message text verbatim, so until the text itself says who
-// wrote it the model cannot tell a parent's steer from the human's correction.
-// This module is the one source of the label strings and the one derivation
-// from metadata to label: the adapter calls `labelledForModel` on every turn
-// and steer message it sends, so the label lands in pi's session (and so in
-// consult forks, `forkFrom` children and the steer stash) without being stored
-// on the message record the UI renders. Authoring doctrine:
-// docs/architecture/prompt-surface-authoring.md.
-//
-// Scheme: an ordinary bare message is the human's. Every message that is NOT
-// the human's carries a bracketed first line naming its author; the human's own
-// messages are labelled only in a child thread (where every other message is an
-// agent's or the control plane's, the human writes rarely, and the cost of
-// confusing the two is highest). Origins that already frame themselves in their
-// text — the control-plane marker, the notify wrapper, the consult question turn
-// — are left alone, so no message carries two headers. The one exception to
-// "bare is the human's": a slash command (`/name …`) is always sent bare so pi
-// expands it, whoever sent it — the doctrine says so, and `isSlashCommand`
-// keeps that bypass off text that merely starts with a path.
+// LOOM-ONLY. In-band author labels: the pi adapter sends text verbatim and authorship lives only in
+// metadata. `labelledForModel` runs on every turn and steer, so labels reach pi's session and forks
+// without touching the stored record. Non-human messages get a bracketed author line (the human's
+// only in a child thread); self-framed origins and slash commands (pi must expand them) stay bare.
 
 /** The author labels, each the first line of the message it heads. */
 export const AUTHOR_LABELS = {
@@ -65,14 +47,9 @@ export interface AuthoredMessage {
 const UPSTREAM_RESUME_MESSAGE_ID = /^(message:restart-continuation:|limit-resume:)/;
 
 /**
- * The label a message carries, or null when it goes bare: the human's message
- * in a root, and the two origins whose text is already framed at composition
- * (`control_notice`, `notify`). Order matters: a scheduled fire is automation
- * whoever created the task; `humanAuthored` is the server's predicate and wins
- * over `createdBy`. An agent-written root brief always names its sender
- * (`goal_handoff` launches with one; the `goal_continue` restamp sets the
- * predecessor), so a root kickoff WITHOUT a sender is the server's own text —
- * the `/handoff` and `/retro` drafter kickoffs — and is labelled as automation.
+ * The label a message carries, or null when it goes bare (the human's in a root, `control_notice`,
+ * `notify`). Order matters: a scheduled fire is automation whoever made the task, `humanAuthored`
+ * beats `createdBy`, and a root kickoff with no sender is the server's own (`/handoff`, `/retro`).
  */
 export const authorLabel = (message: AuthoredMessage): string | null => {
   const origin = message.loom?.origin;
@@ -102,11 +79,8 @@ export const authorLabel = (message: AuthoredMessage): string | null => {
 export const isSlashCommand = (text: string): boolean => /^\/[^\s/]+(?:\s|$)/.test(text);
 
 /**
- * The text the adapter sends: the label, a blank line, the message. A slash
- * command is sent bare so pi's expansion still sees the command first (its
- * arguments are the rest of the text, so a trailing label is not an option
- * either); the doctrine tells the model that `/` alone does not identify an
- * author.
+ * The label, a blank line, then the message. A slash command goes bare so pi's expansion sees it
+ * first (its arguments are the rest of the text, so no trailing label either).
  */
 export const labelledForModel = (message: AuthoredMessage): string => {
   const label = authorLabel(message);

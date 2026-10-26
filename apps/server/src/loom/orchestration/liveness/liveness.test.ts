@@ -1,13 +1,7 @@
 /**
- * The liveness sweep on the real orchestrator (smoke steps 18, 19): a frozen
- * running child is nudged once then raised `error`, or raised at once when the
- * nudge could not steer; a child inside a printing tool is never a stall and
- * gets one slow-tool advisory; approval waits are exempt and questions are not;
- * a flat work product under an advancing heartbeat is a `spinning` advisory;
- * a provider failure is resumed once, and a failed resume is dead, for a root as
- * for a child; `usage_limit`, a stop, a flagged child and a root the human has
- * since written to are never resumed. The sweep's clock
- * is the TestClock; each test builds its own layer so it starts at 0.
+ * A frozen child is nudged once then raised `error` (at once if the nudge cannot steer); a printing
+ * tool is never a stall; approvals are exempt, questions not; a flat product under a live heartbeat
+ * is `spinning`; a provider failure is resumed once. The clock is the TestClock, per-test layers.
  */
 import { assert, it } from "@effect/vitest";
 import {

@@ -1,18 +1,8 @@
 /**
- * The Loom projector (plans/upstream-pull9-phase2-substrate/plan.mdx §1 event
- * table, §4): folds Loom events — and four upstream thread events for threads
- * that have a sidecar row — into `loom_thread_workstream`, `loom_goals`,
- * `loom_thread_consults` and `loom_thread_peer_messages`. Called from the top of
- * `ProjectionStore.apply`, so it runs in V2's commit transaction beside
- * upstream's projection writes and the receipt.
- *
- * Replay-safe: `ProjectionMaintenance.rebuild` re-applies the whole log over
- * these tables (it clears only upstream's), so every row effect is a set, a
- * first-write-wins or an idempotent append — never an increment. The goal
- * cascades read other rows and the goal, so they are judged at the event's
- * time and never overwrite a goal written after the event (`updated_at`).
- *
- * @module loom/projection/loomProjection
+ * The Loom projector: folds Loom events, and four upstream thread events for threads with a sidecar
+ * row, into Loom's tables inside V2's commit transaction. Replay-safe: rebuild re-applies the whole
+ * log over these tables, so every row effect is a set, first-write-wins or idempotent append, never
+ * an increment; goal cascades never overwrite a goal written after the event (`updated_at`).
  */
 import {
   isLoomDomainEvent,
@@ -302,77 +292,76 @@ const isSoleLiveThreadOfGoal = (
  * The four mirrored upstream thread events, for threads with a sidecar row,
  * plus the goal cascades they drive. A thread without a row is untouched.
  */
-const applyMirroredThreadEvent = (
+const applyMirroredThreadEvent = Effect.fn("loomProjection.applyMirroredThreadEvent")(function* (
   sql: SqlClient.SqlClient,
   event: OrchestrationV2DomainEvent,
   at: IsoDateTime,
-) =>
-  Effect.gen(function* () {
-    const row = yield* readWorkstream(sql, event.threadId);
-    if (row === null) return;
-    switch (event.type) {
-      case "thread.archived":
-        yield* writeWorkstream(sql, { ...row, archivedAt: at, updatedAt: at });
-        // Archiving the last live thread of a goal archives the goal.
-        if (
-          row.goalId !== null &&
-          (yield* isSoleLiveThreadOfGoal(sql, row.goalId, row.threadId, at))
-        ) {
-          yield* sql`UPDATE loom_goals SET archived_at = ${at}, updated_at = ${at}
+) {
+  const row = yield* readWorkstream(sql, event.threadId);
+  if (row === null) return;
+  switch (event.type) {
+    case "thread.archived":
+      yield* writeWorkstream(sql, { ...row, archivedAt: at, updatedAt: at });
+      // Archiving the last live thread of a goal archives the goal.
+      if (
+        row.goalId !== null &&
+        (yield* isSoleLiveThreadOfGoal(sql, row.goalId, row.threadId, at))
+      ) {
+        yield* sql`UPDATE loom_goals SET archived_at = ${at}, updated_at = ${at}
             WHERE goal_id = ${row.goalId} AND archived_at IS NULL AND deleted_at IS NULL
               AND updated_at <= ${at}`;
-        }
-        return;
-      case "thread.unarchived":
-        yield* writeWorkstream(sql, {
-          ...row,
-          archivedAt: null,
-          unarchivedAt: at,
-          unarchivedEventId: event.id,
-          updatedAt: at,
-        });
-        // Resurfacing a thread of an archived goal unarchives the goal.
-        if (row.goalId !== null) {
-          yield* sql`UPDATE loom_goals SET archived_at = NULL, updated_at = ${at}
+      }
+      return;
+    case "thread.unarchived":
+      yield* writeWorkstream(sql, {
+        ...row,
+        archivedAt: null,
+        unarchivedAt: at,
+        unarchivedEventId: event.id,
+        updatedAt: at,
+      });
+      // Resurfacing a thread of an archived goal unarchives the goal.
+      if (row.goalId !== null) {
+        yield* sql`UPDATE loom_goals SET archived_at = NULL, updated_at = ${at}
             WHERE goal_id = ${row.goalId} AND archived_at IS NOT NULL AND deleted_at IS NULL
               AND updated_at <= ${at}`;
-        }
-        return;
-      case "thread.deleted": {
-        yield* writeWorkstream(sql, { ...row, deletedAt: at, updatedAt: at });
-        if (row.goalId === null) return;
-        // Deleting the last undeleted thread of a goal deletes the goal (V1's goal cascade),
-        // judged at the event's time like the archive cascade.
-        const [others] = yield* sql<{ readonly n: number }>`
+      }
+      return;
+    case "thread.deleted": {
+      yield* writeWorkstream(sql, { ...row, deletedAt: at, updatedAt: at });
+      if (row.goalId === null) return;
+      // Deleting the last undeleted thread of a goal deletes the goal (V1's goal cascade),
+      // judged at the event's time like the archive cascade.
+      const [others] = yield* sql<{ readonly n: number }>`
           SELECT COUNT(*) AS n FROM loom_thread_workstream
           WHERE goal_id = ${row.goalId} AND thread_id <> ${row.threadId} AND created_at <= ${at}
             AND (deleted_at IS NULL OR deleted_at > ${at})`;
-        if ((others?.n ?? 0) === 0) {
-          yield* sql`UPDATE loom_goals SET deleted_at = ${at}, updated_at = ${at}
+      if ((others?.n ?? 0) === 0) {
+        yield* sql`UPDATE loom_goals SET deleted_at = ${at}, updated_at = ${at}
             WHERE goal_id = ${row.goalId} AND deleted_at IS NULL AND updated_at <= ${at}`;
-        }
-        return;
       }
-      case "thread.metadata-updated": {
-        // Runs before upstream's upsert, so the projection still holds the old title.
-        const [previous] = yield* sql<{ readonly title: string }>`
+      return;
+    }
+    case "thread.metadata-updated": {
+      // Runs before upstream's upsert, so the projection still holds the old title.
+      const [previous] = yield* sql<{ readonly title: string }>`
           SELECT title FROM orchestration_v2_projection_threads WHERE thread_id = ${event.threadId}`;
-        const title = event.payload.title;
-        // Renaming the sole live thread of a goal renames the goal.
-        if (
-          row.goalId !== null &&
-          previous !== undefined &&
-          previous.title !== title &&
-          (yield* isSoleLiveThreadOfGoal(sql, row.goalId, row.threadId, at))
-        ) {
-          yield* sql`UPDATE loom_goals SET title = ${title}, updated_at = ${at}
+      const title = event.payload.title;
+      // Renaming the sole live thread of a goal renames the goal.
+      if (
+        row.goalId !== null &&
+        previous !== undefined &&
+        previous.title !== title &&
+        (yield* isSoleLiveThreadOfGoal(sql, row.goalId, row.threadId, at))
+      ) {
+        yield* sql`UPDATE loom_goals SET title = ${title}, updated_at = ${at}
             WHERE goal_id = ${row.goalId} AND title <> ${title}
               AND archived_at IS NULL AND deleted_at IS NULL AND updated_at <= ${at}`;
-        }
-        return;
       }
+      return;
     }
-  });
+  }
+});
 
 const MIRRORED_THREAD_EVENTS: ReadonlySet<string> = new Set([
   "thread.archived",
@@ -382,48 +371,41 @@ const MIRRORED_THREAD_EVENTS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * `thread.handoff-recorded`'s other end: stamp the DESTINATION root with who
- * started it. A `/handoff` drafter (role `handoff-drafter`, `handoffDraft.ts`;
- * not imported: it pulls in the orchestrator) credits the human's source thread
- * as `human`, and so does the source's own record (its `drafterThreadId` is the
- * drafter, not itself); any other caller is the `agent` that started it. A
- * `human` stamp is never downgraded, so the drafter's two records settle the
- * same way in either order. A set: replay-safe.
+ * Stamps the DESTINATION root of `thread.handoff-recorded` with who started it: a `handoff-drafter`
+ * record, and its source's own record, credit `human`; any other caller is `agent`. A `human`
+ * stamp is never downgraded, so the two records settle the same in either order. `handoffDraft.ts`
+ * is not imported: it pulls in the orchestrator.
  */
-const stampHandoffOrigin = (
+const stampHandoffOrigin = Effect.fn("loomProjection.stampHandoffOrigin")(function* (
   sql: SqlClient.SqlClient,
   caller: LoomThreadWorkstream | null,
   event: Extract<LoomDomainEvent, { readonly type: "thread.handoff-recorded" }>,
   at: IsoDateTime,
-) =>
-  Effect.gen(function* () {
-    const destination = yield* readWorkstream(sql, event.payload.destinationThreadId);
-    if (destination === null || destination.handoffOrigin?.initiatedBy === "human") return;
-    const drafter = caller?.role === "handoff-drafter";
-    const human =
-      drafter ||
-      (event.payload.drafterThreadId !== null && event.payload.drafterThreadId !== event.threadId);
-    const handoffOrigin = {
-      threadId: drafter ? (caller.forkFromThreadId ?? event.threadId) : event.threadId,
-      initiatedBy: human ? ("human" as const) : ("agent" as const),
-    };
-    if (
-      destination.handoffOrigin?.threadId === handoffOrigin.threadId &&
-      destination.handoffOrigin.initiatedBy === handoffOrigin.initiatedBy
-    )
-      return;
-    yield* writeWorkstream(sql, { ...destination, handoffOrigin, updatedAt: at });
-  });
+) {
+  const destination = yield* readWorkstream(sql, event.payload.destinationThreadId);
+  if (destination === null || destination.handoffOrigin?.initiatedBy === "human") return;
+  const drafter = caller?.role === "handoff-drafter";
+  const human =
+    drafter ||
+    (event.payload.drafterThreadId !== null && event.payload.drafterThreadId !== event.threadId);
+  const handoffOrigin = {
+    threadId: drafter ? (caller.forkFromThreadId ?? event.threadId) : event.threadId,
+    initiatedBy: human ? ("human" as const) : ("agent" as const),
+  };
+  if (
+    destination.handoffOrigin?.threadId === handoffOrigin.threadId &&
+    destination.handoffOrigin.initiatedBy === handoffOrigin.initiatedBy
+  )
+    return;
+  yield* writeWorkstream(sql, { ...destination, handoffOrigin, updatedAt: at });
+});
 
 /**
  * Fold one V2 domain event into Loom's tables. Every upstream event other than
  * the four mirrored ones returns at once.
  */
-export const applyLoomProjectionEvent = (
-  sql: SqlClient.SqlClient,
-  event: OrchestrationV2DomainEvent,
-) =>
-  Effect.gen(function* () {
+export const applyLoomProjectionEvent = Effect.fn("loomProjection.applyLoomProjectionEvent")(
+  function* (sql: SqlClient.SqlClient, event: OrchestrationV2DomainEvent) {
     const at = DateTime.formatIso(event.occurredAt);
     if (MIRRORED_THREAD_EVENTS.has(event.type))
       return yield* applyMirroredThreadEvent(sql, event, at);
@@ -437,4 +419,5 @@ export const applyLoomProjectionEvent = (
     const next = foldWorkstream(row, event, at);
     if (next !== undefined) yield* writeWorkstream(sql, next);
     if (event.type === "thread.handoff-recorded") yield* stampHandoffOrigin(sql, row, event, at);
-  });
+  },
+);

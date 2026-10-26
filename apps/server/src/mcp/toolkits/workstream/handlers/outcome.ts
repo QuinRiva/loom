@@ -1,10 +1,7 @@
 /**
- * `mcp__t3-code__workstream_set_outcome`: the plan outcome of the caller or a direct child
- * through `thread.outcome.set` (`none` reopens). A thread may not complete
- * ITSELF around a review gate — a pending rework round or membership of an
- * unresolved gate must finish through `mcp__t3-code__workstream_submit`, whose outcome routes
- * the gate; a parent's `done` on such a child is allowed and the arm's warning
- * is echoed. `cancelled` cascades through the arm's re-drive.
+ * `mcp__t3-code__workstream_set_outcome`: caller's or a direct child's outcome (`none` reopens).
+ * A thread in a pending rework round or unresolved gate must finish through `workstream_submit`;
+ * a parent's `done` on such a child is allowed with the arm's warning echoed.
  *
  * @module mcp/toolkits/workstream/handlers/outcome
  */
@@ -26,8 +23,8 @@ const WARNING_ADVICE: Record<LoomGateWarningKind, string> = {
     " They keep running; stop or re-plan them if they built on the reopened work.",
 };
 
-/** A `done` that cleared a standing human hold: the parent may hold the approval, so warn, never refuse (#321). */
-const ACCEPTANCE_CLEARED_WARNING = `It held an \`awaiting_acceptance\` hold — a human's sign-off on its output was pending — and this \`done\` cleared it, so its output now counts as accepted and its dependents are released. If you do not hold that human's approval, reopen it (\`${t("workstream_set_outcome")}\` none) and re-raise the hold (\`${t("workstream_request_attention")}\` awaiting_acceptance).`;
+/** A `done` that cleared a standing human hold: the parent may hold the approval, so warn, never refuse. */
+const ACCEPTANCE_CLEARED_WARNING = `It held an \`awaiting_acceptance\` hold (a human's sign-off on its output was pending) and this \`done\` cleared it, so its output now counts as accepted and its dependents are released. If you do not hold that human's approval, reopen it (\`${t("workstream_set_outcome")}\` none) and re-raise the hold (\`${t("workstream_request_attention")}\` awaiting_acceptance).`;
 
 export const workstreamSetOutcome = Effect.fn("LoomToolkit.workstreamSetOutcome")(function* (
   input: LoomToolInput<"workstream_set_outcome">,

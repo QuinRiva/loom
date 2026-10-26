@@ -120,8 +120,8 @@ turnless path is real.
   read-modify-write in `ProjectionPipeline.applyThreadMessagesProjection`
   (`reasoningText: \`${prev}${delta}\``, line 870), exactly mirroring how `text`is concatenated (817-833); the layer's`ON CONFLICT … reasoning_text =
   COALESCE(excluded, existing)` (`ProjectionThreadMessages.ts:99-108`) is a
-REPLACE-with-full-value, consistent with `text = excluded.text`. `message-sent`passes reasoning columns as`undefined → null`, so COALESCE preserves prior
-reasoning — verified. `reasoning_streaming` 0/1 COALESCE is correct (0 ≠ NULL).
+  REPLACE-with-full-value, consistent with `text = excluded.text`. `message-sent`passes reasoning columns as`undefined → null`, so COALESCE preserves prior
+  reasoning — verified. `reasoning_streaming` 0/1 COALESCE is correct (0 ≠ NULL).
 - **`ProjectionSnapshotQuery.ts` is ~95% reindentation** (the `Effect.flatMap`
   arrow was collapsed onto one line, reflowing a large block). The only
   functional edits are reasoning columns in the two message SELECTs (421-426,
@@ -154,7 +154,7 @@ reasoning — verified. `reasoning_streaming` 0/1 COALESCE is correct (0 ≠ NUL
   `yield*` inside `Effect.forEach({concurrency: 1})`; errors propagate, order is
   preserved, nothing is swallowed.
 - **Settings default materializes at runtime.** `DEFAULT_CLIENT_SETTINGS =
-decodeSync(ClientSettingsSchema)({})` applies the `withDecodingDefault`, so
+  decodeSync(ClientSettingsSchema)({})` applies the `withDecodingDefault`, so
   `DEFAULT_UNIFIED_SETTINGS.reasoningDisplay === "collapsed"` at runtime — no
   blank Select / false dirty state.
 - **Web open-state logic is sound.** `useState(mode === "expanded" || streaming)`

@@ -1,19 +1,6 @@
 // Loom-owned UI state for the workstream surfaces (state tiers 1 and 4,
-// docs/architecture/loom-ui-state-tiers.md).
-//
-// - `autoOpenedByThreadKey` (tier 1, persisted): the durable "auto-open
-//   already fired" record per thread, so a remount can never resurrect an
-//   auto-open over a user's choice.
-// - `seededPromotionIdsByThreadKey` (tier 1, persisted): per author thread, the query-thread
-//   promotions already seeded into its composer as chips. Recorded on seed, never removed, so
-//   deleting the chip is the dismissal and a remount never reseeds it.
-// - `graphViewByKey` (session-scoped, NOT persisted): the graph's last
-//   zoom/pan per orchestration, keyed by the scoped ROOT-thread key. A viewBox
-//   is only meaningful against the current layout, so it does not survive a
-//   restart.
-//
-// No orphan sweep (the client has no catch-up-complete signal); `removeThread`
-// exists for parity with the upstream per-thread stores.
+// docs/architecture/loom-ui-state-tiers.md). No orphan sweep (the client has no catch-up-complete
+// signal); `removeThread` exists for parity with the upstream per-thread stores.
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
@@ -32,10 +19,18 @@ export interface WorkstreamGraphView {
 }
 
 interface WorkstreamUiStoreState {
+  /** Tier 1, persisted: the auto-open already fired, so a remount never resurrects it over a choice. */
   autoOpenedByThreadKey: Record<string, AutoOpenedSurfaces>;
+  /**
+   * Tier 1, persisted: per author thread, the query-thread promotions already seeded into its
+   * composer. Recorded on seed, never removed, so deleting the chip is the dismissal.
+   */
   seededPromotionIdsByThreadKey: Readonly<Record<string, ReadonlyArray<string>>>;
   markPromotionsSeeded: (ref: ScopedThreadRef, promotionIds: ReadonlyArray<string>) => void;
-  /** Session-scoped; excluded from persistence via `partialize`. */
+  /**
+   * Session-scoped, excluded from persistence via `partialize`: the graph's last zoom and pan per
+   * root-thread key, since a viewBox means something only against the current layout.
+   */
   graphViewByKey: Readonly<Record<string, WorkstreamGraphView>>;
   setGraphView: (key: string, view: WorkstreamGraphView) => void;
   markAutoOpened: (ref: ScopedThreadRef) => void;

@@ -17,11 +17,9 @@ interface StagedCardProps {
 }
 
 /**
- * The empty-conversation card shell shared by the staged-kickoff offer and the
- * kickoff-brief preview: a scroll-safe overlay holding a bordered card with a
- * badge+title header, a scrollable markdown body, and an optional action footer.
- * Purely presentational — callers resolve their own body content (an inline
- * brief string, or a brief read from disk) and supply footer actions if any.
+ * The empty-conversation card shell shared by the staged-kickoff offer and the kickoff-brief
+ * preview. Purely presentational: callers resolve their own body (an inline brief, or one
+ * read from disk) and supply any footer actions.
  */
 export const StagedCard = memo(function StagedCard({
   badgeLabel,

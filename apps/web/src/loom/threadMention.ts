@@ -9,12 +9,9 @@ import { isVisibleHandoffDrafter } from "./handoffDrafter";
 const THREAD_MENTION_MATCH_LIMIT = 8;
 
 /**
- * The `!` thread-reference menu (DL-750): threads whose title contains the whole
- * multi-word query, case-insensitively (an empty query lists them all). Threads
- * that start with the query rank first, then the most recently updated. Only the
- * composer's own environment is listed, because the agent reads threads from its
- * own server. The live shells already exclude archived threads (V1 did the same)
- * and include children. Healthy `/handoff` drafters stay hidden. Titles are
+ * The `!` thread-reference menu: threads whose title contains the whole query, case-insensitively,
+ * prefix matches first, then most recent. Only the composer's environment is listed, because the
+ * agent reads threads from its own server; healthy `/handoff` drafters stay hidden. Titles are
  * non-unique, so each item's description is `role · outcome · branch`.
  */
 export const matchThreadMentionItems = (input: {

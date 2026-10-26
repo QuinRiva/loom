@@ -47,14 +47,10 @@ export const ProviderInstanceEnvironment = Schema.Array(ProviderInstanceEnvironm
 export type ProviderInstanceEnvironment = typeof ProviderInstanceEnvironment.Type;
 
 /**
- * loom: a subscription-usage source an instance polls for its own account usage.
- *
- * Driver-agnostic on purpose: Loom reads each source's OAuth token fresh off
- * disk every poll cycle and hits the provider's usage endpoint, so a router
- * proxy that pools several subscriptions (each with its own token file kept
- * fresh by the proxy) reports accurately without Loom knowing anything about
- * the proxy. `kind` is a closed literal today (only Anthropic OAuth) but is
- * shaped as a union so more kinds can be added without a schema break.
+ * loom: a subscription-usage source an instance polls for its own account usage. Driver-agnostic:
+ * Loom reads each source's OAuth token fresh off disk every cycle, so a router proxy pooling
+ * several subscriptions reports accurately without Loom knowing the proxy. `kind` is a union so
+ * more kinds can join without a schema break.
  */
 export const ProviderUsageSourceKind = Schema.Literals(["anthropic-oauth"]);
 export type ProviderUsageSourceKind = typeof ProviderUsageSourceKind.Type;
@@ -73,18 +69,9 @@ export const ProviderUsageSource = Schema.Struct({
   label: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProviderUsageSource = typeof ProviderUsageSource.Type;
-
-/**
- * The driver-specific config payload is left as `Schema.Unknown`; each driver
- * registers its own decoder with the runtime registry, and envelopes for
- * unknown drivers are preserved verbatim so they round-trip across version
- * changes without data loss.
- *
- * `usageSources` is driver-agnostic Loom config (not a driver config blob): it
- * declares where this instance's real subscription usage lives so the poller
- * can report pooled/router setups accurately. Absent ⇒ status quo (the built-in
- * pi-auth poll for claudeAgent/codex).
- */
+// loom: `usageSources` (below) is driver-agnostic Loom config, not a driver config blob: it says
+// where the instance's real subscription usage lives so the poller reports pooled setups.
+/** Drivers decode their own config; unknown-driver envelopes round-trip verbatim across versions. */
 export const ProviderInstanceConfig = Schema.Struct({
   driver: ProviderDriverKind,
   displayName: Schema.optional(TrimmedNonEmptyString),
@@ -117,11 +104,6 @@ export type ProviderInstanceMutation = typeof ProviderInstanceMutation.Type;
 export const ProviderInstanceConfigMap = Schema.Record(ProviderInstanceId, ProviderInstanceConfig);
 export type ProviderInstanceConfigMap = typeof ProviderInstanceConfigMap.Type;
 
-/**
- * The legacy single-instance-per-driver world used the driver kind itself as
- * the instance id; preserving that mapping keeps existing persisted threads,
- * bindings, and cache files routable across the migration without rewriting
- * their stored selection payloads.
- */
+/** Driver-kind ids keep stored selections routable without migration. */
 export const defaultInstanceIdForDriver = (driver: ProviderDriverKind): ProviderInstanceId =>
   ProviderInstanceId.make(driver);

@@ -1,11 +1,7 @@
 /**
- * What a `consult_thread` fork is doing, folded from its pi RPC events into the
- * {@link LoomLiveConsult} the asker's consult card renders. Pure: the caller
- * passes each event and its time, and publishes `snapshot()` when `apply`
- * reports a change. Only tool boundaries and `message_end` change it, never a
- * streamed token.
- *
- * @module loom/workstream/consultTracker
+ * Pure fold of a `consult_thread` fork's pi RPC events into the {@link LoomLiveConsult} the asker's
+ * card renders; the caller publishes `snapshot()` when `apply` reports a change. Only tool
+ * boundaries and `message_end` change it, never a streamed token.
  */
 import type { LoomActiveStep, LoomConsultStep, LoomLiveConsult } from "@t3tools/contracts";
 

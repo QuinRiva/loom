@@ -12,11 +12,9 @@ import { useThreadSpend, useTotalSpend } from "./threadSpend";
 export const WorkstreamEnvironmentContext = createContext<EnvironmentId | null>(null);
 
 /**
- * A thread's lifetime cost from seam 11's usage ledger, batched across every
- * mounted slot (`loom/threadSpend.ts`): the quick-facts `cost │ tokens` row
- * (`fact`), or the inline figure on the timeline header (3d-4). Includes a
- * running turn's live cost (`LoomUsageLedger.threadSpend`). Renders nothing
- * until answered, and for a thread with no recorded spend.
+ * A thread's lifetime cost from the usage ledger, batched across every mounted slot
+ * (`loom/threadSpend.ts`), including a running turn's live cost: the quick-facts `cost │ tokens` row
+ * (`fact`) or the timeline header's inline figure. Renders nothing until answered, or with no spend.
  */
 export function WorkstreamSpendSlot({
   threadId,

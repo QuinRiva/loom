@@ -1,10 +1,7 @@
 /**
- * The query thread's overlay (plans/plan-query-threads/plan.mdx §3): the head of its first
- * message, ahead of the first question, never its system prompt, so the replayed author identity
- * stays the request prefix (a warm cache).
+ * The query thread's overlay (plan-query-threads §3): the head of its first message, never its
+ * system prompt, so the replayed author identity stays the request prefix (a warm cache).
  * Model-read text the human reviewed: edit under `llm-instruction-change`, not in passing.
- *
- * @module loom/query/documentQueryOverlay
  */
 import type { ThreadId } from "@t3tools/contracts";
 

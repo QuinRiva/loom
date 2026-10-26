@@ -3,12 +3,8 @@ import { IconTextWrap } from "@tabler/icons-react";
 import { cn } from "~/lib/utils";
 
 /**
- * Shared header control (§5) that toggles soft-wrapping of long lines/strings in
- * `<Code>` / `<AnnotatedCode>` / `<Json>` / `<Diff>`. Same visual language as
- * `<Diff>`'s Unified/Split `ModeButton`: a small `aria-pressed` toggle that lives
- * in the block's `figcaption` header. The wrap mechanics differ per block (a
- * `plan-code-wrap` class on Shiki, `whitespace-*` on diff/json spans); this is
- * only the button.
+ * Header toggle for soft-wrapping long lines in `<Code>`, `<AnnotatedCode>`, `<Json>` and
+ * `<Diff>`, styled like `<Diff>`'s mode button. Each block owns its own wrap mechanics.
  */
 export function WrapToggle({ wrapped, onToggle }: { wrapped: boolean; onToggle: () => void }) {
   return (

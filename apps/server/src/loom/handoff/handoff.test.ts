@@ -1,15 +1,8 @@
 /**
- * The `/handoff` drafter and `/retro` reviewer on the real orchestrator (DT-24, DL-384):
- * `loom.handoffDraft` forks an idle pi source into a `handoff-drafter` root whose
- * first message is the kickoff (a pending native `fork` transfer from the source's
- * finished run — or, for a V1-imported source with no V2 run, its bound pi
- * session — resolved by upstream at that first run); a mid-turn source gets its
- * drafter at once and its fork and kickoff when the turn ends; a non-pi source is
- * refused before anything is created. `HandoffDrafterReactor` archives a
- * drafter whose run ended with a handoff recorded, and raises `needs_guidance` —
- * on the source when it has a Loom row, else on the drafter — for a run that ended
- * with none or a kickoff hung past the grace. `/retro` starts a fresh goal-less
- * reviewer at once, its run directory's manifest carrying the source's whole tree.
+ * `/handoff` forks an idle pi source into a drafter root (mid-turn: forked when the turn ends;
+ * non-pi: refused). `HandoffDrafterReactor` archives a drafter that recorded a handoff, else raises
+ * `needs_guidance` on the source (or the drafter when the source has no Loom row). `/retro` starts
+ * a fresh goal-less reviewer whose manifest carries the source's whole tree.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";

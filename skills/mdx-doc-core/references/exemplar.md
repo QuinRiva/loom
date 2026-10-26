@@ -343,7 +343,7 @@ Renderer mechanics — these are facts about what the renderer does, not taste:
   the tokens that `<Screen>`/`<Design>` give it.
 - **Before/After baked into the frame.** A pill, title or heading inside the
   wireframe `html` naming the state; the `<Column label>` (or `<Artboard
-caption>`) is where the state name belongs.
+  caption>`) is where the state name belongs.
 - **Overlapping artboards.** `browser` frames touch or overlap at any x-gap
   under 1800 board units and have no clear gutter under 2200, because a frame
   consumes about twice its pixel width in board units. Use the gaps in

@@ -146,7 +146,7 @@ branch (below) and `--dry-run` to preview the steps. In order, the script:
   thread that is a `mcp__t3-code__workstream_submit` with outcome
   `merge_conflict`, a yield to the orchestrator, which finishes the ship itself.
 - **Resolving a conflict by hand.** Rebase again (`git fetch origin main && git
-rebase origin/main`), edit each conflicted file, stage those files by
+  rebase origin/main`), edit each conflicted file, stage those files by
   explicit path (never `git add -A`/`-u` mid-rebase: a wildcard marks every
   conflicted file resolved, markers and all), and `git rebase --continue`.
   Re-stage any file you edit after staging; `git commit` records the index,

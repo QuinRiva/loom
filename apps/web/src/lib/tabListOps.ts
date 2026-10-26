@@ -1,15 +1,6 @@
 /**
- * Pure ordered-tab-list helpers shared by tabbed surfaces.
- *
- * These encode the close semantics that the right-panel surface list and the
- * centre-panel thread-tab list share: an index-nearest neighbour fallback on
- * close, keep-only (close others), and truncate-after (close to the right).
- * Identity is supplied by the caller via `keyOf`, so the same reducers apply to
- * any ordered list keyed by a string id.
- *
- * `threadTabsStore` consumes these today. Migrating `rightPanelStore`'s
- * `closeSurface`/`closeOtherSurfaces`/`closeSurfacesToRight` onto them is a
- * deliberate follow-up (kept out of this change to keep the diff reviewable).
+ * Close semantics shared by tabbed surfaces, with identity from the caller's `keyOf`.
+ * `rightPanelStore`'s close actions still carry their own copy of these semantics.
  */
 
 export interface CloseResult<T> {

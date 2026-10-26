@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 
-// Mechanical ship sequence for this repo: rebase onto current origin/main, gate
-// on checks, push, open the PR, merge, and delete the remote branch explicitly.
-// The judgment parts (when to ship, PR framing, upstream-sync detection, and
-// resolving a real merge conflict) live in docs/operations/shipping.md — this
-// script only encodes the mechanical steps and enforces the footgun guards, so
-// shipping from memory can't reintroduce a trap.
+// Mechanical ship sequence: rebase onto origin/main, gate on checks, push, open the PR,
+// merge, and delete the remote branch. The judgment parts (when to ship, PR framing,
+// upstream-sync detection, real conflicts) live in docs/operations/shipping.md; this
+// script encodes the steps and the footgun guards.
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";

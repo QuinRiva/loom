@@ -416,6 +416,7 @@ describe("prompt-debug part", () => {
     const handlers = loadPart(promptDebugPart, { profile }, declared);
     handlers.get("session_start")?.({}, { cwd: "/w" });
     expect(handlers.get("before_agent_start")!(agentStart, { cwd: "/w" })).toBeUndefined();
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a macrotask boundary for the fire-and-forget capture, not a wait for time
     await new Promise((resolve) => setImmediate(resolve));
     return handlers;
   };
@@ -433,7 +434,7 @@ describe("prompt-debug part", () => {
     expect(written).toContain("SYSTEM ~~~~ PROMPT");
     // The declared tools array: name, description and every parameter description, counted.
     expect(written).toContain(
-      "### `mcp__t3-code__workstream_stop` — 6 description + 6 parameter words",
+      "### `mcp__t3-code__workstream_stop`: 6 description + 6 parameter words",
     );
     expect(written).toContain("- `threadId`: The direct child's id.");
     expect(written).toContain("- `nodes.[].key`: Symbolic key.");
@@ -443,6 +444,7 @@ describe("prompt-debug part", () => {
     );
     // The profile is read once per session.
     handlers.get("before_agent_start")!({ ...agentStart, prompt: "Again." }, { cwd: "/w" });
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a macrotask boundary for the fire-and-forget capture, not a wait for time
     await new Promise((resolve) => setImmediate(resolve));
     expect(fetches).toBe(1);
     expect(NodeFS.readFileSync(path, "utf8")).toContain("Again.");
@@ -460,6 +462,7 @@ describe("prompt-debug part", () => {
       throw new Error("profile unavailable");
     });
     handlers.get("before_agent_start")!(agentStart, { cwd: "/w" });
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a macrotask boundary for the fire-and-forget capture, not a wait for time
     await new Promise((resolve) => setImmediate(resolve));
     expect(fetches).toBe(2);
     expect(NodeFS.readdirSync(tmpDir).length).toBe(before);
@@ -1008,6 +1011,7 @@ describe("background-jobs part", () => {
     jobs.queue(true);
     jobs.input();
     jobs.input("followUp");
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a real subprocess job: proves the wait has not resolved within a short real window
     const held = new Promise((resolve) => setTimeout(resolve, 300, "still waiting"));
     expect(await Promise.race([waiting, held])).toBe("still waiting");
     jobs.queue(false);

@@ -1,27 +1,8 @@
 /**
- * Steered-tier messages queued before their target could take a steer (DL-662).
- * A Loom message (`workstream_prompt`, `notify_thread`, a control wake) aimed at a
- * run whose provider turn is not up yet — still starting, or `running` before the
- * adapter reports its turn — is queued as the target's next turn (DL-660). That
- * delivers it, but a correction sent right after a spawn would then wait out the
- * child's whole first turn. Once that run has a running turn on a session that
- * steers without interrupting tools (the condition upstream's steer conversion
- * uses), this rail moves the message into the turn with upstream's own
- * `queued-message.promote-to-steer`.
- *
- * Which queued runs qualify is `isPromotableLoomQueuedRun`, shared with the
- * decider's steer conversion: while one is queued, a later Loom message queues
- * behind it instead of steering past it (DL-663), and this rail promotes them in
- * upstream's delivery order, so the turn reads them in send order. A message
- * with a `notification` or a delegated completion is upstream's to deliver
- * queued, a human-held queue stays held, and anything a human queued is theirs.
- *
- * The id is one per queued run, so a promotion is tried once. It is dispatched
- * directly rather than through `PassContext.dispatch`: a refusal (the turn ended
- * in between) is no dead episode to report, because the message simply stays
- * queued and starts the next turn.
- *
- * @module loom/orchestration/dispatcher/queuedSteerPromotion
+ * A steered-tier Loom message queued because its target's turn was not up yet is promoted into that
+ * turn with upstream's `queued-message.promote-to-steer` once it runs steerably, in delivery order.
+ * Notifications, delegated completions, human-held queues and human-queued messages stay queued.
+ * One id per queued run; a refusal (turn ended) just leaves the message to start the next turn.
  */
 import { CommandId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";

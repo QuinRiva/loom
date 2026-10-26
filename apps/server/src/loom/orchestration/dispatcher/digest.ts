@@ -1,13 +1,8 @@
 /**
- * The FYI digest (V1 notice-coalescing design §4.2–§5.3), ported with logic
- * unchanged: terminal children, gate resolutions and informational advisories
- * are withheld into one per-parent digest delivered `start_if_idle` (or
- * piggybacked on the next decision-bearing wake). One traversal yields both the
- * model-visible text and the `controlPayload` items, so the two cannot drift.
- * Items carry the seam-6 `kind`: terminal | gate-resolved | recovered |
- * slow-tool | spinning | dead-episode.
- *
- * @module loom/orchestration/dispatcher/digest
+ * The FYI digest, ported from V1: terminal children, gate resolutions and advisories are withheld
+ * into one per-parent digest delivered `start_if_idle` or piggybacked on the next decision-bearing
+ * wake. One traversal yields both the model-visible text and the `controlPayload` items, so the two
+ * cannot drift.
  */
 import type {
   ControlPayload,
@@ -134,7 +129,7 @@ const DIGEST_CLOSING =
 // A digest of only extras must stay neutral: a slow-tool line is still in
 // flight, a recovered line DID complete — so it claims neither.
 const DIGEST_CLOSING_INFO_ONLY =
-  "No first-pass review is owed: these are status notices — some items still in flight, others already resolved themselves (e.g. an earlier `error` superseded by `done`, its dependents released) — so act only if one reads as genuinely wrong (e.g. a mis-scoped tool call).";
+  "No first-pass review is owed: these are status notices: some items still in flight, others already resolved themselves (e.g. an earlier `error` superseded by `done`, its dependents released), so act only if one reads as genuinely wrong (e.g. a mis-scoped tool call).";
 
 /** The standalone digest text a flush delivers as its own turn: marker, intro, items, closing. */
 export const buildStandaloneDigest = (
@@ -144,7 +139,7 @@ export const buildStandaloneDigest = (
   [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
-    "FYI digest — thread updates since you last heard. Nothing below is blocked on you.",
+    "FYI digest: thread updates since you last heard. Nothing below is blocked on you.",
     "",
     digestBodyParts(members, extras).text,
     "",
@@ -176,7 +171,7 @@ export const buildDigestPayload = (
   kind: "digest",
   heading: opts.piggyback
     ? "Also, FYI since you last heard"
-    : "FYI digest — thread updates since you last heard.",
+    : "FYI digest: thread updates since you last heard.",
   items: [...digestBodyParts(members, extras).items],
 });
 
@@ -194,7 +189,7 @@ export const renderRecoveredDigestLine = (child: {
   readonly eventAt: string | null;
 }): string => {
   const ts = formatWakeTimestamp(child.eventAt);
-  const ref = child.reportPath !== null ? ` — report: \`${child.reportPath}\`` : "";
+  const ref = child.reportPath !== null ? `, report: \`${child.reportPath}\`` : "";
   return `- ♻️ ${child.role ?? "sub-thread"} \`${child.id}\` recovered (earlier \`error\` superseded by \`done\`; dependents already released)${ref}.${ts === "" ? "" : ` _${ts}_`}`;
 };
 
@@ -212,7 +207,7 @@ export const renderSlowToolDigestLine = (child: {
     estimateMs: child.estimateMs,
     inFlightMs: child.inFlightMs,
   });
-  return `- ⏳ ${child.role ?? "sub-thread"} \`${child.id}\` still executing — long-running tool \`${child.toolName}\` in flight ~${mins(child.inFlightMs)} min, no agent-visible output ~${mins(child.quietMs)} min${clause ? ` (${clause})` : ""} (informational, not a hang; the control plane will not interrupt it).`;
+  return `- ⏳ ${child.role ?? "sub-thread"} \`${child.id}\` still executing: long-running tool \`${child.toolName}\` in flight ~${mins(child.inFlightMs)} min, no agent-visible output ~${mins(child.quietMs)} min${clause ? ` (${clause})` : ""} (informational, not a hang; the control plane will not interrupt it).`;
 };
 
 /**

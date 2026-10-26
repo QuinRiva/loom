@@ -1,36 +1,16 @@
 #!/usr/bin/env node
-/**
- * Apply the local pi patches to pi's PRE-BUNDLED entry point.
- *
- * Since pi 0.84 the published `bin.pi` is `dist/bundle/cli.js` — an esbuild
- * bundle of the whole CLI into `dist/bundle/chunks/chunk-<hash>.js` files. The
- * readable `dist/` tree still ships (it is the package's `exports` entry) and
- * the `000N` diffs still apply to it, but patching it alone leaves the
- * binary Loom actually runs unpatched. Hence this script: the same changes,
- * expressed as anchored replacements against the minified chunk.
- *
- * It is deliberately strict — every anchor must match the expected number of
- * times or nothing is written — so a pi bump whose bundle drifted fails loudly
- * instead of silently shipping an unpatched pi.
- *
- * Usage: node infra/pi-patches/patch-bundle.mjs <pi-package-root> [--check]
- */
+/** Apply the local pi patches to pi's pre-bundled `bin.pi` (`dist/bundle/cli.js` and its esbuild
+ * chunks), which the readable-`dist/` `000N` diffs do not reach, as anchored replacements. Strict:
+ * every anchor must match its expected count or nothing is written, so a drifted bump fails loudly.
+ * Usage: node infra/pi-patches/patch-bundle.mjs <pi-package-root> [--check] */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-/**
- * Since 0.99 esbuild splits the auth storage and the CLI's `main()` into
- * separate chunks (0.84–0.87 had both in one), so each patch names the chunk
- * it lands in by a string only that chunk contains, carries its own header,
- * and is marked — and so made idempotent — by a string only the patched chunk
- * contains. Several targets resolving to one chunk (0001, 0003 and 0004 since 0.99;
- * all of them on 0.84–0.87) works the same way.
- *
- * Headers are prepended to their chunk: the fs helpers the minified call sites
- * below need. Names are `__loom`-prefixed so they cannot collide with esbuild's
- * mangled bindings.
- */
+/** Each patch finds its chunk by a string only that chunk contains (0.99+ splits auth and `main()`),
+ * and is made idempotent by a marker only the patched chunk contains; several patches may share a
+ * chunk. Headers prepend the fs helpers the minified call sites need, `__loom`-prefixed so they
+ * cannot collide with esbuild's mangled bindings. */
 const AUTH_HEADER = `
 // LOOM PATCH — see infra/pi-patches/README.md (0002 atomic auth write).
 import { chmodSync as __loomChmodSync, existsSync as __loomExistsSync, renameSync as __loomRenameSync, statSync as __loomStatSync, unlinkSync as __loomUnlinkSync, writeFileSync as __loomWriteFileSync } from "node:fs";
@@ -51,14 +31,9 @@ function __loomWriteAuthAtomic(authPath, next, options) {
 }
 `;
 
-/**
- * The one upstream binding the --cwd header relies on is `resolvePath` — pi's
- * own path resolver (tilde, file URLs, Windows shell paths), which the readable
- * 0001 patch also calls, so the two forms accept exactly the same `--cwd`
- * values; its presence in the chunk is asserted below. The usage errors are
- * plain text rather than pi's chalk-red, because chalk's binding here IS
- * mangled; the RPC contract test matches them by substring.
- */
+/** The --cwd header calls pi's own `resolvePath` (asserted present below), so it accepts exactly
+ * the readable 0001 patch's `--cwd` values. Usage errors are plain text because chalk's binding
+ * is mangled here; the RPC contract test matches them by substring. */
 const CWD_HEADER = `
 // LOOM PATCH — see infra/pi-patches/README.md (0001 --cwd resume, CLI and RPC switch_session).
 import { existsSync as __loomCwdExistsSync, statSync as __loomCwdStatSync } from "node:fs";
@@ -107,14 +82,9 @@ function __loomSameRequestMessage(current, message) {
 }
 `;
 
-/**
- * Edits are [description, matcher, replacement, expected match count].
- *
- * The first --cwd edit replaces pi's `resolvePath` binding with itself: it
- * changes nothing, and exists so the strict count check below fails the bump if
- * upstream ever renames the resolver the header calls. It matches the binding
- * whether the chunk declares it (≤0.87) or imports it unaliased (0.99+).
- */
+/** Edits are [description, matcher, replacement, expected match count]. The first --cwd edit
+ * replaces `resolvePath`'s binding with itself, so the count check fails a bump that renames the
+ * resolver the header calls (declared on <=0.87, imported unaliased on 0.99+). */
 const TARGETS = [
   {
     patch: "0002",

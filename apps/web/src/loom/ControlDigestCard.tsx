@@ -1,17 +1,8 @@
 /**
- * loom: the card a control-plane arrival collapses to (3d-3) — a digest, a
- * yield hand-back, a notice (gate legs, brief-needed, deadlock, stall nudge,
- * attention, notify).
- *
- * Collapsed (the default) it says only *that* something arrived and from
- * whom — one line per item naming the sender and its verdict, no markdown
- * rendered, so the timeline pays nothing for a payload nobody is reading. An
- * item with a report opens it from its row (↗ opens the thread instead), and
- * the documents its report named sit under it as chips. Expanding reveals
- * per-item detail and "show raw payload" (the exact bytes the model received). Everything shown comes from the persisted message, never
- * live thread state, apart from the sender titles `senderLabels` resolves.
- * Free of router and timeline context (`ControlDigestRow` supplies both), so
- * `/preview` can mount it directly.
+ * loom: the card a control-plane arrival (digest, yield hand-back, notice) collapses to. Collapsed,
+ * one line per item names sender and verdict with no markdown rendered, so an unread payload costs
+ * nothing; expanding shows per-item detail and the raw payload. Everything comes from the persisted
+ * message except sender titles; no router or timeline context, so `/preview` can mount it directly.
  */
 import type {
   EnvironmentId,
@@ -75,7 +66,7 @@ export function ControlDigestCardView({
   );
 
   return (
-    <section className="-mx-1 min-w-0 px-1 py-0.5" aria-label={`${model.label} — ${summary}`}>
+    <section className="-mx-1 min-w-0 px-1 py-0.5" aria-label={`${model.label}: ${summary}`}>
       <div className={cn("rounded-lg border", classes.card)} data-control-card={model.label}>
         <button
           type="button"
@@ -222,7 +213,7 @@ function ReportDocumentChips({
             tip={
               <>
                 <div className="font-mono leading-tight wrap-anywhere">{meta.filePath}</div>
-                {missing ? <div className="mt-0.5">Missing — moved or deleted?</div> : null}
+                {missing ? <div className="mt-0.5">Missing (moved or deleted?)</div> : null}
               </>
             }
           >
@@ -318,7 +309,7 @@ function ControlDigestItem({
       <span className="min-w-0 flex-1 truncate text-xs leading-5">
         {sender ? <span className="text-foreground/82 font-medium">{sender}</span> : null}
         <span className={cn("text-foreground/82", sender && "text-muted-foreground/80")}>
-          {sender ? ` — ${item.title}` : item.title}
+          {sender ? `: ${item.title}` : item.title}
         </span>
       </span>
       {openReport ? (

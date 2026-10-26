@@ -1,22 +1,7 @@
 /**
- * Dev fixture seeder — populates a fresh scratch home with a realistic Loom
- * workstream so agents (and humans) can verify UI states that are otherwise
- * unreachable against an empty database.
- *
- * Everything is written through the real V2 orchestrator offline (no running
- * server): upstream commands for the project's threads and messages, Loom
- * commands for the sidecar graph (spawn, submit, outcome, attention), the
- * re-drive planner for the gate leg and the cancel cascade, and `LoomStoreV2`
- * for the goal and its task tree (goals are plain tables). Never direct SQL,
- * so the fixture exercises the Loom arm and stays immune to projection drift.
- *
- * Turns run against an in-process stub adapter that answers every turn at once
- * and edits one file in the shared checkout, so runs complete with real
- * checkpoint refs (the Diff surface) and nothing is left for a provider: the
- * seed exits only once the effect outbox is drained and a final re-drive pass
- * has nothing left to send, so a dev server booted on this home starts no pi.
- *
- * Run: `vp run dev:seed` (this worktree's `.t3`) or `vp run dev:seed --home-dir <scratch>`
+ * Dev fixture seeder: a realistic Loom workstream written offline through the real V2 orchestrator,
+ * never direct SQL. A stub adapter completes turns with real checkpoints, and it exits only once
+ * nothing is left to send, so a server booted on the home starts no pi. Run: `vp run dev:seed`.
  *
  * @module dev/seedWorkstream
  */
@@ -113,153 +98,149 @@ const seedAdapter: ProviderAdapterV2["Service"] = {
   driver,
   getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
   planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
-  openSession: (sessionInput) =>
-    Effect.gen(function* () {
-      const events = yield* PubSub.unbounded<ProviderAdapterV2Event>();
-      const now = yield* DateTime.now;
-      const unused = () => Effect.die("unused by the dev seed");
-      return {
-        instanceId,
+  openSession: Effect.fn("seedWorkstream.seedAdapter.openSession")(function* (sessionInput) {
+    const events = yield* PubSub.unbounded<ProviderAdapterV2Event>();
+    const now = yield* DateTime.now;
+    const unused = () => Effect.die("unused by the dev seed");
+    return {
+      instanceId,
+      driver,
+      providerSessionId: sessionInput.providerSessionId,
+      providerSession: {
+        id: sessionInput.providerSessionId,
         driver,
-        providerSessionId: sessionInput.providerSessionId,
-        providerSession: {
-          id: sessionInput.providerSessionId,
+        providerInstanceId: instanceId,
+        status: "ready",
+        cwd: sessionInput.runtimePolicy.cwd ?? process.cwd(),
+        model: MODEL_SELECTION.model,
+        capabilities: CodexProviderCapabilitiesV2,
+        createdAt: now,
+        updatedAt: now,
+        lastError: null,
+      },
+      events: Stream.fromPubSub(events),
+      ensureThread: (threadInput) =>
+        Effect.map(DateTime.now, (createdAt) => ({
+          id: ProviderThreadId.make(`provider-thread:seed:${threadInput.threadId}`),
           driver,
           providerInstanceId: instanceId,
-          status: "ready",
-          cwd: sessionInput.runtimePolicy.cwd ?? process.cwd(),
-          model: MODEL_SELECTION.model,
-          capabilities: CodexProviderCapabilitiesV2,
-          createdAt: now,
-          updatedAt: now,
-          lastError: null,
-        },
-        events: Stream.fromPubSub(events),
-        ensureThread: (threadInput) =>
-          Effect.map(DateTime.now, (createdAt) => ({
-            id: ProviderThreadId.make(`provider-thread:seed:${threadInput.threadId}`),
+          providerSessionId: sessionInput.providerSessionId,
+          appThreadId: threadInput.threadId,
+          ownerNodeId: null,
+          // No native session exists: a real pi turn later starts a fresh one.
+          nativeThreadRef: null,
+          nativeConversationHeadRef: null,
+          status: "idle" as const,
+          firstRunOrdinal: null,
+          lastRunOrdinal: null,
+          handoffIds: [],
+          forkedFrom: null,
+          createdAt,
+          updatedAt: createdAt,
+        })),
+      resumeThread: ({ providerThread }) => Effect.succeed(providerThread),
+      startTurn: Effect.fn("seedWorkstream.startTurn")(function* (turn) {
+        const cwd = turn.runtimePolicy.cwd ?? turn.appThread.worktreePath;
+        if (cwd !== null) {
+          const notes = NodePath.join(cwd, "seed-notes", `${turn.threadId}.md`);
+          NodeFS.mkdirSync(NodePath.dirname(notes), { recursive: true });
+          NodeFS.appendFileSync(
+            notes,
+            `- run ${turn.runOrdinal}: ${turn.message.text.split("\n")[0]}\n`,
+          );
+        }
+        const at = yield* DateTime.now;
+        const providerTurnId = ProviderTurnId.make(
+          `provider-turn:seed:${turn.threadId}:${turn.runOrdinal}`,
+        );
+        const item = (n: number) => ({
+          id: TurnItemId.make(`turn-item:seed:${turn.threadId}:${turn.runOrdinal}:${n}`),
+          threadId: turn.threadId,
+          runId: turn.runId,
+          nodeId: turn.rootNodeId,
+          providerThreadId: turn.providerThread.id,
+          providerTurnId,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: turn.runOrdinal * 100 + n,
+          status: "completed" as const,
+          title: null,
+          startedAt: at,
+          completedAt: at,
+          updatedAt: at,
+        });
+        const consults = [...turn.message.text.matchAll(SEED_CONSULT)].map(([, target], index) => ({
+          type: "turn_item.updated" as const,
+          driver,
+          turnItem: {
+            ...item(10 + index),
+            type: "dynamic_tool" as const,
+            toolName: "mcp__t3-code__consult_thread",
+            input: { threadId: target, question: SEED_CONSULT_QUESTION },
+            output: SEED_CONSULT_ANSWER,
+          },
+        }));
+        yield* PubSub.publishAll(events, [
+          ...consults,
+          // A context-window reading, so the web's context chip has a value (3d-4).
+          {
+            type: "provider_thread.updated",
             driver,
-            providerInstanceId: instanceId,
-            providerSessionId: sessionInput.providerSessionId,
-            appThreadId: threadInput.threadId,
-            ownerNodeId: null,
-            // No native session exists: a real pi turn later starts a fresh one.
-            nativeThreadRef: null,
-            nativeConversationHeadRef: null,
-            status: "idle" as const,
-            firstRunOrdinal: null,
-            lastRunOrdinal: null,
-            handoffIds: [],
-            forkedFrom: null,
-            createdAt,
-            updatedAt: createdAt,
-          })),
-        resumeThread: ({ providerThread }) => Effect.succeed(providerThread),
-        startTurn: (turn) =>
-          Effect.gen(function* () {
-            const cwd = turn.runtimePolicy.cwd ?? turn.appThread.worktreePath;
-            if (cwd !== null) {
-              const notes = NodePath.join(cwd, "seed-notes", `${turn.threadId}.md`);
-              NodeFS.mkdirSync(NodePath.dirname(notes), { recursive: true });
-              NodeFS.appendFileSync(
-                notes,
-                `- run ${turn.runOrdinal}: ${turn.message.text.split("\n")[0]}\n`,
-              );
-            }
-            const at = yield* DateTime.now;
-            const providerTurnId = ProviderTurnId.make(
-              `provider-turn:seed:${turn.threadId}:${turn.runOrdinal}`,
-            );
-            const item = (n: number) => ({
-              id: TurnItemId.make(`turn-item:seed:${turn.threadId}:${turn.runOrdinal}:${n}`),
-              threadId: turn.threadId,
-              runId: turn.runId,
-              nodeId: turn.rootNodeId,
+            providerThread: {
+              ...turn.providerThread,
+              contextUsage: {
+                usedTokens: 18_000 + (turn.runOrdinal % 4) * 41_000,
+                maxTokens: 200_000,
+              },
+              updatedAt: at,
+            },
+          },
+          {
+            type: "provider_turn.updated",
+            driver,
+            providerTurn: {
+              id: providerTurnId,
               providerThreadId: turn.providerThread.id,
-              providerTurnId,
-              nativeItemRef: null,
-              parentItemId: null,
-              ordinal: turn.runOrdinal * 100 + n,
-              status: "completed" as const,
-              title: null,
+              nodeId: turn.rootNodeId,
+              runAttemptId: turn.attemptId,
+              nativeTurnRef: null,
+              ordinal: turn.providerTurnOrdinal,
+              status: "completed",
               startedAt: at,
               completedAt: at,
-              updatedAt: at,
-            });
-            const consults = [...turn.message.text.matchAll(SEED_CONSULT)].map(
-              ([, target], index) => ({
-                type: "turn_item.updated" as const,
-                driver,
-                turnItem: {
-                  ...item(10 + index),
-                  type: "dynamic_tool" as const,
-                  toolName: "mcp__t3-code__consult_thread",
-                  input: { threadId: target, question: SEED_CONSULT_QUESTION },
-                  output: SEED_CONSULT_ANSWER,
-                },
-              }),
-            );
-            yield* PubSub.publishAll(events, [
-              ...consults,
-              // A context-window reading, so the web's context chip has a value (3d-4).
-              {
-                type: "provider_thread.updated",
-                driver,
-                providerThread: {
-                  ...turn.providerThread,
-                  contextUsage: {
-                    usedTokens: 18_000 + (turn.runOrdinal % 4) * 41_000,
-                    maxTokens: 200_000,
-                  },
-                  updatedAt: at,
-                },
-              },
-              {
-                type: "provider_turn.updated",
-                driver,
-                providerTurn: {
-                  id: providerTurnId,
-                  providerThreadId: turn.providerThread.id,
-                  nodeId: turn.rootNodeId,
-                  runAttemptId: turn.attemptId,
-                  nativeTurnRef: null,
-                  ordinal: turn.providerTurnOrdinal,
-                  status: "completed",
-                  startedAt: at,
-                  completedAt: at,
-                },
-              },
-              {
-                type: "turn_item.updated",
-                driver,
-                turnItem: {
-                  ...item(50),
-                  type: "assistant_message",
-                  messageId: MessageId.make(`message:seed:${turn.threadId}:${turn.runOrdinal}`),
-                  text: `Seed turn ${turn.runOrdinal}: noted in \`seed-notes/${turn.threadId}.md\`.`,
-                  streaming: false,
-                },
-              },
-              {
-                type: "turn.terminal",
-                driver,
-                providerThreadId: turn.providerThread.id,
-                providerTurnId,
-                runOrdinal: turn.runOrdinal,
-                status: "completed",
-                failure: null,
-                threadDisposition: "reusable",
-              },
-            ]);
-          }),
-        steerTurn: unused,
-        interruptTurn: () => Effect.void,
-        respondToRuntimeRequest: unused,
-        readThreadSnapshot: unused,
-        rollbackThread: unused,
-        forkThread: unused,
-      };
-    }),
+            },
+          },
+          {
+            type: "turn_item.updated",
+            driver,
+            turnItem: {
+              ...item(50),
+              type: "assistant_message",
+              messageId: MessageId.make(`message:seed:${turn.threadId}:${turn.runOrdinal}`),
+              text: `Seed turn ${turn.runOrdinal}: noted in \`seed-notes/${turn.threadId}.md\`.`,
+              streaming: false,
+            },
+          },
+          {
+            type: "turn.terminal",
+            driver,
+            providerThreadId: turn.providerThread.id,
+            providerTurnId,
+            runOrdinal: turn.runOrdinal,
+            status: "completed",
+            failure: null,
+            threadDisposition: "reusable",
+          },
+        ]);
+      }),
+      steerTurn: unused,
+      interruptTurn: () => Effect.void,
+      respondToRuntimeRequest: unused,
+      readThreadSnapshot: unused,
+      rollbackThread: unused,
+      forkThread: unused,
+    };
+  }),
 };
 
 /** 3b's gate-leg composer (seam 6 notice kinds); the seed reads no reports, so no excerpt. */
@@ -288,20 +269,19 @@ const seedProgram = Effect.gen(function* () {
       );
 
   /** Waits until the thread's runs (and the effects they enqueue) have finished. */
-  const settle = (threadId: ThreadId) =>
-    Effect.gen(function* () {
-      for (let attempt = 0; attempt < 2_000; attempt += 1) {
-        const { runs } = yield* orchestrator.getThreadProjection(threadId);
-        const [outbox] = yield* sql<{ open: number }>`
+  const settle = Effect.fn("seedWorkstream.settle")(function* (threadId: ThreadId) {
+    for (let attempt = 0; attempt < 2_000; attempt += 1) {
+      const { runs } = yield* orchestrator.getThreadProjection(threadId);
+      const [outbox] = yield* sql<{ open: number }>`
           SELECT count(*) AS open FROM orchestration_v2_effect_outbox
           WHERE status IN ('pending', 'running')
         `;
-        if (outbox?.open === 0 && runs.every((run) => !BLOCKING_RUN_STATUSES.has(run.status)))
-          return runs;
-        yield* Effect.sleep("10 millis");
-      }
-      return yield* Effect.fail(new Error(`Thread ${threadId} did not settle.`));
-    });
+      if (outbox?.open === 0 && runs.every((run) => !BLOCKING_RUN_STATUSES.has(run.status)))
+        return runs;
+      yield* Effect.sleep("10 millis");
+    }
+    return yield* Effect.fail(new Error(`Thread ${threadId} did not settle.`));
+  });
 
   const writeFile = (dir: string, name: string, body: string) => {
     const file = NodePath.join(dir, name);
@@ -331,32 +311,35 @@ const seedProgram = Effect.gen(function* () {
       ...(notification === undefined ? {} : { notification }),
     }).pipe(Effect.andThen(settle(threadId)));
 
-  const createRoot = (threadId: ThreadId, title: string, anchorTaskId?: GoalTaskId) =>
-    Effect.gen(function* () {
-      yield* dispatch({
-        type: "thread.create",
-        commandId: CommandId.make(`seed:create:${threadId}`),
-        threadId,
-        projectId: SEED.projectId,
-        title,
-        modelSelection: MODEL_SELECTION,
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        branch: null,
-        worktreePath: workspaceRoot,
-        createdBy: "user",
-        creationSource: "web",
-      });
-      // A root's first goal-set creates its sidecar row.
-      yield* dispatch({
-        type: "thread.goal.set",
-        commandId: CommandId.make(`seed:goal:${threadId}`),
-        threadId,
-        createdAt: iso(),
-        goalId: SEED.goalId,
-        ...(anchorTaskId === undefined ? {} : { anchorTaskId }),
-      });
+  const createRoot = Effect.fn("seedWorkstream.createRoot")(function* (
+    threadId: ThreadId,
+    title: string,
+    anchorTaskId?: GoalTaskId,
+  ) {
+    yield* dispatch({
+      type: "thread.create",
+      commandId: CommandId.make(`seed:create:${threadId}`),
+      threadId,
+      projectId: SEED.projectId,
+      title,
+      modelSelection: MODEL_SELECTION,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: workspaceRoot,
+      createdBy: "user",
+      creationSource: "web",
     });
+    // A root's first goal-set creates its sidecar row.
+    yield* dispatch({
+      type: "thread.goal.set",
+      commandId: CommandId.make(`seed:goal:${threadId}`),
+      threadId,
+      createdAt: iso(),
+      goalId: SEED.goalId,
+      ...(anchorTaskId === undefined ? {} : { anchorTaskId }),
+    });
+  });
 
   const spawn = (input: {
     readonly threadId: ThreadId;
@@ -409,7 +392,7 @@ const seedProgram = Effect.gen(function* () {
     message(
       threadId,
       `server:workstream-kickoff:${threadId}`,
-      `[T3 Workstream kickoff — your brief, written by your parent agent]\n\n${NodeFS.readFileSync(
+      `[T3 Workstream kickoff: your brief, written by your parent agent]\n\n${NodeFS.readFileSync(
         NodePath.join(briefsDir, `${threadId}.md`),
         "utf8",
       )}`,
@@ -434,29 +417,31 @@ const seedProgram = Effect.gen(function* () {
 
   /** A turn on `asker` consulting each target (its consult cards), the records the
    * graph reads, then later turns so the consult sits above the first screen. */
-  const consultTurn = (asker: ThreadId, targets: ReadonlyArray<readonly [ThreadId, string]>) =>
-    Effect.gen(function* () {
-      yield* message(
-        asker,
-        `seed:consult:${asker}`,
-        `${targets.map(([id]) => `[seed-consult:${id}]`).join(" ")} Check the config contract.`,
-      );
-      for (const [targetThreadId, targetTitle] of targets)
-        yield* dispatch({
-          type: "thread.consult.record",
-          commandId: CommandId.make(`seed:consult-record:${asker}:${targetThreadId}`),
-          threadId: asker,
-          createdAt: iso(),
-          targetThreadId,
-          targetTitle,
-          question: SEED_CONSULT_QUESTION,
-          answer: SEED_CONSULT_ANSWER,
-          resolved: true,
-          durationMs: 42_000,
-        });
-      for (let step = 1; step <= 6; step += 1)
-        yield* message(asker, `seed:after-consult:${asker}:${step}`, `Carry on (step ${step}).`);
-    });
+  const consultTurn = Effect.fn("seedWorkstream.consultTurn")(function* (
+    asker: ThreadId,
+    targets: ReadonlyArray<readonly [ThreadId, string]>,
+  ) {
+    yield* message(
+      asker,
+      `seed:consult:${asker}`,
+      `${targets.map(([id]) => `[seed-consult:${id}]`).join(" ")} Check the config contract.`,
+    );
+    for (const [targetThreadId, targetTitle] of targets)
+      yield* dispatch({
+        type: "thread.consult.record",
+        commandId: CommandId.make(`seed:consult-record:${asker}:${targetThreadId}`),
+        threadId: asker,
+        createdAt: iso(),
+        targetThreadId,
+        targetTitle,
+        question: SEED_CONSULT_QUESTION,
+        answer: SEED_CONSULT_ANSWER,
+        resolved: true,
+        durationMs: 42_000,
+      });
+    for (let step = 1; step <= 6; step += 1)
+      yield* message(asker, `seed:after-consult:${asker}:${step}`, `Carry on (step ${step}).`);
+  });
 
   const reDrive = runReDrivePass(seedGateLeg, dispatchServerCommand).pipe(
     Effect.mapError((cause) => new Error(`re-drive pass failed: ${String(cause)}`)),
@@ -548,7 +533,7 @@ const seedProgram = Effect.gen(function* () {
   yield* submit(
     SEED.gateReviewer,
     "needs_rework",
-    "# Parser review — round 1\n\n- must fix: lower-case before tokenising\n- must fix: reject empty input\n- nice: name the regex\n",
+    "# Parser review, round 1\n\n- must fix: lower-case before tokenising\n- must fix: reject empty input\n- nice: name the regex\n",
     { counts: { mustFix: 2, niceToHave: 1 } },
   );
   // The re-drive planner sends the rework leg under its own id, exactly as the server would.

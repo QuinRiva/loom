@@ -117,7 +117,7 @@ describe("renderWorkstreamList", () => {
         '- root (you) [orchestrator] "Root" status=in_progress',
         `    last-activity: ${formatWakeTimestamp(AT)}`,
         '  - child [coder] "Do the thing" status=in_progress attention=needs_guidance+awaiting_input',
-        `      last-activity: ${formatWakeTimestamp(AT)} — started`,
+        `      last-activity: ${formatWakeTimestamp(AT)}, started`,
         "      report: /reports/child.md",
         "      session: /sessions/child.jsonl",
         '  - dep [reviewer] "(untitled)" status=blocked',
@@ -245,7 +245,7 @@ describe("renderSubmitOutcome", () => {
       "needs_guidance raised",
     );
     expect(renderSubmitOutcome({ decision: "resolve", outcome: "clean" })).toBe(
-      "Work submitted with outcome 'clean': the review gate RESOLVED — you and your gate counterpart are both done (dependents released).",
+      "Work submitted with outcome 'clean': the review gate RESOLVED: you and your gate counterpart are both done (dependents released).",
     );
     expect(
       renderSubmitOutcome({ decision: "loop", outcome: "needs_rework", leg: "rework", round: 1 }),
@@ -272,8 +272,8 @@ describe("renderConsultCandidates", () => {
     ).toBe(
       [
         "Multiple threads match that name. Confirm which one with whoever named it (your parent, via mcp__t3-code__consult_thread, if the name came from your brief), then call mcp__t3-code__consult_thread again with its threadId:",
-        "- A — coder, ready [/w/a] (threadId: t1)",
-        "- (untitled) — thread, unknown (threadId: t2)",
+        "- A: coder, ready [/w/a] (threadId: t1)",
+        "- (untitled): thread, unknown (threadId: t2)",
       ].join("\n"),
     );
     expect(renderConsultCandidates([])).toBe("No matching thread was found.");

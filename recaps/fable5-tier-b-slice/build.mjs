@@ -1,9 +1,6 @@
-// Fresh authoring generator for the tier-(b) validation slice (NOT the PE-1593
-// generators). Builds a single self-contained .mdx decision surface from the
-// real pack-2 verdict data, the T-5 title ruling, and FULL production taxonomy
-// entries embedded under <Details> + <Json>, deliberately crossing 1 MiB so it
-// exercises the large-doc renderer path end-to-end.
-//
+// Generator for the tier-(b) validation slice (not the PE-1593 generators): one .mdx from the
+// pack-2 verdicts, the T-5 title ruling and full production taxonomy entries under <Details> +
+// <Json>, deliberately over 1 MiB to exercise the large-doc renderer path.
 // Usage: node build.mjs > recap.mdx
 import * as NodeFS from "node:fs";
 

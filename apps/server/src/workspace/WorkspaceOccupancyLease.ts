@@ -9,50 +9,10 @@ import * as Semaphore from "effect/Semaphore";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 /**
- * WorkspaceLease — the single authority on "is a process actually using this
- * directory?", and the only gate a worktree removal may pass through
- * (post-completion engagement plan §7).
- *
- * Why a lease and not a predicate: occupancy used to be inferred from the plan
- * lane (terminal ⇒ nobody home), which is false for the case this exists to
- * protect — a human resuming a `done` sub-thread to ask it a question. But a
- * *snapshot* liveness check is still check-then-act: a process can start
- * between the check and `git worktree remove --force`, which is exactly the
- * three-second window that deleted a worktree under a live pi process. So
- * reservation and removal share one lease instead of one predicate evaluated
- * twice:
- *
- * - {@link WorkspaceLeaseShape.hold} is taken by the session-start path BEFORE
- *   the provider process is spawned (a driver can only register a child after
- *   spawn, so the pre-spawn gap is part of the race) and by provisioning for
- *   the tree it just created. Many concurrent holds per path are fine — this is
- *   an occupant lease, not a mutex.
- * - {@link WorkspaceLeaseShape.withExclusive} is the only way to run a removal.
- *   It fails fast (returns `Option.none`) while any hold is outstanding and
- *   blocks new holds for its duration, which is what makes check+remove atomic
- *   with respect to starts. Both removers are periodic and idempotent, so a
- *   skip simply retries on the next pass.
- *
- * Plan lane appears nowhere here: terminal must never imply safe-to-delete.
- *
- * File name: the fork owns this module, and upstream's unrelated
- * `workspaceLease.ts` (a plain per-cwd mutex around checkout removal/startup)
- * would otherwise clash with it on a case-insensitive filesystem. Upstream's
- * path is kept byte-identical so future pulls stay mechanical; this one moved.
- *
- * Relationship to `WorktreeMutationLock` (its closest cousin): that lock
- * serialises *git mutations* per repo cwd between the provisioner and the
- * fan-in reactor and knows nothing about processes; this lease is about
- * *process occupancy* of a workspace directory. Every site that uses both
- * nests them the same way — mutation lock OUTSIDE, `withExclusive` INSIDE —
- * and that order is deadlock-free for two independent reasons: `withExclusive`
- * never queues (it fails fast), and the one place that waits on a lease while
- * holding a lock (provisioning taking a hold on the tree it just cut, under the
- * parent's lock) can only be waiting on a removal that does not need that
- * parent lock, so no cycle can close.
- *
- * In-memory and server-owned: a restart drops every hold, which is correct —
- * no provider process outlives the server that spawned it.
+ * The only gate a worktree removal passes; a terminal plan lane never means safe-to-delete. Starts
+ * `hold` a path before spawning; removal runs in `withExclusive`, which fails fast while any hold
+ * is out and blocks new holds, so check+remove is atomic. Nest inside `WorktreeMutationLock`
+ * (deadlock-free: it never queues). Named apart from upstream's `workspaceLease.ts` (case clash).
  */
 
 export interface WorkspaceHold {
@@ -138,32 +98,22 @@ export const makeWorkspaceLease = Effect.gen(function* () {
       state.holds.delete(holdId) ? Effect.asVoid(state.semaphore.release(1)) : Effect.void,
     );
 
-  const hold: WorkspaceLeaseShape["hold"] = (path, holder) =>
-    Effect.gen(function* () {
+  const hold: WorkspaceLeaseShape["hold"] = Effect.fn("WorkspaceOccupancyLease.hold")(
+    function* (path, holder) {
       const key = NodePath.resolve(path);
       const state = yield* stateFor(key);
       const holdId = nextHoldId++;
-      // Waiting for the permit stays interruptible — a hold queued behind an
-      // in-flight removal must remain cancellable — but once `take` returns, the
-      // map entry must be recorded with no interruption point in between.
-      //
-      // `uninterruptibleMask` + `restore` is the whole mechanism, and there is
-      // deliberately NO interrupt compensation here: `Semaphore.take`
-      // (`Semaphore.ts:227-246`) increments `taken` only on the path that
-      // actually acquires, and an interrupted queued waiter merely deletes its
-      // own observer. So an interrupted `take` has taken nothing and needs no
-      // release. "Compensating" it credits a permit no one held, and a pool one
-      // permit OVER capacity lets `withExclusive` succeed while a live process
-      // holds the tree — the production incident, re-armed. Under-crediting
-      // would merely immortalise a worktree; over-crediting deletes live work,
-      // so this direction of the invariant is the load-bearing one.
+      // Waiting for the permit stays interruptible, but once `take` returns the map entry is
+      // recorded with no interruption point. No interrupt compensation: an interrupted `take`
+      // acquired nothing, and crediting it overfills the pool so `withExclusive` deletes live work.
       yield* Effect.uninterruptibleMask((restore) =>
         restore(state.semaphore.take(1)).pipe(
           Effect.flatMap(() => Effect.sync(() => state.holds.set(holdId, holder))),
         ),
       );
       return { path: key, holder, release: releaseHold(state, holdId) } satisfies WorkspaceHold;
-    });
+    },
+  );
 
   const withExclusive: WorkspaceLeaseShape["withExclusive"] = (path, effect) =>
     Effect.flatMap(stateFor(NodePath.resolve(path)), (state) =>

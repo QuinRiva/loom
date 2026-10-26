@@ -1,13 +1,8 @@
 /**
- * The REST routes beside `/mcp` (P3-3), for Loom's pi extension: the session
- * profile (seam 5), `mcp__t3-code__ask_user_question`'s ask + long-poll wait, and
- * the idle cache-warming plan report (the sidebar cache gauge) and the review-gate keep-alive
- * question a submitted thread asks before each idle ping.
- * The bearer is the thread's MCP credential, resolved through
- * `McpSessionRegistry.resolve` exactly as `/mcp` does; the caller is that
- * credential's thread and must hold the `workstream` capability.
- *
- * @module loom/http/loomAgentRoutes
+ * REST routes beside `/mcp` for Loom's pi extension: the session profile, `ask_user_question`'s
+ * ask and long-poll wait, the idle cache-warming plan report and the review-gate keep-alive
+ * question. The bearer is the thread's MCP credential, resolved as `/mcp` does; the caller must
+ * hold the `workstream` capability.
  */
 import { DOCUMENT_QUERY_ROLE, LoomCacheWarming, type ThreadId } from "@t3tools/contracts";
 import { gateKeepAliveCounterpart } from "@t3tools/shared/workstreamGraph";
@@ -44,20 +39,19 @@ const reply = (status: number, message: string) =>
   HttpServerResponse.jsonUnsafe({ message }, { status });
 
 /** Runs `handle` as the credential's thread, or answers 401 / 403. */
-const asCaller = <E, R>(
+const asCaller = Effect.fn("loomAgentRoutes.asCaller")(function* <E, R>(
   handle: (caller: WorkstreamCaller) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
-) =>
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const authorization = request.headers.authorization ?? "";
-    const scope = yield* (yield* McpSessionRegistry.McpSessionRegistry).resolve(
-      authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length).trim() : "",
-    );
-    if (scope === undefined) return reply(401, "A valid T3 thread credential is required.");
-    if (!scope.capabilities.has("workstream"))
-      return reply(403, "This credential does not carry the workstream capability.");
-    return yield* handle({ scope, threadId: scope.thread.threadId });
-  });
+) {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const authorization = request.headers.authorization ?? "";
+  const scope = yield* (yield* McpSessionRegistry.McpSessionRegistry).resolve(
+    authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length).trim() : "",
+  );
+  if (scope === undefined) return reply(401, "A valid T3 thread credential is required.");
+  if (!scope.capabilities.has("workstream"))
+    return reply(403, "This credential does not carry the workstream capability.");
+  return yield* handle({ scope, threadId: scope.thread.threadId });
+});
 
 /** As `asCaller`, but a read-only consult fork (whose thread is the target's) gets 403. */
 const asWritingCaller = <E, R>(

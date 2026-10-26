@@ -17,7 +17,7 @@ import { ChevronDownIcon, MessageCircleQuestionMarkIcon } from "lucide-react";
 import { memo, type ReactNode, use, useState } from "react";
 
 import ChatMarkdown from "~/components/ChatMarkdown";
-import { TimelineRowCtx } from "~/components/chat/MessagesTimeline";
+import { TimelineRowCtx } from "~/components/chat/timelineRowContext";
 import { Button } from "~/components/ui/button";
 import { WorkstreamModelPill } from "~/components/WorkstreamModelPill";
 import { cn } from "~/lib/utils";
@@ -32,22 +32,10 @@ import { formatElapsed, StepElapsed } from "./StepElapsed";
 import { ThreadLinkChip } from "./verifiedFileChips";
 
 /**
- * loom: the card a `mcp__t3-code__consult_thread` call renders as (pull 7's
- * PR #270 card, on V2's turn items).
- *
- * A consult is a conversation between two threads, and both halves of it are
- * content a reader needs. Upstream's grouped tool row shows neither: the call
- * is one line among the `echo`s and the answer a raw dump behind an expansion.
- * The card restores the exchange: who was asked (a navigable thread chip),
- * what was asked, whether it answered, and the answer as chat markdown so file
- * paths in it stay clickable. The wire withholds the answer, so it is fetched
- * (`getTurnItem`) only while the card is open.
- *
- * While the consult runs, the card also shows what its fork is doing, from the
- * live consult the shell stream carries (`useLiveConsult`): the current step,
- * the fork's last sentence, its cost, recent steps, transcript and a Stop. The
- * live figures are this session's only; after a reload a finished card shows
- * the exchange and its duration.
+ * loom: the card a `mcp__t3-code__consult_thread` call renders as, restoring the exchange upstream's
+ * tool row hides: who was asked (a thread chip), the question, whether it answered, and the answer
+ * as chat markdown, fetched (`getTurnItem`) only while open. A running consult also shows its fork's
+ * live progress (`useLiveConsult`), this session only; after a reload a finished card shows the exchange.
  */
 export const ConsultCardRow = memo(function ConsultCardRow({
   projectedItem,
@@ -238,7 +226,7 @@ export function ConsultCardView({
   return (
     <section
       className="-mx-1 min-w-0 px-1 py-0.5"
-      aria-label={`Consult — ${targetLabel}, ${STATUS[status].label}`}
+      aria-label={`Consult: ${targetLabel}, ${STATUS[status].label}`}
     >
       <div className="rounded-lg border border-info/25 bg-info/6" data-consult-card={status}>
         <div
@@ -260,7 +248,7 @@ export function ConsultCardView({
             {target}
           </span>
           {!expanded && question ? (
-            <span className="text-muted-foreground/70 min-w-0 flex-1 truncate">— {question}</span>
+            <span className="text-muted-foreground/70 min-w-0 flex-1 truncate">({question})</span>
           ) : (
             <span className="flex-1" />
           )}

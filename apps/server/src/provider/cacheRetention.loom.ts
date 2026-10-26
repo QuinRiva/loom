@@ -7,15 +7,10 @@ import * as NodePath from "node:path";
 import type { LoomCacheRetention } from "@t3tools/contracts";
 
 /**
- * Per-thread Anthropic prompt-cache retention (the 1h-cache A/B). pi reads
- * `PI_CACHE_RETENTION=long` from its env and then marks cache breakpoints
- * `ttl: "1h"`; anything else is the 5-minute default. Roots idle while their
- * children work, so they re-write 5-minute caches the 1h cache would keep;
- * children are short-lived bursts and pay more on 1h. So only a root
- * (`parentThreadId === null`) can be long: when the first byte of
- * sha256(threadId) is below 256 × `rootCacheLongShare`. Raising the share only
- * moves 5-minute bytes to 1-hour, so the arm never depends on the share's
- * history. See docs/operations/prompt-cache-retention.md.
+ * Per-thread Anthropic prompt-cache retention: pi marks breakpoints `ttl: "1h"` when its env has
+ * `PI_CACHE_RETENTION=long`. Only roots qualify (they idle while children work; short-lived
+ * children pay more on 1h): long when sha256(threadId)'s first byte is below 256 ×
+ * `rootCacheLongShare`, so raising the share only ever moves threads to 1h.
  */
 export const cacheRetentionForThread = (
   threadId: string,

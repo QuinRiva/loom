@@ -1,7 +1,9 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -59,24 +61,31 @@ it.live("plain statements queue behind an open transaction on the worker client"
       const sql = yield* SqlClient.SqlClient;
       yield* sql`CREATE TABLE entries(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`;
 
-      // A transaction that holds the connection open for a while, then rolls
-      // back. Guards the semaphore contract on the worker client: plain
-      // statements must queue behind the transaction's permit (else the
-      // interleaved plain write would be erased by the rollback) and
-      // transaction statements must not re-acquire it (else this deadlocks).
-      const rolledBack = sql
+      // Holds the connection in a transaction, then rolls back: plain statements must queue behind
+      // its permit (else the rollback erases the interleaved write) and transaction statements
+      // must not re-acquire it (else this deadlocks).
+      const inTransaction = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const rolledBack = yield* sql
         .withTransaction(
           Effect.gen(function* () {
             yield* sql`INSERT INTO entries(name) VALUES (${"txn"})`;
-            yield* Effect.sleep(150);
+            yield* Deferred.succeed(inTransaction, undefined);
+            yield* Deferred.await(release);
             return yield* Effect.fail("rollback" as const);
           }),
         )
-        .pipe(Effect.flip);
+        .pipe(Effect.flip, Effect.forkChild);
 
-      const plain = sql`INSERT INTO entries(name) VALUES (${"plain"})`.pipe(Effect.delay(30));
-
-      yield* Effect.all([rolledBack, plain], { concurrency: "unbounded" });
+      yield* Deferred.await(inTransaction);
+      const plain = yield* sql`INSERT INTO entries(name) VALUES (${"plain"})`.pipe(
+        Effect.forkChild,
+      );
+      // Let the plain write reach the client while the transaction still holds it.
+      yield* Effect.yieldNow;
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(rolledBack);
+      yield* Fiber.join(plain);
 
       const rows = yield* sql<{ readonly name: string }>`SELECT name FROM entries`;
       assert.deepEqual(

@@ -1,22 +1,8 @@
 /**
- * loom: the always-on subscription meter — the accepted "Timeline" design
- * (`plans/usage-meter-redesign/plan.mdx`) in the sidebar footer, mirrored as a
- * tier-1 chip in the chat header while the sidebar is closed.
- *
- * Every 5-hour window is a bar on its pool's wall-clock axis: the bar's end is
- * its reset, the vertical line is now (fill past it is over pace), and an
- * amber ▼ marks where the current burn empties the window before its reset —
- * hollow while the burn is only the window average. Weekly clocks show only as
- * ▲ risk / ▽ opportunity; the numbers are on hover. Fixed height: nothing
- * reflows as thresholds cross, and nothing animates.
- *
- * It reads the presentations atom every client already subscribes to, so it
- * adds no RPC and no wire traffic. Tier 4 state throughout
- * (`docs/architecture/loom-ui-state-tiers.md`): the pools are derived, the only
- * mutable state is a 30-second countdown tick, and the header chip *reads*
- * sidebar visibility without ever writing it.
- *
- * @module loom/SubscriptionMeter
+ * loom: the always-on subscription meter in the sidebar footer, mirrored as a chat-header chip while
+ * the sidebar is closed. Each 5-hour window is a bar on its pool's wall-clock axis ending at its
+ * reset, with ▼ where the burn empties it first. Fixed height, no animation. Reads the presentations
+ * atom every client already holds (no RPC); the header chip reads sidebar visibility, never writes it.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { loginAttention, loginAttentionText } from "@t3tools/shared/usageLimits";
@@ -340,7 +326,7 @@ function RowPopover({
           reset={
             bar.resetKnown
               ? `resets ${clock(bar.reset)} · in ${formatCountdown(bar.reset - now)}`
-              : "idle — starts at first use"
+              : "idle, starts at first use"
           }
           note={
             bar.emptyAt !== null && bar.burn

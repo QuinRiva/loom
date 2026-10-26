@@ -6,18 +6,16 @@ import { useEffect, useRef } from "react";
 
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { useEnvironmentIds } from "~/state/environments";
-import { environmentSnapshotAtom } from "~/state/shell";
+import { loomEnvironmentSnapshotAtom } from "~/state/threads";
 import { buildThreadRouteParams } from "~/threadRoutes";
 
 import { handoffReceiptRows, type LoomTimelineRow } from "./loomTimelineRows";
 import { HANDOFF_FAILURE_REASON } from "./LoomTimelineRowView";
 
 /**
- * loom: the away-from-thread backstop for `/handoff`. The receipt row in the
- * source thread is the primary surface; this toasts a drafter's settlement
- * observed in this session — a failure always (it must reach the human
- * wherever they are), a success only when the source thread is not on screen.
- * The first snapshot only seeds, so a reload never replays old handoffs.
+ * loom: the away-from-thread backstop for `/handoff` beside the source thread's receipt row: it
+ * toasts a drafter's settlement seen this session, a failure always and a success only when the
+ * source thread is off screen. The first snapshot only seeds, so a reload never replays old handoffs.
  */
 export function HandoffToastCoordinator() {
   return useEnvironmentIds().map((environmentId) => (
@@ -26,7 +24,7 @@ export function HandoffToastCoordinator() {
 }
 
 function EnvironmentHandoffToasts({ environmentId }: { environmentId: EnvironmentId }) {
-  const threads = useAtomValue(environmentSnapshotAtom(environmentId))?.threads;
+  const threads = useAtomValue(loomEnvironmentSnapshotAtom(environmentId))?.threads;
   const activeThreadId = useParams({ strict: false }).threadId;
   const navigate = useNavigate();
   const previous = useRef<ReadonlyMap<string, LoomTimelineRow> | null>(null);
@@ -63,7 +61,7 @@ function EnvironmentHandoffToasts({ environmentId }: { environmentId: Environmen
             type: "error",
             title: "Handoff needs you",
             // A string, so the toast offers Copy: the explanation's last on-screen copy.
-            description: `${HANDOFF_FAILURE_REASON}${explanation ? ` — ${explanation}` : ""}`,
+            description: `${HANDOFF_FAILURE_REASON}${explanation ? ` ${explanation}` : ""}`,
             timeout: 0,
             actionProps: { children: "Open drafter", onClick: () => open(row.drafterThreadId!) },
           }),

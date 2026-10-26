@@ -1,9 +1,7 @@
 /**
- * The node rules `mcp__t3-code__workstream_spawn` and `mcp__t3-code__workstream_scaffold` share, ported
- * from V1's `WorkstreamSpawnHttp.ts`: the fork identity rule, the gate's routes
- * and its round cap, and the anchor a child is born with. The graph itself
- * (live siblings, cycles, graph keys) is validated by the arm under the
- * parent's lock.
+ * The node rules `workstream_spawn` and `workstream_scaffold` share: the fork identity rule, the
+ * gate's routes and round cap, and a child's birth anchor. The graph itself (siblings, cycles,
+ * keys) is validated by the arm under the parent's lock.
  *
  * @module mcp/toolkits/workstream/handlers/childNode
  */
@@ -52,7 +50,7 @@ export const nodeShapeError = (node: NodeInput, nothing: string): string | undef
     ).filter((field) => node[field] !== undefined);
     if (offenders.length > 0) {
       const one = offenders.length === 1;
-      return `${offenders.join(", ")} cannot be combined with forkFrom: a fork inherits its source's launch identity (role, applied model + thinking level), so ${one ? "that field is" : "those fields are"} rejected rather than silently ignored. Remove ${one ? "it" : "them"} — the fork adopts the source's role and model. ${nothing}`;
+      return `${offenders.join(", ")} cannot be combined with forkFrom: a fork inherits its source's launch identity (role, applied model + thinking level), so ${one ? "that field is" : "those fields are"} rejected rather than silently ignored. Remove ${one ? "it" : "them"}: the fork adopts the source's role and model. ${nothing}`;
     }
     if (node.gate !== undefined)
       return `gate and forkFrom cannot be combined: a forked child is a normal worker that inherits the source's session, not a gated reviewer. Drop one. ${nothing}`;
@@ -91,13 +89,13 @@ export const withImpliedEdges = (input: {
   if (input.gateRework !== undefined && !blockedBy.includes(input.gateRework)) {
     blockedBy.push(input.gateRework);
     warnings.push(
-      `gate.rework ${input.gateRework} was added to blockedBy automatically — a gated reviewer always waits for the thread it reviews.`,
+      `gate.rework ${input.gateRework} was added to blockedBy automatically: a gated reviewer always waits for the thread it reviews.`,
     );
   }
   if (input.forkFrom !== undefined && !blockedBy.includes(input.forkFrom)) {
     blockedBy.push(input.forkFrom);
     warnings.push(
-      `forkFrom ${input.forkFrom} was added to blockedBy automatically — a fork waits for its source thread to finish before it launches.`,
+      `forkFrom ${input.forkFrom} was added to blockedBy automatically: a fork waits for its source thread to finish before it launches.`,
     );
   }
   return { blockedBy, warnings };
@@ -115,7 +113,7 @@ export const anchorError = Effect.fn("LoomToolkit.anchorError")(function* (
 ) {
   if (requested.length === 0) return undefined;
   if (spawner?.goalId == null)
-    return `anchorTaskId was passed, but this thread has no active goal — there is no task tree to anchor a child into. Omit anchorTaskId; the child is then unbound and works from its brief. ${nothing}`;
+    return `anchorTaskId was passed, but this thread has no active goal: there is no task tree to anchor a child into. Omit anchorTaskId; the child is then unbound and works from its brief. ${nothing}`;
   const store = yield* LoomStore.LoomStoreV2;
   const tasks = yield* asToolError(store.tasks.listByGoal(spawner.goalId));
   const ownAnchor = resolveThreadAnchor(tasks, spawner.anchorTaskId);
@@ -123,7 +121,7 @@ export const anchorError = Effect.fn("LoomToolkit.anchorError")(function* (
     const id = GoalTaskId.make(raw);
     const task = findGoalTask(tasks, id);
     if (task === null)
-      return `anchorTaskId ${id} is not a live task of this thread's goal. Pass the id shown in the trailing "(id)" of a task line from ${t("goal_task_list")} — add the task first with ${t("goal_task_add")} if it does not exist yet, or omit anchorTaskId to leave the child unbound. ${nothing}`;
+      return `anchorTaskId ${id} is not a live task of this thread's goal. Pass the id shown in the trailing "(id)" of a task line from ${t("goal_task_list")}; add the task first with ${t("goal_task_add")} if it does not exist yet, or omit anchorTaskId to leave the child unbound. ${nothing}`;
     if (ownAnchor !== null && !isWithinGoalTaskBranch(ownAnchor, id))
       return `anchorTaskId ${id} ("${task.text}") is outside the branch you own. You are anchored to ${ownAnchor.id} ("${ownAnchor.text}"), and a thread may only delegate within its own branch: pass that task or one of its descendants, or omit anchorTaskId to leave the child unbound. Work you discovered elsewhere in the tree is RECORDED with ${t("goal_task_add")} and re-homed by the orchestrator that owns the shape, not delegated from here. ${nothing}`;
   }

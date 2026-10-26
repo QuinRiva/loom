@@ -111,7 +111,7 @@ about:
   context, a CSS `targetSelector`, and document-percentage `x`/`y`. This is exactly the
   plannotator text-quote+context approach.
 - **Wireframe node pins:** `targetNodeId` + `targetNodePath` (e.g. `card > list > listItem "Acme
-Inc"`), addressable by wireframe patch ops.
+  Inc"`), addressable by wireframe patch ops.
 - **Canvas coordinates:** `canvasX`/`canvasY` in board-world pixels with `canvasWidth`/`canvasHeight`;
   plus in-element `targetX`/`targetY` percentages and `targetKind`
   (`text|image|prototype|wireframe|canvas|diagram|table|code|control|block`).
@@ -298,6 +298,6 @@ agent polling `get-plan-feedback` via MCP._
   banking on "R reuses core/blocks."
 - **Full block-type enumeration and per-block schema depth** were sampled (registry + skill), not
   exhaustively catalogued; a complete port list should be generated from `get-plan-blocks --format
-schema` when scoping R.
+  schema` when scoping R.
 - Root `LICENSE` hygiene: README + packages say MIT, root `package.json` says ISC, no root LICENSE
   file. Treat as MIT but confirm with BuilderIO if licence certainty is load-bearing.

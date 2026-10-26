@@ -1,12 +1,7 @@
-// Loom-owned reducer for the durable one-shot auto-open seed, spliced into the
-// upstream-owned `rightPanelStore` as its `seedWorkstream` action (seam 18).
-//
-// One functional transition adds the Workstream surface and, only on a first
-// visit (no panel state yet), opens and activates it. It never overrides an
-// existing user choice: when panel state already exists the tab is added
-// without touching `activeSurfaceId` or `isOpen`
-// (docs/architecture/loom-ui-state-tiers.md, seed-not-override). Goal tasks is
-// never seeded: the panel reopens as the user left it (G3).
+// Loom-owned reducer for the one-shot Workstream auto-open seed, spliced into upstream's
+// `rightPanelStore` as `seedWorkstream`. It adds the surface, and opens and activates it only on a
+// first visit; existing panel state keeps `activeSurfaceId` and `isOpen` (seed, never override, per
+// docs/architecture/loom-ui-state-tiers.md). Goal tasks is never seeded.
 import type { RightPanelSurface, ThreadRightPanelState } from "../rightPanelStore";
 
 const LOOM_SURFACES = {

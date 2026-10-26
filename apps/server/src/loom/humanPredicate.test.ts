@@ -1,11 +1,7 @@
 /**
- * Seam 14's one human predicate (DL-194/245/248), the two cases Phase 2 did not
- * test, on the real orchestrator: upstream's limit-resume (`createdBy: "user"`,
- * `creationSource: "server"`, `usageLimitContinuationOfRunId`) never clears a hold
- * and is stored without `loom.humanAuthored`, so quiescence reads its turn as
- * control-started; a composer message and a `runtime-request.respond` fall-through
- * answer are stamped human and take the human grace. (3a's `humanEngaged` reads the
- * same stamp and is tested there.)
+ * The human predicate on the real orchestrator: upstream's limit-resume never clears a hold and is
+ * stored without `loom.humanAuthored`, so quiescence reads it as control-started; a composer
+ * message and a `runtime-request.respond` fall-through answer are stamped human and get the human grace.
  */
 import { assert, it } from "@effect/vitest";
 import {

@@ -1,14 +1,7 @@
 /**
- * `t3 goal …` — the human's command-line surface for goals and their task
- * trees, writing `LoomStoreV2.goals` / `tasks` directly in the home's database
- * (V1's orchestration-command helper is gone with the V1 engine; P3-27, DT-26).
- * The tree is read and written in the same `- [x] text (id)` markdown the
- * agent tools use, through the same parse/diff module. A running server's web
- * picks a CLI write up on its next shell snapshot: goal writes reach live
- * subscribers only through the server's in-process `LoomGoalBroadcast`, which
- * this process cannot reach (DL-343).
- *
- * @module cli/goal
+ * `t3 goal …`: the human's CLI for goals and task trees, writing `LoomStoreV2` directly in the
+ * home's database with the same markdown parse/diff the agent tools use. A running server's web
+ * sees a CLI write only on its next shell snapshot: this process cannot reach `LoomGoalBroadcast`.
  */
 import { GoalId, GoalTaskId, type LoomGoal } from "@t3tools/contracts";
 import * as Console from "effect/Console";
@@ -33,8 +26,8 @@ import { findGoalTask, flattenGoalTasks } from "../loom/goals/goalTaskTree.ts";
 import * as LoomStore from "../loom/projection/LoomStore.ts";
 import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
-import * as ServerSecretStore from "../auth/ServerSecretStore.ts"; // loom: #292
-import * as ServerSettings from "../serverSettings.ts"; // loom: #292
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts"; // loom: autoPull project settings
+import * as ServerSettings from "../serverSettings.ts"; // loom: autoPull project settings
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -76,7 +69,7 @@ const runGoalCommand = Effect.fn("runGoalCommand")(function* <E>(
       ),
     ),
     Layer.provideMerge(WorkspacePaths.layer),
-    // loom: #292 — ProjectService routes autoPull into project settings.
+    // loom: ProjectService routes autoPull into project settings.
     Layer.provideMerge(ServerSettings.layer.pipe(Layer.provide(ServerSecretStore.layer))),
     Layer.provideMerge(SqlitePersistence.layerConfig),
     Layer.provide(ServerConfig.layer(config)),

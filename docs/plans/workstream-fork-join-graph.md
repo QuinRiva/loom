@@ -79,7 +79,7 @@ Orchestrator (wave 3) ── researcher
   connectors**: each terminal member of wave _N_ joins _into_ the orchestrator
   node for wave _N+1_ (a join edge), and that node forks _out_ to wave _N+1_'s
   children (fork edges). `coder → reviewer ─[join]→ orchestrator ─[fork]→ coder2 →
-reviewer2`. These connectors are **structural, not dependencies**: render them
+  reviewer2`. These connectors are **structural, not dependencies**: render them
   as the neutral solid spine line, visually distinct from real `blockedBy`
   (dashed amber) — the one genuinely information-bearing edge must not be confused
   with plumbing. The first orchestrator node forks wave 1 with no inbound join;

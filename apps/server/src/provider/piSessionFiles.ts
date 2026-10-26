@@ -4,14 +4,8 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 /**
- * On-disk pi session-file mechanics: mapping a thread id to its deterministic
- * session id and resolving that id to the absolute `.jsonl` path on disk.
- *
- * Kept OUT of the pi CLI-invocation module (`Layers/Pi/Cli.ts`) and out of the
- * orchestration layer so the two sit at their proper level: orchestration
- * (`threadResolve`/`stallContext`) and the MCP HTTP bridge reach for session
- * files without importing a provider CLI-invocation module, and the CLI module
- * keeps only invocation concerns.
+ * On-disk pi session-file mechanics (thread id to session id to `.jsonl` path), kept out of the pi
+ * CLI module so orchestration and the MCP bridge can reach session files without importing it.
  *
  * @module piSessionFiles
  */
@@ -40,13 +34,9 @@ export const piSessionsRoot = (env: NodeJS.ProcessEnv = process.env): string =>
   );
 
 /**
- * Resolve a deterministic pi session id to its absolute `.jsonl` path by
- * scanning every project-slug dir under the sessions root for a file ending in
- * `_<sessionId>.jsonl` (pi names files `<timestamp>_<sessionId>.jsonl`). The
- * `_` boundary plus the UUID-shaped id make false positives effectively
- * impossible. Returns the newest match, or undefined when none exists (the
- * caller then falls back to the bare id). Scoped to the sessions root only —
- * never an unbounded filesystem walk.
+ * Resolves a deterministic pi session id to its newest `<timestamp>_<sessionId>.jsonl` under any
+ * project dir of the sessions root (never wider); the `_` boundary and UUID-shaped id rule out
+ * false positives. Undefined when none exists, and the caller falls back to the bare id.
  */
 export const resolveSessionFilePath = (
   sessionId: string,
@@ -74,13 +64,9 @@ export const resolveSessionFilePath = (
 };
 
 /**
- * pi's project session directory for a cwd: `<root>/--<cwd with the leading
- * separator stripped and `/`, `\`, `:` replaced by `-`>--`.
- *
- * Mirrors pi's own `getDefaultSessionDirPath`. pi scopes a `--session-id` launch
- * (first launch of a new thread, and the `--fork` target id) to THIS directory
- * alone, so the encoding has to match pi's byte-for-byte. A RESUME does not go
- * through this directory at all — see `resolveResumableSessionFile`.
+ * pi's project session directory for a cwd: `<root>/--<cwd with the leading separator stripped and
+ * `/`, `\`, `:` replaced by `-`>--`. Matches pi's `getDefaultSessionDirPath` byte-for-byte, since
+ * pi scopes a `--session-id` launch to it alone. A resume never uses it.
  */
 export const piProjectSessionDir = (cwd: string, root: string = piSessionsRoot()): string =>
   NodePath.join(
@@ -94,11 +80,8 @@ export const piProjectSessionDir = (cwd: string, root: string = piSessionsRoot()
 const HEADER_PROBE_BYTES = 64 * 1024;
 
 /**
- * Read a pi session file's header id, applying pi's own acceptance rule: the
- * FIRST parseable JSONL line must be a `type: "session"` entry (pi skips
- * unparseable lines, but bails the moment the first parseable one is not a
- * header). Returns that header's `id`, or undefined when the file is not a
- * readable pi session.
+ * A pi session file's header id under pi's own rule: the FIRST parseable JSONL line must be a
+ * `type: "session"` entry (unparseable lines are skipped). Undefined when not a readable session.
  */
 export const readSessionHeaderId = (path: string): string | undefined => {
   let handle: number | undefined;
@@ -134,24 +117,10 @@ export const readSessionHeaderId = (path: string): string | undefined => {
 };
 
 /**
- * Resolve the session file a RESUME will actually open for this thread, or
- * undefined when there is nothing safe to continue.
- *
- * A pi resume is `--session <path> --cwd <dir>` (the bundled patch), NOT
- * `--session-id`: the driver names the file outright and pins the working
- * directory, so pi opens exactly that path — its project-dir listing is never
- * consulted, and the file may well live under ANOTHER worktree's project dir
- * (the relocated-worktree case the `--cwd` flag exists for). The candidate is
- * therefore the same global by-name lookup the launch itself performs
- * (`resolveSessionFilePath`), so the probe and the launch cannot disagree about
- * WHICH file is at stake.
- *
- * What the probe adds on top is validation of that one file: it must be
- * readable, its first parseable line must be a `session` header, and that
- * header's id must equal `sessionId`. pi with `--cwd` skips its own header read
- * entirely, so a corrupt or non-session file would be opened as an empty
- * conversation — alive-looking with its orchestration context silently gone. A
- * loud refusal is better, hence the validation.
+ * The session file a resume will open, or undefined when nothing is safe to continue. A resume is
+ * `--session <path> --cwd <dir>`, so pi opens that exact path (possibly under another worktree's
+ * project dir); the candidate is the launch's own by-name lookup. With `--cwd` pi skips its header
+ * read, so this checks the header id loudly rather than open a corrupt file as an empty session.
  */
 export const resolveResumableSessionFile = (
   sessionId: string,
@@ -173,25 +142,10 @@ export interface PiSessionRewindPlan {
 }
 
 /**
- * Plan a conversation rewind of the last `turns` prompts on a pi session file.
- *
- * pi's session is an append-only entry tree whose active branch is the path to
- * the leaf; a rewind is therefore a truncation of that path, exactly what pi's
- * own fork does (`SessionManager.createBranchedSession`) — except this keeps the
- * SAME file and header id, because the driver resolves a thread's session by
- * that deterministic id and would otherwise resume the pre-rewind file.
- *
- * Turn boundaries are pi's own fork points: the user-role message entries (tool
- * results carry role `toolResult`, so they are never mistaken for prompts).
- * That equates one prompt to one turn, which is what the server counts — with
- * the known exception of a prompt sent INTO a running turn (a steer) or a
- * driver-level retry re-prompt, each of which adds a user entry inside one
- * server turn and so makes a rewind spanning it stop one prompt short. There is
- * no marker in the session file to tell those apart.
- *
- * Throws when the file is not a readable pi session or its entries are not a
- * single linear chain (a branched session would need the whole path rebuilt;
- * the driver never creates one, so refuse loudly rather than guess).
+ * Plans a rewind of the last `turns` prompts by truncating the session's active path, as pi's fork
+ * does, but keeping the same file and header id the driver resumes by. Turns are user-role entries,
+ * so a steer or retry re-prompt inside one server turn makes a rewind spanning it stop one short.
+ * Throws on an unreadable or branched session (the driver never branches; refuse, do not guess).
  */
 export const planPiSessionRewind = (path: string, turns: number): PiSessionRewindPlan => {
   const lines = NodeFS.readFileSync(path, "utf8")

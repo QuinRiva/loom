@@ -43,13 +43,10 @@ function LineageChip({
 }
 
 /**
- * The active thread's ancestry, root → immediate parent, each a link; the
- * middle elides past three. A `forkFrom` child also shows its fork source (the
- * sidecar's `forkFromThreadId` — the shell carries no context-transfer edge;
- * upstream's Lineage panel draws that from the thread projection). A
- * handed-off or continued root also shows the thread it came from (`startedBy`);
- * it opens that thread at the handoff, as the sidebar hover line does
- * (`ThreadStart.tsx`).
+ * The active thread's ancestry, root → immediate parent, each a link, eliding the middle past three.
+ * A fork child also shows its source (`forkFromThreadId`; the shell carries no context-transfer
+ * edge), and a handed-off or continued root its origin (`startedBy`), opened at the handoff as the
+ * sidebar hover line does.
  */
 export function ThreadLineageBreadcrumb({
   lineage,

@@ -27,11 +27,12 @@ import {
   LoomSessionComposer,
   LoomSessionComposerError,
 } from "../loom/prompt/sessionComposer.ts";
-import type { LoomOpenSessionFields } from "@t3tools/contracts";
+import type { LoomOpenSessionFields, LoomThreadWorkstream } from "@t3tools/contracts";
 import { LoomSessionComposerLive } from "../loom/serverLayers.ts";
 import { WORK_MODEL_ADDENDUM } from "../loom/prompt/prose.ts";
 import { agentGitEnv } from "../loom/workstream/agentGitIdentity.ts";
 import { LOOM_HIDDEN_TOOLS_ENV } from "../loom/prompt/sessionComposerLive.ts";
+import { LoomStoreV2 } from "../loom/projection/LoomStore.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -130,9 +131,11 @@ const recordingAdapter = (
       }),
   }) as ProviderAdapterV2["Service"];
 
+/** With `loomStore`, the opened thread is a child of another thread and the store is its sidecar. */
 const openWith = (
   composer: Layer.Layer<never> | undefined,
   afterOpen: (closes: Ref.Ref<number>) => Effect.Effect<void> = () => Effect.void,
+  loomStore?: Layer.Layer<LoomStoreV2>,
 ) =>
   Effect.gen(function* () {
     const opens = yield* Ref.make<ReadonlyArray<ProviderAdapterV2OpenSessionInput>>([]);
@@ -163,6 +166,7 @@ const openWith = (
           McpProviderSessions.layer,
           stores,
           ...(composer === undefined ? [] : [composer]),
+          ...(loomStore === undefined ? [] : [loomStore]),
         ),
       ),
     );
@@ -170,6 +174,7 @@ const openWith = (
       const sink = yield* EventSink.EventSinkV2;
       const ids = yield* IdAllocator.IdAllocatorV2;
       const threadId = ThreadId.make("thread-loom-composer");
+      const parent = ThreadId.make("thread-loom-parent");
       const now = yield* DateTime.now;
       const thread: OrchestrationV2AppThread = {
         createdBy: "user",
@@ -184,7 +189,10 @@ const openWith = (
         branch: null,
         worktreePath: null,
         activeProviderThreadId: null,
-        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+        lineage:
+          loomStore === undefined
+            ? { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId }
+            : { parentThreadId: parent, relationshipToParent: "subagent", rootThreadId: parent },
         forkedFrom: null,
         createdAt: now,
         updatedAt: now,
@@ -215,16 +223,27 @@ const openWith = (
         runtimePolicy,
       });
       yield* afterOpen(closes);
-      return opened;
+      const credential = yield* (yield* McpProviderSessions.McpProviderSessions).read(threadId);
+      const token = credential?.authorizationHeader.replace(/^Bearer\s+/, "") ?? "";
+      const resolved = yield* (yield* McpSessionRegistry.McpSessionRegistry).resolve(token);
+      return { opened, subagent: resolved?.thread?.subagent };
     }).pipe(
       Effect.provide(
-        Layer.mergeAll(manager, eventSink, IdAllocator.layer).pipe(
-          Layer.provideMerge(NodeServices.layer),
-        ),
+        Layer.mergeAll(
+          manager,
+          eventSink,
+          IdAllocator.layer,
+          mcpRegistry,
+          McpProviderSessions.layer,
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
       ),
       Effect.exit,
     );
-    return { exit, opens: yield* Ref.get(opens) };
+    return {
+      exit,
+      opens: yield* Ref.get(opens),
+      subagent: Exit.isSuccess(exit) ? exit.value.subagent : undefined,
+    };
   }).pipe(Effect.scoped);
 
 it.effect("opens with the empty default composer when none is provided", () =>
@@ -335,4 +354,25 @@ it.effect("releases a session without a composed idle timeout at the default", (
   Effect.gen(function* () {
     assert.deepEqual(yield* liveAfter(undefined, [29, 31]), [true, false]);
   }),
+);
+
+// Upstream hides watch_pull_request from subagent credentials; a Loom child must keep it.
+it.effect.each([
+  { workstream: true, subagent: false },
+  { workstream: false, subagent: true },
+] as const)(
+  "marks a child's MCP credential subagent only without a Loom workstream row ($workstream)",
+  ({ workstream, subagent }) =>
+    Effect.gen(function* () {
+      const { exit, subagent: issued } = yield* openWith(
+        undefined,
+        undefined,
+        Layer.succeed(LoomStoreV2, {
+          getWorkstream: (threadId: ThreadId) =>
+            Effect.succeed(workstream ? ({ threadId } as unknown as LoomThreadWorkstream) : null),
+        } as unknown as LoomStoreV2["Service"]),
+      );
+      assert.isTrue(Exit.isSuccess(exit));
+      assert.equal(issued, subagent);
+    }),
 );

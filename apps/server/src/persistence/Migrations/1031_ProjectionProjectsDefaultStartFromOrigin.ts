@@ -1,11 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// Per-project default for branching new top-level worktrees from a freshly
-// fetched origin/main (docs/keep-loom-fresh-on-deploy.md §C). Mirrors
-// default_model_selection_json: a nullable JSON column (`true`/`false`/null)
-// read through Schema.fromJsonString(Schema.Boolean). NULL means "unset" and
-// resolves to the client-side false default.
+// Per-project default for branching new worktrees from freshly fetched origin/main: nullable JSON
+// (`true`/`false`/null) read through Schema.fromJsonString(Schema.Boolean); NULL resolves to false.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const columns = yield* sql<{ name: string }>`PRAGMA table_info(projection_projects)`;

@@ -1,13 +1,8 @@
 /**
- * loom: the `/handoff` and `/retro` composer intercepts (3d-3). ChatView's
- * send authority calls the returned function first; `true` means the prompt
- * was a recognised draft command and was handled (dispatched, or refused with
- * an inline error) — it must never fall through to a turn on this thread.
- *
- * The calls go to 3b's `loom.handoffDraft` / `loom.retroDraft` with the
- * `HandoffDraft*` / `RetroDraft*` contract shapes. Until integration lands
- * 3b's handlers the server answers with a `LoomWsMethodError` naming the
- * method, which surfaces as the thread's inline error (DL-433).
+ * loom: the `/handoff` and `/retro` composer intercepts, calling `loom.handoffDraft` /
+ * `loom.retroDraft`. ChatView's send authority calls the returned function first; `true` means a
+ * recognised draft command was handled (dispatched, or refused with an inline error) and must never
+ * fall through to a turn on this thread.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {

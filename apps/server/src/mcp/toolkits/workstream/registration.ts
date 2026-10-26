@@ -1,10 +1,7 @@
 /**
- * Hand-registers Loom's tools on `/mcp` the way upstream registers its image
- * tools (`registerImageTool` in `McpHttpServer.ts`), because `McpServer.toolkit`
- * would JSON-stringify every result (P3-1). A success is the rendered markdown
- * as one text block; a failure is its message as text, flagged `isError` only
- * for throw-mode tools. No `structuredContent`: the text is the contract.
- * `_meta` carries the prompt snippet and guidelines for the bridge (P3-2).
+ * Hand-registers Loom's tools on `/mcp` like upstream's `registerImageTool`, because
+ * `McpServer.toolkit` would JSON-stringify results. Text is the contract: rendered markdown, or the
+ * error message (`isError` for throw-mode tools); `_meta` carries snippet and guidelines.
  *
  * @module mcp/toolkits/workstream/registration
  */
@@ -34,8 +31,8 @@ const textResult = (text: string, isError: boolean) =>
  * success is one text block; a failure is its message, `isError` per the
  * tool's error mode.
  */
-export const callLoomTool = (def: LoomToolDef, handlers: LoomToolHandlers, payload: unknown) =>
-  Effect.gen(function* () {
+export const callLoomTool = Effect.fn("registration.callLoomTool")(
+  function* (def: LoomToolDef, handlers: LoomToolHandlers, payload: unknown) {
     const caller = yield* requireWorkstreamCaller();
     // A consult fork answers as its target but may only read; a query thread may also consult,
     // retitle itself and promote (both refused before decoding).
@@ -63,12 +60,15 @@ export const callLoomTool = (def: LoomToolDef, handlers: LoomToolHandlers, paylo
       caller: WorkstreamCaller,
     ) => Effect.Effect<string, LoomToolError>;
     return yield* handle(input, caller);
-  }).pipe(
-    Effect.match({
-      onSuccess: (rendered) => textResult(rendered, false),
-      onFailure: (error) => textResult(error.message, def.errorMode === "throw"),
-    }),
-  );
+  },
+  (effect, def, handlers, payload) =>
+    effect.pipe(
+      Effect.match({
+        onSuccess: (rendered) => textResult(rendered, false),
+        onFailure: (error) => textResult(error.message, def.errorMode === "throw"),
+      }),
+    ),
+);
 
 export const registerLoomToolkit = Effect.fn("LoomToolkit.register")(function* (
   defs: ReadonlyArray<LoomToolDef>,

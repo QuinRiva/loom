@@ -10,28 +10,10 @@ import type { PlanMdxComponent } from "../mdxCompileOptions";
 import { loadPlanSection } from "../planCompileClient";
 
 /**
- * "Peek at the section this question depends on".
- *
- * A question in the bottom `<QuestionForm>` can carry `refs`, each naming a
- * heading slug from the plan body (see {@link ../headingAnchors}). The refs
- * render as chips under the question; opening one shows that section — heading
- * to the next heading of the same or higher level — in a popover over the form,
- * so the reader never loses their place mid-answer.
- *
- * The peek is a REAL render, not a copy of the rendered DOM: the section's
- * source slice — bounded by the mdast the document's own compile walked, so the
- * linter, the renderer and this agree on where a section ends — is compiled
- * through the same worker + closed block registry as the document, so tabs,
- * disclosures, canvases and sandboxed frames inside a peeked section behave
- * exactly as they do in the body.
- *
- * ONE thing keeps that second render invisible to the annotation layer, and it
- * is load-bearing: the popover is portalled to `<body>`, outside
- * `[data-plan-root]` — which every annotation query, every `data-plan-block-id`
- * lookup, the selection guard and the block-id assignment pass are scoped to. A
- * peek rendered INSIDE the root would duplicate text in the flattened document
- * and move existing comment highlights, so an inline variant is not a CSS
- * change; `questionPeek.test.tsx` holds the invariant.
+ * Question `refs` chips that peek at a heading's section in a popover. The peek
+ * compiles the section's source slice through the same worker and registry, so it
+ * behaves like the body. It MUST portal outside `[data-plan-root]`, which every
+ * annotation query is scoped to; `questionPeek.test.tsx` holds that invariant.
  */
 
 export interface QuestionRef {
@@ -42,11 +24,9 @@ export interface QuestionRef {
 }
 
 /**
- * What a peek needs from the document hosting it: the plan source to slice a
- * section out of, and the block registry to render that slice with. Provided by
- * {@link ../MdxPlanRenderer}, which owns both — taking the registry through
- * context rather than importing it keeps this block out of an import cycle with
- * the registry that lists it.
+ * What a peek needs from its host document: the source to slice and the registry to
+ * render it, provided by {@link ../MdxPlanRenderer} through context to avoid an import
+ * cycle with the registry that lists this block.
  */
 export interface PlanPeekDocument {
   source: string;
@@ -180,12 +160,9 @@ function PeekSection({
 export function QuestionRefChips({ refs }: { refs: QuestionRef[] }) {
   const doc = useContext(PlanPeekContext);
   const [open, setOpen] = useState<string | null>(null);
-  // Viewport coordinates for the popover. It is portalled to <body> because the
-  // question form (and the file panel above it) clip their overflow — anchored
-  // inside the form, a popover on the last question would be cut in half. It
-  // spans the question's own column and hugs its content up to 70% of the
-  // viewport; chips sit near the BOTTOM of a plan, so it flips above the chip
-  // when the room below is worse.
+  // Portalled to <body> because the form and file panel clip overflow. Spans the
+  // question's column up to 70% of the viewport, and flips above the chip when the
+  // room below is worse (chips sit near the bottom of a plan).
   const [box, setBox] = useState({
     left: 0,
     width: 0,

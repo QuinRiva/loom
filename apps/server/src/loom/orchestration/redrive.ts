@@ -1,16 +1,8 @@
 /**
- * The re-drive planner (plans/upstream-pull9-phase2-substrate/plan.mdx §4, D3,
- * D16; DL-199, DL-213). The arm writes only to the commanded thread, so every
- * effect on another thread — cancel, archive, unarchive and delete cascades,
- * wedged dependents, goal attach, gate legs — is derived here from sidecar
- * state as one per-thread command with an episode-keyed `server:` id. A
- * receipted id is done (accepted or dead) and never re-sent; a deferral leaves
- * no receipt, so the same id is retried on the next pass.
- *
- * The dispatcher (`dispatcher/WorkstreamDispatcher.ts`) runs the pass first in
- * every control-plane pass, with the real gate-leg composer (`dispatcher/gateLegs.ts`).
- *
- * @module loom/orchestration/redrive
+ * The re-drive planner. The arm writes only to the commanded thread, so every effect on another
+ * thread (cancel, archive, unarchive and delete cascades, wedged dependents, goal attach, gate
+ * legs) is derived here as one per-thread command with an episode-keyed `server:` id. A receipted
+ * id is never re-sent; a deferral leaves no receipt, so the same id is retried on the next pass.
  */
 import {
   CommandId,
@@ -296,30 +288,29 @@ export const dispatchServerCommand = Effect.fn("loom.dispatchServerCommand")(fun
  * SEQUENTIALLY — one thread lock at a time, never nested — through `dispatch`
  * (the dispatcher's pass helper, or the bare `dispatchServerCommand`).
  */
-export const runReDrivePass = <E, R>(
+export const runReDrivePass = Effect.fn("redrive.runReDrivePass")(function* <E, R>(
   gateLeg: GateLegComposer,
   dispatch: (
     command: ThreadServerCommand,
   ) => Effect.Effect<{ readonly status: "receipted" | "accepted" | "deferred" | "dead" }, E, R>,
-) =>
-  Effect.gen(function* () {
-    const loomStore = yield* LoomStoreV2;
-    const commands = planReDrive({
-      rows: yield* loomStore.listReDriveInput(),
-      now: DateTime.formatIso(yield* DateTime.now),
-      gateLeg,
-    });
-    const result = {
-      accepted: [] as CommandId[],
-      deferred: [] as CommandId[],
-      dead: [] as CommandId[],
-    };
-    for (const command of commands) {
-      const { status } = yield* dispatch(command);
-      if (status !== "receipted") result[status].push(command.commandId);
-    }
-    return result satisfies ReDrivePassResult;
-  }).pipe(Effect.withSpan("loom.runReDrivePass"));
+) {
+  const loomStore = yield* LoomStoreV2;
+  const commands = planReDrive({
+    rows: yield* loomStore.listReDriveInput(),
+    now: DateTime.formatIso(yield* DateTime.now),
+    gateLeg,
+  });
+  const result = {
+    accepted: [] as CommandId[],
+    deferred: [] as CommandId[],
+    dead: [] as CommandId[],
+  };
+  for (const command of commands) {
+    const { status } = yield* dispatch(command);
+    if (status !== "receipted") result[status].push(command.commandId);
+  }
+  return result satisfies ReDrivePassResult;
+}, Effect.withSpan("loom.runReDrivePass"));
 
 const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
   "completed",

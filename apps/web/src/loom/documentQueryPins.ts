@@ -1,12 +1,8 @@
 /**
- * loom: the query pins a document draws — one per question asked about it in a
- * live query thread of its author (plans/plan-query-threads/plan.mdx §5 step 10),
- * keyed on the author and file as the server resolves them
- * (`useDocumentQueryAuthor`), so every view of one document shares its pins.
- * A derived atom per (environment, author, file) over the environment's live
- * shells: it recomputes on any shell change but keeps its previous value when
- * the pins are unchanged, so the annotation layer re-renders only when a
- * question is asked or a query thread leaves the live set.
+ * loom: a document's query pins, one per question in a live query thread of its author, keyed
+ * on author and file as the server resolves them so every view shares them. A derived atom per
+ * (environment, author, file) that keeps its value when the pins are unchanged, so the
+ * annotation layer re-renders only when a question is asked or a query thread leaves.
  */
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -89,11 +85,9 @@ const pinsAtom = Atom.family((key: string) => {
 });
 
 /**
- * The thread a Query on `filePath` from `ref`'s document panel forks, as the
- * server resolves it (`loom.documentQueryAuthor`): the thread that signed the
- * document, else the viewing thread (a query thread stands for its author).
- * Asked once per open document and cached, never per selection; null until
- * answered, or while the viewing thread has no shell (a draft has no author).
+ * The thread a Query on `filePath` from `ref`'s panel forks (`loom.documentQueryAuthor`): the
+ * signer, else the viewing thread (a query thread stands for its author). Asked once per open
+ * document and cached; null until answered, or while the viewer has no shell (a draft).
  */
 const queryAuthorAtom = Atom.family((key: string) => {
   const [environmentId, threadId, filePath] = JSON.parse(key) as [EnvironmentId, ThreadId, string];

@@ -1,14 +1,9 @@
 import * as Schema from "effect/Schema";
 
 /**
- * Shared contracts for first-party MDX plan annotation (the "plannotator" pivot).
- * Schema-only — no runtime logic (that lives in `apps/web`/`packages/shared`).
- *
- * The anchor + comment shapes are adopted from BuilderIO's visual-plan model
- * (`templates/plan/shared/comment-context.ts`) trimmed to the local-files flow:
- * the text-quote subset is populated first, the visual/canvas/wireframe fields
- * are reserved for the deferred Phase 4 tiers. See `docs/mdx-spike-findings.md`
- * §3.1 and `docs/mdx-plannotator-decisions.md` D4.
+ * Schema-only contracts for first-party MDX plan annotation. The anchor and comment shapes adopt
+ * BuilderIO's visual-plan model (`templates/plan/shared/comment-context.ts`), trimmed to the
+ * local-files flow: the text-quote subset is populated, the visual/canvas fields are reserved.
  */
 
 export const PlanCommentResolutionTarget = Schema.Literals(["agent", "human"]);
@@ -51,16 +46,10 @@ export const PlanCommentTargetKind = Schema.Literals([
 export type PlanCommentTargetKind = typeof PlanCommentTargetKind.Type;
 
 /**
- * A rendered-document anchor. The first cut populates the text-quote subset
- * (`textQuote` + `contextBefore`/`contextAfter` + section/block) which the
- * Range-precise resolver re-binds to an exact DOM `Range`; the visual/canvas
- * fields are reserved for later tiers. Whole-block fallback anchoring keys on
- * `blockType` + `targetSelector` / the rendered `data-plan-block-id`.
- *
- * Keys are exact-optional (`optionalKey`): the anchor rides the message wire
- * inside a review-comment context record, whose JSON encoding rejects an
- * explicit `undefined`, so producers must omit an absent field rather than set
- * it to `undefined` — the type now enforces that.
+ * A rendered-document anchor. The text-quote subset (`textQuote`, context, section/block) is
+ * re-bound to an exact DOM `Range`; whole-block fallback keys on `blockType` + `targetSelector` /
+ * `data-plan-block-id`. Keys are exact-optional: the wire's JSON encoding rejects an explicit
+ * `undefined`, so producers must omit an absent field.
  */
 export const PlanCommentAnchor = Schema.Struct({
   anchorKind: Schema.optionalKey(PlanCommentAnchorKind),
@@ -103,11 +92,9 @@ export const PlanCommentAuthor = Schema.Literals(["human", "agent"]);
 export type PlanCommentAuthor = typeof PlanCommentAuthor.Type;
 
 /**
- * A single plan comment. Trimmed from BuilderIO's `PlanComment` to the
- * local-files flow (DB/org/hosted fields dropped). First cut keeps comments in
- * the composer store rather than a `comments.json` sidecar (decision D5), so
- * this is the shape a future sidecar/import would use, not a wire dependency yet.
- * `planPath` is the `.mdx` path (replaces BuilderIO's `planId`).
+ * A single plan comment, BuilderIO's `PlanComment` trimmed to the local-files flow (`planPath` is
+ * the `.mdx` path). Comments live in the composer store for now, so this is the shape a future
+ * sidecar or import would use, not a wire dependency yet.
  */
 export const PlanComment = Schema.Struct({
   id: Schema.String,

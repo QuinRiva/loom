@@ -9,15 +9,9 @@ import {
 } from "@t3tools/contracts";
 
 /**
- * workstreamGraph - the single pure source of truth for the workstream graph:
- * structure (lineage), membership (which threads share one orchestration tree),
- * and the generation join the dispatcher uses to wake a parent.
- *
- * Mirrors the `workstreamDependencies` precedent: a minimal structural node
- * shape both the read-model thread (`OrchestrationThread`) and the shell summary
- * (`OrchestrationThreadShell`) satisfy, plus pure predicates consumed by every
- * graph walker (dispatcher join, same-tree auth, discovery view) so they can
- * never disagree. No I/O.
+ * The single pure source of truth for the workstream graph (lineage, tree membership, the
+ * dispatcher's generation join): a minimal node shape both `OrchestrationThread` and
+ * `OrchestrationThreadShell` satisfy, and predicates every graph walker shares so none disagree.
  *
  * @module workstreamGraph
  */
@@ -163,12 +157,9 @@ export const subtreeCostOf = <T extends CostGraphNode>(
 export const isTerminal = (outcome: LoomOutcome | null): boolean => outcome !== null;
 
 /**
- * A child is "terminal" for parent noticing ONLY when it has an outcome.
- * Attention flags and runtime state never count: a flagged, non-executing child
- * (a human stop, `awaiting_acceptance`, a quiet yield) is PAUSED, not finished
- * — the parent hears about the pause through the per-child notice rail, never
- * through the terminal-child delta rail. Only `done` releases dependents (that
- * stays done-only in `workstreamDependencies`).
+ * A child is terminal for parent noticing ONLY when it has an outcome. A flagged, non-executing
+ * child is PAUSED: the parent hears via the per-child notice rail, not the terminal-child delta
+ * rail. Only `done` releases dependents (see `workstreamDependencies`).
  */
 export interface TerminalForJoinNode {
   readonly outcome: LoomOutcome | null;
@@ -213,18 +204,10 @@ export const gateSourceFor = <T extends GateNode>(
   ) ?? null;
 
 /**
- * Gate-waiting is not "forgot to finish" (design §6): true when the thread
- * participates in an unresolved gate and the protocol has parked it — the
- * source after it looped findings to the target (including while the target
- * holds the open rework round), or the target that routed back and awaits the
- * source's re-verify. A cancelled counterpart never suppresses (risk R4: the
- * waiting party's idle wake un-suppresses so the orchestrator hears about the
- * dead gate). The same rule generalises to a TERMINAL target holding an open
- * rework round (a parent force-`done` on the coder mid-round, 2026-07-07
- * incident): the round's rework leg is receipt-deduped, so nothing re-drives
- * the loop — the source's idle wake must surface it. A terminal target that
- * ROUTED BACK (`lastOutcome.decision === "loop"`) still suppresses: the
- * re-verify leg is owed and delivers regardless of the target's outcome.
+ * True when the protocol has parked the thread in an unresolved gate: the source after looping
+ * findings (even while the target holds the rework round), or a target that routed back to await
+ * re-verify, even if terminal (that leg is owed). False when the counterpart is cancelled or a
+ * terminal target holding an open rework round: nothing re-drives that, so the idle wake surfaces it.
  */
 export const isWaitingInGate = (
   thread: GateNode,
@@ -272,16 +255,10 @@ export type KeepAliveNode = GateNode &
   >;
 
 /**
- * The review-gate counterpart whose hand-back a submitted thread is parked on, or null when
- * none is coming soon: the reviewer of a done coder, or the party `isWaitingInGate` names for a
- * reviewer that looped or a coder that routed back. Null when the thread itself is flagged (it
- * waits on a human or its parent), or the counterpart is cancelled, archived, deleted, flagged,
- * or neither launched nor ready to launch (held, or blocked on an undone sibling).
- *
- * The pi extension's idle cache warming asks this before every ping of a submitted thread and
- * keeps the cache warm while it holds, overruling pi's economics: pi prices an idle reply at 15%
- * likely, whereas a gate hand-back arrived inside 30 minutes nine times in ten (Sep–Oct 2026
- * transcripts: median park 10 minutes coder-side, 5 reviewer-side).
+ * The gate counterpart a submitted thread is parked on, or null when no hand-back is coming soon:
+ * the thread is flagged, or the counterpart is cancelled, archived, deleted, flagged, or neither
+ * launched nor launchable. Idle cache warming keeps the cache warm while it holds: gate hand-backs
+ * landed within 30 minutes nine times in ten, against pi's 15% idle-reply estimate.
  */
 export const gateKeepAliveCounterpart = <T extends KeepAliveNode>(
   thread: T,
@@ -312,11 +289,9 @@ export const gateKeepAliveCounterpart = <T extends KeepAliveNode>(
 };
 
 /**
- * Generation-join gating (design §6): true when the thread is a party of an
- * unresolved gate — a non-terminal loop-route source, or the target of a loop
- * route whose source is non-terminal. The dispatcher holds back any joined
- * generation containing such a member so a coder-only generation never joins
- * mid-loop (its round-0 `done` is reopenable until the gate resolves).
+ * True for a party of an unresolved gate: a non-terminal loop-route source, or a loop-route target
+ * whose source is non-terminal. The dispatcher holds back joined generations containing one, so a
+ * coder's round-0 `done` (reopenable until the gate resolves) never joins mid-loop.
  */
 export const isMemberOfUnresolvedGate = (
   thread: Pick<GateNode, "id" | "outcome" | "routes">,
@@ -361,24 +336,10 @@ export interface WorkSubmitRouting {
 }
 
 /**
- * The single routing decision for a submitted outcome (design §4.3), consulted
- * by the decider (authoritative — the emitted events follow it) and mirrored by
- * the submit endpoint (response echo, per-round report naming):
- *
- * - `quiescent` (the dispatcher's synthesised submit for a child that went
- *   quiet) → `yield`, first — before the rework interception, so a coder that
- *   goes quiet mid-rework yields to the orchestrator and is never read as
- *   having handed back.
- * - `needs_human` → `attention` (the reserved human flag; outcome untouched).
- * - A source outcome matching a loop route → `loop` while rounds remain
- *   (round = gateRounds + 1), `cap-breach` at the cap; a cancelled/missing
- *   loop target degrades to `yield` (risk R4 — never route into a dead thread).
- * - A source outcome matching a resolve route → `resolve`, completing the
- *   non-terminal counterpart alongside.
- * - Any non-`needs_human` outcome from a target with an open rework round →
- *   intercepted `loop` back to the source (round = the source's open round).
- * - Otherwise: `done` → `terminal`, anything else → `yield` (escalation is the
- *   safe default — no outcome can silently become done outside a rework round).
+ * The single routing decision for a submitted outcome: the decider follows it, the submit endpoint
+ * mirrors it. `quiescent` yields before the rework interception, so a coder gone quiet mid-rework
+ * is never read as handing back; a dead loop target yields; a target with an open rework round
+ * loops back; otherwise only `done` is terminal and anything else yields (escalation is safe).
  */
 export const routeWorkSubmit = <T extends GateNode>(
   thread: T,
@@ -431,20 +392,10 @@ export const RAISABLE_ATTENTION_REASONS: ReadonlyArray<LoomAttentionReason> = [
 ];
 
 /**
- * The raise-then-complete contradiction: the standing attention reason a
- * COMPLETING submit would erase, or null when the submit leaves the hold
- * intact. Only `terminal`/`resolve` land the calling thread in `done` (which
- * clears stored attention and releases dependents); every other decision keeps
- * it non-terminal, so a raise still holds.
- *
- * Keyed on STANDING attention (D19): only a human or the parent clears a hold,
- * so a raisable reason may predate this turn — raised by the thread itself (the
- * contradiction), by a parent on a running child, or surviving a notify or
- * control-notice turn. Completing is wrong in every one of those cases, which
- * is why the reason is reported rather than attributed. The 2026-08-21
- * attention audit found 10 of 20 recent `awaiting_acceptance` raises erased by
- * the raiser's own submit seconds later, releasing the very work the sign-off
- * was meant to gate.
+ * The standing attention reason a COMPLETING submit (`terminal`/`resolve`, landing in `done`) would
+ * erase, or null. Keyed on standing attention, not this turn's raise: only a human or the parent
+ * clears a hold, whoever raised it. Raisers erasing their own `awaiting_acceptance` seconds later
+ * released the very work the sign-off was meant to gate.
  */
 export const holdErasedByCompletion = (input: {
   readonly attention: ReadonlyArray<LoomAttentionReason>;

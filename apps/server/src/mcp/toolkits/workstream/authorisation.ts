@@ -1,11 +1,7 @@
 /**
- * Who may act through Loom's tools, and on what. The acting thread is always
- * the credential's own thread (never a parameter); a target is that thread or
- * one it directly parents (V1's D3 rule). Branch scoping for the goal tools
- * lives with the tree helpers (`loom/goals/goalTaskTree.ts`). Registration requires the caller for every tool,
- * so a handler cannot forget it.
- *
- * @module mcp/toolkits/workstream/authorisation
+ * The acting thread is always the credential's own, never a parameter; a target is that thread or
+ * one it directly parents. Registration requires the caller for every tool, so a handler cannot
+ * forget it. Goal-tool branch scoping lives in `loom/goals/goalTaskTree.ts`.
  */
 import type { LoomThreadWorkstream, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -66,11 +62,9 @@ const mapStoreError = Effect.mapError(
 );
 
 /**
- * The caller's own thread (the default) or a live thread it directly parents,
- * `targetRef` resolved over those by `resolveThreadRef`. Returns the target's
- * sidecar row; null only for the caller's own thread when it has none yet (a
- * root before its first Loom write) — so read the target id as
- * `row?.threadId ?? caller.threadId`.
+ * The caller's own thread (default) or a live thread it directly parents, resolved by
+ * `resolveThreadRef`. Returns the sidecar row, null only for the caller with none yet, so read the
+ * target id as `row?.threadId ?? caller.threadId`.
  */
 export const authoriseTarget = Effect.fn("LoomToolkit.authoriseTarget")(function* (
   caller: WorkstreamCaller,

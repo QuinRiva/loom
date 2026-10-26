@@ -2,11 +2,8 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as Effect from "effect/Effect";
 
 /**
- * DB-authoritative goals/tasks (architecture-plan v4): goals and their task
- * trees become first-class event-sourced aggregates instead of file-discovered
- * `goal.md` packages. Threads reference a goal by stable id (`goal_id`) rather
- * than the worktree-ambiguous `goal_slug`, which is dropped — there is no
- * coexistence period.
+ * Goals and task trees become event-sourced aggregates instead of file-discovered `goal.md`
+ * packages; threads reference a goal by `goal_id`, and the worktree-ambiguous `goal_slug` goes.
  */
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

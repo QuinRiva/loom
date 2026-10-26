@@ -14,6 +14,8 @@ import type {
   ProjectEntry,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
+  ProjectListIgnoredFilesInput,
+  ProjectListIgnoredFilesResult,
   ProjectLocateFilesInput, // loom
   ProjectLocateFilesResult, // loom
   ProjectSearchContentsInput,
@@ -101,6 +103,9 @@ export class WorkspaceEntries extends Context.Service<
     readonly search: (
       input: ProjectSearchEntriesInput,
     ) => Effect.Effect<ProjectSearchEntriesResult, WorkspaceEntriesError>;
+    readonly listIgnoredFiles: (
+      input: ProjectListIgnoredFilesInput,
+    ) => Effect.Effect<ProjectListIgnoredFilesResult, WorkspaceEntriesError>;
     readonly searchContents: (
       input: ProjectSearchContentsInput,
     ) => Effect.Effect<ProjectSearchContentsResult, WorkspaceEntriesError>;
@@ -111,6 +116,9 @@ export class WorkspaceEntries extends Context.Service<
     ) => Effect.Effect<ProjectLocateFilesResult, WorkspaceEntriesError>;
   }
 >()("t3/workspace/WorkspaceEntries") {}
+
+/** Ignored files offered for copying; more than this is a build folder, not config. */
+const IGNORED_FILES_LIMIT = 200;
 
 /** Paths sent to one `git check-ignore` call when labelling a folder's children. */
 const IGNORE_CHECK_CHUNK_SIZE = 1000;
@@ -143,7 +151,7 @@ const resolveBrowseTarget = Effect.fn("WorkspaceEntries.resolveBrowseTarget")(fu
   );
 });
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
@@ -166,20 +174,21 @@ export const make = Effect.gen(function* () {
         if (!(yield* RcMap.has(workspaceSearchIndexes.rcMap, indexKey))) {
           continue;
         }
-        const recoverRefreshFailure = (
-          cause:
-            | WorkspaceSearchIndex.WorkspaceSearchIndexCreateFailed
-            | WorkspaceSearchIndex.WorkspaceSearchIndexScanTimedOut
-            | WorkspaceSearchIndex.WorkspaceSearchIndexRefreshFailed,
-        ) =>
-          Effect.gen(function* () {
+        const recoverRefreshFailure = Effect.fn("WorkspaceEntries.recoverRefreshFailure")(
+          function* (
+            cause:
+              | WorkspaceSearchIndex.WorkspaceSearchIndexCreateFailed
+              | WorkspaceSearchIndex.WorkspaceSearchIndexScanTimedOut
+              | WorkspaceSearchIndex.WorkspaceSearchIndexRefreshFailed,
+          ) {
             yield* Effect.logWarning("Failed to refresh workspace search index", {
               cwd,
               variant,
               cause,
             });
             yield* workspaceSearchIndexes.invalidate(indexKey);
-          });
+          },
+        );
         yield* Effect.gen(function* () {
           const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
           yield* searchIndex.refresh();
@@ -331,8 +340,7 @@ export const make = Effect.gen(function* () {
           },
           catch: toError,
         });
-        // Use stdin so large directories cannot exceed the command-line argument limit.
-        // Ignore classification is optional in non-git workspaces or when git is unavailable.
+        // stdin avoids argument limits; ignore classification is optional without git/repositories.
         const checkIgnore = (paths: ReadonlyArray<string>) =>
           vcsProcess
             .run({
@@ -346,13 +354,8 @@ export const make = Effect.gen(function* () {
               maxOutputBytes: 16 * 1024 * 1024,
             })
             .pipe(Effect.orElseSucceed(() => undefined));
-        // Git consults the index for every path it classifies, which costs hundreds of
-        // milliseconds for a `node_modules`-sized folder. Asking about the folder itself answers
-        // for every child: `check-ignore` exits 0 only when the folder is ignored and nothing
-        // under it is tracked, and an ignored folder hides all of its children. Git reads paths as
-        // pathspecs, so a folder whose path has magic (`:foo`) or glob (`[id]`) characters, or
-        // one reached through a symlink, can get a different answer per child and still asks git
-        // about each.
+        // Check ignored folders once to avoid child index lookups; exit 0 guarantees no tracked descendants.
+        // Symlinks and pathspec magic still need per-child checks.
         if (
           entries.length > IGNORE_CHECK_CHUNK_SIZE &&
           target.relativePath !== "" &&
@@ -393,6 +396,55 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const listIgnoredFiles: WorkspaceEntries["Service"]["listIgnoredFiles"] = Effect.fn(
+    "WorkspaceEntries.listIgnoredFiles",
+  )(function* (input) {
+    const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
+    // `--directory` reports a folder holding nothing but ignored files as one
+    // `name/` entry, which is how `node_modules` and build output drop out.
+    const result = yield* vcsProcess
+      .run({
+        operation: "WorkspaceEntries.listIgnoredFiles",
+        command: "git",
+        args: [
+          "-c",
+          "core.fsmonitor=false",
+          "ls-files",
+          "--others",
+          "--ignored",
+          "--exclude-standard",
+          "--directory",
+          "--no-empty-directory",
+          "-z",
+        ],
+        cwd: normalizedCwd,
+        allowNonZeroExit: true,
+        timeoutMs: 10_000,
+        maxOutputBytes: 4 * 1024 * 1024,
+      })
+      .pipe(Effect.orElseSucceed(() => undefined));
+    if (!result || result.exitCode !== 0) return { files: [], truncated: false };
+    const paths = result.stdout
+      .split("\0")
+      .filter((entry) => entry.length > 0 && !entry.endsWith("/"))
+      .toSorted();
+    const files = yield* Effect.promise(() =>
+      Promise.all(
+        paths.slice(0, IGNORED_FILES_LIMIT).map(async (relativePath) => {
+          // lstat: a symlink usually points outside the workspace, where reads refuse to go.
+          const stat = await NodeFSP.lstat(path.join(normalizedCwd, relativePath)).catch(
+            () => null,
+          );
+          return stat?.isFile() ? { path: relativePath, byteLength: stat.size } : null;
+        }),
+      ),
+    );
+    return {
+      files: files.filter((file) => file !== null),
+      truncated: paths.length > IGNORED_FILES_LIMIT,
+    };
+  });
+
   // loom: unanchored chat file references, resolved against the same path index
   // as @-mentions and returned as absolute paths.
   const locateFiles: WorkspaceEntries["Service"]["locateFiles"] = Effect.fn(
@@ -416,8 +468,15 @@ export const make = Effect.gen(function* () {
       })),
     };
   });
-
-  return WorkspaceEntries.of({ browse, list, locateFiles, refresh, search, searchContents });
+  return WorkspaceEntries.of({
+    browse,
+    list,
+    listIgnoredFiles,
+    locateFiles, // loom
+    refresh,
+    search,
+    searchContents,
+  });
 });
 
 export const layer = Layer.effect(WorkspaceEntries, make).pipe(

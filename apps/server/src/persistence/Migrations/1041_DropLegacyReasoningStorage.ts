@@ -2,23 +2,10 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
 /**
- * Retires loom's "ephemeral reasoning v2" storage, now that migration 1038's
- * copy onto upstream's `role = 'reasoning'` message rows has been verified
- * against real data.
- *
- * Two halves of one retirement, hence one migration. The three columns have
- * been write-dead and read-dead since the reasoning re-home, and the
- * `thread.message-reasoning` events were kept only so a replay across the
- * historical event store could still decode them — the same change that
- * deletes the rows drops the event literal and its payload schema from
- * `orchestration.loom.ts`, so they must not outlive each other.
- *
- * No index, trigger or view on the real schema references the three columns,
- * so `DROP COLUMN` needs no table rebuild. Deleting events leaves gaps in
- * `stream_version`, which the store tolerates: it appends at
- * `max(stream_version) + 1` and reads in `sequence` order.
- *
- * See `docs/upstream-sync/26-reasoning-rehome.md`.
+ * Retires "ephemeral reasoning v2" storage after 1038's copy was verified. Columns and the
+ * `thread.message-reasoning` events go together: the event schema left `orchestration.loom.ts` in
+ * the same change. Nothing references the columns, so DROP COLUMN needs no rebuild; the store
+ * tolerates `stream_version` gaps (it appends at max + 1 and reads in `sequence` order).
  */
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

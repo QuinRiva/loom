@@ -1,25 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Inverse of the one-time migration-lane-split reconciliation
- * (`LoomMigrations.ts`): folds `loom_sql_migrations` `1001..1032` back into
- * `effect_sql_migrations` as `33..64` and moves upstream's `33`/`34` back up to
- * `65`/`66`, restoring the single-ledger layout old code expects.
- *
- * **Run this BEFORE reverting to old code.** Old code against a reconciled
- * ledger sees an upstream max of `34` and would re-run old ids `35..66` against
- * a database that already has those changes.
- *
- * **The rollback window closes at the next migration.** The inverse only
- * reconstructs the historical order from the exact post-reconciliation state
- * (upstream dense `1..34`, fork dense `1001..1032`). Once either lane has
- * advanced — a legitimate upstream `035+` or a new fork `1033+` — the ids
- * collide with real upstream numbers and the historical order is not
- * recoverable, so this refuses and tells you to restore from backup.
- *
+ * Inverse of the migration-lane-split reconciliation: folds loom `1001..1032` back to `33..64` and
+ * upstream `33`/`34` up to `65`/`66`. Run it BEFORE reverting to old code, which would re-run `35..66`.
+ * Refuses once either lane has advanced past the post-reconciliation state; restore from backup then.
  * Usage: `node apps/server/scripts/loom-ledger-rollback.ts --base-dir <path> [--dry-run]`
- *
- * @module loom-ledger-rollback
  */
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";

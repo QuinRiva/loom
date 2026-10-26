@@ -1,13 +1,7 @@
 /**
- * Worker-backed `node:sqlite` client: the `SqlClient` wrapper (compiler,
- * span attributes, transaction machinery) stays on the main thread while the
- * `Connection` internals execute in a dedicated worker thread
- * (`SqliteWorker.ts`), so long-running statements no longer stall the
- * server's event loop.
- *
- * The worker is spawned once per layer and torn down with the layer scope.
- * A worker crash fails in-flight requests as a defect and is fatal, matching
- * the blast radius of an in-process sqlite crash.
+ * Worker-backed `node:sqlite` client: the `SqlClient` wrapper stays on the main thread while the
+ * `Connection` runs in a worker (`SqliteWorker.ts`), so long statements do not stall the event
+ * loop. A worker crash fails in-flight requests as a fatal defect, like an in-process sqlite crash.
  *
  * @module NodeSqliteWorkerClient
  */
@@ -41,10 +35,8 @@ import type { SqliteWorkerData } from "./NodeSqliteConnection.ts";
 const ATTR_DB_SYSTEM_NAME = "db.system.name";
 
 /**
- * In development the server runs directly from source (`node src/bin.ts`
- * with type stripping), so the worker entry is the sibling `.ts` file. In
- * the packed build (`vp pack`) this module becomes a chunk at the dist root
- * while the worker entry preserves its source-relative path, emitted at
+ * Dev runs from source, so the worker entry is the sibling `.ts`. In the packed build this module
+ * is a chunk at the dist root while the worker keeps its source-relative path:
  * `dist/persistence/SqliteWorker.mjs`.
  */
 const workerEntryUrl = (): URL =>
@@ -53,17 +45,9 @@ const workerEntryUrl = (): URL =>
     : new URL("./persistence/SqliteWorker.mjs", import.meta.url);
 
 /**
- * Env for the sqlite worker, scrubbed of `WATCH_REPORT_DEPENDENCIES`.
- *
- * Under `node --watch` (dev), the parent sets `WATCH_REPORT_DEPENDENCIES`,
- * which makes every spawned `worker_threads` worker post `watch:import`
- * dependency messages back to its `parentPort`. Those messages arrive on the
- * same channel the Effect `RpcClient` worker protocol uses, so the client
- * reads a `{ "watch:import": [...] }` frame instead of an rpc response and
- * dies with `Cannot read properties of undefined (reading '_tag')` — the
- * server then never starts listening. Deleting the key (Node ignores an
- * explicit `undefined` value rather than unsetting it, so it must be absent)
- * disables that reporting for the worker without affecting the parent watcher.
+ * Under `node --watch` the parent's `WATCH_REPORT_DEPENDENCIES` makes workers post `watch:import`
+ * frames on the channel the Effect `RpcClient` reads, so it dies on `reading '_tag'` and the server
+ * never listens. Delete the key: Node ignores an explicit `undefined` rather than unsetting it.
  */
 const workerEnv = (): NodeJS.ProcessEnv => {
   const env = { ...process.env };
@@ -173,14 +157,10 @@ const make = Effect.fnUntraced(function* (options: SqliteClientConfig) {
     [ATTR_DB_SYSTEM_NAME, "sqlite"],
   ] as const;
 
-  // Unlike the synchronous in-process client — where the permit can be
-  // released before execution because a synchronous statement cannot be
-  // interleaved — the async worker round trip makes the race window real: a
-  // plain statement could otherwise land inside another fiber's open
-  // transaction. Plain statements therefore hold the permit across the whole
-  // round trip, while transaction statements use the unlocked connection
-  // (the transaction scope already holds the permit, so plain statements
-  // queue behind the open transaction exactly as before).
+  // The async round trip makes interleaving real (unlike the synchronous client, which releases the
+  // permit before executing): plain statements hold the permit across the round trip so they cannot
+  // land inside another fiber's transaction, which already holds the permit and uses the unlocked
+  // connection.
   const semaphore = yield* Semaphore.make(1);
   // Lane wait + round trip is charged to a provider-runtime ingestion item when
   // one is running on this fibre (a no-op for everything else).

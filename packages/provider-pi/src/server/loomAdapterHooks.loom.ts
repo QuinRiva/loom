@@ -1,21 +1,8 @@
 /**
- * Loom's seam into upstream's `PiAdapterV2` (pull 9 Phase 3 track 3c).
- *
- * `makePiAdapterV2` takes the hooks from its `loom` option, else yields
- * {@link LoomPiAdapterHooks} from the context `PiAdapterV2Driver.create` runs in.
- * A reference, so the yield adds no layer requirement: upstream's tests, the
- * replay kit and any layer that does not provide it get the passthrough default,
- * which leaves upstream's behaviour unchanged (and the adapter logs a warning).
- * The live hooks are `LoomPiAdapterHooksLive` in `apps/server/src/loom/serverLayers.ts`;
- * `PiAdapterV2.loom.test.ts` proves they reach the driver (gate `hooks`).
- *
- * `classifier` re-classes quota errors (3c-1), `sanitiser` runs before
- * `switch_session` on resume (3c-2), and `steerStash` mirrors pi's
- * `queue_update` for the restart continuation (3c-3, DL-690/691). `cache`
- * feeds the sidebar's cache-liveness ring (prompt-cache-keeping, Workstream D)
- * through {@link touchLoomPiCache}, and hears the warmer die with its process.
- *
- * @module provider-pi/server/loomAdapterHooks
+ * Loom's seam into upstream's `PiAdapterV2`: hooks come from the `loom` option, else the
+ * {@link LoomPiAdapterHooks} reference, so no layer requirement (absent, a passthrough default
+ * keeps upstream's behaviour and logs a warning). Live hooks are `LoomPiAdapterHooksLive` in
+ * `apps/server/src/loom/serverLayers.ts`; `PiAdapterV2.loom.test.ts` proves they reach the driver.
  */
 import type {
   IsoDateTime,
@@ -102,11 +89,9 @@ export const classifyLoomPiFailure = (
     );
 
 /**
- * Reports a pi session event that refreshed the prompt cache: an assistant request ending (any
- * stop but error or abort) with its dispatch — pi-ai's `timestamp`, the anchor pi's keep-alive
- * schedule counts from — and end (`timestamp + durationMs`; now when either is missing), or an
- * idle `cache_warm` ping (pi's `entry_appended` with a `usage` entry) at its entry's timestamp.
- * Every other event is a no-op.
+ * Reports a pi event that refreshed the prompt cache: an assistant request ending (any stop but
+ * error/abort) with its dispatch (pi-ai's `timestamp`, the keep-alive anchor) and end (`timestamp +
+ * durationMs`, else now), or an idle `cache_warm` ping (`entry_appended` with a `usage` entry).
  */
 export const touchLoomPiCache = (
   hooks: LoomPiAdapterHooksShape,

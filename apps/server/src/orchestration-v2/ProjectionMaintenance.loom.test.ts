@@ -56,7 +56,7 @@ it.layer(TestLayer)("ProjectionMaintenance (loom)", (it) => {
       `;
       const historyBefore = yield* store.history(ThreadId.make(threadId));
 
-      const summary = yield* maintenance.compactEventStore;
+      const summary = yield* maintenance.compactEventStore();
 
       assert.equal(summary.deletedEventCount, 2);
       const remaining = yield* sql<{ readonly event_type: string }>`

@@ -46,7 +46,7 @@ const layerServices = Layer.mergeAll(
   IdAllocator.layer,
   ThreadCommandExecutor.layer,
   LoomStore.layer, // loom: ProjectService soft-deletes the project's goals
-  ServerSettings.layerTest(), // loom: #292
+  ServerSettings.layerTest(), // loom: autoPull via project settings
   Layer.succeed(WorkspacePaths.WorkspacePaths, {
     normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
     resolveRelativePathWithinRoot: ({ workspaceRoot, relativePath }) =>
@@ -61,6 +61,7 @@ const layerServices = Layer.mergeAll(
             resolve: () => Effect.succeed(null),
           }),
           Layer.succeed(ProjectFaviconResolver.ProjectFaviconResolver, {
+            invalidate: () => Effect.void,
             resolvePath: () => Effect.succeed(null),
           }),
         ),
@@ -206,6 +207,7 @@ it.effect("retries a partial project deletion without repeating child events or 
         partialCleanup.map((effect) => [effect.thread_id, effect.effect_type]),
         [
           [firstThreadId, "preview.cleanup"],
+          [firstThreadId, "scheduled-tasks.cleanup"],
           [firstThreadId, "terminal.cleanup"],
         ],
       );
@@ -229,7 +231,7 @@ it.effect("retries a partial project deletion without repeating child events or 
       assert.deepEqual(finalEvents[0], partialEvents[0]);
       assert.equal(finalEvents[2]?.command_id, commandId);
       const finalCleanup = yield* readCleanup;
-      assert.lengthOf(finalCleanup, 4);
+      assert.lengthOf(finalCleanup, 6);
       assert.deepEqual(
         finalCleanup.filter((effect) => effect.thread_id === firstThreadId),
         partialCleanup,
@@ -244,6 +246,12 @@ it.effect("retries a partial project deletion without repeating child events or 
               thread_id: threadId,
               command_id: expectedCommandId,
               effect_type: "preview.cleanup",
+            },
+            {
+              effect_id: `effect:${expectedCommandId}:scheduled-tasks.cleanup`,
+              thread_id: threadId,
+              command_id: expectedCommandId,
+              effect_type: "scheduled-tasks.cleanup",
             },
             {
               effect_id: `effect:${expectedCommandId}:terminal.cleanup`,

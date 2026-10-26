@@ -1,13 +1,9 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// Usage ledger (docs/usage-dashboard-design.md §3 D1): one row per
-// `thread.token-usage.updated` runtime event, written by
-// ProviderRuntimeIngestion alongside the context-window activity. Feeds the
-// /usage dashboard's window breakdowns (per-model tokens/cost, per-thread
-// attribution). `event_id` PK + INSERT OR IGNORE makes ingestion replay-safe.
-// Like the heartbeats table this is a side channel of ingestion, not written
-// by the event-sourced projector pipeline.
+// One row per `thread.token-usage.updated` event, written by ProviderRuntimeIngestion beside the
+// context-window activity, not by the projector pipeline. Feeds the /usage dashboard; the
+// `event_id` PK plus INSERT OR IGNORE makes ingestion replay-safe.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`

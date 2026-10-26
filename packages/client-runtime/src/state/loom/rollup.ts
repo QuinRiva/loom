@@ -1,12 +1,8 @@
 /**
- * Workstream rollups over a root's descendants (Phase 3 plan, track 3d; the V1
- * `workstreamRollup.ts` retyped onto V2 shells). Three independent projections,
- * never fused into one state: the plan (derived board columns), the activity
- * (`activityRunStatus`) and the attention (stored reasons ∪ derived ones). A
- * surface that wants one glyph composes them itself, as `workstreamBadgeTone`
- * does for the sidebar badge.
- *
- * @module state/loom/rollup
+ * Workstream rollups over a root's descendants, as three projections never fused into one state:
+ * the plan (derived board columns), the activity (`activityRunStatus`) and the attention (stored
+ * reasons ∪ derived ones). A surface that wants one glyph composes them itself, as
+ * `workstreamBadgeTone` does for the sidebar badge.
  */
 import type {
   LoomAttentionReason,
@@ -137,12 +133,10 @@ export interface AttentionActionNode {
   readonly title: string;
   readonly reason: WorkstreamAttentionReason;
   /**
-   * The reason is owed to the parent agent (a yield, a missing brief) and is
-   * still in agent hands: the parent or any of its children (this one, or a
-   * sibling whose finish will wake the parent) has a run in flight, or the
-   * parent has run none to completion since the reason arose (the server's wake
-   * follows the yield by a dispatcher pass). The human's only once the parent's
-   * turn ends without resolving it and nothing under it is running.
+   * The reason is owed to the parent agent (a yield, a missing brief) and still in agent hands: the
+   * parent or any of its children has a run in flight, or the parent has completed no run since the
+   * reason arose (the server's wake follows the yield by a dispatcher pass). It becomes the human's
+   * once the parent's turn ends without resolving it and nothing under it is running.
    */
   readonly withAgents: boolean;
 }
@@ -275,11 +269,10 @@ export function attentionRollup(
 }
 
 /**
- * The root row badge's one summary tone, composed from the three rollups,
- * first match wins: `failed` (an error, or a deadlock with nothing running);
- * `needs_you` (a reason the human must act on); `working` (a sub-thread runs,
- * or a parent is answering what it owes — a child queued behind a running
- * sibling lands here); `done` (every sub-thread settled); else `waiting`.
+ * The root row badge's one tone from the three rollups, first match wins: `failed` (an error, or a
+ * deadlock with nothing running); `needs_you` (a reason the human must act on); `working` (a
+ * sub-thread runs, or a parent answers what it owes, so a child queued behind a running sibling
+ * lands here); `done` (every sub-thread settled); else `waiting`.
  */
 export type WorkstreamBadgeTone = "failed" | "needs_you" | "working" | "done" | "waiting";
 

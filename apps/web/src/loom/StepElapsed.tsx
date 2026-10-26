@@ -16,11 +16,9 @@ export function formatElapsed(ms: number): string {
 }
 
 /**
- * Time since `since`, ticking once a second by DOM write (zero React commits
- * per tick, as `AgentElapsed`); amber past `LONG_STEP_MS` unless `amber` is
- * off. With `until` it is frozen: a finished span, no interval. Mount it only
- * while it is visible — the hover card, a running consult card — so the
- * interval lives only while shown.
+ * Time since `since`, ticking once a second by DOM write (zero React commits per tick, as
+ * `AgentElapsed`); amber past `LONG_STEP_MS` unless `amber` is off, frozen with `until`. Mount it
+ * only while visible (the hover card, a running consult card), so the interval lives only while shown.
  */
 export function StepElapsed({
   since,

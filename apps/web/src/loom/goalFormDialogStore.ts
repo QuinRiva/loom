@@ -1,12 +1,7 @@
 /**
- * loom: imperative, promise-shaped goal rename form (3d-3).
- *
- * Goal rename is invoked from native context menus — plain async handlers, not
- * React trees. This store keeps that imperative call shape while the rendered
- * form is a real dialog, mounted once (`GoalFormDialogHost`, in the sidebar).
- *
- * Tier-1 ephemeral UI state: never persisted, one request at a time (a second
- * request supersedes the first, resolving it null).
+ * loom: the goal rename form as an imperative promise, because native context menus invoke it from
+ * plain async handlers; the form itself is a dialog mounted once (`GoalFormDialogHost`). Tier-1,
+ * never persisted; a second request supersedes the first, resolving it null.
  */
 import { create } from "zustand";
 

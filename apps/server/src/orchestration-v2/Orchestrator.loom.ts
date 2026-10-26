@@ -1,19 +1,7 @@
 /**
- * Loom's decider arm on V2's orchestrator (plans/upstream-pull9-phase2-substrate/plan.mdx
- * §2–§3, amended by docs/upstream-sync/30-cadence-pull-9-phase2.md DL-194–197, DL-202,
- * DL-211, DL-224+).
- *
- * THE RULE. The arm writes only to the commanded thread and the threads it
- * creates in the same command (sibling-graph edits under the parent's lock,
- * DL-202, write their children's sidecar rows). Every effect on another thread
- * is a decision event on the commanded thread that the re-drive planner turns
- * into its own per-thread command. `nested` exposes exactly three same-thread
- * upstream dispatchers; the arm never takes a lock.
- *
- * MODULE CYCLE. `Orchestrator.ts` value-imports this file (its error union
- * holds `LoomDispatchDeferredError` at module init), so this file never
- * value-imports `Orchestrator.ts`: upstream's error constructor and dispatchers
- * arrive through `LoomArmContext`.
+ * Loom's decider arm: writes only the commanded thread and threads it creates; an effect on another
+ * thread is a decision event the re-drive planner turns into that thread's command; no locks. Never
+ * value-import `Orchestrator.ts` (a cycle); upstream's pieces come through `LoomArmContext`.
  *
  * @module orchestration-v2/Orchestrator.loom
  */
@@ -65,12 +53,9 @@ import { runlessForkSource } from "./runlessFork.loom.ts";
 import { isForkableSourceRunStatus, type ThreadForkServiceV2 } from "./ThreadForkService.ts";
 
 /**
- * A Loom dispatch that cannot apply YET and will apply later without anyone
- * changing the target. Never receipted (`dispatchWithReceiptEffect` passes it
- * through), so the same deterministic `server:` id is redeliverable. Raised at
- * exactly three sites: a busy `start_if_idle` (Orchestrator.ts dispatchMessage),
- * a gate leg behind a blocking run with a pending merge-back (`gateLeg` below),
- * and `thread.fork.prepare` while its source runs (`forkPrepare` below).
+ * A Loom dispatch that cannot apply yet but will without anyone changing the target. Never
+ * receipted, so the same deterministic `server:` id is redeliverable. Raised by a busy
+ * `start_if_idle`, a gate leg behind a run with a pending merge-back, and a fork prepare mid-run.
  */
 export class LoomDispatchDeferredError extends Schema.TaggedError<LoomDispatchDeferredError>()(
   "LoomDispatchDeferredError",
@@ -213,12 +198,9 @@ export const loomMessageFields = (
 ): LoomMessageFields => ({ ...command.loom, humanAuthored: isHumanAuthored(command) });
 
 /**
- * A `mcp__t3-code__goal_continue` successor's launch: the human pressed Launch, but the words are
- * the predecessor agent's brief. When the first message on a staged continuation is the stored
- * brief verbatim (trimmed), it is restamped as that agent's kickoff (`createdBy: agent`,
- * `senderThreadId` = the predecessor, origin `kickoff`), so the successor reads it labelled as
- * another agent's proposal rather than the human's approved plan. An edited brief stays the
- * human's: they took ownership of the words. Read before `loomMessageFields`.
+ * A staged `goal_continue` successor whose first message is the stored brief verbatim (trimmed) is
+ * restamped as the predecessor agent's kickoff, so the successor reads an agent's proposal, not
+ * the human's approved plan. An edited brief stays the human's. Read before `loomMessageFields`.
  */
 export const loomStampContinueLaunch = Effect.fn("loom.stampContinueLaunch")(function* (
   command: MessageDispatch,
@@ -258,11 +240,9 @@ export const isContinueLaunch = (
   message.senderThreadId === workstream?.continuesThreadId;
 
 /**
- * A queued run whose message is a steered-tier Loom message the dispatcher's
- * promotion rail will steer in once the target's turn is up (DL-662): Loom origin,
- * not upstream's to deliver queued (notification, delegated completion), not held
- * by a human stop. While one is queued, a later Loom message must queue behind it
- * rather than steer past it (DL-663), so the turn reads them in send order.
+ * A queued steered-tier Loom message the dispatcher will steer in once the target's turn is up
+ * (Loom origin, not upstream-queued, not held by a human stop). A later Loom message queues
+ * behind it rather than steering past it, so the turn reads them in send order.
  */
 export const isPromotableLoomQueuedRun = (
   run: OrchestrationV2Run,
@@ -299,26 +279,25 @@ export const loomContinuationVetoed = (
     pendingRuntimeRequest);
 
 /** The attention clear for a queued message whose turn starts now (startNextQueuedRun, promote-to-steer). */
-export const loomQueuedTurnAttentionClear = (
-  loomStore: LoomStoreV2["Service"],
-  threadId: ThreadId,
-  loom: LoomMessageFields | undefined,
-  occurredAt: DateTime.Utc,
-) =>
-  Effect.gen(function* () {
+export const loomQueuedTurnAttentionClear = Effect.fn("Orchestrator.loomQueuedTurnAttentionClear")(
+  function* (
+    loomStore: LoomStoreV2["Service"],
+    threadId: ThreadId,
+    loom: LoomMessageFields | undefined,
+    occurredAt: DateTime.Utc,
+  ) {
     if (!loomClearsAttention(loom)) return [];
     const workstream = yield* loomStore.getWorkstream(threadId);
     return workstream === null || workstream.attention.length === 0
       ? []
       : [loomEvent("thread.attention-cleared", threadId, occurredAt, {})];
-  });
+  },
+);
 
 /**
- * The target thread's own rules for an accepted message (§2 rules 1–5; rule 0 is
- * `loomContinuationVetoed`, placed before upstream's unsettle per DL-195; rule 6
- * supersede is post-commit, in `loom/userInput/askUserQuestion.ts`). Called once
- * the delivery mode is final, so `startsNow` covers upstream's and the Loom
- * steer conversions. Emits only on `command.threadId`.
+ * The target thread's own rules for an accepted message, called once the delivery mode is final
+ * so `startsNow` covers upstream's and Loom's steer conversions. Emits only on `command.threadId`.
+ * Rule 0 is `loomContinuationVetoed`, before upstream's unsettle; supersede runs post-commit.
  */
 export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (input: {
   readonly command: MessageDispatch;
@@ -384,12 +363,9 @@ export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (in
 });
 
 /**
- * The `runtime-request.respond` hunk's answer read (DL-720). Upstream's message
- * path takes only string answers — its one producer, Codex's async questions,
- * is never multi-select — but a `loom-ask:` question can be, and the panel
- * answers it with the selected values. They join as upstream's own string-only
- * adapters encode a multi-select answer (`claudeSdkUserInputAnswers`); the
- * request keeps the array, which the live waiter renders as V1 did.
+ * The `runtime-request.respond` answer read. Upstream takes only string answers, but a `loom-ask:`
+ * question can be multi-select: its values join as upstream's string-only adapters encode one
+ * (`claudeSdkUserInputAnswers`), while the request keeps the array for the live waiter.
  */
 export const loomAskAnswer = (requestId: string, answer: unknown) =>
   requestId.startsWith(LOOM_ASK_REQUEST_PREFIX) && Array.isArray(answer)
@@ -402,11 +378,12 @@ export const loomAskAnswer = (requestId: string, answer: unknown) =>
  * its tool result, so upstream's answer message is withheld. With no live
  * waiter (pi died, the server restarted) upstream's message delivery stands.
  */
-export const loomAskTakesAnswer = (requestId: string) =>
-  Effect.gen(function* () {
-    if (!requestId.startsWith(LOOM_ASK_REQUEST_PREFIX)) return false;
-    return yield* (yield* LoomAskWaiters).isLive(requestId);
-  });
+export const loomAskTakesAnswer = Effect.fn("Orchestrator.loomAskTakesAnswer")(function* (
+  requestId: string,
+) {
+  if (!requestId.startsWith(LOOM_ASK_REQUEST_PREFIX)) return false;
+  return yield* (yield* LoomAskWaiters).isLive(requestId);
+});
 
 // run.interrupt and thread.auto-settle hunks
 
@@ -565,20 +542,21 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
     outcome: LoomThreadWorkstream["outcome"],
     cause: LoomOutcomeSetCause,
   ) => on("thread.outcome-set", threadId, { outcome, cause });
-  const warnStartedDependents = (row: LoomThreadWorkstream) =>
-    Effect.gen(function* () {
-      if (row.parentThreadId === null) return;
-      const started = (yield* read(loomStore.listChildren(row.parentThreadId)))
-        .filter((sibling) => sibling.blockedBy.includes(row.threadId) && sibling.kickoffAt !== null)
-        .map((sibling) => sibling.threadId);
-      if (started.length > 0) {
-        yield* on("thread.gate-warning", row.threadId, {
-          kind: "reopened-with-started-dependents",
-          detail: `Thread ${row.threadId} reopened after dependents started (${started.join(", ")}).`,
-          threadIds: started,
-        });
-      }
-    });
+  const warnStartedDependents = Effect.fn("Orchestrator.warnStartedDependents")(function* (
+    row: LoomThreadWorkstream,
+  ) {
+    if (row.parentThreadId === null) return;
+    const started = (yield* read(loomStore.listChildren(row.parentThreadId)))
+      .filter((sibling) => sibling.blockedBy.includes(row.threadId) && sibling.kickoffAt !== null)
+      .map((sibling) => sibling.threadId);
+    if (started.length > 0) {
+      yield* on("thread.gate-warning", row.threadId, {
+        kind: "reopened-with-started-dependents",
+        detail: `Thread ${row.threadId} reopened after dependents started (${started.join(", ")}).`,
+        threadIds: started,
+      });
+    }
+  });
 
   /**
    * Validates nodes a spawn or scaffold creates under `parentThreadId`, against
@@ -586,357 +564,296 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
    * against EVERY child — the unique index spans archived and deleted rows
    * (DL-223) — so a reused key is a clean refusal, not a failed commit.
    */
-  const validateNewNodes = (parentThreadId: ThreadId | null, nodes: ReadonlyArray<NewNode>) =>
-    Effect.gen(function* () {
-      const reserved = nodes.flatMap((node) =>
-        node.routes.flatMap((route) =>
-          route.on.filter((entry) => (RESERVED_OUTCOMES as ReadonlyArray<string>).includes(entry)),
-        ),
+  const validateNewNodes = Effect.fn("Orchestrator.validateNewNodes")(function* (
+    parentThreadId: ThreadId | null,
+    nodes: ReadonlyArray<NewNode>,
+  ) {
+    const reserved = nodes.flatMap((node) =>
+      node.routes.flatMap((route) =>
+        route.on.filter((entry) => (RESERVED_OUTCOMES as ReadonlyArray<string>).includes(entry)),
+      ),
+    );
+    if (reserved.length > 0) {
+      return yield* fail(`A route may not trigger on the reserved outcome '${reserved[0]}'.`);
+    }
+    const batchIds = new Set<ThreadId>();
+    const batchKeys = new Set<string>();
+    for (const node of nodes) {
+      if (batchIds.has(node.threadId))
+        return yield* fail(`Thread id ${node.threadId} appears twice.`);
+      if ((yield* read(projectionStore.getThreadShell(node.threadId))) !== null) {
+        return yield* fail(`Thread ${node.threadId} already exists.`);
+      }
+      batchIds.add(node.threadId);
+      if (node.graphKey === null) continue;
+      if (UUID_SHAPED.test(node.graphKey)) {
+        return yield* fail(`Graph key '${node.graphKey}' is UUID-shaped; keys are symbolic.`);
+      }
+      if (batchKeys.has(node.graphKey))
+        return yield* fail(`Graph key '${node.graphKey}' appears twice.`);
+      batchKeys.add(node.graphKey);
+    }
+    if (parentThreadId === null) {
+      if (
+        nodes.some(
+          (node) =>
+            node.blockedBy.length > 0 || node.routes.some((route) => route.to !== undefined),
+        )
+      ) {
+        return yield* fail("A root thread has no siblings to depend on or route to.");
+      }
+      return;
+    }
+    const children = yield* read(
+      loomStore.listChildren(parentThreadId, { includeArchived: true, includeDeleted: true }),
+    );
+    const usedKey = children.find(
+      (child) => child.graphKey !== null && batchKeys.has(child.graphKey),
+    );
+    if (usedKey !== undefined) {
+      return yield* fail(
+        `Graph key '${usedKey.graphKey}' is already used by ${usedKey.threadId}; keys are unique per parent.`,
       );
-      if (reserved.length > 0) {
-        return yield* fail(`A route may not trigger on the reserved outcome '${reserved[0]}'.`);
-      }
-      const batchIds = new Set<ThreadId>();
-      const batchKeys = new Set<string>();
-      for (const node of nodes) {
-        if (batchIds.has(node.threadId))
-          return yield* fail(`Thread id ${node.threadId} appears twice.`);
-        if ((yield* read(projectionStore.getThreadShell(node.threadId))) !== null) {
-          return yield* fail(`Thread ${node.threadId} already exists.`);
-        }
-        batchIds.add(node.threadId);
-        if (node.graphKey === null) continue;
-        if (UUID_SHAPED.test(node.graphKey)) {
-          return yield* fail(`Graph key '${node.graphKey}' is UUID-shaped; keys are symbolic.`);
-        }
-        if (batchKeys.has(node.graphKey))
-          return yield* fail(`Graph key '${node.graphKey}' appears twice.`);
-        batchKeys.add(node.graphKey);
-      }
-      if (parentThreadId === null) {
-        if (
-          nodes.some(
-            (node) =>
-              node.blockedBy.length > 0 || node.routes.some((route) => route.to !== undefined),
-          )
-        ) {
-          return yield* fail("A root thread has no siblings to depend on or route to.");
-        }
-        return;
-      }
-      const children = yield* read(
-        loomStore.listChildren(parentThreadId, { includeArchived: true, includeDeleted: true }),
-      );
-      const usedKey = children.find(
-        (child) => child.graphKey !== null && batchKeys.has(child.graphKey),
-      );
-      if (usedKey !== undefined) {
-        return yield* fail(
-          `Graph key '${usedKey.graphKey}' is already used by ${usedKey.threadId}; keys are unique per parent.`,
-        );
-      }
-      const live = children.filter(
-        (child) => child.archivedAt === null && child.deletedAt === null,
-      );
-      const liveIds = new Set(live.map((child) => child.threadId));
-      for (const node of nodes) {
-        for (const ref of [...node.blockedBy, ...loopTargetsOf(node.routes)]) {
-          if (ref === node.threadId)
-            return yield* fail(`Thread ${node.threadId} cannot depend on or route to itself.`);
-          if (!batchIds.has(ref) && !liveIds.has(ref)) {
-            return yield* fail(
-              `Thread ${node.threadId} references ${ref}, which is not a live sibling.`,
-            );
-          }
+    }
+    const live = children.filter((child) => child.archivedAt === null && child.deletedAt === null);
+    const liveIds = new Set(live.map((child) => child.threadId));
+    for (const node of nodes) {
+      for (const ref of [...node.blockedBy, ...loopTargetsOf(node.routes)]) {
+        if (ref === node.threadId)
+          return yield* fail(`Thread ${node.threadId} cannot depend on or route to itself.`);
+        if (!batchIds.has(ref) && !liveIds.has(ref)) {
+          return yield* fail(
+            `Thread ${node.threadId} references ${ref}, which is not a live sibling.`,
+          );
         }
       }
-      const cycle = findDependencyCycle([
-        ...live.map((child) => ({
-          id: child.threadId,
-          parentThreadId,
-          blockedBy: child.blockedBy,
-        })),
-        ...nodes.map((node) => ({ id: node.threadId, parentThreadId, blockedBy: node.blockedBy })),
-      ]);
-      if (cycle !== null)
-        return yield* fail(`Dependencies would form a cycle (${cycle.join(" → ")}).`);
-    });
+    }
+    const cycle = findDependencyCycle([
+      ...live.map((child) => ({
+        id: child.threadId,
+        parentThreadId,
+        blockedBy: child.blockedBy,
+      })),
+      ...nodes.map((node) => ({ id: node.threadId, parentThreadId, blockedBy: node.blockedBy })),
+    ]);
+    if (cycle !== null)
+      return yield* fail(`Dependencies would form a cycle (${cycle.join(" → ")}).`);
+  });
 
   /**
    * The parent of a spawn/scaffold: its V2 row, and its sidecar — created in
    * this command when absent, so cancel cascades and tree reads start from it
    * (consult_manager, plan author, medium).
    */
-  const parentFor = (parentThreadId: ThreadId) =>
-    Effect.gen(function* () {
-      const parent = yield* requireThread(parentThreadId);
-      if (parent.archivedAt !== null || parent.deletedAt !== null) {
-        return yield* fail(
-          `Parent thread ${parentThreadId} is ${parent.deletedAt !== null ? "deleted" : "archived"}.`,
-        );
-      }
-      return { parent, parentWorkstream: yield* workstreamOf(parentThreadId) };
-    });
+  const parentFor = Effect.fn("Orchestrator.parentFor")(function* (parentThreadId: ThreadId) {
+    const parent = yield* requireThread(parentThreadId);
+    if (parent.archivedAt !== null || parent.deletedAt !== null) {
+      return yield* fail(
+        `Parent thread ${parentThreadId} is ${parent.deletedAt !== null ? "deleted" : "archived"}.`,
+      );
+    }
+    return { parent, parentWorkstream: yield* workstreamOf(parentThreadId) };
+  });
   const ensureParentRow = (parent: OrchestrationV2AppThread, row: LoomThreadWorkstream | null) =>
     row !== null ? Effect.void : emit(loomBareWorkstreamCreated(parent, null, now));
 
   // Multi-step cases
 
-  const workSubmit = (submit: CommandOf<"thread.work.submit">) =>
-    Effect.gen(function* () {
-      const row = yield* requireWorkstream(submit.threadId);
-      const outcome = submit.outcome ?? "done";
-      const synthesised = (RESERVED_OUTCOMES as ReadonlyArray<string>).includes(outcome);
-      if (synthesised && !isServerCommand(submit)) {
-        return yield* fail(`Outcome '${outcome}' is reserved for the server.`);
-      }
-      const tree = (yield* read(loomStore.listWorkstreamTree(row.rootThreadId))).map(asNode);
-      const routing = routeWorkSubmit(asNode(row), tree, outcome);
-      if (
-        row.outcome !== null &&
-        !(row.outcome === "done" && row.pendingRework && routing.decision === "loop")
-      ) {
-        return yield* fail(
-          `Thread ${submit.threadId} is ${row.outcome}; mcp__t3-code__workstream_submit cannot act on a terminal thread.`,
-        );
-      }
-      const erased = holdErasedByCompletion({
-        attention: row.attention,
-        decision: routing.decision,
-      });
-      if (erased !== null) {
-        return yield* fail(
-          `Thread ${submit.threadId} holds '${erased}'; completing would erase the hold. Yield with a non-done outcome instead.`,
-        );
-      }
-      yield* on("thread.report-set", submit.threadId, { reportPath: submit.reportPath });
-      yield* on("thread.outcome-recorded", submit.threadId, {
-        outcome,
-        decision: routing.decision,
-        round: routing.round,
-        ...(submit.contested === undefined ? {} : { contested: submit.contested }),
-        ...(submit.counts === undefined ? {} : { counts: submit.counts }),
-        ...(synthesised ? { synthesised: true } : {}),
-      });
-      switch (routing.decision) {
-        case "terminal":
-        case "resolve":
-          yield* setOutcome(submit.threadId, "done", "submit");
-          yield* clearAttention(row);
-          if (routing.resolveWith !== null) {
-            yield* on("thread.route-taken", submit.threadId, {
-              to: routing.resolveWith,
-              round: routing.round,
-              kind: "resolve",
-            });
-          }
-          return;
-        case "loop": {
-          // A source's own loop route, or an intercepted target routing back to its source.
-          const ownLoop = row.routes.some(
-            (route) => route.kind === "loop" && route.on.includes(outcome),
-          );
-          yield* on("thread.route-taken", submit.threadId, {
-            to: routing.routeTo!,
-            round: routing.round,
-            kind: ownLoop ? "loop" : "loop-back",
-          });
-          return;
-        }
-        case "attention":
-          if (!row.attention.includes("needs_guidance")) {
-            yield* on("thread.attention-raised", submit.threadId, { reason: "needs_guidance" });
-          }
-          return;
-        case "yield":
-        case "cap-breach":
-          if (!row.attention.includes("awaiting_orchestrator")) {
-            yield* on("thread.attention-raised", submit.threadId, {
-              reason: "awaiting_orchestrator",
-            });
-          }
-          return;
-      }
+  const workSubmit = Effect.fn("Orchestrator.workSubmit")(function* (
+    submit: CommandOf<"thread.work.submit">,
+  ) {
+    const row = yield* requireWorkstream(submit.threadId);
+    const outcome = submit.outcome ?? "done";
+    const synthesised = (RESERVED_OUTCOMES as ReadonlyArray<string>).includes(outcome);
+    if (synthesised && !isServerCommand(submit)) {
+      return yield* fail(`Outcome '${outcome}' is reserved for the server.`);
+    }
+    const tree = (yield* read(loomStore.listWorkstreamTree(row.rootThreadId))).map(asNode);
+    const routing = routeWorkSubmit(asNode(row), tree, outcome);
+    if (
+      row.outcome !== null &&
+      !(row.outcome === "done" && row.pendingRework && routing.decision === "loop")
+    ) {
+      return yield* fail(
+        `Thread ${submit.threadId} is ${row.outcome}; mcp__t3-code__workstream_submit cannot act on a terminal thread.`,
+      );
+    }
+    const erased = holdErasedByCompletion({
+      attention: row.attention,
+      decision: routing.decision,
     });
+    if (erased !== null) {
+      return yield* fail(
+        `Thread ${submit.threadId} holds '${erased}'; completing would erase the hold. Yield with a non-done outcome instead.`,
+      );
+    }
+    yield* on("thread.report-set", submit.threadId, { reportPath: submit.reportPath });
+    yield* on("thread.outcome-recorded", submit.threadId, {
+      outcome,
+      decision: routing.decision,
+      round: routing.round,
+      ...(submit.contested === undefined ? {} : { contested: submit.contested }),
+      ...(submit.counts === undefined ? {} : { counts: submit.counts }),
+      ...(synthesised ? { synthesised: true } : {}),
+    });
+    switch (routing.decision) {
+      case "terminal":
+      case "resolve":
+        yield* setOutcome(submit.threadId, "done", "submit");
+        yield* clearAttention(row);
+        if (routing.resolveWith !== null) {
+          yield* on("thread.route-taken", submit.threadId, {
+            to: routing.resolveWith,
+            round: routing.round,
+            kind: "resolve",
+          });
+        }
+        return;
+      case "loop": {
+        // A source's own loop route, or an intercepted target routing back to its source.
+        const ownLoop = row.routes.some(
+          (route) => route.kind === "loop" && route.on.includes(outcome),
+        );
+        yield* on("thread.route-taken", submit.threadId, {
+          to: routing.routeTo!,
+          round: routing.round,
+          kind: ownLoop ? "loop" : "loop-back",
+        });
+        return;
+      }
+      case "attention":
+        if (!row.attention.includes("needs_guidance")) {
+          yield* on("thread.attention-raised", submit.threadId, { reason: "needs_guidance" });
+        }
+        return;
+      case "yield":
+      case "cap-breach":
+        if (!row.attention.includes("awaiting_orchestrator")) {
+          yield* on("thread.attention-raised", submit.threadId, {
+            reason: "awaiting_orchestrator",
+          });
+        }
+        return;
+    }
+  });
 
   /** A gate leg's target: live, not cancelled, and named by the source's current route episode. */
-  const gateTarget = (
+  const gateTarget = Effect.fn("Orchestrator.gateTarget")(function* (
     leg: CommandOf<"thread.gate.rework" | "thread.gate.reverify" | "thread.gate.resolve">,
-  ) =>
-    Effect.gen(function* () {
-      const row = yield* requireWorkstream(leg.threadId);
-      if (row.outcome === "cancelled") return yield* fail(`Thread ${leg.threadId} is cancelled.`);
-      if (row.archivedAt !== null || row.deletedAt !== null) {
-        return yield* fail(
-          `Thread ${leg.threadId} is ${row.deletedAt !== null ? "deleted" : "archived"}.`,
-        );
-      }
-      const route = (yield* workstreamOf(leg.sourceThreadId))?.lastRoute ?? null;
-      if (route?.eventId !== leg.routeEventId || route.to !== leg.threadId) {
-        return yield* fail(
-          `Gate leg ${leg.commandId} is stale: ${leg.sourceThreadId}'s current route is not ${leg.routeEventId}.`,
-        );
-      }
-      return row;
-    });
-
-  const gateLeg = (leg: CommandOf<"thread.gate.rework" | "thread.gate.reverify">) =>
-    Effect.gen(function* () {
-      const row = yield* gateTarget(leg);
-      const projection = yield* read(
-        projectionStore.getThreadRecords(leg.threadId, ["runs", "contextTransfers"]),
+  ) {
+    const row = yield* requireWorkstream(leg.threadId);
+    if (row.outcome === "cancelled") return yield* fail(`Thread ${leg.threadId} is cancelled.`);
+    if (row.archivedAt !== null || row.deletedAt !== null) {
+      return yield* fail(
+        `Thread ${leg.threadId} is ${row.deletedAt !== null ? "deleted" : "archived"}.`,
       );
-      // Deferral site 2: upstream refuses queued dispatch while a merge-back is pending
-      // ("queued merge-back consumption is not implemented yet"); the run will end.
-      if (
-        projection.runs.some(isBlockingRun) &&
-        projection.contextTransfers.some(
-          (transfer) =>
-            transfer.type === "merge_back" &&
-            transfer.targetThreadId === leg.threadId &&
-            transfer.status === "pending",
-        )
-      ) {
-        return yield* new LoomDispatchDeferredError({
-          commandId: leg.commandId,
-          commandType: leg.type,
-          threadId: leg.threadId,
-          reason: "a blocking run with a pending merge-back transfer",
-        });
-      }
-      if (leg.type === "thread.gate.rework") {
-        if (row.outcome === "done") yield* setOutcome(leg.threadId, null, "gate-reopen");
-        yield* on("thread.gate-rework-accepted", leg.threadId, {
-          sourceThreadId: leg.sourceThreadId,
-          round: leg.round,
-        });
-        if (row.outcome === "done") yield* warnStartedDependents(row);
-      }
-      yield* ctx.nested.dispatchMessage({
-        type: "message.dispatch",
+    }
+    const route = (yield* workstreamOf(leg.sourceThreadId))?.lastRoute ?? null;
+    if (route?.eventId !== leg.routeEventId || route.to !== leg.threadId) {
+      return yield* fail(
+        `Gate leg ${leg.commandId} is stale: ${leg.sourceThreadId}'s current route is not ${leg.routeEventId}.`,
+      );
+    }
+    return row;
+  });
+
+  const gateLeg = Effect.fn("Orchestrator.gateLeg")(function* (
+    leg: CommandOf<"thread.gate.rework" | "thread.gate.reverify">,
+  ) {
+    const row = yield* gateTarget(leg);
+    const projection = yield* read(
+      projectionStore.getThreadRecords(leg.threadId, ["runs", "contextTransfers"]),
+    );
+    // Deferral site 2: upstream refuses queued dispatch while a merge-back is pending
+    // ("queued merge-back consumption is not implemented yet"); the run will end.
+    if (
+      projection.runs.some(isBlockingRun) &&
+      projection.contextTransfers.some(
+        (transfer) =>
+          transfer.type === "merge_back" &&
+          transfer.targetThreadId === leg.threadId &&
+          transfer.status === "pending",
+      )
+    ) {
+      return yield* new LoomDispatchDeferredError({
         commandId: leg.commandId,
+        commandType: leg.type,
         threadId: leg.threadId,
-        messageId: leg.message.messageId,
-        text: leg.message.text,
-        attachments: [],
-        createdBy: "agent",
-        creationSource: "server",
-        dispatchMode: { type: "queue_after_active" },
-        loom: { origin: "control_notice", controlPayload: leg.message.controlPayload },
-        notification: {
-          source: { kind: "background_task" },
-          outcome: "updated",
-          summary:
-            leg.message.controlPayload.heading ??
-            (leg.type === "thread.gate.rework"
-              ? "Review gate: rework requested"
-              : "Review gate: re-verify"),
-        },
+        reason: "a blocking run with a pending merge-back transfer",
       });
+    }
+    if (leg.type === "thread.gate.rework") {
+      if (row.outcome === "done") yield* setOutcome(leg.threadId, null, "gate-reopen");
+      yield* on("thread.gate-rework-accepted", leg.threadId, {
+        sourceThreadId: leg.sourceThreadId,
+        round: leg.round,
+      });
+      if (row.outcome === "done") yield* warnStartedDependents(row);
+    }
+    yield* ctx.nested.dispatchMessage({
+      type: "message.dispatch",
+      commandId: leg.commandId,
+      threadId: leg.threadId,
+      messageId: leg.message.messageId,
+      text: leg.message.text,
+      attachments: [],
+      createdBy: "agent",
+      creationSource: "server",
+      dispatchMode: { type: "queue_after_active" },
+      loom: { origin: "control_notice", controlPayload: leg.message.controlPayload },
+      notification: {
+        source: { kind: "background_task" },
+        outcome: "updated",
+        summary:
+          leg.message.controlPayload.heading ??
+          (leg.type === "thread.gate.rework"
+            ? "Review gate: rework requested"
+            : "Review gate: re-verify"),
+      },
     });
+  });
 
-  const forkPrepare = (prepare: CommandOf<"thread.fork.prepare">) =>
-    Effect.gen(function* () {
-      yield* requireThread(prepare.threadId);
-      const child = yield* read(
-        projectionStore.getThreadRecords(prepare.threadId, ["contextTransfers"]),
-      );
-      if (
-        child.contextTransfers.some(
-          (transfer) =>
-            transfer.type === "fork" &&
-            transfer.targetThreadId === prepare.threadId &&
-            transfer.status !== "failed",
-        )
-      ) {
-        return yield* fail(`Thread ${prepare.threadId} already has a fork transfer.`);
-      }
-      yield* requireThread(prepare.sourceThreadId);
-      const source = yield* read(
-        projectionStore.getThreadRecords(prepare.sourceThreadId, [
-          "runs",
-          "providerThreads",
-          "providerTurns",
-          "attempts",
-        ]),
-      );
-      // Deferral site 3: the source's final session is not fixed until its run ends.
-      if (source.runs.some(isBlockingRun)) {
-        return yield* new LoomDispatchDeferredError({
-          commandId: prepare.commandId,
-          commandType: prepare.type,
-          threadId: prepare.threadId,
-          reason: `fork source ${prepare.sourceThreadId} is still running`,
-        });
-      }
-      const sourceRun = source.runs
-        .filter((run) => isForkableSourceRunStatus(run.status))
-        .toSorted((left, right) => right.ordinal - left.ordinal)[0];
-      // A V1-imported source with no V2 run forks from its bound pi session instead.
-      const runless = runlessForkSource(source);
-      if (sourceRun === undefined && runless !== undefined) {
-        const transferId = yield* read(
-          ctx.idAllocator.allocate.contextTransfer({
-            sourceThreadId: prepare.sourceThreadId,
-            targetThreadId: prepare.threadId,
-            type: "fork",
-          }),
-        );
-        return yield* emit({
-          type: "context-transfer.created",
-          threadId: prepare.threadId,
-          providerInstanceId: runless.providerInstanceId,
-          occurredAt: now,
-          payload: {
-            id: transferId,
-            type: "fork",
-            sourceThreadId: prepare.sourceThreadId,
-            targetThreadId: prepare.threadId,
-            sourcePoint: {
-              threadId: prepare.sourceThreadId,
-              providerThreadRef: runless.nativeThreadRef!,
-            },
-            basePoint: null,
-            sourceProviderInstanceId: runless.providerInstanceId,
-            targetProviderInstanceId: null,
-            targetRunId: null,
-            status: "pending",
-            resolution: null,
-            createdBy: "agent",
-            error: null,
-            createdAt: now,
-            updatedAt: now,
-            consumedAt: null,
-          },
-        });
-      }
-      if (sourceRun === undefined)
-        return yield* fail(`Fork source ${prepare.sourceThreadId} has no finished run.`);
-      const providerThread = source.providerThreads.find(
-        (entry) => entry.id === sourceRun.providerThreadId,
-      );
-      if (providerThread?.nativeThreadRef?.strength !== "strong") {
-        return yield* fail(
-          `Fork source ${prepare.sourceThreadId} has no strong native thread ref to fork.`,
-        );
-      }
-      const providerTurn =
-        source.providerTurns.find((turn) => turn.runAttemptId === sourceRun.activeAttemptId) ??
-        source.providerTurns.find(
-          (turn) =>
-            turn.id ===
-            source.attempts.find((attempt) => attempt.id === sourceRun.activeAttemptId)
-              ?.providerTurnId,
-        );
-      const sourcePoint: OrchestrationV2ContextSourcePoint = {
-        threadId: prepare.sourceThreadId,
-        runId: sourceRun.id,
-        ...(sourceRun.checkpointId === null ? {} : { checkpointId: sourceRun.checkpointId }),
-        providerThreadRef: providerThread.nativeThreadRef,
-        ...(providerTurn?.nativeTurnRef == null
-          ? {}
-          : { providerTurnRef: providerTurn.nativeTurnRef }),
-      };
+  const forkPrepare = Effect.fn("Orchestrator.forkPrepare")(function* (
+    prepare: CommandOf<"thread.fork.prepare">,
+  ) {
+    yield* requireThread(prepare.threadId);
+    const child = yield* read(
+      projectionStore.getThreadRecords(prepare.threadId, ["contextTransfers"]),
+    );
+    if (
+      child.contextTransfers.some(
+        (transfer) =>
+          transfer.type === "fork" &&
+          transfer.targetThreadId === prepare.threadId &&
+          transfer.status !== "failed",
+      )
+    ) {
+      return yield* fail(`Thread ${prepare.threadId} already has a fork transfer.`);
+    }
+    yield* requireThread(prepare.sourceThreadId);
+    const source = yield* read(
+      projectionStore.getThreadRecords(prepare.sourceThreadId, [
+        "runs",
+        "providerThreads",
+        "providerTurns",
+        "attempts",
+      ]),
+    );
+    // Deferral site 3: the source's final session is not fixed until its run ends.
+    if (source.runs.some(isBlockingRun)) {
+      return yield* new LoomDispatchDeferredError({
+        commandId: prepare.commandId,
+        commandType: prepare.type,
+        threadId: prepare.threadId,
+        reason: `fork source ${prepare.sourceThreadId} is still running`,
+      });
+    }
+    const sourceRun = source.runs
+      .filter((run) => isForkableSourceRunStatus(run.status))
+      .toSorted((left, right) => right.ordinal - left.ordinal)[0];
+    // A V1-imported source with no V2 run forks from its bound pi session instead.
+    const runless = runlessForkSource(source);
+    if (sourceRun === undefined && runless !== undefined) {
       const transferId = yield* read(
         ctx.idAllocator.allocate.contextTransfer({
           sourceThreadId: prepare.sourceThreadId,
@@ -944,143 +861,204 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
           type: "fork",
         }),
       );
-      const { transfer } = yield* read(
-        ctx.threadForkService.plan({
-          sourceProjection: source,
-          sourceRun,
-          sourceProviderThread: providerThread,
-          canonicalSourcePoint: sourcePoint,
-          transferId,
-          targetThreadId: prepare.threadId,
-          createdBy: "agent",
-          creationSource: "server",
-          createdAt: now,
-        }),
-      );
-      yield* emit({
+      return yield* emit({
         type: "context-transfer.created",
         threadId: prepare.threadId,
-        providerInstanceId: sourceRun.providerInstanceId,
+        providerInstanceId: runless.providerInstanceId,
         occurredAt: now,
-        payload: transfer,
+        payload: {
+          id: transferId,
+          type: "fork",
+          sourceThreadId: prepare.sourceThreadId,
+          targetThreadId: prepare.threadId,
+          sourcePoint: {
+            threadId: prepare.sourceThreadId,
+            providerThreadRef: runless.nativeThreadRef!,
+          },
+          basePoint: null,
+          sourceProviderInstanceId: runless.providerInstanceId,
+          targetProviderInstanceId: null,
+          targetRunId: null,
+          status: "pending",
+          resolution: null,
+          createdBy: "agent",
+          error: null,
+          createdAt: now,
+          updatedAt: now,
+          consumedAt: null,
+        },
       });
+    }
+    if (sourceRun === undefined)
+      return yield* fail(`Fork source ${prepare.sourceThreadId} has no finished run.`);
+    const providerThread = source.providerThreads.find(
+      (entry) => entry.id === sourceRun.providerThreadId,
+    );
+    if (providerThread?.nativeThreadRef?.strength !== "strong") {
+      return yield* fail(
+        `Fork source ${prepare.sourceThreadId} has no strong native thread ref to fork.`,
+      );
+    }
+    const providerTurn =
+      source.providerTurns.find((turn) => turn.runAttemptId === sourceRun.activeAttemptId) ??
+      source.providerTurns.find(
+        (turn) =>
+          turn.id ===
+          source.attempts.find((attempt) => attempt.id === sourceRun.activeAttemptId)
+            ?.providerTurnId,
+      );
+    const sourcePoint: OrchestrationV2ContextSourcePoint = {
+      threadId: prepare.sourceThreadId,
+      runId: sourceRun.id,
+      ...(sourceRun.checkpointId === null ? {} : { checkpointId: sourceRun.checkpointId }),
+      providerThreadRef: providerThread.nativeThreadRef,
+      ...(providerTurn?.nativeTurnRef == null
+        ? {}
+        : { providerTurnRef: providerTurn.nativeTurnRef }),
+    };
+    const transferId = yield* read(
+      ctx.idAllocator.allocate.contextTransfer({
+        sourceThreadId: prepare.sourceThreadId,
+        targetThreadId: prepare.threadId,
+        type: "fork",
+      }),
+    );
+    const { transfer } = yield* read(
+      ctx.threadForkService.plan({
+        sourceProjection: source,
+        sourceRun,
+        sourceProviderThread: providerThread,
+        canonicalSourcePoint: sourcePoint,
+        transferId,
+        targetThreadId: prepare.threadId,
+        createdBy: "agent",
+        creationSource: "server",
+        createdAt: now,
+      }),
+    );
+    yield* emit({
+      type: "context-transfer.created",
+      threadId: prepare.threadId,
+      providerInstanceId: sourceRun.providerInstanceId,
+      occurredAt: now,
+      payload: transfer,
     });
+  });
 
   /**
-   * `mcp__t3-code__ask_user_question`'s request (P3-26, DL-330–332): a pending `user_input`
-   * runtime request on its own request node under the active run's root, with
-   * the `user_input_request` turn item carrying the questions — the shapes
-   * upstream's adapters emit, so V2's panel, mobile card and the shell's
-   * `pendingRuntimeRequest` render it unchanged. `message` capability: upstream's
-   * terminal dismissal leaves it standing; 3a-4's respond hunk answers it.
+   * `mcp__t3-code__ask_user_question`'s request: a pending `user_input` runtime request under the
+   * active run's root with a `user_input_request` turn item, the shapes upstream's adapters emit,
+   * so V2's panel, mobile card and `pendingRuntimeRequest` render it unchanged. Terminal dismissal
+   * leaves it standing (`message` capability); the respond hunk answers it.
    */
-  const runtimeRequestCreate = (create: CommandOf<"runtime-request.create">) =>
-    Effect.gen(function* () {
-      const { requestId, threadId } = create;
-      if (!requestId.startsWith(LOOM_ASK_REQUEST_PREFIX)) {
-        return yield* fail(`Runtime request ${requestId} is not a ${LOOM_ASK_REQUEST_PREFIX} id.`);
-      }
-      if (create.questions.length === 0) return yield* fail("A question request needs a question.");
-      yield* requireThread(threadId);
-      const projection = yield* read(
-        projectionStore.getThreadRecords(threadId, [
-          "runs",
-          "attempts",
-          "providerTurns",
-          "runtimeRequests",
-        ]),
-      );
-      const run = projection.runs
-        .filter(isBlockingRun)
-        .toSorted((left, right) => right.ordinal - left.ordinal)[0];
-      if (run === undefined || run.rootNodeId === null) {
-        return yield* fail(`Thread ${threadId} has no active run to ask from.`);
-      }
-      const pending = projection.runtimeRequests.find((request) => request.status === "pending");
-      if (pending !== undefined) {
-        return yield* fail(`Thread ${threadId} already has pending runtime request ${pending.id}.`);
-      }
-      // Upstream's `providerTurnForRun` (not exported): the active attempt's latest turn.
-      const providerTurnId =
-        (
-          latestProviderTurnForAttempt(projection.providerTurns, run.activeAttemptId) ??
-          projection.providerTurns.find(
-            (turn) =>
-              turn.id ===
-              projection.attempts.find((attempt) => attempt.id === run.activeAttemptId)
-                ?.providerTurnId,
-          )
-        )?.id ?? null;
-      const nodeId = ctx.idAllocator.derive.approvalNode({ requestId });
-      const ordinal = yield* read(projectionStore.getNextTurnItemOrdinal(threadId));
-      const base = {
+  const runtimeRequestCreate = Effect.fn("Orchestrator.runtimeRequestCreate")(function* (
+    create: CommandOf<"runtime-request.create">,
+  ) {
+    const { requestId, threadId } = create;
+    if (!requestId.startsWith(LOOM_ASK_REQUEST_PREFIX)) {
+      return yield* fail(`Runtime request ${requestId} is not a ${LOOM_ASK_REQUEST_PREFIX} id.`);
+    }
+    if (create.questions.length === 0) return yield* fail("A question request needs a question.");
+    yield* requireThread(threadId);
+    const projection = yield* read(
+      projectionStore.getThreadRecords(threadId, [
+        "runs",
+        "attempts",
+        "providerTurns",
+        "runtimeRequests",
+      ]),
+    );
+    const run = projection.runs
+      .filter(isBlockingRun)
+      .toSorted((left, right) => right.ordinal - left.ordinal)[0];
+    if (run === undefined || run.rootNodeId === null) {
+      return yield* fail(`Thread ${threadId} has no active run to ask from.`);
+    }
+    const pending = projection.runtimeRequests.find((request) => request.status === "pending");
+    if (pending !== undefined) {
+      return yield* fail(`Thread ${threadId} already has pending runtime request ${pending.id}.`);
+    }
+    // Upstream's `providerTurnForRun` (not exported): the active attempt's latest turn.
+    const providerTurnId =
+      (
+        latestProviderTurnForAttempt(projection.providerTurns, run.activeAttemptId) ??
+        projection.providerTurns.find(
+          (turn) =>
+            turn.id ===
+            projection.attempts.find((attempt) => attempt.id === run.activeAttemptId)
+              ?.providerTurnId,
+        )
+      )?.id ?? null;
+    const nodeId = ctx.idAllocator.derive.approvalNode({ requestId });
+    const ordinal = yield* read(projectionStore.getNextTurnItemOrdinal(threadId));
+    const base = {
+      threadId,
+      runId: run.id,
+      nodeId,
+      providerInstanceId: run.providerInstanceId,
+      occurredAt: now,
+    };
+    yield* emit({
+      ...base,
+      type: "runtime-request.updated",
+      payload: {
+        id: requestId,
+        nodeId,
+        providerTurnId,
+        nativeRequestRef: null,
+        kind: "user_input",
+        status: "pending",
+        responseCapability: { type: "message" },
+        createdAt: now,
+        resolvedAt: null,
+      },
+    });
+    yield* emit({
+      ...base,
+      type: "node.updated",
+      payload: {
+        id: nodeId,
+        threadId,
+        runId: run.id,
+        parentNodeId: run.rootNodeId,
+        rootNodeId: run.rootNodeId,
+        kind: "user_input_request",
+        status: "waiting",
+        countsForRun: false,
+        providerThreadId: run.providerThreadId,
+        providerTurnId,
+        nativeItemRef: null,
+        runtimeRequestId: requestId,
+        checkpointScopeId: null,
+        startedAt: now,
+        completedAt: null,
+      },
+    });
+    yield* emit({
+      ...base,
+      type: "turn-item.updated",
+      payload: {
+        id: ctx.idAllocator.derive.approvalTurnItem({ requestId }),
         threadId,
         runId: run.id,
         nodeId,
-        providerInstanceId: run.providerInstanceId,
-        occurredAt: now,
-      };
-      yield* emit({
-        ...base,
-        type: "runtime-request.updated",
-        payload: {
-          id: requestId,
-          nodeId,
-          providerTurnId,
-          nativeRequestRef: null,
-          kind: "user_input",
-          status: "pending",
-          responseCapability: { type: "message" },
-          createdAt: now,
-          resolvedAt: null,
-        },
-      });
-      yield* emit({
-        ...base,
-        type: "node.updated",
-        payload: {
-          id: nodeId,
-          threadId,
-          runId: run.id,
-          parentNodeId: run.rootNodeId,
-          rootNodeId: run.rootNodeId,
-          kind: "user_input_request",
-          status: "waiting",
-          countsForRun: false,
-          providerThreadId: run.providerThreadId,
-          providerTurnId,
-          nativeItemRef: null,
-          runtimeRequestId: requestId,
-          checkpointScopeId: null,
-          startedAt: now,
-          completedAt: null,
-        },
-      });
-      yield* emit({
-        ...base,
-        type: "turn-item.updated",
-        payload: {
-          id: ctx.idAllocator.derive.approvalTurnItem({ requestId }),
-          threadId,
-          runId: run.id,
-          nodeId,
-          providerThreadId: run.providerThreadId,
-          providerTurnId,
-          nativeItemRef: null,
-          parentItemId: null,
-          ordinal,
-          status: "waiting",
-          title: null,
-          startedAt: now,
-          completedAt: null,
-          updatedAt: now,
-          type: "user_input_request",
-          requestId,
-          questions: create.questions,
-          responseMode: "message",
-        },
-      });
+        providerThreadId: run.providerThreadId,
+        providerTurnId,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal,
+        status: "waiting",
+        title: null,
+        startedAt: now,
+        completedAt: null,
+        updatedAt: now,
+        type: "user_input_request",
+        requestId,
+        questions: create.questions,
+        responseMode: "message",
+      },
     });
+  });
 
   switch (command.type) {
     case "thread.spawn": {

@@ -54,7 +54,7 @@ describe("kickoff hand-back lines", () => {
       },
     });
     expect(kickoff).toContain(
-      "You are inside a review gate: a `gate` names the coder cod as the work you verify, and your mcp__t3-code__workstream_submit outcomes route it — your role's gate protocol applies from your FIRST submit.\nIts hand-back: report `/reports/cod.md`; the brief it worked from `/briefs/cod.md` (later steers are not in it; they are in its session `/sessions/cod.jsonl`).\n",
+      "You are inside a review gate: a `gate` names the coder cod as the work you verify, and your mcp__t3-code__workstream_submit outcomes route it; your role's gate protocol applies from your FIRST submit.\nIts hand-back: report `/reports/cod.md`; the brief it worked from `/briefs/cod.md` (later steers are not in it; they are in its session `/sessions/cod.jsonl`).\n",
     );
   });
 
@@ -68,7 +68,7 @@ describe("kickoff hand-back lines", () => {
       ],
     });
     expect(kickoff).toContain(
-      "You waited on 2 threads that are now done; their hand-backs:\n- researcher res-0 — report `/reports/res-0.md`\n- thread res-1 — no report filed\n",
+      "You waited on 2 threads that are now done; their hand-backs:\n- researcher res-0: report `/reports/res-0.md`\n- thread res-1: no report filed\n",
     );
   });
 
@@ -86,7 +86,7 @@ describe("kickoff wrapper references the submit contract", () => {
   const kickoff = workstreamChildPrompt({ role: "coder", brief: "Ship the thing." });
 
   it("points at the submit contract and keeps the kickoff-specific register", () => {
-    expect(kickoff).toMatch(/`mcp__t3-code__workstream_submit` — its description is the contract/);
+    expect(kickoff).toMatch(/`mcp__t3-code__workstream_submit`: its description is the contract/);
     expect(kickoff).toMatch(/lead with the value you delivered/);
     expect(kickoff).toMatch(/mcp__t3-code__workstream_request_attention/);
     expect(kickoff).toMatch(/Do not sit silently halted/);

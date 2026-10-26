@@ -13,18 +13,9 @@ import { InlineMarkdown } from "../inlineMarkdown";
 import { type Tone, toneColor } from "../tones";
 
 /**
- * The `<Callout>` block — an emphasised note with a tone (info/decision/risk/
- * warning/success) and a markdown body rendered as MDX *children* (the prose
- * between the tags). Schema + MDX round-trip ported verbatim from
- * `@agent-native/core` `callout.config.ts` (`tone` is an attribute; `body` is
- * `childrenField` prose, not an attribute).
- *
- * `title` (inline markdown) replaces the tone's generic label ("Note", "Warning"); untitled it
- * looks exactly as before. `focus` marks the document's one box of emphasis —
- * the verdict or the thing to act on: no icon, a 4px left border in the tone's
- * palette colour on a card surface, body at reading size (`.plan-callout--focus`).
- * Every callout takes its colour from the shared palette (`tones.ts`): a faint
- * tint, a hairline border and the title in the tone (`.plan-callout`).
+ * `<Callout>`: a toned note whose body is the MDX prose between its tags. `title`
+ * replaces the tone's generic label; `focus` marks the document's one box of emphasis
+ * (`.plan-callout--focus`). Colours come from the shared palette (`tones.ts`).
  */
 
 export type CalloutTone = "info" | "decision" | "risk" | "warning" | "success";

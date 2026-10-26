@@ -6,11 +6,9 @@ import { useSpendOf } from "./threadSpend";
 import { useWorkstreamNodes } from "./workstreamState";
 
 /**
- * The composer context meter's spend block: this thread's lifetime spend and,
- * for a thread with descendants (archived included), the subtree total plus
- * each direct child's branch total — so a root orchestrator shows its whole
- * workstream. Figures are the usage ledger's (`loom/threadSpend`), running
- * turns included. Rendered only inside the open popover, so a closed meter
+ * The composer context meter's spend block: this thread's lifetime spend and, with descendants
+ * (archived included), the subtree total and each direct child's branch total, from the usage
+ * ledger, running turns included. Rendered only inside the open popover, so a closed meter
  * subscribes to neither the shells nor the ledger.
  */
 export function LoomContextSpend({ threadRef }: { readonly threadRef: ScopedThreadRef }) {

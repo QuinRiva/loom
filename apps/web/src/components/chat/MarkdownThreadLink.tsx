@@ -1,11 +1,11 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
-import { percentDecodedThreadLinkId } from "@t3tools/shared/threadLinks";
+import { percentDecodedThreadLinkId, resolveThreadLinkRef } from "@t3tools/shared/threadLinks";
 
-import { useThreadShell } from "../../state/entities";
+import { useThreadRefs, useThreadShell } from "../../state/entities";
 import { ThreadMention } from "../../loom/ThreadMention"; // loom: status-led mention
 
-// loom: `ThreadMention` leads with the thread's live state instead of its project favicon,
+// loom: `ThreadMention` leads with the thread's live state instead of upstream's context chip,
 // keeping the favicon only for a thread in another project than `fromThreadRef`'s.
 export function MarkdownThreadLink(props: {
   readonly environmentId: EnvironmentId;
@@ -18,13 +18,21 @@ export function MarkdownThreadLink(props: {
   const decoded = useThreadShell(
     written === null && decodedId !== null ? scopeThreadRef(props.environmentId, decodedId) : null,
   );
-  const thread = written ?? decoded;
+  const local = written ?? decoded;
+  const refs = useThreadRefs(local === null);
+  const remote = useThreadShell(
+    local === null
+      ? resolveThreadLinkRef(scopeThreadRef(props.environmentId, props.threadId), refs)
+      : null,
+  );
+  const thread = local ?? remote;
+  const environmentId = thread?.environmentId ?? props.environmentId;
   const threadId = thread?.id ?? props.threadId;
   const title = thread?.title.trim() || props.label;
   // loom: rendered by Loom's status-led mention (apps/web/src/loom/ThreadMention.tsx).
   return (
     <ThreadMention
-      environmentId={props.environmentId}
+      environmentId={environmentId}
       threadId={threadId}
       title={title}
       thread={thread}

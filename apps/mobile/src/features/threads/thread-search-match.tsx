@@ -1,10 +1,10 @@
-// loom: every indexed source, labelled; highlighting is per query token (the server stems)
+import { findSearchTokenRanges, splitSearchText } from "@t3tools/shared/paletteSearch";
+import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
+// loom: every indexed source, labelled, and the sub-thread line
 import {
   threadSearchExcerptLabel,
-  threadSearchHighlightParts,
   threadSearchMatchedSubThreadTitle,
 } from "@t3tools/client-runtime/state/loom/threadSearch";
-import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { cn } from "../../lib/cn";
@@ -20,7 +20,10 @@ export function ThreadSearchMatchExcerpt(props: {
   const label = threadSearchExcerptLabel(props.match);
   if (label === null) return null;
   const isUser = props.match.source === "user";
-  const parts = threadSearchHighlightParts(props.match.snippet, props.query); // loom
+  const parts = splitSearchText(
+    props.match.snippet,
+    findSearchTokenRanges(props.match.snippet, props.query),
+  );
   // loom: the sub-thread gets its own line so its title never crowds out the matched words
   const subThreadTitle = threadSearchMatchedSubThreadTitle(props.match);
   const mutedClassName = props.selected

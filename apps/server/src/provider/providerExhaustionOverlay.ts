@@ -1,15 +1,7 @@
 /**
- * Overlay active account-wide exhaustion marks from {@link ProviderHealthRegistry}
- * onto the `ServerProvider` snapshots the config WS stream serves (§8.2). A
- * subscription account (`codex`/`claudeAgent`) whose whole account is exhausted
- * surfaces on its provider card as `status: "warning"` with a
- * human-readable reason. Model-scoped marks are deliberately ignored here — a
- * single carved-out model does not make the provider unavailable, and the pill's
- * scoped bars already show it.
- *
- * Pure and synchronous so it composes into both the live stream and the initial
- * `loadServerConfig` snapshot. Rides the existing `ServerProvider` contract; no
- * schema change.
+ * Overlays active account-wide exhaustion marks onto the `ServerProvider` snapshots the config
+ * stream serves, as `status: "warning"` with a reason. Model-scoped marks are ignored: one model
+ * does not make the provider unavailable. Pure, so it serves both the stream and the initial load.
  */
 import type { ServerProvider } from "@t3tools/contracts";
 
@@ -29,15 +21,12 @@ const formatResetClock = (until: string | null): string | null => {
 
 const exhaustionMessage = (mark: ExhaustionMark): string => {
   const clock = formatResetClock(mark.until);
-  return clock ? `Subscription limit reached — resets ${clock}` : "Subscription limit reached";
+  return clock ? `Subscription limit reached, resets ${clock}` : "Subscription limit reached";
 };
 
 /**
- * Return `providers` with an exhaustion overlay applied. A provider matches a
- * mark when the mark's account key equals the provider's `instanceId` or its
- * `driver` (the two forms the account key can take). Providers already in a
- * harder state (`error`/`disabled`) are left untouched — warning never
- * downgrades a real failure.
+ * A mark matches a provider whose `instanceId` or `driver` equals its account key (the key's two
+ * forms). Providers already `error`/`disabled` are untouched: a warning never downgrades a failure.
  */
 export const overlayProviderExhaustion = (
   providers: ReadonlyArray<ServerProvider>,

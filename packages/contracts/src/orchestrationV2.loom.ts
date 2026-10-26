@@ -1,20 +1,7 @@
-// Loom's sidecar contract beside upstream's Orchestration V2 unions
-// (plans/upstream-pull9-phase2-substrate/plan.mdx §1, amended by
-// docs/upstream-sync/30-cadence-pull-9-phase2.md DL-194–DL-200).
-//
-// Loom's workstream state is NOT a field set on `OrchestrationV2AppThread`: V2
-// thread events are full-row upserts and upstream spreads a parent row into
-// children and forks, so anything there would leak into upstream's paths. It is
-// a sidecar record per thread (`loom_thread_workstream`), written by Loom
-// events that are members of upstream's closed event union, and joined onto
-// the thread shell as one optional `workstream` key.
-//
-// HARD CONSTRAINT: this file must never VALUE-import `orchestrationV2.ts`.
-// `orchestrationV2.ts` splices this module's members into its unions at module
-// init, so a value edge back would be a TDZ crash. The only edge back is a
-// TYPE-only import used by the narrowing guards; the upstream schemas the
-// Loom members need (event base fields, creation fields) are passed INTO the
-// two factories by the splice lines.
+// Loom's sidecar contract beside upstream's Orchestration V2 unions. Workstream state is a sidecar
+// row per thread, not `OrchestrationV2AppThread` fields: V2 upserts full rows and spreads parents
+// into children. HARD CONSTRAINT: never VALUE-import `orchestrationV2.ts`, which splices this in at
+// init (a TDZ crash); the upstream schemas Loom members need are passed into the two factories.
 
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -393,11 +380,9 @@ export const LoomGoalShell = LoomGoal.mapFields(Struct.omit(["deletedAt"]));
 export type LoomGoalShell = typeof LoomGoalShell.Type;
 
 /**
- * Shell-stream goal items, spliced into `OrchestrationV2ShellStreamItem`. They
- * carry NO `sequence`: a goal write advances no thread event, so the client
- * applies them ungated (last write wins by `goal.updatedAt`) and resyncs from
- * the snapshot's `goals` on reconnect (plan §4, D21). Sent only to
- * subscribers that pass `loom: true` (DL-200).
+ * Shell-stream goal items, spliced into `OrchestrationV2ShellStreamItem`. They carry NO `sequence`
+ * (a goal write advances no thread event), so clients apply them ungated, last write wins by
+ * `goal.updatedAt`, and resync from the snapshot on reconnect. Sent only to `loom: true` subscribers.
  */
 export const LoomGoalShellStreamItemMembers = [
   Schema.Struct({ kind: Schema.Literal("goal.updated"), goal: LoomGoalShell }),
@@ -413,11 +398,9 @@ export const isLoomGoalShellStreamItem = <Item extends { readonly kind: string }
 // The sidecar record and the shell fields
 
 /**
- * One row per Loom thread (`loom_thread_workstream`), keyed by V2's ThreadId.
- * Stored fields only; everything derivable from V2 is derived at the read
- * boundary. Board columns are derived, never stored: held = `held`; blocked =
- * not held and some `blockedBy` outcome not `done`; ready = not held, deps
- * done, `kickoffAt` null; in progress = `kickoffAt` set, `outcome` null.
+ * One row per Loom thread, keyed by V2's ThreadId; stored fields only, the rest derived at read.
+ * Board columns are derived: held = `held`; blocked = not held, a `blockedBy` outcome not `done`;
+ * ready = not held, deps done, `kickoffAt` null; in progress = `kickoffAt` set, `outcome` null.
  */
 export const LoomThreadWorkstream = Schema.Struct({
   threadId: ThreadId,
@@ -593,11 +576,9 @@ export const LoomCacheWarming = Schema.Literals(["scheduled", "stopped"]);
 export type LoomCacheWarming = typeof LoomCacheWarming.Type;
 
 /**
- * A thread's prompt-cache facts from `loom_thread_cache`, from which a client
- * computes when the cache really goes cold: the arm its launches run, the last
- * real request's dispatch (pi's keep-alive schedule anchor) and end, the last
- * keep-alive ping that landed, and the plan for the current idle period (null =
- * undecided, reported by Loom's pi extension; `stopped` once the process exits).
+ * A thread's prompt-cache facts, from which a client computes when the cache goes cold: the arm,
+ * the last real request's dispatch (pi's keep-alive anchor) and end, the last landed ping, and the
+ * idle plan (null = undecided, reported by Loom's pi extension; `stopped` once the process exits).
  */
 export const LoomThreadCache = Schema.Struct({
   retention: LoomCacheRetention,
@@ -611,11 +592,9 @@ export type LoomThreadCache = typeof LoomThreadCache.Type;
 export type LoomThreadCachePatch = Partial<Omit<LoomThreadCache, "retention">>;
 
 /**
- * pi's idle keep-alive horizon per arm, from the last request's dispatch: pi's
- * 30-minute default for 5-minute threads, and the 90 minutes Loom's composer
- * sets for 1-hour roots (`PI_CACHE_WARMING_IDLE_MAX_MS`, one ping at ≈ 54 min).
- * The client's expiry estimate replays pi's schedule against these, so the
- * composer reads the same constant.
+ * pi's idle keep-alive horizon per arm, from the last request's dispatch: pi's 30-minute default for
+ * 5-minute threads, and the 90 minutes Loom's composer sets (`PI_CACHE_WARMING_IDLE_MAX_MS`) for
+ * 1-hour roots (one ping at about 54 min). The composer and the client's expiry estimate share it.
  */
 export const LOOM_CACHE_HORIZON_MS = { long: 90 * 60_000, short: 30 * 60_000 } as const;
 
@@ -650,11 +629,9 @@ export const consultQuestionKey = (question: string): string => {
 };
 
 /**
- * What a client sees on `OrchestrationV2ThreadShell.workstream`: the record
- * minus the fields no client renders (the dispatcher reads those from the
- * store), plus the consult and peer-message edge summaries, and the thread's
- * tool-call count and context window (read with the shell, so a workstream
- * surface never subscribes to a thread's projection).
+ * What clients see on `OrchestrationV2ThreadShell.workstream`: the record minus dispatcher-only
+ * fields, plus consult and peer-message edge summaries and the tool-call count and context window,
+ * read with the shell so a workstream surface never subscribes to a thread's projection.
  */
 export const LoomThreadShellFields = LoomThreadWorkstream.mapFields((fields) => ({
   ...Struct.omit(fields, [
@@ -1226,12 +1203,9 @@ export const isLoomEventType = (type: string): type is LoomEventType =>
   LOOM_EVENT_TYPE_SET.has(type);
 
 /**
- * The per-thread lock key (upstream's `commandThreadId`) for a Loom command.
- * Sibling-graph edits lock the parent (D5, D22): spawn → its parent (a staged
- * root locks itself), scaffold → `threadId` (which IS the parent),
- * dependencies.set → `parentThreadId`. Every other command — including
- * `thread.fork.prepare` (the child) and `runtime-request.create` (the asker) —
- * locks `threadId`.
+ * The per-thread lock key (upstream's `commandThreadId`) for a Loom command. Sibling-graph edits
+ * lock the parent: spawn locks its parent (a staged root itself), scaffold `threadId` (the
+ * parent), dependencies.set `parentThreadId`; every other command locks `threadId`.
  */
 export const loomCommandThreadId = (command: LoomCommand): ThreadId => {
   switch (command.type) {

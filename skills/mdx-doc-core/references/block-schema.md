@@ -1,4 +1,4 @@
-<!-- GENERATED FILE — do not edit by hand.
+<!-- GENERATED FILE. Do not edit by hand.
      Source of truth: the zod `schema` exports in
      apps/web/src/components/files/mdx-plan/blocks/*.tsx (+ registry.tsx).
      Regenerate: UPDATE_BLOCK_SCHEMA=1 pnpm --filter @t3tools/web test run blockSchemaDoc
@@ -7,7 +7,7 @@
 # MDX plan block schema reference
 
 Authoritative prop shapes for every plan block, generated from the live zod
-schemas. **Do not guess props or enum values — consult this file.** Every prop
+schemas. **Do not guess props or enum values: consult this file.** Every prop
 lists its type, whether it is required or optional, allowed enum values, and any
 nested object/array sub-shape. Unlisted props are rejected by validation.
 
@@ -17,485 +17,485 @@ nested object/array sub-shape. Unlisted props are rejected by validation.
 - Number → `attr={12}`; boolean true → bare `attr` (omit for false).
 - Array / object → a JSON literal in braces with double-quoted keys, e.g.
   `entities={[{ "id": "user", "name": "User", "fields": [] }]}`.
-- No free `{expressions}` in the body or as attribute values — literal data only.
+- No free `{expressions}` in the body or as attribute values: literal data only.
 
 ## Gotchas that have bitten authors
 
 - `<DataModel>` field `fk` is a **string FK target** (e.g. `"Value.value_id"`),
   NOT a boolean. `fk: true` is invalid.
-- `<DataModel>` relation `kind` is one of `"1-1" | "1-n" | "n-n"` — there is
+- `<DataModel>` relation `kind` is one of `"1-1" | "1-n" | "n-n"`. There is
   **no `"n-1"`**. Model many-to-one as `"1-n"` with `from`/`to` flipped (from
   the "one" side to the "many" side).
 - Enum props accept only the listed values; anything else fails validation and
   the block renders an error card instead of the block.
 
-## `<Code>` — `code`
+## `<Code>`: `code`
 
 Props:
 
-- `code` — `string` **(required)**
-- `language` — `string` _(optional)_
-- `filename` — `string` _(optional)_
-- `caption` — `string` _(optional)_
-- `maxLines` — `integer` _(optional)_
-- `wrap` — `boolean` _(optional)_
+- `code`: `string` **(required)**
+- `language`: `string` _(optional)_
+- `filename`: `string` _(optional)_
+- `caption`: `string` _(optional)_
+- `maxLines`: `integer` _(optional)_
+- `wrap`: `boolean` _(optional)_
 
-## `<DataModel>` — `data-model`
-
-Props:
-
-- `entities` — `object[]` **(required)**
-  - `id` — `string` **(required)**
-  - `name` — `string` **(required)**
-  - `note` — `string` _(optional)_
-  - `change` — `"added" | "modified" | "removed" | "renamed"` _(optional)_
-  - `fields` — `object[]` **(required)**
-    - `name` — `string` **(required)**
-    - `type` — `string` _(optional)_
-    - `pk` — `boolean` _(optional)_
-    - `fk` — `string` _(optional)_
-    - `nullable` — `boolean` _(optional)_
-    - `default` — `string` _(optional)_
-    - `note` — `string` _(optional)_
-    - `change` — `"added" | "modified" | "removed" | "renamed"` _(optional)_
-    - `was` — `string` _(optional)_
-- `relations` — `object[]` _(optional)_
-  - `from` — `string` **(required)**
-  - `to` — `string` **(required)**
-  - `kind` — `"1-1" | "1-n" | "n-n"` _(optional)_
-  - `label` — `string` _(optional)_
-
-## `<Endpoint>` — `api-endpoint`
+## `<DataModel>`: `data-model`
 
 Props:
 
-- `method` — `"GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS"` **(required)**
-- `path` — `string` **(required)**
-- `summary` — `string` _(optional)_
-- `description` — `string` _(optional)_ — written as **prose between the tags**, not an attribute
-- `auth` — `string` _(optional)_
-- `deprecated` — `boolean` _(optional)_
-- `change` — `"added" | "modified" | "removed" | "renamed"` _(optional)_
-- `params` — `object[]` _(optional)_
-  - `name` — `string` **(required)**
-  - `in` — `"path" | "query" | "header" | "body"` **(required)**
-  - `type` — `string` _(optional)_
-  - `required` — `boolean` _(optional)_
-  - `description` — `string` _(optional)_
-  - `change` — `"added" | "modified" | "removed" | "renamed"` _(optional)_
-  - `was` — `string` _(optional)_
-- `request` — `object` _(optional)_
-  - `contentType` — `string` _(optional)_
-  - `example` — `string` _(optional)_
-- `responses` — `object[]` _(optional)_
-  - `status` — `string` **(required)**
-  - `description` — `string` _(optional)_
-  - `example` — `string` _(optional)_
-  - `change` — `"added" | "modified" | "removed" | "renamed"` _(optional)_
+- `entities`: `object[]` **(required)**
+  - `id`: `string` **(required)**
+  - `name`: `string` **(required)**
+  - `note`: `string` _(optional)_
+  - `change`: `"added" | "modified" | "removed" | "renamed"` _(optional)_
+  - `fields`: `object[]` **(required)**
+    - `name`: `string` **(required)**
+    - `type`: `string` _(optional)_
+    - `pk`: `boolean` _(optional)_
+    - `fk`: `string` _(optional)_
+    - `nullable`: `boolean` _(optional)_
+    - `default`: `string` _(optional)_
+    - `note`: `string` _(optional)_
+    - `change`: `"added" | "modified" | "removed" | "renamed"` _(optional)_
+    - `was`: `string` _(optional)_
+- `relations`: `object[]` _(optional)_
+  - `from`: `string` **(required)**
+  - `to`: `string` **(required)**
+  - `kind`: `"1-1" | "1-n" | "n-n"` _(optional)_
+  - `label`: `string` _(optional)_
 
-## `<FileTree>` — `file-tree`
+## `<Endpoint>`: `api-endpoint`
 
 Props:
 
-- `title` — `string` _(optional)_
-- `entries` — `object[]` **(required)**
-  - `path` — `string` **(required)**
-  - `change` — `"added" | "modified" | "removed" | "renamed"` _(optional)_
-  - `note` — `string` _(optional)_
-  - `snippet` — `string` _(optional)_
-  - `language` — `string` _(optional)_
+- `method`: `"GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS"` **(required)**
+- `path`: `string` **(required)**
+- `summary`: `string` _(optional)_
+- `description`: `string` _(optional)_ (written as **prose between the tags**, not an attribute)
+- `auth`: `string` _(optional)_
+- `deprecated`: `boolean` _(optional)_
+- `change`: `"added" | "modified" | "removed" | "renamed"` _(optional)_
+- `params`: `object[]` _(optional)_
+  - `name`: `string` **(required)**
+  - `in`: `"path" | "query" | "header" | "body"` **(required)**
+  - `type`: `string` _(optional)_
+  - `required`: `boolean` _(optional)_
+  - `description`: `string` _(optional)_
+  - `change`: `"added" | "modified" | "removed" | "renamed"` _(optional)_
+  - `was`: `string` _(optional)_
+- `request`: `object` _(optional)_
+  - `contentType`: `string` _(optional)_
+  - `example`: `string` _(optional)_
+- `responses`: `object[]` _(optional)_
+  - `status`: `string` **(required)**
+  - `description`: `string` _(optional)_
+  - `example`: `string` _(optional)_
+  - `change`: `"added" | "modified" | "removed" | "renamed"` _(optional)_
 
-## `<Image>` — `image`
-
-Props:
-
-- `src` — `string` **(required)**
-- `alt` — `string` _(optional)_
-- `caption` — `string` _(optional)_
-- `width` — `integer` _(optional)_
-
-## `<AnnotatedCode>` — `annotated-code`
-
-Props:
-
-- `code` — `string` **(required)**
-- `language` — `string` _(optional)_
-- `filename` — `string` _(optional)_
-- `annotations` — `object[]` **(required)**
-  - `lines` — `string` **(required)**
-  - `label` — `string` _(optional)_
-  - `note` — `string` **(required)**
-- `wrap` — `boolean` _(optional)_
-
-## `<Diagram>` — `diagram`
+## `<FileTree>`: `file-tree`
 
 Props:
 
-- `caption` — `string` _(optional)_
-- `nodes` — `object[]` _(optional)_
-  - `id` — `string` **(required)**
-  - `label` — `string` **(required)**
-  - `detail` — `string` _(optional)_
-  - `x` — `number` _(optional)_
-  - `y` — `number` _(optional)_
-- `edges` — `object[]` _(optional)_
-  - `from` — `string` **(required)**
-  - `to` — `string` **(required)**
-  - `label` — `string` _(optional)_
-- `notes` — `object[]` _(optional)_
-  - `id` — `string` **(required)**
-  - `text` — `string` **(required)**
-  - `x` — `number` _(optional)_
-  - `y` — `number` _(optional)_
+- `title`: `string` _(optional)_
+- `entries`: `object[]` **(required)**
+  - `path`: `string` **(required)**
+  - `change`: `"added" | "modified" | "removed" | "renamed"` _(optional)_
+  - `note`: `string` _(optional)_
+  - `snippet`: `string` _(optional)_
+  - `language`: `string` _(optional)_
 
-## `<QuestionForm>` — `question-form`
+## `<Image>`: `image`
 
 Props:
 
-- `questions` — `object[]` **(required)**
-  - `id` — `string` **(required)**
-  - `title` — `string` **(required)**
-  - `subtitle` — `string` _(optional)_
-  - `mode` — `"single" | "multi" | "freeform"` **(required)**
-  - `options` — `object[]` _(optional)_
-    - `id` — `string` **(required)**
-    - `label` — `string` **(required)**
-    - `detail` — `string` _(optional)_
-    - `recommended` — `boolean` _(optional)_
-  - `allowOther` — `boolean` _(optional)_
-  - `placeholder` — `string` _(optional)_
-  - `required` — `boolean` _(optional)_
-  - `refs` — `object[]` _(optional)_
-    - `label` — `string` **(required)**
-    - `anchor` — `string` **(required)**
-- `submitLabel` — `string` _(optional)_
+- `src`: `string` **(required)**
+- `alt`: `string` _(optional)_
+- `caption`: `string` _(optional)_
+- `width`: `integer` _(optional)_
 
-## `<Json>` — `json-explorer`
+## `<AnnotatedCode>`: `annotated-code`
 
 Props:
 
-- `title` — `string` _(optional)_
-- `json` — `string` **(required)**
-- `collapsedDepth` — `integer` _(optional)_
-- `wrap` — `boolean` _(optional)_
+- `code`: `string` **(required)**
+- `language`: `string` _(optional)_
+- `filename`: `string` _(optional)_
+- `annotations`: `object[]` **(required)**
+  - `lines`: `string` **(required)**
+  - `label`: `string` _(optional)_
+  - `note`: `string` **(required)**
+- `wrap`: `boolean` _(optional)_
 
-## `<Callout>` — `callout`
-
-Props:
-
-- `tone` — `"info" | "decision" | "risk" | "warning" | "success"` _(optional)_
-- `title` — `string` _(optional)_
-- `focus` — `boolean` _(optional)_
-- `body` — `string` _(optional)_ — written as **prose between the tags**, not an attribute
-
-## `<Checklist>` — `checklist`
+## `<Diagram>`: `diagram`
 
 Props:
 
-- `items` — `object[]` **(required)**
-  - `id` — `string` **(required)**
-  - `label` — `string` **(required)**
-  - `checked` — `boolean` _(optional)_
-  - `note` — `string` _(optional)_
+- `caption`: `string` _(optional)_
+- `nodes`: `object[]` _(optional)_
+  - `id`: `string` **(required)**
+  - `label`: `string` **(required)**
+  - `detail`: `string` _(optional)_
+  - `x`: `number` _(optional)_
+  - `y`: `number` _(optional)_
+- `edges`: `object[]` _(optional)_
+  - `from`: `string` **(required)**
+  - `to`: `string` **(required)**
+  - `label`: `string` _(optional)_
+- `notes`: `object[]` _(optional)_
+  - `id`: `string` **(required)**
+  - `text`: `string` **(required)**
+  - `x`: `number` _(optional)_
+  - `y`: `number` _(optional)_
 
-## `<Table>` — `table`
+## `<QuestionForm>`: `question-form`
 
 Props:
 
-- `columns` — `string[]` **(required)**
-- `rows` — `((string | { md?, badge?, tone? })[] | { tone?, cells })[]` **(required)**
+- `questions`: `object[]` **(required)**
+  - `id`: `string` **(required)**
+  - `title`: `string` **(required)**
+  - `subtitle`: `string` _(optional)_
+  - `mode`: `"single" | "multi" | "freeform"` **(required)**
+  - `options`: `object[]` _(optional)_
+    - `id`: `string` **(required)**
+    - `label`: `string` **(required)**
+    - `detail`: `string` _(optional)_
+    - `recommended`: `boolean` _(optional)_
+  - `allowOther`: `boolean` _(optional)_
+  - `placeholder`: `string` _(optional)_
+  - `required`: `boolean` _(optional)_
+  - `refs`: `object[]` _(optional)_
+    - `label`: `string` **(required)**
+    - `anchor`: `string` **(required)**
+- `submitLabel`: `string` _(optional)_
+
+## `<Json>`: `json-explorer`
+
+Props:
+
+- `title`: `string` _(optional)_
+- `json`: `string` **(required)**
+- `collapsedDepth`: `integer` _(optional)_
+- `wrap`: `boolean` _(optional)_
+
+## `<Callout>`: `callout`
+
+Props:
+
+- `tone`: `"info" | "decision" | "risk" | "warning" | "success"` _(optional)_
+- `title`: `string` _(optional)_
+- `focus`: `boolean` _(optional)_
+- `body`: `string` _(optional)_ (written as **prose between the tags**, not an attribute)
+
+## `<Checklist>`: `checklist`
+
+Props:
+
+- `items`: `object[]` **(required)**
+  - `id`: `string` **(required)**
+  - `label`: `string` **(required)**
+  - `checked`: `boolean` _(optional)_
+  - `note`: `string` _(optional)_
+
+## `<Table>`: `table`
+
+Props:
+
+- `columns`: `string[]` **(required)**
+- `rows`: `((string | { md?, badge?, tone? })[] | { tone?, cells })[]` **(required)**
   - `{ md?, badge?, tone? }` form:
-    - `md` — `string` _(optional)_
-    - `badge` — `string | { label, tone? }` _(optional)_
+    - `md`: `string` _(optional)_
+    - `badge`: `string | { label, tone? }` _(optional)_
       - `{ label, tone? }` form:
-        - `label` — `string` **(required)**
-        - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
-    - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+        - `label`: `string` **(required)**
+        - `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+    - `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
   - `{ tone?, cells }` form:
-    - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
-    - `cells` — `(string | { md?, badge?, tone? })[]` **(required)**
+    - `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+    - `cells`: `(string | { md?, badge?, tone? })[]` **(required)**
       - `{ md?, badge?, tone? }` form:
-        - `md` — `string` _(optional)_
-        - `badge` — `string | { label, tone? }` _(optional)_
+        - `md`: `string` _(optional)_
+        - `badge`: `string | { label, tone? }` _(optional)_
           - `{ label, tone? }` form:
-            - `label` — `string` **(required)**
-            - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
-        - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
-- `align` — `("left" | "center" | "right")[]` _(optional)_
-- `density` — `"compact" | "normal" | "relaxed"` _(optional)_
-- `filterable` — `boolean` _(optional)_
+            - `label`: `string` **(required)**
+            - `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+        - `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+- `align`: `("left" | "center" | "right")[]` _(optional)_
+- `density`: `"compact" | "normal" | "relaxed"` _(optional)_
+- `filterable`: `boolean` _(optional)_
 
-## `<VisualQuestions>` — `visual-questions`
-
-Props:
-
-- `questions` — `object[]` **(required)**
-  - `id` — `string` **(required)**
-  - `title` — `string` **(required)**
-  - `subtitle` — `string` _(optional)_
-  - `mode` — `"single" | "multi" | "freeform"` **(required)**
-  - `options` — `object[]` _(optional)_
-    - `id` — `string` **(required)**
-    - `label` — `string` **(required)**
-    - `detail` — `string` _(optional)_
-    - `recommended` — `boolean` _(optional)_
-  - `allowOther` — `boolean` _(optional)_
-  - `placeholder` — `string` _(optional)_
-  - `required` — `boolean` _(optional)_
-  - `refs` — `object[]` _(optional)_
-    - `label` — `string` **(required)**
-    - `anchor` — `string` **(required)**
-- `submitLabel` — `string` _(optional)_
-
-## `<Diff>` — `diff`
+## `<VisualQuestions>`: `visual-questions`
 
 Props:
 
-- `filename` — `string` _(optional)_
-- `language` — `string` _(optional)_
-- `before` — `string` **(required)**
-- `after` — `string` **(required)**
-- `mode` — `"unified" | "split"` _(optional)_
-- `annotations` — `object[]` _(optional)_
-  - `side` — `"before" | "after"` _(optional)_
-  - `lines` — `string` **(required)**
-  - `label` — `string` _(optional)_
-  - `note` — `string` **(required)**
-- `wrap` — `boolean` _(optional)_
+- `questions`: `object[]` **(required)**
+  - `id`: `string` **(required)**
+  - `title`: `string` **(required)**
+  - `subtitle`: `string` _(optional)_
+  - `mode`: `"single" | "multi" | "freeform"` **(required)**
+  - `options`: `object[]` _(optional)_
+    - `id`: `string` **(required)**
+    - `label`: `string` **(required)**
+    - `detail`: `string` _(optional)_
+    - `recommended`: `boolean` _(optional)_
+  - `allowOther`: `boolean` _(optional)_
+  - `placeholder`: `string` _(optional)_
+  - `required`: `boolean` _(optional)_
+  - `refs`: `object[]` _(optional)_
+    - `label`: `string` **(required)**
+    - `anchor`: `string` **(required)**
+- `submitLabel`: `string` _(optional)_
 
-## `<OpenApi>` — `openapi-spec`
-
-Props:
-
-- `spec` — `string` **(required)**
-- `title` — `string` _(optional)_
-
-## `<Mermaid>` — `mermaid`
-
-Props:
-
-- `source` — `string` **(required)**
-- `caption` — `string` _(optional)_
-- `look` — `"classic" | "handDrawn"` _(optional)_
-- `legend` — `object[]` _(optional)_
-  - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` **(required)**
-  - `label` — `string` **(required)**
-
-## `<Screen>` — `wireframe`
+## `<Diff>`: `diff`
 
 Props:
 
-- `surface` — `"browser" | "desktop" | "mobile" | "popover" | "panel"` _(optional)_ default `"browser"`
-- `html` — `string` **(required)**
-- `caption` — `string` _(optional)_
+- `filename`: `string` _(optional)_
+- `language`: `string` _(optional)_
+- `before`: `string` **(required)**
+- `after`: `string` **(required)**
+- `mode`: `"unified" | "split"` _(optional)_
+- `annotations`: `object[]` _(optional)_
+  - `side`: `"before" | "after"` _(optional)_
+  - `lines`: `string` **(required)**
+  - `label`: `string` _(optional)_
+  - `note`: `string` **(required)**
+- `wrap`: `boolean` _(optional)_
 
-## `<Design>` — `design`
+## `<OpenApi>`: `openapi-spec`
 
 Props:
 
-- `surface` — `"browser" | "desktop" | "mobile" | "popover" | "panel"` _(optional)_ default `"browser"`
-- `html` — `string` **(required)**
-- `caption` — `string` _(optional)_
+- `spec`: `string` **(required)**
+- `title`: `string` _(optional)_
 
-## `<DesignBoard>` — `canvas`
+## `<Mermaid>`: `mermaid`
+
+Props:
+
+- `source`: `string` **(required)**
+- `caption`: `string` _(optional)_
+- `look`: `"classic" | "handDrawn"` _(optional)_
+- `legend`: `object[]` _(optional)_
+  - `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` **(required)**
+  - `label`: `string` **(required)**
+
+## `<Screen>`: `wireframe`
+
+Props:
+
+- `surface`: `"browser" | "desktop" | "mobile" | "popover" | "panel"` _(optional)_ default `"browser"`
+- `html`: `string` **(required)**
+- `caption`: `string` _(optional)_
+
+## `<Design>`: `design`
+
+Props:
+
+- `surface`: `"browser" | "desktop" | "mobile" | "popover" | "panel"` _(optional)_ default `"browser"`
+- `html`: `string` **(required)**
+- `caption`: `string` _(optional)_
+
+## `<DesignBoard>`: `canvas`
 
 Container block: renders nested plan blocks written **between its tags** as children.
 
 Props:
 
-- `title` — `string` _(optional)_
-- `width` — `number` _(optional)_
-- `height` — `number` _(optional)_
+- `title`: `string` _(optional)_
+- `width`: `number` _(optional)_
+- `height`: `number` _(optional)_
 
-## `<Section>` — `canvas-section`
-
-Container block: renders nested plan blocks written **between its tags** as children.
-
-Props:
-
-- `title` — `string` _(optional)_
-- `x` — `number` **(required)**
-- `y` — `number` **(required)**
-- `width` — `number` **(required)**
-- `height` — `number` **(required)**
-
-## `<Artboard>` — `wireframe`
-
-Props:
-
-- `x` — `number` **(required)**
-- `y` — `number` **(required)**
-- `surface` — `"browser" | "desktop" | "mobile" | "popover" | "panel"` _(optional)_ default `"browser"`
-- `html` — `string` **(required)**
-- `caption` — `string` _(optional)_
-- `fidelity` — `"wireframe" | "design"` _(optional)_
-
-## `<Annotation>` — `annotation`
-
-Props:
-
-- `targetId` — `string` _(optional)_
-- `placement` — `"left" | "right" | "top" | "bottom"` _(optional)_
-- `x` — `number` _(optional)_
-- `y` — `number` _(optional)_
-- `text` — `string` _(optional)_ — written as **prose between the tags**, not an attribute
-
-## `<Connector>` — `canvas-connector`
-
-Props:
-
-- `from` — `string` **(required)**
-- `to` — `string` **(required)**
-- `label` — `string` _(optional)_
-
-## `<FieldDiff>` — `field-diff`
-
-Props:
-
-- `title` — `string` _(optional)_
-- `beforeLabel` — `string` _(optional)_
-- `afterLabel` — `string` _(optional)_
-- `fields` — `object[]` **(required)**
-  - `name` — `string` **(required)**
-  - `before` — `string | null` _(optional)_
-  - `after` — `string | null` _(optional)_
-  - `kept` — `boolean` _(optional)_
-  - `note` — `string` _(optional)_
-
-## `<Details>` — `details`
+## `<Section>`: `canvas-section`
 
 Container block: renders nested plan blocks written **between its tags** as children.
 
 Props:
 
-- `summary` — `string` **(required)**
-- `open` — `boolean` _(optional)_
+- `title`: `string` _(optional)_
+- `x`: `number` **(required)**
+- `y`: `number` **(required)**
+- `width`: `number` **(required)**
+- `height`: `number` **(required)**
 
-## `<Card>` — `card`
+## `<Artboard>`: `wireframe`
+
+Props:
+
+- `x`: `number` **(required)**
+- `y`: `number` **(required)**
+- `surface`: `"browser" | "desktop" | "mobile" | "popover" | "panel"` _(optional)_ default `"browser"`
+- `html`: `string` **(required)**
+- `caption`: `string` _(optional)_
+- `fidelity`: `"wireframe" | "design"` _(optional)_
+
+## `<Annotation>`: `annotation`
+
+Props:
+
+- `targetId`: `string` _(optional)_
+- `placement`: `"left" | "right" | "top" | "bottom"` _(optional)_
+- `x`: `number` _(optional)_
+- `y`: `number` _(optional)_
+- `text`: `string` _(optional)_ (written as **prose between the tags**, not an attribute)
+
+## `<Connector>`: `canvas-connector`
+
+Props:
+
+- `from`: `string` **(required)**
+- `to`: `string` **(required)**
+- `label`: `string` _(optional)_
+
+## `<FieldDiff>`: `field-diff`
+
+Props:
+
+- `title`: `string` _(optional)_
+- `beforeLabel`: `string` _(optional)_
+- `afterLabel`: `string` _(optional)_
+- `fields`: `object[]` **(required)**
+  - `name`: `string` **(required)**
+  - `before`: `string | null` _(optional)_
+  - `after`: `string | null` _(optional)_
+  - `kept`: `boolean` _(optional)_
+  - `note`: `string` _(optional)_
+
+## `<Details>`: `details`
 
 Container block: renders nested plan blocks written **between its tags** as children.
 
 Props:
 
-- `heading` — `string` **(required)**
-- `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
-- `badge` — `string` _(optional)_
-- `meta` — `string[]` _(optional)_
-- `eyebrow` — `string` _(optional)_
-- `badges` — `(string | { label, tone? })[]` _(optional)_
+- `summary`: `string` **(required)**
+- `open`: `boolean` _(optional)_
+
+## `<Card>`: `card`
+
+Container block: renders nested plan blocks written **between its tags** as children.
+
+Props:
+
+- `heading`: `string` **(required)**
+- `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+- `badge`: `string` _(optional)_
+- `meta`: `string[]` _(optional)_
+- `eyebrow`: `string` _(optional)_
+- `badges`: `(string | { label, tone? })[]` _(optional)_
   - `{ label, tone? }` form:
-    - `label` — `string` **(required)**
-    - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+    - `label`: `string` **(required)**
+    - `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
 
-## `<ReviewChoice>` — `review-choice`
+## `<ReviewChoice>`: `review-choice`
 
 Props:
 
-- `itemId` — `string` **(required)**
-- `label` — `string` _(optional)_
-- `placeholder` — `string` _(optional)_
+- `itemId`: `string` **(required)**
+- `label`: `string` _(optional)_
+- `placeholder`: `string` _(optional)_
 
-## `<Columns>` — `columns`
+## `<Columns>`: `columns`
 
 Container block: renders nested plan blocks written **between its tags** as children.
 
 Props:
 
-- `columns` — `integer` _(optional)_
+- `columns`: `integer` _(optional)_
 
-## `<Column>` — `column`
-
-Container block: renders nested plan blocks written **between its tags** as children.
-
-Props:
-
-- `label` — `string` _(optional)_
-
-## `<TabsBlock>` — `tabs`
+## `<Column>`: `column`
 
 Container block: renders nested plan blocks written **between its tags** as children.
 
 Props:
 
-- `orientation` — `"horizontal" | "vertical"` _(optional)_
+- `label`: `string` _(optional)_
 
-## `<Tab>` — `tab`
+## `<TabsBlock>`: `tabs`
 
 Container block: renders nested plan blocks written **between its tags** as children.
 
 Props:
 
-- `label` — `string` _(optional)_
+- `orientation`: `"horizontal" | "vertical"` _(optional)_
 
-## `<Prototype>` — `prototype`
+## `<Tab>`: `tab`
 
-Props:
-
-- `html` — `string` **(required)**
-- `caption` — `string` _(optional)_
-- `height` — `integer` _(optional)_
-
-## `<HtmlBlock>` — `html`
+Container block: renders nested plan blocks written **between its tags** as children.
 
 Props:
 
-- `html` — `string` **(required)**
-- `caption` — `string` _(optional)_
-- `height` — `integer` _(optional)_
+- `label`: `string` _(optional)_
 
-## `<Badge>` — `badge`
+## `<Prototype>`: `prototype`
+
+Props:
+
+- `html`: `string` **(required)**
+- `caption`: `string` _(optional)_
+- `height`: `integer` _(optional)_
+
+## `<HtmlBlock>`: `html`
+
+Props:
+
+- `html`: `string` **(required)**
+- `caption`: `string` _(optional)_
+- `height`: `integer` _(optional)_
+
+## `<Badge>`: `badge`
 
 Inline element: the **text between its tags** is its label.
 
 Props:
 
-- `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+- `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
 
-## `<Stats>` — `stats`
+## `<Stats>`: `stats`
 
 Props:
 
-- `items` — `object[]` **(required)**
-  - `value` — `string` **(required)**
-  - `label` — `string` **(required)**
-  - `detail` — `string` _(optional)_
-  - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
-  - `badge` — `string | { label, tone? }` _(optional)_
+- `items`: `object[]` **(required)**
+  - `value`: `string` **(required)**
+  - `label`: `string` **(required)**
+  - `detail`: `string` _(optional)_
+  - `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+  - `badge`: `string | { label, tone? }` _(optional)_
     - `{ label, tone? }` form:
-      - `label` — `string` **(required)**
-      - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+      - `label`: `string` **(required)**
+      - `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
 
-## `<Steps>` — `steps`
+## `<Steps>`: `steps`
 
 Container block: renders nested plan blocks written **between its tags** as children.
 
 _No attributes._
 
-## `<Step>` — `step`
+## `<Step>`: `step`
 
 Container block: renders nested plan blocks written **between its tags** as children.
 
 Props:
 
-- `at` — `string` _(optional)_
-- `title` — `string` _(optional)_
-- `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
-- `dashed` — `boolean` _(optional)_
-- `badge` — `string | { label, tone? }` _(optional)_
+- `at`: `string` _(optional)_
+- `title`: `string` _(optional)_
+- `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+- `dashed`: `boolean` _(optional)_
+- `badge`: `string | { label, tone? }` _(optional)_
   - `{ label, tone? }` form:
-    - `label` — `string` **(required)**
-    - `tone` — `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
-- `aside` — `string` _(optional)_
+    - `label`: `string` **(required)**
+    - `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+- `aside`: `string` _(optional)_
 
-## `<Glossary>` — `glossary`
+## `<Glossary>`: `glossary`
 
 Container block: renders nested plan blocks written **between its tags** as children.
 
 _No attributes._
 
-## `<Term>` — `glossary-term`
+## `<Term>`: `glossary-term`
 
 Props:
 
-- `name` — `string` **(required)**
-- `definition` — `string` _(optional)_ — written as **prose between the tags**, not an attribute
+- `name`: `string` **(required)**
+- `definition`: `string` _(optional)_ (written as **prose between the tags**, not an attribute)

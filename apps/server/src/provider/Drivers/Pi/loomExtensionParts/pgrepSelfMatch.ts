@@ -1,15 +1,7 @@
-// loom: Loom extension part. pi runs a bash call as `bash -c "<command>"`, so the command text
-// is in the tool shell's own argv, and procps only excludes its own PID: a `pgrep -f X` /
-// `pkill -f X` in that command always matches the shell running it. `pkill -f X; …` kills the
-// shell (exit 143), `while pgrep -f X; do …` never ends, and `pgrep -f X && …` is always true.
-// Running such a command base64-encoded through `eval` keeps the pattern out of every argv.
-// The hook's `input` is a clone, so the transcript and UI keep the original command.
-//
-// Under 64 KiB (bytes, not characters) only, so the encoded `-c` argument stays below Linux's
-// 128 KiB MAX_ARG_STRLEN.
-// Wrapped in try/catch: a throwing `tool_call` handler blocks every tool in pi.
-// Registered after the search and command guards, which must analyse the original text: a
-// pattern kill the command guard blocks never reaches this rewrite.
+// loom: Loom extension part: a `pgrep -f X` / `pkill -f X` in a bash call always matches its own
+// tool shell (`bash -c` puts the text in argv), so such commands run base64-encoded through
+// `eval`; `input` is a clone, so the transcript keeps the original. Only under 64 KiB (Linux's
+// 128 KiB MAX_ARG_STRLEN); try/catch since a throwing handler blocks every tool; after the guards.
 import type { LoomExtensionPart } from "../loomExtension.ts";
 
 export const pgrepSelfMatchPart: LoomExtensionPart = {

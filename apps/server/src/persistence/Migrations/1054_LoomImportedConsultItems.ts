@@ -9,16 +9,10 @@ import {
   type LegacyConsultRow,
 } from "../../orchestration-v2/legacy/LegacyV1ThreadImporter.loom.ts";
 
-// T3: threads imported before the importer learnt to bring V1 `consult_thread`
-// calls across have no consult turn item, so their consult card is missing.
-// Each V1 `thread.consult-recorded` event becomes the completed consult item
-// the importer now writes (`importedConsultTurnItem`), placed among the
-// thread's runless items by time (`interleaveConsults`): the runless items are
-// renumbered densely, consults in the gaps. Every write lands in the
-// projection, the position table and the event that carries the item, so a
-// projection rebuild keeps it. Only transcript-imported threads are touched,
-// and a consult already imported is skipped; on a fresh cut-over (migrations
-// before the importer) it is a no-op.
+// Threads imported before the importer brought V1 `consult_thread` calls across lack the consult
+// card. Each V1 `thread.consult-recorded` becomes the importer's consult item, interleaved by time
+// among the densely renumbered runless items, in projection, position table and event so a rebuild
+// keeps it. Transcript-imported threads only; existing consults skipped; no-op on a fresh cut-over.
 const encodeItem = Schema.encodeSync(Schema.fromJsonString(OrchestrationV2TurnItemJson));
 
 export default Effect.gen(function* () {

@@ -2,11 +2,8 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
 /**
- * Retire loom's per-project start-from-origin default (migration 1031).
- * Upstream's project-scoped `newWorktreesStartFromOrigin` override owns the
- * concern now, so nothing read or wrote this column any more. No backfill:
- * the override lives in the settings aggregate, and the fork column only ever
- * carried a seed for the loom checkout itself.
+ * Retires the per-project start-from-origin column (1031): upstream's project-scoped
+ * `newWorktreesStartFromOrigin` override owns it. No backfill; it only seeded loom's own checkout.
  */
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

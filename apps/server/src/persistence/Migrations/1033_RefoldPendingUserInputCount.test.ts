@@ -71,14 +71,9 @@ layer("1033_RefoldPendingUserInputCount", (it) => {
       yield* runMigrations({ toMigrationInclusive: 62 });
       yield* runLoomMigrations({ toMigrationInclusive: 1032 });
 
-      // Thread `57fbb002`, in the exact shape production still carries: a
-      // `user-input.requested` whose terminal event is GENUINELY ABSENT (the
-      // cancellation was emitted into a dead queue and never persisted), plus the
-      // non-clearing respond.failed rows the user's sixteen answer attempts
-      // produced. The division of labour this asserts: the migration refolds
-      // honestly and therefore leaves it at 1, because no resolution exists to
-      // find — settling it is the STARTUP SCAN's job, not the migration's. A
-      // migration that "fixed" the count here would be inventing a settlement.
+      // Thread `57fbb002` as production carries it: a `requested` whose cancellation was never
+      // persisted, plus non-clearing respond.failed rows. The migration refolds honestly and leaves
+      // it at 1; settling it is the startup scan's job, and "fixing" it here would invent a settlement.
       yield* insertThread("thread-57fbb002-unsettled", 1);
       yield* insertActivity({
         activityId: "act-57fbb002-unsettled-requested",

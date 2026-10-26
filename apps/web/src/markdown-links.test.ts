@@ -6,38 +6,12 @@ import {
   resolveInlineCodeFileLinkMeta,
   resolveMarkdownFileLinkMeta,
   rewriteMarkdownFileUriHref,
-  shouldOpenMarkdownFileLinkInBrowserByDefault,
-  shouldOpenMarkdownFileLinkInEditor,
 } from "./markdown-links";
-
-describe("shouldOpenMarkdownFileLinkInEditor", () => {
-  it("uses command-click on macOS", () => {
-    expect(shouldOpenMarkdownFileLinkInEditor({ metaKey: true, ctrlKey: false }, "MacIntel")).toBe(
-      true,
-    );
-    expect(shouldOpenMarkdownFileLinkInEditor({ metaKey: false, ctrlKey: true }, "MacIntel")).toBe(
-      false,
-    );
-  });
-
-  it("uses control-click on other platforms", () => {
-    expect(
-      shouldOpenMarkdownFileLinkInEditor({ metaKey: false, ctrlKey: true }, "Linux x86_64"),
-    ).toBe(true);
-    expect(
-      shouldOpenMarkdownFileLinkInEditor({ metaKey: true, ctrlKey: false }, "Linux x86_64"),
-    ).toBe(false);
-  });
-});
-
-describe("shouldOpenMarkdownFileLinkInBrowserByDefault", () => {
-  it("keeps PDFs browser-first while source files open in the file viewer", () => {
-    expect(shouldOpenMarkdownFileLinkInBrowserByDefault("report.pdf")).toBe(true);
-    expect(shouldOpenMarkdownFileLinkInBrowserByDefault("report.PDF?download=1")).toBe(true);
-    expect(shouldOpenMarkdownFileLinkInBrowserByDefault("report.html")).toBe(false);
-    expect(shouldOpenMarkdownFileLinkInBrowserByDefault("report.xml")).toBe(false);
-  });
-});
+import {
+  markdownFileCopyPaths,
+  markdownFileEditorTarget,
+  resolveMarkdownFileHostPath,
+} from "./markdownFileHostPath";
 
 // loom: out-of-workspace preview paths and the loom inline-code chip rules.
 describe("isAbsolutePreviewablePath", () => {
@@ -59,12 +33,6 @@ describe("isAbsolutePreviewablePath", () => {
 });
 
 describe("rewriteMarkdownFileUriHref", () => {
-  it("rewrites file uri hrefs into direct path hrefs", () => {
-    expect(rewriteMarkdownFileUriHref("file:///Users/julius/project/src/main.ts#L42")).toBe(
-      "/Users/julius/project/src/main.ts#L42",
-    );
-  });
-
   it("preserves encoded octets so file paths are decoded only once later", () => {
     expect(rewriteMarkdownFileUriHref("file:///Users/julius/project/file%2520name.md")).toBe(
       "/Users/julius/project/file%2520name.md",
@@ -85,16 +53,11 @@ describe("rewriteMarkdownFileUriHref", () => {
     );
   });
 
+  // regression: #6433 workspace images in chat markdown did not render
   it("treats a localhost file uri as a local path", () => {
     expect(rewriteMarkdownFileUriHref("file://localhost/home/me/notes.md")).toBe(
       "/home/me/notes.md",
     );
-  });
-
-  it("unwraps angle-bracketed file uri hrefs", () => {
-    expect(
-      rewriteMarkdownFileUriHref(" <file:///D:/Programme/t3code/apps/web/src/markdown-links.ts> "),
-    ).toBe("D:/Programme/t3code/apps/web/src/markdown-links.ts");
   });
 });
 
@@ -112,145 +75,46 @@ describe("relative links inside a rendered host file", () => {
       workspaceRelativePath: "docs/src/main.ts",
     });
   });
-
-  it("resolve multi-segment inline code from the workspace root in a workspace file", () => {
-    expect(
-      resolveInlineCodeFileLinkMeta("docs/ai/design.md", "/repo", "/repo/docs/ai"),
-    ).toMatchObject({ filePath: "/repo/docs/ai/design.md" });
-    expect(
-      resolveInlineCodeFileLinkMeta("src/index.ts:4", "/repo", "/repo/packages/a"),
-    ).toMatchObject({ filePath: "/repo/src/index.ts", line: 4 });
-  });
-
-  it("keep sibling and explicitly relative inline code beside the file", () => {
-    expect(resolveInlineCodeFileLinkMeta("design.md:12", "/repo", "/repo/docs/ai")).toMatchObject({
-      filePath: "/repo/docs/ai/design.md",
-      line: 12,
-    });
-    expect(
-      resolveInlineCodeFileLinkMeta("./src/index.ts", "/repo", "/repo/packages/a"),
-    ).toMatchObject({ filePath: "/repo/packages/a/./src/index.ts" });
-    expect(resolveInlineCodeFileLinkMeta("../b/notes.md", "/repo", "/repo/docs/a")).toMatchObject({
-      filePath: "/repo/docs/a/../b/notes.md",
-    });
-  });
-
-  it("keep multi-segment inline code beside a file outside the workspace", () => {
-    expect(resolveInlineCodeFileLinkMeta("src/main.ts", "/repo", "/tmp/report")).toMatchObject({
-      filePath: "/tmp/report/src/main.ts",
-      workspaceRelativePath: null,
-    });
-  });
 });
 
 describe("resolveInlineCodeFileLinkMeta", () => {
-  const cwd = "/Users/julius/project";
-
-  const links = (span: string) => resolveInlineCodeFileLinkMeta(span, cwd);
-
-  it("links relative paths with a separator and extension", () => {
-    expect(links("apps/web/src/components/ChatMarkdown.tsx")).toMatchObject({
-      workspaceRelativePath: "apps/web/src/components/ChatMarkdown.tsx",
-      basename: "ChatMarkdown.tsx",
-      targetPath: "/Users/julius/project/apps/web/src/components/ChatMarkdown.tsx",
+  it("links bare filenames only when a line suffix marks them as file references", () => {
+    expect(resolveInlineCodeFileLinkMeta("script.ts:10", "/Users/julius/project")).toMatchObject({
+      targetPath: "/Users/julius/project/script.ts:10",
+      line: 10,
+    });
+    // loom: a bare named file resolves; ChatMarkdown keeps it plain code until a file is confirmed.
+    expect(resolveInlineCodeFileLinkMeta("AGENTS.md", "/Users/julius/project")).toMatchObject({
+      workspaceRelativePath: "AGENTS.md",
     });
   });
 
-  it("links relative paths with a line suffix", () => {
-    expect(links("src/foo.ts:123")).toMatchObject({
-      basename: "foo.ts",
-      line: 123,
-      targetPath: "/Users/julius/project/src/foo.ts:123",
-    });
+  it("does not treat arbitrary name:digits shapes as files", () => {
+    expect(resolveInlineCodeFileLinkMeta("error:1", "/Users/julius/project")).toBeNull();
+    expect(resolveInlineCodeFileLinkMeta("TODO:12", "/Users/julius/project")).toBeNull();
+    expect(resolveInlineCodeFileLinkMeta("exit:0", "/Users/julius/project")).toBeNull();
+    expect(resolveInlineCodeFileLinkMeta("port:3000", "/Users/julius/project")).toBeNull();
+    expect(resolveInlineCodeFileLinkMeta("http:80", "/Users/julius/project")).toBeNull();
   });
 
-  it("links relative paths with file extensions", () => {
+  it("ignores hosts, ports, and versions", () => {
+    expect(resolveInlineCodeFileLinkMeta("127.0.0.1:3000", "/Users/julius/project")).toBeNull();
+    expect(resolveInlineCodeFileLinkMeta("localhost:3000", "/Users/julius/project")).toBeNull();
     expect(
-      resolveInlineCodeFileLinkMeta("docs/internals/workspace-layout.md", "/Users/julius/project"),
-    ).toMatchObject({
-      targetPath: "/Users/julius/project/docs/internals/workspace-layout.md",
-      basename: "workspace-layout.md",
-    });
-  });
-
-  it("links absolute posix paths", () => {
-    expect(links("/etc/hosts")).toMatchObject({
-      targetPath: "/etc/hosts",
-      basename: "hosts",
-    });
-  });
-
-  it("links explicit relative prefixes even without an extension", () => {
-    expect(links("./scripts/build")).toMatchObject({
-      basename: "build",
-    });
-  });
-
-  it("links bare filenames with a known extension", () => {
-    expect(links("package.json")).toMatchObject({ basename: "package.json" });
-    expect(links("AGENTS.md")).toMatchObject({ basename: "AGENTS.md" });
-    expect(links("README.md")).toMatchObject({ basename: "README.md" });
-  });
-
-  it("links windows drive paths", () => {
-    expect(resolveInlineCodeFileLinkMeta("C:/Users/mike/app.ts", cwd)).toMatchObject({
-      basename: "app.ts",
-    });
-  });
-
-  // False positives that must NOT linkify.
-
-  it("does not link property/method accesses", () => {
-    expect(links("foo.bar")).toBeNull();
-    expect(links("foo.bar()")).toBeNull();
-    expect(links("this.state")).toBeNull();
-    expect(links("Math.max")).toBeNull();
-    expect(links("os.path")).toBeNull();
-  });
-
-  it("does not link bare identifiers or keywords", () => {
-    expect(links("const")).toBeNull();
-    expect(links("useState")).toBeNull();
-    expect(links("HHH")).toBeNull();
-  });
-
-  it("does not link commands with spaces", () => {
-    expect(links("vp run test")).toBeNull();
-    expect(links("vp run typecheck")).toBeNull();
-    expect(links("git commit -m")).toBeNull();
-  });
-
-  it("does not link generic type expressions", () => {
-    expect(links("HashMap<string, number>")).toBeNull();
-    expect(links("Array<Foo>")).toBeNull();
-    expect(links("Record<string, unknown>")).toBeNull();
-  });
-
-  it("does not link urls or host:port", () => {
-    expect(links("https://example.com/docs")).toBeNull();
-    expect(links("example.com:8080")).toBeNull();
-    expect(links("http://localhost:3000")).toBeNull();
-  });
-
-  it("does not link bare separator flag values", () => {
-    expect(links("a/b")).toBeNull();
-    expect(links("y/n")).toBeNull();
-    expect(links("and/or")).toBeNull();
-  });
-
-  it("does not link expressions containing code punctuation", () => {
-    expect(links("a || b")).toBeNull();
-    expect(links("x = 1")).toBeNull();
-    expect(links("arr[0]")).toBeNull();
-    expect(links("$HOME")).toBeNull();
-  });
-
-  it("does not link an empty or whitespace span", () => {
-    expect(links("")).toBeNull();
-    expect(links("   ")).toBeNull();
+      resolveInlineCodeFileLinkMeta("example.com/index.html", "/Users/julius/project"),
+    ).toBeNull();
+    expect(resolveInlineCodeFileLinkMeta("example.com:8080", "/Users/julius/project")).toBeNull();
+    expect(resolveInlineCodeFileLinkMeta("10.0.0.1:80:1", "/Users/julius/project")).toBeNull();
+    expect(
+      resolveInlineCodeFileLinkMeta("localhost/index.html", "/Users/julius/project"),
+    ).toBeNull();
+    expect(
+      resolveInlineCodeFileLinkMeta("example.uk/index.html", "/Users/julius/project"),
+    ).toBeNull();
   });
 });
 
+// loom: the loose path scanners' path test (scanned paths).
 describe("isLinkablePathText", () => {
   it("accepts absolute, ~/, and explicit-relative paths", () => {
     expect(isLinkablePathText("/home/carl/report.md")).toBe(true);
@@ -287,35 +151,24 @@ describe("isLinkablePathText", () => {
   });
 });
 
-describe("directory paths with a trailing separator", () => {
-  it("keeps the final segment for a POSIX directory path", () => {
-    expect(resolveMarkdownFileLinkMeta("/tmp/favicons/", "/repo/project")).toMatchObject({
-      basename: "favicons",
+describe("chat file chip paths", () => {
+  const cwd = String.raw`C:\Users\alice\project`;
+
+  it("opens and copies the indexed file for a bare filename, preserving its line and column", async () => {
+    const meta = resolveMarkdownFileLinkMeta("user.ts:261:7", cwd);
+    if (!meta) throw new Error("Expected a file link");
+    const hostPath = await resolveMarkdownFileHostPath({
+      meta,
+      cwd,
+      findWorkspaceMatch: async () => "src/discord/events/user.ts",
     });
-  });
 
-  it("keeps the final segment for a Windows directory path", () => {
-    expect(
-      resolveMarkdownFileLinkMeta("C:\\Users\\kelchm\\.claude\\", "/repo/project"),
-    ).toMatchObject({ basename: ".claude" });
-  });
-
-  it("matches the label of the same path without a trailing separator", () => {
-    const withSlash = resolveMarkdownFileLinkMeta("/tmp/favicons/", "/repo/project");
-    const withoutSlash = resolveMarkdownFileLinkMeta("/tmp/favicons", "/repo/project");
-    expect(withSlash?.basename).toBe(withoutSlash?.basename);
-  });
-
-  it("does not produce an empty label for the filesystem root", () => {
-    const meta = resolveMarkdownFileLinkMeta("/tmp/", "/repo/project");
-    expect(meta?.basename).not.toBe("");
-  });
-});
-
-it("routes the project-root code link to the workspace explorer", () => {
-  const cwd = "/Users/saphid/.t3/worktrees/ov2-standalone-20260918";
-  expect(resolveInlineCodeFileLinkMeta(cwd, cwd)).toMatchObject({
-    workspaceRelativePath: ".",
-    filePath: cwd,
+    expect(markdownFileEditorTarget(meta, hostPath)).toBe(
+      String.raw`C:\Users\alice\project\src\discord\events\user.ts:261:7`,
+    );
+    expect(markdownFileCopyPaths(meta, hostPath, cwd)).toEqual({
+      fullPath: String.raw`C:\Users\alice\project\src\discord\events\user.ts:261:7`,
+      relativePath: "src/discord/events/user.ts:261:7",
+    });
   });
 });

@@ -350,9 +350,9 @@ export const reviewChoiceSchema = z.object({
   amends the "no lint changes" claim in the preamble — it is the one lint
   addition.)
 - Agent-facing comment text:
-  `Review A-1 → reject — "the other conditions appear to be where this is required…"`
+  `Review A-1 → reject: "the other conditions appear to be where this is required…"`
   (verdict always present; note appended when non-empty; a note with no
-  verdict serialises as `Review A-1 → comment — "…"`).
+  verdict serialises as `Review A-1 → comment: "…"`).
 - Comments are block-anchored to the widget's element (same
   `blockElement` mechanism `setAnswer` uses), so they scroll-target the item.
 - The composer chip renders like question-answer chips; removing the chip

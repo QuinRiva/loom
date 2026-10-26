@@ -47,36 +47,10 @@ function withUsageLimits(
 export type EnrichableField = "models" | "slashCommands" | "skills";
 
 /**
- * Keep a periodic base refresh from publishing a snapshot that has *lost*
- * palette content the last one had.
- *
- * Two ways `checkProvider` regresses, and authority differs per field per
- * provider:
- *
- *  - Fields the enrichment step **owns** (`enrichmentOwnedFields`) are ones
- *    the base probe cannot see at all (Loom's quarantined pi driver, DT-23, was
- *    the one caller; no live driver passes any in pull 9 Phase 1). The previous
- *    value always wins there, because the base's is a placeholder rather than
- *    an observation.
- *  - Every other field stays **base-authoritative**, so live changes surface
- *    immediately (Claude re-reads `~/.claude/skills` from disk and Codex
- *    re-runs `skills/list` on every check). Those only carry forward when the
- *    base reports *empty*, which is the shape a failed or timed-out probe
- *    takes.
- *
- * Without this the `$` palette and model picker blank for the seconds until
- * enrichment lands — every refresh interval, forever.
- *
- * A base snapshot that reports the provider as *not installed* is never carried
- * forward from: its emptiness is an observation (the executable is gone), not a
- * probe that failed to see anything.
- *
- * Genuine loss still propagates: `enrichSnapshot` publishes its own
- * observations directly, a base-authoritative provider surfaces any
- * non-empty change immediately, and a disabled provider reports its emptiness
- * verbatim. The residual corner is a base-authoritative provider losing *all*
- * of its skills at once, which is indistinguishable from a failed probe and so
- * stays until the next restart or settings change.
+ * Stops a periodic base refresh publishing a snapshot that lost palette content (the `$` palette and
+ * model picker would blank until enrichment lands). Enrichment-owned fields keep the previous value;
+ * others stay base-authoritative, carried forward only when the base is empty (a failed probe) and
+ * not "not installed". A base-authoritative provider losing every skill at once stays until restart.
  */
 function carryForwardEnrichment(input: {
   readonly base: ServerProvider;
@@ -112,15 +86,12 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     readonly publishSnapshot: (snapshot: ServerProvider) => Effect.Effect<void>;
   }) => Effect.Effect<void>;
   /**
-   * Fields `enrichSnapshot` re-probes and republishes itself, so the base
-   * check's values for them are placeholders to be ignored rather than
-   * observations. No live driver passes this in pull 9 Phase 1 (Loom's
-   * quarantined pi driver did, DT-23); every other driver's enrichment merely
-   * attaches a version advisory and passes these fields through untouched.
+   * Fields `enrichSnapshot` re-probes and republishes itself, so the base check's values for them are
+   * placeholders, not observations. No live driver passes this today.
    */
   readonly enrichmentOwnedFields?: ReadonlyArray<EnrichableField>;
   readonly refreshInterval?: Duration.Input;
-  readonly refreshOnInterval?: boolean;
+  readonly refreshOnInterval?: boolean | ((snapshot: ServerProvider) => boolean);
   readonly checkProviderOnSettingsChange?: (previous: Settings, next: Settings) => boolean;
 }): Effect.fn.Return<
   ManagedServerProvider,
@@ -151,8 +122,7 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
       if (state.enrichmentGeneration !== generation) {
         return [null, state] as const;
       }
-      // Enrichment derives from the snapshot it was handed; a runtime usage
-      // update that landed since must not be reverted by it.
+      // Enrichment must not revert usage updates newer than its input snapshot.
       const merged = withUsageLimits(nextSnapshot, state.snapshot.usageLimits);
       if (Equal.equals(state.snapshot, merged)) {
         return [null, state] as const;
@@ -224,8 +194,7 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
         const generation = input.enrichSnapshot
           ? state.enrichmentGeneration + 1
           : state.enrichmentGeneration;
-        // A failed read keeps the last good limits only for the same account,
-        // and they keep the workspace they were read for.
+        // Failed reads retain limits only for the same account and original workspace.
         const previous = state.snapshot.auth;
         const differs = (a: string | undefined, b: string | undefined) =>
           a !== undefined && b !== undefined && a !== b;
@@ -270,26 +239,24 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   const applySnapshot = (nextSettings: Settings, options?: { readonly forceRefresh?: boolean }) =>
     refreshSemaphore.withPermits(1)(applySnapshotBase(nextSettings, options));
 
-  // loom: both usage-limit writers share this envelope "fold, republish only if
-  // the fold moved something". The fold functions hand back the same object
-  // when nothing changed, which is the common case for Codex's per-tick
-  // notification and for every retraction after the first.
-  const updateUsageLimits = (
+  // Providers call this on every token-usage tick, usually without changing the snapshot.
+  // loom: both usage-limit writers share this "fold, republish only if it moved" envelope; folds
+  // return the same object when nothing changed (Codex's per-tick notification, repeat retractions).
+  const updateUsageLimits = Effect.fnUntraced(function* (
     fold: (previous: ServerProvider["usageLimits"]) => ServerProvider["usageLimits"],
-  ) =>
-    Effect.gen(function* () {
-      const snapshotToPublish = yield* Ref.modify(snapshotStateRef, (state) => {
-        const usageLimits = fold(state.snapshot.usageLimits);
-        if (usageLimits === state.snapshot.usageLimits) {
-          return [null, state] as const;
-        }
-        const snapshot = withUsageLimits(state.snapshot, usageLimits);
-        return [snapshot, { ...state, snapshot }] as const;
-      });
-      if (snapshotToPublish !== null) {
-        yield* PubSub.publish(changesPubSub, snapshotToPublish);
+  ) {
+    const snapshotToPublish = yield* Ref.modify(snapshotStateRef, (state) => {
+      const usageLimits = fold(state.snapshot.usageLimits);
+      if (usageLimits === state.snapshot.usageLimits) {
+        return [null, state] as const;
       }
+      const snapshot = withUsageLimits(state.snapshot, usageLimits);
+      return [snapshot, { ...state, snapshot }] as const;
     });
+    if (snapshotToPublish !== null) {
+      yield* PubSub.publish(changesPubSub, snapshotToPublish);
+    }
+  });
 
   const applyUsageLimits: ManagedServerProvider["applyUsageLimits"] = (update) =>
     updateUsageLimits((previous) =>
@@ -306,8 +273,17 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     return yield* applySnapshot(nextSettings, { forceRefresh: true });
   });
 
-  const hasProviderStatusDemand = Effect.gen(function* () {
+  const shouldRefreshOnInterval = Effect.gen(function* () {
     const state = yield* Ref.get(snapshotStateRef);
+    // A disabled instance has nothing to probe; a periodic check would only
+    // republish a snapshot that differs in checkedAt.
+    if (
+      !state.snapshot.enabled ||
+      input.refreshOnInterval === false ||
+      (typeof input.refreshOnInterval === "function" && !input.refreshOnInterval(state.snapshot))
+    ) {
+      return false;
+    }
     const instanceId = state.snapshot.instanceId;
     const [genericDemand, instanceDemand] = yield* Effect.all([
       host.shouldRunBackgroundWork({ type: "provider-status" }),
@@ -359,10 +335,8 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
           Queue.take(refreshIntervalChanges).pipe(Effect.as(false)),
         ).pipe(
           Effect.flatMap((intervalElapsed) =>
-            input.refreshOnInterval !== false &&
-            intervalElapsed &&
-            Duration.toMillis(Duration.fromInputUnsafe(refreshInterval)) > 0
-              ? hasProviderStatusDemand.pipe(
+            intervalElapsed && Duration.toMillis(Duration.fromInputUnsafe(refreshInterval)) > 0
+              ? shouldRefreshOnInterval.pipe(
                   Effect.flatMap((shouldRefresh) =>
                     shouldRefresh ? refreshSnapshot().pipe(Effect.asVoid) : Effect.void,
                   ),
@@ -383,7 +357,9 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   return {
     resolveMaintenance: input.resolveMaintenance,
     getSnapshot: Ref.get(snapshotStateRef).pipe(Effect.map((state) => state.snapshot)),
-    refresh: refreshSnapshot().pipe(Effect.tapError(Effect.logError), Effect.orDie),
+    refresh: input
+      .resolveMaintenance({ fresh: true })
+      .pipe(Effect.andThen(refreshSnapshot), Effect.tapError(Effect.logError), Effect.orDie),
     applyUsageLimits,
     retractUsageLimits,
     get streamChanges() {

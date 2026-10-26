@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 
 import { EmbeddingError, type EmbeddingProvider } from "./EmbeddingProvider.loom.ts";
 
-/** POST {baseUrl}/embeddings — OpenAI, Ollama (`/v1`), vLLM, LiteLLM. Raw text, no framing. */
+/** POST {baseUrl}/embeddings: OpenAI, Ollama (`/v1`), vLLM, LiteLLM. Raw text, no framing. */
 export const makeOpenAiCompatibleProvider = (settings: {
   readonly baseUrl: string;
   readonly model: string;

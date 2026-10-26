@@ -1,18 +1,8 @@
 /**
- * Drives {@link ReviewSnapshotService} from the orchestrator's domain events, as the
- * emergent-goal reactor does (plans/change-review/plan.mdx §2): the first `message.updated` of
- * a human-authored user message snapshots every source of the thread's worktree, or, for a
- * launch still preparing a new worktree, the release of that message's run does; archive and
- * deletion drop the thread's snapshots; an hourly sweep drops quiet threads'.
- *
- * No effect-outbox kind: a capture lost to a restart is never taken late (it would record the
- * agent's progress as the baseline), so its interval merges into the previous one. For the same
- * reason a message whose `createdAt` is more than {@link FRESH_WINDOW} old is ignored, which
- * also skips the re-emissions of a queued or steered message. A relayed Slack reply
- * (`[Slack reply from <name>]`) is human-authored and opens an interval like any other; its
- * sender is read from the message text by message id, so the row stores nothing extra.
- *
- * @module loom/review/ReviewSnapshotReactor
+ * A human-authored message's first `message.updated` (or its run's release, for a worktree still
+ * preparing) snapshots the thread's sources; archive and delete drop them, an hourly sweep drops
+ * quiet threads'. No outbox kind and messages older than {@link FRESH_WINDOW} are ignored: a late
+ * capture would record agent progress as the baseline. Relayed Slack replies count as human.
  */
 import type { OrchestrationV2DomainEvent } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";

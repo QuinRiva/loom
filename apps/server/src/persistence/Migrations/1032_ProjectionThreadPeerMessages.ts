@@ -1,16 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// notify_thread (cross-thread push): one row per recorded peer message, keyed
-// by the handler-generated `record_id` (stable correlation key from which the
-// delivery/expire/mark command ids derive, so a re-projection is idempotent and
-// the handler's immediate delivery attempt and the dispatcher rail agree on the
-// same deterministic ids). The row is simultaneously the durable delivery-queue
-// entry (status lifecycle pending -> delivered | expired), the observability
-// edge aggregated onto the SENDER shell's `peerMessages` at query time, and the
-// source the command read model reconstructs `notifySendLog` from on restart.
-// The full raw + framed text live here; the shell carries only the bounded
-// preview.
+// One row per peer message, keyed by `record_id`, from which delivery/expire/mark command ids derive
+// so re-projection, the handler's immediate delivery and the dispatcher rail agree. The row is the
+// delivery queue entry (pending -> delivered | expired), the sender shell's `peerMessages` edge and
+// the source of `notifySendLog` on restart; it holds the full text, the shell only a preview.
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`

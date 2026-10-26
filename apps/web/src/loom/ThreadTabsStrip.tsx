@@ -1,15 +1,8 @@
 /**
- * loom: centre-panel thread tab strip.
- *
- * Renders the open-tab set (from `threadTabsStore`) as a horizontal, drag-
- * reorderable strip above `ChatView`, mirroring `RightPanelTabs`' interaction
- * vocabulary (hover-reveal close, middle-click close, context menu, overflow
- * scroll with edge fade + active `scrollIntoView`). Tab order is the user's
- * working set, so unlike the right panel the strip is dnd-kit sortable.
- *
- * Active-tab highlight follows the URL-active thread (`activeRouteRef`), not the
- * store's `activeKey`, so the index/draft routes show the strip with no tab
- * highlighted.
+ * loom: centre-panel thread tab strip above `ChatView`, with `RightPanelTabs`' interaction
+ * vocabulary but dnd-kit sortable, since tab order is the user's working set. The highlight follows
+ * the URL-active thread (`activeRouteRef`), not the store's `activeKey`, so the index and draft
+ * routes show no tab highlighted.
  */
 import {
   DndContext,
@@ -255,7 +248,7 @@ function ThreadTab({
           }
         />
         <TooltipPopup>
-          {shell === null ? `${label} — thread unavailable on this connection` : label}
+          {shell === null ? `${label} (thread unavailable on this connection)` : label}
         </TooltipPopup>
       </Tooltip>
       <button

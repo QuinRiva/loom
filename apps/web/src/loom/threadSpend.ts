@@ -1,12 +1,8 @@
 /**
- * loom: per-thread spend from seam 11's usage ledger (`loom.threadSpend`) and
- * the Cost tab's top-spenders window (`loom.topSpend`), 3d-4. Cost is never a
- * shell field: quick facts, the active strip and the timeline each ask for one
- * thread, and the shared batched store coalesces every mounted ask into one RPC
- * per environment (revalidated on its TTL). The workstream total sums the same
- * lookups.
- *
- * @module loom/threadSpend
+ * loom: per-thread spend from the usage ledger (`loom.threadSpend`) and the Cost tab's top-spenders
+ * window (`loom.topSpend`). Cost is never a shell field: each surface asks for one thread and the
+ * shared batched store coalesces every mounted ask into one RPC per environment, revalidated on its
+ * TTL. The workstream total sums the same lookups.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";

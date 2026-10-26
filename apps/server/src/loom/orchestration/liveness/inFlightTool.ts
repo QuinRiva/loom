@@ -1,10 +1,6 @@
 /**
- * The in-flight tool read (Phase 3 plan "Liveness"; P3-9): a quiet-but-running
- * tool call is never a stall — a steer cannot penetrate a blocked call and long
- * calls are often legitimate — so State C is suppressed while one runs, and the
- * slow-tool advisory reports it instead.
- *
- * @module loom/orchestration/liveness/inFlightTool
+ * A quiet-but-running tool call is never a stall (a steer cannot penetrate a blocked call and long
+ * calls are often legitimate), so State C is suppressed and the slow-tool advisory reports it.
  */
 import type { OrchestrationV2TurnItem, ThreadId, TurnItemId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";

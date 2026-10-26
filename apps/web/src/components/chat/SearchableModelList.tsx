@@ -21,16 +21,10 @@ import { scoreModelPickerSearch } from "./modelPickerSearch";
 import { cn } from "~/lib/utils";
 
 /**
- * The shared searchable-model picker core: a search box over a
- * height-capped, virtualized, keyboard-navigable list of two-line rows.
- *
- * It is deliberately generic — rows are addressed by opaque string keys and
- * rendered by the caller via `renderRow`, and the caller owns the
- * filter+sort that turns `searchQuery` into the ordered `visibleKeys`. This
- * keeps composer-specific decoration (favourites, ⌘-number jump hints, the
- * provider sidebar) in the composer layer while both the composer model
- * picker and the settings failover pickers share the search/scroll/keyboard
- * mechanics.
+ * Deliberately generic: rows are opaque string keys rendered by `renderRow`, and the caller
+ * owns the filter and sort that produce `visibleKeys`. Composer decoration (favourites,
+ * ⌘-number hints, the provider sidebar) stays in the composer; the settings failover
+ * pickers share only the search, scroll and keyboard mechanics.
  */
 export function SearchableModelList(props: {
   searchQuery: string;
@@ -227,14 +221,9 @@ export interface ModelPickerOption {
 }
 
 /**
- * Option-driven searchable picker in a popover — the high-level shared entry
- * point for call sites (e.g. the settings failover pickers) that just have a
- * flat option catalogue and a trigger. It owns the query lifecycle, the
- * name+slug fuzzy filter/sort (via the composer's shared scorer), provider
- * grouping with headings, and the two-line row rendering, so the caller is
- * only data mapping + trigger wiring. The composer keeps using the low-level
- * `SearchableModelList` directly because its rows carry favourites, jump
- * hints, and disabled reasons the generic option shape doesn't model.
+ * For call sites with a flat option catalogue and a trigger (the settings failover pickers).
+ * The composer uses `SearchableModelList` directly because its rows carry favourites, jump
+ * hints and disabled reasons the generic option shape doesn't model.
  */
 export function SearchableModelPopover({
   options,

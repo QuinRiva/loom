@@ -2,22 +2,10 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import { useEffect, useSyncExternalStore } from "react";
 
 /**
- * Reactive, cross-component store for a per-environment server lookup that is
- * worth batching — chat file chips' path stats and index lookups.
- *
- * Fetching is driven by a **mounted-key registry + a single shared timer**,
- * not by the React render/version cycle. Each mounted consumer registers the
- * keys it cares about (ref-counted); the scheduler owns *when* to fetch them:
- *   - uncached mounted keys are fetched after a short coalescing window, so a
- *     burst (or a streamed message) collapses into one batched RPC per env;
- *   - a cached result is revalidated once it crosses the TTL, even if the
- *     consumer just sits there idle (bounded background freshness);
- *   - a failed/partial batch backs off exponentially instead of hot-looping,
- *     and keeps any prior result visible meanwhile.
- * Results are exposed through `useSyncExternalStore`, so when any batch resolves
- * every mounted consumer re-renders and re-reads the cache — one in-flight
- * request per key serves all waiters. With no connected environment (e.g. the
- * /preview harness) nothing is registered and lookups stay undefined.
+ * Reactive store for a batched per-environment server lookup (chat file chips' path stats and index
+ * lookups). Mounted consumers register keys (ref-counted) and one shared timer, not the render
+ * cycle, fetches them: uncached keys after a short coalescing window (one RPC per env), cached ones
+ * past the TTL, and failed batches with exponential backoff, keeping any prior result visible.
  */
 const MAX_ENTRIES = 4000;
 // Freshness window. Matches the readFile query staleness so a chip

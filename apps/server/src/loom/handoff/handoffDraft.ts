@@ -1,23 +1,8 @@
 /**
- * `/handoff` fork-drafter, out of quarantine onto V2 (Phase 3 plan Track 3b,
- * DT-24). The human's composer intercept calls `loom.handoffDraft`; the server
- * forks the source into a `handoff-drafter` ROOT whose first message is the
- * drafter kickoff. The source transcript is never touched; the drafter is
- * archived once its handoff is recorded (`HandoffDrafterReactor`).
- *
- * The fork is three Loom commands (DL-384): `thread.spawn` of a root carrying
- * the role, the source's goal, worktree, modes and projected model selection
- * and `forkFromThreadId`; `thread.fork.prepare`, which writes upstream's pending
- * `fork` context transfer from the source's latest finished run (what
- * `thread.fork`'s `latest_stable` picks; a V1-imported thread with no V2 run forks
- * its bound pi session) for upstream to resolve natively at the drafter's first run
- * (P3-28's mechanism); then the kickoff as a Loom control message. A mid-turn
- * source defers the fork, and `HandoffDrafterReactor` sends the fork and kickoff
- * once the turn ends, so the drafter carries that turn too. V2's bare
- * `thread.fork` would leave the drafter without a sidecar row, and the role is
- * what `mcp__t3-code__goal_handoff`, the composer's overlay and the reactor key on.
- *
- * @module loom/handoff/handoffDraft
+ * `/handoff`: forks the source into a `handoff-drafter` ROOT via three Loom commands: `thread.spawn`
+ * with the role and `forkFromThreadId`, `thread.fork.prepare` (upstream's pending fork transfer),
+ * then the kickoff. V2's bare `thread.fork` would leave no sidecar row, and the role is what
+ * `goal_handoff`, the composer's overlay and the reactor key on. The source is never touched.
  */
 import {
   CommandId,
@@ -62,7 +47,7 @@ export const buildDrafterTitle = (explanation: string) => curatedTitle("Handoff"
  * placed — the drafter runs unattended, so any closing text is never read.
  */
 export const buildDrafterKickoffPrompt = (explanation: string) =>
-  `You are a handoff drafter forked from the preceding session with its full context. The human has flagged out-of-scope work: ${explanation}. Draft a focused brief for it and call \`mcp__t3-code__goal_handoff\` (title, brief, description; name a \`project\` if the work belongs elsewhere). The receiving root is told the brief is agent-written and treats it as a proposal: quote the human's words where you relay what they asked, mark the rest as your own reading, and describe the problem rather than instructing it what to do — it plans for itself. If the human flags multiple separable issues, use your judgment: one goal if they belong together, one \`mcp__t3-code__goal_handoff\` call per goal if they should proceed independently. Do NOT do the work itself, and do not write exhaustive briefs — omissions are recoverable because the receiving agent can \`mcp__t3-code__consult_thread\` this frozen session. After your last \`mcp__t3-code__goal_handoff\` call, end your turn immediately without further response.`;
+  `You are a handoff drafter forked from the preceding session with its full context. The human has flagged out-of-scope work: ${explanation}. Draft a focused brief for it and call \`mcp__t3-code__goal_handoff\` (title, brief, description; name a \`project\` if the work belongs elsewhere). The receiving root is told the brief is agent-written and treats it as a proposal: quote the human's words where you relay what they asked, mark the rest as your own reading, and describe the problem rather than instructing it what to do. It plans for itself. If the human flags multiple separable issues, use your judgment: one goal if they belong together, one \`mcp__t3-code__goal_handoff\` call per goal if they should proceed independently. Do NOT do the work itself, and do not write exhaustive briefs: omissions are recoverable because the receiving agent can \`mcp__t3-code__consult_thread\` this frozen session. After your last \`mcp__t3-code__goal_handoff\` call, end your turn immediately without further response.`;
 
 const BLOCKING_RUN = new Set(["preparing", "starting", "running", "waiting"]);
 
@@ -184,48 +169,45 @@ export const buildHandoffDraftTurnStart = (
  * ends). `deferred` leaves the rest for `HandoffDrafterReactor`, whose pass re-sends
  * them on every run end (a receipted id replays as a no-op); `dead` carries the refusal.
  */
-export const dispatchDraftFork = (commands: ReadonlyArray<OrchestrationV2ServerCommand>) =>
-  Effect.gen(function* () {
-    const orchestrator = yield* OrchestratorV2;
-    for (const command of commands) {
-      const stopped = yield* orchestrator.dispatch(command).pipe(
-        Effect.as(null),
-        Effect.catch((error) =>
-          Effect.succeed(
-            error._tag === "LoomDispatchDeferredError"
-              ? ({ status: "deferred" } as const)
-              : ({ status: "dead", error: error.message } as const),
-          ),
+export const dispatchDraftFork = Effect.fn("handoffDraft.dispatchDraftFork")(function* (
+  commands: ReadonlyArray<OrchestrationV2ServerCommand>,
+) {
+  const orchestrator = yield* OrchestratorV2;
+  for (const command of commands) {
+    const stopped = yield* orchestrator.dispatch(command).pipe(
+      Effect.as(null),
+      Effect.catch((error) =>
+        Effect.succeed(
+          error._tag === "LoomDispatchDeferredError"
+            ? ({ status: "deferred" } as const)
+            : ({ status: "dead", error: error.message } as const),
         ),
-      );
-      if (stopped !== null) return stopped;
-    }
-    return { status: "launched" } as const;
-  });
+      ),
+    );
+    if (stopped !== null) return stopped;
+  }
+  return { status: "launched" } as const;
+});
 
 /**
- * Validates the source and launches a drafter fork; returns the drafter's id.
- * The source must exist and be pi-backed with a strong native session ref (the
- * drafter's whole value is the source's native session): its latest finished
- * run's, or for a V1-imported thread with no V2 run yet, the session the importer
- * bound (`runlessFork.loom.ts`). A source that is mid-turn is accepted: the drafter
- * appears now and forks when the turn ends, so it carries that turn too. The model
- * is the source's projected selection (DL-384: launch identity is the composer's).
- * Fails with `LoomWsMethodError` naming `method`.
+ * Validates the source and launches a drafter fork; returns the drafter's id. The source must be
+ * pi-backed with a strong native session ref (its latest finished run's, or the importer-bound one
+ * for a V1 thread with no V2 run). A mid-turn source is accepted: the drafter forks when the turn
+ * ends. The model is the source's projected selection. Fails with `LoomWsMethodError`.
  */
-export const launchDraftFork = (input: {
-  readonly method: string;
-  /** "handed off" / "reviewed": the refusal wording. */
-  readonly verb: string;
-  readonly sourceThreadId: ThreadId;
-  /** Minted here unless the caller needed it first (a query thread writes its brief before). */
-  readonly drafterThreadId?: ThreadId;
-  readonly build: (
-    fork: Omit<DraftForkInput, "role" | "title" | "kickoff">,
-    source: OrchestrationV2ThreadShell,
-  ) => ReadonlyArray<OrchestrationV2ServerCommand>;
-}) =>
-  Effect.gen(function* () {
+export const launchDraftFork = Effect.fn("handoffDraft.launchDraftFork")(
+  function* (input: {
+    readonly method: string;
+    /** "handed off" / "reviewed": the refusal wording. */
+    readonly verb: string;
+    readonly sourceThreadId: ThreadId;
+    /** Minted here unless the caller needed it first (a query thread writes its brief before). */
+    readonly drafterThreadId?: ThreadId;
+    readonly build: (
+      fork: Omit<DraftForkInput, "role" | "title" | "kickoff">,
+      source: OrchestrationV2ThreadShell,
+    ) => ReadonlyArray<OrchestrationV2ServerCommand>;
+  }) {
     const orchestrator = yield* OrchestratorV2;
     const fail = (message: string) => new LoomWsMethodError({ method: input.method, message });
     const source = yield* orchestrator.getThreadShell(input.sourceThreadId);
@@ -276,16 +258,19 @@ export const launchDraftFork = (input: {
     );
     if (launch.status === "dead") return yield* fail(launch.error);
     return drafterThreadId;
-  }).pipe(
-    Effect.catchIf(
-      (error) => error._tag !== "LoomWsMethodError",
-      (cause) =>
-        Effect.fail(
-          new LoomWsMethodError({
-            method: input.method,
-            message: `${input.method} failed to start the fork.`,
-            cause,
-          }),
-        ),
+  },
+  (effect, input) =>
+    effect.pipe(
+      Effect.catchIf(
+        (error) => error._tag !== "LoomWsMethodError",
+        (cause) =>
+          Effect.fail(
+            new LoomWsMethodError({
+              method: input.method,
+              message: `${input.method} failed to start the fork.`,
+              cause,
+            }),
+          ),
+      ),
     ),
-  );
+);

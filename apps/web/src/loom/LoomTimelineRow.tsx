@@ -1,7 +1,7 @@
 // loom: 3d-3 — the timeline mount of the Loom rows (the view is context-free).
 import { memo, use } from "react";
 
-import { TimelineRowCtx } from "~/components/chat/MessagesTimeline";
+import { TimelineRowCtx } from "~/components/chat/timelineRowContext";
 
 import type { LoomTimelineRow as LoomTimelineRowData } from "./loomTimelineRows";
 import { LoomTimelineRowView } from "./LoomTimelineRowView";

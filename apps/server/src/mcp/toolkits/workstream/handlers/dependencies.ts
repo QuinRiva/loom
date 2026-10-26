@@ -20,7 +20,7 @@ export const workstreamSetDependencies = Effect.fn("LoomToolkit.workstreamSetDep
     const row = yield* authoriseTarget(caller, input.threadId);
     if (row?.parentThreadId == null)
       return yield* fail(
-        "Dependencies have no effect on a root thread — only sub-threads are dependency-gated. Nothing was changed.",
+        "Dependencies have no effect on a root thread: only sub-threads are dependency-gated. Nothing was changed.",
       );
     const siblingIds = new Set(
       (yield* childrenOf(row.parentThreadId)).map((sibling) => sibling.threadId),
@@ -39,7 +39,7 @@ export const workstreamSetDependencies = Effect.fn("LoomToolkit.workstreamSetDep
       row.kickoffAt === null
         ? []
         : [
-            `${row.threadId} has already started: the dependency edge was recorded for DISPLAY ONLY — a started thread is never un-run, so this will not pause or re-gate it. To pause it use ${t("workstream_stop")}; to abandon it set its outcome to cancelled with ${t("workstream_set_outcome")}; to sequence future work, set blockedBy at spawn time.`,
+            `${row.threadId} has already started: the dependency edge was recorded for DISPLAY ONLY: a started thread is never un-run, so this will not pause or re-gate it. To pause it use ${t("workstream_stop")}; to abandon it set its outcome to cancelled with ${t("workstream_set_outcome")}; to sequence future work, set blockedBy at spawn time.`,
           ],
     );
   },

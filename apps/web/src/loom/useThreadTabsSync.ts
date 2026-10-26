@@ -1,16 +1,8 @@
 /**
- * loom: URL ↔ active-tab sync for centre-panel thread tabs.
- *
- * The URL (`/$environmentId/$threadId`) is the single source of truth for the
- * *active* tab; the store owns only the grouped open set and each group's order.
- * `useThreadTabsSync` is the one seed writer, called from the thread route — the
- * chokepoint every thread navigation funnels through. It also owns **group-key
- * derivation and regrouping**: the store never computes lineage, so this hook
- * supplies the group key to the seed and moves tabs into their real root group
- * once their lineage is known. `useThreadTabActions` bundles the navigate-aware handlers (activate / close family / reopen /
- * traversal), which operate on the *active group* (the group containing the
- * active thread), so tab activation always flows URL → seed and there is exactly
- * one write-path for `activeKey`.
+ * loom: URL ↔ active-tab sync. The URL is the single source of truth for the active tab; the store
+ * owns only the grouped open set and order. `useThreadTabsSync`, called from the thread route every
+ * navigation funnels through, is the one seed writer and owns group-key derivation and regrouping;
+ * `useThreadTabActions` acts on the active group, so `activeKey` has one write path (URL → seed).
  */
 import { useNavigate } from "@tanstack/react-router";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -23,15 +15,10 @@ import { isThreadGone, resolveThreadGroupKey, useThreadTabLineage } from "./thre
 import { findGroupKeyByTab, selectActiveGroup, useThreadTabsStore } from "./threadTabsStore";
 
 /**
- * Seed the open-tab set from the resolved route thread. Gated on
- * `bootstrapComplete && routeThreadExists` so a bad deep link (which the route
- * redirects to `/`) never plants a phantom tab, and a valid thread seeds only
- * once its replay resolves. The seed appends-if-absent into the thread's group
- * and activates; it never reorders the strip and never pins/unpins the preview
- * tab. A separate effect regroups tabs whose lineage became known after they
- * were placed (a provisional seed, or the pull-9 flat strip's single bucket),
- * and prunes tabs whose thread was archived or deleted — from any surface,
- * agent or client — except the route's own thread while it is on screen.
+ * Seed the open-tab set from the resolved route thread, gated on `bootstrapComplete &&
+ * routeThreadExists` so a bad deep link never plants a phantom tab; append-if-absent, never
+ * reordering or pinning. A second effect regroups tabs whose lineage arrived late and prunes
+ * archived or deleted threads, except the route's own thread while it is on screen.
  */
 export function useThreadTabsSync(
   threadRef: ScopedThreadRef | null,

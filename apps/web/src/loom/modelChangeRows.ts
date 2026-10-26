@@ -1,10 +1,8 @@
 /**
- * loom: the "Model: A → B" divider — one row before the user message that
- * starts a run whose model differs from the previous run's on the same
- * provider instance. Covers a composer model switch and the reroute sweep's
- * fallback / move-back alike (both start runs with a new selection). An
- * instance change is upstream's context-handoff row, and a thinking-level
- * (`modelSelection.options`) change is deliberately not a row.
+ * loom: the "Model: A → B" divider before the user message starting a run whose model differs from
+ * the previous run's on the same provider instance (a composer switch or the reroute sweep alike).
+ * An instance change is upstream's context-handoff row; a thinking-level change is deliberately not
+ * a row.
  */
 import type { OrchestrationV2Run, ProviderInstanceId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";

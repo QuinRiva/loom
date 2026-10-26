@@ -1,32 +1,8 @@
 /**
- * The workstream liveness sweep on V2 (Phase 3 plan "Liveness"; P3-8–P3-10).
- * A periodic pass over every active Loom sub-thread that classifies it from the
- * V2 shell, the in-memory heartbeat and its in-flight tool (a root with a Loom
- * row gets State A only):
- *
- * - **dead** (State A) — the latest run `failed` with a provider failure class
- *   (`usage_limit` excluded: upstream's limit recovery parks and resumes it).
- *   The first sweep to see it sends ONE steered resume naming the error
- *   (`errorResume.ts`), unless that run was itself the resume; otherwise, for
- *   `failureCap` consecutive sweeps → `thread.attention.raise error`.
- * - **waiting** (State B) — a pending approval-kind runtime request: exempt.
- * - **stalled** (State C) — a running run, no in-flight tool, heartbeat frozen
- *   past `staleActivityWindowMs` → ONE steered stall nudge per frozen episode,
- *   then `error` if still frozen after `stallNudgeGraceMs`. When upstream's
- *   steer conversion would not take the nudge, a queued run would wait behind
- *   the frozen turn, so the sweep escalates at once instead.
- * - **spinning** (State D, `ENABLE_STATE_D`) — heartbeat advancing, the run's
- *   tool work product flat for `noProgressWindowMs` → a `spinning` advisory on
- *   the parent's next FYI digest (not an attention raise).
- * - **slow tool** — a tool in flight past its deferral → a `slow-tool` advisory.
- *
- * A child's parent learns of every `error` raise through the dispatcher's
- * attention rail; a root's flag shows on its own card and in the inbox. Nothing
- * is persisted: the per-thread ladders live in this service and restart from
- * scratch, floored at sweep start. The classification and ladder
- * functions are V1's (`WorkstreamLivenessSweep.ts`), unchanged in logic.
- *
- * @module loom/orchestration/liveness/WorkstreamLivenessSweep
+ * The liveness sweep classifies every active Loom sub-thread (a root: dead only) as dead (a
+ * provider-failed run other than `usage_limit`: one steered resume, then `error`), waiting
+ * (exempt), stalled (frozen heartbeat: one nudge per episode, then `error`), or spinning or
+ * slow-tool (FYI advisories). Ladders live in memory and restart from scratch at sweep start.
  */
 import {
   CommandId,
@@ -88,19 +64,10 @@ import { readStallContext, renderStallContext, type StallContext } from "./stall
 const ENABLE_STATE_D = true;
 
 /**
- * Liveness thresholds (V1's, without the starting-run pair). Generous on purpose:
- * - `sweepIntervalMs` 60 s — responsive without hammering the projection.
- * - `startupGraceMs` 2 min — gates the stall detector so a slow first tool
- *   call is never a stall.
- * - `staleActivityWindowMs` 10 min — a running run whose heartbeat has been
- *   frozen this long is a mid-turn stall.
- * - `failureCap` 3 — consecutive sweeps in a failed state before `error`.
- * - `stallNudgeGraceMs` 2 min — how long a nudged episode may stay frozen
- *   before escalating (a steer is folded in between model rounds).
- * - `noProgressWindowMs` 10 min — State D: how long the work product must stay
- *   flat while the heartbeat advances.
- * - `progressInputSampleSize` 16 — State D: how many recent tool calls feed the
- *   fingerprint (larger is stricter and safer).
+ * Liveness thresholds, generous on purpose: `startupGraceMs` keeps a slow first tool call from
+ * reading as a stall, `stallNudgeGraceMs` must outlast a steer folding in between model rounds, and
+ * State D needs `noProgressWindowMs` of flat work product over the last `progressInputSampleSize`
+ * tool calls (a larger sample is stricter and safer).
  */
 export interface LivenessSweepThresholds {
   readonly sweepIntervalMs: number;
@@ -218,11 +185,9 @@ export const classifyLiveness = (input: LivenessClassifyInput): LivenessVerdict 
 export type StallAction = "nudge" | "escalate" | "wait";
 
 /**
- * Pure stall ladder. `nudge` on the first sweep of an episode; `escalate` when
- * the same episode is still frozen after the nudge grace, OR when there is no
- * open turn the nudge can steer into (under V2: upstream's steer conversion
- * would not take it, so a queued run would wait behind the frozen turn); `wait`
- * while a nudged episode is within its grace. A new `episodeMs` re-arms.
+ * Pure stall ladder: `nudge` on an episode's first sweep; `escalate` when it is still frozen after
+ * the nudge grace, or when no open turn can take the nudge (a queued run would wait behind the
+ * frozen turn); `wait` while a nudged episode is within its grace. A new `episodeMs` re-arms.
  */
 export const decideStallAction = (input: {
   readonly priorEpisodeMs: number | null;
@@ -318,7 +283,7 @@ export const buildStallNudgeMessage = (
     "",
     renderStallContext(context),
     "",
-    "Continue from where you left off: address the issue above and proceed, or — if you are genuinely blocked — stop and explain what you need (`mcp__t3-code__workstream_request_attention` with `needs_guidance`).",
+    "Continue from where you left off: address the issue above and proceed, or, if you are genuinely blocked, stop and explain what you need (`mcp__t3-code__workstream_request_attention` with `needs_guidance`).",
   ].join("\n");
 
 /** The `error` raise on a dead child, one per failed run. */
@@ -350,369 +315,369 @@ export class WorkstreamLivenessSweep extends Context.Service<
   WorkstreamLivenessSweepShape
 >()("t3/loom/orchestration/liveness/WorkstreamLivenessSweep") {}
 
-const make = (thresholds: LivenessSweepThresholds) =>
-  Effect.gen(function* () {
-    const orchestrator = yield* OrchestratorV2;
-    const loomStore = yield* LoomStoreV2;
-    const sessions = yield* ProviderSessionManagerV2;
-    const dispatcher = yield* WorkstreamDispatcher;
-    const heartbeat = yield* LoomHeartbeat;
-    const services = yield* Effect.context<CommandReceiptStoreV2 | OrchestratorV2>();
-    const sweepStartedAtMs = DateTime.toEpochMillis(yield* DateTime.now);
+const make = Effect.fn("WorkstreamLivenessSweep.make")(function* (
+  thresholds: LivenessSweepThresholds,
+) {
+  const orchestrator = yield* OrchestratorV2;
+  const loomStore = yield* LoomStoreV2;
+  const sessions = yield* ProviderSessionManagerV2;
+  const dispatcher = yield* WorkstreamDispatcher;
+  const heartbeat = yield* LoomHeartbeat;
+  const services = yield* Effect.context<CommandReceiptStoreV2 | OrchestratorV2>();
+  const sweepStartedAtMs = DateTime.toEpochMillis(yield* DateTime.now);
 
-    // Per-thread ladders; plain maps are safe because the sweep runs serially.
-    /** Consecutive failed observations (State A's circuit-breaker counter). */
-    const failureCounts = new Map<ThreadId, number>();
-    /** The nudged stall episode and when (State C). */
-    const stallNudges = new Map<
-      ThreadId,
-      { readonly episodeMs: number; readonly nudgedAtMs: number }
-    >();
-    /** State D's fingerprint episode. */
-    const progressLoop = new Map<ThreadId, ProgressLoopState>();
-    /** The last slow-tool ladder step advised per in-flight call. */
-    const slowTools = new Map<ThreadId, { readonly itemId: string; readonly index: number }>();
+  // Per-thread ladders; plain maps are safe because the sweep runs serially.
+  /** Consecutive failed observations (State A's circuit-breaker counter). */
+  const failureCounts = new Map<ThreadId, number>();
+  /** The nudged stall episode and when (State C). */
+  const stallNudges = new Map<
+    ThreadId,
+    { readonly episodeMs: number; readonly nudgedAtMs: number }
+  >();
+  /** State D's fingerprint episode. */
+  const progressLoop = new Map<ThreadId, ProgressLoopState>();
+  /** The last slow-tool ladder step advised per in-flight call. */
+  const slowTools = new Map<ThreadId, { readonly itemId: string; readonly index: number }>();
 
-    /** Dispatches under the receipt discipline; true when the command landed (now or before). */
-    const send = (label: string, command: ThreadServerCommand) =>
-      dispatchServerCommand(command).pipe(
-        Effect.tap((outcome) =>
-          outcome.status === "accepted"
-            ? Effect.logInfo(label, { threadId: command.threadId, commandId: command.commandId })
-            : Effect.void,
-        ),
-        // Settled: landed now or earlier, or dead (rejected and receipted — V1's `settled`, so
-        // the ladder escalates after the grace instead of retrying a dead id forever). Only a
-        // deferral is retried.
-        Effect.map((outcome) => outcome.status !== "deferred"),
-      );
+  /** Dispatches under the receipt discipline; true when the command landed (now or before). */
+  const send = (label: string, command: ThreadServerCommand) =>
+    dispatchServerCommand(command).pipe(
+      Effect.tap((outcome) =>
+        outcome.status === "accepted"
+          ? Effect.logInfo(label, { threadId: command.threadId, commandId: command.commandId })
+          : Effect.void,
+      ),
+      // Settled: landed now or earlier, or dead (rejected and receipted — V1's `settled`, so
+      // the ladder escalates after the grace instead of retrying a dead id forever). Only a
+      // deferral is retried.
+      Effect.map((outcome) => outcome.status !== "deferred"),
+    );
 
-    const raiseError = (label: string, threadId: ThreadId, id: string) =>
-      Effect.flatMap(DateTime.now, (now) =>
-        send(label, {
-          type: "thread.attention.raise",
-          commandId: CommandId.make(id),
-          threadId,
-          createdAt: DateTime.formatIso(now),
-          reason: "error",
-        }),
-      );
-
-    /**
-     * Upstream's steer-conversion predicate for a queued Loom control message
-     * (`Orchestrator.ts` dispatchMessage): a running run with a running provider
-     * turn on its active attempt, a live session that supports active steering
-     * without cancelling tools, and not a native maintenance command (`/compact`).
-     */
-    const isSteerable = Effect.fn("loom.liveness.isSteerable")(function* (threadId: ThreadId) {
-      const { runs, providerThreads, providerTurns } = yield* orchestrator.getThreadRecords(
+  const raiseError = (label: string, threadId: ThreadId, id: string) =>
+    Effect.flatMap(DateTime.now, (now) =>
+      send(label, {
+        type: "thread.attention.raise",
+        commandId: CommandId.make(id),
         threadId,
-        ["runs", "providerThreads", "providerTurns"],
-      );
-      const active = runs.find((run) => run.status === "running");
-      if (active === undefined) return false;
-      const providerSessionId = providerThreads.find(
-        (row) => row.id === active.providerThreadId,
-      )?.providerSessionId;
-      const turnRunning = providerTurns.some(
-        (turn) => turn.runAttemptId === active.activeAttemptId && turn.status === "running",
-      );
-      if (!turnRunning || providerSessionId == null) return false;
-      const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"], {
-        messageIds: [active.userMessageId],
-      });
-      if (messages.some(isNativeMaintenanceCommand)) return false;
-      const session = yield* sessions
-        .get(providerSessionId)
-        .pipe(Effect.orElseSucceed(() => Option.none()));
-      return (
-        Option.isSome(session) &&
-        session.value.providerSession.capabilities.turns.supportsActiveSteering &&
-        session.value.providerSession.capabilities.turns.activeSteeringInterruptsTools !== true
-      );
+        createdAt: DateTime.formatIso(now),
+        reason: "error",
+      }),
+    );
+
+  /**
+   * Upstream's steer-conversion predicate for a queued Loom control message
+   * (`Orchestrator.ts` dispatchMessage): a running run with a running provider
+   * turn on its active attempt, a live session that supports active steering
+   * without cancelling tools, and not a native maintenance command (`/compact`).
+   */
+  const isSteerable = Effect.fn("loom.liveness.isSteerable")(function* (threadId: ThreadId) {
+    const { runs, providerThreads, providerTurns } = yield* orchestrator.getThreadRecords(
+      threadId,
+      ["runs", "providerThreads", "providerTurns"],
+    );
+    const active = runs.find((run) => run.status === "running");
+    if (active === undefined) return false;
+    const providerSessionId = providerThreads.find(
+      (row) => row.id === active.providerThreadId,
+    )?.providerSessionId;
+    const turnRunning = providerTurns.some(
+      (turn) => turn.runAttemptId === active.activeAttemptId && turn.status === "running",
+    );
+    if (!turnRunning || providerSessionId == null) return false;
+    const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"], {
+      messageIds: [active.userMessageId],
     });
+    if (messages.some(isNativeMaintenanceCommand)) return false;
+    const session = yield* sessions
+      .get(providerSessionId)
+      .pipe(Effect.orElseSucceed(() => Option.none()));
+    return (
+      Option.isSome(session) &&
+      session.value.providerSession.capabilities.turns.supportsActiveSteering &&
+      session.value.providerSession.capabilities.turns.activeSteeringInterruptsTools !== true
+    );
+  });
 
-    // State A: `error` on the thread, one per failed run; the attention rail wakes a child's parent.
-    const markDead = (
-      row: LoomThreadWorkstream,
-      shell: OrchestrationV2ThreadShell,
-      reason: string,
-    ) =>
-      Effect.gen(function* () {
-        yield* Effect.logWarning("workstream.liveness.dead", { threadId: row.threadId, reason });
-        yield* raiseError(
-          "workstream.liveness.dead-raised",
-          row.threadId,
-          livenessDeadCommandId(row.threadId, shell.latestRunId!),
-        );
-        failureCounts.delete(row.threadId);
-      });
+  // State A: `error` on the thread, one per failed run; the attention rail wakes a child's parent.
+  const markDead = Effect.fn("WorkstreamLivenessSweep.markDead")(function* (
+    row: LoomThreadWorkstream,
+    shell: OrchestrationV2ThreadShell,
+    reason: string,
+  ) {
+    yield* Effect.logWarning("workstream.liveness.dead", { threadId: row.threadId, reason });
+    yield* raiseError(
+      "workstream.liveness.dead-raised",
+      row.threadId,
+      livenessDeadCommandId(row.threadId, shell.latestRunId!),
+    );
+    failureCounts.delete(row.threadId);
+  });
 
-    // State A's first rung: the one resume per failure episode; true when it landed now.
-    const resumeAfterError = Effect.fn("loom.liveness.resumeAfterError")(function* (
-      row: LoomThreadWorkstream,
-      shell: OrchestrationV2ThreadShell,
-    ) {
-      const { runs } = yield* orchestrator.getThreadRecords(row.threadId, ["runs"]);
-      if (!awaitsErrorResume(shell, row, runs)) return false;
-      // Receipted (landed before, or dead) is not a second chance: the ladder takes over.
-      const { status } = yield* dispatchServerCommand(
-        controlMessage({
-          threadId: row.threadId,
-          id: errorResumeCommandId(row.threadId, shell.latestRunId!),
-          tier: "steered",
-          origin: "control_notice",
-          text: errorResumeText(shell.lastError),
-        }),
-      );
-      if (status !== "accepted") return false;
-      yield* Effect.logInfo("workstream.liveness.error-resumed", {
+  // State A's first rung: the one resume per failure episode; true when it landed now.
+  const resumeAfterError = Effect.fn("loom.liveness.resumeAfterError")(function* (
+    row: LoomThreadWorkstream,
+    shell: OrchestrationV2ThreadShell,
+  ) {
+    const { runs } = yield* orchestrator.getThreadRecords(row.threadId, ["runs"]);
+    if (!awaitsErrorResume(shell, row, runs)) return false;
+    // Receipted (landed before, or dead) is not a second chance: the ladder takes over.
+    const { status } = yield* dispatchServerCommand(
+      controlMessage({
         threadId: row.threadId,
-        failedRunId: shell.latestRunId,
-        error: shell.lastError,
-      });
-      return true;
+        id: errorResumeCommandId(row.threadId, shell.latestRunId!),
+        tier: "steered",
+        origin: "control_notice",
+        text: errorResumeText(shell.lastError),
+      }),
+    );
+    if (status !== "accepted") return false;
+    yield* Effect.logInfo("workstream.liveness.error-resumed", {
+      threadId: row.threadId,
+      failedRunId: shell.latestRunId,
+      error: shell.lastError,
     });
+    return true;
+  });
 
-    // The slow-tool advisory: once per ladder step of one in-flight call.
-    const adviseSlowTool = Effect.fn("loom.liveness.adviseSlowTool")(function* (
-      row: LoomThreadWorkstream,
-      tool: InFlightTool,
-      now: number,
-    ) {
-      const estimateMs = declaredEstimateMs({
-        commandText: tool.commandText,
-        timeoutSeconds: tool.timeoutSeconds,
-      });
-      const inFlightMs = now - tool.startedAtMs;
-      const index = slowToolNoticeIndex(inFlightMs, slowToolDeferralMs(estimateMs));
-      const prior = slowTools.get(row.threadId);
-      if (index < 0 || (prior?.itemId === tool.itemId && prior.index >= index)) return;
-      slowTools.set(row.threadId, { itemId: tool.itemId, index });
-      const line = renderSlowToolDigestLine({
-        id: row.threadId,
-        role: row.role,
-        toolName: tool.toolName,
-        inFlightMs,
-        quietMs: now - heartbeat.lastHeartbeatMs(row.threadId),
-        estimateMs: estimateMs ?? undefined,
-      });
-      yield* dispatcher.advise({
-        parentId: row.parentThreadId!,
-        item: {
-          kind: "slow-tool",
-          threadId: row.threadId,
-          ...(row.role === null ? {} : { role: row.role }),
-          title: "Still executing",
-          status: "slow-tool",
-          excerpt: line.replace(/^-\s*/, ""),
-        },
-        episodeKey: `slow-tool:${row.threadId}:${tool.itemId}:${index}`,
-        episodeStartedAt: DateTime.formatIso(DateTime.makeUnsafe(now)),
-      });
+  // The slow-tool advisory: once per ladder step of one in-flight call.
+  const adviseSlowTool = Effect.fn("loom.liveness.adviseSlowTool")(function* (
+    row: LoomThreadWorkstream,
+    tool: InFlightTool,
+    now: number,
+  ) {
+    const estimateMs = declaredEstimateMs({
+      commandText: tool.commandText,
+      timeoutSeconds: tool.timeoutSeconds,
     });
-
-    // State D: busy (running, past the startup grace, heartbeat fresh, no tool in flight).
-    const judgeProgress = Effect.fn("loom.liveness.judgeProgress")(function* (
-      row: LoomThreadWorkstream,
-      shell: OrchestrationV2ThreadShell,
-      now: number,
-    ) {
-      const startedAtMs = msOf(shell.activityRunStartedAt);
-      const busy =
-        ENABLE_STATE_D &&
-        shell.activityRunStatus === "running" &&
-        shell.activeRunId !== null &&
-        startedAtMs !== null &&
-        now - startedAtMs >= thresholds.startupGraceMs;
-      if (!busy) {
-        progressLoop.delete(row.threadId);
-        return;
-      }
-      const { turnItems } = yield* orchestrator.getThreadRecords(row.threadId, ["turnItems"], {
-        turnItemRunId: shell.activeRunId!,
-        turnItemTypes: TOOL_ITEM_TYPES,
-        turnItemStatuses: ["completed", "failed"],
-      });
-      const recentInputsSource = turnItems
-        .filter(isToolItem)
-        .toSorted((left, right) => left.ordinal - right.ordinal)
-        .slice(-thresholds.progressInputSampleSize)
-        .map(toolInputSource)
-        .join("\u0001");
-      const decision = decideProgressLoop({
-        prior: progressLoop.get(row.threadId) ?? null,
-        fingerprint: computeProgressFingerprint({ recentInputsSource, checkpointSource: null }),
-        now,
-        noProgressWindowMs: thresholds.noProgressWindowMs,
-      });
-      progressLoop.set(row.threadId, decision.next);
-      if (!decision.advise) return;
-      const busyMinutes = Math.round((now - decision.next.flatSinceMs) / 60_000);
-      yield* dispatcher.advise({
-        parentId: row.parentThreadId!,
-        item: {
-          kind: "spinning",
-          threadId: row.threadId,
-          ...(row.role === null ? {} : { role: row.role }),
-          title: "No visible progress",
-          status: "spinning",
-          excerpt: `🌀 ${row.role ?? "sub-thread"} \`${row.threadId}\` possibly spinning — busy ~${busyMinutes} min (heartbeat advancing) but its work product has not changed: no new tool inputs or edits over the window. Informational, not a fault; it is still running.`,
-        },
-        episodeKey: `spinning:${row.threadId}:${decision.next.flatSinceMs}`,
-        episodeStartedAt: DateTime.formatIso(DateTime.makeUnsafe(decision.next.flatSinceMs)),
-      });
+    const inFlightMs = now - tool.startedAtMs;
+    const index = slowToolNoticeIndex(inFlightMs, slowToolDeferralMs(estimateMs));
+    const prior = slowTools.get(row.threadId);
+    if (index < 0 || (prior?.itemId === tool.itemId && prior.index >= index)) return;
+    slowTools.set(row.threadId, { itemId: tool.itemId, index });
+    const line = renderSlowToolDigestLine({
+      id: row.threadId,
+      role: row.role,
+      toolName: tool.toolName,
+      inFlightMs,
+      quietMs: now - heartbeat.lastHeartbeatMs(row.threadId),
+      estimateMs: estimateMs ?? undefined,
     });
+    yield* dispatcher.advise({
+      parentId: row.parentThreadId!,
+      item: {
+        kind: "slow-tool",
+        threadId: row.threadId,
+        ...(row.role === null ? {} : { role: row.role }),
+        title: "Still executing",
+        status: "slow-tool",
+        excerpt: line.replace(/^-\s*/, ""),
+      },
+      episodeKey: `slow-tool:${row.threadId}:${tool.itemId}:${index}`,
+      episodeStartedAt: DateTime.formatIso(DateTime.makeUnsafe(now)),
+    });
+  });
 
-    const judge = Effect.fn("loom.liveness.judge")(function* (
-      row: LoomThreadWorkstream,
-      shell: OrchestrationV2ThreadShell,
-      now: number,
-    ) {
-      const id = row.threadId;
-      const failureObserved = !submitSupersedesFailure(row, shell) && isFailedSession(shell);
-      const failureCount = failureObserved ? (failureCounts.get(id) ?? 0) + 1 : 0;
-      if (failureObserved) failureCounts.set(id, failureCount);
-      else failureCounts.delete(id);
+  // State D: busy (running, past the startup grace, heartbeat fresh, no tool in flight).
+  const judgeProgress = Effect.fn("loom.liveness.judgeProgress")(function* (
+    row: LoomThreadWorkstream,
+    shell: OrchestrationV2ThreadShell,
+    now: number,
+  ) {
+    const startedAtMs = msOf(shell.activityRunStartedAt);
+    const busy =
+      ENABLE_STATE_D &&
+      shell.activityRunStatus === "running" &&
+      shell.activeRunId !== null &&
+      startedAtMs !== null &&
+      now - startedAtMs >= thresholds.startupGraceMs;
+    if (!busy) {
+      progressLoop.delete(row.threadId);
+      return;
+    }
+    const { turnItems } = yield* orchestrator.getThreadRecords(row.threadId, ["turnItems"], {
+      turnItemRunId: shell.activeRunId!,
+      turnItemTypes: TOOL_ITEM_TYPES,
+      turnItemStatuses: ["completed", "failed"],
+    });
+    const recentInputsSource = turnItems
+      .filter(isToolItem)
+      .toSorted((left, right) => left.ordinal - right.ordinal)
+      .slice(-thresholds.progressInputSampleSize)
+      .map(toolInputSource)
+      .join("\u0001");
+    const decision = decideProgressLoop({
+      prior: progressLoop.get(row.threadId) ?? null,
+      fingerprint: computeProgressFingerprint({ recentInputsSource, checkpointSource: null }),
+      now,
+      noProgressWindowMs: thresholds.noProgressWindowMs,
+    });
+    progressLoop.set(row.threadId, decision.next);
+    if (!decision.advise) return;
+    const busyMinutes = Math.round((now - decision.next.flatSinceMs) / 60_000);
+    yield* dispatcher.advise({
+      parentId: row.parentThreadId!,
+      item: {
+        kind: "spinning",
+        threadId: row.threadId,
+        ...(row.role === null ? {} : { role: row.role }),
+        title: "No visible progress",
+        status: "spinning",
+        excerpt: `🌀 ${row.role ?? "sub-thread"} \`${row.threadId}\` possibly spinning: busy ~${busyMinutes} min (heartbeat advancing) but its work product has not changed: no new tool inputs or edits over the window. Informational, not a fault; it is still running.`,
+      },
+      episodeKey: `spinning:${row.threadId}:${decision.next.flatSinceMs}`,
+      episodeStartedAt: DateTime.formatIso(DateTime.makeUnsafe(decision.next.flatSinceMs)),
+    });
+  });
 
-      // A flagged thread is never nudged or advised again, but it can still die.
-      if (row.attention.length > 0) {
-        stallNudges.delete(id);
-        progressLoop.delete(id);
-        slowTools.delete(id);
-        if (failureCount >= thresholds.failureCap && !row.attention.includes("error"))
-          yield* markDead(row, shell, `${failureCount} consecutive failed sweeps (flagged)`);
-        return;
-      }
+  const judge = Effect.fn("loom.liveness.judge")(function* (
+    row: LoomThreadWorkstream,
+    shell: OrchestrationV2ThreadShell,
+    now: number,
+  ) {
+    const id = row.threadId;
+    const failureObserved = !submitSupersedesFailure(row, shell) && isFailedSession(shell);
+    const failureCount = failureObserved ? (failureCounts.get(id) ?? 0) + 1 : 0;
+    if (failureObserved) failureCounts.set(id, failureCount);
+    else failureCounts.delete(id);
 
-      if (failureObserved && (yield* resumeAfterError(row, shell))) {
-        failureCounts.delete(id);
-        return;
-      }
-
-      // A root is judged on the failure path only: its long human-facing turns are not a
-      // child's stall, and the advisories are digest items a root has no parent to read.
-      if (row.parentThreadId === null) {
-        if (failureCount >= thresholds.failureCap)
-          yield* markDead(row, shell, `${failureCount} consecutive failed sweeps (root)`);
-        return;
-      }
-
-      const tool = shell.activityRunStatus === "running" ? yield* inFlightTool(id) : null;
-      const verdict = classifyLiveness({
-        shell,
-        heartbeatMs: heartbeat.lastHeartbeatMs(id),
-        hasInFlightTool: tool !== null,
-        failureCount,
-        sweepStartedAtMs,
-        now,
-        thresholds,
-      });
-
-      if (verdict === null) {
-        stallNudges.delete(id);
-        if (tool !== null) {
-          // One long call reads as flat by construction: the slow-tool advisory owns it, never State D.
-          progressLoop.delete(id);
-          return yield* adviseSlowTool(row, tool, now);
-        }
-        slowTools.delete(id);
-        return yield* judgeProgress(row, shell, now);
-      }
+    // A flagged thread is never nudged or advised again, but it can still die.
+    if (row.attention.length > 0) {
+      stallNudges.delete(id);
       progressLoop.delete(id);
       slowTools.delete(id);
+      if (failureCount >= thresholds.failureCap && !row.attention.includes("error"))
+        yield* markDead(row, shell, `${failureCount} consecutive failed sweeps (flagged)`);
+      return;
+    }
 
-      if (verdict.kind === "dead") {
-        stallNudges.delete(id);
-        return yield* markDead(row, shell, verdict.reason);
-      }
+    if (failureObserved && (yield* resumeAfterError(row, shell))) {
+      failureCounts.delete(id);
+      return;
+    }
 
-      // State C: the stall ladder.
-      const episodeMs = verdict.effectiveActivityMs!;
-      const prior = stallNudges.get(id);
-      const action = decideStallAction({
-        priorEpisodeMs: prior?.episodeMs ?? null,
-        episodeMs,
-        // Only a fresh episode asks whether the nudge would steer.
-        hasOpenTurn: prior?.episodeMs === episodeMs || (yield* isSteerable(id)),
-        msSinceNudge: prior === undefined ? null : now - prior.nudgedAtMs,
-        nudgeGraceMs: thresholds.stallNudgeGraceMs,
-      });
-      if (action === "wait") return;
-      if (action === "escalate") {
-        yield* Effect.logWarning("workstream.liveness.stall-escalate", {
-          threadId: id,
-          reason: verdict.reason,
-          nudged: prior !== undefined,
-        });
-        stallNudges.delete(id);
-        return yield* raiseError(
-          "workstream.liveness.stall-raised",
-          id,
-          livenessStallCommandId(id, episodeMs),
-        );
-      }
-      const context = yield* readStallContext(id, shell.activeRunId!);
-      const nudged = yield* send(
-        "workstream.liveness.stall-nudge",
-        controlMessage({
-          threadId: id,
-          id: stallNudgeCommandId(id, episodeMs),
-          tier: "steered",
-          origin: "control_notice",
-          text: buildStallNudgeMessage(verdict, context),
-          payload: {
-            kind: "notice",
-            notice: "stall-nudge",
-            heading: "Your turn appears to have stalled.",
-            items: [
-              {
-                threadId: id,
-                ...(row.role === null ? {} : { role: row.role }),
-                title: "Stall nudge",
-                status: "stalled",
-                excerpt: verdict.reason,
-              },
-            ],
-          },
-        }),
-      );
-      // A settled nudge (landed, or dead) starts the grace; a deferred one is retried next sweep.
-      if (nudged) stallNudges.set(id, { episodeMs, nudgedAtMs: now });
+    // A root is judged on the failure path only: its long human-facing turns are not a
+    // child's stall, and the advisories are digest items a root has no parent to read.
+    if (row.parentThreadId === null) {
+      if (failureCount >= thresholds.failureCap)
+        yield* markDead(row, shell, `${failureCount} consecutive failed sweeps (root)`);
+      return;
+    }
+
+    const tool = shell.activityRunStatus === "running" ? yield* inFlightTool(id) : null;
+    const verdict = classifyLiveness({
+      shell,
+      heartbeatMs: heartbeat.lastHeartbeatMs(id),
+      hasInFlightTool: tool !== null,
+      failureCount,
+      sweepStartedAtMs,
+      now,
+      thresholds,
     });
 
-    const sweep = Effect.gen(function* () {
-      const now = DateTime.toEpochMillis(yield* DateTime.now);
-      const rows = yield* loomStore.listActiveWorkstreams();
-      const shells = new Map(
-        (yield* orchestrator.getShellSnapshot()).threads.map((shell) => [shell.id, shell]),
-      );
-      const judged = new Set<ThreadId>();
-      for (const row of rows) {
-        const shell = shells.get(row.threadId);
-        // Never a finished thread, and only once a run exists (promotion owns the rest).
-        if (row.outcome !== null || shell?.latestRunId == null) continue;
-        judged.add(row.threadId);
-        yield* judge(row, shell, now).pipe(
-          logFailure("workstream.liveness.thread-failed", { threadId: row.threadId }),
-        );
+    if (verdict === null) {
+      stallNudges.delete(id);
+      if (tool !== null) {
+        // One long call reads as flat by construction: the slow-tool advisory owns it, never State D.
+        progressLoop.delete(id);
+        return yield* adviseSlowTool(row, tool, now);
       }
-      for (const ladder of [failureCounts, stallNudges, progressLoop, slowTools])
-        for (const id of ladder.keys()) if (!judged.has(id)) ladder.delete(id);
-    }).pipe(logFailure("workstream.liveness.sweep-failed", {}), Effect.provideContext(services));
+      slowTools.delete(id);
+      return yield* judgeProgress(row, shell, now);
+    }
+    progressLoop.delete(id);
+    slowTools.delete(id);
 
-    return {
-      start: forkParked(
-        Effect.gen(function* () {
-          yield* Effect.logInfo("workstream.liveness.started", { ...thresholds, ENABLE_STATE_D });
-          yield* sweep.pipe(
-            Effect.repeat(Schedule.spaced(Duration.millis(thresholds.sweepIntervalMs))),
-          );
-        }),
-      ),
-      sweep,
-    } satisfies WorkstreamLivenessSweepShape;
+    if (verdict.kind === "dead") {
+      stallNudges.delete(id);
+      return yield* markDead(row, shell, verdict.reason);
+    }
+
+    // State C: the stall ladder.
+    const episodeMs = verdict.effectiveActivityMs!;
+    const prior = stallNudges.get(id);
+    const action = decideStallAction({
+      priorEpisodeMs: prior?.episodeMs ?? null,
+      episodeMs,
+      // Only a fresh episode asks whether the nudge would steer.
+      hasOpenTurn: prior?.episodeMs === episodeMs || (yield* isSteerable(id)),
+      msSinceNudge: prior === undefined ? null : now - prior.nudgedAtMs,
+      nudgeGraceMs: thresholds.stallNudgeGraceMs,
+    });
+    if (action === "wait") return;
+    if (action === "escalate") {
+      yield* Effect.logWarning("workstream.liveness.stall-escalate", {
+        threadId: id,
+        reason: verdict.reason,
+        nudged: prior !== undefined,
+      });
+      stallNudges.delete(id);
+      return yield* raiseError(
+        "workstream.liveness.stall-raised",
+        id,
+        livenessStallCommandId(id, episodeMs),
+      );
+    }
+    const context = yield* readStallContext(id, shell.activeRunId!);
+    const nudged = yield* send(
+      "workstream.liveness.stall-nudge",
+      controlMessage({
+        threadId: id,
+        id: stallNudgeCommandId(id, episodeMs),
+        tier: "steered",
+        origin: "control_notice",
+        text: buildStallNudgeMessage(verdict, context),
+        payload: {
+          kind: "notice",
+          notice: "stall-nudge",
+          heading: "Your turn appears to have stalled.",
+          items: [
+            {
+              threadId: id,
+              ...(row.role === null ? {} : { role: row.role }),
+              title: "Stall nudge",
+              status: "stalled",
+              excerpt: verdict.reason,
+            },
+          ],
+        },
+      }),
+    );
+    // A settled nudge (landed, or dead) starts the grace; a deferred one is retried next sweep.
+    if (nudged) stallNudges.set(id, { episodeMs, nudgedAtMs: now });
   });
+
+  const sweep = Effect.gen(function* () {
+    const now = DateTime.toEpochMillis(yield* DateTime.now);
+    const rows = yield* loomStore.listActiveWorkstreams();
+    const shells = new Map(
+      (yield* orchestrator.getShellSnapshot()).threads.map((shell) => [shell.id, shell]),
+    );
+    const judged = new Set<ThreadId>();
+    for (const row of rows) {
+      const shell = shells.get(row.threadId);
+      // Never a finished thread, and only once a run exists (promotion owns the rest).
+      if (row.outcome !== null || shell?.latestRunId == null) continue;
+      judged.add(row.threadId);
+      yield* judge(row, shell, now).pipe(
+        logFailure("workstream.liveness.thread-failed", { threadId: row.threadId }),
+      );
+    }
+    for (const ladder of [failureCounts, stallNudges, progressLoop, slowTools])
+      for (const id of ladder.keys()) if (!judged.has(id)) ladder.delete(id);
+  }).pipe(logFailure("workstream.liveness.sweep-failed", {}), Effect.provideContext(services));
+
+  return {
+    start: forkParked(
+      Effect.gen(function* () {
+        yield* Effect.logInfo("workstream.liveness.started", { ...thresholds, ENABLE_STATE_D });
+        yield* sweep.pipe(
+          Effect.repeat(Schedule.spaced(Duration.millis(thresholds.sweepIntervalMs))),
+        );
+      }),
+    ),
+    sweep,
+  } satisfies WorkstreamLivenessSweepShape;
+});
 
 /** The sweep service (not started) and its heartbeat; tests drive `sweep`. Needs a `WorkstreamDispatcher`. */
 export const makeWorkstreamLivenessSweepLive = (

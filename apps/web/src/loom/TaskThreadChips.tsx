@@ -1,12 +1,8 @@
 /**
- * loom: task→thread anchor chips for the goal panel's task tree (3d-3).
- *
- * A Loom thread may be anchored to one task of its goal
- * (`workstream.anchorTaskId`). The task row names the thread working it and
- * opens it on click. Derived entirely from the thread shells already held: no
- * new payload, no server query. Archived threads are dropped; a cancelled
- * thread stays, dimmed — "the thread that owned this task was cancelled" is
- * exactly what a human reading a stalled task row needs to see.
+ * loom: task→thread anchor chips for the goal panel's task tree: the thread anchored to a task
+ * (`workstream.anchorTaskId`) is named on its row and opens on click, derived from shells already
+ * held. Archived threads are dropped; a cancelled one stays, dimmed, because that is exactly what a
+ * human reading a stalled task row needs to see.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";

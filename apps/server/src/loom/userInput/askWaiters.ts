@@ -1,18 +1,8 @@
 /**
- * The live waiters of `mcp__t3-code__ask_user_question`: one entry per
- * `loom-ask:` request, held by the server for the pi tool call that is
- * long-polling it. Settled from the resolved `runtime-request.updated` (the
- * ask reactor, `askUserQuestion.ts`); read by the `runtime-request.respond`
- * hunk in `Orchestrator.ts`, which withholds upstream's answer message while a
- * waiter is live.
- *
- * In memory on purpose: the tool call it serves lives in a pi process that
- * dies with the server. A `Context.Reference` whose default is the registry
- * itself — Effect caches a reference's default per key, so every `yield*`
- * in the process sees one registry and no layer has to provide it (a test may
- * provide a fresh one).
- *
- * @module loom/userInput/askWaiters
+ * Live `ask_user_question` waiters, one per `loom-ask:` request, settled by the ask reactor; while
+ * one is live the `runtime-request.respond` hunk withholds upstream's answer message. In memory on
+ * purpose: the pi call it serves dies with the server. A `Context.Reference` whose cached default is
+ * the registry, so no layer must provide it (tests may provide a fresh one).
  */
 import type { OrchestrationV2UserInputQuestion, ThreadId } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";

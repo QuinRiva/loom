@@ -1,13 +1,7 @@
 /**
- * `mcp__t3-code__goal_continue`: THIS goal continued in a fresh-context session — a staged
- * root (one of `held`'s two writers, P3-19b) created by one `thread.spawn`
- * with no parent: the caller's goal, project, worktree, branch, model and
- * modes, `held: true`, `continuesThreadId` = the caller, and the brief (with a
- * predecessor pointer) as its kickoff brief. Nothing starts until a human
- * sends; that first send clears `held` (Phase 2 D10). Ported from V1's
- * `GoalHandoffHttp.ts` continue path.
- *
- * @module mcp/toolkits/workstream/handlers/goalContinue
+ * `goal_continue`: one parentless `thread.spawn` of a staged root with the caller's goal, project,
+ * worktree, branch, model and modes, `held: true`, `continuesThreadId` and the brief. Nothing starts
+ * until a human sends, which clears `held`.
  */
 import * as Effect from "effect/Effect";
 

@@ -1,14 +1,8 @@
 /**
- * loom: the sub-thread rollup badge on a root's sidebar row (3d-3) — the one
- * place a root's workstream graph shows in the list. The count is the plan
- * (settled / total); the colour is one summary tone (`workstreamBadgeTone`):
- * red failed or stuck, amber needs you, blue working, grey otherwise, and only
- * red and amber carry `· N!`. A click opens a popover (S2): the counts in words,
- * the flagged sub-threads, highest priority first, each opening its thread, and
- * "Open Workstream panel" for the whole graph.
- *
- * One rollup map per environment, rebuilt per shell update; each row selects
- * its root's entry and only re-renders when that entry's content changes.
+ * loom: the sub-thread rollup badge on a root's sidebar row, the one place a workstream graph shows in
+ * the list: the plan count (settled / total) coloured by `workstreamBadgeTone`, with only red and amber
+ * carrying `· N!`; a click opens a popover of flagged sub-threads. One rollup map per environment;
+ * each row selects its root's entry and re-renders only when that entry's content changes.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -29,14 +23,14 @@ import { Popover, PopoverPopup, PopoverTrigger } from "../components/ui/popover"
 import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { buildThreadRouteParams } from "../threadRoutes";
-import { environmentSnapshotAtom } from "../state/shell";
+import { loomEnvironmentSnapshotAtom } from "../state/threads";
 import { attentionLabel } from "./loomAttention";
 
 const EMPTY_ROLLUPS: ReadonlyMap<ThreadId, WorkstreamRollup> = new Map();
 
 const rollupsAtom = Atom.family((environmentId: EnvironmentId) =>
   Atom.make((get) => {
-    const threads = get(environmentSnapshotAtom(environmentId))?.threads;
+    const threads = get(loomEnvironmentSnapshotAtom(environmentId))?.threads;
     if (!threads) return EMPTY_ROLLUPS;
     const byId = workstreamIndexOf(threads);
     const parents = new Set(threads.flatMap((thread) => thread.lineage.parentThreadId ?? []));

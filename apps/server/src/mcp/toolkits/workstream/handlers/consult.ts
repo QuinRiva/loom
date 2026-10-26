@@ -1,12 +1,7 @@
 /**
- * `mcp__t3-code__consult_thread`: a GLOBAL read-only question to any thread the server
- * knows, by exact id or fuzzy name (an ambiguous name returns ranked
- * candidates and runs nothing). The session the throwaway fork reads is the
- * target's provider thread's strong `nativeThreadRef` — never a name or path
- * guess; a thread without one is refused. The resolved consult is recorded on
- * the asker (`thread.consult.record`) for the board's consult edges.
- *
- * @module mcp/toolkits/workstream/handlers/consult
+ * `consult_thread`: a read-only question to any thread by id or fuzzy name (ambiguous returns
+ * candidates). The fork reads the target's strong `nativeThreadRef`, never a guessed path; a thread
+ * without one is refused. The consult is recorded on the asker for the board's edges.
  */
 import { CommandId, type OrchestrationV2ThreadShell } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";

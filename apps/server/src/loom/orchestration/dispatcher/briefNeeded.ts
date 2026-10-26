@@ -1,11 +1,7 @@
 /**
- * The brief-needed condition, its episode clock, its re-arming rung ladder and
- * the batched notice (V1 scaffold plan §2–§3, liveness plan §3.2–§3.3), ported
- * with logic unchanged onto the sidecar row. V1's `planned` hold is the `held`
- * flag, which no agent tool writes in pull 9, so the notice's deliberate-deferral
- * move is a dependency on the work the brief waits for; fan-in gaps are gone.
- *
- * @module loom/orchestration/dispatcher/briefNeeded
+ * The brief-needed condition, its episode clock, its re-arming rung ladder and the batched notice,
+ * ported from V1 onto the sidecar row. V1's `planned` hold is the `held` flag, which no agent tool
+ * writes, so the notice's deliberate-deferral move is a dependency on the work the brief waits for.
  */
 import type { LoomThreadWorkstream, ThreadId } from "@t3tools/contracts";
 import {
@@ -26,11 +22,9 @@ const parseIsoMs = (iso: string | null | undefined): number =>
   iso === null || iso === undefined ? Number.NaN : Date.parse(iso);
 
 /**
- * The brief-needed episode clock (ms): the latest stable transition that made
- * the node eligible — its creation, a `dependencies.set` that re-entered
- * eligibility (only while the current set is satisfied), or a same-parent
- * dependency reaching `done` (its submit or its outcome-set). Never `updatedAt`,
- * which drifts and would re-arm the notice in a loop.
+ * The brief-needed episode clock (ms): the latest stable transition that made the node eligible
+ * (creation, a `dependencies.set` re-entering eligibility while satisfied, or a same-parent
+ * dependency reaching `done`). Never `updatedAt`, which drifts and would re-arm the notice in a loop.
  */
 export const briefNeededSinceMs = <T extends BriefNeededNode>(
   node: T,
@@ -134,15 +128,15 @@ export const buildBriefNeededMessage = (
     ...children.map((child) => {
       const handle =
         child.graphKey !== null ? `\`${child.graphKey}\` (\`${child.id}\`)` : `\`${child.id}\``;
-      const stalled = child.rung > 0 ? ` — stalled ${formatStalledFor(child.ageMs)}` : "";
-      return `- ${handle} — ${child.role ?? "child"}: ${child.title}${stalled}`;
+      const stalled = child.rung > 0 ? `, stalled ${formatStalledFor(child.ageMs)}` : "";
+      return `- ${handle}, ${child.role ?? "child"}: ${child.title}${stalled}`;
     }),
     "",
-    "Pick one of three moves for each node — while it stays in this state you will keep hearing about it, on a widening schedule (1h, 6h, then daily):",
+    "Pick one of three moves for each node: while it stays in this state you will keep hearing about it, on a widening schedule (1h, 6h, then daily):",
     "",
-    "1. **Brief it now** — `mcp__t3-code__workstream_brief` (node = its graph key or thread id); it launches as soon as the brief lands. This is the moment to write it: any upstream results it should build on are now in hand.",
-    "2. **Defer it deliberately** — `mcp__t3-code__workstream_set_dependencies`, adding the sibling whose result the brief must wait for. That takes the node out of the brief-needed state and stops these notices until the sibling is `done`.",
-    "3. **Cancel it** — `mcp__t3-code__workstream_set_outcome` cancelled, if the node is no longer wanted.",
+    "1. **Brief it now**: `mcp__t3-code__workstream_brief` (node = its graph key or thread id); it launches as soon as the brief lands. This is the moment to write it: any upstream results it should build on are now in hand.",
+    "2. **Defer it deliberately**: `mcp__t3-code__workstream_set_dependencies`, adding the sibling whose result the brief must wait for. That takes the node out of the brief-needed state and stops these notices until the sibling is `done`.",
+    "3. **Cancel it**: `mcp__t3-code__workstream_set_outcome` cancelled, if the node is no longer wanted.",
     "",
     "Leaving it untouched is not a fourth option: the graph is stalled at this node either way, and silence is indistinguishable from having forgotten it.",
   ].join("\n");

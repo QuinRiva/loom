@@ -1,11 +1,7 @@
 /**
- * loom: Promote on a query thread's answer (plans/plan-query-threads/plan.mdx §5 step 17). It
- * asks the fork to distil the exchange the answer belongs to into one comment for the author;
- * the comment then seeds into the author's composer (`useSeedPromotedQueryComments`).
- *
- * An answer belongs to the latest recorded question at or before its run: a follow-up the
- * human typed in the thread continues that exchange. The kickoff era (no question yet) and a
- * promote turn's own reply have nothing to promote.
+ * loom: Promote on a query thread's answer: the fork distils that exchange into one comment the
+ * author's composer seeds. An answer belongs to the latest question at or before its run; the
+ * kickoff era and a promote turn's own reply have nothing to promote.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";

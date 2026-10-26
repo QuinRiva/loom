@@ -1,14 +1,20 @@
-// loom: every indexed source, labelled; highlighting is per query token (the server stems)
+import {
+  findSearchTokenRanges,
+  splitSearchText,
+  type SearchMatchHint,
+  type SearchRange,
+} from "@t3tools/shared/paletteSearch";
+// loom: every indexed source, labelled, and the sub-thread line
 import {
   threadSearchExcerptLabel,
-  threadSearchHighlightParts,
   threadSearchMatchedSubThreadTitle,
 } from "@t3tools/client-runtime/state/loom/threadSearch";
 import type { OrchestrationThreadSearchMatch } from "@t3tools/contracts";
 
-function HighlightedSearchText(props: { text: string; query: string }) {
-  // loom: per-token prefix highlight; a stemmed or semantic hit need not contain the query
-  return threadSearchHighlightParts(props.text, props.query).map((part) =>
+/** `text` with each range in semibold foreground. */
+function HighlightedSearchText(props: { text: string; ranges: ReadonlyArray<SearchRange> }) {
+  if (props.ranges.length === 0) return props.text;
+  return splitSearchText(props.text, props.ranges).map((part) =>
     part.highlighted ? (
       <mark className="bg-transparent font-semibold text-foreground" key={part.start}>
         {part.text}
@@ -19,8 +25,18 @@ function HighlightedSearchText(props: { text: string; query: string }) {
   );
 }
 
+/** Why a row matched when its title does not show it: the field and its match. */
+export function SearchMatchHintLine(props: { hint: SearchMatchHint }) {
+  return (
+    <span className="truncate text-xs text-muted-foreground/85">
+      <span className="text-muted-foreground/70">{props.hint.label}:</span>{" "}
+      <HighlightedSearchText text={props.hint.text} ranges={props.hint.ranges} />
+    </span>
+  );
+}
+
 export function ThreadSearchMatchExcerpt(props: {
-  // loom: every source, plus the sub-thread that produced the hit
+  // loom: every indexed source, plus the sub-thread that produced the hit
   match: Pick<
     OrchestrationThreadSearchMatch,
     "source" | "snippet" | "matchedThreadId" | "matchedThreadTitle"
@@ -36,7 +52,10 @@ export function ThreadSearchMatchExcerpt(props: {
     <>
       <span className="truncate text-xs text-muted-foreground/85">
         <span className={isUser ? "text-info-foreground" : "text-success-foreground"}>{label}</span>{" "}
-        <HighlightedSearchText text={props.match.snippet} query={props.match.query} />
+        <HighlightedSearchText
+          text={props.match.snippet}
+          ranges={findSearchTokenRanges(props.match.snippet, props.match.query)}
+        />
       </span>
       {subThreadTitle === null ? null : (
         <span className="truncate text-xs text-muted-foreground/60">

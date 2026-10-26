@@ -1,15 +1,8 @@
 /**
- * Compile-time half of the `<Glossary>` block (`blocks/glossary.tsx`): a remark
- * plugin that links every body-prose occurrence of a glossary term to its
- * definition card. Matching runs once, here in the compile worker, so rendering
- * and hovering do no text scanning, and a document without a top-level
- * `<Glossary>` costs one scan of its top-level nodes.
- *
- * A match becomes `<GlossaryTerm term="key">matched text</GlossaryTerm>` and the
- * whole document is wrapped in one `<GlossaryScope>`, which owns the single
- * shared card. Both are injected after the unknown-tag guard, so they render
- * without being authorable (an authored `<GlossaryTerm>` is still an unknown
- * tag). Neither adds DOM text, so annotation text-quote anchors still resolve.
+ * Compile-time half of `<Glossary>`: links each body-prose glossary term to
+ * `<GlossaryTerm term="key">` inside one document-wide `<GlossaryScope>` (the shared card),
+ * matched once in the worker. Injected after the unknown-tag guard, so neither is authorable;
+ * neither adds DOM text, so annotation text-quote anchors still resolve.
  */
 
 type MdastNode = {

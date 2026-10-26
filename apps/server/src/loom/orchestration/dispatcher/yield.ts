@@ -1,12 +1,7 @@
 /**
- * The yield wake (V1 review-gates design §6), ported with logic unchanged: a
- * child whose submit routed to `yield` — an unmatched outcome, a gate's
- * exhausted round cap, or the quiescence rail's synthesised `quiescent` submit —
- * hands its turn to the parent. V1's `yielded` lane is the stored
- * `awaiting_orchestrator` attention; `mcp__t3-code__workstream_set_outcome` replaces
- * `set_lane`.
- *
- * @module loom/orchestration/dispatcher/yield
+ * The yield wake, ported from V1: a child whose submit routed to `yield` (an unmatched outcome, a
+ * gate's exhausted round cap, or the quiescence rail's synthesised `quiescent` submit) hands its
+ * turn to the parent. V1's `yielded` lane is the stored `awaiting_orchestrator` attention.
  */
 import type { ControlPayload, ControlPayloadItem, ThreadId } from "@t3tools/contracts";
 
@@ -71,20 +66,20 @@ export const buildYieldWakeMessage = (
       ? " It is a member of an unresolved review gate, so the gate is parked until you act."
       : "";
   const held = flags.awaitingAcceptance
-    ? " It also holds an `awaiting_acceptance` flag: a human's sign-off on its output is still pending, and either prompting it or setting it done clears that hold — do so only once you hold the human's approval; otherwise escalate to the human."
+    ? " It also holds an `awaiting_acceptance` flag: a human's sign-off on its output is still pending, and either prompting it or setting it done clears that hold; do so only once you hold the human's approval; otherwise escalate to the human."
     : "";
   const lead =
     (flags.synthesised
-      ? `Your Workstream sub-thread ${who} went quiet: it ended its turn without calling \`mcp__t3-code__workstream_submit\`, so the control plane synthesised a report from its last assistant message and yielded it to you. It carries \`awaiting_orchestrator\` — it has NOT finished and its dependents stay gated.${parked}`
+      ? `Your Workstream sub-thread ${who} went quiet: it ended its turn without calling \`mcp__t3-code__workstream_submit\`, so the control plane synthesised a report from its last assistant message and yielded it to you. It carries \`awaiting_orchestrator\`: it has NOT finished and its dependents stay gated.${parked}`
       : gate
-        ? `Your Workstream sub-thread ${who} YIELDED to you: it submitted \`${outcome}\` but its review gate's round cap is exhausted (${gate.rounds}/${gate.maxRounds} rework rounds used), so the control plane handed its turn to you instead of looping again. It carries \`awaiting_orchestrator\` — the gate is NOT resolved and dependents stay gated.`
-        : `Your Workstream sub-thread ${who} YIELDED to you: it submitted its work with outcome \`${outcome}\`, which matched no route, so the control plane handed its turn to you instead of completing it. It carries \`awaiting_orchestrator\` — it has NOT finished and its dependents stay gated.${parked}`) +
+        ? `Your Workstream sub-thread ${who} YIELDED to you: it submitted \`${outcome}\` but its review gate's round cap is exhausted (${gate.rounds}/${gate.maxRounds} rework rounds used), so the control plane handed its turn to you instead of looping again. It carries \`awaiting_orchestrator\`: the gate is NOT resolved and dependents stay gated.`
+        : `Your Workstream sub-thread ${who} YIELDED to you: it submitted its work with outcome \`${outcome}\`, which matched no route, so the control plane handed its turn to you instead of completing it. It carries \`awaiting_orchestrator\`: it has NOT finished and its dependents stay gated.${parked}`) +
     held;
   const counterpartSection =
     gate?.counterpart != null
       ? [
           "",
-          `Gate counterpart ${gate.counterpart.role === null ? `\`${gate.counterpart.id}\`` : `${gate.counterpart.role} \`${gate.counterpart.id}\``} — latest round report:`,
+          `Gate counterpart ${gate.counterpart.role === null ? `\`${gate.counterpart.id}\`` : `${gate.counterpart.role} \`${gate.counterpart.id}\``}, latest round report:`,
           "",
           reference(gate.counterpart.reportPath) + formatReportExcerpt(gate.counterpart.report),
         ]
@@ -107,7 +102,7 @@ export const buildYieldWakeMessage = (
           "",
         ]
       : []),
-    "The decision is yours: resume it with guidance (`mcp__t3-code__workstream_prompt` — your prompt clears `awaiting_orchestrator` when its turn starts), " +
+    "The decision is yours: resume it with guidance (`mcp__t3-code__workstream_prompt`: your prompt clears `awaiting_orchestrator` when its turn starts), " +
       (rework
         ? ""
         : "accept its work as-is (`mcp__t3-code__workstream_set_outcome` done, which releases dependents" +
@@ -115,7 +110,7 @@ export const buildYieldWakeMessage = (
           "), ") +
       "re-plan around it (spawn a replacement and `mcp__t3-code__workstream_set_outcome` cancelled on it), or escalate to the human." +
       (gate
-        ? " Adjudicate the open findings yourself before choosing: they are claims, not verdicts — judge each by what concretely fails without it and what recovery costs at this project's posture, and accept over the reviewer's objection where that bar isn't met."
+        ? " Adjudicate the open findings yourself before choosing: they are claims, not verdicts; judge each by what concretely fails without it and what recovery costs at this project's posture, and accept over the reviewer's objection where that bar isn't met."
         : ""),
   ].join("\n");
 };
@@ -141,8 +136,8 @@ export const buildYieldPayload = (
       threadId: child.id,
       ...(child.role !== null ? { role: child.role } : {}),
       title: flags.synthesised
-        ? "Went quiet — report synthesised"
-        : `Yielded to you — outcome \`${outcome}\``,
+        ? "Went quiet: report synthesised"
+        : `Yielded to you: outcome \`${outcome}\``,
       status: "yielded",
       icon: "↩️",
       ...reportItemFields(child.reportPath, report),
@@ -153,7 +148,7 @@ export const buildYieldPayload = (
     items.push({
       threadId: counterpart.id,
       ...(counterpart.role !== null ? { role: counterpart.role } : {}),
-      title: "Gate counterpart — latest round report",
+      title: "Gate counterpart: latest round report",
       status: "counterpart",
       icon: "🔁",
       ...reportItemFields(counterpart.reportPath, counterpart.report),

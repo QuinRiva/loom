@@ -1,13 +1,6 @@
 /**
- * Every live project's `.t3code/links.json` rules for `ServerConfig.referenceLinks`.
- *
- * The rules are derived from disk, not event-sourced, so they must not ride the
- * project shell: clients cache that and resume it by event replay, which never
- * carries a rule change. The config snapshot is rebuilt for each connection, so
- * re-reading here lands a `links.json` edit on a client's next reload or
- * reconnect.
- *
- * @module loom/referenceLinks
+ * Every live project's `.t3code/links.json` rules. Derived from disk, not event-sourced, so they
+ * must not ride the cached project shell; the per-connection config snapshot picks up an edit on reload.
  */
 import type { ProjectId, ServerConfig } from "@t3tools/contracts";
 import { resolveReferenceLinks } from "@t3tools/shared/t3codeConfig";

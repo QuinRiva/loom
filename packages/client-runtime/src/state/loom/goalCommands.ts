@@ -1,12 +1,8 @@
 /**
- * Loom ws-method commands (seam 21): the goal panel and goal menu write goals
- * through `loom.goal.*`; the `/handoff` and `/retro` intercepts call 3b's
- * drafter methods by name. Results also arrive on the shell's goal stream, so
- * callers never patch local state. The two seam-11 spend reads (3d-4) are
- * query families: cost is a batched lookup, never a shell field. The hub
- * login dialog's two calls ride here too.
- *
- * @module state/loom/goalCommands
+ * Loom ws-method commands: goal writes through `loom.goal.*`, the `/handoff` and `/retro` drafter
+ * calls and the hub login dialog's two calls. Results also arrive on the shell's goal stream, so
+ * callers never patch local state. The spend reads are query families: cost is a batched lookup,
+ * never a shell field.
  */
 import { LOOM_WS_METHODS } from "@t3tools/contracts";
 import type { Atom } from "effect/reactivity";

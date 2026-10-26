@@ -6,18 +6,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../../../ui/tooltip";
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
 
 /**
- * The `<FieldDiff>` block (§1) — a record-level before/after: two labelled panels
- * listing the same fields, so "these 2\u20133 fields of a record change" reads as
- * field cards rather than a horizontally-scrolled line diff (which is what
- * `<Diff>` does to a 300-char JSON-string value). It always wraps values, so it
- * needs no wrap toggle.
- *
- * The null-vs-absent distinction is load-bearing and preserved on the wire (the
- * attr JSON walker keeps `null` and drops only `undefined`): a key present with
- * value `null` renders italic *null* (the field exists, its value is null); a key
- * absent renders an em-dash (the field does not apply on that side). `kept` fields
- * render dimmed in both panels with an "unchanged" tag; the changed-field count
- * chip excludes them.
+ * `<FieldDiff>`: two labelled panels of the same record fields, so long values wrap
+ * instead of scrolling. null vs absent is load-bearing on the wire: `null` renders
+ * italic *null* (field exists), absent renders a dash (field does not apply).
+ * `kept` fields render dimmed and are excluded from the changed count.
  */
 
 export interface FieldDiffField {
@@ -68,10 +60,10 @@ const fieldDiffMdx: BlockMdxConfig<FieldDiffData> = {
     }) as FieldDiffData,
 };
 
-/** Render one side's value: absent → em-dash, present-null → italic null,
+/** Render one side's value: absent → dash, present-null → italic null,
  * else the wrapped string. */
 function FieldValue({ value }: { value: string | null | undefined }) {
-  if (value === undefined) return <span className="text-muted-foreground">—</span>;
+  if (value === undefined) return <span className="text-muted-foreground">-</span>;
   if (value === null) return <span className="italic text-muted-foreground">null</span>;
   return <span className="whitespace-pre-wrap break-words text-foreground">{value}</span>;
 }
@@ -128,12 +120,9 @@ export function FieldDiffRead({ data, blockId }: PlanBlockReadProps<FieldDiffDat
           {changed} changed
         </span>
       </figcaption>
-      {/* Panel-order DOM (the whole Before panel, then the whole After panel), so
-          a single column below the breakpoint stacks into two COMPLETE labelled
-          panels. At sm+ we switch to column flow over N+1 explicit rows so each
-          field's before/after cells land in the SAME grid row and stay
-          height-aligned. The per-field note rides the after cell (a full-width
-          note row cannot survive column flow). */}
+      {/* Panel-order DOM so a narrow column stacks two complete panels; at sm+ column
+          flow over N+1 explicit rows keeps each field's cells in the same row. The
+          per-field note rides the after cell: a full-width row cannot survive column flow. */}
       <div
         className="grid grid-cols-1 sm:grid-flow-col sm:grid-cols-2"
         style={{ gridTemplateRows: `repeat(${fields.length + 1}, auto)` }}

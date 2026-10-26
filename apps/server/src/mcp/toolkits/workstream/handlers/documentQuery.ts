@@ -1,11 +1,7 @@
 /**
- * `mcp__t3-code__document_query_promote` (plans/plan-query-threads/plan.mdx §2.4-2.5): a query
- * thread records ONE comment for its document's author. The anchor, quoted passage and section
- * come from the question the promote turn names (`exchangeAt`), so the model writes only the
- * words. The promotion is an event on the query thread; the author's client seeds it into the
- * author's composer as a chip the human sends. Promoting never closes the thread.
- *
- * @module mcp/toolkits/workstream/handlers/documentQuery
+ * `document_query_promote` (plan-query-threads §2.4-2.5): a query thread records ONE comment for
+ * the author; anchor, passage and section come from the named question, so the model writes
+ * only the words. The author's client seeds it as a composer chip; promoting never closes.
  */
 import { CommandId, DOCUMENT_QUERY_ROLE } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";

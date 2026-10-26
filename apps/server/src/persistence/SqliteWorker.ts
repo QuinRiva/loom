@@ -1,11 +1,7 @@
 /**
- * Worker-thread entrypoint hosting the synchronous `node:sqlite` connection.
- *
- * Spawned by `NodeSqliteWorkerClient` with a `SqliteWorkerData` payload in
- * `workerData`. Serves the `SqliteWorkerRpcs` protocol over the Effect worker
- * runner, so every statement executes off the server's main event loop.
- * Shutdown is parent-driven: the Rpc scope teardown sends the close signal
- * and the database close finalizer runs before the worker exits.
+ * Worker-thread entrypoint hosting the synchronous `node:sqlite` connection, serving
+ * `SqliteWorkerRpcs` off the main event loop. Shutdown is parent-driven: Rpc scope teardown sends
+ * the close signal and the database finalizer runs before the worker exits.
  *
  * @module SqliteWorker
  */

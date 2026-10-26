@@ -1,26 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // @effect-diagnostics globalTimers:off
 /**
- * Contract test for Loom's pi patch 0001
- * (`infra/pi-patches/0001-pi-cwd-override-rpc-resume.patch`), run against the
- * bundled `bin.pi` (`dist/bundle/cli.js`) — the binary every Loom pi spawn runs.
- *
- * Loom reaps a completed sub-thread's worktree, so resuming that thread must
- * reopen the SAME session file somewhere else. Two pi behaviours make that
- * delicate, and both are pinned here, on both resume paths the patch covers:
- *
- *  - the CLI `--session <file> --cwd <dir>` launch (a human reopening a session
- *    from a terminal);
- *  - the RPC `switch_session { sessionPath, cwdOverride }` command, which is how
- *    `PiAdapterV2` resumes a provider thread.
- *
- * Without the override pi welds the session to its recorded cwd: a resumed
- * runtime runs its tools there, and a missing one is a hard error. With it the
- * header is never rewritten and the conversation continues by append.
- *
- * Everything is asserted from RPC responses and the filesystem: no model calls.
- * pi is a workspace dependency, so the test never skips: an unresolvable or
- * unpatched bundle fails it — exactly the upstream drift we want to hear about.
+ * Pins Loom's pi patch 0001 on the bundled `bin.pi`: resuming a reaped worktree's session reopens
+ * the same file elsewhere, via CLI `--session --cwd` and RPC `switch_session` with `cwdOverride`,
+ * appending without rewriting the header. No model calls; never skips, so an unpatched pi fails.
  */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
@@ -103,11 +86,9 @@ interface RpcRun {
 }
 
 /**
- * Run the bundled pi in RPC mode from `cwd` and feed `commands` one at a time:
- * pi handles stdin lines concurrently, so each command is written only after the
- * previous one's response arrives. Extensions are disabled (`-ne`) so the run
- * depends on nothing but pi itself. stdin is closed after the last response,
- * because closing it makes pi shut down — which would race a command in flight.
+ * Run bundled pi in RPC mode with extensions off (`-ne`), writing each command only after the
+ * previous response (pi handles stdin lines concurrently). stdin closes after the last response,
+ * since closing it shuts pi down and would race a command in flight.
  */
 function runPiRpc(input: {
   readonly cwd: string;
@@ -126,6 +107,7 @@ function runPiRpc(input: {
   return new Promise<RpcRun>((resolve, reject) => {
     let stdout = "";
     let stderr = "";
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- a kill guard for a real pi subprocess, not a wait the test depends on
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error(`pi RPC timed out after ${RPC_TIMEOUT_MS}ms\n${stdout}\n${stderr}`));

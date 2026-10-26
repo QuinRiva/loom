@@ -1,14 +1,7 @@
-// loom: Loom extension part — background jobs. `bg_start` runs a command in pi's process group
-// with its output in a log beside a JSON record (`<sessionDir>/jobs/<sessionId>/`); `bg_wait`
-// returns at the job's exit or, at its timeout or when a steer arrives, with the job's progress. A
-// steer waits for the tool batch to end, so this is how a waiting thread hears one. A job that exits with
-// nobody waiting wakes the thread: a `loom-jobs` status line (which the pi adapter reads as the
-// session pin and the wake chip) then a custom message with `triggerTurn`. Exactly one of the
-// waiter or the wake fires; neither when pi itself is going down (the job got the same SIGTERM),
-// so the record stays open and the next session start reports the job lost, once.
-// A child's submit is refused while a job runs: its wake would start a turn on a finished thread.
-// Not detached on purpose: Stop and idle release signal pi's group, so a job never outlives pi.
-// The part imports nothing: `source` runs as `(pi, ctx) => { … }` in Loom's assembled extension.
+// loom: Loom extension part: `bg_start` runs a command in pi's process group (never outliving pi),
+// logged beside a JSON record; `bg_wait` returns at exit, timeout or a steer. An unwaited exit
+// wakes the thread (`loom-jobs` status line, then a `triggerTurn` message); on pi shutdown neither
+// fires and the next session reports the job lost. Submit is refused while a job runs.
 import { agentToolName } from "../../../../mcp/toolkits/workstream/families.ts";
 import { LOOM_TOOL_PROSE } from "../../../../mcp/toolkits/workstream/prose.ts";
 import type { LoomExtensionPart } from "../loomExtension.ts";

@@ -103,7 +103,7 @@ four commits later (`42b5885c90`, `5b31001eac` "prepare v0.0.45", `e0db2a5e58`,
   replayed file is left resolved-but-unstaged with `git rerere status` empty.
   So **every merge in this pull — dry runs and the real one — is run with
   rerere disabled for that invocation**: `git -c rerere.enabled=false merge
---no-ff --no-commit 024d49520e`. Do not change clone-wide config and do not
+  --no-ff --no-commit 024d49520e`. Do not change clone-wide config and do not
   `git rerere clear` (other worktrees share the cache). If a merge was ever
   run without the flag, treat every file it touched as unaudited.
 - **Record `merge_oid`** (`git rev-parse HEAD` right after the merge commit)

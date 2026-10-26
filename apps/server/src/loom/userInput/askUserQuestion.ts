@@ -1,22 +1,8 @@
 /**
- * `mcp__t3-code__ask_user_question` on V2 (P3-3, P3-26, DL-331–333, DL-347–349).
- *
- * Open: validate, open the live waiter, dispatch Loom's `runtime-request.create`
- * — a pending `user_input` request with `message` capability on its own
- * request node, so V2's panel, mobile card and `pendingRuntimeRequest` render it
- * unchanged. Answer: upstream's `runtime-request.respond`; the one
- * `Orchestrator.ts` hunk withholds upstream's answer message while the waiter
- * is live, and this module's reactor hands the waiter the rendered outcome
- * from the committed `runtime-request.updated` — the single sink for answered,
- * dismissed and closed requests.
- *
- * The reactor also closes a pending `loom-ask:` request with upstream's own
- * `thread.user-input.dismiss`: when a human message lands on the thread
- * (supersede, rule 6) and when the run that asked ends. Both read post-commit
- * state, so upstream's no-waiter answer message (resolution and message in one
- * commit) never reads as a supersede.
- *
- * @module loom/userInput/askUserQuestion
+ * `ask_user_question` on V2: opens a live waiter and a pending `user_input` runtime request that
+ * upstream's panels render unchanged; while the waiter is live the `Orchestrator.ts` hunk withholds
+ * upstream's answer message and this reactor hands the waiter the outcome. It also dismisses a
+ * pending `loom-ask:` request when a human message lands or the asking run ends (read post-commit).
  */
 import {
   CommandId,
@@ -112,7 +98,7 @@ const ASK_DISMISSED =
   "The user dismissed these questions without selecting an option. Proceed on the recommended option and say so; if none was marked, use your best judgement and state the assumption.";
 // Rule 6: the message itself steers into this run or queues as the next turn, so the text is not repeated here.
 const ASK_SUPERSEDED =
-  "The user replied with a message instead of using the form, so these questions are settled. Their message reaches you separately — right after this result, or as your next turn. Do not proceed on an assumed answer and do not re-ask: read their message and respond to it.";
+  "The user replied with a message instead of using the form, so these questions are settled. Their message reaches you separately: right after this result, or as your next turn. Do not proceed on an assumed answer and do not re-ask: read their message and respond to it.";
 
 const answerText = (answer: unknown) =>
   Array.isArray(answer)
@@ -195,18 +181,21 @@ const TERMINAL_RUN = new Set(["completed", "interrupted", "failed", "cancelled",
 const isPendingAsk = (request: OrchestrationV2RuntimeRequest) =>
   request.status === "pending" && request.id.startsWith(LOOM_ASK_REQUEST_PREFIX);
 
-const closeAsk = (threadId: ThreadId, requestId: RuntimeRequestId, closing: LoomAskClosing) =>
-  Effect.gen(function* () {
-    yield* (yield* LoomAskWaiters).markClosing(requestId, closing);
-    yield* (yield* OrchestratorV2).dispatch({
-      type: "thread.user-input.dismiss",
-      commandId: CommandId.make(
-        `server:loom:${closing === "superseded" ? "ask-supersede" : "ask-run-end"}:${requestId}`,
-      ),
-      threadId,
-      requestId,
-    });
+const closeAsk = Effect.fn("askUserQuestion.closeAsk")(function* (
+  threadId: ThreadId,
+  requestId: RuntimeRequestId,
+  closing: LoomAskClosing,
+) {
+  yield* (yield* LoomAskWaiters).markClosing(requestId, closing);
+  yield* (yield* OrchestratorV2).dispatch({
+    type: "thread.user-input.dismiss",
+    commandId: CommandId.make(
+      `server:loom:${closing === "superseded" ? "ask-supersede" : "ask-run-end"}:${requestId}`,
+    ),
+    threadId,
+    requestId,
   });
+});
 
 /** One committed domain event's effect on `loom-ask:` requests and their waiters. */
 export const reactToAskEvent = Effect.fn("loom.askUserQuestion.react")(function* (

@@ -1,5 +1,10 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  type OrchestrationSearchThreadsInput,
+  type OrchestrationThreadSearchMatch,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -10,7 +15,8 @@ import { writeWorkstreamReport } from "../loom/workstream/report.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { EmbeddingError, type EmbeddingProvider } from "./embedding/EmbeddingProvider.loom.ts";
 import { ThreadEmbedder, makeThreadEmbedder } from "./ThreadEmbedder.loom.ts";
-import { makeThreadSearch } from "./ThreadSearch.loom.ts";
+import { layer as threadSearchLayer, makeThreadSearch } from "./ThreadSearch.loom.ts";
+import { ThreadSearch } from "./ThreadSearch.ts";
 
 const layer = it.layer(
   SqlitePersistence.layerMemory.pipe(
@@ -88,15 +94,11 @@ const message = (
         ${at}, ${at}, ${JSON.stringify(payload)})`;
   });
 
-const search = (query: string, limit?: number, includeArchived?: boolean, projectId?: string) =>
+/** Full scope unless a test says otherwise: most cases here test what the index holds. */
+const search = (query: string, options: Partial<OrchestrationSearchThreadsInput> = {}) =>
   makeThreadSearch.pipe(
     Effect.flatMap((threadSearch) =>
-      threadSearch.searchThreads({
-        query,
-        ...(limit === undefined ? {} : { limit }),
-        ...(includeArchived === undefined ? {} : { includeArchived }),
-        ...(projectId === undefined ? {} : { projectId: ProjectId.make(projectId) }),
-      }),
+      threadSearch.searchThreads({ scope: "all", ...options, query }),
     ),
     Effect.map(({ matches }) => matches),
   );
@@ -160,8 +162,8 @@ layer("ThreadSearch", (it) => {
 
       assert.deepStrictEqual(ids(yield* search("nebula")), ["archived", "live"]);
       // The child's purpose hit must not resurrect its archived root.
-      assert.deepStrictEqual(ids(yield* search("nebula", undefined, false)), ["live"]);
-      assert.deepStrictEqual(ids(yield* search("drift", undefined, false)), []);
+      assert.deepStrictEqual(ids(yield* search("nebula", { includeArchived: false })), ["live"]);
+      assert.deepStrictEqual(ids(yield* search("drift", { includeArchived: false })), []);
 
       // Semantic side: the archived root is the nearest vector, yet stays out.
       const embedder = yield* makeThreadEmbedder(
@@ -169,9 +171,7 @@ layer("ThreadSearch", (it) => {
       );
       yield* embedder.sweep;
       const semantic = (includeArchived: boolean) =>
-        search("cosmos", undefined, includeArchived).pipe(
-          Effect.provideService(ThreadEmbedder, embedder),
-        );
+        search("cosmos", { includeArchived }).pipe(Effect.provideService(ThreadEmbedder, embedder));
       assert.equal((yield* semantic(true))[0]?.threadId, "archived");
       assert.notInclude(ids(yield* semantic(false)), "archived");
     }),
@@ -183,7 +183,9 @@ layer("ThreadSearch", (it) => {
       yield* thread("here", "pulsar timing");
       yield* thread("there", "pulsar timing", { project: "other" });
       assert.deepStrictEqual(
-        (yield* search("pulsar", undefined, undefined, "project")).map((match) => match.threadId),
+        (yield* search("pulsar", { projectId: ProjectId.make("project") })).map(
+          (match) => match.threadId,
+        ),
         ["here"],
       );
       const embedder = yield* makeThreadEmbedder(
@@ -191,7 +193,7 @@ layer("ThreadSearch", (it) => {
       );
       yield* embedder.sweep;
       assert.deepStrictEqual(
-        (yield* search("quasar", undefined, undefined, "other").pipe(
+        (yield* search("quasar", { projectId: ProjectId.make("other") }).pipe(
           Effect.provideService(ThreadEmbedder, embedder),
         )).map((match) => match.threadId),
         ["there"],
@@ -255,7 +257,7 @@ layer("ThreadSearch", (it) => {
         (yield* search("alpha omega")).map((match) => match.threadId).toSorted(),
         ["full", "partial"],
       );
-      assert.equal((yield* search("alpha omega", 1)).length, 1);
+      assert.equal((yield* search("alpha omega", { limit: 1 })).length, 1);
       const sql = yield* SqlClient.SqlClient;
       yield* sql`DELETE FROM orchestration_v2_projection_threads WHERE thread_id LIKE 'child-%'`;
       // "full" covers both terms, "partial" only one.
@@ -291,6 +293,65 @@ layer("ThreadSearch", (it) => {
       assert.deepStrictEqual(
         matches.map((match) => match.threadId),
         ["full", "semantic", "partial"],
+      );
+    }),
+  );
+
+  it.effect("serves upstream's service with the roots scope by default", () =>
+    Effect.gen(function* () {
+      yield* reset;
+      yield* thread("root", "Orbital work");
+      yield* thread("child", "Comet probe", { parent: "root" });
+      yield* message("root-ask", "root", "user", "plan the aphelion burn");
+      yield* message("kickoff", "child", "user", "Map the aphelion debris", { origin: "kickoff" });
+      yield* message("child-ask", "child", "user", "check the meteoroid field");
+      yield* writeWorkstreamReport(ThreadId.make("child"), "Found aphelion debris.");
+      const service = yield* ThreadSearch.pipe(Effect.provide(threadSearchLayer));
+      const shape = ({
+        matches,
+      }: {
+        readonly matches: ReadonlyArray<OrchestrationThreadSearchMatch>;
+      }) =>
+        matches.map((match) => [
+          match.threadId,
+          match.source,
+          match.matchedThreadId ?? null,
+          match.messageId ?? null,
+        ]);
+
+      // The root's own message, with its id for the jump; the child's text stays out.
+      assert.deepStrictEqual(shape(yield* service.search({ query: "aphelion burn" })), [
+        ["root", "user", null, "root-ask"],
+      ]);
+      assert.deepStrictEqual(shape(yield* service.search({ query: "comet probe" })), []);
+      // A child's report is the root's; its brief and messages need `all`.
+      assert.deepStrictEqual(shape(yield* service.search({ query: "found debris" })), [
+        ["root", "report", "child", null],
+      ]);
+      assert.deepStrictEqual(shape(yield* service.search({ query: "meteoroid" })), []);
+      assert.deepStrictEqual(shape(yield* service.search({ query: "meteoroid", scope: "all" })), [
+        ["root", "user", "child", null],
+      ]);
+
+      yield* thread("other", "aphelion notes");
+      const { matches } = yield* service.search({ query: "aphelion" });
+      assert.deepStrictEqual(
+        matches.map((match) => match.quality),
+        [1, 0.999],
+      );
+      assert.deepStrictEqual(
+        (yield* service.searchThreads({ query: "aphelion" })).matches
+          .map((hit) => hit.threadId)
+          .toSorted(),
+        ["other", "root"],
+      );
+      assert.deepStrictEqual(
+        yield* service.searchOlderSettled({
+          query: "aphelion",
+          before: "2026-01-01T00:00:00.000Z",
+          messageThreadIds: [],
+        }),
+        [],
       );
     }),
   );

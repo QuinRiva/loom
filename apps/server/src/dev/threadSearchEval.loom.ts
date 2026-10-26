@@ -1,36 +1,10 @@
 /**
- * Thread-search acceptance harness (plans/thread-content-search, Verification).
- *
- * Runs the 57-query set in `threadSearchQueries.json` against a COPY of a real
- * database through the production code path — migrations (FTS5 backfill), the
- * embedder sweep, then `ThreadSearch.rank` per query — and prints R@1/3/5/10 and
- * MRR per query group for lexical / semantic / fused, per-query wall time, and
- * the fused top-5 for each miss.
- *
- * Run: `node apps/server/src/dev/threadSearchEval.loom.ts --db .t3/eval/statev2.sqlite [--provider none|local|openai-compatible|vertex] [--corpus-until 2026-10-01|none]`
- *
- * The floor is checked on the set's own corpus. The set was written against the
- * roots that existed on 1 Oct 2026; every root created since competes for its
- * queries without being in it, so on a newer database recall drifts down as the
- * corpus grows rather than because ranking regressed. `--corpus-until <date>`
- * (default `2026-10-01`, inclusive of that day) drops roots created after the
- * date from every ranking except where one is the query's own target, and exits
- * non-zero below the provider's floor. `--corpus-until none` ranks against the
- * whole database and prints the numbers as information, with no floor.
- *
- * `--exclude <rootId,…>` drops roots from every ranking except where they are the
- * query's own target. The default is the root whose subtree authored this set:
- * its transcripts and reports quote every query verbatim, so on any database
- * newer than the set it is a full-term lexical match for all of them.
- *
- * The provider block comes from `settings.json` beside the database when its
- * `provider` matches (or no `--provider` is given); otherwise the provider's
- * defaults. The database is migrated and written (embeddings) in place.
- *
- * @module dev/threadSearchEval
+ * Thread-search eval: the 57 queries in `threadSearchQueries.json` against a COPY of a real
+ * database (migrated and written in place), ranked by Loom lexical / semantic / fused under
+ * both scopes and by upstream's trigram `search` and `searchThreads`. Usage: `--help`.
  */
 // Dev-only harness (not shipped): plain Node/JSON/Date keep it legible, matching `scripts/*.ts`.
-// @effect-diagnostics nodeBuiltinImport:off globalDateInEffect:off globalDate:off preferSchemaOverJson:off globalConsoleInEffect:off
+// @effect-diagnostics nodeBuiltinImport:off globalDateInEffect:off globalDate:off preferSchemaOverJson:off globalConsoleInEffect:off globalConsole:off
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
@@ -50,16 +24,11 @@ import {
   providerFromSettings,
 } from "../orchestration-v2/ThreadEmbedder.loom.ts";
 import { makeThreadSearch } from "../orchestration-v2/ThreadSearch.loom.ts";
+import { make as makeUpstreamThreadSearch } from "../orchestration-v2/ThreadSearch.ts";
 import queries from "./threadSearchQueries.json" with { type: "json" };
 
-// Floors on the set's own corpus, in whole percent as the plan reports them (30/43
-// is its "70 %"). Exact identifiers: all 8 in the top 3, and `exactR1` of them at #1.
-// The plan's measured numbers stand where the V2 port reproduces them. Re-baselined
-// on 23 Oct 2026 to what the port reproduces, one headline query short of the
-// plan: `local` R@5 70 → 67 (29/43) and `vertex` R@5 80 → 79 (34/43). The V1
-// benchmark's per-query ranks were not kept, so the missing query cannot be
-// traced; on the same corpus the port matches or beats the plan's MRR, semantic
-// recall and lexical recall, so the floor records the port, not a regression.
+// Floors on the set's own corpus under `scope: "all"` (origin/main's ranking), whole percent.
+// Exact identifiers: all 8 in the top 3, and `exactR1` of them at #1. Re-baselined 23 Oct 2026.
 const FLOORS: Record<string, { r5?: number; r10?: number; mrr?: number; exactR1: number }> = {
   local: { r5: 67, mrr: 0.5, exactR1: 7 },
   vertex: { r5: 79, mrr: 0.58, exactR1: 8 },
@@ -70,12 +39,20 @@ const percent = (count: number, n: number) => Math.round((100 * count) / n);
 
 const { values } = NodeUtil.parseArgs({
   options: {
+    help: { type: "boolean" },
     db: { type: "string" },
     provider: { type: "string" },
     exclude: { type: "string", default: "59bbc9a4-f2a8-4147-b80b-6644778bc6d5" },
     "corpus-until": { type: "string", default: "2026-10-01" },
   },
 });
+if (values.help) {
+  console.log(`node apps/server/src/dev/threadSearchEval.loom.ts --db <copy>/statev2.sqlite
+  [--provider none|local|openai-compatible|vertex]  settings.json beside the db when it matches
+  [--corpus-until 2026-10-01|none]  drop roots created later except a query's own target; none: no floor
+  [--exclude <rootId,...>]  drop roots except as targets (default: the root that authored the set)`);
+  process.exit(0);
+}
 const corpusUntil = values["corpus-until"] === "none" ? undefined : values["corpus-until"];
 const excluded = new Set(values.exclude.split(",").filter(Boolean));
 const keep = (ids: ReadonlyArray<string> | undefined, expected: ReadonlyArray<string>) =>
@@ -140,34 +117,66 @@ const main = Effect.gen(function* () {
       ? `full corpus (${roots.length} roots), no floor`
       : `set's corpus: roots created through ${corpusUntil} (${roots.length - newer.length} of ${roots.length})`;
   console.log(corpus);
+  const upstream = yield* makeUpstreamThreadSearch;
   yield* search.rank("warm up query"); // first query embed loads lazily
+  const SIDES = [
+    "roots lexical",
+    "roots semantic",
+    "roots fused",
+    "all lexical",
+    "all semantic",
+    "all fused",
+    "upstream search",
+    "upstream searchThreads",
+  ] as const;
+  type Side = (typeof SIDES)[number];
   const results: Array<{
     readonly query: (typeof queries)[number];
-    readonly lexical: number | null;
-    readonly semantic: number | null;
-    readonly fused: number | null;
-    readonly ms: number;
+    readonly ranks: Record<Side, number | null>;
+    readonly ms: Partial<Record<Side, number>>;
     readonly top: ReadonlyArray<string>;
   }> = [];
   let skipped = 0;
+  const timed = Effect.fn("threadSearchEval.timed")(function* <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ) {
+    const started = performance.now();
+    const value = yield* effect;
+    return [value, performance.now() - started] as const;
+  });
   for (const query of queries) {
     if (!query.expected.some((id) => live.has(id))) {
       skipped++;
       console.log(`skipped (target gone): ${query.q}`);
       continue;
     }
-    const ranked = yield* search.rank(query.q);
-    const started = performance.now();
-    yield* search.searchThreads({ query: query.q, limit: 30 });
-    const fused = keep(ranked.fused, query.expected)!;
-    results.push({
-      query,
-      ms: performance.now() - started,
-      lexical: rankOf(keep(ranked.lexical, query.expected), query.expected),
-      semantic: rankOf(keep(ranked.semantic, query.expected), query.expected),
-      fused: rankOf(fused, query.expected),
-      top: fused.slice(0, 5),
-    });
+    const ranks = {} as Record<Side, number | null>;
+    const ms: Partial<Record<Side, number>> = {};
+    let top: ReadonlyArray<string> = [];
+    for (const scope of ["roots", "all"] as const) {
+      const ranked = yield* search.rank(query.q, { scope });
+      const [, wall] = yield* timed(search.searchThreads({ query: query.q, limit: 30, scope }));
+      ms[`${scope} fused`] = wall;
+      const fused = keep(ranked.fused, query.expected)!;
+      ranks[`${scope} lexical`] = rankOf(keep(ranked.lexical, query.expected), query.expected);
+      ranks[`${scope} semantic`] = rankOf(keep(ranked.semantic, query.expected), query.expected);
+      ranks[`${scope} fused`] = rankOf(fused, query.expected);
+      if (scope === "roots") top = fused.slice(0, 5);
+    }
+    const [messages, messagesMs] = yield* timed(upstream.search({ query: query.q, limit: 50 }));
+    const [threads, threadsMs] = yield* timed(
+      upstream.searchThreads({ query: query.q, limit: 50 }),
+    );
+    ms["upstream search"] = messagesMs;
+    ms["upstream searchThreads"] = threadsMs;
+    const ids = (matches: ReadonlyArray<{ readonly threadId: string }>) =>
+      keep(
+        matches.map((match) => match.threadId),
+        query.expected,
+      );
+    ranks["upstream search"] = rankOf(ids(messages.matches), query.expected);
+    ranks["upstream searchThreads"] = rankOf(ids(threads.matches), query.expected);
+    results.push({ query, ranks, ms, top });
   }
 
   const groups: Record<string, ReadonlyArray<string>> = {
@@ -178,47 +187,84 @@ const main = Effect.gen(function* () {
     "deep 6": ["deep"],
     "all 57": ["sampled", "plan", "exact", "deep"],
   };
-  const table = (side: "lexical" | "semantic" | "fused") =>
-    Object.entries(groups).map(([name, sources]) => {
-      const m = metrics(
-        results.filter((r) => sources.includes(r.query.source)).map((r) => r[side]),
-      );
-      return { name, m };
-    });
+  const archivedGroups: Record<string, (r: (typeof results)[number]) => boolean> = {
+    "archived 18": (r) => r.query.archived,
+    "active 39": (r) => !r.query.archived,
+  };
   console.log(
     "\n| ranking | group | R@1 | R@3 | R@5 | R@10 | MRR |\n|---|---|---|---|---|---|---|",
   );
-  for (const side of ["lexical", "semantic", "fused"] as const) {
-    if (side === "semantic" && sweep.identity === undefined) continue;
-    for (const { name, m } of table(side))
+  for (const side of SIDES) {
+    if (side.endsWith("semantic") && sweep.identity === undefined) continue;
+    const rows = [
+      ...Object.entries(groups).map(
+        ([name, sources]) =>
+          [name, (r: (typeof results)[number]) => sources.includes(r.query.source)] as const,
+      ),
+      ...Object.entries(archivedGroups),
+    ];
+    for (const [name, filter] of rows) {
+      const m = metrics(results.filter(filter).map((r) => r.ranks[side]));
       console.log(
         `| ${side} | ${name} | ${pct(m.r1, m.n)} | ${pct(m.r3, m.n)} | ${pct(m.r5, m.n)} | ${pct(m.r10, m.n)} | ${m.mrr.toFixed(3)} |`,
       );
+    }
   }
 
-  const times = results.map((r) => r.ms).toSorted((a, b) => a - b);
+  for (const side of [
+    "roots fused",
+    "all fused",
+    "upstream search",
+    "upstream searchThreads",
+  ] as const) {
+    const times = results.map((r) => r.ms[side] ?? 0).toSorted((a, b) => a - b);
+    console.log(
+      `${side} wall time: p50 ${times[times.length >> 1]!.toFixed(1)} ms, ` +
+        `p90 ${times[Math.floor(times.length * 0.9)]!.toFixed(1)} ms, max ${times.at(-1)!.toFixed(1)} ms`,
+    );
+  }
+  console.log(`skipped ${skipped}`);
+  // Per query, the top-5 hits each ranker has that another lacks.
+  const within5 = (rank: number | null) => rank !== null && rank <= 5;
+  const compared = [
+    "roots lexical",
+    "roots fused",
+    "all fused",
+    "upstream search",
+    "upstream searchThreads",
+  ] as const;
+  console.log("\nper-query top-5 (1 = expected root in the top 5):");
   console.log(
-    `\nsearchThreads wall time (lexical ∥ semantic, fusion, snippets): p50 ${times[times.length >> 1]!.toFixed(1)} ms, ` +
-      `p90 ${times[Math.floor(times.length * 0.9)]!.toFixed(1)} ms, max ${times.at(-1)!.toFixed(1)} ms; skipped ${skipped}`,
+    `| query | archived | ${compared.join(" | ")} |\n|---|---|${compared.map(() => "---").join("|")}|`,
   );
+  for (const r of results)
+    console.log(
+      `| ${r.query.q} | ${r.query.archived ? "yes" : ""} | ${compared.map((side) => (within5(r.ranks[side]) ? `1 (#${r.ranks[side]})` : r.ranks[side] === null ? "0" : `0 (#${r.ranks[side]})`)).join(" | ")} |`,
+    );
   const titles = new Map(
     (yield* sql<{ readonly id: string; readonly title: string }>`
       SELECT thread_id AS id, title FROM orchestration_v2_projection_threads`).map(
       (row) => [row.id, row.title] as const,
     ),
   );
-  console.log("\nfused misses (rank > 5; exact identifiers rank > 1):");
-  for (const r of results.filter((r) => (r.fused ?? 99) > (r.query.source === "exact" ? 1 : 5)))
+  console.log("\nroots fused misses (rank > 5; exact identifiers rank > 1):");
+  for (const r of results.filter(
+    (r) => (r.ranks["roots fused"] ?? 99) > (r.query.source === "exact" ? 1 : 5),
+  ))
     console.log(
-      `- [${r.query.source}] "${r.query.q}" → ${r.query.title} at ${r.fused ?? "—"} ` +
-        `(lexical ${r.lexical ?? "—"}, semantic ${r.semantic ?? "—"}); top-5: ` +
+      `- [${r.query.source}] "${r.query.q}" -> ${r.query.title} at ${r.ranks["roots fused"] ?? "none"} ` +
+        `(all ${r.ranks["all fused"] ?? "none"}, upstream ${r.ranks["upstream search"] ?? "none"}); top-5: ` +
         r.top.map((id) => (titles.get(id) ?? id).replace(/\s+/g, " ").slice(0, 40)).join(" | "),
     );
 
   const headline = metrics(
-    results.filter((r) => ["sampled", "plan"].includes(r.query.source)).map((r) => r.fused),
+    results
+      .filter((r) => ["sampled", "plan"].includes(r.query.source))
+      .map((r) => r.ranks["all fused"]),
   );
-  const exact = metrics(results.filter((r) => r.query.source === "exact").map((r) => r.fused));
+  const exact = metrics(
+    results.filter((r) => r.query.source === "exact").map((r) => r.ranks["all fused"]),
+  );
   if (corpusUntil === undefined) {
     console.log(`\nINFO: ${settings.provider}, ${corpus}`);
     return;

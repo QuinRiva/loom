@@ -46,6 +46,7 @@ const AuthFile = Schema.Struct({
     Schema.Struct({
       chatgpt_account_id: Schema.optional(Schema.String),
       chatgpt_plan_type: Schema.optional(Schema.String),
+      plan_type: Schema.optional(Schema.String),
     }),
   ),
 });
@@ -126,8 +127,7 @@ const decodeClaudeUsage = Schema.decodeUnknownEffect(Schema.fromJsonString(Claud
 const decodeCodexUsage = Schema.decodeUnknownEffect(Schema.fromJsonString(CodexUsage));
 const isUsageLimitSourceError = Schema.is(UsageLimitSourceError);
 
-// Codes that mean the certificate chain is not trusted, which an extra CA can fix. Expired or
-// mismatched certificates are reported by code only.
+// Extra CAs can fix untrusted chains; expiry/hostname failures report codes only.
 const UNTRUSTED_CERTIFICATE_CODES = new Set([
   "DEPTH_ZERO_SELF_SIGNED_CERT",
   "SELF_SIGNED_CERT_IN_CHAIN",
@@ -135,7 +135,7 @@ const UNTRUSTED_CERTIFICATE_CODES = new Set([
   "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
 ]);
 
-/** The Node error code under a failed fetch, which wraps it in a generic `TypeError`. */
+// fetch wraps Node error codes in generic TypeErrors.
 const nodeErrorCode = (cause: unknown) => {
   for (let error = cause, depth = 0; error instanceof Error && depth < 3; depth += 1) {
     const code = (error as { readonly code?: unknown }).code;
@@ -145,8 +145,7 @@ const nodeErrorCode = (cause: unknown) => {
   return undefined;
 };
 
-// Hub responses and nested error messages can carry keys or tokens, so only the failure's kind,
-// HTTP status, or Node error code reaches the client.
+// Hub responses can contain credentials; expose only failure kind, HTTP status or Node code.
 const describeManagementFailure = (error: unknown) => {
   if (Cause.isTimeoutError(error)) return "The hub did not answer within 15 seconds.";
   if (HttpClientError.isHttpClientError(error)) {
@@ -188,17 +187,10 @@ export const carriedAccounts = (
   );
 
 /**
- * loom: an account's usage from the hub's own readings of Anthropic's
- * rate-limit headers on real traffic (`model_quotas`), for when `oauth/usage`
- * refuses: always for a one-year token, and for about half the reads of a
- * browser login. Each window comes from the freshest model reading that
- * carries it; the per-model weekly (`7d_oi`) is named for its model
- * (`claude-fable-5-1` is `Fable`). A reading older than `CARRY_FORWARD_MS` is
- * dropped, as a carried one would be, so a quiet account shows no usage rather
- * than hours-old usage — except a window it shows exhausted, which stays so
- * until its reset however long the account then goes without traffic.
- * `checkedAt` is when the hub took the freshest reading used. Undefined when
- * there is none.
+ * loom: usage from the hub's `model_quotas` (rate-limit headers on real traffic) for when
+ * `oauth/usage` refuses. Each window comes from the freshest reading carrying it; readings older than
+ * `CARRY_FORWARD_MS` drop, except an exhausted window, which holds until its reset. `checkedAt` is the
+ * freshest reading used; undefined when none.
  */
 export const trafficUsageLimits = (quotas: ModelQuotas | null | undefined, now: number) => {
   const readings = Object.entries(quotas ?? {})
@@ -367,7 +359,12 @@ export const makeCliproxyApi = Effect.gen(function* () {
               ? { "Chatgpt-Account-Id": account.id_token.chatgpt_account_id }
               : {}),
           }
-        : { Authorization: "Bearer $TOKEN$", "anthropic-beta": "oauth-2025-04-20" };
+        : {
+            Authorization: "Bearer $TOKEN$",
+            "anthropic-beta": "oauth-2025-04-20",
+            // The OAuth usage endpoint can return 429 without a Claude Code user agent.
+            "User-Agent": "claude-code/2.1.273",
+          };
     const raw = yield* management(config, "api-call", {
       auth_index: account.auth_index,
       method: data === undefined ? "GET" : "POST",
@@ -553,14 +550,16 @@ export const makeCliproxyApi = Effect.gen(function* () {
           : null;
       const available = yield* credits(config, account).pipe(Effect.orElseSucceed(() => undefined));
       const next = available?.[0];
+      const planType =
+        usage.plan_type ?? account.id_token?.plan_type ?? account.id_token?.chatgpt_plan_type;
       return {
         ...base,
-        plan: codexPlanLabel(usage.plan_type ?? account.id_token?.chatgpt_plan_type),
+        plan: codexPlanLabel(planType),
         usageLimits: {
           ...codexRateLimitsToLimits({
             checkedAt,
             snapshot: {
-              planType: usage.plan_type ?? null,
+              planType: planType ?? null,
               primary: toWindow(usage.rate_limit?.primary_window),
               secondary: toWindow(usage.rate_limit?.secondary_window),
             },
@@ -582,13 +581,9 @@ export const makeCliproxyApi = Effect.gen(function* () {
       };
     });
     return yield* read.pipe(
-      // loom: a failed read takes the fresher of the hub's traffic reading and
-      // the account's last good reading (checkedAt and all), under the current
-      // login; with neither, the hub's reason when it gave one. A browser
-      // login's traffic reading keeps the carried windows it lacks (the Fable
-      // weekly, when the account had no Fable traffic lately) rather than
-      // blanking them for a poll; a token seat's traffic is its only reading,
-      // so its stale windows drop as `trafficUsageLimits` says.
+      // loom: a failed read takes the fresher of the hub's traffic reading and the last good reading
+      // under the current login, else the hub's reason. A browser login keeps carried windows its
+      // traffic lacks (e.g. the Fable weekly); a token seat's stale windows drop.
       Effect.catch((error) => {
         const traffic = trafficUsageLimits(account.model_quotas, DateTime.toEpochMillis(now));
         const keep =

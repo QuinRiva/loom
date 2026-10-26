@@ -1,11 +1,8 @@
 /**
- * loom: what the Files surface marks as changed (plans/change-review/plan.mdx §4). The baseline is
- * the one the Diff panel shares: the selected review interval when there is one, else upstream's
- * git comparison (Uncommitted when the panel is on it, the branch otherwise). Marks derive from the
- * same diff queries the Diff panel reads, so they move only when a comparison refreshes, never per
- * streaming tick or file watch.
- *
- * @module loom/review/useLoomChangeMarks
+ * loom: what the Files surface marks as changed, against the Diff panel's baseline: the selected
+ * review interval, else upstream's git comparison (Uncommitted when the panel is on it, the branch
+ * otherwise). Marks derive from the Diff panel's own diff queries, so they move only when a
+ * comparison refreshes, never per streaming tick or file watch.
  */
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type {

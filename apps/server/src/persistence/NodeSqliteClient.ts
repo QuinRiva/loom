@@ -1,10 +1,6 @@
 /**
- * In-process port of `@effect/sql-sqlite-node` that uses the native
- * `node:sqlite` bindings instead of `better-sqlite3`.
- *
- * Used for `:memory:` databases (tests). File-backed databases route through
- * `NodeSqliteWorkerClient`, which hosts the same shared connection
- * (`NodeSqliteConnection.ts`) in a dedicated worker thread.
+ * In-process port of `@effect/sql-sqlite-node` on native `node:sqlite` instead of `better-sqlite3`,
+ * for `:memory:` databases (tests); file-backed databases use `NodeSqliteWorkerClient`.
  *
  * @module SqliteClient
  */

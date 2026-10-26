@@ -17,12 +17,9 @@ const lintErrors = async (source: string) =>
   (await lintPlanSource(source)).filter((finding) => finding.severity === "error");
 
 /**
- * loom — the "peek at the referenced section" feature, driven against the REAL
- * renderer. It earns a test because its risk is invisible to a static read: the
- * peek is a SECOND live render of a section that is also in the document, and a
- * second render that leaked text or block ids into the annotation layer would
- * silently move existing comment highlights. The other half is that the render
- * is genuinely live (a clone would be inert), which only a click can prove.
+ * loom: the peek is a SECOND live render of a section already in the document; one that leaked
+ * text or block ids into the annotation layer would silently move comment highlights. That it
+ * is genuinely live (a clone would be inert) only a click can prove.
  */
 
 const settle = async () => {
@@ -115,12 +112,9 @@ describe("question ref peek", () => {
   });
 
   /**
-   * The gate's whole claim is "lint says OK => the chip opens that section". It
-   * holds only because lint, the renderer and the peek read section bounds off
-   * the SAME mdast: a text-level scanner saw phantom headings inside nested
-   * fences and template literals, and cut slices through JSX. Each source below
-   * broke that scanner; every anchor lint accepts must slice to something that
-   * compiles.
+   * "Lint says OK => the chip opens that section" holds only because lint, the renderer and
+   * the peek share one mdast. Each source below broke a text-level scanner; every anchor lint
+   * accepts must slice to something that compiles.
    */
   const GNARLY: Record<string, string> = {
     "heading nested in a container": [

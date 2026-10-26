@@ -8,13 +8,8 @@ import { describe, expect, it } from "vite-plus/test";
 import { generateBlockSchemaDoc } from "./blockSchemaDoc";
 
 /**
- * Provable accuracy for the authored block reference: the doc is generated FROM
- * the live zod schemas, so this test regenerates it and asserts the checked-in
- * copy matches byte-for-byte. Any prop/type/enum drift between the schemas and
- * the skill reference fails CI (drift is exactly the bug that let an agent guess
- * `<DataModel>` `fk: true` / `kind: "n-1"`).
- *
- * Regenerate after an intentional schema change:
+ * The checked-in block reference must match the doc generated from the live zod schemas
+ * byte-for-byte, so schema drift fails CI. Regenerate after an intentional change:
  *   UPDATE_BLOCK_SCHEMA=1 pnpm --filter @t3tools/web test run blockSchemaDoc
  */
 const DOC_PATH = NodePath.resolve(

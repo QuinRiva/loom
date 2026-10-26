@@ -1,12 +1,7 @@
 /**
- * The `goal_handoff` duplicate check: before a handoff launches, a cheap model
- * compares its title, objective and brief with the work already open in the
- * inbox — every project's unarchived, unsettled threads that are not done or
- * cancelled — and names any thread that looks like the same work. The check
- * advises and never blocks: an error, a timeout or no Pi text-generation
- * instance finds nothing, so the handoff proceeds.
- *
- * @module loom/handoff/handoffDuplicates
+ * Before a `goal_handoff` launches, a cheap model compares it with open inbox work and names any
+ * thread that looks like the same work. Advisory only: an error, timeout or missing Pi
+ * text-generation instance finds nothing and the handoff proceeds.
  */
 import {
   isProviderNativeSubagentThread,

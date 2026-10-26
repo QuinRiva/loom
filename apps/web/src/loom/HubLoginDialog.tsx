@@ -1,10 +1,8 @@
 /**
- * loom: the hub login reminder's Log in… dialog, mounted once at the root and
- * opened through `useHubLoginStore().openDialog` by the composer banner and the
- * Usage page. It runs cliproxy's own OAuth flow on the environment's server:
- * the server mints a claude.ai sign-in URL on the hub, the user signs in (or
- * sends the link to the account's owner), and pastes back what claude.ai shows.
- * The browser only ever talks to Loom and claude.ai, so it works remotely.
+ * loom: the hub login Log in… dialog, mounted once at the root and opened through
+ * `useHubLoginStore().openDialog`. It runs cliproxy's OAuth flow on the environment's server: the
+ * hub mints a claude.ai sign-in URL, the user signs in (or sends it to the account's owner) and
+ * pastes back what claude.ai shows. The browser talks only to Loom and claude.ai, so it works remotely.
  */
 import { useAtomValue } from "@effect/atom-react";
 import type { UsageLimitSourceLoginStartResult } from "@t3tools/contracts";
@@ -188,9 +186,9 @@ function HubLoginFlow({
                   </Button>
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  The page ends on an unreachable localhost address — that is expected. Copy the
-                  code claude.ai shows, or that whole address. Finish within 5 minutes of opening
-                  the link.
+                  The page ends on an unreachable localhost address. That is expected. Copy the code
+                  claude.ai shows, or that whole address. Finish within 5 minutes of opening the
+                  link.
                 </span>
               </section>
               <section className="grid gap-2">

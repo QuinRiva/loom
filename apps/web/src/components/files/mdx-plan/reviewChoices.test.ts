@@ -26,13 +26,13 @@ import {
 describe("reviewChoices helpers", () => {
   it("formats verdict + note, using the comment verb for a note-only choice", () => {
     expect(formatReviewChoiceText("A-1", { verdict: "reject", note: "wrong gate" })).toBe(
-      'Review A-1 → reject — "wrong gate"',
+      'Review A-1 → reject: "wrong gate"',
     );
     expect(formatReviewChoiceText("A-1", { verdict: "accept", note: "" })).toBe(
       "Review A-1 → accept",
     );
     expect(formatReviewChoiceText("A-1", { verdict: null, note: "let us talk" })).toBe(
-      'Review A-1 → comment — "let us talk"',
+      'Review A-1 → comment: "let us talk"',
     );
   });
 

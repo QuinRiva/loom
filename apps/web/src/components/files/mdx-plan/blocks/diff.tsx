@@ -9,14 +9,9 @@ import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockType
 import { WrapToggle } from "./wrapToggle";
 
 /**
- * The `<Diff>` block — a GitHub-style before/after line diff, unified or split.
- * The differ is a small self-contained LCS (`diffTokens`, ported from
- * `@agent-native/core` `DiffBlock.tsx`) run over lines, then over the words of
- * each paired changed line — NO `jsdiff`/`diff` runtime dependency.
- * Line-anchored `annotations` (mirroring `<AnnotatedCode>`, plus a `side`)
- * render as a note list below the diff. Schema + MDX round-trip ported verbatim
- * from `@agent-native/core` `diff.config.ts` (flat attrs; `before`/`after`
- * multiline string attrs; `annotations` a JSON array attr).
+ * `<Diff>`: a before/after line diff, unified or split, using a small self-contained
+ * LCS (`diffTokens`) over lines then words, with no `diff` runtime dependency.
+ * Line-anchored `annotations` render as a note list below.
  */
 
 export type DiffMode = "unified" | "split";
@@ -142,12 +137,9 @@ function diffLines(before: string, after: string): Change[] {
   );
 }
 
-/* loom: word-level emphasis inside a positionally paired removed/added line —
- * the same tokens (words, whitespace runs, single punctuation) and gap-joining
- * as `@pierre/diffs` `lineDiffType: "word-alt"`, so the plan diff reads like the
- * diff panel. `[emphasised, text]` spans; `undefined` (whole-line rows) when the
- * lines share too few words for positional pairing to mean anything, or are too
- * long for the LCS budget. */
+/* loom: word-level emphasis in a positionally paired removed/added line, tokenised like
+ * `@pierre/diffs` `"word-alt"` so it reads like the diff panel. `undefined` when the
+ * lines share too few words to pair meaningfully, or exceed the LCS budget. */
 type WordSpan = [emphasis: boolean, text: string];
 
 const WORD_TOKEN = /\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu;
@@ -404,12 +396,9 @@ function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
           No changes
         </div>
       ) : mode === "split" ? (
-        // One CSS grid (1fr 1fr) so each SplitRow pair shares a grid row and its
-        // left/right cells stay height-aligned when one side wraps taller. When
-        // not wrapping, cells grow to content and the grid scrolls horizontally;
-        // when wrapping, `min-w-0 flex-1` on the text span lets cells shrink and
-        // wrap. `pairSplitRows`, the truncation button, and annotations are
-        // unchanged.
+        // One 1fr/1fr grid so each SplitRow pair shares a row and stays height-aligned
+        // when one side wraps. Unwrapped, the grid scrolls horizontally; wrapped,
+        // `min-w-0 flex-1` lets cells shrink.
         <div
           className="grid overflow-x-auto font-mono text-xs"
           style={{ gridTemplateColumns: "1fr 1fr" }}

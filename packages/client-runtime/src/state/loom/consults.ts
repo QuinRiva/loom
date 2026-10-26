@@ -6,13 +6,10 @@ import type {
 } from "@t3tools/contracts";
 
 /**
- * Live consults from the shell stream's `consult.updated` items, held here
- * rather than on the shell snapshot: the snapshot is persisted to the cache on
- * every write, and these change at a running fork's tool boundaries. Keyed by
- * environment, asker thread and question key, so one consult card re-renders
- * when its own consult moves. A finished consult is kept for the session (its
- * card freezes on its figures and transcript); a reload starts empty and the
- * server's subscription replays only the running ones.
+ * Live consults from `consult.updated` items, kept off the shell snapshot (persisted on every write)
+ * since they change at a running fork's tool boundaries. Keyed by environment, asker thread and
+ * question key, so a card re-renders only for its own consult. A finished consult is kept for the
+ * session; a reload starts empty and the subscription replays only the running ones.
  */
 const consults = new Map<string, ReadonlyArray<LoomLiveConsult>>();
 const listeners = new Map<string, Set<() => void>>();

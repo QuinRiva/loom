@@ -1,12 +1,9 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
-// Review gates (docs/design/workstream-review-gates.md §8): durable per-thread
-// routing state.
-// - routes: outcome route edges declared at spawn (JSON array; '[]' default).
-// - gate_rounds: loop traversals consumed (projected from thread.route-taken).
-// - pending_rework: 0/1 — an open rework round on a gate target.
-// - last_outcome: the most recent submitted outcome record (JSON, nullable).
+// Review-gate routing state: `routes` (outcome edges declared at spawn, JSON, '[]'), `gate_rounds`
+// (loop traversals from thread.route-taken), `pending_rework` (0/1, an open rework round on a gate
+// target), `last_outcome` (latest submitted outcome record, JSON, nullable).
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const columns = yield* sql<{ name: string }>`PRAGMA table_info(projection_threads)`;

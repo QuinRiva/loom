@@ -334,11 +334,8 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   durationMs: Schema.optional(NonNegativeInt),
   compactsAutomatically: Schema.optional(Schema.Boolean),
   // loom: usage-ledger fields (costUsd … usesSubscriptionPricing).
-  // Dollar cost of this single assistant message, taken verbatim from the
-  // provider's own authoritative figure (pi's `usage.cost.total`). A per-message
-  // delta — summing across token-usage events reconstructs cumulative spend, so
-  // it is replay-safe. Only pi carries a cost today; other adapters leave it
-  // unset and no cost is shown for them.
+  // Dollar cost of this one assistant message, verbatim from the provider (pi's `usage.cost.total`).
+  // A per-message delta, so summing events is replay-safe; only pi sets it.
   costUsd: Schema.optional(NonNegativeNumber),
   // Model attribution for the usage ledger. `model` is the slug the request was
   // made with; `resolvedModel` is the concrete inference model when the provider
@@ -346,12 +343,9 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   // anthropic/vertex paths).
   model: Schema.optional(TrimmedNonEmptyStringSchema),
   resolvedModel: Schema.optional(TrimmedNonEmptyStringSchema),
-  // Real backend provider identity for the usage ledger: the `providerID` half
-  // of pi/OpenCode's `providerID/modelID` slug (e.g. `google-vertex-claude`,
-  // `anthropic`, `openai-codex`) — the model's actual vendor/backend, NOT the
-  // driver kind. This is what usage is scoped and grouped by, so Anthropic vs
-  // Vertex vs OpenAI are distinguishable. Unset when an adapter can't resolve a
-  // real backend (never fabricated).
+  // Real backend for the usage ledger: the `providerID` half of the `providerID/modelID` slug
+  // (e.g. `google-vertex-claude`), NOT the driver kind, so usage groups by vendor. Unset when an
+  // adapter cannot resolve one (never fabricated).
   providerId: Schema.optional(TrimmedNonEmptyStringSchema),
   // Cache-write prompt tokens, split out because cache writes are billed at a
   // premium and dominate cost in agent workloads. `inputTokens` keeps its
@@ -418,10 +412,7 @@ const TurnStartedPayload = Schema.Struct({
 });
 export type TurnStartedPayload = typeof TurnStartedPayload.Type;
 
-/**
- * Input includes cache reads and writes. Output includes reasoning, and
- * reasoningTokens is an optional subset.
- */
+// Input includes cache reads/writes; output includes the optional reasoningTokens subset.
 const TurnTokenUsageCommonFields = {
   usageScope: Schema.Literal("main_agent"),
   cachedInputTokens: Schema.optional(NonNegativeInt),
@@ -605,10 +596,7 @@ const UserInputResolvedPayload = Schema.Struct({
 });
 export type UserInputResolvedPayload = typeof UserInputResolvedPayload.Type;
 
-/**
- * Claude reports per-activation deltas; Codex reports cumulative totals — the
- * merge strategy is provider-specific and lives in client-runtime.
- */
+/** Claude reports activation deltas; Codex reports cumulative totals. Merge per provider in client-runtime. */
 export const RuntimeTaskUsage = Schema.Struct({
   totalTokens: NonNegativeInt,
   inputTokens: Schema.optional(NonNegativeInt),
@@ -630,15 +618,12 @@ export const TaskRunHandles = Schema.Struct({
   runId: Schema.optional(TrimmedNonEmptyStringSchema),
   scriptPath: Schema.optional(TrimmedNonEmptyStringSchema),
   transcriptDir: Schema.optional(TrimmedNonEmptyStringSchema),
-  /** Only http/https URLs may be stored here — sanitized at the adapter. */
+  /** Only http/https URLs, sanitized by the adapter. */
   sessionUrl: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type TaskRunHandles = typeof TaskRunHandles.Type;
 
-/**
- * Repeated on progress and terminal rows (not just start) so client folds can
- * reconstruct an agent even when its start row aged out of activity retention.
- */
+// Repeat on progress and terminal rows so agents survive start-row eviction.
 const taskAgentLinkageFields = {
   taskType: Schema.optional(TrimmedNonEmptyStringSchema),
   agentKind: Schema.optional(Schema.Literals(["agent", "background"])),
@@ -658,10 +643,7 @@ const taskAgentLinkageFields = {
   runHandles: Schema.optional(TaskRunHandles),
   outputFile: Schema.optional(TrimmedNonEmptyStringSchema),
   agentPath: Schema.optional(TrimmedNonEmptyStringSchema),
-  /**
-   * Set on provider-synthesized child-agent events (Codex) whose activity
-   * belongs in the Agents surface, never the parent timeline.
-   */
+  /** Provider-synthesized child events belong in Agents, never the parent timeline. */
   timelineBypass: Schema.optional(Schema.Boolean),
 } as const;
 

@@ -1,53 +1,8 @@
 /**
- * The frozen oracle behind `mcp__t3-code__consult_thread` (ported from V1's
- * `workstreamAsk.ts` onto upstream's pi RPC transport). A throwaway
- * `pi --mode rpc --fork <session file>` process answers ONE question from a
- * copy of a thread's session and is discarded; the target is never resumed or
- * touched:
- *
- *  - the fork is a SEPARATE session file (pi's fork never writes the source);
- *  - it is launched as the target was: the target's launch identity record
- *    (appended prompt, skills, the Loom extension, env), upstream's bridge and
- *    an MCP credential, so it registers exactly the tools the transcript
- *    declares. pi replays it with no tool delta, the request's `tools` →
- *    `system` → `messages` prefix is the target's, and a warm target's cache is
- *    read rather than rewritten. Narrowing the tools would make pi declare a
- *    mid-conversation tool change and miss the cache (DL-634);
- *  - the credential is minted for the target's thread with a READ-ONLY client
- *    beside it, so the server refuses every state-changing call: upstream's
- *    `McpToolAccess` for its tools, `callLoomTool` for Loom's (only
- *    `workstream_list` / `goal_task_list` run), the `/loom/agent` routes for
- *    ask and cache-warming. It is issued with `registry.issue`, never the
- *    thread-revoking helper, so the target's live credential is untouched, and
- *    is revoked by its own id when the consult ends. `T3_LOOM_CONSULT_FORK`
- *    makes the Loom extension block `edit` / `write`; bash stays open for
- *    inspection, governed by the consult turn's instruction;
- *  - a target with no launch identity (never launched through the composer)
- *    gets a cold fork: no credential, no Loom extension, today's tools.
- *
- * The process runs in the target's worktree when the caller passes one that
- * still exists, else the SERVER's cwd, so a thread whose worktree has been
- * deleted still answers (smoke step 20). The session file is the caller's to
- * resolve — always the provider thread's strong `nativeThreadRef`, never a
- * name or path guess. The fork writes its transcript straight into
- * `workstream-consults/` (`--session-dir`), where it is kept for inspection.
- *
- * There is deliberately no duration bound: a consult exists so the asker gets
- * an answer without spending its own context on the digging, and real digging
- * can take many minutes. A quiet fork is not a hung one either (a long bash
- * command emits nothing), so no stall bound would be anything but arbitrary.
- * The bound is the asker's turn: stopping it aborts the tool call, which
- * interrupts this effect, and the connection's scope kills the fork's process
- * group. A fork that dies or loses its provider fails the transport instead.
- * The asker's consult card can also stop one consult alone (`cancel`).
- *
- * While it runs, the fork's figures — current step, tool count, spend, recent
- * steps, latest sentence — are published as unsequenced `consult.updated`
- * shell-stream items (`subscribeLive`, merged in by `ws.ts` beside the goal
- * items): at tool boundaries and message ends, at most every
- * `PUBLISH_INTERVAL_MS`, never per streamed token. Nothing is persisted.
- *
- * @module loom/workstream/consult
+ * The frozen oracle behind `consult_thread`: a throwaway `pi --mode rpc --fork` answers ONE
+ * question from a copy of the target's session, launched with the target's launch identity and
+ * full tool set (narrowing tools would miss the cache) and a READ-ONLY credential. No duration
+ * bound: stopping the asker's turn interrupts this and kills the fork's process group.
  */
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- the consult id is minted inline.
 import * as NodeCrypto from "node:crypto";
@@ -124,7 +79,7 @@ Question:
 
 ${input.question}
 
-Answering: reply from the knowledge already in this session's context, addressed to the asker, who sees your reply and nothing else. You may inspect anything that helps you answer (run commands, read files, git log/diff), but do not modify files, git state or any thread; every tool that changes state — the workstream tools, edits, questions to a human — is refused in this fork; use the read-only ones and your context, so do not narrate work, promise follow-up, or offer to go and do something. The tree has moved on since this session's last turn, so treat remembered paths and contents as historical. If this session's context does not resolve the question, say so plainly (for example "this session does not resolve that") and say what it does cover; that is a useful answer, not a failure.`;
+Answering: reply from the knowledge already in this session's context, addressed to the asker, who sees your reply and nothing else. You may inspect anything that helps you answer (run commands, read files, git log/diff), but do not modify files, git state or any thread; every tool that changes state (the workstream tools, edits, questions to a human) is refused in this fork; use the read-only ones and your context, so do not narrate work, promise follow-up, or offer to go and do something. The tree has moved on since this session's last turn, so treat remembered paths and contents as historical. If this session's context does not resolve the question, say so plainly (for example "this session does not resolve that") and say what it does cover; that is a useful answer, not a failure.`;
 
 export class LoomConsultError extends Schema.TaggedError<LoomConsultError>()("LoomConsultError", {
   detail: Schema.String,
@@ -403,17 +358,15 @@ export const layer = Layer.effect(
 
     return LoomThreadConsult.of({
       ask,
-      cancel: (consultId) =>
-        Effect.gen(function* () {
-          const consult = running.get(consultId);
-          if (consult === undefined) return false;
-          const elapsed =
-            (yield* Clock.currentTimeMillis) - Date.parse(consult.published.startedAt);
-          return yield* Deferred.succeed(
-            consult.stop,
-            `Stopped from the consult card after ${formatElapsed(elapsed)}.`,
-          );
-        }),
+      cancel: Effect.fn("consult.cancel")(function* (consultId) {
+        const consult = running.get(consultId);
+        if (consult === undefined) return false;
+        const elapsed = (yield* Clock.currentTimeMillis) - Date.parse(consult.published.startedAt);
+        return yield* Deferred.succeed(
+          consult.stop,
+          `Stopped from the consult card after ${formatElapsed(elapsed)}.`,
+        );
+      }),
       subscribeLive: Effect.map(PubSub.subscribe(live), (subscription) =>
         Stream.concat(
           Stream.fromIterable(

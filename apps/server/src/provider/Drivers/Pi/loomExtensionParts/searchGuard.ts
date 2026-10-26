@@ -1,56 +1,13 @@
-// loom: Loom extension part (plan track 3c, seam 3) — quarantine's
-// searchGuardExtension.ts carried over with its analysis logic unchanged.
-//
-// The pi search guard: a `tool_call`/`tool_result`
-// hook that fail-fasts the number-one sub-thread failure mode — a long,
-// unbounded filesystem search launched because a file is not where the agent
-// assumed (wrong cwd, wrong repo, or a brief path it did not verify). The bash
-// tool has no default timeout, so such a search blocks the turn for many
-// minutes with zero agent-visible feedback and no lever can penetrate it
-// (steers queue between model rounds; the control-plane notice is FYI-only).
-//
-// Two layers, both heuristic and deliberately permissive on doubt:
-//  1. BLOCK unbounded recursive searches rooted outside the session worktree
-//     (and any search over a known-vast root: `/`, `$HOME`, a strict ancestor
-//     of the worktree — the workspace/cockpit roots — or a depth-1 dir), with
-//     a teaching message carrying the escalation ladder: verify brief paths →
-//     focused bounded search → `mcp__t3-code__consult_thread` as the expensive
-//     last resort.
-//  2. AUTO-BOUND pure read-only search pipelines to
-//     SEARCH_GUARD_TIMEOUT_SECONDS when the model passed no timeout, so a
-//     stuck search returns partial output + a timeout error the model can
-//     react to quickly instead of hanging the turn. On such a timeout, a
-//     `tool_result` hook appends the same ladder as a hint.
-//
-// Escape hatches (BOTH layers honour them — an explicitly bounded command is
-// never blocked and never re-bounded):
-//  - an explicit `timeout` parameter on the bash tool call;
-//  - a `timeout N` command prefix on the walker;
-//  - a depth bound on the walker (`-maxdepth`, `--max-depth`, fd's `-d`).
-//
-// Every handler body is wrapped in try/catch → allow: a thrown `tool_call`
-// extension handler blocks ALL tool execution in pi, so an analyser bug must
-// degrade to "no guard", never to a bricked session. The command analysis is
-// quote-blind by design: a mis-parse only ever degrades to a teaching block
-// or a no-op, never corrupts execution.
-//
-// As a part: `source` is a function body run once per pi process as
-// `(pi, ctx) => { … }` by Loom's extension assembler (3a). It imports nothing
-// (the file pi loads lives outside this package): Node built-ins come from
-// `process.getBuiltinModule`. It needs no `ctx` member (pi's own handler
-// context supplies `cwd`).
+// loom: Loom extension part: the search guard. An unbounded search for a misplaced file blocks the
+// turn for minutes, so it BLOCKS recursive searches rooted outside the worktree or over a vast root
+// and AUTO-BOUNDS read-only search pipelines with no timeout; a `timeout`, `timeout N` prefix or
+// depth bound exempts. Handlers catch everything: a throwing `tool_call` handler bricks pi's tools.
 import type { LoomExtensionPart } from "../loomExtension.ts";
 
 /**
- * Auto-injected bound (seconds) for unbounded pure-search bash pipelines.
- * Measured on the heaviest legitimate case — this repo's worktree, 238k files
- * incl. a 3.2 GB node_modules: `find .` (filename) ≈ 0.3s, `rg` (content)
- * ≈ 0.01s, so 30s is ~100× above every legitimate search shape while sitting
- * 10× under the control plane's first slow-tool notice (5 min). The one thing
- * it clips — a raw `grep -rn` from the worktree root grinding through
- * node_modules content (>60s) — is itself an anti-pattern the timeout hint
- * redirects to `rg`/a named subtree; a genuinely long search can rerun with an
- * explicit larger timeout.
+ * Auto-injected bound (seconds) for unbounded pure-search pipelines: ~100x above every legitimate
+ * search on this repo's 238k-file worktree, 10x under the first slow-tool notice (5 min). It clips
+ * only a raw `grep -rn` through node_modules, which the hint redirects; a rerun can pass a timeout.
  */
 export const SEARCH_GUARD_TIMEOUT_SECONDS = 30;
 
@@ -60,9 +17,9 @@ export const SEARCH_GUARD_TIMEOUT_SECONDS = 30;
  * file that a wider search will find.
  */
 const LADDER_BASE =
-  "When a file is not where you expected, searching wider almost never finds it — " +
+  "When a file is not where you expected, searching wider almost never finds it: " +
   "you are usually in the wrong directory, repo, or worktree. Escalate in order: " +
-  "(1) verify the exact paths your brief gave you (`pwd`, `git rev-parse --show-toplevel`, `ls <path>`) — brief paths are authoritative; " +
+  "(1) verify the exact paths your brief gave you (`pwd`, `git rev-parse --show-toplevel`, `ls <path>`): brief paths are authoritative; " +
   "(2) run a focused, bounded search: a named subtree, `find <dir> -maxdepth 3 -name <name>`, or `rg --files -g <name>` inside your worktree";
 
 const CONSULT_TOOL = "mcp__t3-code__consult_thread";
@@ -72,7 +29,7 @@ const CONSULT_TOOL = "mcp__t3-code__consult_thread";
  * workstream toolkit, so the guard checks pi's registry when it teaches and a
  * session without the tool is never told to call it.
  */
-const LADDER_CONSULT = `; (3) only as a last resort, ask the thread that holds the context via \`${CONSULT_TOOL}\` — it is expensive, so exhaust the cheap checks first`;
+const LADDER_CONSULT = `; (3) only as a last resort, ask the thread that holds the context via \`${CONSULT_TOOL}\`: it is expensive, so exhaust the cheap checks first`;
 
 const LADDER_TAIL =
   ". If you genuinely need a long search, bound it explicitly (`-maxdepth`, `--max-depth`, or a `timeout` prefix / explicit timeout parameter).";
@@ -100,7 +57,7 @@ const ladder = () =>
 // Recursive searchers the guard reasons about. rg/fd are gitignore-aware (a
 // foreign worktree walk is usually fine); find/grep walk everything.
 const WALKERS = new Set(["find", "grep", "rg", "fd"]);
-// Heads considered harmless to kill mid-run — a pipeline is only auto-bounded
+// Heads considered harmless to kill mid-run: a pipeline is only auto-bounded
 // when EVERY segment head is in this set (never a build, install, or write).
 const SAFE_HEADS = new Set([
   "cd", "find", "grep", "rg", "fd", "ls", "head", "tail", "wc",
@@ -109,7 +66,7 @@ const SAFE_HEADS = new Set([
 // Wrapper commands whose flags/values precede the real command.
 const WRAPPERS = new Set(["sudo", "nice", "command", "env", "nohup", "stdbuf", "ionice"]);
 // find actions with side effects (execution or file writes): a pipeline
-// containing one is never auto-bounded — a mid-run kill could leave partial
+// containing one is never auto-bounded; a mid-run kill could leave partial
 // artefacts or interrupt the exec'd command.
 const FIND_SIDE_EFFECTS = new Set([
   "-exec", "-execdir", "-ok", "-okdir", "-delete",
@@ -122,7 +79,7 @@ const isWithin = (root, p) => {
 };
 
 // Known-vast roots: filesystem root, the home dir, any depth-1 directory
-// (/home, /usr, /tmp, ...), and any STRICT ANCESTOR of the worktree — which
+// (/home, /usr, /tmp, ...), and any STRICT ANCESTOR of the worktree, which
 // generically covers the workspace and cockpit roots that contain every
 // sibling worktree's node_modules.
 const isVastRoot = (worktree, p) => {
@@ -141,7 +98,7 @@ const splitSegments = (command) =>
 
 // Tokenise a segment: strip quotes and subshell parens, extract redirections
 // (dropping operator+target from the analysis tokens, and flagging output
-// redirection to a real file — a mid-run kill of such a command could leave a
+// redirection to a real file; a mid-run kill of such a command could leave a
 // plausible-looking partial artefact), and drop leading env assignments.
 const tokenise = (segment) => {
   const raw = segment
@@ -181,7 +138,7 @@ const headOf = (tokens) => {
 // skipped so \`env LC_ALL=C find ...\`, \`nice -n 10 find ...\`,
 // \`sudo -u nobody find ...\`, and \`stdbuf -o L find ...\` all expose the
 // walker. After a flag token, the next token is treated as that flag's value
-// (and skipped) unless it is itself a walker or \`cd\` — so a no-value flag
+// (and skipped) unless it is itself a walker or \`cd\`, so a no-value flag
 // directly preceding the command (\`sudo -n find ...\`) still resolves.
 const unwrapPrefixes = (tokens) => {
   let rest = tokens;
@@ -190,7 +147,7 @@ const unwrapPrefixes = (tokens) => {
     const head = headOf(rest);
     if (head === "timeout") {
       bounded = true;
-      // timeout [opts] DURATION CMD... — skip to the token after the duration.
+      // timeout [opts] DURATION CMD...: skip to the token after the duration.
       let i = 1;
       while (i < rest.length && rest[i].startsWith("-")) i += 1;
       rest = rest.slice(i + 1);

@@ -1,12 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
- * Who a Query forks: the thread that signed the document. pi's `sign_document` writes a
- * `manager_sessions: [{ id, name, role, authored_at }]` manifest (YAML frontmatter, or an HTML
- * `<!--pi-manifest ... -->` comment) whose `id` is the signing pi session; the provider-thread
- * projection maps that session to its thread. An unsigned document, or one no entry of which
- * resolves, falls back to the viewing thread.
- *
- * @module loom/query/documentAuthor
+ * Who a Query forks: the thread that signed the document. `sign_document`'s `manager_sessions`
+ * manifest (YAML frontmatter or `<!--pi-manifest -->`) names the signing pi session, which the
+ * provider-thread projection maps to its thread; otherwise the viewing thread.
  */
 import * as NodePath from "node:path";
 
@@ -75,20 +71,17 @@ export const signingSessionIds = (entries: ReadonlyArray<ManagerSession>) => [
 ];
 
 /**
- * The author a Query on `filePath` from `sourceThreadId` forks, and the document as the
- * viewing thread's workspace holds it now. A query thread stands for its own author, whether
- * it is the viewer or the signer, so a Query never forks a fork.
- *
- * `filePath` is the document as the author names it: a viewer in another worktree opens the
- * author's file by absolute path, which becomes author-relative here so every view keys the
- * same query thread and pins, and the fork (in the author's cwd) can open it.
+ * The author a Query on `filePath` from `sourceThreadId` forks (a query thread stands for its
+ * own author, so a Query never forks a fork), and the document as the viewer holds it. An
+ * absolute path from another worktree becomes author-relative, so every view keys the same
+ * query thread and pins and the fork can open it.
  */
-export const resolveDocumentAuthor = (input: {
-  readonly method: string;
-  readonly sourceThreadId: ThreadId;
-  readonly filePath: string;
-}) =>
-  Effect.gen(function* () {
+export const resolveDocumentAuthor = Effect.fn("documentAuthor.resolveDocumentAuthor")(
+  function* (input: {
+    readonly method: string;
+    readonly sourceThreadId: ThreadId;
+    readonly filePath: string;
+  }) {
     const fail = (message: string, cause?: unknown) =>
       new LoomWsMethodError({ method: input.method, message, cause });
     const orchestrator = yield* OrchestratorV2;
@@ -140,7 +133,8 @@ export const resolveDocumentAuthor = (input: {
     const author = yield* authorOf(viewing.id);
     if (author === null) return yield* fail("The document's author thread was not found.");
     return yield* resolved(author, "viewing-thread");
-  });
+  },
+);
 
 /** `loom.documentQueryAuthor`: the Query card's pre-flight, the same resolution `askDocumentQuery` makes. */
 export const lookupDocumentQueryAuthor = (input: DocumentQueryAuthorInput) =>

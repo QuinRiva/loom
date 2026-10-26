@@ -32,7 +32,7 @@ export const workstreamBrief = Effect.fn("LoomToolkit.workstreamBrief")(function
     );
   if (target.kickoffAt !== null)
     return yield* fail(
-      `Child ${target.threadId} has already started — its kickoff is fixed. Use ${t("workstream_prompt")} to steer it.`,
+      `Child ${target.threadId} has already started; its kickoff is fixed. Use ${t("workstream_prompt")} to steer it.`,
     );
   const briefPath = yield* asToolError(writeWorkstreamBrief(target.threadId, input.markdown));
   yield* dispatch({

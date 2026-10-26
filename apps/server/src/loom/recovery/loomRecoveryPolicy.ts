@@ -1,23 +1,8 @@
 /**
- * Restart recovery for Loom threads (plans/upstream-pull9-phase2-substrate/plan.mdx
- * §3 "Restart recovery", D20; DL-195, DL-199). Upstream commits reconciliation
- * and the continuation effect together, so Loom attaches at two seams:
- *
- * - **Rule 0** — `isContinued` is the not-continued set the `dispatchMessage`
- *   hunk vetoes a restart / usage-limit continuation with (as upstream's no-op).
- * - **`releaseHeldQueues`** — a startup pass after upstream's reconciliation
- *   (which holds every queued run): a dead thread's queued runs are cancelled, a
- *   thread owed a human stays held, a live thread with a held Loom control wake
- *   is resumed.
- *
- * - **`loomStartupRecovery`** — the one startup call: each stashed steer (seam 20)
- *   carried by the thread's restart continuation or redelivered as a steered
- *   control message, then `releaseHeldQueues`, then one dispatcher pass (a
- *   kickoff with no receipt is redelivered by promotion).
- *
- * Threads without a sidecar row keep upstream's rule.
- *
- * @module loom/recovery/loomRecoveryPolicy
+ * Restart recovery for Loom threads. Rule 0 (`isContinued`) vetoes a restart or usage-limit
+ * continuation; `loomStartupRecovery` redelivers stashed steers, then `releaseHeldQueues` (a dead
+ * thread's queued runs cancelled, one owed a human held, a live held control wake resumed), then
+ * one dispatcher pass. Threads without a sidecar row keep upstream's rule.
  */
 import {
   CommandId,
@@ -61,36 +46,33 @@ export const isContinued = (
   );
 
 /**
- * Runs the thread's restart continuation now when its outbox effect is still due. The effect
- * worker runs `effect:restart-continuation:<run>` asynchronously, so a Loom wake dispatched at
- * startup could start a run first and turn the continuation into a no-op (the cut turn would be
- * lost, DL-376). `continueRestartedRun` is idempotent by its message and command ids, so the
- * worker's later run of the same effect does nothing.
+ * Runs the thread's restart continuation now when its outbox effect is still due: a Loom wake
+ * dispatched at startup could otherwise start a run first and turn the continuation into a no-op,
+ * losing the cut turn. Idempotent by message and command ids, so the worker's later run is a no-op.
  */
-const runDueContinuation = (
+const runDueContinuation = Effect.fn("loomRecoveryPolicy.runDueContinuation")(function* (
   threadId: ThreadId,
   projection: Pick<OrchestrationV2ThreadProjection, "runs">,
-) =>
-  Effect.gen(function* () {
-    // Upstream's choice of the cut run (`restartContinuationRun`): by end time, not ordinal — a
-    // queued message promoted to a steer leaves a cancelled run with a higher ordinal.
-    const source = projection.runs
-      .filter((run) => run.status !== "queued")
-      .reduce<(typeof projection.runs)[number] | undefined>(
-        (latest, run) => (latest === undefined || runRanAfter(run, latest) ? run : latest),
-        undefined,
-      );
-    if (source === undefined) return;
-    const continuation = yield* (yield* EffectOutbox.EffectOutboxV2).get(
-      `effect:restart-continuation:${source.id}`,
+) {
+  // Upstream's choice of the cut run (`restartContinuationRun`): by end time, not ordinal — a
+  // queued message promoted to a steer leaves a cancelled run with a higher ordinal.
+  const source = projection.runs
+    .filter((run) => run.status !== "queued")
+    .reduce<(typeof projection.runs)[number] | undefined>(
+      (latest, run) => (latest === undefined || runRanAfter(run, latest) ? run : latest),
+      undefined,
     );
-    if (
-      Option.isSome(continuation) &&
-      (continuation.value.status === "pending" || continuation.value.status === "running")
-    ) {
-      yield* continueRestartedRun({ threadId, sourceRunId: source.id });
-    }
-  });
+  if (source === undefined) return;
+  const continuation = yield* (yield* EffectOutbox.EffectOutboxV2).get(
+    `effect:restart-continuation:${source.id}`,
+  );
+  if (
+    Option.isSome(continuation) &&
+    (continuation.value.status === "pending" || continuation.value.status === "running")
+  ) {
+    yield* continueRestartedRun({ threadId, sourceRunId: source.id });
+  }
+});
 
 /** The §3 table's startup pass over Loom threads holding a queued run. Never fails startup. */
 export const releaseHeldQueues = Effect.gen(function* () {
@@ -161,42 +143,35 @@ export const releaseHeldQueues = Effect.gen(function* () {
  * after it. A stash from any other run died with its pi — a Stop terminates pi, as can a pi
  * death while the server stays up — or is older than the thread's later turns.
  */
-const cutByRestart = (
+const cutByRestart = Effect.fn("loomRecoveryPolicy.cutByRestart")(function* (
   threadId: ThreadId,
   runs: OrchestrationV2ThreadProjection["runs"],
   runId: string | null,
-) =>
-  Effect.gen(function* () {
-    const cut = runs.find((run) => run.id === runId);
-    if (
-      cut?.status !== "cancelled" ||
-      runs.some(
-        (run) =>
-          run.id !== cut.id &&
-          run.status !== "queued" &&
-          run.restartContinuationOfRunId !== cut.id &&
-          runRanAfter(run, cut),
-      )
+) {
+  const cut = runs.find((run) => run.id === runId);
+  if (
+    cut?.status !== "cancelled" ||
+    runs.some(
+      (run) =>
+        run.id !== cut.id &&
+        run.status !== "queued" &&
+        run.restartContinuationOfRunId !== cut.id &&
+        runRanAfter(run, cut),
     )
-      return false;
-    const { turnItems } = yield* (yield* OrchestratorV2).getThreadRecords(threadId, ["turnItems"], {
-      turnItemRunIds: [cut.id],
-      turnItemTypes: ["run_interrupt_request"],
-    });
-    return turnItems.length === 0;
+  )
+    return false;
+  const { turnItems } = yield* (yield* OrchestratorV2).getThreadRecords(threadId, ["turnItems"], {
+    turnItemRunIds: [cut.id],
+    turnItemTypes: ["run_interrupt_request"],
   });
+  return turnItems.length === 0;
+});
 
 /**
- * Seam 20 (P3-24): each stashed steer — what the dead pi had accepted and never delivered
- * (DL-691) — reaches its thread once, when the restart cut the turn it was stashed for; any other
- * stash is discarded (DL-694). A thread in rule 0's not-continued set keeps its stash, handed to
- * the dispatcher (`leaveStash`) for its `steerRedelivery` rail to carry into the next human- or
- * parent-started turn (DL-387). Otherwise upstream's restart continuation carries it
- * (`withStashedSteer` in its prompt, DL-690): its effect is run here when still due, so the
- * steer is delivered first and never queues behind the continuation — where a human-held queue
- * would hold it too. With no continuation it goes out as a steered control message, which starts
- * at once on the idle thread. The stash is then cleared unless pi has mirrored a newer queue.
- * Never fails; per-thread failures log.
+ * A stashed steer (accepted by the dead pi, never delivered) reaches its thread once, only if the
+ * restart cut its turn; other stashes are discarded. A rule-0 thread leaves it to the dispatcher's
+ * `steerRedelivery` rail; else the due restart continuation, run here so the steer never queues
+ * behind a held queue, carries it, or a steered control message does. Never fails; failures log.
  */
 export const redeliverStashedSteers = Effect.gen(function* () {
   const orchestrator = yield* OrchestratorV2;

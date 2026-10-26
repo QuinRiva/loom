@@ -1,11 +1,7 @@
-// loom: Loom extension part — keep pi's system message at the head of every request.
-// Global packages (pi-session-search, and pi-memory unless perTurnInjection is false) send
-// custom messages at `session_start`, before pi persists its first system message, so loom
-// transcripts start [custom, custom, user, system, …]. pi's providers read the prompt and the
-// initial tool list from messages[0] only: with none there, Anthropic gets no `system` field and
-// resends the whole tool list on every `tool_search` load (a full cache rewrite), and Codex runs
-// under a placeholder `instructions`. Request-local: the saved transcript is unchanged. A no-op
-// when another extension (pi-craft's global copy) has already hoisted it.
+// loom: Loom extension part: hoist pi's system message to the head of every request. Global
+// packages send custom messages at `session_start`, before pi's first system message, and pi's
+// providers read prompt and tools from messages[0] only (Anthropic then rewrites the cache on
+// every `tool_search` load). Request-local; a no-op when another extension already hoisted it.
 import type { LoomExtensionPart } from "../loomExtension.ts";
 
 export const systemHeadPart: LoomExtensionPart = {

@@ -1,39 +1,25 @@
 // @effect-diagnostics nodeBuiltinImport:off - migrations run with SqlClient only; report files are read synchronously.
+// oxlint-disable-next-line t3code/no-low-value-comments -- the rowid encoding is a contract ThreadSearch.loom.ts decodes
 /**
- * The thread-content search index (plans/thread-content-search): DDL, triggers
- * and backfill for `loom_thread_search` (FTS5, one row per text unit) and
- * `loom_thread_embeddings` (one vector per root thread, filled by ThreadEmbedder).
+ * `loom_thread_search` (FTS5, one row per text unit) and `loom_thread_embeddings` (one vector
+ * per root, filled by ThreadEmbedder): DDL, triggers and backfill. `rowid = source.rowid * 8 + kind`,
+ * so triggers replace by primary key, and each kind code has exactly one source table:
  *
- * Row identity is derived from the source row, `rowid = source.rowid * 8 + kind`,
- * so triggers delete and replace by primary key instead of scanning. Each kind
- * code belongs to exactly one source table, so two tables can never collide:
- *
- * | code | kind      | source                                                              |
- * |------|-----------|---------------------------------------------------------------------|
- * | 0    | report    | `loom_thread_workstream` (text from the report file; `upsertThreadSearchReport`) |
- * | 1    | title     | `orchestration_v2_projection_threads.title`, every thread            |
- * | 2    | purpose   | `loom_thread_workstream.purpose`                                     |
+ * | code | kind      | source                                                                   |
+ * |------|-----------|--------------------------------------------------------------------------|
+ * | 0    | report    | `loom_thread_workstream` (the report file's text; `upsertThreadSearchReport`) |
+ * | 1    | title     | `orchestration_v2_projection_threads.title`, every thread                 |
+ * | 2    | purpose   | `loom_thread_workstream.purpose`                                          |
  * | 3    | brief     | `orchestration_v2_projection_messages`, kick-off (`$.loom.origin = 'kickoff'`), brief only |
- * | 4    | user      | same table, user, origin neither `kickoff` nor `control_notice`      |
- * | 5    | assistant | same table, the last non-empty assistant message of each run         |
- * | 6    | goal      | `loom_goals` (title + description)                                   |
- * | 7    | task      | `loom_goal_tasks.text`                                               |
+ * | 4    | user      | same table, user, origin neither `kickoff` nor `control_notice`           |
+ * | 5    | assistant | same table, the last non-empty assistant message of each run              |
+ * | 6    | goal      | `loom_goals` (title + description)                                        |
+ * | 7    | task      | `loom_goal_tasks.text`                                                    |
  *
- * Messages are indexed only once finalised (`streaming = 0`: V2 rewrites the row
- * per delta). An assistant message is a run's answer when no later non-empty
- * assistant message exists in its run; indexing it removes the run's earlier
- * ones. Imported messages with no run count as final when the thread's next
- * message is the user's. A soft-deleted thread drops its rows; hits are credited
- * to roots at query time (ThreadSearch.loom.ts), so nothing here knows the tree.
- *
- * Rowids are stable because every writer upserts with `ON CONFLICT DO UPDATE`
- * and the server never VACUUMs in place; a projection rebuild deletes and
- * re-inserts through the triggers. A migration that rebuilds a source table by
- * copy-and-rename renumbers rowids and must re-run `rebuildThreadSearchIndex`.
- * `ALTER TABLE … DROP COLUMN` fails on a column a trigger references: bracket it
- * with `dropThreadSearchTriggers` / `createThreadSearchTriggers`.
- *
- * @module threadSearchIndex
+ * Messages are indexed once finalised (`streaming = 0`); hits are credited to roots at query
+ * time. Anything that renumbers a source table's rowids (VACUUM, a copy-and-rename migration,
+ * the dev-database copy) must re-run `rebuildThreadSearchIndex`. `ALTER TABLE … DROP COLUMN`
+ * on a column a trigger reads needs `dropThreadSearchTriggers` / `createThreadSearchTriggers`.
  */
 import * as NodeFS from "node:fs";
 
@@ -148,7 +134,8 @@ const triggers = [
   `CREATE TRIGGER loom_ts_messages_ai AFTER INSERT ON orchestration_v2_projection_messages
    WHEN NEW.streaming = 0 BEGIN ${messageRows} END`,
   `CREATE TRIGGER loom_ts_messages_au AFTER UPDATE OF payload_json, streaming ON orchestration_v2_projection_messages
-   WHEN NEW.streaming = 0 AND (OLD.streaming <> 0 OR OLD.payload_json IS NOT NEW.payload_json)
+   WHEN NEW.streaming = 0 AND (OLD.streaming <> 0 OR ${text("OLD")} IS NOT ${text("NEW")}
+     OR ${origin("OLD")} IS NOT ${origin("NEW")})
    BEGIN
      DELETE FROM loom_thread_search WHERE rowid IN (OLD.rowid*8+3, OLD.rowid*8+4, OLD.rowid*8+5);
      ${messageRows}
@@ -214,22 +201,23 @@ const backfill = [
      SELECT rowid*8+7, goal_id, 'task', text FROM loom_goal_tasks WHERE deleted_at IS NULL`,
 ];
 
-const runAll = (statements: ReadonlyArray<string>) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    for (const statement of statements) yield* sql.unsafe(statement);
-  });
+const runAll = Effect.fn("threadSearchIndex.runAll")(function* (statements: ReadonlyArray<string>) {
+  const sql = yield* SqlClient.SqlClient;
+  for (const statement of statements) yield* sql.unsafe(statement);
+});
 
 /** Latest report per thread wins: a gate round replaces the previous row. */
-export const upsertThreadSearchReport = (threadId: string, markdown: string) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql`DELETE FROM loom_thread_search WHERE rowid IN (
-      SELECT rowid*8 FROM loom_thread_workstream WHERE thread_id = ${threadId})`;
-    yield* sql`INSERT INTO loom_thread_search(rowid, thread_id, kind, text)
-      SELECT rowid*8, thread_id, 'report', ${markdown} FROM loom_thread_workstream
-      WHERE thread_id = ${threadId}`;
-  });
+export const upsertThreadSearchReport = Effect.fn("threadSearchIndex.upsertReport")(function* (
+  threadId: string,
+  markdown: string,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`DELETE FROM loom_thread_search WHERE rowid IN (
+    SELECT rowid*8 FROM loom_thread_workstream WHERE thread_id = ${threadId})`;
+  yield* sql`INSERT INTO loom_thread_search(rowid, thread_id, kind, text)
+    SELECT rowid*8, thread_id, 'report', ${markdown} FROM loom_thread_workstream
+    WHERE thread_id = ${threadId}`;
+});
 
 /** Reports live in files (`report_path`, absolute); missing files are skipped. */
 const backfillReports = Effect.gen(function* () {

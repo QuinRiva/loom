@@ -1,10 +1,7 @@
 /**
- * The `/loom/agent` routes over HTTP on the real orchestrator, with
- * credentials from the real `McpSessionRegistry`: the session profile's
- * `humanEngaged` reads only seam 14's stamp, a child's profile drops
- * `mcp__t3-code__ask_user_question`, ask + wait deliver an answer, the cache-warming plan
- * reaches the cache broadcast, a parked gate coder is told to keep warm while its reviewer is
- * live, and a credential without `workstream` is refused.
+ * `/loom/agent` over HTTP with real `McpSessionRegistry` credentials: `humanEngaged` reads only the
+ * engagement stamp, a child's profile drops `ask_user_question`, ask + wait deliver an answer,
+ * cache warming reaches the broadcast, a parked gate coder keeps warm, `workstream`-less is refused.
  */
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeServices from "@effect/platform-node/NodeServices";

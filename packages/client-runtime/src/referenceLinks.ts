@@ -26,11 +26,9 @@ export type ReferenceLinkSegment = {
 const compiled = new WeakMap<ReadonlyArray<ReferenceLinkRule>, ReferenceLinker | null>();
 
 /**
- * One alternation regex for all rules, so a text is scanned once and the
- * earliest match wins, with ties going to the first rule. Memoised on the rules
- * array (stable per server config snapshot), so callers may compile on every
- * render.
- * Invalid patterns are dropped.
+ * One alternation regex for all rules, so a text is scanned once and the earliest match wins, ties
+ * going to the first rule. Memoised on the rules array (stable per server config snapshot), so
+ * callers may compile on every render. Invalid patterns are dropped.
  */
 export function compileReferenceLinks(
   rules: ReadonlyArray<ReferenceLinkRule> | undefined,
