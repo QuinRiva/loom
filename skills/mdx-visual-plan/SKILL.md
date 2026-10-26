@@ -90,7 +90,7 @@ one no longer clear, goes to the owner as one question, as does a new decision
 that is theirs (a product trade-off, deleting data or artefacts, overriding a
 design document), such as a choice between approaches that differ only on
 something the owner alone can judge ("try A and B", with cheap spikes to try).
-Wrong code never reaches the owner. At near-done the owner tries their checks
+At near-done the owner tries their checks
 and reacts; the reaction becomes changed or new checks in the same brief,
 beside the passed checks and must-not lines every later round is still held
 to, and the build goes again until the owner says it works and `status` is
