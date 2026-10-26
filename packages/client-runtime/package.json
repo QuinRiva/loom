@@ -195,6 +195,10 @@
       "types": "./src/state/loom/consults.ts",
       "default": "./src/state/loom/consults.ts"
     },
+    "./state/loom/controlBubble": {
+      "types": "./src/state/loom/controlBubble.ts",
+      "default": "./src/state/loom/controlBubble.ts"
+    },
     "./state/loom/goalCommands": {
       "types": "./src/state/loom/goalCommands.ts",
       "default": "./src/state/loom/goalCommands.ts"

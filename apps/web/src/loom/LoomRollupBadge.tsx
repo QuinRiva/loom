@@ -7,9 +7,10 @@
 import { useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  attentionLabel,
   type WorkstreamBadgeTone,
   type WorkstreamRollup,
-  workstreamBadgeTone,
+  workstreamBadgeOf,
   workstreamRollupOf,
 } from "@t3tools/client-runtime/state/loom/rollup";
 import { workstreamIndexOf } from "@t3tools/client-runtime/state/loom/workstream";
@@ -24,7 +25,6 @@ import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { loomEnvironmentSnapshotAtom } from "../state/threads";
-import { attentionLabel } from "./loomAttention";
 
 const EMPTY_ROLLUPS: ReadonlyMap<ThreadId, WorkstreamRollup> = new Map();
 
@@ -118,10 +118,7 @@ export function LoomRollupPill({
 }) {
   const [open, setOpen] = useState(false);
   const { plan, activity, attention } = rollup;
-  const tone = workstreamBadgeTone(rollup);
-  const settled = plan.columns.done + plan.columns.cancelled;
-  // `!` means a human must act: non-zero exactly when the tone is red or amber.
-  const flagged = attention.nodes.filter((node) => !node.withAgents).length;
+  const { tone, settled, flagged } = workstreamBadgeOf(rollup);
   const summary = [
     plural(plan.total, "sub-thread"),
     `${settled} settled`,

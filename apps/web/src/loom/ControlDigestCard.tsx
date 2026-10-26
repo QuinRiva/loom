@@ -28,11 +28,12 @@ import { useRightPanelStore } from "~/rightPanelStore";
 
 import { verifyChipTargetBeforeOpen } from "./verifiedFileChips";
 
+import type { ControlChannel } from "@t3tools/client-runtime/state/loom/controlBubble";
+
 import {
   CHANNEL_CLASSES,
   type ControlCardItem,
   type ControlCardModel,
-  type ControlChannel,
   controlSummaryLine,
 } from "./controlMessages";
 

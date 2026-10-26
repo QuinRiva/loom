@@ -74,7 +74,8 @@ import {
 } from "./TimelineRowParts";
 import { UserMessageContextReferenceChip } from "./UserMessageContextChips";
 import { resolvePreviewAnnotationImage } from "./TimelineUserMessageRow.logic";
-import { CHANNEL_CLASSES, type ControlBubble } from "../../loom/controlMessages"; // loom: 3d-3
+import { CHANNEL_CLASSES } from "../../loom/controlMessages"; // loom: 3d-3
+import type { ControlBubble } from "@t3tools/client-runtime/state/loom/controlBubble"; // loom: 3d-3
 
 function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
   const ctx = use(TimelineRowCtx);

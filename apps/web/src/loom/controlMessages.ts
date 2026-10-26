@@ -4,15 +4,13 @@
  * model received. Anything this module does not know (a payload, notice or item kind added later)
  * renders the raw text as markdown instead of a card; never throw on payload shape.
  */
+import type { ControlChannel } from "@t3tools/client-runtime/state/loom/controlBubble";
 import type {
   ControlPayload,
   LoomControlItemKind,
   LoomControlNoticeKind,
   LoomMessageFields,
-  LoomMessageOrigin,
 } from "@t3tools/contracts";
-
-export type ControlChannel = "inter-thread" | "control-plane";
 
 /** Tailwind classes per channel (upstream theme tokens only). */
 export const CHANNEL_CLASSES: Record<
@@ -36,29 +34,6 @@ export const CHANNEL_CLASSES: Record<
     bubble: "border border-success/30 bg-success/10 text-foreground",
   },
 };
-
-export interface ControlBubble {
-  readonly channel: ControlChannel;
-  /** Who is talking: the bubble's kicker and accessible author, in place of "You". */
-  readonly label: string;
-}
-
-export const KICKOFF_BUBBLE: ControlBubble = { channel: "inter-thread", label: "Kickoff brief" };
-
-const BUBBLES: Record<LoomMessageOrigin, ControlBubble> = {
-  kickoff: KICKOFF_BUBBLE,
-  orchestrator: { channel: "inter-thread", label: "Orchestrator" },
-  notify: { channel: "inter-thread", label: "Thread notification" },
-  control_notice: { channel: "control-plane", label: "Control plane" },
-};
-
-/**
- * A Loom message that stays a bubble (a kickoff, a steer, a short notice) is
- * another thread or the control plane talking, never the human: it takes its
- * channel's accent and label, as in V1. Null for a human's message.
- */
-export const controlBubble = (loom: LoomMessageFields | null | undefined): ControlBubble | null =>
-  loom?.origin === undefined ? null : BUBBLES[loom.origin];
 
 const NOTICE_LABELS: Record<LoomControlNoticeKind, string> = {
   "gate-rework": "Rework round",
