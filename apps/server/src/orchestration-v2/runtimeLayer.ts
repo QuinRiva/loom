@@ -146,6 +146,7 @@ const layerProviderSessionManagerProvided = ProviderSessionManager.layer.pipe(
       layerProviderEventIngestorProvided,
       ProjectionStore.layer,
       LoomSessionComposerLive, // loom: the open-session composer (empty until Phase 3a)
+      LoomStore.layer, // loom: a Loom child's MCP credential is not marked subagent (Gate 2a D1)
     ),
   ),
 );

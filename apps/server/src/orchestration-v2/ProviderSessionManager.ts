@@ -59,6 +59,7 @@ import {
 import { LoomSessionComposer } from "../loom/prompt/sessionComposer.ts"; // loom: Area G
 import type { McpClientCaller } from "../mcp/McpInvocationContext.ts"; // loom: query threads
 import { documentQueryClient, LOOM_QUERY_FORK_ENV } from "../loom/query/queryPosture.ts"; // loom: query threads
+import { LoomStoreV2 } from "../loom/projection/LoomStore.ts"; // loom: Gate 2a D1
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
@@ -327,6 +328,7 @@ export const layerWithOptions = (
       const providerEventIngestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
       const sessionComposer = yield* LoomSessionComposer; // loom: Phase 3a's composer, empty by default
+      const loomStore = yield* Effect.serviceOption(LoomStoreV2); // loom: Gate 2a D1
       const agentScope = yield* AgentScope;
       const agentAccessSettings = Effect.fn("ProviderSessionManagerV2.agentAccessSettings")(
         function* (threadId: ThreadId) {
@@ -442,6 +444,12 @@ export const layerWithOptions = (
                 if (deviceToolsAvailable) capabilities.add("device");
                 const subagent = yield* projectionStore.getThread(threadId).pipe(
                   Effect.map((thread) => thread.lineage.relationshipToParent === "subagent"),
+                  // loom: a Loom child (workstream row) is not upstream's delegated subagent: it may watch PRs (DL-305/471/474)
+                  Effect.flatMap((subagent) =>
+                    subagent && Option.isSome(loomStore)
+                      ? loomStore.value.getWorkstream(threadId).pipe(Effect.map((row) => row === null))
+                      : Effect.succeed(subagent),
+                  ),
                   Effect.orElseSucceed(() => false),
                 );
                 const existing = yield* mcpSessions.read(threadId);
