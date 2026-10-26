@@ -1,15 +1,7 @@
 /**
- * Instrumentation and liveness for the bounded provider-runtime pipeline
- * (plans/ingestion-backpressure §3.1 liveness, §3.5).
- *
- * - The `provider runtime ingestion interval` log line, built on the engine's
- *   `orchestration command queue interval` pattern: bucket histograms flushed
- *   from the worker once a minute is due, so an idle server logs nothing.
- * - The liveness watchdog. With every hop bounded, a wedged consumer freezes
- *   every agent instead of growing the heap until V8 aborts (which, with the
- *   systemd restart, was the only recovery that existed). The watchdog restores
- *   that recovery deliberately: after `INGESTION_STALL_CHECKS` minutes with work
- *   pending and no progress it logs the sample and exits the process non-zero.
+ * Instrumentation and liveness for the bounded provider-runtime pipeline: a once-a-minute interval
+ * log (silent when idle) and a watchdog. Bounded hops let a wedged consumer freeze every agent, so
+ * after `INGESTION_STALL_CHECKS` stalled checks it logs and exits non-zero for systemd to restart.
  *
  * @module ProviderRuntimeIngestionTelemetry
  */
@@ -22,11 +14,9 @@ import type { DrainableWorker } from "@t3tools/shared/DrainableWorker";
 // loom: pi stdout backpressure detached in pull 9 (ledger DT-83): its source, Loom's pi RpcProcess, is quarantined.
 
 const INTERVAL_MS = 60_000;
-// Consecutive once-a-minute checks with work pending and no progress before the
-// process exits: 5 minutes. Long enough that no legitimate single event (the
-// engine is serial, and dispatch awaits it) comes near it; short enough to beat
-// today's OOM restart. Counted in observed checks rather than wall-clock time so
-// a machine waking from sleep with work queued is not mistaken for a stall.
+// Five once-a-minute stalled checks before exit: far beyond any legitimate single event, shorter
+// than an OOM restart. Counted in checks, not wall time, so a machine waking from sleep with work
+// queued is not mistaken for a stall.
 const INGESTION_STALL_CHECKS = 5;
 const LAG_BUCKETS_MS = [
   0,
@@ -66,12 +56,9 @@ const PROCESSING_BUCKETS_MS = [
 ] as const;
 
 /**
- * Written by `ProviderService` around each runtime-event `publish`, which
- * suspends while the bounded PubSub is full. `sinceMs` is when the current run
- * of in-flight publishes began; `inFlightMsTotal` is wall time with at least
- * one in flight. That is suspended time in practice (a publish that does not
- * suspend completes within one synchronous fibre run), but it is measured as
- * in-flight, hence the name.
+ * Written by `ProviderService` around each runtime-event `publish`, which suspends while the
+ * bounded PubSub is full. `sinceMs` starts the current in-flight run; `inFlightMsTotal` is wall
+ * time with any publish in flight, which in practice is suspended time.
  */
 export const runtimeEventPublishBackpressure = { inFlight: 0, sinceMs: 0, inFlightMsTotal: 0 };
 
@@ -143,14 +130,9 @@ export const timeIngestionWait = <A, E, R>(
 type IngestionLiveness = "ok" | "warn" | "escalate";
 
 /**
- * One watchdog check. A check is stalled when ingestion has work it is not
- * getting through — items queued or in flight, or the pipeline blocked since
- * before the previous check — and no item has started or finished since the
- * previous check. `blockedSinceMs` is the earliest of a suspended runtime-event
- * publish (the PubSub full behind some subscriber) and a paused pi stdout (a
- * wedge anywhere between the reader and ingestion, e.g. the adapter fibre stuck
- * in SQL before it publishes); `Infinity` when neither. Warns on any stalled
- * check; escalates after `thresholdChecks` in a row.
+ * One watchdog check: stalled when work is queued, in flight or blocked since before the previous
+ * check, and nothing started or finished since. `blockedSinceMs` is the earliest of a suspended
+ * publish and a paused pi stdout (`Infinity` if neither). Escalates after `thresholdChecks`.
  */
 export const decideIngestionLiveness = (
   check: {

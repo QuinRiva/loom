@@ -1,11 +1,7 @@
 /**
- * The four task-tree tools on the caller's active goal, written through
- * `LoomStoreV2.tasks` (every write returns the live tree) and published on
- * `LoomGoalBroadcast` once per write. Ownership: the thread that owns the goal
- * (a root) owns the whole tree; an anchored thread owns its branch — it reads
- * the branch by default, adds there by default, ticks and renames only there,
- * and rewrites exactly the branch; an unanchored child may read and add but
- * never rewrite. Ported from V1's `GoalTaskHttp.ts`.
+ * The four task-tree tools on the caller's active goal, via `LoomStoreV2.tasks`, published on
+ * `LoomGoalBroadcast` per write. The goal's root owns the whole tree; an anchored thread reads,
+ * adds, ticks, renames and rewrites only its branch; an unanchored child may read and add only.
  *
  * @module mcp/toolkits/workstream/handlers/goalTasks
  */

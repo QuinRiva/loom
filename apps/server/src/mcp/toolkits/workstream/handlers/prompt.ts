@@ -1,21 +1,7 @@
 /**
- * `mcp__t3-code__workstream_prompt`: the parent's message to a direct child as ONE
- * `message.dispatch` with `loom.origin: "orchestrator"` — dispatched directly,
- * never through `ThreadManagementService.sendToThread` (which drops `loom`),
- * because the origin is what lets the arm's rule 4 clear the child's standing
- * hold when the turn starts. Delivery is Loom's steered tier, as for every
- * control message: an idle child starts a turn; a busy one is steered only once
- * its run has a running provider turn on a live session, and otherwise queued
- * — the dispatcher promotes it into that turn once the turn is up (DL-662), or
- * it starts the next one (never upstream's `deliveryIntent: "auto"`, which picks a
- * steer for a run whose turn has not started and is then rejected — DL-660).
- * The result says which of the three happened.
- *
- * An UNSTARTED child (no `kickoffAt`) is never launched from here: launch is the
- * dispatcher's alone. The message is appended to its brief file as an amendment
- * and the path re-recorded with `thread.kickoff-brief.set`, which the arm
- * refuses once the child has started — the only guard, so a prompt racing the
- * launch is refused and the parent prompts again as a steer.
+ * One `message.dispatch` with `loom.origin: "orchestrator"` (not `sendToThread`, which drops
+ * `loom`) so the arm clears the child's hold; steered tier. An unstarted child is never launched
+ * here: the message amends its brief file, which the arm refuses once the child has started.
  *
  * @module mcp/toolkits/workstream/handlers/prompt
  */

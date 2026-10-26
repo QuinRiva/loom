@@ -1,16 +1,7 @@
-// LOOM-ONLY. Every text a model reads about Loom's agent tools. Loom supplies
-// pi's preamble (`LOOM_PREAMBLE`), so pi renders no tools, rules or docs
-// sections: the description in the tool schema is the ONLY surface a model
-// reads for a tool. A description says what the tool does, the consequences
-// the caller must act on, and when another tool is the better choice; a rule
-// about one field is on that field (`defs.ts`); a mechanism the result reports
-// or the control plane handles either way is not written. Keyed by the BARE
-// MCP name (what the server registers); every tool named INSIDE the text uses
-// the prefixed form the model sees (`mcp__t3-code__<name>`). `defs.ts` imports
-// this record for its prose fields; the registration carries snippet and
-// guidelines in the tool's `_meta` (`loom/promptSnippet`,
-// `loom/promptGuidelines`) for upstream's bridge to read.
-// Authoring doctrine: docs/architecture/tool-def-authoring.md.
+// LOOM-ONLY. Every text a model reads about Loom's agent tools: `LOOM_PREAMBLE` replaces pi's
+// tool sections, so the schema description is the only surface. Keyed by the bare MCP name; text
+// names tools as the model sees them (`mcp__t3-code__<name>`); snippet and guidelines ride in
+// `_meta` for upstream's bridge. Doctrine: docs/architecture/tool-def-authoring.md.
 
 export interface LoomToolProse {
   readonly description: string;

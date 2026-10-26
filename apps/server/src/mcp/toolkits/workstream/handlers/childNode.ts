@@ -1,9 +1,7 @@
 /**
- * The node rules `mcp__t3-code__workstream_spawn` and `mcp__t3-code__workstream_scaffold` share, ported
- * from V1's `WorkstreamSpawnHttp.ts`: the fork identity rule, the gate's routes
- * and its round cap, and the anchor a child is born with. The graph itself
- * (live siblings, cycles, graph keys) is validated by the arm under the
- * parent's lock.
+ * The node rules `workstream_spawn` and `workstream_scaffold` share: the fork identity rule, the
+ * gate's routes and round cap, and a child's birth anchor. The graph itself (siblings, cycles,
+ * keys) is validated by the arm under the parent's lock.
  *
  * @module mcp/toolkits/workstream/handlers/childNode
  */

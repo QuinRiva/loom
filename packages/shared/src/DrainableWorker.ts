@@ -14,10 +14,7 @@ export interface DrainableWorker<A> {
  * A finalizer shuts down the queue and drops queued items, so `drain` resolves after the scope
  * closes instead of waiting on them. An item that fails or dies is logged and skipped; the worker
  * keeps processing later items and `drain` still resolves.
- *
- * @param options.capacity - loom: bound the queue; `enqueue` then suspends
- *   while `capacity` items are waiting, backpressuring the producer. Omitted,
- *   the queue is unbounded.
+ * @param options.capacity - loom: bound the queue; `enqueue` suspends while it is full.
  */
 export const makeDrainableWorker = Effect.fn("DrainableWorker.makeDrainableWorker")(function* <
   A,
@@ -76,29 +73,10 @@ export const makeDrainableWorker = Effect.fn("DrainableWorker.makeDrainableWorke
 
 // loom: coalescing trigger worker — one idempotent pass, bounded backlog.
 /**
- * Create a **coalescing** trigger worker: one idempotent pass, at most one pass
- * running, at most one pass pending.
- *
- * This is the opt-in alternative to {@link makeDrainableWorker} for the case
- * where the queued item is a bare wake-up and the pass recomputes everything it
- * needs from durable state. A queueing worker turns a burst of N triggers into N
- * identical passes; when the arrival rate can exceed the pass rate that queue
- * diverges without bound and a restart silently discards the backlog. Coalescing
- * makes the steady-state cost the *pass* rate, not the *trigger* rate.
- *
- * **No-lost-wake invariant.** A trigger arriving at any time always causes at
- * least one FULL pass to *start* after it arrived. The pending flag is cleared
- * in the same transaction that marks the pass running, i.e. strictly BEFORE the
- * pass body reads anything. So a trigger either (a) arrives before that clear,
- * and the pass it starts reads state at least as new as the trigger, or (b)
- * arrives after it, re-sets the flag, and is honoured by the follow-up pass that
- * the flag guarantees. A trigger can therefore cause one redundant pass, but can
- * never be absorbed into a pass that had already read its snapshot.
- *
- * `drain` resolves only when no pass is running and none is pending, so the
- * deterministic-test contract is unchanged.
- *
- * @param process - The idempotent pass to run per (coalesced) trigger.
+ * A coalescing trigger worker for bare wake-ups whose idempotent pass rereads durable state: one
+ * pass running and one pending at most, so cost tracks the pass rate. The pending flag clears in
+ * the transaction marking the pass running, before it reads, so no trigger is lost. `drain`
+ * resolves once nothing runs or is pending.
  */
 export const makeCoalescingWorker = Effect.fn("DrainableWorker.makeCoalescingWorker")(function* <
   E,

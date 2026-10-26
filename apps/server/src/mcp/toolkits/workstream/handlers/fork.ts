@@ -1,17 +1,7 @@
 /**
- * `mcp__t3-code__thread_fork`: a staged copy of THIS thread's context that diverges on its
- * own — upstream's `thread.fork` (sourcePoint `latest_stable`, same project,
- * worktree, model and modes; the native session fork resolves at the fork's
- * first run), then `thread.goal.set` and `thread.held.set true` (one of
- * `held`'s two writers, P3-19b). The fork is a ROOT in Loom's graph, not a
- * child of the caller (DL-344). Nothing runs until a human sends.
- *
- * The caller is always mid-turn when it calls this, so a mid-turn refusal
- * would refuse every call (V1 never gated creation either). The transfer is
- * pinned to the caller's last COMPLETED run, the latest one upstream can fork;
- * pi's fork then ends the session at this call rather than at that run
- * (`piThreadForkCut.loom.ts`), so the fork carries the calling turn up to and
- * including the call (O3). A thread still on its first turn has no run to pin.
+ * `mcp__t3-code__thread_fork`: upstream's `thread.fork`, then goal set and held: a root that runs
+ * only when a human sends. Always called mid-turn, so it pins the last completed run and pi cuts
+ * the session at this call (`piThreadForkCut.loom.ts`); a first-turn thread has no run to pin.
  *
  * @module mcp/toolkits/workstream/handlers/fork
  */

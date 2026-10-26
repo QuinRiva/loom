@@ -8,7 +8,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import { makePiRpcConnection } from "./rpc.ts";
 
-// A broken pi (#298): passes the `--version` health check, then runs `rpcBody`
+// A broken pi: passes the `--version` health check, then runs `rpcBody`
 // in RPC mode without ever reading stdin.
 const brokenPi = (rpcBody: string) =>
   Effect.gen(function* () {

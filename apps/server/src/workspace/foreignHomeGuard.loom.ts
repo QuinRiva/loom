@@ -84,11 +84,9 @@ export const detectForeignDatabase = Effect.fn("foreignHomeGuard.detectForeignDa
 export const isForeignDatabase = (): boolean => foreignHome !== null;
 
 /**
- * Boot-time provenance check (pull 9, DL-81): every worktree path the database
- * records — the V1 projection a copied database still carries (the legacy
- * importer has not run on a first boot) and V2's thread projection, whose
- * `worktreePath` lives in `payload_json` — fed to `detectForeignDatabase`. A
- * failed read leaves the guard off, which is the pre-existing behaviour.
+ * Boot-time provenance check: feeds every worktree path the database records (the V1 projection a
+ * copied database still carries, and V2's thread `payload_json`) to `detectForeignDatabase`. A
+ * failed read leaves the guard off.
  */
 export const detectForeignDatabaseAtBoot = Effect.fn(
   "foreignHomeGuard.detectForeignDatabaseAtBoot",

@@ -1,56 +1,13 @@
-// loom: Loom extension part (plan track 3c, seam 3) — quarantine's
-// searchGuardExtension.ts carried over with its analysis logic unchanged.
-//
-// The pi search guard: a `tool_call`/`tool_result`
-// hook that fail-fasts the number-one sub-thread failure mode — a long,
-// unbounded filesystem search launched because a file is not where the agent
-// assumed (wrong cwd, wrong repo, or a brief path it did not verify). The bash
-// tool has no default timeout, so such a search blocks the turn for many
-// minutes with zero agent-visible feedback and no lever can penetrate it
-// (steers queue between model rounds; the control-plane notice is FYI-only).
-//
-// Two layers, both heuristic and deliberately permissive on doubt:
-//  1. BLOCK unbounded recursive searches rooted outside the session worktree
-//     (and any search over a known-vast root: `/`, `$HOME`, a strict ancestor
-//     of the worktree — the workspace/cockpit roots — or a depth-1 dir), with
-//     a teaching message carrying the escalation ladder: verify brief paths →
-//     focused bounded search → `mcp__t3-code__consult_thread` as the expensive
-//     last resort.
-//  2. AUTO-BOUND pure read-only search pipelines to
-//     SEARCH_GUARD_TIMEOUT_SECONDS when the model passed no timeout, so a
-//     stuck search returns partial output + a timeout error the model can
-//     react to quickly instead of hanging the turn. On such a timeout, a
-//     `tool_result` hook appends the same ladder as a hint.
-//
-// Escape hatches (BOTH layers honour them — an explicitly bounded command is
-// never blocked and never re-bounded):
-//  - an explicit `timeout` parameter on the bash tool call;
-//  - a `timeout N` command prefix on the walker;
-//  - a depth bound on the walker (`-maxdepth`, `--max-depth`, fd's `-d`).
-//
-// Every handler body is wrapped in try/catch → allow: a thrown `tool_call`
-// extension handler blocks ALL tool execution in pi, so an analyser bug must
-// degrade to "no guard", never to a bricked session. The command analysis is
-// quote-blind by design: a mis-parse only ever degrades to a teaching block
-// or a no-op, never corrupts execution.
-//
-// As a part: `source` is a function body run once per pi process as
-// `(pi, ctx) => { … }` by Loom's extension assembler (3a). It imports nothing
-// (the file pi loads lives outside this package): Node built-ins come from
-// `process.getBuiltinModule`. It needs no `ctx` member (pi's own handler
-// context supplies `cwd`).
+// loom: Loom extension part: the search guard. An unbounded search for a misplaced file blocks the
+// turn for minutes, so it BLOCKS recursive searches rooted outside the worktree or over a vast root
+// and AUTO-BOUNDS read-only search pipelines with no timeout; a `timeout`, `timeout N` prefix or
+// depth bound exempts. Handlers catch everything: a throwing `tool_call` handler bricks pi's tools.
 import type { LoomExtensionPart } from "../loomExtension.ts";
 
 /**
- * Auto-injected bound (seconds) for unbounded pure-search bash pipelines.
- * Measured on the heaviest legitimate case — this repo's worktree, 238k files
- * incl. a 3.2 GB node_modules: `find .` (filename) ≈ 0.3s, `rg` (content)
- * ≈ 0.01s, so 30s is ~100× above every legitimate search shape while sitting
- * 10× under the control plane's first slow-tool notice (5 min). The one thing
- * it clips — a raw `grep -rn` from the worktree root grinding through
- * node_modules content (>60s) — is itself an anti-pattern the timeout hint
- * redirects to `rg`/a named subtree; a genuinely long search can rerun with an
- * explicit larger timeout.
+ * Auto-injected bound (seconds) for unbounded pure-search pipelines: ~100x above every legitimate
+ * search on this repo's 238k-file worktree, 10x under the first slow-tool notice (5 min). It clips
+ * only a raw `grep -rn` through node_modules, which the hint redirects; a rerun can pass a timeout.
  */
 export const SEARCH_GUARD_TIMEOUT_SECONDS = 30;
 

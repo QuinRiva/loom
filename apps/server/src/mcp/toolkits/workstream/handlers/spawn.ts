@@ -1,10 +1,7 @@
 /**
- * `mcp__t3-code__workstream_spawn`: one child through `thread.spawn`, locked on the caller.
- * The child shares the caller's project, worktree and modes (DL-228), carries
- * its kickoff brief from birth (`brief`, else its purpose — so a spawn starts
- * once its dependencies are done), and a `forkFrom` child inherits its source's
- * role, model and anchor and waits on it; the session fork itself is written
- * at promotion by the control plane (`thread.fork.prepare`, P3-28).
+ * `mcp__t3-code__workstream_spawn`: one child through `thread.spawn`, locked on the caller, sharing
+ * its project, worktree and modes and carrying its brief from birth. A `forkFrom` child inherits
+ * its source's role, model and anchor and waits on it; the session fork is written at promotion.
  *
  * @module mcp/toolkits/workstream/handlers/spawn
  */

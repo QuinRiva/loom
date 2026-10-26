@@ -1,13 +1,7 @@
 /**
- * Dev fixture verifier — proves the seeded workstream reads back as the web
- * shell serves it: every seeded thread's `workstream` on the joined shell with
- * the column and attention the seed meant, the goal and its tree, the control
- * cards on the root, a real checkpoint ref per started thread, and nothing a
- * booting server would act on (an empty effect outbox, and nothing 3b's
- * dispatcher pass would send, now or a day later). Read-only: the effect worker
- * does not run and the pass's dispatches are intercepted.
- *
- * Run: `vp run dev:seed:verify` (this worktree's `.t3`) or `vp run dev:seed:verify --home-dir <scratch>`
+ * Dev fixture verifier: the seeded workstream reads back as the web shell serves it, with nothing a
+ * booting server would act on (empty outbox, no dispatch now or a day later). Read-only.
+ * Run: `vp run dev:seed:verify` (this worktree's `.t3`) or with `--home-dir <scratch>`.
  *
  * @module dev/verifySeed
  */

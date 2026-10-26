@@ -1,19 +1,7 @@
 /**
- * Loom's decider arm on V2's orchestrator (plans/upstream-pull9-phase2-substrate/plan.mdx
- * §2–§3, amended by docs/upstream-sync/30-cadence-pull-9-phase2.md DL-194–197, DL-202,
- * DL-211, DL-224+).
- *
- * THE RULE. The arm writes only to the commanded thread and the threads it
- * creates in the same command (sibling-graph edits under the parent's lock,
- * DL-202, write their children's sidecar rows). Every effect on another thread
- * is a decision event on the commanded thread that the re-drive planner turns
- * into its own per-thread command. `nested` exposes exactly three same-thread
- * upstream dispatchers; the arm never takes a lock.
- *
- * MODULE CYCLE. `Orchestrator.ts` value-imports this file (its error union
- * holds `LoomDispatchDeferredError` at module init), so this file never
- * value-imports `Orchestrator.ts`: upstream's error constructor and dispatchers
- * arrive through `LoomArmContext`.
+ * Loom's decider arm: writes only the commanded thread and threads it creates; an effect on another
+ * thread is a decision event the re-drive planner turns into that thread's command; no locks. Never
+ * value-import `Orchestrator.ts` (a cycle); upstream's pieces come through `LoomArmContext`.
  *
  * @module orchestration-v2/Orchestrator.loom
  */
@@ -64,12 +52,9 @@ import { runlessForkSource } from "./runlessFork.loom.ts";
 import { isForkableSourceRunStatus, type ThreadForkServiceV2 } from "./ThreadForkService.ts";
 
 /**
- * A Loom dispatch that cannot apply YET and will apply later without anyone
- * changing the target. Never receipted (`dispatchWithReceiptEffect` passes it
- * through), so the same deterministic `server:` id is redeliverable. Raised at
- * exactly three sites: a busy `start_if_idle` (Orchestrator.ts dispatchMessage),
- * a gate leg behind a blocking run with a pending merge-back (`gateLeg` below),
- * and `thread.fork.prepare` while its source runs (`forkPrepare` below).
+ * A Loom dispatch that cannot apply yet but will without anyone changing the target. Never
+ * receipted, so the same deterministic `server:` id is redeliverable. Raised by a busy
+ * `start_if_idle`, a gate leg behind a run with a pending merge-back, and a fork prepare mid-run.
  */
 export class LoomDispatchDeferredError extends Schema.TaggedError<LoomDispatchDeferredError>()(
   "LoomDispatchDeferredError",
@@ -212,12 +197,9 @@ export const loomMessageFields = (
 ): LoomMessageFields => ({ ...command.loom, humanAuthored: isHumanAuthored(command) });
 
 /**
- * A `mcp__t3-code__goal_continue` successor's launch: the human pressed Launch, but the words are
- * the predecessor agent's brief. When the first message on a staged continuation is the stored
- * brief verbatim (trimmed), it is restamped as that agent's kickoff (`createdBy: agent`,
- * `senderThreadId` = the predecessor, origin `kickoff`), so the successor reads it labelled as
- * another agent's proposal rather than the human's approved plan. An edited brief stays the
- * human's: they took ownership of the words. Read before `loomMessageFields`.
+ * A staged `goal_continue` successor whose first message is the stored brief verbatim (trimmed) is
+ * restamped as the predecessor agent's kickoff, so the successor reads an agent's proposal, not
+ * the human's approved plan. An edited brief stays the human's. Read before `loomMessageFields`.
  */
 export const loomStampContinueLaunch = Effect.fn("loom.stampContinueLaunch")(function* (
   command: MessageDispatch,
@@ -257,11 +239,9 @@ export const isContinueLaunch = (
   message.senderThreadId === workstream?.continuesThreadId;
 
 /**
- * A queued run whose message is a steered-tier Loom message the dispatcher's
- * promotion rail will steer in once the target's turn is up (DL-662): Loom origin,
- * not upstream's to deliver queued (notification, delegated completion), not held
- * by a human stop. While one is queued, a later Loom message must queue behind it
- * rather than steer past it (DL-663), so the turn reads them in send order.
+ * A queued steered-tier Loom message the dispatcher will steer in once the target's turn is up
+ * (Loom origin, not upstream-queued, not held by a human stop). A later Loom message queues
+ * behind it rather than steering past it, so the turn reads them in send order.
  */
 export const isPromotableLoomQueuedRun = (
   run: OrchestrationV2Run,
@@ -314,11 +294,9 @@ export const loomQueuedTurnAttentionClear = Effect.fn("Orchestrator.loomQueuedTu
 );
 
 /**
- * The target thread's own rules for an accepted message (§2 rules 1–5; rule 0 is
- * `loomContinuationVetoed`, placed before upstream's unsettle per DL-195; rule 6
- * supersede is post-commit, in `loom/userInput/askUserQuestion.ts`). Called once
- * the delivery mode is final, so `startsNow` covers upstream's and the Loom
- * steer conversions. Emits only on `command.threadId`.
+ * The target thread's own rules for an accepted message, called once the delivery mode is final
+ * so `startsNow` covers upstream's and Loom's steer conversions. Emits only on `command.threadId`.
+ * Rule 0 is `loomContinuationVetoed`, before upstream's unsettle; supersede runs post-commit.
  */
 export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (input: {
   readonly command: MessageDispatch;
@@ -384,12 +362,9 @@ export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (in
 });
 
 /**
- * The `runtime-request.respond` hunk's answer read (DL-720). Upstream's message
- * path takes only string answers — its one producer, Codex's async questions,
- * is never multi-select — but a `loom-ask:` question can be, and the panel
- * answers it with the selected values. They join as upstream's own string-only
- * adapters encode a multi-select answer (`claudeSdkUserInputAnswers`); the
- * request keeps the array, which the live waiter renders as V1 did.
+ * The `runtime-request.respond` answer read. Upstream takes only string answers, but a `loom-ask:`
+ * question can be multi-select: its values join as upstream's string-only adapters encode one
+ * (`claudeSdkUserInputAnswers`), while the request keeps the array for the live waiter.
  */
 export const loomAskAnswer = (requestId: string, answer: unknown) =>
   requestId.startsWith(LOOM_ASK_REQUEST_PREFIX) && Array.isArray(answer)
@@ -970,12 +945,10 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
   });
 
   /**
-   * `mcp__t3-code__ask_user_question`'s request (P3-26, DL-330–332): a pending `user_input`
-   * runtime request on its own request node under the active run's root, with
-   * the `user_input_request` turn item carrying the questions — the shapes
-   * upstream's adapters emit, so V2's panel, mobile card and the shell's
-   * `pendingRuntimeRequest` render it unchanged. `message` capability: upstream's
-   * terminal dismissal leaves it standing; 3a-4's respond hunk answers it.
+   * `mcp__t3-code__ask_user_question`'s request: a pending `user_input` runtime request under the
+   * active run's root with a `user_input_request` turn item, the shapes upstream's adapters emit,
+   * so V2's panel, mobile card and `pendingRuntimeRequest` render it unchanged. Terminal dismissal
+   * leaves it standing (`message` capability); the respond hunk answers it.
    */
   const runtimeRequestCreate = Effect.fn("Orchestrator.runtimeRequestCreate")(function* (
     create: CommandOf<"runtime-request.create">,

@@ -1,9 +1,6 @@
 /**
- * `mcp__t3-code__workstream_stop`: the parent pauses a direct child by interrupting its
- * active run (`run.interrupt`, holding its queue as V1's stop did). The
- * `server:` command id is what tells Loom's arm this is not a human stop, so
- * no `needs_guidance` is raised (`loomHumanStopRaise`, DL-304): the parent owns
- * the resume.
+ * `mcp__t3-code__workstream_stop`: interrupts a direct child's active run, holding its queue. The
+ * `server:` command id tells the arm this is not a human stop, so no `needs_guidance` is raised.
  *
  * @module mcp/toolkits/workstream/handlers/stop
  */

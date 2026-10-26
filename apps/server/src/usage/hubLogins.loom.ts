@@ -1,28 +1,8 @@
 /**
- * loom: when each pooled Claude account last logged in, and the staggered
- * re-login schedule that keeps the accounts from expiring together.
- *
- * A Claude browser login dies 27.0–29.8 days after it was made (ten observed
- * lifetimes), and nothing on the hub records when that was: `created_at`
- * resets on a hub restart, and the management `last_refresh` survives a
- * re-login. But every browser OAuth login mints fresh `claude_device_ids`
- * (CLIProxyAPI `internal/auth/claude/anthropic_auth.go`) that refreshes never
- * touch, so a changed device id is exactly "a login happened", and the file's
- * `last_refresh` is then the login instant until the first refresh 4h later.
- * Detection reads that from `auth-files/download`, which also carries tokens:
- * only the facts below leave `cliproxyApi`, and none of them is a token.
- *
- * The schedule is one rule: accounts are due at least `gap` days apart, each
- * by its own last weekday before it may expire; the latest-expiring keeps its
- * date and each earlier one moves to `gap` days before the next if it would
- * otherwise be closer. Judged on server-local calendar days, so clients do no
- * date arithmetic.
- *
- * The record lives in `<stateDir>/hub-logins.json`, keyed by email (the auth
- * file's name changes across re-logins) and outside any release, so it
- * survives a redeploy. Production is seeded once with the known login times.
- *
- * @module usage/hubLogins.loom
+ * loom: when each pooled Claude account last logged in (a browser login dies after 27 to 30 days)
+ * and a re-login schedule at least `gap` days apart. The hub keeps no login time, but each browser
+ * OAuth login mints fresh `claude_device_ids`, so a changed id marks one. Stored by email in
+ * `<stateDir>/hub-logins.json`, outside any release; no token leaves `cliproxyApi`.
  */
 import type { UsageLimitSourceRelogin } from "@t3tools/contracts";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
@@ -84,18 +64,10 @@ export const isLongLived = (record: HubLoginRecord) =>
   (record.lifetimeDays ?? OAUTH_LIFETIME_DAYS) >= LONG_LIVED_DAYS;
 
 /**
- * The record after reading one auth file. A new device id is a login, timed
- * by the file's `last_refresh` only when Loom confirmed the old device id
- * (`confirmedAt`, in memory) less than 4h before that clock: the login came
- * after the confirmation and the hub's first refresh comes 4h after a login,
- * so such a clock can only be the login. Otherwise — Loom was down or not yet
- * started across the login — the hub has refreshed since (every healthy file's
- * `last_refresh` is under 4h old, locked to the login time), so the time is
- * unknown and the account is asked for now. With no record yet, a fresh `last_refresh` is a login only when the hub
- * registered the file at that instant too (`created_at`): otherwise it is a
- * routine refresh of an older login. A long-lived token (`claude setup-token`)
- * is never a login: its expiry is the file's `expired`. Undoing one restores
- * the old login with the same device id, whose time is then unknown.
+ * The record after one auth file read. A new device id is a login, timed by `last_refresh` only if
+ * Loom confirmed the old id under 4h before it (the hub first refreshes 4h after a login), else the
+ * time is unknown. With no record, a fresh `last_refresh` is a login only if `created_at` matches.
+ * A `claude setup-token` file is never a login: its expiry is `expired`.
  */
 export function detectLogin(
   previous: HubLoginRecord | undefined,

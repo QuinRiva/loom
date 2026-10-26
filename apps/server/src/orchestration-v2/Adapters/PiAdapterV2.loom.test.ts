@@ -635,12 +635,9 @@ describe("PiAdapterV2 (loom) — sanitiser before switch_session", () => {
 });
 
 // ── Gate `hooks`: the driver the server builds runs Loom's live hooks ─────────────────────
-//
-// `LoomPiAdapterHooks` is a reference that silently falls back to the passthrough, so a
-// context that lacks `LoomProviderHealthLive` turns off quota classification, the resume
-// sanitiser and steer mirroring with no compile error. This builds pi exactly as the
-// instance registry does (`PiAdapterV2Driver.create` inside a registry layer) with
-// `LoomProviderHealthLive` provided below it, as `server.ts` does, and probes the sanitiser.
+// `LoomPiAdapterHooks` silently falls back to the passthrough, so a context missing
+// `LoomProviderHealthLive` loses quota classification, the resume sanitiser and steer mirroring
+// with no compile error. Builds pi as the registry and `server.ts` do; probes the sanitiser.
 
 /** Resume CODEX_HISTORY under an Anthropic model through the driver; what pi loaded. */
 const resumeThroughDriver = Effect.fnUntraced(function* (withLoomLayer: boolean) {
@@ -1094,8 +1091,8 @@ describe("PiAdapterV2 (loom) — cache facts", () => {
   );
 });
 
-// Issue #342: every pi child (sessions, consults, goal reactor, text-gen) must resolve
-// its worktree's own binaries first, or a bare `vp` lands on another checkout's install.
+// Every pi child (sessions, consults, goal reactor, text-gen) must resolve its worktree's own
+// binaries first, or a bare `vp` lands on another checkout's install.
 describe("PiRpc (loom) — worktree-local node_modules/.bin", () => {
   it.effect("prepends <cwd>/node_modules/.bin to the spawned pi's PATH", () =>
     Effect.gen(function* () {

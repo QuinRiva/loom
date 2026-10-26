@@ -1,16 +1,8 @@
 /**
- * loom: the worktree-readiness breadcrumb and setup-command tweaks that ride on
- * upstream's `ProjectSetupScriptRunner`.
- *
- * Every worktree agent's system prompt tells it to poll
- * `$(git rev-parse --git-dir)/t3code-setup-state.json` before running anything
- * that needs the project environment: `pending` → keep reading/editing,
- * `ready` → proceed, `failed` → inspect `detail`. The runner writes it at three
- * points: `pending` before the command is typed, `failed` if it cannot be
- * typed, and the settled outcome once the completion sentinel (or a terminal
- * exit) arrives — or after `SETUP_STATE_TIMEOUT`, because nothing upstream
- * settles a script that hangs, and an agent polling `pending` would wait
- * forever.
+ * loom: the `$(git rev-parse --git-dir)/t3code-setup-state.json` breadcrumb worktree agents poll:
+ * `pending` before the command is typed, `failed` if it cannot be, then the settled outcome on the
+ * completion sentinel or terminal exit, or at `SETUP_STATE_TIMEOUT`, since nothing upstream settles
+ * a hanging script and a `pending` poller would wait forever.
  */
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import * as Cause from "effect/Cause";

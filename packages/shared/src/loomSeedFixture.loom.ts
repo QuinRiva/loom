@@ -1,8 +1,6 @@
 /**
- * The Loom dev fixture's identity and control cards, shared by the dev seed
- * (`apps/server/src/dev/seedWorkstream.ts`, which writes them through real
- * commands) and the web preview fixtures (`apps/web/src/preview/loomFixtures.ts`,
- * which render them without a backend) so both show the same payloads.
+ * The Loom dev fixture's identity and control cards, shared by the dev seed (`seedWorkstream.ts`)
+ * and the web preview fixtures (`loomFixtures.ts`) so both show the same payloads.
  *
  * @module loomSeedFixture.loom
  */

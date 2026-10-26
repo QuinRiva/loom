@@ -61,11 +61,9 @@ it.live("plain statements queue behind an open transaction on the worker client"
       const sql = yield* SqlClient.SqlClient;
       yield* sql`CREATE TABLE entries(id INTEGER PRIMARY KEY, name TEXT NOT NULL)`;
 
-      // A transaction that holds the connection open for a while, then rolls
-      // back. Guards the semaphore contract on the worker client: plain
-      // statements must queue behind the transaction's permit (else the
-      // interleaved plain write would be erased by the rollback) and
-      // transaction statements must not re-acquire it (else this deadlocks).
+      // Holds the connection in a transaction, then rolls back: plain statements must queue behind
+      // its permit (else the rollback erases the interleaved write) and transaction statements
+      // must not re-acquire it (else this deadlocks).
       const inTransaction = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
       const rolledBack = yield* sql

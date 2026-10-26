@@ -1,22 +1,7 @@
 /**
- * Dev fixture seeder — populates a fresh scratch home with a realistic Loom
- * workstream so agents (and humans) can verify UI states that are otherwise
- * unreachable against an empty database.
- *
- * Everything is written through the real V2 orchestrator offline (no running
- * server): upstream commands for the project's threads and messages, Loom
- * commands for the sidecar graph (spawn, submit, outcome, attention), the
- * re-drive planner for the gate leg and the cancel cascade, and `LoomStoreV2`
- * for the goal and its task tree (goals are plain tables). Never direct SQL,
- * so the fixture exercises the Loom arm and stays immune to projection drift.
- *
- * Turns run against an in-process stub adapter that answers every turn at once
- * and edits one file in the shared checkout, so runs complete with real
- * checkpoint refs (the Diff surface) and nothing is left for a provider: the
- * seed exits only once the effect outbox is drained and a final re-drive pass
- * has nothing left to send, so a dev server booted on this home starts no pi.
- *
- * Run: `vp run dev:seed` (this worktree's `.t3`) or `vp run dev:seed --home-dir <scratch>`
+ * Dev fixture seeder: a realistic Loom workstream written offline through the real V2 orchestrator,
+ * never direct SQL. A stub adapter completes turns with real checkpoints, and it exits only once
+ * nothing is left to send, so a server booted on the home starts no pi. Run: `vp run dev:seed`.
  *
  * @module dev/seedWorkstream
  */

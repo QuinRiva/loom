@@ -1,12 +1,7 @@
 /**
- * A child's model at spawn (ported from V1's `WorkstreamSpawnHttp.ts`):
- * explicit `modelSelection` > `modelPreset` > `taskShape` (resolved against the
- * operator's capability profiles, bucketed by live headroom) > a preset named
- * after the role > the parent's selection. The resolution is one pure function
- * (`resolveSpawnModelSelection`); `resolveChildModel` reads the settings,
- * provider catalogue and health registry once and calls it. Every selection it
- * returns uses upstream's `thinking` option id — V1's pi driver called it
- * `thinkingLevel`, and presets or inherited selections may still carry that.
+ * A child's model at spawn: explicit `modelSelection` > `modelPreset` > `taskShape` (capability
+ * profiles bucketed by live headroom) > a preset named after the role > the parent's. Returned
+ * selections use upstream's `thinking` option id; presets may still carry V1's `thinkingLevel`.
  *
  * @module mcp/toolkits/workstream/modelSelection
  */

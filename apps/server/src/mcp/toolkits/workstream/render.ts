@@ -1,8 +1,6 @@
 /**
- * Server-side rendering of the text Loom's tools return, ported from V1's
- * `mcp/workstreamRender.ts` onto the V2 shell and its `workstream` sidecar
- * fields. Pure, so every surface is unit-tested. Plan lanes are gone: a node's
- * status is derived the way the board derives its column.
+ * Server-side rendering of the text Loom's tools return, from the V2 shell's `workstream` sidecar
+ * fields. Pure; a node's status is derived the way the board derives its column.
  *
  * @module mcp/toolkits/workstream/render
  */

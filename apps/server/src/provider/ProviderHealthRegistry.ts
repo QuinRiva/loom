@@ -1,29 +1,7 @@
 /**
- * ProviderHealthRegistry — ephemeral exhaustion state for subscription accounts.
- *
- * Also holds the account-usage telemetry the marks derive from ("what the
- * provider reported") beside the marks themselves ("what T3 concluded"): the
- * {@link SubscriptionUsagePoller} feeds it, marks derive from two automatic
- * sources, expire on a TTL, and are consumed by routing
- * (chunk C), the resume sweep (chunk D), and spawn headroom. The telemetry is
- * server-internal only — the user-facing usage surface is upstream's Limits
- * page, which the poller feeds separately (see `accountUsage.loom.ts`).
- *
- * Marks are keyed `(accountKey, modelScope)` where `accountKey` is the
- * account routing key (`providerInstanceId ?? providerName`) and
- * `modelScope` is `"*"` (account-wide) or a pi modelId. A model is exhausted iff
- * its own model-scoped mark is active OR the account's `"*"` mark is active.
- *
- * Sources (§4.4, strongest first):
- *  1. Explicit provider flags — Codex `limitReached` ⇒ account-wide mark.
- *  2. Telemetry threshold — any window ≥99% ⇒ mark (scoped if the window is
- *     scoped) with `until = resetsAt`. Proactive (D4).
- *  3. Classified limit errors — {@link ProviderHealthRegistryShape.markExhausted}
- *     (source "error"); default 30-min TTL when no resetsAt is known.
- *
- * Clearing is automatic: `until` passed ⇒ inert (checked at query time); fresh
- * telemetry <97% for a key ⇒ its telemetry/error marks drop; restart ⇒ clean
- * slate (no persistence — repopulates from the next poll).
+ * Ephemeral exhaustion marks keyed `(accountKey, modelScope)` (`"*"` = account-wide), from Codex
+ * `limitReached`, any window >=99% (until `resetsAt`) or classified errors (30-min TTL). They lapse
+ * at `until`, drop on fresh telemetry <97%, and are not persisted: a restart repopulates on poll.
  *
  * @module ProviderHealthRegistry
  */
@@ -114,18 +92,10 @@ export const matches = (mark: ExhaustionMark, accountKey: string, modelId?: stri
   (mark.modelScope === ACCOUNT_WIDE_SCOPE || mark.modelScope === modelId);
 
 /**
- * Collapse pooled accounts of one instance into a single best-remaining view
- * before exhaustion marks are derived (§4). The registry stores one snapshot
- * per account (distinguished by `accountLabel`), but routing and exhaustion key
- * by the instance alone: the router fails over between the pooled accounts, so
- * the instance is only exhausted when EVERY account is. An account is only as
- * healthy as its worst window, so per window label (account-wide, or one model
- * carve-out) we keep the windows of the ONE account whose worst window under
- * that label is lowest (ties: the one that resets first). Taking the minimum per
- * window kind across accounts instead (DL-77 defect 2) read account A's spent
- * 5-hour window and account B's spent weekly window as a healthy instance. The
- * explicit `limitReached` flag counts only when ALL accounts set it.
- * Single-account instances pass through unchanged.
+ * Collapse an instance's pooled accounts into one view: the router fails over between them, so
+ * the instance is exhausted only when every account is. Per window label, keep the windows of the
+ * one account whose worst window is lowest (ties: earliest reset); a per-window minimum across
+ * accounts reads two half-spent accounts as healthy. `limitReached` counts only when all set it.
  */
 export const aggregateAccountsBestRemaining = (
   snapshots: ReadonlyArray<AccountUsageSnapshot>,
@@ -191,11 +161,9 @@ export const deriveFromTelemetry = (
         flagPercent = window.usedPercent;
         flagUntil = window.resetsAt;
       }
-      // Routing scope: an unscoped window is account-wide ("*"); a scoped window
-      // routes to its resolved modelId. A scoped window whose display name did
-      // NOT map to a modelId is display-only (§4.2) — it must NEVER produce a
-      // routing mark (else an unmapped "Fable" at 100% would exhaust the whole
-      // account), nor clear the account-wide error mark.
+      // Unscoped is account-wide ("*"); a scoped window whose name mapped to no modelId is
+      // display-only: it must never mark (an unmapped "Fable" at 100% would exhaust the account)
+      // nor clear the account-wide error mark.
       const routingScope =
         window.scope === undefined ? ACCOUNT_WIDE_SCOPE : (window.scope.modelId ?? null);
       if (routingScope === null) continue;

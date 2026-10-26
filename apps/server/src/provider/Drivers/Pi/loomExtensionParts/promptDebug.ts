@@ -1,11 +1,6 @@
-// loom: Loom extension part (plan track 3c, seams 3 and 5) — quarantine's prompt-debug
-// capture (providerToolExtension.ts `before_agent_start`) carried over unchanged, with the
-// sidecar path read from the session profile instead of T3_PROMPT_DEBUG_PATH.
-//
-// As a part: `source` is a function body run once per pi process as `(pi, ctx) => { … }` by
-// Loom's extension assembler (3a). It imports nothing (`node:fs` comes from
-// `process.getBuiltinModule`) and needs `ctx.profile()` → `{ promptDebugPath: string | null }`;
-// a null path makes the part a no-op.
+// loom: Loom extension part: prompt-debug capture at `before_agent_start` to the session profile's
+// path. Runs once per pi process as `(pi, ctx) => { … }`; imports nothing (`node:fs` comes from
+// `process.getBuiltinModule`); a null `ctx.profile().promptDebugPath` makes it a no-op.
 import type { LoomExtensionPart } from "../loomExtension.ts";
 
 export const promptDebugPart: LoomExtensionPart = {

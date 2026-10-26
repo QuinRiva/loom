@@ -757,11 +757,9 @@ export const make = Effect.gen(function* () {
           return yield* updateCachedStatus(cwd, local, remote, { publish: true });
         }
 
-        // loom: an explicit refresh is scoped to the requesting cwd: the repo-wide
-        // reads it performs are shared anyway, and its siblings (including ones
-        // with automatic refresh disabled) keep their own cadence.
-        // The batch keys off the cached branch, so read local first, then again after the
-        // fetch (upstream's "local after remote": the fetch can move the base).
+        // loom: an explicit refresh is scoped to the requesting cwd; its siblings keep their own
+        // cadence. The batch keys off the cached branch, so read local first, then again after
+        // the fetch (which can move the base).
         yield* updateCachedLocalStatus(cwd, yield* workflow.localStatus({ cwd }));
         yield* refreshRepositoryRemoteStatus(repositoryKey, [cwd], {
           refreshUpstream, // loom: upstream's zero-interval rule

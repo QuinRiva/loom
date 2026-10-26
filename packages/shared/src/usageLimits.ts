@@ -728,12 +728,9 @@ export function loginAlertNotices(presentations: HubPresentations, now: number):
 
 // loom: linking pooled usage sources to hub accounts, through cliproxy renames.
 /**
- * The hub accounts a pooled usage source (`tokenFile`) names. cliproxy
- * renames an account's auth file on re-login (`claude-<email>.json` becomes
- * `claude-<hash>-<email>.json`), so the email it reports is the stable key: a
- * source names the account whose file it is, else the account whose email
- * ends its file name — the longest such email, so `x-carl@` beats `carl@`.
- * Several accounts come back when hubs share one.
+ * The hub accounts a pooled usage source (`tokenFile`) names. cliproxy renames auth files on
+ * re-login (`claude-<email>.json` to `claude-<hash>-<email>.json`), so match the file's id, else
+ * the longest account email ending its name (`x-carl@` beats `carl@`). Shared hubs return several.
  */
 export function usageSourceAccounts<
   A extends { readonly id: string; readonly email?: string | undefined },
@@ -750,12 +747,10 @@ export function usageSourceAccounts<
 }
 
 /**
- * One entry per pooled usage source that names no Claude account its
- * environment's hubs report, so failover has no reading for it: `name` for a
- * narrow surface, `notice` the full line with the token file. Judged only
- * while every hub read cleanly and reports some Claude account: a failed or
- * empty hub already has its own notice, and with no hub the server reads the
- * token file itself.
+ * One entry per pooled usage source naming no Claude account its hubs report (failover has no
+ * reading): `name` for narrow surfaces, `notice` with the token file. Judged only while every hub
+ * read cleanly and reports a Claude account: a failed or empty hub has its own notice, and with no
+ * hub the server reads the token file itself.
  */
 export function unlinkedUsageSources(
   presentations: LimitPresentations,

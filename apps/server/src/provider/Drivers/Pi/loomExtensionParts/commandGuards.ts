@@ -1,31 +1,7 @@
-// loom: Loom extension part — command guards for shell mistakes agents make repeatedly. Where
-// the agent's intent is obvious the command is rewritten and a note naming the mistake is
-// appended to the result; where it is not, the call is blocked with the fix and the bypass:
-//  - `rg -rn` (grep habit): in ripgrep `-r` is `--replace`, so `-rn` rewrites every match to
-//    "n". Rewritten: the stray `r` is dropped.
-//  - `pkill`, or `pgrep` output fed to `kill`: kill by pattern, which on this shared machine can
-//    hit another thread's server or job. Blocked. (`pgrep -f` matching the tool shell itself is
-//    fixed by the pgrep-self-match rewrite, which runs after this guard.)
-//  - `kill` of a process group (a negative PID operand): a bg_start job shares pi's group, so
-//    signalling it kills pi mid-turn. Blocked when the target is pi's own group, computed
-//    (`-$(...)`, `-$PGID`: its value is unknown here), `-0`/`-1`, or any literal when pi's group
-//    cannot be read; a literal other group (`kill -- -123`) passes, which is the bypass for a
-//    group an agent made with `setsid`. A leading signal option (`kill -9 123`) is not a target.
-//  - `gh api` with a field flag and no `-X`: gh silently switches to POST. Blocked (a read and a
-//    write are equally plausible).
-//  - an unquoted heredoc whose body has backticks: bash runs them as command substitution, so a
-//    markdown payload arrives mangled while the API reports success. Rewritten to a quoted
-//    delimiter when the body uses no `$` expansion; otherwise only a note.
-//  - a foreground bash `sleep` of 60 s or more (literal seconds or an m/h/d suffix): it holds the
-//    turn and cannot end early when what it waits for finishes. Blocked, pointing at
-//    bg_start/bg_wait. A variable or quoted duration is doubt and passes; so do shorter
-//    readiness-loop sleeps and a backgrounded sleep (`sleep 600 &`, `(sleep 120; kill $PID) &`).
-// The fix cannot live in the Slack scripts: the caller's shell substitutes before they run.
-//
-// Same contract as the search guard: heuristic, permissive on doubt, every handler wrapped so an
-// analyser bug degrades to "no guard" (a thrown `tool_call` handler blocks every tool in pi).
-// Heredoc bodies are blanked before lexing so their text is never read as commands. The part
-// imports nothing: `source` runs as `(pi, ctx) => { … }` in Loom's assembled extension.
+// loom: Loom extension part: guards for shell mistakes agents repeat (`rg -rn`, kill by pattern or
+// of pi's group, `gh api` fields with no `-X`, backticks in an unquoted heredoc, a long foreground
+// `sleep`). Clear intent is rewritten with a note, else blocked with the fix and bypass. Permissive
+// on doubt; handlers catch everything (a thrown `tool_call` handler blocks every tool in pi).
 import type { LoomExtensionPart } from "../loomExtension.ts";
 
 const NOTE = "[t3 command guard]";

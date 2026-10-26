@@ -1,8 +1,6 @@
-// loom: the readings re-derive on boot, except when each Claude account last
-// logged in, which the hub does not keep: `hubLogins.loom.ts` detects logins on
-// every read, persists them in `<stateDir>/hub-logins.json` and stamps each
-// account's re-login schedule on `login.relogin`. The in-app login
-// (`loginStart` / `loginFinish`) drives the hub's own OAuth flow.
+// loom: readings re-derive on boot except Claude login times, which the hub does not keep:
+// `hubLogins.loom.ts` detects logins on each read, persists them in `<stateDir>/hub-logins.json`
+// and stamps `login.relogin`. The in-app login (`loginStart`/`loginFinish`) drives the hub's OAuth.
 import {
   DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL,
   UsageLimitSourceError,

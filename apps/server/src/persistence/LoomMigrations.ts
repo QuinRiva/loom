@@ -1,25 +1,7 @@
 /**
- * LoomMigrations — the fork's migration lane.
- *
- * Loom keeps its migrations in a **second, independent ledger table**
- * (`loom_sql_migrations`) at ids `1001+`, while
- * `Migrations.ts` stays byte-identical to upstream and owns
- * `effect_sql_migrations` at upstream's own `1..N`. Two stock `Migrator` runs,
- * one per lane, so every cadence pull can take upstream's `Migrations.ts` and
- * migration files verbatim — no renumbering, no conflict.
- *
- * **Why two tables and not just a high id band.** `Migrator.make` decides what
- * to run with a *high-water mark*, not set membership:
- * `if (currentId <= latestMigrationId) continue`. With both lanes in one
- * ledger the mark would sit at `1032`, so upstream's next `035` would be
- * silently skipped on every existing database — while still passing every
- * fresh-install test, because a fresh run ascends `1..34` then `1001..` and
- * the mark never overtakes anything. Separate tables give each lane its own
- * mark, so neither can ever mask the other.
- *
- * **Adding a fork migration:** create `Migrations/<id>_<Name>.ts` with the
- * next id at `1063+` and append it to `loomMigrationEntries`. Never number a
- * fork migration below `1000`.
+ * The fork's migration lane: its own ledger `loom_sql_migrations` at ids `1001+`, since `Migrator`
+ * skips by high-water mark and one shared ledger would silently skip upstream's next migration on
+ * existing databases. Add `Migrations/<id>_<Name>.ts` at the next id; never below `1000`.
  *
  * @module LoomMigrations
  */
@@ -182,17 +164,9 @@ const loomIdOffset = 968;
 const lastReconciledLoomId = 1032;
 
 /**
- * The single-ledger history this reconciliation knows how to unpick: rows
- * `33..66` of `effect_sql_migrations` as loom shipped them, in order.
- *
- * `33..64` are fork migrations (→ `loom_sql_migrations` at `id + 968`);
- * `65`/`66` are upstream's own `033`/`034`, re-homed by the 2026-07-25 pull
- * (→ back to `33`/`34` in `effect_sql_migrations`).
- *
- * This is a **frozen historical fact**, hence the `<= 1032` cut: fork
- * migrations added after the lane split (`1033+`) were never in the shared
- * ledger, so including them would shift the expected tail and make an
- * unreconciled database look corrupt.
+ * The single-ledger history reconciliation unpicks: `effect_sql_migrations` rows `33..66`,
+ * `33..64` fork (to `id + 968`), `65`/`66` upstream's `033`/`034` (to `33`/`34`). Frozen, hence
+ * `<= 1032`: later fork migrations were never shared and would make old databases look corrupt.
  */
 const historicalLedgerTail: ReadonlyArray<readonly [id: number, name: string]> = [
   ...loomMigrationEntries
@@ -207,20 +181,10 @@ class LoomLedgerReconciliationError extends Data.TaggedError("LoomLedgerReconcil
 }> {}
 
 /**
- * One-time move of already-applied fork migrations out of the shared ledger.
- *
- * Runs **before either lane's migrator**, in a single transaction that opens
- * *before* the marker check, so an interrupted run can never leave a marker
- * behind with the rows unmoved (which would read as a false "done" and strand
- * every fork migration as unapplied).
- *
- * The marker is the **existence of `loom_sql_migrations` and nothing else** —
- * it never inspects upstream ids, so it stays valid for arbitrary future
- * upstream numbering. Every historical-layout check below therefore runs only
- * on the pre-marker path, and never again once the marker is committed.
- *
- * On any ledger shape it does not recognise it **fails rather than guesses**:
- * refusing to start is recoverable, mis-reconciling a live database is not.
+ * One-time move of applied fork migrations out of the shared ledger, before either lane, in one
+ * transaction opened before the marker check. The marker is only that `loom_sql_migrations` exists,
+ * so layout checks run pre-marker only. An unrecognised ledger fails: refusing to start is
+ * recoverable, mis-reconciling a live database is not.
  */
 export const reconcileMigrationLedgers = Effect.fn("reconcileMigrationLedgers")(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -310,12 +274,8 @@ export interface RunAllMigrationsOptions {
 }
 
 /**
- * Both lanes, in the only safe order: reconciliation, then upstream, then fork.
- *
- * Reconciliation must precede the upstream lane. Running upstream first against
- * an unreconciled ledger sees a high-water mark of `33..66` and skips upstream's
- * `033`/`034` outright, leaving a ledger that looks migrated while missing
- * columns — and unrecoverable, because the mark can never go back down.
+ * Both lanes, in the only safe order: reconciliation, upstream, fork. Upstream first on an
+ * unreconciled ledger sees a high-water mark of `33..66`, skips `033`/`034`, and can never recover.
  */
 export const runAllMigrations = Effect.fn("runAllMigrations")(function* ({
   toLoomMigrationInclusive,

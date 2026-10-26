@@ -114,12 +114,10 @@ it.layer(NodeServices.layer)("Claude capability probe orphan cleanup", (it) => {
       );
       yield* fs.chmod(executablePath, 0o755);
 
-      // Probe from a child process that exits as soon as the probe resolves. The
-      // SDK force-kills an aborted subprocess only on unref'd timers (~7s away),
-      // so this reproduces a restart landing mid-probe — routine under
-      // `Restart=always` — which would otherwise reparent the child to systemd
-      // and leave it counting against the service's memory.
-      // Resolved URLs, because the runner lives in a temp dir with no node_modules.
+      // Probe from a child that exits once the probe resolves: the SDK force-kills an aborted
+      // subprocess only on unref'd timers (~7s), so this reproduces a restart mid-probe, which
+      // would reparent the child to systemd. URLs are resolved because the runner's temp dir has
+      // no node_modules.
       yield* fs.writeFileString(
         runnerPath,
         [
