@@ -47,6 +47,7 @@ import {
 import { goalContextInstruction } from "./goalContext.ts";
 import {
   CHILD_READERSHIP_CLAUSE,
+  deferredCapabilitiesClause,
   relocationClause,
   threadIdentityClause,
   WORK_MODEL_ADDENDUM,
@@ -59,7 +60,7 @@ import {
 } from "./sessionComposer.ts";
 import type { LoomOpenSessionFields } from "@t3tools/contracts";
 import { T3_LOOM_HIDDEN_TOOLS_ENV } from "@t3tools/provider-pi/server/mcpExtensionSource";
-import { withheldFrom } from "../../mcp/toolkits/workstream/families.ts";
+import { CAPABILITIES, withheldFrom } from "../../mcp/toolkits/workstream/families.ts";
 
 /**
  * The tools withheld from this profile, as the bridge names them (unprefixed): registered
@@ -114,8 +115,17 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
     const catalogue =
       overlay === undefined || overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
     const goal = workstream?.goalId == null ? null : yield* loomStore.goals.get(workstream.goalId);
+    // A role without a profile has every tool declared; the retro reviewer's profile is its whole job.
+    const resident =
+      overlay?.tools === undefined || workstream?.role === RETRO_REVIEWER_ROLE
+        ? undefined
+        : new Set(overlay.tools);
     const appendSystemPrompt = [
       WORK_MODEL_ADDENDUM,
+      resident &&
+        deferredCapabilitiesClause(
+          CAPABILITIES.filter((capability) => capability.tools.some((tool) => !resident.has(tool))),
+        ),
       isChild ? CHILD_READERSHIP_CLAUSE : undefined,
       threadIdentityClause(
         thread.id,
