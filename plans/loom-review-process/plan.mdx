@@ -1,0 +1,342 @@
+---
+reader:
+  who: Loom's maintainer, deciding whether review gates should launch on a default assignment and what an orchestrator still writes for a reviewer
+  knows: how a workstream looks when he runs one (coders, reviewers, gates that sit waiting for a brief); none of the two research reports; none of the code names
+  after_first_screen: a reviewer already holds what a generic review needs, so gates launch on their purpose the moment the coder hands back, an orchestrator briefs a reviewer only with what the hand-back cannot show, and he approves or amends that in the form at the end
+kicker: Plan for approval · evidence from 262 review gates since 1 October and Anthropic's code-review guidance
+manager_sessions:
+  - id: 01a17654-cce3-75e1-9253-09f286721f4b
+    name: Review-process plan for Carl
+    role: plan
+    authored_at: 2026-10-26T04:05:07.814Z
+---
+
+# Reviewers launch on their purpose; a brief is only for what the hand-back cannot show
+
+Your question was why a reviewer needs a specific brief beyond "does this achieve goal X and meet the standards". Loom's own gates answer: **it mostly does not.** Of **262** gate reviewers since 1 October, **about 70% of brief words** restate the reviewer's role, the project posture or the coder's own brief, and only **7 gates (3%)** reached a verdict that depended on something only the brief said. Anthropic's reviewer gets no per-review brief at all: the diff, the author's stated intent and two standing files. Loom's reviewer already receives the equivalent at launch. So: a scaffolded review gate **launches on its purpose the moment its coder hands back**, no brief required; an orchestrator writes one only when it holds something the reviewer cannot read elsewhere; Anthropic's guidance is adopted where it is standing configuration and rejected where it is machinery for a large team.
+
+<Stats
+  items={[
+    { value: "70%", label: "Brief words that restate", tone: "warning", detail: "16% repeat the role or posture, 56% retell the coder's brief; the median brief has 12% new content" },
+    { value: "7 of 262", label: "Verdicts that hinged on the brief", tone: "info", detail: "18 gates had any must-fix only the brief produced; in 7 every must-fix was brief-only" },
+    { value: "23", label: "Briefed after the coder finished", tone: "neutral", detail: "Median wait 1.1 minutes; four waited 13 minutes to 4 hours. No gate stalled for want of a brief" },
+    { value: "4", label: "Files the core change touches", tone: "success", detail: "Scaffold handler, one contract field, one kickoff sentence, one orchestrator-role line" },
+  ]}
+/>
+
+<Callout tone="decision" title="What changes when you run a workstream" focus>
+  A review gate no longer sits on **brief needed** after its coder finishes: it starts in the next dispatcher pass on the one-line purpose the orchestrator gave it at scaffold time (for example *"Confirm the deferral is correct on every path and cannot leave a node silently unbriefed forever"*). Orchestrators stop spending a turn on a reviewer brief that repeats the role. A brief still lands when the orchestrator holds something only it knows: a stricter bar for this change, a fact from a parallel track, a deliberate deferral. A ruling you give mid-coder goes **to the coder**; the reviewer reads it in the coder's session. The time saved is small (about a minute on one gate in ten); the gain is one fewer state in which a gate can never launch, and the end of restated briefs. Approve, amend or reject in the form at the end; two things there are genuinely open: whether to keep a way to read the coder's report before the reviewer runs, and whether to adopt two one-clause additions from Anthropic now or on evidence.
+</Callout>
+
+**In scope:** the reviewer's default assignment and where it lives; gates launching unbriefed and every surface that touches; the orchestrator's instruction about review briefs; a verdict on each Anthropic recommendation. **Not in scope:** changing the review gate's verdict routing, round cap or fix licence; rewriting `roles/reviewer.md` (the corpus shows no must-fix class it mis-names); any change for gates created with `workstream_spawn`, which already launch on their purpose. **Done** means a scaffolded coder-plus-gate pair runs end to end with no `workstream_brief` call, the kickoff the reviewer reads is the one in §2, and the orchestrator-role line ships through its own instruction-text gate.
+
+## 1. Why a reviewer rarely needs a specific brief
+
+A gate reviewer is launched with more than its brief. The kickoff message the control plane composes opens with the gate's target and its files, before the orchestrator's brief appears:
+
+<Code
+  language="text"
+  filename="What a gate reviewer reads first (composed by workstreamChildPrompt, prose.ts)"
+  code={"You are a reviewer sub-thread spawned by a parent orchestrator in T3 Code.\nYou are inside a review gate: a `gate` names the coder <id> as the work you verify, and your\nmcp__t3-code__workstream_submit outcomes route it — your role's gate protocol applies from your FIRST submit.\nIts hand-back: report `…/workstream-reports/<id>.md`; the brief it worked from\n`…/workstream-briefs/<id>.md` (later steers are not in it; they are in its session `…jsonl`).\n\nYour brief:\n<whatever the orchestrator wrote>"}
+  wrap
+/>
+
+Set beside Anthropic's reviewer, the inputs line up. Anthropic's gets the diff, the PR title and description (the author's intent), `CLAUDE.md` (project rules) and `REVIEW.md` (review-only rules, read from the base branch so the side under review cannot rewrite its own criteria). It gets no per-review instructions; when it keeps getting something wrong, the standing file is fixed, not the next review's prompt.
+
+<Table
+  columns={["What a review needs", "Anthropic's reviewer gets it from", "Loom's gate reviewer gets it from"]}
+  rows={[
+    ["The change", "the diff and surrounding code", "the shared worktree; the coder's report names the files and commits"],
+    ["The intent", "PR title and description", "the coder's brief and session, named in the kickoff (above)"],
+    ["Project rules", "`CLAUDE.md`", "`AGENTS.md` (yours and the repo's)"],
+    ["Review-only rules and the severity bar", "`REVIEW.md`, read from the base branch", "`roles/reviewer.md`, `.t3code/roles/reviewer.md`, the `workstream-review-gate` skill"],
+    ["Per-review instructions", { md: "depth is set once per repository, nothing per review", badge: { label: "none", tone: "success" } }, { md: "the orchestrator's brief", badge: { label: "today: required", tone: "warning" } }],
+  ]}
+/>
+
+What orchestrators actually put in that brief, across all 262 gates since 1 October (about 108,000 words; a model classified every brief and the classification was spot-checked by hand):
+
+<Table
+  columns={["Share of brief words", "What it is", "Example"]}
+  rows={[
+    [{ md: "**16%**", tone: "warning" }, "Restates the reviewer role, AGENTS.md or the gate protocol", "*\"the bar is loom's prototype posture: smallest correct change, no shims, `// loom:` on every hunk… `vp check` + `vp run typecheck` green… Verdict via `workstream_submit`: `clean`, `fixed_inline`…\"*"],
+    [{ md: "**56%**", tone: "warning" }, "Retells the coder's brief: what was built, which files, which plan", "the coder's brief restated with the same file list and plan path"],
+    [{ md: "**19%**", tone: "success" }, "Something only the brief could say (an upper bound; late briefs that summarise the coder's own report were counted here)", "*\"check this number against Phase 3's 1049/1050 claims: a collision is must-fix\"*"],
+    [{ md: "**9%**", tone: "neutral" }, "Process, model and format instructions", "which model preset, where the recap goes"],
+  ]}
+/>
+
+The restated 16% traces to one line in the orchestrator's role, *"State the project's posture in review briefs"*; §2 replaces it. Whether the 19% changed anything is the real question, and the answer is: rarely, but when it did, decisively.
+
+- **224 must-fix findings** across the 85 gates that looped. 36 of them (16%) trace to something only the brief supplied; the other 188 are plain bugs (57% of all must-fixes), intent mismatches (19%) or report claims the code contradicts (17%), all of which the role's *"verify, don't rubber-stamp"* and the coder's own brief produce without help.
+- **78 of the 85 looped gates would have looped anyway.** In only 7 was every must-fix brief-only.
+- **The brief that mattered carried one of three things.** A fact from outside the change (a parallel plan's migration number, real data rows to walk, a test asset). A bar stricter or looser than the default (*"a unique combination that identifies a tenant without naming it … counts"*; *"typecheck errors are not findings here"*). A decision made after the coder started (*"The planner left two questions open. The orchestrator has ruled…"*).
+- **The third kind is misrouted.** In three planner gates the rework round was spent passing your rulings to the planner through the reviewer, because the planner was never told. That is a steer to the planner, not a review finding.
+
+<Details summary="The seven gates whose verdict hinged on the brief, and what each brief carried">
+
+<Table
+  columns={["Gate (purpose, shortened)", "Brief-only content", "Kind"]}
+  rows={[
+    ["Legacy import ledger review", "pointer to a parallel plan's claim on migration 1049; the reviewer found *\"Migration 1049 is already taken by Phase 3 … one migration silently never runs\"*", "fact from outside the change"],
+    ["Client template privacy review", "indirect identification counts as a leak; both findings were verbatim customer quotes the coder's brief had told the coder to keep", "stricter bar for this change"],
+    ["Rhodes extraction review", "*\"Walk real entries through the sheet. Pick at least eight Rhodes entries the author did not use…\"*; produced all 7 must-fixes", "fact from outside the change (a method over real data)"],
+    ["Three planner-plan reviews", "rulings made after the planner started, delivered to the planner as review findings", "decision made after the coder started"],
+    ["Follow-up promoted to must-fix", "*\"treat as must-fix in this stack\"* for a logged follow-up; the gate looped on it", "stricter bar for this change"],
+  ]}
+/>
+
+Seven of the 18 gates with any brief-only must-fix were briefed after the coder finished, against 23 late briefs in 262. The late brief is over-represented because the orchestrator wrote it having read the coder's report. §3 keeps a channel for that.
+
+</Details>
+
+## 2. The reviewer's default assignment
+
+<Callout tone="decision" title="Decision: the gate's purpose is its brief, and one sentence in the kickoff says so">
+  No new default-brief template. A scaffolded gate's **purpose** (the one sentence the orchestrator already writes at scaffold time, averaging 25 words across the 259 scaffolded gates, e.g. *"Confirm the harness actually measures model variance (caches bypassed, tree frozen, replay control passes) and that the baseline numbers are computed as the plan defines them"*) becomes the text under "Your brief:". The role and the kickoff's gate lines already tell the reviewer what to verify and against what. One sentence is added to the gate lines so a one-line brief is read as complete rather than missing.
+</Callout>
+
+<Columns>
+  <Column label="Chosen: the purpose, plus one kickoff sentence">
+    The orchestrator writes the purpose anyway. It is already an assignment in its own words. The kickoff's gate lines are the one surface read exactly when a gate reviewer starts and never by anyone else, which is where Loom's prompt-authoring doctrine puts text that binds at one moment (`docs/architecture/prompt-surface-authoring.md`: control-plane messages are the only just-in-time surface). Cost: 27 words, read once per gate.
+  </Column>
+  <Column label="Rejected: a stored default-brief template">
+    A fixed text ("verify the gated work against its brief and the project's standards") written into the brief file at scaffold time. It would restate the role in a second place, drift from it, and discard the purpose the orchestrator already wrote. Also rejected: a line in `roles/reviewer.md`, which every reviewer pays for on every turn, gated or not, and which the doctrine says must not carry "when you are in a gate…" conditions.
+  </Column>
+</Columns>
+
+The one added sentence, in `gateClause` in `apps/server/src/loom/prompt/prose.ts`, after the hand-back line. **27 words.** It states a fact the reviewer cannot otherwise know (that a short brief is the whole brief), and it names where anything extra comes from:
+
+<Diff
+  filename="apps/server/src/loom/prompt/prose.ts (gateClause, rendered)"
+  before={"You are inside a review gate: a `gate` names the coder <id> as the work you verify, and your mcp__t3-code__workstream_submit outcomes route it — your role's gate protocol applies from your FIRST submit.\nIts hand-back: report `…`; the brief it worked from `…` (later steers are not in it; they are in its session `…`).\n"}
+  after={"You are inside a review gate: a `gate` names the coder <id> as the work you verify, and your mcp__t3-code__workstream_submit outcomes route it — your role's gate protocol applies from your FIRST submit.\nIts hand-back: report `…`; the brief it worked from `…` (later steers are not in it; they are in its session `…`).\nYour brief below may be only the gate's purpose; anything more in it is what the hand-back, your role and the project's rules do not say.\n"}
+  wrap
+/>
+
+Under the four rejection reasons the instruction-text gate will apply: not *already covered* (nothing tells a reviewer a one-line brief is complete; its role says *"your spawn brief defines your assignment"*, which invites a consult when the brief looks thin); it *changes a decision* (whether to proceed or consult); not *derivable* (no tool output says it); it is a *fact*, not a rule. If the gate strikes it anyway, the mechanism in §3 still works; the sentence is a courtesy to the reviewer, not load-bearing.
+
+**What the orchestrator is told instead.** The line that produced the restated briefs is in `roles/orchestrator.md`, line 38. The replacement names the three kinds of content the corpus showed to be decisive, and routes the misrouted kind:
+
+<Diff
+  filename="roles/orchestrator.md, line 38"
+  before={"- Judge findings against concrete consequences and recovery cost, not reviewer satisfaction. State the project's posture in review briefs. Verify factual claims; defer optional hardening rather than adding machinery just to reach `clean`."}
+  after={"- Judge findings against concrete consequences and recovery cost, not reviewer satisfaction. Brief a reviewer only with what it cannot read from the hand-back, its role or the project's rules: a stricter or looser bar for this change, a fact from outside it, what is deferred on purpose. A ruling made while the coder runs goes to the coder; the reviewer reads the coder's session. Verify factual claims; defer optional hardening rather than adding machinery just to reach `clean`."}
+  wrap
+/>
+
+Removed 7 words, added 53, net **+46**. Each clause maps to a measured class: the three kinds are the three kinds in §1 (111 stricter-or-looser items, 106 outside facts, 19 deliberate deferrals in the 554 brief-only items the study counted); the ruling sentence is the three planner gates. "Blind spot from an earlier review" (13 items) is folded into "a fact from outside it". The instruction-text gate that ships this line should be briefed with exactly that: the file's purpose in one sentence and this +53/−7 count. It needs nothing else, since the four rejection reasons are already in the gate skill it reads.
+
+The scaffold tool's own text changes with it, so the orchestrator hears the rule at the moment it scaffolds rather than only in its role: the `nodes` description in `apps/server/src/mcp/toolkits/workstream/defs.ts` gains *"A gate node's purpose is its brief until you replace it, so it launches when the thread it gates hands back"*, and the scaffold result in `handlers/scaffold.ts` says which nodes launch on their purpose and which still await a brief.
+
+## 3. Gates launch when the coder hands back
+
+<Callout tone="decision" title="Decision: the scaffold writes a gate node's purpose as its brief file, exactly as workstream_spawn already does">
+  `workstream_spawn` has always used the purpose as the brief when none is given (`handlers/spawn.ts`: *"carries its kickoff brief from birth (brief, else its purpose)"*). `workstream_scaffold` is the odd one out: it creates every node with no brief, and 259 of the 277 gates since 1 October were scaffolded. The change gives a scaffolded **gate** node the spawn rule. Nothing else about how a node becomes launchable changes: the one start rule (`isEligibleToStart` in `packages/shared/src/workstreamStart.loom.ts`: not held, not finished, has a brief, dependencies done) stays as it is, because a gate now always has a brief.
+</Callout>
+
+<Columns>
+  <Column label="Chosen: write the brief at scaffold time (gate nodes only)">
+    Touches the scaffold handler, one optional contract field, and the line in the orchestrator that copies it. The start rule, the brief-needed notice, the web's "brief needed" badge, the kickoff composer and the dispatcher's promotion are untouched by construction. One invariant survives: a launchable node has a brief file. Non-gate scaffold nodes keep waiting for a brief, because a coder's purpose is a title, not a contract.
+  </Column>
+  <Column label="Rejected: change the start rule so a gate is eligible without a brief">
+    The shared predicate would need the node's routes to know it is a gate, which widens its input type in the server, the dispatcher's two rails, the digest's quiet test and the web client's derived attention; promotion would read the purpose when the brief is missing. Eight files and their tests for the same observable behaviour, and the "unbriefed" state would then mean two different things for gates and coders.
+  </Column>
+</Columns>
+
+What you see, in order, after this ships:
+
+<Steps>
+  <Step at="1" title="Orchestrator scaffolds a coder and its gate" badge="unchanged">
+    `workstream_scaffold` with a `coder` node and a `review` node whose `gate.rework` names the coder. The gate's purpose is one sentence. The result now says: *"Gate nodes launch on their purpose when their target hands back; replace it with workstream_brief, or add to it with workstream_prompt, before then."*
+  </Step>
+  <Step at="2" title="Orchestrator briefs the coder" badge="unchanged">
+    `workstream_brief` on the coder; it launches. The gate waits on the coder (the implied dependency a gate always has).
+  </Step>
+  <Step at="3" title="Orchestrator may add to the gate before the coder finishes" badge={{ label: "optional", tone: "info" }}>
+    `workstream_brief` replaces the purpose with a full brief (the file is overwritten atomically; the start rule does not change). `workstream_prompt` to the unlaunched gate appends an amendment under the purpose. Either is the channel for a stricter bar, an outside fact or a deliberate deferral the orchestrator knows up front.
+  </Step>
+  <Step at="4" title="Coder hands back; reviewer starts in the next dispatcher pass" badge={{ label: "new", tone: "success" }} tone="success">
+    No brief-needed notice, no orchestrator turn. The reviewer reads the kickoff in §2 with the purpose under "Your brief:". The orchestrator is not woken (it never was for a briefed gate: a coder's hand-back into a gate is withheld until the gate resolves).
+  </Step>
+  <Step at="5" title="Something arrives after the coder finished" badge={{ label: "channel", tone: "info" }}>
+    `workstream_prompt` to the reviewer steers it mid-review. If the orchestrator prompts the coder instead, the tool refuses with the coder's `done` status, which is the signal to steer the reviewer (§5 proposes the refusal name the reviewer).
+  </Step>
+</Steps>
+
+**The channel for what late briefs carried.** The corpus's decisive late content was of three kinds, and each has a home that does not require the gate to wait:
+
+<Table
+  columns={["What the orchestrator holds", "When it knows it", "Where it goes now"]}
+  rows={[
+    ["A stricter or looser bar, an outside fact, a deliberate deferral", "at scaffold time or while the coder runs", "`workstream_brief` or `workstream_prompt` on the unlaunched gate (step 3)"],
+    ["A ruling from you, made while the coder runs", "mid-coder", "`workstream_prompt` to the **coder**; the reviewer's kickoff points it at the coder's session, where steers live"],
+    ["Something only the coder's report reveals", "after the hand-back", "`workstream_prompt` to the running reviewer; or do not scaffold the gate and add it when the report arrives (5 gates in the corpus did exactly this)"],
+  ]}
+/>
+
+**The reverse state: holding a gate to read the report first.** Today an orchestrator that leaves a gate unbriefed gets the coder's report piggybacked on the brief-needed notice, and 23 of 262 briefs were written in that window. This plan removes that window for scaffolded gates. An alternative considered, marking a gate `held` when a ruling is coming and releasing it with the brief, is **not recommended**: a held node is excluded from the brief-needed notice by design, and the coder's hand-back is withheld while its gate is unresolved, so a held gate whose coder has finished would wake nobody. Making it wake the orchestrator means a new rail for a case seen 7 times in 262 gates. The recommended reverse state is the one orchestrators already use: scaffold the coder without a gate, hear its completion as an ordinary digest item, then `workstream_spawn` a reviewer with `gate.rework` naming the done coder. The form at the end asks you to confirm this.
+
+**Existing scaffolds when this ships.** Gates already scaffolded without a brief keep today's behaviour: the brief-needed notice fires (correctly, since the 26 October fixes on `main`) and the orchestrator briefs them. No migration, no backfill of brief files. Within a day there are none left.
+
+**The saving, honestly.** On 23 gates in 262 the reviewer waited a median 1.1 minutes and one orchestrator turn; four waited 13 minutes to 4 hours, and no gate in the window stalled for want of a brief. The gain is not time. It is one fewer state in which a gate can never launch, roughly 75,000 fewer restated words a month across orchestrator turns (70% of the 108,000 written since 1 October), and a reviewer model that matches both your question and Anthropic's design.
+
+### Work items
+
+<Steps>
+  <Step at="A" title="Scaffold writes a gate node's purpose as its brief" badge={{ label: "server + contract", tone: "info" }}>
+    `LoomScaffoldNode` in `packages/contracts/src/orchestrationV2.loom.ts` gains an optional `kickoffBriefPath`; `handlers/scaffold.ts` writes the purpose with `writeWorkstreamBrief` for every node that has a `gate` and passes the path; `thread.scaffold` in `apps/server/src/orchestration-v2/Orchestrator.loom.ts` copies `node.kickoffBriefPath ?? null` instead of `null`. **Achieves:** a scaffolded gate is eligible to start the moment its coder is done. **Verified by:** a case in `handlers/spawn.test.ts` beside *"nodes are created unbriefed"*: scaffold a coder and a gate, assert the gate's `kickoffBriefPath` is set and its file is the purpose, the coder's is null; a dispatcher pass test (`dispatcher.pass.test.ts`) in which the coder submits and the gate's kickoff is dispatched in the same pass with the purpose under "Your brief:". Confirm `workstream_brief` before kickoff replaces the file and `workstream_prompt` before kickoff appends to it (both paths exist; the test asserts the gate case).
+  </Step>
+  <Step at="B" title="The kickoff sentence and the tool text" badge={{ label: "instruction text", tone: "warning" }}>
+    The 27-word sentence in `gateClause` (`prose.ts`); the `nodes` description in `defs.ts`; the scaffold result text in `handlers/scaffold.ts`. **Achieves:** a reviewer treats a purpose-only brief as complete; an orchestrator hears at scaffold time that gates launch on their purpose. **Verified by:** render the composed kickoff for one real gate before and after (the `llm-instruction-change` discipline's rule 2); the existing `prose` and `render` tests pass; the instruction-text gate below.
+  </Step>
+  <Step at="C" title="The orchestrator-role line" badge={{ label: "instruction text", tone: "warning" }}>
+    Line 38 of `roles/orchestrator.md` as in §2. **Achieves:** briefs stop restating posture and rulings go to the coder. **Verified by:** a reviewer gate briefed only with the file's purpose in one sentence and the count +53/−7, applying the gate skill's four rejection reasons. Note the built-in `roles/` file reaches threads at the next release, not in the worktree that edits it.
+  </Step>
+  <Step at="D" title="Ship" badge="ship skill">
+    One PR from a branch cut from `origin/main` (this worktree's `HEAD` predates the two brief-needed fixes of 26 October). `vp check`, `vp run typecheck`, the tests named above, then the live pass in §6.
+  </Step>
+</Steps>
+
+<Details summary="Change map: every file the change touches, and the ones it deliberately leaves alone">
+
+<FileTree
+  title="Core change"
+  entries={[
+    { path: "packages/contracts/src/orchestrationV2.loom.ts", change: "modified", note: "LoomScaffoldNode: optional kickoffBriefPath" },
+    { path: "apps/server/src/mcp/toolkits/workstream/handlers/scaffold.ts", change: "modified", note: "write the purpose as the brief for nodes with a gate; result text names which nodes launch on their purpose" },
+    { path: "apps/server/src/orchestration-v2/Orchestrator.loom.ts", change: "modified", note: "thread.scaffold: kickoffBriefPath from the node instead of null (line 1191)" },
+    { path: "apps/server/src/loom/prompt/prose.ts", change: "modified", note: "gateClause: the 27-word sentence" },
+    { path: "apps/server/src/mcp/toolkits/workstream/defs.ts", change: "modified", note: "scaffold nodes description: a gate node's purpose is its brief until replaced" },
+    { path: "roles/orchestrator.md", change: "modified", note: "line 38: brief a reviewer only with what it cannot read elsewhere; rulings go to the coder" },
+    { path: "apps/server/src/mcp/toolkits/workstream/handlers/spawn.test.ts", change: "modified", note: "scaffold: gate node briefed with its purpose, coder node unbriefed" },
+    { path: "apps/server/src/loom/orchestration/dispatcher/dispatcher.pass.test.ts", change: "modified", note: "coder submits; gate kicks off in the same pass on its purpose" },
+  ]}
+/>
+
+<FileTree
+  title="Untouched by construction (a gate always has a brief, so the brief-needed machinery never sees one)"
+  entries={[
+    { path: "packages/shared/src/workstreamStart.loom.ts", note: "isEligibleToStart and isBriefNeeded unchanged" },
+    { path: "packages/shared/src/workstreamGraph.ts", note: "gate routing, keep-alive and join rules unchanged" },
+    { path: "apps/server/src/loom/orchestration/dispatcher/WorkstreamDispatcher.ts", note: "promotion reads the brief file as it does for a spawn" },
+    { path: "apps/server/src/loom/orchestration/dispatcher/rails.ts", note: "briefNeededRail unchanged; it simply never matches a scaffolded gate" },
+    { path: "apps/server/src/loom/orchestration/dispatcher/briefNeeded.ts", note: "notice text unchanged; still correct for coder and planner nodes" },
+    { path: "apps/server/src/loom/prompt/childPrompt.ts", note: "kickoff composition unchanged" },
+    { path: "packages/client-runtime/src/state/loom/rollup.ts", note: "the web's derived brief-needed badge reads the same predicate; a gate no longer qualifies" },
+    { path: "apps/server/src/mcp/toolkits/workstream/handlers/prompt.ts", note: "the pre-launch append path already handles a briefed, unlaunched node" },
+  ]}
+/>
+
+</Details>
+
+## 4. Anthropic's guidance: adopt, adapt, reject
+
+Anthropic's Code Review (the managed GitHub service, the local `/code-review` command, and `REVIEW.md`) was read against Loom's reviewer files. Most of what transfers is already in place; the rest is either one clause or machinery for a team of hundreds.
+
+<Table
+  columns={["Recommendation", "Verdict", "Why"]}
+  rows={[
+    ["Standing configuration (`CLAUDE.md`, `REVIEW.md`) instead of per-review instructions", { md: "the core of this plan", badge: { label: "ADOPT", tone: "success" } }, "Loom's `roles/reviewer.md`, `.t3code/roles/reviewer.md` and the gate skill are its `REVIEW.md`; §3 makes the per-review brief optional, as Anthropic's is absent"],
+    ["Fix the standing file when the reviewer keeps erring, never the next review's prompt", { md: "already Loom's rule", badge: { label: "IN PLACE", tone: "success" } }, "`capture_lesson` and the monthly triage, with a human gate, which suits your bias against adding rules"],
+    ["Correctness first; formatting and test coverage not flagged by default; narrow \"Important\" for a prototype", { md: "already in the role", badge: { label: "IN PLACE", tone: "success" } }, "`roles/reviewer.md` severity bar and the test-must-earn-its-place rule go further than Anthropic"],
+    ["Evidence at `file:line`; a count up front; say plainly when nothing needs fixing", { md: "already in the role and skill", badge: { label: "IN PLACE", tone: "success" } }, "`counts` on submit; \"say plainly when something is fine\""],
+    ["Re-review only the delta; never repeat a finding; cap rounds then rethink the approach", { md: "already in the skill", badge: { label: "IN PLACE", tone: "success" } }, "Loom caps at 2 rounds against Anthropic's 3; `rework_approach` is the rethink"],
+    ["Measure the reviewer by what authors did with its findings (fixed, contested, ignored) and rescore after any prompt change", { md: "the method for any reviewer-text change", badge: { label: "ADOPT", tone: "success" } }, "The corpus study is the first run of it. §5 names the one storage gap (`contested` is not persisted) that makes it cheaper next time"],
+    ["Review depth set per repository (Quick / Standard / Deep), never per review", { md: "Loom's equivalent exists", badge: { label: "ADAPT", tone: "info" } }, "The orchestrator chooses to gate or not (\"mechanical edits may skip them\") and `taskShape: thorough`; no new knob"],
+    ["`REVIEW.md` read from the base branch so the reviewed side cannot rewrite the criteria", { md: "noted, no action", badge: { label: "REJECT", tone: "neutral" } }, "`.t3code/roles/reviewer.md` is read from the worktree a coder edits; instruction text already ships only through its own gate, and this is a single-maintainer shop"],
+    ["A Pre-existing tag so a bug the change did not introduce cannot loop the author", { md: "one clause; adopt on evidence", badge: { label: "DEFER", tone: "warning" } }, "Not seen in 224 must-fixes; \"a factual error in the work\" already scopes must-fix to the change. Asked in the form"],
+    ["Flag the class of bug so every instance is fixed, not one line", { md: "one clause; adopt on evidence", badge: { label: "DEFER", tone: "warning" } }, "Anthropic measured it as a convergence fix at 50-round scale; Loom's gates loop at most twice. Asked in the form"],
+    ["Flag a change that leaves a `CLAUDE.md` line out of date", { md: "covered for the coder", badge: { label: "DEFER", tone: "warning" } }, "The repo's \"Hit every surface: Docs\" bullet is written for the coder; no reviewer miss of this kind in the corpus"],
+    ["Quote the exact rule for a convention finding", { md: "no observed need", badge: { label: "REJECT", tone: "neutral" } }, "Coder pushbacks (31, 29 accepted) were severity disputes, not invented standards"],
+    ["A nit cap", { md: "no observed need", badge: { label: "REJECT", tone: "neutral" } }, "Only must-fix loops the coder; nice-to-haves sit in their own section already"],
+    ["Several finder agents plus a voting verifier on every review", { md: "cost without evidence of need", badge: { label: "REJECT", tone: "risk" } }, "About $15 to $25 and 20 minutes per review at Anthropic; Loom's single reviewer converges (80 of 276 looped once, 6 twice)"],
+    ["The review never approves or blocks; a human merges", { md: "Loom's verdict routes work", badge: { label: "REJECT", tone: "risk" } }, "Matches Anthropic's own internal low-risk tier, which merges on automated checks; your merge authority is agent-run"],
+    ["Blocking security review, risk-tiered human approvals, CODEOWNERS, two-person sign-off, merge queue, feature flags, staged release", { md: "engineering-team ritual", badge: { label: "REJECT", tone: "risk" } }, "One maintainer, a prototype, turn checkpoints that make every change reversible; AGENTS.md says not to over-index on security"],
+    ["Split bug-hunting from simplification into two passes", { md: "deliberately not", badge: { label: "REJECT", tone: "neutral" } }, "Loom's reviewer leads with \"should this code exist?\" by design; Anthropic's drop-style-findings rule is calibrated for a bug-only reviewer and is not imported"],
+  ]}
+  density="compact"
+/>
+
+One point from the comparison is worth keeping in mind rather than acting on: Anthropic's plugin says *"if you are not certain an issue is real, do not flag it"*, while Cursor's Bugbot moved the other way after a single tool-using agent proved too cautious. Loom's role states its asymmetry explicitly (hard on excess, light on edge cases away from boundaries). Only measurement, not either vendor's prompt, settles which way to lean.
+
+## 5. Optional follow-ups the corpus suggests
+
+Separate from the core proposal; none is required for §3 to ship.
+
+<Columns>
+  <Card heading="The role's two longest paragraphs produced 2 findings in 224" tone="warning" badge="measure first" meta={["roles/reviewer.md", "no change proposed"]}>
+    Reviewers raised **2 excess-code must-fixes and 0 low-value-test findings** across 224, though the role spends its longest paragraphs on both. The corpus cannot say whether coders are not producing excess or reviewers are not looking for it. Before touching the role, a cheap probe settles it: re-review 20 clean gates with a fresh reviewer given only the excess-and-tests lens, and count. If it finds nothing, the paragraphs are doing their job on the coder side (coders read the same AGENTS.md) and could shrink; if it finds plenty, the role's ordering is not binding.
+  </Card>
+  <Card heading="Persist the reviewer's contested list" tone="info" badge="small server change" meta={["workstream_submit", "evaluation"]}>
+    The `contested` findings a reviewer escalates are not stored in the submit's event payload, so the study read pushbacks out of report prose. Storing them makes "what did the coder do with each finding" a query, which is the measurement §4 adopts. One field on the outcome-recorded payload.
+  </Card>
+  <Card heading="Planner gates loop three times as often" tone="info" badge="observation" meta={["77% vs 25%"]}>
+    23 of 30 planner gates looped against 59 of 240 coder gates, and the three misrouted-ruling cases were all planner gates. The §2 role line's "a ruling goes to the coder" sentence is the fix; watch whether the planner loop rate falls after it ships.
+  </Card>
+  <Card heading="Let the prompt refusal name the reviewer" tone="neutral" badge="tool message" meta={["handlers/prompt.ts"]}>
+    When an orchestrator prompts a coder that has handed back into an unresolved gate, the refusal says the thread is done. Naming the running reviewer in that refusal ("its reviewer `<id>` is reviewing it now; steer that thread") turns a dead end into the channel §3 relies on. One sentence in an error message.
+  </Card>
+</Columns>
+
+## 6. Verification
+
+- **Unit, where the behaviour lives.** `vp test run apps/server/src/mcp/toolkits/workstream/handlers/spawn.test.ts` (scaffold: gate node briefed with its purpose, coder node not) and `vp test run apps/server/src/loom/orchestration/dispatcher/dispatcher.pass.test.ts` (coder submit, gate kickoff in the same pass, kickoff text carries the purpose under "Your brief:"). The effect worker is drained, never slept on.
+- **The composed prompt, rendered.** For one real gate, print the kickoff before and after step B and read it; the diff is the 27-word sentence and nothing else.
+- **End to end, live.** The dev-verify recipe: seed a workstream, have an orchestrator thread call `workstream_scaffold` with a coder and a gate, brief only the coder, let it submit. Assert: the reviewer thread starts without any `workstream_brief` call; its first message shows the purpose under "Your brief:"; the sidebar never shows the brief-needed badge on the gate; the orchestrator receives no brief-needed notice. Then `workstream_prompt` the running reviewer and confirm it lands as a steer.
+- **Instruction-text gates.** Steps B and C each ship through a reviewer gate briefed with the file's purpose in one sentence and the word count, applying the four rejection reasons from the gate skill. If either gate strikes the §2 sentence or trims the role line, §3 still stands.
+- **The completion gates.** `vp check` and `vp run typecheck`.
+
+<QuestionForm
+  submitLabel="Record decisions"
+  questions={[
+    {
+      id: "core",
+      title: "Should scaffolded review gates launch on their purpose the moment the coder hands back, with no brief required?",
+      subtitle: "This is the core change: the scaffold writes the gate's purpose as its brief, so the gate starts when its coder is done, and an orchestrator adds a brief only when it holds something the reviewer cannot read elsewhere.",
+      mode: "single",
+      options: [
+        { id: "yes", label: "Yes, ship it as proposed: gates launch on their purpose; a brief is optional and only for what the hand-back cannot show", recommended: true },
+        { id: "amend", label: "Yes, with amendments I will annotate in the document", detail: "Annotate the sentence, the role line or the work items; the plan is revised before any code is written" },
+        { id: "no", label: "No, keep requiring an orchestrator brief for every gate", detail: "Nothing changes; the brief-needed notice continues to wake the orchestrator when a gate's coder finishes" },
+      ],
+      refs: [{ label: "3. Gates launch when the coder hands back", anchor: "3-gates-launch-when-the-coder-hands-back" }],
+    },
+    {
+      id: "hold",
+      title: "When an orchestrator wants to read the coder's report before the reviewer runs, how should it hold the gate?",
+      subtitle: "Today leaving a gate unbriefed does this, and 23 of 262 briefs were written in that window (7 of them decisively). The plan removes the window for scaffolded gates and offers a replacement.",
+      mode: "single",
+      options: [
+        { id: "spawn-later", label: "No hold mechanism: scaffold the coder without a gate, and spawn the reviewer with gate.rework when the report arrives", detail: "Five gates in the corpus were added this way already. The orchestrator hears the coder's completion as an ordinary digest item. No new state, no new tool.", recommended: true },
+        { id: "held", label: "Expose held on scaffold gate nodes, released by workstream_brief, with a notice when the coder finishes", detail: "Keeps the read-the-report-first window as an explicit opt-in. Costs a new wake rail for held gates and a release rule, for a case seen 7 times in 262 gates." },
+        { id: "steer", label: "No hold and no spawn-later advice: rely on steering the running reviewer", detail: "The reviewer starts at once; anything the report reveals goes to it as a steer. Simplest, but the reviewer may already have done work the steer invalidates." },
+      ],
+      refs: [{ label: "3. Gates launch when the coder hands back", anchor: "3-gates-launch-when-the-coder-hands-back" }],
+    },
+    {
+      id: "anthropic-deferred",
+      title: "Two one-clause additions from Anthropic are deferred for lack of evidence in Loom's gates. Adopt either now?",
+      subtitle: "A Pre-existing tag (a bug the change did not introduce is never must-fix for this coder) and flag-the-class (name the class of bug so every instance is fixed). Neither failure appeared in the 224 must-fixes studied; your standing rule is that a rule earns its place only on an action agents were seen taking.",
+      mode: "multi",
+      options: [
+        { id: "wait", label: "Neither now: revisit when the measurement in section 4 shows the failure", recommended: true },
+        { id: "preexisting", label: "Add the Pre-existing clause to roles/reviewer.md now" },
+        { id: "class", label: "Add the flag-the-class clause to roles/reviewer.md now" },
+      ],
+      refs: [{ label: "4. Anthropic's guidance: adopt, adapt, reject", anchor: "4-anthropic-s-guidance-adopt-adapt-reject" }],
+    },
+    {
+      id: "followups",
+      title: "Which optional follow-ups should be queued as tasks after the core change?",
+      subtitle: "None is needed for the core change. Each is a small, separate piece of work.",
+      mode: "multi",
+      options: [
+        { id: "contested", label: "Persist the reviewer's contested list on the submit event, so reviewer quality can be queried", recommended: true },
+        { id: "refusal", label: "Make the prompt-a-done-coder refusal name the running reviewer", recommended: true },
+        { id: "probe", label: "Run the excess-and-tests probe on 20 clean gates before deciding whether the reviewer role's two longest paragraphs earn their place" },
+      ],
+      refs: [{ label: "5. Optional follow-ups the corpus suggests", anchor: "5-optional-follow-ups-the-corpus-suggests" }],
+    },
+  ]}
+/>

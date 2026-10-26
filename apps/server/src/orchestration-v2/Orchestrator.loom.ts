@@ -1188,7 +1188,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
           role: node.role,
           purpose: node.purpose,
           graphKey: node.graphKey,
-          kickoffBriefPath: null,
+          kickoffBriefPath: node.kickoffBriefPath ?? null,
           held: node.held ?? command.held ?? false,
           blockedBy: node.blockedBy ?? [],
           routes: node.routes ?? [],

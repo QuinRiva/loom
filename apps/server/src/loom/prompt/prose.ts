@@ -90,6 +90,7 @@ const gateClause = (target: KickoffHandback): ReadonlyArray<string> => {
   return [
     `You are inside a review gate: a \`gate\` names the ${target.role ?? "thread"} ${target.id} as the work you verify, and your mcp__t3-code__workstream_submit outcomes route it — your role's gate protocol applies from your FIRST submit.`,
     ...(files.length === 0 ? [] : [`Its hand-back: ${files.join("; ")}.`]),
+    "Your brief below may be only the gate's purpose; anything more in it is what the hand-back, your role and the project's rules do not say.",
   ];
 };
 
