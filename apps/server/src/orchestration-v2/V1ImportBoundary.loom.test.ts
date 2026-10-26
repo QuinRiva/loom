@@ -14,7 +14,6 @@ const legacyReaderFiles: Record<string, string> = {
   "serverSettings.ts": "one-time provider history for settings migration",
   // loom: Loom survivors that name V1 tables (DL-179), each recorded in doc 29.
   "workspace/foreignHomeGuard.loom.ts": "boot detection over copied V1 worktree paths (DL-81)",
-  "loom/legacy/LoomV1WorkstreamImporter.ts": "Phase 4's Loom importer (sidecars, lineage, binding)", // loom: DL-513
 };
 const retiredPaths = [
   "orchestration",

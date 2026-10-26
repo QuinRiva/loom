@@ -29,7 +29,6 @@ import * as EventSink from "./EventSink.ts";
 import * as EventStore from "./EventStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
-import * as LoomV1WorkstreamImporter from "../loom/legacy/LoomV1WorkstreamImporter.ts"; // loom: Phase 4 importer
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectionMaintenance from "./ProjectionMaintenance.ts";
@@ -363,7 +362,6 @@ export const layer = Layer.mergeAll(
   layerProviderRuntimeRecoveryProvided,
   layerProjectionMaintenanceProvided,
   layerLegacyV1ThreadImporterProvided,
-  LoomV1WorkstreamImporter.layer.pipe(Layer.provide(layerEventSinkProvided)), // loom: Phase 4 importer (startup phase)
 );
 
 export const layerProduction = Layer.mergeAll(
