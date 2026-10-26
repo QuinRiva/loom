@@ -5,12 +5,7 @@ import { matchInlineSkills, type InlineSkill } from "@t3tools/shared/inlineSkill
 import { SKILL_CHIP_ICON_SVG } from "../composerInlineChip";
 import { ContextChip, ContextChipLabel } from "../ContextChip";
 
-// loom: subtrees whose text is literal and must never be rewritten into chips: code
-// (inline spans and the `code`/`pre` of a fenced block, whose text is the code
-// itself) and links (whose label is read back from the hast node).
-const SKILL_INLINE_SKIP_TAGS = new Set(["code", "pre", "a"]);
-
-export function SkillInlineText(props: { text: string; skills: ReadonlyArray<InlineSkill> }) {
+function SkillInlineText(props: { text: string; skills: ReadonlyArray<InlineSkill> }) {
   const nodes: ReactNode[] = [];
   let cursor = 0;
 
@@ -42,14 +37,10 @@ export function renderSkillInlineMarkdownChildren(
     if (!isValidElement<{ children?: ReactNode; node?: { tagName?: string } }>(child)) {
       return child;
     }
-    // loom: identify by the hast node react-markdown attaches, not by `child.type`:
-    // once `components` overrides a tag its element type is a function
-    // component, so comparing against intrinsic tag names never matches. The
-    // string comparison stays for trees rendered without those overrides.
-    if (
-      (typeof child.type === "string" && SKILL_INLINE_SKIP_TAGS.has(child.type)) ||
-      SKILL_INLINE_SKIP_TAGS.has(child.props.node?.tagName ?? "")
-    ) {
+    // Custom markdown components replace intrinsic types; check their hast tags.
+    const markdownTagName = typeof child.type === "string" ? child.type : child.props.node?.tagName;
+    // loom: a fenced block's `pre` is literal too, not only its `code`.
+    if (markdownTagName === "code" || markdownTagName === "pre" || markdownTagName === "a") {
       return child;
     }
     if (!("children" in child.props)) {

@@ -3,7 +3,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { CpuIcon } from "lucide-react";
 import { memo, use } from "react";
 
-import { TimelineRowCtx } from "~/components/chat/MessagesTimeline";
+import { TimelineRowCtx } from "~/components/chat/timelineRowContext";
 import { getTriggerDisplayModelName } from "~/components/chat/providerIconUtils";
 import { TimelineSystemDivider } from "~/components/chat/TimelineSystemDivider";
 import { getProviderInstanceEntry } from "~/providerInstances";

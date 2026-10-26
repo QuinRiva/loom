@@ -13,6 +13,7 @@ import {
   isWorkspaceImagePreviewPath,
   isWorkspaceVideoPreviewPath,
 } from "@t3tools/shared/filePreview";
+import { useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_TOKENIZE_MAX_LENGTH,
   VirtualizedFile,
@@ -63,7 +64,7 @@ import { isPreviewSupportedInRuntime } from "~/previewStateStore"; // loom: arte
 // loom: artifact viewer ("Open preview")
 import { useRightPanelStore } from "~/rightPanelStore";
 import { isArtifactViewerPath } from "~/components/artifact/artifactView";
-import { isAbsolutePath } from "@t3tools/shared/path";
+import { isHostPath } from "@t3tools/shared/path";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
@@ -73,6 +74,7 @@ import { assetEnvironment } from "~/state/assets";
 import { usePreviewAvailable } from "~/browser/previewRuntime";
 import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
+import { serverEnvironment } from "~/state/server";
 import { useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
@@ -157,15 +159,15 @@ interface FilePreviewPanelProps {
   composerDraftTarget: ScopedThreadRef | DraftId;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
+  openInShortcutEnabled: boolean;
   revealLine: number | null;
   revealRequestId: number;
   /** When set, the explorer reveals/scrolls to this workspace-relative directory. */
   revealDirectoryPath?: string | null;
   revealDirectoryRequestId?: number;
   onOpenFile: (relativePath: string) => void;
-  /** Moves this folder browser to another folder in place; see `navigateFolder`. */
   onNavigateFolder: (relativePath: string, folderTrail: string, keepSource: boolean) => void;
-  /** The deeper path breadcrumbs keep after the browser moved up; see `navigateFolder`. */
+  /** Retained descendant breadcrumb path after navigating up; see navigateFolder. */
   folderTrail: string | undefined;
   onPendingChange: (relativePath: string, pending: boolean) => void;
   selectedFilePending: boolean;
@@ -251,10 +253,6 @@ function WorkspaceImagePreview(props: {
   );
 }
 
-/**
- * HTML runs in a sandboxed frame with an opaque origin, so a page cannot reach
- * the app's session or storage.
- */
 function WorkspaceBrowserPreview(props: {
   readonly environmentId: EnvironmentId;
   readonly threadRef: ScopedThreadRef;
@@ -264,10 +262,8 @@ function WorkspaceBrowserPreview(props: {
   readonly title: string;
   readonly workspaceMutationId: string | null;
 }) {
-  const insideWorkspace =
-    mediaFileReference(props.absolutePath, props.workspaceRoot).relativePath !== undefined;
   const resource = workspaceAssetResource({
-    kind: insideWorkspace ? "workspace-file" : "media-file",
+    kind: "workspace-file",
     threadRef: props.threadRef,
     draft: props.draft,
     workspaceRoot: props.workspaceRoot,
@@ -296,6 +292,7 @@ function WorkspaceBrowserPreview(props: {
   return (
     <BrowserDocumentFrame
       src={`${assetUrl.url}${revisionSuffix}`}
+      documentKey={`${props.environmentId}:${resource._tag}:${props.threadRef.threadId}:${props.absolutePath}:${props.workspaceMutationId}`}
       title={props.title}
       pdf={isPdfPreviewFile(props.absolutePath)}
     />
@@ -327,10 +324,15 @@ function WorkspaceVideoPreview(props: {
       void refreshAssetUrl().catch(() => undefined);
     },
   });
+  // Servers that report the file's revision let an unchanged file stay loaded; older ones
+  // only offer the workspace mutation, which changes after every command. The revision also
+  // goes in the URL, since two mints in the same millisecond sign identical URLs.
+  const fileRevision = assetUrl._tag === "Success" ? assetUrl.fileRevision : undefined;
+  const revision = fileRevision ?? props.workspaceMutationId;
   const revisionSuffix =
-    props.workspaceMutationId === null
+    revision === null
       ? ""
-      : `${assetUrl._tag === "Success" && assetUrl.url.includes("?") ? "&" : "?"}workspace-revision=${encodeURIComponent(props.workspaceMutationId)}`;
+      : `${assetUrl._tag === "Success" && assetUrl.url.includes("?") ? "&" : "?"}${fileRevision !== undefined ? "file" : "workspace"}-revision=${encodeURIComponent(revision)}`;
   const latestUrl = assetUrl._tag === "Success" ? `${assetUrl.url}${revisionSuffix}` : null;
 
   return (
@@ -339,7 +341,7 @@ function WorkspaceVideoPreview(props: {
         src={latestUrl}
         sourceFailed={assetUrl._tag === "Failure"}
         label={props.name}
-        revision={props.workspaceMutationId}
+        revision={revision}
         preload="metadata"
         className="flex h-full min-h-0 w-full max-w-5xl items-center justify-center"
         onRetry={refreshAssetUrl}
@@ -381,10 +383,12 @@ function WorkspaceAudioPreview(props: {
       void refreshAssetUrl().catch(() => undefined);
     },
   });
+  const fileRevision = assetUrl._tag === "Success" ? assetUrl.fileRevision : undefined;
+  const revision = fileRevision ?? props.workspaceMutationId;
   const revisionSuffix =
-    props.workspaceMutationId === null
+    revision === null
       ? ""
-      : `${assetUrl._tag === "Success" && assetUrl.url.includes("?") ? "&" : "?"}workspace-revision=${encodeURIComponent(props.workspaceMutationId)}`;
+      : `${assetUrl._tag === "Success" && assetUrl.url.includes("?") ? "&" : "?"}${fileRevision !== undefined ? "file" : "workspace"}-revision=${encodeURIComponent(revision)}`;
   const url = assetUrl._tag === "Success" ? `${assetUrl.url}${revisionSuffix}` : null;
   if (assetUrl._tag === "Failure" || (url !== null && failedUrl === url)) {
     return (
@@ -398,7 +402,14 @@ function WorkspaceAudioPreview(props: {
     );
   }
   if (url === null) return <FileSurfaceLoading />;
-  return <AudioPreview src={url} name={props.name} onError={() => setFailedUrl(url)} />;
+  return (
+    <AudioPreview
+      src={url}
+      name={props.name}
+      revision={revision}
+      onError={() => setFailedUrl(url)}
+    />
+  );
 }
 
 function clampFileLine(contents: string, requestedLine: number): number {
@@ -431,11 +442,7 @@ function updateFileLinkReveal(fileContainer: HTMLElement, line: number | null): 
 }
 
 const REVEAL_MAX_ATTEMPTS = 30;
-/**
- * After scrolling to the target, hold it for a short window so late
- * programmatic scroll resets (editable-editor focus and state restoration)
- * cannot silently snap the file back to the top.
- */
+/** Hold the reveal target against late focus/restoration scroll resets. */
 const REVEAL_GUARD_FRAMES = 20;
 const REVEAL_GUARD_TOLERANCE_PX = 2;
 
@@ -553,8 +560,8 @@ function useFileLineReveal(
       };
       scrollContainer.addEventListener("wheel", cancelGuard, { passive: true });
       scrollContainer.addEventListener("touchstart", cancelGuard, { passive: true });
-      // Pierre stops gutter pointer events from bubbling. Listen in capture
-      // so starting a comment cancels the reveal guard before the row expands.
+      // Capture gutter pointer events before Pierre stops propagation so comments can cancel the reveal
+      // guard.
       scrollContainer.addEventListener("pointerdown", cancelGuard, {
         passive: true,
         capture: true,
@@ -587,9 +594,8 @@ function useFileLineReveal(
           return;
         }
 
-        // Contents and line metrics can lag the first post-render on fresh
-        // mounts; clamping against missing contents would scroll to line 1
-        // and wrongly mark the request handled.
+        // Wait for contents and metrics; missing data would clamp fresh-mount reveals to line 1 and mark them
+        // handled.
         const currentContents = instance.file?.contents;
         const line =
           currentContents === undefined ? null : clampFileLine(currentContents, revealLine);
@@ -643,11 +649,8 @@ function needsWorkerHighlight(workerPool: WorkerPoolManager | undefined, file: F
   return lines <= DEFAULT_TOKENIZE_MAX_LENGTH;
 }
 
-/**
- * Pierre highlights an active edit session on the main thread, so each version
- * of the file becomes editable only once it has rendered the worker's
- * highlight.
- */
+/** Enable editing only after worker highlighting renders; active edit sessions highlight on the main
+ * thread. */
 function useEditableAfterHighlight(file: FileContents) {
   const workerPool = useWorkerPool();
   const [highlightedFile, setHighlightedFile] = useState<FileContents | null>(null);
@@ -661,8 +664,8 @@ function useEditableAfterHighlight(file: FileContents) {
 
   const onPostRender = (renderedFile: FileContents | undefined, phase: PostRenderPhase) => {
     if (ready || phase === "unmount" || renderedFile?.cacheKey !== file.cacheKey) return;
-    // The pool caches a result just before the instance renders it, so a
-    // render that sees the cache has painted highlighted rows.
+    // Cache results arrive just before instance rendering; seeing the cache during render means rows are
+    // highlighted.
     if (workerPool?.getFileResultCache(file) !== undefined) setHighlightedFile(file);
   };
   return { ready, onPostRender };
@@ -715,8 +718,7 @@ function EditableFileSurface({
     relativePath,
     onPendingChange,
   });
-  // The editor owns the draft, so its own edits echoing back through the file
-  // query keep the file identity. Only a change from elsewhere replaces it.
+  // Retain file identity for echoed editor changes; only external changes replace the editor's draft.
   const [externalFile, setExternalFile] = useState(() =>
     editableFileContents(environmentId, cwd, relativePath, contents),
   );
@@ -965,6 +967,7 @@ function RenderedMarkdownSurface({
   contents,
   threadRef,
   composerDraftTarget, // loom: MDX annotation drafts reach the rendered surface
+  workspaceMutationId,
   readOnly,
   onPendingChange,
 }: Omit<
@@ -973,6 +976,7 @@ function RenderedMarkdownSurface({
 > & {
   threadRef: ScopedThreadRef;
   readOnly: boolean;
+  workspaceMutationId: string | null;
 }) {
   const saveCoordinator = useFileSaveCoordinator({
     environmentId,
@@ -1020,6 +1024,7 @@ function RenderedMarkdownSurface({
             cwd={cwd}
             relativePath={relativePath}
             threadRef={threadRef}
+            workspaceMutationId={workspaceMutationId}
           />
         </BleedFrame>
       </ScrollArea>
@@ -1035,6 +1040,7 @@ function RenderedMarkdownSurface({
           cwd={cwd}
           relativePath={relativePath}
           threadRef={threadRef}
+          workspaceMutationId={workspaceMutationId}
           onTaskListChange={
             readOnly
               ? undefined
@@ -1083,6 +1089,7 @@ export default function FilePreviewPanel({
   composerDraftTarget,
   keybindings,
   availableEditors,
+  openInShortcutEnabled,
   revealLine,
   revealRequestId,
   revealDirectoryPath = null, // loom: directory reveal
@@ -1102,6 +1109,7 @@ export default function FilePreviewPanel({
   const canOperatePreview = useEnvironmentScope(environmentId, AuthPreviewOperateScope);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const remoteOpenState = useRemoteOpenState(environmentId);
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
   const previewAvailable = usePreviewAvailable(environmentId);
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
@@ -1121,7 +1129,7 @@ export default function FilePreviewPanel({
   // `resolveReadTarget` reads an absolute path in place, which is what loom's
   // separate absolute-read query used to do here.
   const isHostFile =
-    attachment !== undefined || (relativePath !== null && isAbsolutePath(relativePath));
+    attachment !== undefined || (relativePath !== null && isHostPath(relativePath));
   const isMdx = relativePath !== null && isMdxPreviewFile(relativePath); // loom:
   // loom: request the larger read budget for `.mdx` plans only, so an evidence-
   // heavy decision document reaches the renderer intact instead of being chopped
@@ -1138,25 +1146,24 @@ export default function FilePreviewPanel({
     attachment === undefined && relativePath !== null,
   );
   const attemptedPath = file.readError?.resolvedPath ?? file.readError?.operationPath;
-  // A chat link cannot tell a folder from a file, so a folder arrives here as
-  // a file surface and the read fails. Keep the breadcrumbs, drop the preview
-  // pane, and let the tree fill the surface with the folder revealed. Mutation
-  // refresh stays on so the surface notices if the path becomes a file. A host
-  // folder outside the workspace gets a tree of its own, rooted at that folder.
-  // `folderTrail` is set only when crumbs walked the browser up: the deeper path
-  // kept for the way back down. The explorer (`""`) shows crumbs only then.
+  // Folder links fail file reads; retain mutation refresh to detect conversion to files. Host folders own
+  // roots; folderTrail keeps descendants.
   const breadcrumbPath =
     attachment !== undefined ? null : (relativePath ?? (folderTrail === undefined ? null : ""));
-  // A host trail that walked up to the workspace root (`/repo/project` is `""`) no
-  // longer passes through the current path, so the crumbs start over there.
+  // Reset crumbs when a host trail reaches the workspace root and no longer passes through the current path.
   const breadcrumbTrail =
     breadcrumbPath === null ? null : retainedBreadcrumbTrail(folderTrail, breadcrumbPath);
-  // The trail only continues below folders, so a surface with one is a folder
-  // before its read settles, and walking up never flashes a file preview.
+  // A trail implies a folder before reads settle, preventing file-preview flashes while navigating up.
   const isFolder =
     attachment === undefined &&
     (file.isNotFile || (folderTrail !== undefined && file.data === null && file.error === null));
   const hostFolderPath = isFolder && isHostFile ? relativePath : null;
+  // A chat-linked folder reads as a file until its read settles, and revealing a
+  // folder selects it in its parent instead of opening it, so reveal waits.
+  const revealsInFileManager =
+    !isFolder &&
+    (file.data !== null || file.error !== null) &&
+    serverConfig?.shellRevealInFileManager === true;
   // Everything preview-related keys off previewPath; a folder has no preview.
   const previewPath = isFolder ? null : relativePath;
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
@@ -1180,9 +1187,7 @@ export default function FilePreviewPanel({
     true,
     Schema.Boolean,
   );
-  // Paired with the path on purpose: each file surface counts its reveals from
-  // one, so a bare id would let a dismissed reveal on one file swallow the first
-  // reveal on the next.
+  // Reveal ids restart at one per file; pair with the path so dismissal cannot swallow another file's reveal.
   const [handledReveal, setHandledReveal] = useState<{ path: string; requestId: number } | null>(
     null,
   );
@@ -1253,8 +1258,7 @@ export default function FilePreviewPanel({
     !isVideo &&
     previewAvailable &&
     isBrowserPreviewFile(previewPath);
-  // A file keeps its tab; walking up from it opens a folder browser beside it.
-  // The trail's end keeps its own spelling (`C:/a` or `C:\a`), so it finds its tab.
+  // Navigating up preserves the file tab; retain the trail's path spelling to find its folder tab.
   const navigateToFolder = (crumbPath: string) => {
     const path =
       breadcrumbTrail !== null && breadcrumbPathOf(breadcrumbTrail) === crumbPath
@@ -1300,9 +1304,8 @@ export default function FilePreviewPanel({
     enabled:
       attachment === undefined &&
       relativePath !== null &&
-      // Media and PDFs never show their contents, so re-reading them on every
-      // workspace mutation is waste. A folder named like one still re-reads, so
-      // it notices when the path becomes a file.
+      // Skip mutation reads for media/PDF files; re-read similarly named folders to detect conversion to
+      // files.
       (isFolder || (!isMedia && !isPdf)) &&
       !selectedFilePending,
     mutationId: workspaceMutationId,
@@ -1415,8 +1418,11 @@ export default function FilePreviewPanel({
               environmentId={environmentId}
               keybindings={keybindings}
               availableEditors={availableEditors}
+              enableShortcut={openInShortcutEnabled}
               openInCwd={absolutePath}
+              openInCwdIsFile={file.isFile}
               compact
+              revealFileManager={revealsInFileManager}
             />
           ) : null}
           {/* loom: !loomShowsChange — the change view replaces the renderer */}
@@ -1558,6 +1564,23 @@ export default function FilePreviewPanel({
               title={relativePath}
               workspaceMutationId={workspaceMutationId}
             />
+          ) : relativePath && absolutePath && file.readError?.failure === "binary_file" ? (
+            <AttachmentFilePreview
+              key={`${environmentId}:${absolutePath}`}
+              name={relativePath.split(/[\\/]/).at(-1) || relativePath}
+              mimeType="application/octet-stream"
+              sizeBytes={0}
+              asset={{
+                environmentId,
+                resource: {
+                  _tag: "media-file",
+                  threadId: threadRef.threadId,
+                  path: absolutePath,
+                  disposition: "attachment",
+                },
+              }}
+              origin="File"
+            />
           ) : relativePath && file.error && file.data === null ? (
             <div
               role="alert"
@@ -1601,6 +1624,7 @@ export default function FilePreviewPanel({
                 // loom: MDX annotation drafts
                 composerDraftTarget={composerDraftTarget}
                 contents={file.data.contents}
+                workspaceMutationId={workspaceMutationId}
                 readOnly={isHostFile || !canWriteFiles}
                 onPendingChange={onPendingChange}
               />

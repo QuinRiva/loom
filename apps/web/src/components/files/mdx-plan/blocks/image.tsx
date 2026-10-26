@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
 
-import { ChatMarkdownAssetImage, markdownImageCopy } from "~/components/ChatMarkdown";
+import { ChatMarkdownAssetImage, markdownImageCopy } from "~/components/chat/ChatMarkdownMedia";
 import { ExpandedImageDialog } from "~/components/chat/ExpandedImageDialog";
 import type { ExpandedImagePreview } from "~/components/chat/ExpandedImagePreview";
 

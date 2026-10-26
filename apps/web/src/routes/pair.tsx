@@ -18,7 +18,8 @@ export const Route = createFileRoute("/pair")({
     if (
       authGateState.status === "authenticated" ||
       authGateState.status === "hosted-static" ||
-      authGateState.status === "preview"
+      authGateState.status === "preview" || // loom: dev-only preview harness
+      authGateState.status === "guest"
     ) {
       throw redirect({ to: "/", replace: true });
     }
@@ -46,8 +47,7 @@ function PairRouteView() {
     <PairingRouteSurface
       auth={authGateState.auth}
       onAuthenticated={() => {
-        // Recreate the primary connection so its WebSocket and cached scopes
-        // use the newly issued cookie after re-pairing.
+        // Recreate the connection so WebSocket and cached scopes use the new pairing cookie.
         router.history.replace("/");
         router.history.flush();
         window.location.reload();

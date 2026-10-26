@@ -17,7 +17,7 @@ import { ChevronDownIcon, MessageCircleQuestionMarkIcon } from "lucide-react";
 import { memo, type ReactNode, use, useState } from "react";
 
 import ChatMarkdown from "~/components/ChatMarkdown";
-import { TimelineRowCtx } from "~/components/chat/MessagesTimeline";
+import { TimelineRowCtx } from "~/components/chat/timelineRowContext";
 import { Button } from "~/components/ui/button";
 import { WorkstreamModelPill } from "~/components/WorkstreamModelPill";
 import { cn } from "~/lib/utils";

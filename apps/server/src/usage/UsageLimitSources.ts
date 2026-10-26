@@ -107,7 +107,7 @@ function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
   }
 }
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const api = yield* makeCliproxyApi;
   // loom: the login record, loaded once and written back on every change.
@@ -227,17 +227,16 @@ export const make = Effect.gen(function* () {
     return { ...base, accounts: accounts.success };
   });
 
-  const publish = (next: ReadonlyArray<UsageLimitSourceSnapshot>) =>
-    Effect.gen(function* () {
-      const changed = yield* Ref.modify(stateRef, (previous) =>
-        Equal.equals(previous, next) ? [false, previous] : [true, next],
-      );
-      if (changed) yield* PubSub.publish(changes, next);
-    });
+  const publish = Effect.fn("UsageLimitSources.publish")(function* (
+    next: ReadonlyArray<UsageLimitSourceSnapshot>,
+  ) {
+    const changed = yield* Ref.modify(stateRef, (previous) =>
+      Equal.equals(previous, next) ? [false, previous] : [true, next],
+    );
+    if (changed) yield* PubSub.publish(changes, next);
+  });
 
-  // One refresh at a time: a slow hub read started before a settings change
-  // must not publish after the change's own refresh and resurrect a removed
-  // source. Callers queue behind the in-flight run and see current settings.
+  // Serialize refreshes so slow old-settings reads cannot resurrect removed sources after newer refreshes.
   const refreshLock = yield* Semaphore.make(1);
   const refresh = Effect.gen(function* () {
     const settings = yield* settingsService.getSettings.pipe(
@@ -255,25 +254,24 @@ export const make = Effect.gen(function* () {
   }).pipe(refreshLock.withPermits(1), Effect.ignoreCause({ log: true }));
 
   // Shares the refresh lock so a stale in-flight read cannot overwrite a redemption.
-  const consumeResetCredit = (input: UsageLimitSourceConsumeResetCreditInput) =>
-    Effect.gen(function* () {
-      const settings = yield* settingsService.getSettings.pipe(
-        Effect.mapError(
-          () => new UsageLimitSourceError({ detail: "Could not read hub settings." }),
-        ),
-      );
-      const config = settings.usageLimitSources[input.sourceId];
-      if (!config?.enabled || !config.managementKey) {
-        return yield* new UsageLimitSourceError({
-          detail: "The usage limit source is missing or disabled.",
-        });
-      }
-      const result = yield* api.consume(config, input.accountId, input.creditId);
-      const snapshot = yield* readSource(input.sourceId, config);
-      const previous = yield* Ref.get(stateRef);
-      yield* publish(previous.map((source) => (source.id === input.sourceId ? snapshot : source)));
-      return result;
-    }).pipe(refreshLock.withPermits(1));
+  const consumeResetCredit = Effect.fn("UsageLimitSources.consumeResetCredit")(function* (
+    input: UsageLimitSourceConsumeResetCreditInput,
+  ) {
+    const settings = yield* settingsService.getSettings.pipe(
+      Effect.mapError(() => new UsageLimitSourceError({ detail: "Could not read hub settings." })),
+    );
+    const config = settings.usageLimitSources[input.sourceId];
+    if (!config?.enabled || !config.managementKey) {
+      return yield* new UsageLimitSourceError({
+        detail: "The usage limit source is missing or disabled.",
+      });
+    }
+    const result = yield* api.consume(config, input.accountId, input.creditId);
+    const snapshot = yield* readSource(input.sourceId, config);
+    const previous = yield* Ref.get(stateRef);
+    yield* publish(previous.map((source) => (source.id === input.sourceId ? snapshot : source)));
+    return result;
+  }, refreshLock.withPermits(1));
 
   // loom: the hub login dialog. Both share the refresh lock only for the
   // re-read that records the login, never across the wait for the hub.
@@ -360,13 +358,12 @@ export const make = Effect.gen(function* () {
   );
   yield* Effect.forever(
     interval.pipe(
-      Effect.flatMap((wait) =>
-        Effect.sleep(Duration.toMillis(Duration.fromInputUnsafe(wait)) <= 0 ? "60 seconds" : wait),
-      ),
-      // loom: no foreground-client gate (upstream's `shouldRunScopeWork`):
-      // failover health is fed from these readings while a hub owns Claude
-      // quota (SubscriptionUsagePoller), so they must stay fresh unattended.
-      Effect.andThen(refresh),
+      Effect.flatMap((wait) => Effect.sleep(Duration.isPositive(wait) ? wait : "60 seconds")),
+      Effect.andThen(interval),
+      // loom: no foreground-client gate (upstream's `shouldRunScopeWork`): failover health is
+      // fed from these readings while a hub owns Claude quota (SubscriptionUsagePoller), so they
+      // must stay fresh unattended. A zero interval still stops the refresh.
+      Effect.flatMap((current) => (Duration.isPositive(current) ? refresh : Effect.void)),
       Effect.ignoreCause({ log: true }),
     ),
   ).pipe(Effect.forkScoped);

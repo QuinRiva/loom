@@ -42,3 +42,7 @@ apps/web/src/routeTree.gen.ts
 apps/server/src/orchestration-v2/testkit/fixtures/provider_thread_resume/pi_transcript.ndjson
 apps/server/src/orchestration-v2/testkit/fixtures/thread_rollback/pi_transcript.ndjson
 apps/server/src/orchestration-v2/testkit/fixtures/thread_rollback_after_stop/pi_transcript.ndjson
+
+# pull 13 (DL-1415): the root manifest cannot carry a marker. Loom's scripts:
+# dev:seed, dev:seed:verify, dev:fake-hub, cockpit, cockpit:build, ship.
+package.json

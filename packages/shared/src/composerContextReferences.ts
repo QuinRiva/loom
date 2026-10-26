@@ -4,7 +4,9 @@ import {
   type ComposerContextKind,
   type ComposerContextRecord,
   type ElementContextDetails,
+  type EnvironmentId,
   type KnownComposerContextRecord,
+  type ThreadContextRecord,
 } from "@t3tools/contracts";
 
 // loom: MDX-plan annotations anchor to a passage, and their anchor detail is
@@ -22,10 +24,7 @@ const CONTEXT_LINK = new RegExp(
   "g",
 );
 
-/**
- * 64 bits of digest, because the slug in front of it is truncated: two long producer
- * ids that agree on their first 48 characters are told apart by this alone.
- */
+// The digest alone distinguishes producer ids sharing the truncated 48-character slug.
 function fnv1a64(value: string): string {
   let forward = 0x811c9dc5;
   let reverse = 0x9dc5811c;
@@ -153,7 +152,7 @@ function kindDisplayName(kind: ComposerContextKind): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-export function formatComposerContextProviderMarker(
+function formatComposerContextProviderMarker(
   kind: ComposerContextKind,
   label: string,
   contextId: ComposerContextId,
@@ -165,10 +164,7 @@ export function formatComposerContextProviderMarker(
   return `[${kindDisplayName(kind)}: ${escapeComposerContextPayloadText(cleanLabel)}; ref=${contextId}]`;
 }
 
-/**
- * A terminal line or PR comment that contains `</t3_context>` or `</context>`
- * must not be able to close the envelope and forge a record.
- */
+// Escape envelope tags so payload text cannot close the envelope and forge records.
 function escapeComposerContextPayloadText(text: string): string {
   return text.replace(
     new RegExp(String.raw`<(?=/?(?:${CONTEXT_ENVELOPE_TAG}|${CONTEXT_ENTRY_TAG})\b)`, "gi"),
@@ -338,6 +334,24 @@ export function projectComposerContextForProvider(input: {
   }
   if (entries.length === 0) return body;
   return `${body}\n\n<${CONTEXT_ENVELOPE_TAG} version="1">\n${entries.join("\n")}\n</${CONTEXT_ENVELOPE_TAG}>`;
+}
+
+// Thread reads are environment-local even when a draft moves between machines.
+export function threadContextsOutsideEnvironment(input: {
+  text: string;
+  records: ReadonlyArray<ComposerContextRecord>;
+  environmentId: EnvironmentId;
+}): ThreadContextRecord[] {
+  const referenced = new Set(
+    collectComposerContextReferences(input.text).map((occurrence) => occurrence.contextId),
+  );
+  return input.records.filter(
+    (record): record is ThreadContextRecord =>
+      record.kind === "thread" &&
+      "threadId" in record &&
+      referenced.has(record.contextId) &&
+      record.environmentId !== input.environmentId,
+  );
 }
 
 export function remapComposerContextAttachments(

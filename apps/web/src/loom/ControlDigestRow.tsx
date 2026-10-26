@@ -14,7 +14,7 @@ import type { MessageId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { memo, type ReactNode, use } from "react";
 
-import { TimelineRowCtx } from "~/components/chat/MessagesTimeline";
+import { TimelineRowCtx } from "~/components/chat/timelineRowContext";
 import { useThreadShells } from "~/state/entities";
 import { buildThreadRouteParams } from "~/threadRoutes";
 
