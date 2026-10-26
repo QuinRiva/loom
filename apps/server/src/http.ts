@@ -278,7 +278,7 @@ function isLoopbackHostname(hostname: string): boolean {
 }
 
 /**
- * Mutable workspace-backed assets revalidate every request: the artefact viewer's reload busts
+ * Mutable workspace-backed assets revalidate every request: the file viewer's revision suffix busts
  * only the entry document's cache, so a regenerated `./style.css` would otherwise be served stale.
  * Immutable content-addressed attachments keep the long cache.
  */

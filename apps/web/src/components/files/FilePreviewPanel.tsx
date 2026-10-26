@@ -39,7 +39,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment"; // loom: tree expansion key
-import { AppWindow, FolderTree, Globe2, WrapTextIcon } from "lucide-react"; // loom: AppWindow
+import { FolderTree, Globe2, WrapTextIcon } from "lucide-react";
 import { Code2, Eye, Table2 } from "lucide";
 import * as Schema from "effect/Schema";
 import { useEffect, useRef, useState, type ReactNode } from "react"; // loom: ReactNode (BleedFrame)
@@ -60,10 +60,6 @@ import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 import { cn } from "~/lib/utils";
 import type { ChatFileAttachment } from "~/types";
-import { isPreviewSupportedInRuntime } from "~/previewStateStore"; // loom: artefact-viewer gate
-// loom: artifact viewer ("Open preview")
-import { useRightPanelStore } from "~/rightPanelStore";
-import { isArtifactViewerPath } from "~/components/artifact/artifactView";
 import { isHostPath } from "@t3tools/shared/path";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -1263,14 +1259,6 @@ export default function FilePreviewPanel({
       : relativePath && attachment === undefined
         ? resolvePathLinkTarget(relativePath, cwd)
         : null;
-  // loom: web-runtime counterpart to the desktop browser button - render an
-  // in-workspace HTML artefact in the sandboxed viewer surface. Gated mutually
-  // exclusively with `canOpenInBrowser` via `isPreviewSupportedInRuntime()`.
-  const canOpenInViewer =
-    previewPath !== null &&
-    !isHostFile &&
-    !isPreviewSupportedInRuntime() &&
-    isArtifactViewerPath(previewPath);
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
   // loom: a baseline-marked file opens whole, side by side, unless it is a document that
   // renders (markdown, MDX, HTML, tables), which opens as a document with its changes opt-in.
@@ -1465,15 +1453,6 @@ export default function FilePreviewPanel({
               onPress={toggleExplorer}
             >
               <FolderTree className="size-3.5" />
-            </FileSurfaceAction>
-          ) : null}
-          {/* loom: web-runtime artifact viewer */}
-          {canOpenInViewer && previewPath ? (
-            <FileSurfaceAction
-              label="Open preview"
-              onPress={() => useRightPanelStore.getState().openArtifact(threadRef, previewPath)}
-            >
-              <AppWindow className="size-3.5" />
             </FileSurfaceAction>
           ) : null}
         </div>

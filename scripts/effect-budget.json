@@ -220,7 +220,6 @@
   "apps/web/src/components/ThreadTerminalDrawer.tsx": 13,
   "apps/web/src/components/WorkstreamGraph.tsx": 5,
   "apps/web/src/components/WorkstreamTimeline.tsx": 2,
-  "apps/web/src/components/artifact/ArtifactViewPanel.tsx": 1,
   "apps/web/src/components/auth/ConnectAgentSurface.tsx": 1,
   "apps/web/src/components/auth/PairingRouteSurface.tsx": 2,
   "apps/web/src/components/chat/AgentElapsed.tsx": 1,

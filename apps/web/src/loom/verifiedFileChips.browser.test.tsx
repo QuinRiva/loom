@@ -157,14 +157,4 @@ describe("makeVerifiedFileLinkChip", () => {
     await vi.waitFor(() => expect(missingChips(screen.container)).toHaveLength(1));
     expect(upstreamChips(screen.container)).toHaveLength(2);
   });
-
-  // Artifact routing now lives in upstream's chip (`onOpenArtifact`), so the
-  // seam only has to keep a missing artifact from rendering as a live chip.
-  it("still reports a missing .html artifact: missing outranks artifact routing", async () => {
-    setup();
-    using _fetcher = stubFetcher(fetcherFor({}));
-    await using screen = await renderSettled([meta(`${CWD}/stale.html`)]);
-    await vi.waitFor(() => expect(missingChips(screen.container)).toHaveLength(1));
-    expect(upstreamChips(screen.container)).toHaveLength(0);
-  });
 });

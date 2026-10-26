@@ -27,7 +27,6 @@ import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from "@dn
 import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  AppWindow, // loom: artefact surface
   FolderOpen, // loom: dir surface
   ListTodo, // loom: 3d-2 tasks surface (3d-3 mounts it)
   Network, // loom: 3d-2 workstream surface (the graph)
@@ -568,8 +567,6 @@ function surfaceTitle(
       return surface.absolutePath.slice(
         surface.absolutePath.replace(/\/+$/, "").lastIndexOf("/") + 1,
       );
-    case "artifact": // loom:
-      return surface.relativePath.slice(surface.relativePath.lastIndexOf("/") + 1);
     case "tasks": // loom: 3d-3 — Loom's goal, not the provider-native /goal chip
       return "Goal tasks";
     case "terminal":
@@ -665,8 +662,6 @@ function SurfaceIcon({
       );
     case "dir": // loom:
       return <FolderOpen className="size-3 shrink-0" />;
-    case "artifact": // loom:
-      return <AppWindow className="size-3 shrink-0" />;
     case "tasks": // loom: 3d-2 seam 18
       return <ListTodo className="size-3 shrink-0" />;
     case "workstream": // loom: 3d-2 seam 18

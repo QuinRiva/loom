@@ -764,49 +764,7 @@ describe("rightPanelStore", () => {
     expect(state.activeSurfaceId).toBe("dir:/home/carl/out");
   });
 
-  it("opens an artifact surface and bumps its reload request on re-open", () => {
-    useRightPanelStore.getState().openArtifact(refA, "experiments/mockup.html");
-    let state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
-    expect(state.surfaces).toEqual([
-      {
-        id: "artifact:experiments/mockup.html",
-        kind: "artifact",
-        relativePath: "experiments/mockup.html",
-        reloadRequestId: 1,
-      },
-    ]);
-    expect(state.activeSurfaceId).toBe("artifact:experiments/mockup.html");
-
-    // Re-opening the same artefact upserts in place and bumps the reload id.
-    useRightPanelStore.getState().openArtifact(refA, "experiments/mockup.html");
-    state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
-    expect(state.surfaces).toEqual([
-      {
-        id: "artifact:experiments/mockup.html",
-        kind: "artifact",
-        relativePath: "experiments/mockup.html",
-        reloadRequestId: 2,
-      },
-    ]);
-  });
-
-  it("keeps peer surfaces when opening an artifact (no standalone-explorer drop)", () => {
-    useRightPanelStore.getState().open(refA, "files");
-    useRightPanelStore.getState().openArtifact(refA, "demo/index.html");
-    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
-    expect(state.surfaces).toEqual([
-      { id: "files", kind: "files", revealPath: null, revealRequestId: 0 },
-      {
-        id: "artifact:demo/index.html",
-        kind: "artifact",
-        relativePath: "demo/index.html",
-        reloadRequestId: 1,
-      },
-    ]);
-    expect(state.activeSurfaceId).toBe("artifact:demo/index.html");
-  });
-
-  it("validates persisted artifact surfaces and coerces the reload request id", () => {
+  it("drops persisted tabs of the retired artefact viewer", () => {
     expect(
       migratePersistedRightPanelState({
         byThreadKey: {
@@ -818,43 +776,6 @@ describe("rightPanelStore", () => {
                 id: "artifact:demo/index.html",
                 kind: "artifact",
                 relativePath: "demo/index.html",
-                reloadRequestId: -3,
-              },
-            ],
-          },
-        },
-      }),
-    ).toEqual({
-      byThreadKey: {
-        "env-1:thread-A": {
-          isOpen: true,
-          activeSurfaceId: "artifact:demo/index.html",
-          surfaces: [
-            {
-              id: "artifact:demo/index.html",
-              kind: "artifact",
-              relativePath: "demo/index.html",
-              reloadRequestId: 0,
-            },
-          ],
-        },
-      },
-      threadPanelVisibilityByThreadKey: {}, // loom: upstream's persisted visibility map (DL-175)
-    });
-  });
-
-  it("drops persisted artifact surfaces whose id disagrees with the relative path", () => {
-    expect(
-      migratePersistedRightPanelState({
-        byThreadKey: {
-          "env-1:thread-A": {
-            isOpen: true,
-            activeSurfaceId: "artifact:demo/index.html",
-            surfaces: [
-              {
-                id: "artifact:stale",
-                kind: "artifact",
-                relativePath: "demo/index.html",
                 reloadRequestId: 1,
               },
             ],
@@ -864,7 +785,7 @@ describe("rightPanelStore", () => {
     ).toEqual({
       byThreadKey: {
         "env-1:thread-A": {
-          // loom: dropping the sole invalid artefact also closes the now-empty panel.
+          // loom: dropping the sole artefact tab also closes the now-empty panel.
           isOpen: false,
           activeSurfaceId: null,
           surfaces: [],

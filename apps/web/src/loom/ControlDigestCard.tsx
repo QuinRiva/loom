@@ -13,7 +13,6 @@ import type {
 import { ArrowUpRightIcon, ChevronDownIcon, ChevronRightIcon, InboxIcon } from "lucide-react";
 import { useState, type ReactElement, type ReactNode } from "react";
 
-import { isArtifactViewerPath } from "~/components/artifact/artifactView";
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { revalidatePathExistence, usePathExistence } from "~/components/chat/usePathExistence";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -23,7 +22,6 @@ import {
   resolveInlineCodeFileLinkMeta,
   type MarkdownFileLinkMeta,
 } from "~/markdown-links";
-import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 
 import { verifyChipTargetBeforeOpen } from "./verifiedFileChips";
@@ -144,12 +142,10 @@ export function ControlDigestCardView({
   );
 }
 
-/** Opens a handed-back document where a chat file chip would: the artefact viewer, the workspace file, or the read-only host file. */
+/** Opens a handed-back document where a chat file chip would: the workspace file or the read-only host file. */
 const openDocument = (threadRef: ScopedThreadRef, meta: MarkdownFileLinkMeta) => {
   const panel = useRightPanelStore.getState();
   if (meta.workspaceRelativePath === null) panel.openFileAbsolute(threadRef, meta.filePath);
-  else if (isArtifactViewerPath(meta.filePath) && !isPreviewSupportedInRuntime())
-    panel.openArtifact(threadRef, meta.workspaceRelativePath);
   else panel.openFile(threadRef, meta.workspaceRelativePath);
 };
 
