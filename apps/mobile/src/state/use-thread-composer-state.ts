@@ -76,7 +76,6 @@ import {
   removeComposerDraftAttachment,
   scheduleUnusedComposerAttachmentCleanup,
   setComposerDraftText,
-  settleComposerDraftModelSelection, // loom: DL-700
   updateComposerDraftSettings,
   useComposerDraft,
   useComposerDraftSettings,
@@ -311,14 +310,6 @@ export function useThreadComposerState() {
     serverConfig?.providers ?? [],
   );
   const runtimeMode = selectedDraft.runtimeMode ?? selectedThread?.runtimeMode ?? null;
-  // loom: a draft model the server thread already holds is spent; dropping it lets
-  // server-side model changes (quota reroute, move-back) reach the composer (DL-700).
-  const draftModelSelection = selectedDraft?.modelSelection;
-  const threadModelSelection = selectedThread?.modelSelection;
-  useEffect(() => {
-    if (selectedThreadKey && draftModelSelection && threadModelSelection)
-      settleComposerDraftModelSelection(selectedThreadKey, threadModelSelection);
-  }, [selectedThreadKey, draftModelSelection, threadModelSelection]);
   const selectedProvider = selectedEnvironmentRuntime?.serverConfig?.providers.find(
     (provider) => provider.instanceId === modelSelection?.instanceId,
   );

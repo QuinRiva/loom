@@ -313,7 +313,9 @@ describe("ChatMarkdown Windows file links", () => {
 // clickable span (not replaced by a basename chip).
 describe("loom scanned path links", () => {
   it("makes a prose path clickable in place without rewriting the sentence", async () => {
-    const container = await renderText("see apps/web/src/ChatView.tsx here");
+    setup();
+    await using screen = await renderText("see apps/web/src/ChatView.tsx here");
+    const { container } = screen;
     expect(container.textContent).toContain("see apps/web/src/ChatView.tsx here");
     const link = container.querySelector("a.chat-scanned-path-link");
     expect(link?.getAttribute("data-markdown-copy")).toBe("apps/web/src/ChatView.tsx");
@@ -321,7 +323,9 @@ describe("loom scanned path links", () => {
   });
 
   it("leaves a quoted path plain — it belongs to a literal the renderer kept", async () => {
-    const container = await renderText('run --out="/tmp/project/report.xlsx" now');
+    setup();
+    await using screen = await renderText('run --out="/tmp/project/report.xlsx" now');
+    const { container } = screen;
     expect(container.querySelector(".chat-scanned-path-link")).toBeNull();
   });
 });

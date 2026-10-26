@@ -222,7 +222,7 @@ function ReportDocumentChips({
             tip={
               <>
                 <div className="font-mono leading-tight wrap-anywhere">{meta.filePath}</div>
-                {missing ? <div className="mt-0.5">Missing — moved or deleted?</div> : null}
+                {missing ? <div className="mt-0.5">Missing (moved or deleted?)</div> : null}
               </>
             }
           >

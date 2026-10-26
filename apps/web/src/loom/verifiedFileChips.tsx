@@ -67,7 +67,7 @@ export type FileLinkChipRenderer = (
 
 const MISSING_CHIP_CLASS_NAME =
   "chat-markdown-file-link opacity-70 line-through decoration-muted-foreground/60";
-const MISSING_CHIP_TITLE = "Missing — moved or deleted?";
+const MISSING_CHIP_TITLE = "Missing (moved or deleted?)";
 
 function MissingFileChip(props: {
   environmentId: EnvironmentId | null;
@@ -91,7 +91,7 @@ function MissingFileChip(props: {
             className={cn(MISSING_CHIP_CLASS_NAME, "select-text", props.className)}
             data-markdown-copy={props.copyMarkdown}
             data-file-missing="true"
-            aria-label={`${props.meta.basename} — ${MISSING_CHIP_TITLE}`}
+            aria-label={`${props.meta.basename}: ${MISSING_CHIP_TITLE}`}
             onPointerEnter={recheck}
           >
             <FileTagChipContent
@@ -128,7 +128,7 @@ export async function verifyChipTargetBeforeOpen(
     stackedThreadToast({
       type: "error",
       title: `${basenameOfPath(filePath)} has moved or been deleted`,
-      description: `${filePath} is no longer there — it existed when this was written.`,
+      description: `${filePath} is no longer there. It existed when this was written.`,
     }),
   );
   return false;
@@ -364,10 +364,10 @@ export function useScannedPathTargets(input: {
  * so claiming the thread is gone would be a lie.
  */
 const UNRESOLVED_THREAD_CHIP_TITLE =
-  "Not found here — this thread is archived, deleted, or in another environment.";
+  "Not found here: this thread is archived, deleted, or in another environment.";
 
 const UNSCOPED_THREAD_CHIP_TITLE =
-  "Not linkable here — this view is not tied to an environment, so the thread cannot be opened.";
+  "Not linkable here: this view is not tied to an environment, so the thread cannot be opened.";
 
 export function ThreadLinkChip({
   label,
@@ -393,7 +393,7 @@ export function ThreadLinkChip({
             <ContextChip
               kind="mention"
               className="cursor-help opacity-70"
-              aria-label={`${label} — ${inertTitle}`}
+              aria-label={`${label}: ${inertTitle}`}
             />
           }
         >

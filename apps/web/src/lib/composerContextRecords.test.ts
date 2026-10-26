@@ -27,6 +27,8 @@ import {
   resolveUserMessageContext,
   selectedMessageContextFragment,
   reviewCommentContextRecord,
+  reviewCommentContextReference, // loom: mdx-anchor block
+  reviewCommentFromRecord, // loom: mdx-anchor block
   terminalContextRecord,
   terminalContextReference,
   terminalContextDraftFromRecord,
@@ -358,6 +360,7 @@ describe("pullRequestContextKindLabel", () => {
     filePath: "PR #7",
     startIndex: 0,
     endIndex: 0,
+    kind: "line" as const, // loom:
     rangeLabel: "Title",
     text: "",
     diff: "",

@@ -4,7 +4,20 @@ import * as NodeURL from "node:url";
 import { remoteCacheUrl } from "./infra/task-cache/src/remoteCache.ts";
 import { cachedTestTasks } from "./scripts/lib/cached-tests.ts";
 
-const DOM_TEST_ENVIRONMENT_ALLOWLIST: Array<string> = [];
+const DOM_TEST_ENVIRONMENT_ALLOWLIST: Array<string> = [
+  "apps/web/src/components/files/mdx-plan/annotation/anchoring.test.ts", // loom: jsdom test (§8.2 pull 13)
+  "apps/web/src/components/files/mdx-plan/blocks/details.test.ts", // loom: jsdom test (§8.2 pull 13)
+  "apps/web/src/components/files/mdx-plan/blocks/mermaid.test.ts", // loom: jsdom test (§8.2 pull 13)
+  "apps/web/src/components/files/mdx-plan/blocks/table.test.ts", // loom: jsdom test (§8.2 pull 13)
+  "apps/web/src/components/files/mdx-plan/canvas.test.ts", // loom: jsdom test (§8.2 pull 13)
+  "apps/web/src/components/files/mdx-plan/containers.test.ts", // loom: jsdom test (§8.2 pull 13)
+  "apps/web/src/components/files/mdx-plan/planLint.test.ts", // loom: jsdom test (§8.2 pull 13)
+  "apps/web/src/components/files/mdx-plan/reviewChoices.test.ts", // loom: jsdom test (§8.2 pull 13)
+  "apps/web/src/components/files/mdx-plan/sandboxedFrame.test.ts", // loom: jsdom test (§8.2 pull 13)
+  "apps/web/src/components/files/mdx-plan/wireframe.test.ts", // loom: jsdom test (§8.2 pull 13)
+  "apps/web/src/loom/chatPathScan.test.ts", // loom: jsdom test (§8.2 pull 13)
+  "apps/web/src/preview/questionPeek.test.tsx", // loom: jsdom test (§8.2 pull 13)
+];
 
 const TEST_EXCLUDE = [
   "**/.repos/**",
@@ -286,6 +299,7 @@ export default defineConfig({
       },
       {
         files: ["apps/web/**/*.test.{ts,tsx}"],
+        excludeFiles: DOM_TEST_ENVIRONMENT_ALLOWLIST, // loom: test/render.tsx needs the browser runner
         rules: { "t3code/require-disposable-render": "error" },
       },
       {

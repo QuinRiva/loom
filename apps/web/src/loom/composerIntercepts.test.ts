@@ -145,10 +145,11 @@ describe("runComposerDraftIntercept", () => {
     return { state, submit };
   };
 
-  const succeedAfterLatency = () =>
-    new Promise<AtomCommandResult<{ ok: true }, string>>((resolve) => {
-      setTimeout(() => resolve(AsyncResult.success({ ok: true } as const)), 5);
-    });
+  // Resolves on a later microtask, so every synchronous press lands while it is in flight.
+  const succeedAfterLatency = async (): Promise<AtomCommandResult<{ ok: true }, string>> => {
+    await Promise.resolve();
+    return AsyncResult.success({ ok: true } as const);
+  };
 
   it("dispatches once for a burst of repeated submissions (the double-fire bug)", async () => {
     const { state, submit } = createHarness({

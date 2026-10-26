@@ -43,6 +43,7 @@ describe("extractMessagePathCandidates", () => {
 function metaFor(filePath: string): MarkdownFileLinkMeta {
   return {
     filePath,
+    workspaceLookupPath: null,
     targetPath: filePath,
     displayPath: filePath,
     workspaceRelativePath: null,

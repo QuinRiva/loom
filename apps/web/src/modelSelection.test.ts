@@ -859,7 +859,12 @@ describe("default model settings and new-thread composer parity", () => {
       const settings: UnifiedSettings = {
         ...settingsWithProviderInstances(),
         providerModelPreferences: {
-          [instanceId]: { hiddenModels: visibility === "hidden" ? [model] : [], modelOrder: [] },
+          [instanceId]: {
+            hiddenModels: visibility === "hidden" ? [model] : [],
+            modelOrder: [],
+            selectedModels: [], // loom: allow-list fields (DL-913)
+            showOnlySelectedModels: false, // loom:
+          },
         },
       };
       // ChatView builds the local draft with the project default as its thread selection.

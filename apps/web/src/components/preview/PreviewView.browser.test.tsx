@@ -255,15 +255,15 @@ describe("PreviewView", () => {
 
   // loom: the pop-up and its note live in the page, which outlives the view
   it("keeps an in-progress annotation when the view unmounts and remounts", async () => {
+    setup();
     const annotateButton = () => page.getByRole("button", { name: "Annotate preview" });
     const cancelButton = () => page.getByRole("button", { name: "Cancel annotation" });
     // An automatic Diff open or a thread switch unmounts the view mid-note.
+    await using stack = new AsyncDisposableStack();
+    let screen = stack.use(await render(view()));
     const remount = async () => {
-      await act(async () => root.unmount());
-      roots.splice(roots.indexOf(root), 1);
-      root = createRoot(document.body.appendChild(document.createElement("div")));
-      roots.push(root);
-      await render(view());
+      await screen.unmount();
+      screen = stack.use(await render(view()));
     };
     const picked = annotation("annotation-remount");
     let submitPick: (() => void) | undefined;
@@ -273,7 +273,6 @@ describe("PreviewView", () => {
           submitPick = () => resolve({ annotation: picked, submission: "attach" });
         }),
     );
-    await render(view());
     await userEvent.click(annotateButton());
     await vi.waitFor(() => expect(submitPick).toBeDefined());
 

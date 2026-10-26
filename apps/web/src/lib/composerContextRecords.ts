@@ -109,7 +109,7 @@ export function pullRequestContextDisplayState(
 }
 
 export function pullRequestContextKindLabel(comment: ReviewCommentPresentation): string {
-  const url = comment.pullRequest?.url;
+  const url = commentPullRequest(comment)?.url; // loom:
   const host = url === undefined ? null : sourceControlClients.findByChangeRequestUrl(url);
   const term = (host ?? sourceControlClients.get(undefined)).changeRequest.singular;
   const state = pullRequestContextDisplayState(comment);
