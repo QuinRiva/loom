@@ -1,12 +1,14 @@
 /**
- * workstream_submit and set_outcome on the real orchestrator: the routing echo per outcome, the hold
- * and response-block refusals before any report is written, and the self-issued `done` guard
- * (pending rework, unresolved gate) versus a parent's `done` with the arm's warning.
+ * workstream_submit and set_outcome on the real orchestrator: the routing echo per outcome, the
+ * terminal, reserved, hold and response-block refusals before any report is written, and the
+ * self-issued `done` guard (pending rework, unresolved gate) versus a parent's `done` with the
+ * arm's warning.
  */
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { LoomStoreV2 } from "../../../../loom/projection/LoomStore.ts";
 import { NO_RESPONSE_BLOCK, SUBMIT_REFUSED_WHILE_RAISED } from "../../../../loom/prompt/prose.ts";
@@ -129,6 +131,41 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
       const accepted = yield* callAs(child, "workstream_submit", { markdown: report("Done.") });
       assert.isFalse(accepted.isError, accepted.text);
       assert.equal((yield* store.getWorkstream(child))!.outcome, "done");
+    }),
+  );
+
+  it.effect("a submit the arm would refuse leaves the recorded report and its search row", () =>
+    Effect.gen(function* () {
+      const store = yield* LoomStoreV2;
+      const fs = yield* FileSystem.FileSystem;
+      const sql = yield* SqlClient.SqlClient;
+      const indexed = (threadId: ThreadId) =>
+        Effect.map(
+          sql<{ readonly text: string }>`SELECT text FROM loom_thread_search
+            WHERE thread_id = ${threadId} AND kind = 'report'`,
+          (rows) => rows.map((row) => row.text),
+        );
+      const root = ThreadId.make("refused-root");
+      yield* seedThread({ threadId: root });
+      const done = yield* spawn(root, "Finished");
+      yield* callAs(done, "workstream_submit", { markdown: report("original") });
+      const reportPath = (yield* store.getWorkstream(done))!.reportPath!;
+
+      const terminal = yield* callAs(done, "workstream_submit", { markdown: report("revised") });
+      assert.isTrue(terminal.isError);
+      assert.include(terminal.text, "cannot act on a terminal thread");
+      assert.equal(yield* fs.readFileString(reportPath), report("original"));
+      assert.deepEqual(yield* indexed(done), [report("original")]);
+
+      const fresh = yield* spawn(root, "Fresh");
+      const reserved = yield* callAs(fresh, "workstream_submit", {
+        markdown: report("quiet"),
+        outcome: "quiescent",
+      });
+      assert.isTrue(reserved.isError);
+      assert.include(reserved.text, "reserved for the server");
+      assert.isNull((yield* store.getWorkstream(fresh))!.reportPath);
+      assert.deepEqual(yield* indexed(fresh), []);
     }),
   );
 

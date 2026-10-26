@@ -6,6 +6,7 @@
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  EventId,
   type LoomAttentionReason,
   MessageId,
   type OrchestrationV2StoredEvent,
@@ -163,6 +164,77 @@ it.layer(LoomOrchestratorTestLayer)("Loom work.submit routing", (it) => {
         ["thread.outcome-set", "done"],
         ["thread.route-taken", "resolve", coder, 1],
       ]);
+    }),
+  );
+
+  it.effect("a rework reopening a done coder warns of started dependents, not its reviewer", () =>
+    Effect.gen(function* () {
+      const reopen = Effect.fn("test.reopen")(function* (key: string, downstreamStarted: boolean) {
+        const root = ThreadId.make(`warn-${key}`);
+        const coder = ThreadId.make(`warn-${key}-coder`);
+        const reviewer = ThreadId.make(`warn-${key}-reviewer`);
+        const downstream = ThreadId.make(`warn-${key}-downstream`);
+        yield* seedThread({ threadId: root });
+        yield* spawnChild({ parentThreadId: root, threadId: coder, graphKey: "coder" });
+        yield* spawnChild({
+          parentThreadId: root,
+          threadId: reviewer,
+          graphKey: "reviewer",
+          role: "reviewer",
+          blockedBy: [coder],
+          routes: [{ on: ["needs_rework"], kind: "loop", to: coder }],
+        });
+        yield* spawnChild({
+          parentThreadId: root,
+          threadId: downstream,
+          graphKey: "downstream",
+          blockedBy: [coder],
+        });
+        yield* submit(coder);
+        const routeEventId = EventId.make(`event:test-route:${reviewer}:1`);
+        yield* writeEvents([
+          ...(yield* Effect.forEach(downstreamStarted ? [reviewer, downstream] : [reviewer], (id) =>
+            loomEvent("thread.kickoff-recorded", id, {
+              kickoffAt: createdAt,
+              messageId: MessageId.make(`message:kickoff:${id}`),
+              origin: "kickoff",
+            }),
+          )),
+          yield* loomEvent(
+            "thread.route-taken",
+            reviewer,
+            { to: coder, round: 1, kind: "loop" },
+            { id: routeEventId },
+          ),
+        ]);
+        const result = yield* dispatch({
+          type: "thread.gate.rework",
+          commandId: CommandId.make(`server:workstream-gate:${reviewer}:1:rework`),
+          threadId: coder,
+          createdAt,
+          sourceThreadId: reviewer,
+          round: 1,
+          routeEventId,
+          message: {
+            messageId: MessageId.make(`message:gate-rework:${key}`),
+            text: "The reviewer asked for rework.",
+            controlPayload: { kind: "notice", heading: "Rework requested", items: [] },
+          },
+        });
+        return {
+          downstream,
+          warnings: result.storedEvents.flatMap(({ event }) =>
+            event.type === "thread.gate-warning" ? [event.payload] : [],
+          ),
+        };
+      });
+
+      assert.deepEqual((yield* reopen("reviewer-only", false)).warnings, []);
+      const started = yield* reopen("downstream", true);
+      assert.deepEqual(
+        started.warnings.map((warning) => warning.threadIds),
+        [[started.downstream]],
+      );
     }),
   );
 
