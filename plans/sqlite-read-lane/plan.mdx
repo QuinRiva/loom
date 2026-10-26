@@ -69,7 +69,7 @@ The memoisation facts behind the fix (Effect 4.0.0-rc.115, `.repos/effect-smol/p
 
 **Rejected, with the reason.** *Worker pool:* scaling plateaus at ~1.5x because the main thread saturates; taking the hot read off the lane beats it at a fraction of the machinery. *Keyed ingestion worker* (`plans/ingestion-backpressure/plan.md` §3.2): the serial fibre was waiting, not computing; after this change the per-event read is ~0.1 ms and the fibre's time is the engine's serial dispatch, which per-thread concurrency cannot overlap. *Writer back on a worker:* p50 2 ms / 0.9% duty; an IPC hop on each of the 10–20 statements per command would roughly double command latency to move under 1% of main-thread time off the loop, and would put the point read back over IPC — the writer stays in-process, as a decision this time rather than the accident of `94a5029ff1`. *Replay on the reader:* above. *Snapshot memo / FIFO semaphore / dedicated read connection:* follow-ups below.
 
-**Prior decisions.** `docs/plans/db-lane-reader-writer-split.md` (July 6): D1, D3 and D2 item 1 are honoured and are what makes the point-read-on-the-writer safe; D2 item 2 (replay on the reader) and the `Layer.fresh` ledger routing are superseded — the change adds one superseding paragraph under D2 of that doc, not a second account. Its author could not be consulted (`consult_manager` fails on an Anthropic OAuth `invalid_grant` on this box). `plans/sqlite-worker-offload/plan.mdx` (July 3): its liveness goal is met by the reader lane for the reads that matter; its mechanism no longer applies to the writer.
+**Prior decisions.** `plans/2026-07-06-db-lane-reader-writer-split.md` (July 6): D1, D3 and D2 item 1 are honoured and are what makes the point-read-on-the-writer safe; D2 item 2 (replay on the reader) and the `Layer.fresh` ledger routing are superseded — the change adds one superseding paragraph under D2 of that doc, not a second account. Its author could not be consulted (`consult_manager` fails on an Anthropic OAuth `invalid_grant` on this box). `plans/sqlite-worker-offload/plan.mdx` (July 3): its liveness goal is met by the reader lane for the reads that matter; its mechanism no longer applies to the writer.
 
 ## The change (one PR, two commits)
 
@@ -84,7 +84,7 @@ Small enough for one PR. Every hunk in an upstream-shared file carries a `// loo
     { path: "apps/server/src/loom/serverLayers.ts", change: "modified", note: "LoomPersistenceLive = ProjectionUsageLedgerReaderLive.pipe(Layer.provideMerge(SqliteReadLayerLive))" },
     { path: "apps/server/src/ws.ts", change: "modified", note: "inside the existing loom hunk: yield ProjectionUsageLedgerReader instead of ProjectionUsageLedgerRepository" },
     { path: "apps/server/src/persistence/Layers/SqliteLanes.test.ts", change: "modified", note: "replace the three existing tests with the one lane test below" },
-    { path: "docs/plans/db-lane-reader-writer-split.md", change: "modified", note: "one paragraph under D2: replay routing and the fresh-based ledger routing superseded by this plan" },
+    { path: "plans/2026-07-06-db-lane-reader-writer-split.md", change: "modified", note: "one paragraph under D2: replay routing and the fresh-based ledger routing superseded by this plan" },
   ]}
 />
 

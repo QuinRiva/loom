@@ -120,7 +120,7 @@ Separately, and this is the part that **was never designed**: the V2 badge's com
 
 ### V1 (before pull 9)
 
-V1's `rollupGraphState` (`apps/web/src/lib/workstreamRollup.ts` at `95c07d34a3^1`, design in `docs/design/workstream-graph-state-rollup.md`) collapsed the whole sub-tree into one of five states with a fixed precedence. Its load-bearing rule: *"liveness anywhere in the DAG dominates local blocked-ness — a node waiting on a dependency that is currently running does not make the graph blocked."* Missing briefs were a board column (`awaiting_brief`), never attention.
+V1's `rollupGraphState` (`apps/web/src/lib/workstreamRollup.ts` at `95c07d34a3^1`, design in `plans/2026-06-24-workstream-graph-state-rollup.md`) collapsed the whole sub-tree into one of five states with a fixed precedence. Its load-bearing rule: *"liveness anywhere in the DAG dominates local blocked-ness — a node waiting on a dependency that is currently running does not make the graph blocked."* Missing briefs were a board column (`awaiting_brief`), never attention.
 
 <Table
   columns={["V1 state", "Rule (checked in this order)", "Badge", "Colour"]}
