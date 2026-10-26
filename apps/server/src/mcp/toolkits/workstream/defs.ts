@@ -105,7 +105,7 @@ const childFields = {
     ),
   ),
   modelPreset: optionalText(
-    "A named model preset, for the rare spawn that needs a specific model.",
+    "A named model preset, for the rare spawn that needs a specific model; omitted, the role's default. OpenAI is opt-in: 'coder-direct' for fully specified, edge-case-heavy work; 'reviewer-gpt' only when you deliberately want a cross-family, false-positive-prone gate on a risky change. Give the reason in the brief; 'stronger is better' is not one.",
   ),
   modelSelection: Schema.optionalKey(
     described(
