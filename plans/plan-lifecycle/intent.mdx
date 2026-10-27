@@ -1,0 +1,53 @@
+---
+reader:
+  who: Carl, loom's maintainer, who asked for plans to be rethought over their whole life before the AGENTS.md rule is written, and approved the intent-first workflow the day before
+  knows: plans live under plans/, threads cite them by path, the task tree is live per goal; not how often plans were amended after approval or what a settled goal's tree holds
+  after_first_screen: he can say what each of brief, plan, task tree and report is for over a feature's life; his two answers and his linking and supersession points are folded into Decided
+kicker: "Intent brief · approved 27 Oct 2026"
+status: approved
+plan: plans/plan-lifecycle/plan.mdx
+manager_sessions:
+  - id: 01a17a62-b8a6-76e0-9f88-5798237c68e1
+    name: Plan-lifecycle intent brief
+    role: intent
+    authored_at: 2026-10-26T23:01:46.753Z
+---
+
+# One living document per question: the brief says what for, the tree says what is done, the plan stays as approved and gets one as-built note
+
+**Goal.** "rethink from the ground up how plans *should* be used, from the perspective of their full life-cycle" and "consider how this ties in with goals and tasks", so the `AGENTS.md` rule and the MDX skills can state one approach. Your Roo Code pattern, "a living document that was kept up to date as the feature was built", is the starting idea. In loom, 7 of 78 plans were touched after their first day; 269 of 5,696 workstream reports record "where I departed from the plan or brief" and 2 record amending a plan. The June living document that worked, `goals/<slug>/goal.md`, was the task checklist, and it became the DB tree; the plan beside it was never given a life of its own.
+
+<Table
+  density="compact"
+  columns={["Artefact", "The one question it answers", "Changes until", "Who changes it"]}
+  rows={[
+    ["Intent brief", "What is this for, and how will you know it works", "You say it works", "Agents sharpen; only you change meaning (settled 26 Oct)"],
+    ["Task tree (DB)", "What work exists and whether it is done", "The goal settles; `thread_search` still finds every task after", "Every thread, live; never details"],
+    ["Plan", "How it was meant to be built, and why not the alternatives", "Approval; then only `status`, `superseded_by` and one As built section at done", "Planner; orchestrator at done"],
+    ["Reports, recaps", "What happened, what was found, where the build departed", "Written once", "The thread that did the work"],
+  ]}
+/>
+
+**You'll know it works when.**
+
+- Any plan's frontmatter says whether it is draft, approved, done, dropped or superseded, and by which plan.
+- A plan whose build departed from it ends with one "As built" section, written once at done, naming each departure and its reason; nothing else changed since approval.
+- A thread starting work in an area finds the prior plan before drafting, because the skill makes it look.
+- **Must not:** cost each coder a plan edit per divergence; let a plan drift into a changelog; put findings in the task tree.
+
+**Approaches in play.**
+
+- Frozen plan plus one As built section at done, by the orchestrator from the coders' reports. _Chosen._ Wins if one pass at done catches the divergence that matters; the one plan done this way (`plans/2026-07-28-thread-catchup-silent-truncation.md` §10) still reads cleanly three months on.
+- Plan as a living document, amended by the diverging coder or the orchestrator at each phase (Roo Code). Wins if a later reader wants plan and build in one file. Dropped: the two runs of it in loom became ledgers (pull 9's plan took 15 same-day commits of "AS LANDED (3a-4, DL-348)" rows and still needed a separate decision log), coders would share one file in a shared worktree, and the brief took the living role on 26 Oct.
+- Dropped: commit the settled task tree beside the plan. It persists in the DB and is searchable, and a settled tree is a ticked checklist the merged PR already states.
+
+**Decided.** "plans, recaps and explainers are committed history" (27 Oct). "We should probably amend these plans to set their current status if we are going to use a status moving forward." The brief is rewritten in place and only you change its meaning (26 Oct). A plan after approval: "Frozen at approval; one As built section at done names where the build departed", written by "The orchestrator, once at done, from the coders' reports" (your two answers, 27 Oct). Linking: "when we create the plan, it should have a link to the intent brief. If we have a recap (we don't always have a recap …), I would anticipate that it makes sense to have the plan link to the recap and vice versa." Supersession: "if something does get superseded, we do go back to that plan and say, 'Hey this plan is superseded by this new piece of work, this new intent, this new plan,' and have a tag that points to the new one … to ensure that outdated plans aren't read as the current implementation once they are superseded."
+_Assumed:_ one `status` word for plan and brief (`draft | approved | done | dropped | superseded`), `done` meaning merged for a plan and "works for you" for a brief; breadcrumbs are frontmatter fields (`intent:`, `plan:`, `recap:`, `supersedes:`, `superseded_by:`, workspace-relative paths) because the reader is an agent reading the file raw and a lint can check that each target exists and points back, and the recap's author adds the plan's `recap:` line, a frontmatter-only edit a frozen plan allows; the supersession trigger is the plan skill's before-drafting step (search `plans/`, `recaps/`, `explainers/`, `docs/` and `thread_search` for the area, mark what you replace in the same commit) checked by the plan's review gate, with the lint catching only a dangling or one-way link; the plan's steps seed the tree's phases and the root task names the plan, nothing more; the convention lives in the global skill, so fathom and pi-craft get it too; one bulk pass sets `status` and breadcrumbs on the 80 existing plan and brief files, marks the supersession pairs, and sorts the 29 tracked June `.plans/` files (unsigned scratch leaves the tree; signed plans move to `plans/<date>-<slug>.md` with a status), listing for you any it cannot judge. Redirect if wrong.
+
+**Not doing.** Moving or renaming any plan under `plans/` (every way a thread finds one ends in its path). Touching PRs #456, #458, #471. Tooling beyond the lint's status and link checks.
+
+**Still unknown.**
+
+- Does one As built pass at done keep what matters, or do departures get lost between a coder's report and the orchestrator's note? The first three features built under the rule show it; if they go missing, the review gate gains a check.
+- Does a lint warning make `status` stick? The November prompt census counts plans without one.
+- Does a superseded plan get its marker? A lint cannot know a plan should have been superseded; only the before-drafting habit and the gate can. The first plan written in an area that already has one shows it.

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-/** Render-health gate for an MDX plan/recap, on the renderer's real module graph (jsdom + vite):
- * `node apps/web/scripts/lint-plan.mjs <doc>.mdx [--out <doc-dir>/render.html [--png]]`. Lints with
- * `planLint.ts`, then renders lint-clean docs; exit 0 means it renders in-app. `--out` writes a standalone
- * page (images beside it get relative srcs); `--png` slices it into page-height PNGs a model can read. */
+/** Render-health gate for MDX docs on the renderer's real module graph (jsdom + vite): lints with
+ * `planLint.ts`, renders lint-clean docs (exit 0 means it renders in-app), and on plans, briefs and
+ * recaps checks frontmatter `status` and the links between them. `--out` writes a standalone page,
+ * `--png` slices it for a model to read; `--links-only <files or dirs>...` runs the frontmatter stage alone. */
+import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
@@ -16,18 +17,62 @@ const args = process.argv.slice(2);
 const outIndex = args.indexOf("--out");
 const outFile = outIndex === -1 ? undefined : args[outIndex + 1];
 const png = args.includes("--png");
-const file = args.find(
-  (arg, index) => !arg.startsWith("--") && (outIndex === -1 || index !== outIndex + 1),
-);
-if (!file || (outIndex !== -1 && !outFile) || (png && !outFile)) {
+const linksOnly = args.includes("--links-only");
+
+/** Lifecycle kind by root-relative path; `plans/renderer-audit/` is a render fixture, not a plan. */
+function kindOf(relative) {
+  if (relative.startsWith("plans/renderer-audit/")) return undefined;
+  if (/^plans\/(.+\/plan\.mdx?|[^/]+\.md)$/.test(relative)) return "plan";
+  if (/^plans\/.+\/intent\.mdx?$/.test(relative)) return "brief";
+  if (/^recaps\/.+\/recap\.mdx$/.test(relative)) return "recap";
+  return undefined;
+}
+
+// Link targets resolve against the document's own repo, not the cwd's (lint-doc.sh may run
+// from another checkout, and fathom's plans live in a nested worktree).
+const roots = new Map();
+function rootOf(dir) {
+  if (!roots.has(dir)) {
+    let root = dir;
+    try {
+      root = NodeChildProcess.execFileSync("git", ["-C", dir, "rev-parse", "--show-toplevel"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    } catch {}
+    roots.set(dir, root);
+  }
+  return roots.get(dir);
+}
+
+function expand(input) {
+  const path = NodePath.resolve(process.cwd(), input);
+  const directory = NodeFS.statSync(path).isDirectory();
+  const root = rootOf(directory ? path : NodePath.dirname(path));
+  const paths = directory
+    ? NodeFS.readdirSync(path, { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => NodePath.join(entry.parentPath, entry.name))
+    : [path];
+  return paths
+    .map((file) => ({ path: file, root, kind: kindOf(NodePath.relative(root, file)) }))
+    .filter((doc) => !directory || doc.kind);
+}
+
+const docs = args
+  .filter((arg, index) => !arg.startsWith("--") && (outIndex === -1 || index !== outIndex + 1))
+  .flatMap(expand);
+if (
+  !docs.length ||
+  (outIndex !== -1 && !outFile) ||
+  (png && !outFile) ||
+  (outFile && docs.length > 1)
+) {
   console.error(
-    "Usage: node apps/web/scripts/lint-plan.mjs <plan.mdx> [--out <file.html> [--png]]",
+    "Usage: node apps/web/scripts/lint-plan.mjs <plan.mdx> [--out <file.html> [--png]] | --links-only <files or dirs>...",
   );
   process.exit(2);
 }
-const planPath = NodePath.resolve(process.cwd(), file);
-const planDir = NodePath.dirname(planPath);
-const source = NodeFS.readFileSync(planPath, "utf8");
 
 // DOM globals for the wireframe sanitiser dry-run.
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
@@ -78,7 +123,7 @@ const server = await createServer({
  * one-line positive signal (bytes + rendered block-type counts) so a passing run
  * shows WHAT mounted, not just that nothing failed.
  */
-async function renderFindings(mdxSource) {
+async function renderFindings(mdxSource, planDir) {
   const load = (module) => server.ssrLoadModule(`/src/components/files/mdx-plan/${module}`);
   const [
     { compilePlanMdx },
@@ -169,7 +214,7 @@ async function renderFindings(mdxSource) {
  * `data-plan-bleed` stamps, so blocks get the in-app measure and bleed. The bleed budget
  * keys off `100vw` as the panel's keys off the panel, so the app's HTML preview lays it
  * out at the panel's width. */
-async function writeStandalonePage(html, target) {
+async function writeStandalonePage(html, target, planPath) {
   const css = (await server.transformRequest("/src/index.css?direct"))?.code ?? "";
   const { stampBleedingBlocks } = await server.ssrLoadModule(
     "/src/components/files/mdx-plan/MdxPlanRenderer.tsx",
@@ -258,36 +303,110 @@ function shown(target) {
   return relative.startsWith("..") ? target : relative;
 }
 
-/** Render findings as terse `file:line:col severity: message` lines + a summary. */
+/** Render findings as terse `file:line:col severity: message` lines. */
 function formatFindings(findings, file) {
-  const errors = findings.filter((finding) => finding.severity === "error").length;
   if (!findings.length) return `${file}: OK \u2014 no findings.`;
-  const lines = findings.map(
-    (finding) =>
-      `${file}${finding.line !== undefined ? `:${finding.line}${finding.column !== undefined ? `:${finding.column}` : ""}` : ""} ${finding.severity}: ${finding.message}`,
-  );
-  return [...lines, "", `${errors} error(s), ${findings.length - errors} warning(s)`].join("\n");
+  return findings
+    .map(
+      (finding) =>
+        `${file}${finding.line !== undefined ? `:${finding.line}${finding.column !== undefined ? `:${finding.column}` : ""}` : ""} ${finding.severity}: ${finding.message}`,
+    )
+    .join("\n");
 }
 
-let failed = false;
-try {
-  const { lintPlanSource } = await server.ssrLoadModule(
-    "/src/components/files/mdx-plan/planLint.ts",
-  );
-  const findings = await lintPlanSource(source);
-  // A lint error already breaks the render; rendering would only repeat it.
-  if (!findings.some((finding) => finding.severity === "error")) {
-    const render = await renderFindings(source);
-    findings.push(...render.findings);
-    if (outFile && render.html !== undefined) {
-      const pageFile = NodePath.resolve(process.cwd(), outFile);
-      await writeStandalonePage(render.html, pageFile);
-      if (png) await writeScreenshots(pageFile);
+const STATUSES = ["draft", "approved", "done", "dropped", "superseded"];
+const RECIPROCAL = {
+  intent: "plan",
+  recap: "plan",
+  supersedes: "superseded_by",
+  superseded_by: "supersedes",
+};
+
+/** Stage 3, plans/briefs/recaps only: `status` and the links between them, per
+ * skills/mdx-visual-plan/SKILL.md 'The plan's life'. A plan or brief carries `status`; a
+ * recap is checked only for its `plan:`. Each link's target must exist and point back. */
+function lifecycleFindings({ path, root, kind }, source, readFrontmatter) {
+  const frontmatter = readFrontmatter(source) ?? {};
+  const line = (field) => ({
+    line: source.split("\n").findIndex((l) => l.startsWith(`${field}:`)) + 1,
+  });
+  const relative = NodePath.relative(root, path);
+  const findings = [];
+  if (kind !== "recap") {
+    if (frontmatter.status === undefined) {
+      findings.push({
+        severity: "warning",
+        message:
+          "No `status:` in frontmatter; `draft`, `approved`, `done`, `dropped` or `superseded` (skills/mdx-visual-plan/SKILL.md, 'The plan's life')",
+      });
+    } else if (!STATUSES.includes(frontmatter.status)) {
+      findings.push({
+        severity: "error",
+        ...line("status"),
+        message: `\`status: ${frontmatter.status}\` is not one of ${STATUSES.join(", ")}`,
+      });
+    }
+    if (frontmatter.status === "superseded" && frontmatter.superseded_by === undefined) {
+      findings.push({
+        severity: "error",
+        ...line("status"),
+        message:
+          "`status: superseded` without `superseded_by:` naming the plan (or `upstream:#…` / URL) that replaced it",
+      });
     }
   }
-  console.log(formatFindings(findings, NodePath.relative(process.cwd(), planPath)));
-  failed = findings.some((finding) => finding.severity === "error");
+  for (const field of kind === "recap" ? ["plan"] : Object.keys(RECIPROCAL).concat("plan")) {
+    const target = frontmatter[field];
+    if (target === undefined || /^(upstream:|https?:\/\/)/.test(target)) continue;
+    const targetPath = NodePath.join(root, target);
+    if (!NodeFS.existsSync(targetPath)) {
+      findings.push({
+        severity: "error",
+        ...line(field),
+        message: `\`${field}: ${target}\` names a file that does not exist`,
+      });
+      continue;
+    }
+    const back = field === "plan" ? (kind === "brief" ? "intent" : "recap") : RECIPROCAL[field];
+    if ((readFrontmatter(NodeFS.readFileSync(targetPath, "utf8")) ?? {})[back] !== relative) {
+      findings.push({
+        severity: "warning",
+        ...line(field),
+        message: `\`${field}: ${target}\` is one-way; add \`${back}: ${relative}\` to ${target}`,
+      });
+    }
+  }
+  return findings;
+}
+
+const all = [];
+try {
+  const { lintPlanSource, readFrontmatter } = await server.ssrLoadModule(
+    "/src/components/files/mdx-plan/planLint.ts",
+  );
+  for (const doc of docs) {
+    const source = NodeFS.readFileSync(doc.path, "utf8");
+    const findings = [];
+    if (!linksOnly && doc.path.endsWith(".mdx")) {
+      findings.push(...(await lintPlanSource(source)));
+      // A lint error already breaks the render; rendering would only repeat it.
+      if (!findings.some((finding) => finding.severity === "error")) {
+        const render = await renderFindings(source, NodePath.dirname(doc.path));
+        findings.push(...render.findings);
+        if (outFile && render.html !== undefined) {
+          const pageFile = NodePath.resolve(process.cwd(), outFile);
+          await writeStandalonePage(render.html, pageFile, doc.path);
+          if (png) await writeScreenshots(pageFile);
+        }
+      }
+    }
+    if (doc.kind) findings.push(...lifecycleFindings(doc, source, readFrontmatter));
+    console.log(formatFindings(findings, shown(doc.path)));
+    all.push(...findings);
+  }
 } finally {
   await server.close();
 }
-process.exit(failed ? 1 : 0);
+const errors = all.filter((finding) => finding.severity === "error").length;
+if (all.length) console.log(`\n${errors} error(s), ${all.length - errors} warning(s)`);
+process.exit(errors ? 1 : 0);

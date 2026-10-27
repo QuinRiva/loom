@@ -100,6 +100,14 @@ const hasReaderBrief = Schema.is(
 );
 const decodeFrontmatter = Schema.decodeUnknownOption(fromYaml(Schema.Unknown));
 
+/** The leading `---` block decoded as YAML, or `undefined` when absent or unparseable.
+ * Exported for `lint-plan.mjs`'s lifecycle stage, which loads this module through Vite.
+ * @public */
+export function readFrontmatter(source: string): unknown {
+  const yaml = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source)?.[1];
+  return yaml === undefined ? undefined : Option.getOrUndefined(decodeFrontmatter(yaml));
+}
+
 // Promote to an error once the exemplar document set lands (brief author's request).
 function readerBriefFinding(tree: MdastNode): PlanLintFinding | null {
   const yaml = tree.children?.find((node) => node.type === "yaml");

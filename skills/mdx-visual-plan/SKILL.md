@@ -81,7 +81,9 @@ drive the questions; the brief is its destination.
 
 The brief is rewritten in place as the work teaches, never appended to as a
 log; git is its history, and `status` moves `draft` → `approved` → `done`, or
-`dropped`. Agents may settle an unknown into a check or a dropped approach,
+`dropped`, or `superseded` when a later brief replaces it; once a plan exists
+under it, `plan:` names the plan. Agents may settle an unknown into a check or
+a dropped approach,
 record a chosen or dropped approach with its reason, tighten a check's wording
 without changing what passes it, and add or revise Assumed lines. Only the
 owner may change the Goal, their quoted words, what a check means, a must-not
@@ -111,6 +113,27 @@ an implementer who later meets a decision the plan does not settle consults
 its author through the signature (`consult_manager`), and an unsigned plan has
 no author to ask. The renderer hides the frontmatter it adds.
 
+## The plan's life
+
+A plan is a dated record of how the work was meant to be built and why not
+the alternatives; the brief beside it is the living record of what it is for,
+and the goal's task tree the live record of what is done. The frontmatter
+carries `status` (`draft` while the gate reviews it, `approved` once the
+orchestrator briefs coders from it, `done` when it ships with the feature's
+last PR, `dropped`, or `superseded`) and links as workspace-relative paths:
+`intent:` to the brief it serves, `recap:` to the recap of its work when one
+is written, `supersedes:` and `superseded_by:` between it and the plan that
+replaces it (`superseded_by` may name an upstream change, `upstream:#9167`,
+when no plan replaced it).
+
+After approval the body is frozen. A coder whose work departs from the plan
+says so in its report, not in the plan. Once the build is final, on the branch
+of the feature's last PR before it ships, the orchestrator appends one
+`## As built` section naming each departure and its reason (no section when
+there was none), sets `status: done`, and adds `recap:` if a recap was
+written. Nothing else changes: a plan amended as the build goes becomes a
+ledger, and two threads editing one file in a shared worktree collide.
+
 ## Before drafting
 
 **Write the reader brief first.** Three lines in the frontmatter — who reads
@@ -127,6 +150,16 @@ genuinely new delta rather than redescribing what exists. Delegate wide
 exploration to a sub-agent when the surface is large and fold the findings
 back. Planning is read-only: the plan file is the one write, and source edits
 wait for approval — a plan that has already changed the code is not a proposal.
+
+**Look for the plan you replace.** Search the area's words over `plans/`,
+`recaps/`, `explainers/` and `docs/` (`rg -l`, `fd`) and
+`mcp__t3-code__thread_search` for the discussion, and read a hit as intent as
+of its date, verified against the code. When your plan answers a question an
+earlier plan answered, mark it in the same commit: the old plan gets
+`status: superseded` and `superseded_by:`, yours gets `supersedes:`. A plan
+that replaces one decision of an earlier plan says so in its body and marks
+nothing. Only you, at this moment, know it is a supersession; the gate checks
+that you looked, and your report says what you found.
 
 **Pin the words before the design.** When the plan introduces concepts the
 codebase does not name, or leans on terms it uses loosely, settle them with the

@@ -36,6 +36,12 @@ as an actionable brief, not commentary. Attach `counts: { mustFix, niceToHave }`
 so the verdict is legible at a glance, and list any findings you are
 escalating as rejected in `contested` (verbatim-quotable).
 
+- For a plan: the planner's report says what it searched for a prior plan in
+  the area and what it found, and a plan it replaces is marked
+  `superseded_by` in the same commit. A plan that silently sits beside an
+  earlier one on the same question is must-fix; so is a body edit to an
+  approved plan outside its frontmatter and its one As built section.
+
 ## Fix licence — strictly mechanical
 
 You may fix trivia inline: typos, dead imports, formatting, comment drift.
