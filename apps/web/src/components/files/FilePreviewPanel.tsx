@@ -1588,6 +1588,7 @@ export default function FilePreviewPanel({
               file={loomChange}
               working={file.data}
               composerDraftTarget={composerDraftTarget}
+              scrollKey={`${scrollKey}:change`} // loom: remembered scroll position
             />
           ) : relativePath && renderBrowserFile && absolutePath ? (
             <WorkspaceBrowserPreview

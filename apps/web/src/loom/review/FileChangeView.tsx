@@ -24,6 +24,7 @@ import {
   FileSurfaceLoading,
   FileSurfaceNotice,
 } from "../../components/files/fileSurfaceChrome";
+import { readRememberedScroll, rememberScroll } from "../../components/files/rememberedScroll.loom";
 import { Button } from "../../components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../components/ui/tooltip";
 import type { DraftId } from "../../composerDraftStore";
@@ -101,6 +102,8 @@ export interface FileChangeViewProps {
   /** The file's own patch, read only while it is over the size cap. */
   readonly patch: { readonly text: string | null; readonly error: string | null };
   readonly composerDraftTarget: ScopedThreadRef | DraftId;
+  /** Where the reader's place in this file is remembered across a thread switch. */
+  readonly scrollKey?: string;
 }
 
 export function FileChangeView({
@@ -110,6 +113,7 @@ export function FileChangeView({
   loadDiffFiles,
   patch,
   composerDraftTarget,
+  scrollKey,
 }: FileChangeViewProps) {
   const resolvedTheme = useRenderedAppearance(); // the diff worker pool resolves only this theme
   const layout = useReviewBaselineStore((state) => state.fileChangeLayout);
@@ -176,10 +180,11 @@ export function FileChangeView({
 
   const [codeView, setCodeView] = useState<AnnotatableCodeViewHandle | null>(null);
   const changes = fileDiff ? rulerChanges(fileDiff, layout) : [];
-  const scrolledRef = useRef<string | null>(null);
+  const openedRef = useRef<{ readonly key: string; readonly mode: typeof mode } | null>(null);
   useEffect(() => {
-    const root = codeView?.getInstance()?.getContainerElement();
-    if (!codeView || !root || changes.length === 0) return;
+    const instance = codeView?.getInstance();
+    const root = instance?.getContainerElement();
+    if (!codeView || !instance || !root || changes.length === 0) return;
     const owner = {};
     // A jump holds "n" on its change while that change stays in view: one near the end cannot be
     // centred, and the nearest to the centre would then be its neighbour, so next would stick.
@@ -208,13 +213,55 @@ export function FileChangeView({
           (useChangeNavigationStore.getState().current + delta + changes.length) % changes.length,
         ),
     });
-    // Open on the first change with the code above it in view, not on line 1 of a long file.
-    if (mode === "whole" && scrolledRef.current !== file.path) {
-      scrolledRef.current = file.path;
-      jump(0);
+    // Open where this thread left the file; else on the first change with the code above it in
+    // view, not on line 1 of a long file. A hunk-mode line in a gap the reader had expanded no
+    // longer resolves, so its scroll offset goes first as the fallback.
+    const opened = openedRef.current;
+    const openKey = scrollKey ?? file.path;
+    if (opened?.key !== openKey || opened.mode !== mode) {
+      openedRef.current = { key: openKey, mode };
+      const saved =
+        scrollKey && opened?.key !== openKey ? readRememberedScroll(scrollKey) : undefined;
+      if (saved) {
+        codeView.scrollTo({ type: "position", position: saved.top });
+        if (saved.anchor) {
+          const { line, side, offset } = saved.anchor;
+          codeView.scrollTo({
+            type: "line",
+            id: file.path,
+            lineNumber: line,
+            ...(side ? { side } : {}),
+            align: "start",
+            offset,
+          });
+        }
+      } else if (mode === "whole") jump(0);
+      else codeView.scrollTo({ type: "position", position: 0 });
     }
+    // The top line once scrolling pauses, not just pixels: a remount re-estimates wrapped line
+    // heights above it.
+    const remember = (withAnchor: boolean) => {
+      if (!scrollKey) return;
+      const top = instance.getScrollTop();
+      const itemTop = instance.getTopForItem(file.path) ?? 0;
+      const anchor = withAnchor
+        ? instance
+            .getRenderedItems()
+            .find((rendered) => rendered.id === file.path)
+            ?.instance.getNumericScrollAnchor(top - itemTop)
+        : undefined;
+      rememberScroll(scrollKey, {
+        top,
+        anchor: anchor && {
+          line: anchor.lineNumber,
+          offset: itemTop + anchor.top - top,
+          ...(anchor.side ? { side: anchor.side } : {}),
+        },
+      });
+    };
     // Which change is at the centre, read from the rows on screen once scrolling settles.
     const settle = () => {
+      remember(true);
       const rows = rowsOnScreen(root, layout);
       if (!rows) return;
       if (pinned !== null && changeInRows(changes[pinned]!, rows.first, rows.last)) return;
@@ -222,18 +269,19 @@ export function FileChangeView({
       useChangeNavigationStore.setState({ current: nearestChange(changes, rows.centre) });
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsubscribe = codeView.getInstance()?.subscribeToScroll(() => {
+    const unsubscribe = instance.subscribeToScroll(() => {
+      remember(false);
       clearTimeout(timer);
       timer = setTimeout(settle, 150);
     });
     return () => {
-      unsubscribe?.();
+      unsubscribe();
       clearTimeout(timer);
       if (useChangeNavigationStore.getState().owner === owner) {
         useChangeNavigationStore.setState({ owner: null, count: 0 });
       }
     };
-  }, [changes, codeView, file.path, layout, mode]);
+  }, [changes, codeView, file.path, layout, mode, scrollKey]);
 
   const notice =
     mode === "patch" ? (
@@ -348,6 +396,7 @@ export function LoomFileChangeSurface({
   file,
   working,
   composerDraftTarget,
+  scrollKey,
 }: {
   environmentId: EnvironmentId;
   threadRef: ScopedThreadRef;
@@ -356,6 +405,7 @@ export function LoomFileChangeSurface({
   /** The working copy the Files surface already read; its size stands in when git has none. */
   working: { readonly byteLength: number; readonly contents: string } | null;
   composerDraftTarget: ScopedThreadRef | DraftId;
+  scrollKey: string;
 }) {
   const getLoomContents = useAtomCommand(loomReviewQueries.fileContents);
   const getGitContents = useAtomCommand(reviewEnvironment.diffFileContents);
@@ -431,6 +481,7 @@ export function LoomFileChangeSurface({
         error: baseline.kind === "interval" ? intervalPatch.error : gitPatch.error,
       }}
       composerDraftTarget={composerDraftTarget}
+      scrollKey={scrollKey}
     />
   );
 }
