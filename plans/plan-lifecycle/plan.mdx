@@ -156,7 +156,7 @@ Mechanical breadcrumbs the same pass adds: `plan:` on `plans/intent-first-workfl
 ## 6. Rollout and what it does not reach
 
 - **The global skill lags the repo.** `~/.pi/agent/skills/mdx-visual-plan` is a symlink to `~/loom-releases/current/skills/mdx-visual-plan` (release `20261026-004852-7935f6a`), already 131 diff lines behind this worktree's skill. Nothing to build: the next cockpit release carries the lifecycle text to every repo that loads the skill. Until then, threads in loom read the repo copy and threads elsewhere read the released one.
-- **Repos that do not commit plans.** `~/fathom-platform` lists `/plans/` and `/recaps/` in `.git/info/exclude`, so there a plan's history is its worktree's life and `superseded_by` points at a file that may not exist in another checkout; `~/pi-fathom` (4), `~/pi-craft` (1) and `~/trustcall` (4) do commit. The skill's text is the same everywhere; whether fathom's exclusion stays is Carl's to revisit, recorded in this plan's As built section when PR 1 lands, not decided here.
+- **Repos that commit plans elsewhere.** `~/fathom-platform` commits plans, recaps and analysis to its sidecar repo `Stratus-Labs/workbench`, a nested worktree at `<worktree>/workbench/`, and lists `/plans/` and `/recaps/` in `.git/info/exclude` so strays never land in the main repo (its `AGENTS.md`, "Supporting material goes in `workbench/`"). So git is a plan's history there too, under `workbench/plans/`; the only gap is that this skill writes `plans/<slug>/` relative to the cwd, which in fathom is the excluded root path unless the agent follows the `workbench` skill. That is fathom's skill to reconcile, not this plan's. `~/pi-fathom` (4), `~/pi-craft` (1) and `~/trustcall` (4) commit plans in place.
 - **`lint-doc.sh` from another repo** resolves the linter in the cwd's checkout when it is loom, else in the release's checkout, so the frontmatter stage reaches other repos with the same release.
 
 ## 7. Sequence
@@ -225,16 +225,6 @@ Mechanical breadcrumbs the same pass adds: `plan:` on `plans/intent-first-workfl
       options: [
         { id: "prefix", label: "Allow superseded_by values that are not paths when they start with upstream: or a URL; the lint skips existence for those", recommended: true, detail: "One rule, no fake target file." },
         { id: "note-only", label: "Require a path; such plans use status: dropped with the reason in kicker", detail: "Keeps the lint simple but mislabels a replaced design as dropped." },
-      ],
-    },
-    {
-      id: "bulk-question-form",
-      title: "Does the bulk pass end with ask_user_question or an MDX decision batch?",
-      subtitle: "Depends on how many plans the coder cannot judge; the brief says 'listing for you any it cannot judge'.",
-      mode: "single",
-      options: [
-        { id: "by-count", label: "ask_user_question up to four items; a recap-genre decision batch beyond that", recommended: true, detail: "Follows the ask_user_question description, which sends coupled decisions to an MDX document." },
-        { id: "always-mdx", label: "Always an MDX decision batch", detail: "Consistent, costs a document for what may be two lines." },
       ],
     },
   ]}
