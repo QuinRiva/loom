@@ -3,9 +3,12 @@ manager_sessions:
   - id: a9023a84-f38c-4c51-99e5-3b15063730c3
     role: plan
     authored_at: 2026-06-30T00:43:22.399Z
+status: done
 ---
 
 # Goal/Task mutation as pi tools — Phase A (keep the tree honest)
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/goal-task-tool-phase-a.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 ## Problem
 

@@ -3,9 +3,13 @@ manager_sessions:
   - id: 86c158b7-7422-42ee-abb0-c9065deaa1ec
     role: plan
     authored_at: 2026-06-23T15:27:00.982Z
+status: superseded
+superseded_by: plans/2026-06-29-workstream-state-model-design.md
 ---
 
 # Phase C: status state machine + dependency edges
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/phase-c-status-and-dependencies.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 **Status:** plan (authored autonomously during an overnight work block; decisions
 are reasonable defaults, all on a throwaway branch and revertible).

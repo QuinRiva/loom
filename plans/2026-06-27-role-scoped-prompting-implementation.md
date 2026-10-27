@@ -9,9 +9,12 @@ manager_sessions:
   - id: 24389ccb-e89f-4d23-a172-8a19fe8f5c12
     role: plan
     authored_at: 2026-06-29T02:37:54.562Z
+status: done
 ---
 
 # Implementation Plan — Role-scoped prompting + the work-model prompt
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/role-scoped-prompting-implementation.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 **Status:** plan (ready for a coder)
 **Contract:** `.plans/role-scoped-prompting-and-workstream-doctrine.md` (signed intent)

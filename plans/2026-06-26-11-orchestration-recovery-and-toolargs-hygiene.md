@@ -3,9 +3,12 @@ manager_sessions:
   - id: c448c079-8edc-4f36-9275-f296adf72c58
     role: plan
     authored_at: 2026-06-26T10:26:54.379Z
+status: done
 ---
 
 # Plan 11 — Orchestration `error→done` recovery wake + PiDriver tool-args hygiene
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/11-orchestration-recovery-and-toolargs-hygiene.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 Two independent server-side fixes in the orchestration control plane, found while
 shipping the liveness false-positive fixes (PR #19).

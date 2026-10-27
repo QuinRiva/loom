@@ -3,9 +3,13 @@ manager_sessions:
   - id: 587eb0f7-db32-4147-ab5e-d898a81a88b4
     role: architecture
     authored_at: 2026-06-29T04:25:41.592Z
+status: done
+supersedes: plans/2026-06-23-phase-c-status-and-dependencies.md
 ---
 
 # Workstream State Model — Three-Axis Design
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/workstream-state-model-design.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 Status: **agreed intent** (design session, grill-me). This document pins the
 intended state model for T3 Code Workstream threads. A separate implementation
