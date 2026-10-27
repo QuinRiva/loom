@@ -2,8 +2,8 @@
 reader:
   who: the reviewer gate judging this plan against the approved brief beside it, then the coders who implement it one PR at a time, inheriting nothing the planner read
   knows: how loom's MDX skills, roles and the lint fit together today; not the evidence in the brief's report, nor which in-flight PRs touch the same files
-  after_first_screen: that every model-read change is named with its exact text, that the lint gains a frontmatter stage, that the bulk pass has one mechanical rule and one question for Carl at its end, and in which order the four PRs land
-kicker: "Implementation plan · under the approved brief plans/plan-lifecycle/intent.mdx · 27 Oct 2026"
+  after_first_screen: that every model-read change is named with its exact text, that the lint gains a frontmatter stage it can run alone, that the bulk pass has one mechanical rule and ends with a list for Carl, and in which order the three PRs land
+kicker: "Implementation plan · under the approved brief plans/plan-lifecycle/intent.mdx · revised 27 Oct 2026 after review"
 status: draft
 intent: plans/plan-lifecycle/intent.mdx
 manager_sessions:
@@ -13,13 +13,13 @@ manager_sessions:
     authored_at: 2026-10-27T00:28:02.104Z
 ---
 
-# Four PRs: the rule stated once in the plan skill, echoed in one AGENTS.md bullet and two role clauses, enforced by a frontmatter stage in the lint, then applied to the 67 existing plans
+# Three PRs: the rule stated once in the plan skill with the lint that holds it, echoed in one AGENTS.md bullet and one orchestrator sentence, then applied to the 80 existing plans
 
-**Recommendation.** State the plan lifecycle once, in `skills/mdx-visual-plan/SKILL.md` under a new "The plan's life" heading: a plan carries `status` (`draft | approved | done | dropped | superseded`) and breadcrumb fields (`intent`, `recap`, `supersedes`, `superseded_by`, workspace-relative paths); its body is frozen at approval; the orchestrator appends one `## As built` section at done and sets `status: done`; before drafting, a planner searches the area for the plan it replaces and marks it in the same commit. Everything else only points at that statement: one loom-marked `AGENTS.md` bullet, one clause each in the orchestrator and planner roles, one sentence in the recap skill for the back-link, one line in the review gate. The lint gains a pure frontmatter stage (`planLifecycleLint.ts`) that warns on a missing `status`, errors on an unknown value, a `superseded` without a target, or a link whose target file does not exist, and warns when the target does not link back; `lint-plan.mjs` learns to take several files on one Vite server so the whole of `plans/` checks in one run. A fourth PR sets `status` and breadcrumbs on the 67 existing plans by one mechanical rule, sorts the 29 tracked June `.plans/` files, and ends with one question to Carl listing the plans a coder could not judge.
+**Recommendation.** State the plan lifecycle once, in `skills/mdx-visual-plan/SKILL.md` under a new "The plan's life" heading: a plan carries `status` (`draft | approved | done | dropped | superseded`) and breadcrumb fields (`intent`, `recap`, `supersedes`, `superseded_by`, workspace-relative paths); its body is frozen at approval; the orchestrator writes one `## As built` section and `status: done` on the branch of the feature's last PR before it ships; before drafting, a planner searches the area for the plan it replaces and marks it in the same commit. Everything else only points at that statement: one loom-marked `AGENTS.md` bullet, one orchestrator sentence, one sentence in the recap skill for the back-link, one line in the review gate, one line in each exemplar skeleton. The lint script gains a frontmatter stage (about 40 lines in `lint-plan.mjs`, no new module) that warns on a missing `status`, errors on an unknown value, a `superseded` without a target, or a link whose target file does not exist, and warns when the target does not link back; a `--links-only` flag runs that stage alone over many files, so the whole of `plans/` checks in seconds and the PR gates below are lifecycle findings only. A third PR sets `status` and breadcrumbs on the 80 existing plan and brief files by one mechanical rule, moves 20 signed June `.plans/` files into `plans/` and deletes 5 scratch ones, and lists in its report the plans a coder could not judge for the orchestrator to put to Carl.
 
-**Cost.** About +640/−60 words of model-read text across seven files (per-file counts in §3), one new ~120-line TypeScript module with a test, a ~30-line change to the lint script, and a bulk pass that edits frontmatter in about 70 files and moves or deletes 29. No server, contract or UI code. The one bet: a lint can hold the status and link fields honest, but it cannot know a plan *should* have been superseded; that stays with the before-drafting habit and the gate, which the brief's "Still unknown" already says.
+**Cost.** About +680/−105 words of model-read text across six files (per-file counts in §3), about 40 lines in one script plus one export, and a bulk pass that edits frontmatter in about 70 files and moves or deletes 25. No server, contract or UI code. The one bet: a lint can hold the status and link fields honest, but it cannot know a plan *should* have been superseded; that stays with the before-drafting habit and the gate, which the brief's "Still unknown" already says.
 
-**Done means.** The four PRs are merged; `node apps/web/scripts/lint-plan.mjs plans/*/plan.mdx plans/*/intent.mdx plans/*.md` exits 0 with no `status` warnings; every plan under `plans/` has a `status`; the two v1/v2 pairs carry `supersedes`/`superseded_by`; `AGENTS.md` line 192 is the loom-marked bullet in §3.1 and `pnpm ship`'s unmarked-hunk sweep passes; `.plans/` holds no tracked file. Open questions for the gate are in the form at the end; none reopens the brief.
+**Done means.** The three PRs are merged; `node apps/web/scripts/lint-plan.mjs --links-only plans recaps` exits 0 with no findings; every file matching `plans/**/{plan,intent}.{mdx,md}` and `plans/*.md` (the `renderer-audit` fixture excluded) has a `status`; the supersession pairs in §5 carry `supersedes`/`superseded_by`; `AGENTS.md` line 192 is the loom-marked bullet in §3.1 and `pnpm ship`'s unmarked-hunk sweep passes; `git ls-files .plans` is empty. Carl answered the two questions this plan put to him with the recommended options (§4), so nothing is open and nothing reopens the brief.
 
 ## 1. The lifecycle, as the skill will state it
 
@@ -27,16 +27,16 @@ manager_sessions:
   density="compact"
   columns={["Field", "Values", "Who writes it, when", "Lint"]}
   rows={[
-    ["`status`", "`draft` → `approved` → `done`, or `dropped`, or `superseded`", "Planner at draft; the gate's pass sets `approved` (the planner commits it); the orchestrator sets `done` at merge or `dropped`; whoever writes the replacing plan sets `superseded`", "warning if missing on `plan.mdx`, `intent.mdx` or `plans/*.md`; error on an unknown value"],
+    ["`status`", "`draft` → `approved` → `done`, or `dropped`, or `superseded`", "Planner at draft; the orchestrator sets `approved` when it briefs coders from the plan, and `done` (or `dropped`) on the branch of the feature's last PR before it ships; whoever writes the replacing plan sets `superseded`", "warning if missing on a plan or brief; error on an unknown value"],
     ["`intent`", "path of the brief this plan serves", "Planner at draft", "error if the file is missing; warning if that brief has no `plan:` back-link"],
-    ["`plan`", "on a brief or recap: path of the plan", "Planner when the plan exists (brief); recap author (recap)", "same as above, reciprocal"],
+    ["`plan`", "on a brief or recap: path of the plan", "Planner when the plan exists (brief); recap author (recap)", "error if missing; warning if the plan lacks `intent:` (from a brief) or `recap:` (from a recap)"],
     ["`recap`", "on a plan: path of the recap of its work, when one is written", "The recap's author, in the recap's commit (a frontmatter-only edit a frozen plan allows)", "error if missing file; warning if the recap has no `plan:`"],
-    ["`supersedes` / `superseded_by`", "paths between a plan and the one that replaces it", "The planner of the new plan, in the same commit, on both files", "error on `status: superseded` without `superseded_by`; error on a missing file; warning if the pair does not point back"],
+    ["`supersedes` / `superseded_by`", "paths between a plan and the one that replaces it; `superseded_by` may instead name an upstream change (`upstream:#9167`) or a URL", "The planner of the new plan, in the same commit, on both files", "error on `status: superseded` without `superseded_by`; error on a missing file (skipped for `upstream:` and URL values); warning if the pair does not point back"],
     ["`## As built`", "one body section at the end of a `done` plan: each departure and its reason; absent when there was none", "The orchestrator, once, from the coders' reports, in the commit that sets `done`", "none (prose)"],
   ]}
 />
 
-Paths are workspace-relative (`plans/<slug>/plan.mdx`), the form every brief citation and `consult_manager` anchor already uses, so a breadcrumb is also a path an agent can open. Frontmatter is hidden by the renderer and read raw by agents, which is the audience Carl named ("breadcrumbs are useful for agents that are navigating those files"); an inline body link stays welcome where a human reader needs it, but only the frontmatter pair is checkable. `done` on a plan means the work merged; on a brief it means the owner said it works, which the plan skill already states. Recaps and explainers get no `status`: a recap is written once about finished work, and the lint exempts them.
+Paths are workspace-relative (`plans/<slug>/plan.mdx`), the form every brief citation and `consult_manager` anchor already uses, so a breadcrumb is also a path an agent can open. Frontmatter is hidden by the renderer and read raw by agents, which is the audience Carl named ("breadcrumbs are useful for agents that are navigating those files"); an inline body link stays welcome where a human reader needs it, but only the frontmatter pair is checkable. `done` on a plan means merged with the feature's last PR; on a brief it means the owner said it works, which the plan skill already states. Recaps and explainers get no `status`: a recap is written once about finished work, and the lint exempts them. Partial supersession, where a later plan replaces one decision of an earlier one (as `plans/2026-07-06-db-lane-reader-writer-split.md` D2 was), gets no marker: both plans keep `done`, and the later plan's body says which decision it replaces.
 
 <Callout tone="decision" title="Frontmatter fields, not inline links, are the contract">
   <Columns>
@@ -49,6 +49,10 @@ Paths are workspace-relative (`plans/<slug>/plan.mdx`), the form every brief cit
   </Columns>
 </Callout>
 
+<Callout tone="decision" title="As built and done are written on the last PR's branch, before it ships">
+  Loom ships only through PRs, so an edit "after the merge" is one more PR per feature, which in practice is skipped and leaves every plan at `approved`. Instead the orchestrator, once the build is final and before it spawns the shipper for the feature's last PR, writes the `## As built` section from the coders' reports and sets `status: done` on that branch; `done` then means "merged with that PR". A near-done round under the intent-first workflow that reopens the build reopens nothing in the plan: the As built section is written once, when the owner has said it works and the last PR is about to ship. A feature with several PRs writes it on the last one.
+</Callout>
+
 ## 2. Where the supersession trigger lives
 
 A lint sees a file; only the planner knows that the plan it is drafting answers a question an older plan already answered. So the trigger is a before-drafting step in the plan skill (search `plans/`, `recaps/`, `explainers/`, `docs/` with `rg`/`fd` on the area's words, and `mcp__t3-code__thread_search` for the discussion; mark what you replace in the same commit), and the review gate on the plan checks that the planner's report says what it searched and found and that a replaced plan carries its mark. The lint then holds the pair honest. This is a check, not a guarantee, and the brief's "Still unknown" carries it: the first plan written in an area that already has one will show whether the habit fires.
@@ -57,17 +61,21 @@ The evidence does not support anything stronger. The recap's survey (`recaps/rem
 
 ## 3. The model-read text, file by file
 
-Every file below is text models read: the coder loads `llm-instruction-change` and `skill-authoring` first, authors on a top tier or `modelPreset: planner`, and each PR ships through a reviewer gate briefed with the file's purpose sentence, the +N/−M count below and the four rejection reasons (already covered; changes no decision; derivable from code or tool output; a rule where a fact would do). Australian English, no em-dashes in new prose. Counts are words, approximate.
+Every file below is text models read: the coder loads `llm-instruction-change` and `skill-authoring` first, authors on a top tier or `modelPreset: planner`, and each PR ships through a reviewer gate briefed with the file's purpose sentence, the +N/−M count below and the four rejection reasons (already covered; changes no decision; derivable from code or tool output; a rule where a fact would do). Australian English, no em-dashes in new prose. Counts are words against `origin/main` at `da28041ef0`, approximate; the gate's check is against these figures. The rule "frozen after approval" is stated in three places: the skill (canonical), the `AGENTS.md` bullet (the only route to coders, who load no plan skill) and the gate line (the check); nowhere else.
 
-### 3.1 `AGENTS.md`, "Plans and work artifacts", first bullet (+70/−30)
+### 3.1 `AGENTS.md`, "Plans and work artifacts", first bullet (+80/−65; file 3,938 → about 3,955)
 
-Replace line 192 ("Do not commit implementation plans, research notes, or agent scratch files. Keep temporary working material outside the worktree. `.plans/` is gitignored only as a safety net for legacy tooling.") with:
+Replace line 192, which PR #486 (`05bf562758`) set to:
 
-> - `<!-- loom: plans are committed history -->` Intent briefs, plans, recaps and explainers under `plans/`, `recaps/` and `explainers/` are committed with the work as dated records of intent, not documentation: the current truth is the code plus `docs/internals` and `docs/architecture`, which link to the plan that established them. A plan is frozen at approval; after that only its frontmatter (`status` and its links) and one As built section at done change, as the `mdx-visual-plan` skill states. Agent scratch (progress logs, fixtures, raw dumps) stays out of the tree.
+> - `<!-- loom: plan policy pending -->` Plans, recaps and explainers written under the MDX skills (`plans/`, `recaps/`, `explainers/`) are committed with the work; how they are kept current over a feature's life and retired is an open decision, being worked out under the goal "Plan lifecycle and task-tree relation". Agent scratch (progress logs, fixtures, raw tool dumps) stays out of the tree.
 
-Purpose sentence: the one rule every agent in the repo must hold without loading a skill. The file also exists upstream, so the hunk is loom-marked or the next pull drops it; the `.plans/` clause goes because PR 4 empties the directory and `.gitignore:29` keeps it ignored. Rebase: PR #460 (`t3/audit-agentsmd`) rewrites `AGENTS.md` and keeps this bullet verbatim at its line 156; PR #470 (`t3/audit-prompttrim`) adds one unrelated bullet. Land this edit **after #460** as its own PR with the complete-file review Carl requires for any `AGENTS.md` change; if #460 is still open when PR 1 is ready, this bullet waits and PR 1 ships without it.
+with:
 
-### 3.2 `skills/mdx-visual-plan/SKILL.md` (+330/−20; file 2,203 → about 2,510)
+> - `<!-- loom: plans are committed history -->` Intent briefs, plans, recaps and explainers under `plans/`, `recaps/` and `explainers/` are committed with the work as dated records of intent, not documentation: the current truth is the code plus `docs/internals` and `docs/architecture`. A plan is frozen at approval; after that only its frontmatter (`status` and its links) and one As built section at done change, as the `mdx-visual-plan` skill states. Agent scratch (progress logs, fixtures, raw tool dumps) stays out of the tree.
+
+Both markers are shown in backticks here because MDX cannot hold a raw HTML comment; in the file the marker is raw, exactly as #486's is. Purpose sentence: the one rule every agent in the repo must hold without loading a skill. The file also exists upstream, so the hunk is loom-marked or the next pull drops it. Rebase: PR #460 (`t3/audit-agentsmd`) rewrites `AGENTS.md` and still carries the pre-#486 bullet, so it must rebase over #486 whatever happens; PR #470 (`t3/audit-prompttrim`) adds one unrelated bullet. Land this edit **after #460** as its own PR with the complete-file review Carl requires for any `AGENTS.md` change.
+
+### 3.2 `skills/mdx-visual-plan/SKILL.md` (+350/−15; file 2,203 → about 2,540)
 
 Purpose sentence: the one statement of what a brief and a plan are over their lives, read on demand by whoever writes one.
 
@@ -77,87 +85,86 @@ Purpose sentence: the one statement of what a brief and a plan are over their li
 
 **(b)** In "Before drafting", after "**Ground the plan in the real codebase.** …", add:
 
-> **Look for the plan you replace.** Search the area's words over `plans/`, `recaps/`, `explainers/` and `docs/` (`rg -l`, `fd`) and `mcp__t3-code__thread_search` for the discussion, and read a hit as intent as of its date, verified against the code. When your plan answers a question an earlier plan answered, mark it in the same commit: the old plan gets `status: superseded` and `superseded_by:`, yours gets `supersedes:`. Only you, at this moment, know it is a supersession; the gate checks that you looked, and your report says what you found.
+> **Look for the plan you replace.** Search the area's words over `plans/`, `recaps/`, `explainers/` and `docs/` (`rg -l`, `fd`) and `mcp__t3-code__thread_search` for the discussion, and read a hit as intent as of its date, verified against the code. When your plan answers a question an earlier plan answered, mark it in the same commit: the old plan gets `status: superseded` and `superseded_by:`, yours gets `supersedes:`. A plan that replaces one decision of an earlier plan says so in its body and marks nothing. Only you, at this moment, know it is a supersession; the gate checks that you looked, and your report says what you found.
 
 **(c)** After "## Where the plan goes", add a section:
 
 > ## The plan's life
 >
-> A plan is a dated record of how the work was meant to be built and why not the alternatives; the brief beside it is the living record of what it is for, and the goal's task tree the live record of what is done. The frontmatter carries `status` (`draft` while the gate reviews it, `approved` when the gate passes it, `done` when the work has merged, `dropped`, or `superseded`) and links as workspace-relative paths: `intent:` to the brief it serves, `recap:` to the recap of its work when one is written, `supersedes:` and `superseded_by:` between it and the plan that replaces it. The renderer hides these lines; they are for an agent reading the file raw, and the lint checks that every target exists and links back.
+> A plan is a dated record of how the work was meant to be built and why not the alternatives; the brief beside it is the living record of what it is for, and the goal's task tree the live record of what is done. The frontmatter carries `status` (`draft` while the gate reviews it, `approved` once the orchestrator briefs coders from it, `done` when it ships with the feature's last PR, `dropped`, or `superseded`) and links as workspace-relative paths: `intent:` to the brief it serves, `recap:` to the recap of its work when one is written, `supersedes:` and `superseded_by:` between it and the plan that replaces it (`superseded_by` may name an upstream change, `upstream:#9167`, when no plan replaced it).
 >
-> After approval the body is frozen. A coder whose work departs from the plan says so in its report, not in the plan. When the work merges, the orchestrator, once, appends one `## As built` section naming each departure and its reason (no section when there was none), sets `status: done`, and adds `recap:` if a recap was written. Nothing else changes: a plan amended as the build goes becomes a ledger, and two threads editing one file in a shared worktree collide.
+> After approval the body is frozen. A coder whose work departs from the plan says so in its report, not in the plan. Once the build is final, on the branch of the feature's last PR before it ships, the orchestrator appends one `## As built` section naming each departure and its reason (no section when there was none), sets `status: done`, and adds `recap:` if a recap was written. Nothing else changes: a plan amended as the build goes becomes a ledger, and two threads editing one file in a shared worktree collide.
 
-**(d)** In "Validate before presenting", after "The same check runs on `intent.mdx`.", add: "Several files on one run (`lint-doc.sh plans/*/plan.mdx plans/*/intent.mdx`) share one renderer start; a `.md` plan gets only the frontmatter stage."
-
-### 3.3 `skills/mdx-visual-recap/SKILL.md`, "Where it goes" (+50/−0)
+### 3.3 `skills/mdx-visual-recap/SKILL.md`, "Where it goes" (+60/−0; file 2,012 → about 2,070)
 
 Purpose sentence: where a recap goes and how it is handed over. After "…in which case `plans/<slug>/…` is fine.", add:
 
-> A recap of work a plan governed names that plan in its frontmatter (`plan: plans/<slug>/plan.mdx`) and, in the same commit, adds `recap: recaps/<slug>/recap.mdx` to the plan's frontmatter, the one edit a frozen plan takes besides its status; the lint checks the pair. A recap that only cites plans as evidence links none of them.
+> A recap of work a plan governed names that plan in its frontmatter (`plan: plans/<slug>/plan.mdx`) and, in the same commit, adds `recap: recaps/<slug>/recap.mdx` to the plan's frontmatter, the one edit a frozen plan takes besides its status; the lint checks the pair. A review of a plan, or a recap that cites plans as evidence, links none of them.
 
-### 3.4 `skills/mdx-doc-core/references/exemplar.md` (+25/−0) and `references/document-quality.md` §1 (+20/−0)
+### 3.4 `skills/mdx-doc-core/references/exemplar.md` (+40/−0; file 2,876 → about 2,915)
 
-In the intent-brief skeleton's frontmatter, after `status: draft`, add the comment line `# plan: plans/<slug>/plan.mdx once a plan exists`. In the plan (UI work) skeleton's item 1, add one sentence: "Frontmatter: `status: draft` and `intent:` naming the brief; the fields and their lifecycle are in `mdx-visual-plan/SKILL.md`, 'The plan's life'." In `document-quality.md` §1, after the sentence on the kicker line, add: "Plans and briefs also carry `status` and the link fields `intent`, `plan`, `recap`, `supersedes` and `superseded_by`; `mdx-visual-plan/SKILL.md` defines them."
+Purpose sentence: the skeletons models copy. Three edits: in the intent-brief skeleton's frontmatter, after `status: draft`, add the comment line `# plan: plans/<slug>/plan.mdx once a plan exists`; in the plan (UI work) skeleton's item 1 and in the backend/architecture skeleton's opening paragraph, add the same sentence: "Frontmatter: `status: draft` and `intent:` naming the brief; the fields and their lifecycle are in `mdx-visual-plan/SKILL.md`, 'The plan's life'."
 
-### 3.5 `skills/workstream-review-gate/SKILL.md` (+60/−0)
+### 3.5 `skills/workstream-review-gate/SKILL.md` (+65/−0; file 851 → about 915)
 
 Purpose sentence: the reviewer's bar and routing. PR 2 of the intent-first workflow (`plans/intent-first-workflow/changes.md` §5) adds a section "Reviewing a plan or build under an intent brief"; this line joins it, or stands as its own bullet under "Verdicts and routing" if that PR has not landed:
 
-> For a plan: its frontmatter names its brief (`intent:`) and carries `status`; the planner's report says what it searched for a prior plan in the area and what it found; and a plan it replaces is marked `superseded_by` in the same commit. A plan that silently sits beside an earlier one on the same question is must-fix; so is a body edit to an approved plan outside its frontmatter and its one As built section.
+> For a plan: the planner's report says what it searched for a prior plan in the area and what it found, and a plan it replaces is marked `superseded_by` in the same commit. A plan that silently sits beside an earlier one on the same question is must-fix; so is a body edit to an approved plan outside its frontmatter and its one As built section.
 
-### 3.6 `roles/orchestrator.md` (+45/−0, file 1,124 → about 1,170)
+### 3.6 `roles/orchestrator.md` (+85/−25; file 1,122 → about 1,180)
 
-Purpose sentence: the unconditional doctrine of a root orchestrator. After the feature-work bullet (line 33, "…or the work is nearly done."), add one bullet:
+Purpose sentence: the unconditional doctrine of a root orchestrator. Two edits. After the feature-work bullet (line 31, "…or the work is nearly done."), add one bullet:
 
-> - When the work under a plan merges, you close the plan: `status: done`, `recap:` if one was written, and one `## As built` section from the coders' reports naming where the build departed and why. Nothing else in a plan changes after approval; a coder's departure goes in its report, and a plan a later plan replaces is marked by that plan's author.
+> - Once the build is final, on the branch of the feature's last PR before it ships, you close the plan: `status: done` and one `## As built` section from the coders' reports naming where the build departed and why.
 
-Rebase: PR #470 trims lines 41 and 45 of this file and PR #465 touches it; neither touches line 33. Land after #470.
+In the task-tree bullet (line 40), replace "Keep the task tree grouped under a few phase/outcome parents and reshape it as the plan changes, re-homing children's misplaced tasks." with:
 
-### 3.7 `roles/planner.md` (+30/−0, file 647 → about 680)
+> Seed the task tree from the plan's steps, its phase parents the plan's phases and the root task naming the plan; keep it grouped under a few phase/outcome parents and reshape it as the work departs from the plan, re-homing children's misplaced tasks.
 
-Purpose sentence: what a planner thread produces and who reads it. In bullet 34 ("Author intent briefs and plans as annotatable MDX documents…"), after "`plans/<slug>/plan.mdx`).", add:
-
-> A plan is frozen once approved; you do not amend it afterwards, and a plan you write that replaces an earlier one marks it in the same commit (the skill says how).
-
-Rebase: PR #470 trims bullets 32, 38 and 40 of this file, not 34. Land after #470. The coder role and `WORK_MODEL_ADDENDUM` are unchanged: `apps/server/src/loom/prompt/prose.ts:25` and `:141` already make a coder report "where you departed from the brief and why".
+Rebase: PR #470 trims the model-selection and MDX-review bullets of this file and PR #465 touches it; neither touches lines 31 or 40 (the numbers are two lower than before #490). Land after #470. `roles/planner.md` is unchanged: its bullet 32 already authors "per the mdx-visual-plan skill", and `AGENTS.md` reaches it. The coder role and `WORK_MODEL_ADDENDUM` are unchanged: `apps/server/src/loom/prompt/prose.ts:25` and `:141` already make a coder report "where you departed from the brief and why".
 
 ## 4. The lint
 
-<Callout tone="decision" title="A pure module with an injected file reader, called from the script">
-  `lintPlanSource(source)` in `apps/web/src/components/files/mdx-plan/planLint.ts` takes only the source and is also run in-app by the peek, so link checks that need the filesystem do not go there. They go in a sibling pure module the script calls with Node's `fs`, and that a test calls with a map.
+<Callout tone="decision" title="About 40 lines in the script, no new module">
+  `lint-plan.mjs` already does one filesystem check inline (`<Image>` existence through `NodeFS.existsSync` in `renderFindings`), and `lintPlanSource` has no in-app caller (its callers are the script and three tests), so the frontmatter stage joins the script with Node's `fs` rather than a pure module with injected io. No test file: a regression in the reciprocity logic shows up at once as findings across the 80 real files the PR 1 and PR 3 runs cover, which is the stronger, real-data check.
 </Callout>
 
-1. **New `apps/web/src/components/files/mdx-plan/planLifecycleLint.ts`** (about 120 lines). Exports `LIFECYCLE_STATUSES = ["draft", "approved", "done", "dropped", "superseded"] as const`, `LINK_FIELDS` as the reciprocity map (`intent` ↔ `plan`, `recap` ↔ `plan`, `supersedes` ↔ `superseded_by`), and `lifecycleFindings(docPath: string, frontmatter: unknown, io: { exists(path: string): boolean; frontmatterOf(path: string): unknown }): PlanLintFinding[]`. Rules, in order: skip entirely unless `docPath` matches `plans/**/plan.mdx`, `plans/**/intent.mdx`, `plans/*.md` or `recaps/**/recap.mdx`; warning "No `status` in frontmatter…" for the three plan shapes when absent; error on a value outside `LIFECYCLE_STATUSES`; error on `status: superseded` without `superseded_by`; for each link field present, error when `io.exists(target)` is false (message names the field and path), else warning when `io.frontmatterOf(target)` lacks the reciprocal field pointing at `docPath` (message gives the exact line to add). Reuse `decodeFrontmatter` by exporting it from `planLint.ts` as `readFrontmatter(source): unknown` (today it is a private `Schema.decodeUnknownOption(fromYaml(Schema.Unknown))`), so both stages decode YAML the same way.
-2. **`apps/web/src/components/files/mdx-plan/planLifecycleLint.test.ts`**: a map-backed `io` and six cases: missing status warns; unknown status errors; superseded without target errors; dangling `intent` errors; one-way `recap` warns with the suggested line; a complete plan ↔ intent ↔ recap triangle yields no findings. This is behaviour a bulk pass over 70 files will lean on, which is the "genuinely high risk" the testing rule asks for.
-3. **`apps/web/scripts/lint-plan.mjs`** (about +30/−10): accept several positional files (today `file` is the one non-flag argument; `--out`/`--png` stay single-file and error with the usage line otherwise); create the Vite server once; per file, run `lintPlanSource` for `.mdx`, then `lifecycleFindings(relativePath, readFrontmatter(source), { exists: fs.existsSync, frontmatterOf: path => readFrontmatter(fs.readFileSync(path)) })` with paths resolved against the git root (`git rev-parse --show-toplevel`, which `lint-doc.sh` already computes; pass it through as `--root` or recompute); print findings per file and exit 1 if any error. A `.md` file skips the MDX stages.
-4. `skills/mdx-doc-core/scripts/lint-doc.sh` needs no change: arguments pass through.
+1. **`apps/web/src/components/files/mdx-plan/planLint.ts`**: export the existing private `decodeFrontmatter` as `readFrontmatter(source: string): unknown` (today `Schema.decodeUnknownOption(fromYaml(Schema.Unknown))`, returning the decoded object or `undefined`), so the script decodes YAML the way the reader-brief check does. The only change to this file.
+2. **`apps/web/scripts/lint-plan.mjs`** (about +40/−10):
+   - **Arguments.** Positional arguments are files or directories; a directory expands to every file under it matching `plans/**/{plan,intent}.{mdx,md}`, `plans/*.md` or `recaps/**/recap.mdx`, with `plans/renderer-audit/` excluded by name (it is a render fixture: "This file is a durable test fixture"). `--out` and `--png` stay single-file and print the usage line otherwise. `--links-only` skips the MDX and render stages and does not start the Vite server, so a run over `plans recaps` is a frontmatter scan taking seconds.
+   - **Per file.** `planPath` and `planDir` (today module-level, read by `renderFindings` and `writeStandalonePage`) become per-file values passed in. The root for resolving link targets is `git rev-parse --show-toplevel` run in the document's own directory, not `lint-doc.sh`'s `root` (which from another repo is the release checkout); that also gives the right root inside fathom's nested `workbench/` worktree. For a `.md` file only the frontmatter stage runs.
+   - **Findings**, after `lintPlanSource` for `.mdx`, using `readFrontmatter(source)`: for a plan or brief (`plans/**/{plan,intent}.{mdx,md}`, `plans/*.md`), `warning` "No `status:` in frontmatter; `draft`, `approved`, `done`, `dropped` or `superseded` (skills/mdx-visual-plan/SKILL.md, 'The plan's life')" when absent, and `error` on any other value; `error` on `status: superseded` without `superseded_by`; for each of `intent`, `plan`, `recap`, `supersedes`, `superseded_by` present, `error` naming the field when the target path does not exist under the root (skipped when the value starts with `upstream:`, `http://` or `https://`), else `warning` when the target's frontmatter lacks the reciprocal field pointing back at this file, with the exact line to add. The reciprocal of `plan:` depends on the file: `intent:` when this file is a brief, `recap:` when it is a recap; `intent` ↔ `plan`, `recap` ↔ `plan`, `supersedes` ↔ `superseded_by` otherwise. Recaps are checked only for their `plan:` field.
+   - **Exit.** Findings print per file in the existing `file:line severity: message` form; exit 1 if any error across the run.
+3. `skills/mdx-doc-core/scripts/lint-doc.sh` needs no change: arguments pass through.
 
-## 5. The bulk pass over existing plans (PR 4)
+Carl settled the two choices this stage turned on, both with the recommended option: a missing `status` is a **warning** now, promoted to an error after PR 3 lands and the November census shows it sticks (the reader-brief check has the same note); and `superseded_by` values starting with `upstream:` or a URL skip the existence check, so `plans/2026-07-16-restart-turn-continuation.md` passes without a fake target file.
 
-One coder, one PR, frontmatter edits only, body untouched except the July `**Status:**` lines. The rule for `status`, applied in this order:
+## 5. The bulk pass over existing plans (PR 3)
+
+One coder, one PR, frontmatter edits only, bodies untouched; the July body `**Status:**` lines stay where they are, as #485 left them, since frontmatter is authoritative. The inventory on `origin/main`: 51 folders under `plans/` holding 54 `plan`/`intent` files (including `ingestion-backpressure/plan.md`, `usage-meter-redesign/intent.md` and the excluded `renderer-audit/plan.mdx`), plus 27 dated `plans/*.md`; 14 of those 80 already carry `status` (the eleven V1-era docs #485 moved, the intent-first brief, and this folder's two). Only `plans/2026-07-16-restart-turn-continuation.md` has no frontmatter block at all; every other file gains lines in the block it has. The rule for `status`, applied in this order:
 
 <Table
   density="compact"
   columns={["Case", "Status", "How the coder tells"]}
   rows={[
-    ["A later plan answers the same question and is the one to read", "`superseded` + `superseded_by`; the newer plan gets `supersedes`", "`agent-started-thread-cue` → `-v2` (v2 is what shipped, `f41ba37530`); `sqlite-read-lane` → `-v2` (a re-authoring for a different reader, same decision: set the pair and add `kicker: \"Re-authored as sqlite-read-lane-v2; same decision\"` to v1, per the recap's §3.4); `2026-07-16-restart-turn-continuation.md` (already a stub naming upstream #9167: `superseded`, no `superseded_by` target in the tree, so the lint's rule exempts a `superseded_by` whose value starts with `upstream:`; add that exemption in §4.1)"],
-    ["The work merged", "`done`", "The plan's named files or symbols exist on `origin/main`, or a report, recap or merged PR says it shipped. Most of the 67."],
+    ["A later plan answers the same question and is the one to read", "`superseded` + `superseded_by`; the newer plan gets `supersedes`", "Known pairs: `agent-started-thread-cue` → `-v2` (v2 is what shipped, `f41ba37530`); `sqlite-read-lane` → `-v2` (a re-authoring for a different reader, same decision; mark the pair and say so in a `kicker:` on v1, per the recap's §3.4); `2026-07-16-restart-turn-continuation.md` (`superseded`, `superseded_by: upstream:#9167`). To examine, with the uncertain ones listed for Carl: the three `ask_user_question` designs `pi-ask-user-question` (26 Jul) → `ask-user-question-redesign` (28 Jul, \"the fundamental re-think\") → `agent-question-redesign` (30 Sep); `usage-visibility` (22 Sep) → `usage-meter-redesign` (25 Sep). Partial supersession (one decision replaced) gets no marker; both keep `done`."],
+    ["The work merged", "`done`", "The plan's named files or symbols exist on `origin/main`, or a report, recap or merged PR says it shipped. Most of the 66 without a status."],
     ["Never built and no successor", "`dropped`", "The plan says so, or its named files never existed and nothing cites it as shipped"],
-    ["Cannot tell within a few minutes", "leave unset, list it", "Goes to Carl as the one question at the end of the PR, with the coder's best guess per plan"],
+    ["Cannot tell within a few minutes", "leave unset, list it", "The coder's report lists each with its best guess and the line that made it unsure; the orchestrator puts the list to Carl as one question (an MDX decision batch if it runs past a handful)"],
   ]}
 />
 
-Mechanical breadcrumbs the same pass adds: `plan:` on `plans/intent-first-workflow/intent.mdx` and `plans/usage-meter-redesign/intent.md`, `intent:` on their plans; `recap:`/`plan:` pairs where a recap is the as-built record of one plan's work, which today is three (`recaps/query-threads` ↔ `plans/plan-query-threads`, `recaps/thread-catchup-plan-review` ↔ `plans/2026-07-19-shell-catchup-silent-drop.md`, `recaps/upstream-toolkit-vs-loom` ↔ `plans/upstream-pull9-strategy`); `recaps/mdx-exemplar-set` and `recaps/removed-docs-audit` cite plans as evidence and link none. The July `.md` plans gain a YAML frontmatter block with `status` and the body `**Status:** …` line moves into a `kicker:`. Folders that are not plans (`plans/perf-mdx`, `plans/renderer-audit`, `plans/builtin-roles/texts`) are untouched and the lint's path rule skips them. The eleven V1-era documents under `docs/plans` and `docs/design` are out of scope: PR #458 was closed on 26 Oct without merging, so they still sit under `docs/` and belong to whatever replaces that PR, not to this pass.
+Mechanical breadcrumbs the same pass adds: `plan:` on `plans/intent-first-workflow/intent.mdx` and `plans/usage-meter-redesign/intent.md`, `intent:` on their plans; the one genuine recap ↔ plan pair, `recaps/query-threads` ↔ `plans/plan-query-threads` (`recaps/thread-catchup-plan-review` and `recaps/upstream-toolkit-vs-loom` are reviews of a plan, `recaps/mdx-exemplar-set` and `recaps/removed-docs-audit` cite plans as evidence; none links); and the reciprocal links the eleven V1-era docs now need, today one: `plans/sidebar-workstream-badge/plan.mdx` gains `supersedes: plans/2026-06-24-workstream-graph-state-rollup.md`. The eleven are otherwise in scope only where the lint reports a one-way link. Folders that are not plans (`plans/renderer-audit`, `plans/builtin-roles/texts`) are untouched.
 
-**`.plans/`, 29 tracked June files under a gitignored directory.** The brief's rule: scratch leaves the tree; the only record of a decision moves to `plans/<date>-<slug>.md` with a `status`. First cut from their own headers, for the coder to confirm by reading each: **move** (they carry "Decisions (locked)", "agreed intent" or a design that still ships) `goal-handoff-tool-phase-b.md`, `goal-task-tool-phase-a.md`, `thread-self-title-tool.md`, `workstream-state-model-design.md`, `role-scoped-prompting-and-workstream-doctrine.md`, `liveness-detector-redesign.md`, `phase-d-core-dispatcher-design.md`, `phase-d-liveness-design.md`, `phase-d-notify-design.md`, `phase-d-notify-stage2-design.md`, each as `plans/2026-06-<dd>-<slug>.md` with `status: done` and a `kicker` saying "V1-era design; intent holds, file paths are pre pull 9"; **delete** (scratch: logs, reviews, fix plans that landed, mockups) `overnight-worklog.md`, `merge-conflict-analysis.md`, `phase-d-notify-stage2-impl-review.md`, `phase-c-status-and-dependencies.md`, `phase-d-dispatcher.md`, `11-orchestration-recovery-and-toolargs-hygiene.md`, `idle-detection-false-positive-fix.md`, `loop-detector-signature-collapse-fix.md`, `workstream-credential-staleness-bug.md`, `sub-agent-workstreams-implementation.md`, `workstream-state-model-impl-plan.md`, `role-scoped-prompting-implementation.md`, `workstream-spawn-awareness-and-card-activity.md`, `mockups/`; **judge** `liveness-detector-architecture-review.md`, `provider-intent-startup-reconciliation-design.md`, `sub-thread-breadcrumb-design.md`, `workflow-subagent-sessions-research.md` (research or review; move only if it is the sole record of a rejected alternative that still matters). Each `git mv` keeps history; a deleted file stays at the commit before the pass, which the PR body names.
+**`.plans/`, 29 tracked June files under a gitignored directory.** Carl's Decided line makes signed plans committed history, so the pass keeps every signed file and deletes only unsigned scratch. **Delete** (5 files): `overnight-worklog.md`, `merge-conflict-analysis.md`, `phase-d-notify-stage2-impl-review.md`, `mockups/goal-field-plan.md`, `mockups/workstream-panel.html`. **Move** (20 signed files) to `plans/2026-06-<dd>-<slug>.md` with `git mv`, keeping the frontmatter they have, adding `status` by the table above (mostly `done`; `phase-d-dispatcher.md` and `phase-c-status-and-dependencies.md` say "for a FUTURE thread" and may be `dropped` or `superseded` by the later phase-d designs, which the coder judges), and one `>` note line under the title in #485's form: "V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/‹name›` on ‹date›. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit ‹pre-pass commit›." The twenty: `11-orchestration-recovery-and-toolargs-hygiene`, `goal-handoff-tool-phase-b`, `goal-task-tool-phase-a`, `idle-detection-false-positive-fix`, `liveness-detector-redesign`, `loop-detector-signature-collapse-fix`, `phase-c-status-and-dependencies`, `phase-d-core-dispatcher-design`, `phase-d-dispatcher`, `phase-d-liveness-design`, `phase-d-notify-design`, `phase-d-notify-stage2-design`, `role-scoped-prompting-and-workstream-doctrine`, `role-scoped-prompting-implementation`, `sub-agent-workstreams-implementation`, `thread-self-title-tool`, `workstream-credential-staleness-bug`, `workstream-spawn-awareness-and-card-activity`, `workstream-state-model-design`, `workstream-state-model-impl-plan`. **Judge** (4, on Carl's list unless the file's own content makes its class plain): `liveness-detector-architecture-review.md` (signed `architecture`), `provider-intent-startup-reconciliation-design.md` (signed, "for a FUTURE thread, open decisions"), `sub-thread-breadcrumb-design.md` (unsigned design recommendation), `workflow-subagent-sessions-research.md` (signed `architecture`, "not a commitment to build"). The PR body names the pre-pass commit for the deleted files.
 
-**The question to Carl.** The PR ends with one `ask_user_question`, or an MDX decision batch if the list runs past a handful: every plan whose status the coder could not set, each with the coder's best guess and the line that made it unsure, plus the `.plans/` "judge" set. Nothing else in the pass needs him.
+**The list for Carl.** The PR 3 coder is a child and cannot ask Carl; its report lists every plan whose status it could not set and the `.plans/` judge set, each with its best guess and the line that made it unsure, and the orchestrator puts the list to Carl as one question, or as an MDX decision batch past a handful. Nothing else in the pass needs him.
 
 ## 6. Rollout and what it does not reach
 
 - **The global skill lags the repo.** `~/.pi/agent/skills/mdx-visual-plan` is a symlink to `~/loom-releases/current/skills/mdx-visual-plan` (release `20261026-004852-7935f6a`), already 131 diff lines behind this worktree's skill. Nothing to build: the next cockpit release carries the lifecycle text to every repo that loads the skill. Until then, threads in loom read the repo copy and threads elsewhere read the released one.
 - **Repos that commit plans elsewhere.** `~/fathom-platform` commits plans, recaps and analysis to its sidecar repo `Stratus-Labs/workbench`, a nested worktree at `<worktree>/workbench/`, and lists `/plans/` and `/recaps/` in `.git/info/exclude` so strays never land in the main repo (its `AGENTS.md`, "Supporting material goes in `workbench/`"). So git is a plan's history there too, under `workbench/plans/`; the only gap is that this skill writes `plans/<slug>/` relative to the cwd, which in fathom is the excluded root path unless the agent follows the `workbench` skill. That is fathom's skill to reconcile, not this plan's. `~/pi-fathom` (4), `~/pi-craft` (1) and `~/trustcall` (4) commit plans in place.
-- **`lint-doc.sh` from another repo** resolves the linter in the cwd's checkout when it is loom, else in the release's checkout, so the frontmatter stage reaches other repos with the same release.
+- **`lint-doc.sh` from another repo** resolves the linter in the cwd's checkout when it is loom, else in the release's checkout, so the frontmatter stage reaches other repos with the same release; link targets resolve against the document's own repo root (§4.2), so the release checkout is never the root.
 
 ## 7. Sequence
 
@@ -165,10 +172,9 @@ Mechanical breadcrumbs the same pass adds: `plan:` on `plans/intent-first-workfl
   density="compact"
   columns={["PR", "Files", "Waits for", "Gate"]}
   rows={[
-    ["1 · the rule", "`skills/mdx-visual-plan/SKILL.md`, `skills/mdx-visual-recap/SKILL.md`, `skills/mdx-doc-core/references/exemplar.md`, `references/document-quality.md`, `skills/workstream-review-gate/SKILL.md`", "Nothing. If intent-first PR 2 (`changes.md` §5) lands first, the gate line joins its section; otherwise it is its own bullet and that PR folds it in", "Reviewer gate with the four rejection reasons and the §3 counts"],
-    ["2 · the lint", "`planLifecycleLint.ts`, its test, `lint-plan.mjs`, `planLint.ts` (export `readFrontmatter`)", "Nothing; can run beside PR 1", "`vp check`, `vp run typecheck`, `vp test run apps/web/src/components/files/mdx-plan/planLifecycleLint.test.ts`, and the multi-file run over `plans/` showing only the expected status warnings"],
-    ["3 · the echoes", "`AGENTS.md` bullet (§3.1), `roles/orchestrator.md` (§3.6), `roles/planner.md` (§3.7)", "PR #460 for `AGENTS.md`; PR #470 for the roles. If #460 is still open when the roles are ready, split the `AGENTS.md` bullet into its own PR with the complete-file review", "Reviewer gate; `pnpm ship` unmarked-hunk sweep must pass on the `AGENTS.md` hunk"],
-    ["4 · the bulk pass", "frontmatter of about 70 files under `plans/` and three recaps; `.plans/` moves and deletes", "PR 2 (the lint is the pass's own check)", "Multi-file lint exits 0 with no status warnings; `git ls-files .plans` is empty; ends with the question to Carl"],
+    ["1 · the rule and the lint it names", "`skills/mdx-visual-plan/SKILL.md`, `skills/mdx-visual-recap/SKILL.md`, `skills/mdx-doc-core/references/exemplar.md`, `skills/workstream-review-gate/SKILL.md`; `apps/web/scripts/lint-plan.mjs`, `planLint.ts` (export `readFrontmatter`)", "Nothing. If intent-first PR 2 (`changes.md` §5) lands first, the gate line joins its section; otherwise it is its own bullet and that PR folds it in", "Reviewer gate with the four rejection reasons and the §3 counts; `vp check`, `vp run typecheck`; `lint-plan.mjs --links-only plans recaps` runs and reports only the expected missing-status warnings and the one known one-way link"],
+    ["2 · the echoes", "`AGENTS.md` bullet (§3.1), `roles/orchestrator.md` (§3.6)", "PR #460 for `AGENTS.md`; PR #470 for the role. If #460 is still open when the role edit is ready, split the `AGENTS.md` bullet into its own PR with the complete-file review", "Reviewer gate; `pnpm ship` unmarked-hunk sweep must pass on the `AGENTS.md` hunk"],
+    ["3 · the bulk pass", "frontmatter of about 70 files under `plans/` and one recap; `.plans/` 20 moves and 5 deletes", "PR 1 (the lint is the pass's own check)", "`lint-plan.mjs --links-only plans recaps` exits 0 with no findings; `git ls-files .plans` is empty; the report carries the list for Carl"],
   ]}
 />
 
@@ -176,56 +182,24 @@ Mechanical breadcrumbs the same pass adds: `plan:` on `plans/intent-first-workfl
   <FileTree
     title="Files this plan touches"
     entries={[
-      { path: "AGENTS.md", change: "modified", note: "one loom-marked bullet (§3.1), after #460" },
-      { path: "roles/orchestrator.md", change: "modified", note: "one bullet (§3.6), after #470" },
-      { path: "roles/planner.md", change: "modified", note: "one clause (§3.7), after #470" },
-      { path: "skills/mdx-visual-plan/SKILL.md", change: "modified", note: "status + plan: in the brief paragraph; prior-plan step; new 'The plan's life'; multi-file lint note" },
-      { path: "skills/mdx-visual-recap/SKILL.md", change: "modified", note: "plan: and the back-link (§3.3)" },
-      { path: "skills/mdx-doc-core/references/exemplar.md", change: "modified", note: "fields in the brief and plan skeletons" },
-      { path: "skills/mdx-doc-core/references/document-quality.md", change: "modified", note: "one pointer sentence in §1" },
-      { path: "skills/workstream-review-gate/SKILL.md", change: "modified", note: "the plan check (§3.5)" },
-      { path: "apps/web/src/components/files/mdx-plan/planLifecycleLint.ts", change: "added", note: "pure frontmatter stage with injected io" },
-      { path: "apps/web/src/components/files/mdx-plan/planLifecycleLint.test.ts", change: "added", note: "six cases on a map-backed io" },
-      { path: "apps/web/src/components/files/mdx-plan/planLint.ts", change: "modified", note: "export readFrontmatter" },
-      { path: "apps/web/scripts/lint-plan.mjs", change: "modified", note: "several files, one server; lifecycle stage; .md skips MDX stages" },
-      { path: "plans/", change: "modified", note: "every plan.mdx, intent.mdx and dated .md: frontmatter status and links (PR 4)" },
-      { path: "recaps/query-threads/recap.mdx", change: "modified", note: "plan: (PR 4); same for thread-catchup-plan-review and upstream-toolkit-vs-loom" },
-      { path: ".plans/", change: "removed", note: "10 moved to plans/2026-06-*.md, 15 deleted, 4 judged (PR 4)" },
+      { path: "skills/mdx-visual-plan/SKILL.md", change: "modified", note: "status + plan: in the brief paragraph; prior-plan step; new 'The plan's life' (PR 1)" },
+      { path: "skills/mdx-visual-recap/SKILL.md", change: "modified", note: "plan: and the back-link (§3.3, PR 1)" },
+      { path: "skills/mdx-doc-core/references/exemplar.md", change: "modified", note: "one line in each of the three skeletons (PR 1)" },
+      { path: "skills/workstream-review-gate/SKILL.md", change: "modified", note: "the plan check (§3.5, PR 1)" },
+      { path: "apps/web/src/components/files/mdx-plan/planLint.ts", change: "modified", note: "export readFrontmatter (PR 1)" },
+      { path: "apps/web/scripts/lint-plan.mjs", change: "modified", note: "files or directories; --links-only; per-file paths; frontmatter stage (PR 1)" },
+      { path: "AGENTS.md", change: "modified", note: "one loom-marked bullet replacing #486's (§3.1, PR 2, after #460)" },
+      { path: "roles/orchestrator.md", change: "modified", note: "one bullet and one reworded sentence (§3.6, PR 2, after #470)" },
+      { path: "plans/", change: "modified", note: "every plan.mdx, intent.mdx and dated .md: frontmatter status and links (PR 3)" },
+      { path: "recaps/query-threads/recap.mdx", change: "modified", note: "plan: (PR 3)" },
+      { path: ".plans/", change: "removed", note: "20 moved to plans/2026-06-*.md with status and the V1 note, 5 deleted, 4 on Carl's list (PR 3)" },
     ]}
   />
 </Details>
 
 ## 8. Verification
 
-- **PR 1:** `bash skills/mdx-doc-core/scripts/lint-doc.sh plans/intent-first-workflow/intent.mdx` still passes (the skill text changed, not the lint); the gate reads each file whole against its purpose sentence and the counts; `wc -w` before and after matches the §3 figures within ten per cent.
-- **PR 2:** the unit test; then `node apps/web/scripts/lint-plan.mjs plans/plan-lifecycle/intent.mdx plans/plan-lifecycle/plan.mdx` prints no findings (this folder is the first complete `intent` ↔ `plan` pair); then the run over all of `plans/` prints exactly one "No `status`" warning per plan not yet in PR 4 and no errors; temporarily set `superseded_by: plans/nowhere/plan.mdx` on a scratch copy and confirm the error names the field and path.
-- **PR 3:** `pnpm ship` dry run's unmarked-hunk sweep (`docs/upstream-sync/pull7-tools/unmarkedsweep.sh`) reports the `AGENTS.md` hunk as marked; `git diff` shows no change outside the three named lines.
-- **PR 4:** the multi-file lint exits 0 with no warnings; `git ls-files .plans | wc -l` is 0; `git log --follow` on one moved file reaches its June commit; a `grep -rL '^status:' plans/*/plan.mdx plans/*/intent.mdx plans/*.md` returns nothing.
-- **End to end:** the next feature under the intent-first workflow produces a `plan.mdx` with `status: draft` and `intent:`, the gate records that the planner searched, and at merge the orchestrator's `done` commit carries an `## As built` section or none. That is the brief's first "You'll know it works when" line, checked on the first real feature.
-
-## Open questions for the gate
-
-<QuestionForm
-  questions={[
-    {
-      id: "missing-status-severity",
-      title: "Should a missing status be a warning or an error in the lint?",
-      subtitle: "The brief says 'the lint warns'. An error would block a planner's handoff on a field the skill now requires.",
-      mode: "single",
-      options: [
-        { id: "warning", label: "Warning now; promote to error after PR 4 lands and the census shows it sticks", recommended: true, detail: "Matches the brief and the reader-brief precedent (a warning the author's note says to promote later)." },
-        { id: "error", label: "Error from the start", detail: "Stricter; blocks any legacy .md plan from passing until PR 4." },
-      ],
-    },
-    {
-      id: "upstream-target",
-      title: "How does a plan superseded by upstream code, not by a loom plan, pass the lint?",
-      subtitle: "restart-turn-continuation names upstream #9167 and reconcileProviderSessions; there is no plan file to point at.",
-      mode: "single",
-      options: [
-        { id: "prefix", label: "Allow superseded_by values that are not paths when they start with upstream: or a URL; the lint skips existence for those", recommended: true, detail: "One rule, no fake target file." },
-        { id: "note-only", label: "Require a path; such plans use status: dropped with the reason in kicker", detail: "Keeps the lint simple but mislabels a replaced design as dropped." },
-      ],
-    },
-  ]}
-/>
+- **PR 1:** the gate reads each skill file whole against its purpose sentence and the §3 counts (within ten per cent of the recomputed figures); `bash skills/mdx-doc-core/scripts/lint-doc.sh plans/plan-lifecycle/plan.mdx` still passes the full stages; `node apps/web/scripts/lint-plan.mjs --links-only plans/plan-lifecycle/intent.mdx plans/plan-lifecycle/plan.mdx` prints no findings (this folder is the first complete `intent` ↔ `plan` pair); `--links-only plans recaps` over main prints one missing-status warning per file not yet in PR 3, the one-way `superseded_by` warning on `2026-06-24-workstream-graph-state-rollup.md`, and no errors; on a scratch copy, `superseded_by: plans/nowhere/plan.mdx` produces the error naming the field and path and `superseded_by: upstream:#9167` produces none.
+- **PR 2:** `pnpm ship` dry run's unmarked-hunk sweep (`docs/upstream-sync/pull7-tools/unmarkedsweep.sh`) reports the `AGENTS.md` hunk as marked; `git diff` shows no change outside the named lines of the two files.
+- **PR 3:** `--links-only plans recaps` exits 0 with no findings; `git ls-files .plans | wc -l` is 0; `git log --follow` on one moved file reaches its June commit; `grep -rL '^status:' plans/*/plan.mdx plans/*/plan.md plans/*/intent.* plans/*.md` returns only `plans/renderer-audit/plan.mdx`.
+- **End to end:** the next feature under the intent-first workflow produces a `plan.mdx` with `status: draft` and `intent:`, the gate records that the planner searched, and the last PR's branch carries the orchestrator's `status: done` commit with an `## As built` section or none. That is the brief's first "You'll know it works when" line, checked on the first real feature.
