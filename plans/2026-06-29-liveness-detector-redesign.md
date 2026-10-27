@@ -3,9 +3,13 @@ manager_sessions:
   - id: 2d4d011f-f6fa-46dd-83ef-88d7b59d27fe
     role: architecture
     authored_at: 2026-06-29T03:35:31.045Z
+status: done
+supersedes: plans/2026-06-26-loop-detector-signature-collapse-fix.md
 ---
 
 # Liveness detection redesign — read the runtime, don't reverse-engineer it
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/liveness-detector-redesign.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 **Status:** agreed end-state design + phased plan. Supersedes the per-symptom
 trajectory of `.plans/loop-detector-signature-collapse-fix.md` and the proposed

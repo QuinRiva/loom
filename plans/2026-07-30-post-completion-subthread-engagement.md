@@ -3,6 +3,7 @@ manager_sessions:
   - id: 0b1f1669-e991-41f0-bc8d-3cf2bcb8dad4
     role: plan
     authored_at: 2026-07-30T03:08:40.701Z
+status: done
 ---
 
 # Post-completion sub-thread engagement

@@ -3,9 +3,12 @@ manager_sessions:
   - id: e60766ea-eda2-46fa-9573-bc03cc432a2f
     role: plan
     authored_at: 2026-06-24T06:04:23.616Z
+status: done
 ---
 
 # Phase D-core: dependency-gated execution (the dispatcher)
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/phase-d-core-dispatcher-design.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 **Status:** design, ready to implement. Scope is **D-core only** — execution
 gating. Liveness/stall-detection and the completion judge (D-liveness) are

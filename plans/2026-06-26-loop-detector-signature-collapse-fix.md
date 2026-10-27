@@ -3,9 +3,13 @@ manager_sessions:
   - id: b6619fe7-74e7-4b18-b97a-b6efe199590a
     role: plan
     authored_at: 2026-06-26T05:10:01.250Z
+status: superseded
+superseded_by: plans/2026-06-29-liveness-detector-redesign.md
 ---
 
 # Plan: fix the loop-detector signature collapse on the pi provider
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/loop-detector-signature-collapse-fix.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 ## Symptom
 

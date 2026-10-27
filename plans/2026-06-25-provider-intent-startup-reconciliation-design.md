@@ -3,9 +3,13 @@ manager_sessions:
   - id: e60766ea-eda2-46fa-9573-bc03cc432a2f
     role: plan
     authored_at: 2026-06-25T01:45:00.071Z
+status: superseded
+superseded_by: upstream:orchestration-v2-effect-outbox
 ---
 
 # Provider-intent startup reconciliation (durable re-drive of un-executed turns)
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/provider-intent-startup-reconciliation-design.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 **Status:** design / open decisions, for a FUTURE thread. Self-contained.
 Independent of the Phase D arc — this is a **provider-execution-layer** durability

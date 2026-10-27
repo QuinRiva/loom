@@ -3,6 +3,7 @@ manager_sessions:
   - id: ee32ce90-cdbf-4c1e-b265-013a362f20b3
     role: plan
     authored_at: 2026-07-20T07:20:26.201Z
+status: done
 ---
 
 # Graph view metadata enhancement — implementation plan

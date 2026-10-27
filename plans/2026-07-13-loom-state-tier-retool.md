@@ -3,6 +3,7 @@ manager_sessions:
   - id: 1b2a5788-e948-4cb8-baad-aad3e7a89a7d
     role: plan
     authored_at: 2026-07-14T00:03:34.799Z
+status: done
 ---
 
 # Loom state-tier retool — align fork UI state with upstream's predictability model

@@ -3,9 +3,12 @@ manager_sessions:
   - id: e60766ea-eda2-46fa-9573-bc03cc432a2f
     role: plan
     authored_at: 2026-06-25T05:33:05.828Z
+status: done
 ---
 
 # Phase D-liveness: detecting dead / stalled / stuck sub-threads
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/phase-d-liveness-design.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 **Status:** design, ready to implement in stages. Self-contained for a fresh
 thread (the authoring thread's context is exhausted). Builds on:

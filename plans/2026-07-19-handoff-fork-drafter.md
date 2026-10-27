@@ -3,6 +3,7 @@ manager_sessions:
   - id: bd585687-c2c3-4e22-9db8-d4c6559a3d5a
     role: plan
     authored_at: 2026-07-19T11:30:24.995Z
+status: done
 ---
 
 # `/handoff` — fork-then-handoff with a throwaway drafter

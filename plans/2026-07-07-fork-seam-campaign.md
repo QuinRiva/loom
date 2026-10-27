@@ -3,6 +3,7 @@ manager_sessions:
   - id: 371bc7ea-f2c3-402c-8508-c8459eccaeb5
     role: plan
     authored_at: 2026-07-07T12:38:32.239Z
+status: done
 ---
 
 # Fork seam-narrowing campaign — contracts, decider/projector, server wiring

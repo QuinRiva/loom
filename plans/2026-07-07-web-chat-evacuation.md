@@ -3,6 +3,7 @@ manager_sessions:
   - id: 5d1b9fcb-6cbd-486f-a86c-759840d7699a
     role: plan
     authored_at: 2026-07-07T12:32:33.235Z
+status: done
 ---
 
 # Evacuate fork components from upstream chat files (web)

@@ -3,9 +3,12 @@ manager_sessions:
   - id: 1f36c27e-0954-4e92-a20e-d97e1badf6b5
     role: plan
     authored_at: 2026-06-24T11:15:31.022Z
+status: done
 ---
 
 # Plan: Workstream spawn-awareness + card activity line
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/workstream-spawn-awareness-and-card-activity.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 ## Context & motivation
 

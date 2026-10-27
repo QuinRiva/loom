@@ -3,6 +3,7 @@ manager_sessions:
   - id: b99631c2-2432-4ce0-b23e-d71132f2020b
     role: plan
     authored_at: 2026-07-19T12:00:57.005Z
+status: done
 ---
 
 # Eliminating silent shell-event drops in catch-up replay

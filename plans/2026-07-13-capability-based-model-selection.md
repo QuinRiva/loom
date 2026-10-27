@@ -3,6 +3,7 @@ manager_sessions:
   - id: c13bfd44-1153-412e-a39c-bc9721bb9057
     role: plan
     authored_at: 2026-07-13T04:30:39.932Z
+status: done
 ---
 
 # Capability-based model selection for Workstream children

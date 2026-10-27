@@ -3,9 +3,12 @@ manager_sessions:
   - id: 587eb0f7-db32-4147-ab5e-d898a81a88b4
     role: plan
     authored_at: 2026-06-29T05:30:58.347Z
+status: done
 ---
 
 # Workstream State Model — Implementation Plan (rev 3)
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/workstream-state-model-impl-plan.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 Implements `.plans/workstream-state-model-design.md` (signed architecture).
 Prototype, breaking change, no compat shims. Australian-English prose; wire

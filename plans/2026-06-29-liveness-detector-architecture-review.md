@@ -3,9 +3,12 @@ manager_sessions:
   - id: 9578f72f-c0df-4404-b5f6-3ddb547c2250
     role: architecture
     authored_at: 2026-06-28T03:58:40.898Z
+status: done
 ---
 
 # Liveness detector architecture review — stop the whack-a-mole
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/liveness-detector-architecture-review.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 **Status:** decision-grade architecture review. Self-contained; read the cited
 code/rows before implementing. Supersedes the per-symptom trajectory of

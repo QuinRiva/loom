@@ -3,6 +3,7 @@ manager_sessions:
   - id: 435e50df-ea8d-4b83-80a3-42ce437524e4
     role: plan
     authored_at: 2026-07-28T23:29:56.560Z
+status: done
 ---
 
 # Cross-client thread staleness: eliminating silent catch-up truncation

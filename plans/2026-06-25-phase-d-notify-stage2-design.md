@@ -6,9 +6,12 @@ manager_sessions:
   - id: 687bc03d-a443-499b-868a-9f23872d4ec0
     role: plan
     authored_at: 2026-06-25T07:24:00.362Z
+status: done
 ---
 
 # Phase D-notify Stage 2: workstream-graph inspection tools (`list` + `read_thread` + `ask_thread`)
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/phase-d-notify-stage2-design.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 **Status:** design, ready to implement. Self-contained for a fresh thread (the
 authoring thread's context is exhausted). The intent was specified in

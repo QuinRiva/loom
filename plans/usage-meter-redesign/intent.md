@@ -7,6 +7,8 @@ manager_sessions:
     name: Usage meter intent — rulings on mockup v2 folded in (planner 92f09b61)
     role: intent
     authored_at: 2026-09-25T13:56:09.121Z
+status: done
+plan: plans/usage-meter-redesign/plan.mdx
 ---
 
 # Usage meter — intent brief

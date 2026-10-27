@@ -3,9 +3,12 @@ manager_sessions:
   - id: b6619fe7-74e7-4b18-b97a-b6efe199590a
     role: plan
     authored_at: 2026-06-26T03:55:07.683Z
+status: done
 ---
 
 # Plan: fix the idle-detection false positive behind the stale "N running" badge
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/idle-detection-false-positive-fix.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 ## Origin / what this is really about
 

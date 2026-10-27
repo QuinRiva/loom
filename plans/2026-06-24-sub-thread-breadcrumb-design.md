@@ -1,4 +1,10 @@
+---
+status: done
+---
+
 # Sub-thread breadcrumb / "navigate up to parent" — design recommendation
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/sub-thread-breadcrumb-design.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 ## Problem
 

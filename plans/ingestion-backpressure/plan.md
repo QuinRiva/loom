@@ -3,6 +3,7 @@ manager_sessions:
   - id: 01a0d715-409a-77dc-b837-09f9016a9b10
     role: plan
     authored_at: 2026-09-25T08:04:25.369Z
+status: done
 ---
 
 # Cockpit OOM: bounded, backpressured provider-runtime ingestion

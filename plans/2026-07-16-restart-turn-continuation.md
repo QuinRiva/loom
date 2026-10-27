@@ -1,3 +1,8 @@
+---
+status: superseded
+superseded_by: upstream:#9167
+---
+
 # Plan: continue mid-turn threads across server restart/deploy — superseded
 
 Superseded by upstream's restart continuation (#9167, `reconcileProviderSessions`

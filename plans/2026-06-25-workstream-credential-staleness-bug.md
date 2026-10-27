@@ -3,9 +3,12 @@ manager_sessions:
   - id: 687bc03d-a443-499b-868a-9f23872d4ec0
     role: plan
     authored_at: 2026-06-25T07:52:54.319Z
+status: done
 ---
 
 # Bug: idle workstream threads lose their session + credential (reaper + credential idle-timeout)
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/workstream-credential-staleness-bug.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 **Status:** confirmed, root-caused, not yet fixed. Recorded from a live session in
 which an orchestrator thread repeatedly hit

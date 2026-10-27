@@ -3,9 +3,12 @@ manager_sessions:
   - id: e60766ea-eda2-46fa-9573-bc03cc432a2f
     role: plan
     authored_at: 2026-06-24T11:10:25.561Z
+status: done
 ---
 
 # Phase D-notify: completion propagation + parent↔child communication
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/phase-d-notify-design.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 **Status:** design, ready to implement after sign-off. Builds on D-core
 (`.plans/phase-d-core-dispatcher-design.md`, merged to `main` as `706c046`) and

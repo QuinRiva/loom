@@ -3,9 +3,12 @@ manager_sessions:
   - id: 019ef74b-b3a6-77f9-8b29-670da89aa154
     role: plan
     authored_at: 2026-06-24T05:01:56.718Z
+status: done
 ---
 
 # Phase D: dispatcher — enforce dependencies + liveness + (optional) completion judge
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/phase-d-dispatcher.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 **Status:** plan for a FUTURE thread (to be picked up after the workstream feature
 is merged to `main`). Self-contained so a fresh session can run it.

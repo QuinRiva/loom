@@ -3,6 +3,7 @@ manager_sessions:
   - id: d2fe0abd-4dd3-4046-9eaa-f168f48d4f39
     role: plan
     authored_at: 2026-07-07T23:18:39.166Z
+status: done
 ---
 
 # Wave 2 — Sidebar/ChatView seam-narrowing + residual deepenings
