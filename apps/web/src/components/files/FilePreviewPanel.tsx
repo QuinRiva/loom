@@ -128,9 +128,11 @@ import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 // loom: previews reopen where the reader left them after a thread switch.
 import {
+  fileScrollKey,
   readRememberedScroll,
   rememberedScrollRef,
   scrollAreaViewport,
+  setLineTopResolver,
 } from "./rememberedScroll.loom";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
 // loom: change review — marks, the whole-file change view and its header (loom/review/).
@@ -494,6 +496,21 @@ function useFileLineReveal(
     updateFileLinkReveal(fileContainer, targetLine);
 
     if (!(instance instanceof VirtualizedFile)) return;
+
+    // loom: a remembered top line resolves through the virtualizer's geometry, since the line
+    // heights above it are re-estimated on remount.
+    const lineScroller = fileContainer.closest<HTMLElement>(".file-preview-virtualizer");
+    if (lineScroller) {
+      setLineTopResolver(lineScroller, (line) => {
+        const contentTop = lineScroller.scrollTop - lineScroller.getBoundingClientRect().top;
+        const rendered = (fileContainer.shadowRoot ?? fileContainer)
+          .querySelector(`[data-line="${line}"]`)
+          ?.getBoundingClientRect();
+        if (rendered?.height) return contentTop + rendered.top;
+        const estimated = instance.getLinePosition(line);
+        return estimated && contentTop + fileContainer.getBoundingClientRect().top + estimated.top;
+      });
+    }
 
     if (state.latestRequestId !== revealRequestId) {
       cancelPendingReveal();
@@ -1286,7 +1303,7 @@ export default function FilePreviewPanel({
   // loom: positions are kept per thread, file and view. A remembered source position recorded
   // under this reveal request means the reveal already ran, so the memory wins over re-revealing;
   // a new request (a citation chip, a reveal) still lands on its line.
-  const scrollKey = `${scopedThreadKey(threadRef)}:${cwd}:${relativePath ?? ""}`;
+  const scrollKey = fileScrollKey(scopedThreadKey(threadRef), requestedPath ?? "", cwd);
   const revealConsumed =
     revealLine !== null &&
     readRememberedScroll(`${scrollKey}:source`)?.revealRequestId === revealRequestId;
