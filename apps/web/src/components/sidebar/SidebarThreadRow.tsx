@@ -1278,7 +1278,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           {detailsTooltip}
         </Tooltip>
         {/* loom: side threads nest under their host row */}
-        <LoomSideThreadRows hostThreadKey={threadKey} onActivate={onThreadActivate} />
+        <LoomSideThreadRows
+          hostThreadKey={threadKey}
+          onActivate={onThreadActivate}
+          dragging={sortable?.isDragging === true}
+        />
       </li>
     );
   }
@@ -1563,7 +1567,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         {detailsTooltip}
       </Tooltip>
       {/* loom: side threads nest under their host row */}
-      <LoomSideThreadRows hostThreadKey={threadKey} onActivate={onThreadActivate} />
+      <LoomSideThreadRows
+        hostThreadKey={threadKey}
+        onActivate={onThreadActivate}
+        dragging={sortable?.isDragging === true}
+      />
     </li>
   );
 });

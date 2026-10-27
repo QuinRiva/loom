@@ -29,16 +29,23 @@ const stopPointer = (event: PointerEvent) => event.stopPropagation();
 export const LoomSideThreadRows = memo(function LoomSideThreadRows({
   hostThreadKey,
   onActivate,
+  dragging,
 }: {
   hostThreadKey: string;
   onActivate: (threadRef: ScopedThreadRef) => void;
+  dragging: boolean;
 }) {
   const rows = useAtomValue(sideThreadRowsAtom(hostThreadKey));
   const routeThreadId = useParams({ strict: false }).threadId;
   const host = parseScopedThreadKey(hostThreadKey);
   if (rows.length === 0 || host === null) return null;
   return (
-    <ul data-thread-selection-safe onPointerDown={stopPointer} className="mt-px pl-5">
+    <ul
+      data-thread-selection-safe
+      onPointerDown={stopPointer}
+      // Opaque while the host is dragged, so the rows do not overprint the rows it passes.
+      className={cn("mt-px pl-5", dragging && "rounded-md bg-sidebar")}
+    >
       {rows.map(({ threadId, title, role, running }) => {
         const Icon = ROLE_ICON[role];
         const activate = () => onActivate(scopeThreadRef(host.environmentId, threadId));
