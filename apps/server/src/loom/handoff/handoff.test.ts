@@ -31,6 +31,7 @@ import * as LoomUsageLedger from "../economics/LoomUsageLedger.ts";
 import * as LoomGoalBroadcast from "../projection/LoomGoalBroadcast.ts";
 import { UsageLimitSources } from "../../usage/UsageLimitSources.ts";
 import { ReviewSnapshotService } from "../review/ReviewSnapshotService.ts";
+import { LoomDeployNotices } from "../deploy/LoomDeployNotices.ts";
 import { LoomThreadConsult } from "../workstream/consult.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import {
@@ -73,6 +74,7 @@ const TestLayer = Layer.mergeAll(
   Layer.mock(LoomThreadConsult)({}),
   Layer.mock(UsageLimitSources)({}),
   Layer.mock(ReviewSnapshotService)({}),
+  Layer.mock(LoomDeployNotices)({}),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-retro-" }),
   // The ws handlers also carry the query-thread method; these tests never call it.
   Layer.mock(ProjectStoreV2)({}),

@@ -2,19 +2,29 @@
  * Loom ws-method commands: goal writes through `loom.goal.*`, the `/handoff` and `/retro` drafter
  * calls and the hub login dialog's two calls. Results also arrive on the shell's goal stream, so
  * callers never patch local state. The spend reads are query families: cost is a batched lookup,
- * never a shell field.
+ * never a shell field. `deploy` is the deploy-toast subscription (notice, then restart warnings).
  */
 import { LOOM_WS_METHODS } from "@t3tools/contracts";
 import type { Atom } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../../connection/registry.ts";
-import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "../runtime.ts";
+import {
+  createEnvironmentRpcCommand,
+  createEnvironmentRpcQueryAtomFamily,
+  createEnvironmentRpcSubscriptionAtomFamily,
+} from "../runtime.ts";
 
 export function createLoomCommandAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
 ) {
-  const command = <Tag extends (typeof LOOM_WS_METHODS)[keyof typeof LOOM_WS_METHODS]>(tag: Tag) =>
-    createEnvironmentRpcCommand(runtime, { label: `environment-data:${tag}`, tag });
+  const command = <
+    Tag extends Exclude<
+      (typeof LOOM_WS_METHODS)[keyof typeof LOOM_WS_METHODS],
+      typeof LOOM_WS_METHODS.subscribeDeploy
+    >,
+  >(
+    tag: Tag,
+  ) => createEnvironmentRpcCommand(runtime, { label: `environment-data:${tag}`, tag });
   return {
     goalUpdate: command(LOOM_WS_METHODS.goalUpdate),
     goalTaskRewrite: command(LOOM_WS_METHODS.goalTaskRewrite),
@@ -56,6 +66,10 @@ export function createLoomCommandAtoms<R, E>(
       tag: LOOM_WS_METHODS.topSpend,
       staleTimeMs: 60_000,
       idleTtlMs: 5 * 60_000,
+    }),
+    deploy: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:loom:deploy",
+      tag: LOOM_WS_METHODS.subscribeDeploy,
     }),
   };
 }

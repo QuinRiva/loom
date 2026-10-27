@@ -1,10 +1,15 @@
 /**
- * REST routes beside `/mcp` for Loom's pi extension: the session profile, `ask_user_question`'s
- * ask and long-poll wait, the idle cache-warming plan report and the review-gate keep-alive
- * question. The bearer is the thread's MCP credential, resolved as `/mcp` does; the caller must
- * hold the `workstream` capability.
+ * REST routes beside `/mcp` for Loom's pi extension (session profile, `ask_user_question`, cache
+ * warming, gate keep-alive) on the thread's MCP credential, which must carry `workstream`; and
+ * deployctl's `/loom/deploy/restarting` on an environment session bearer.
  */
-import { DOCUMENT_QUERY_ROLE, LoomCacheWarming, type ThreadId } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  DOCUMENT_QUERY_ROLE,
+  LoomCacheWarming,
+  LoomDeployRestartReason,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { gateKeepAliveCounterpart } from "@t3tools/shared/workstreamGraph";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -12,6 +17,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
+import * as EnvironmentAuth from "../../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../../config.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import {
@@ -22,6 +28,7 @@ import { HUMAN_INPUT, withheldFrom } from "../../mcp/toolkits/workstream/familie
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { isContinueLaunch } from "../../orchestration-v2/Orchestrator.loom.ts";
 import type { LoomSessionProfile } from "../../provider/Drivers/Pi/loomExtension.ts";
+import { LoomDeployNotices } from "../deploy/LoomDeployNotices.ts";
 import { loomPaths, promptCapturePathsOf } from "../loomPaths.ts";
 import { readLaunchIdentity } from "../workstream/launchIdentity.ts";
 import { LoomCacheBroadcast } from "../projection/LoomCacheBroadcast.ts";
@@ -237,7 +244,36 @@ const gateKeepAliveRoute = HttpRouter.route(
   ),
 );
 
+/** deployctl, just before it stops the unit: warn every open browser (plan §1.2). */
+const restartingRoute = HttpRouter.route(
+  "POST",
+  "/loom/deploy/restarting",
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const session = yield* (yield* EnvironmentAuth.EnvironmentAuth)
+      .authenticateHttpRequest(request)
+      .pipe(
+        Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, () => Effect.succeed(null)),
+      );
+    if (session === null) return reply(401, "A valid environment bearer is required.");
+    if (!session.scopes.includes(AuthOrchestrationOperateScope))
+      return reply(403, `This session lacks ${AuthOrchestrationOperateScope}.`);
+    const body = yield* request.json.pipe(
+      Effect.flatMap(
+        Schema.decodeUnknownEffect(
+          Schema.Struct({ releaseId: Schema.String, reason: LoomDeployRestartReason }),
+        ),
+      ),
+      Effect.option,
+    );
+    if (Option.isNone(body)) return reply(400, "Expected { releaseId, reason }.");
+    yield* (yield* LoomDeployNotices).restarting(body.value.releaseId, body.value.reason);
+    return HttpServerResponse.empty({ status: 204 });
+  }),
+);
+
 export const LoomAgentRoutesLive = HttpRouter.addAll([
+  restartingRoute,
   profileRoute,
   askRoute,
   waitRoute,

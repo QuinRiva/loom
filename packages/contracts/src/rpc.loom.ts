@@ -75,6 +75,8 @@ export const LOOM_WS_METHODS = {
   reviewIntervals: "loom.review.intervals",
   reviewDiff: "loom.review.diff",
   reviewFileContents: "loom.review.fileContents",
+  // Deploy toasts (plans/deploy-toasts/plan.mdx in loom-slack-bridge): the notice, then restarts.
+  subscribeDeploy: "loom.subscribeDeploy",
 } as const;
 
 /** Every Loom ws method fails with this (plus the group's authorization error). */
@@ -390,6 +392,51 @@ export const LoomReviewFileContentsInput = Schema.Struct({
 });
 export type LoomReviewFileContentsInput = typeof LoomReviewFileContentsInput.Type;
 
+/** One merged PR of a deploy; `summary` and `kind` are null when the model did not run. */
+export const LoomDeployChange = Schema.Struct({
+  pr: Schema.Number,
+  title: Schema.String,
+  summary: Schema.NullOr(Schema.String),
+  kind: Schema.NullOr(Schema.Literals(["noticeable", "behind"])),
+  threadId: Schema.NullOr(ThreadId),
+  url: Schema.String,
+});
+export type LoomDeployChange = typeof LoomDeployChange.Type;
+
+const LoomDeployRelease = Schema.Struct({ id: Schema.String, sha: Schema.String });
+
+/**
+ * `<stateDir>/deploy-notice.json`, written by deployctl before it starts a release; `id` is the
+ * browser's once-only key. `reason`, `restored` and `lostSince` are set only on a rollback.
+ */
+export const LoomDeployNotice = Schema.Struct({
+  id: Schema.String,
+  kind: Schema.Literals(["updated", "rolled-back"]),
+  reason: Schema.NullOr(Schema.Literals(["health-check", "manual"])),
+  at: IsoDateTime,
+  release: LoomDeployRelease,
+  restored: Schema.NullOr(LoomDeployRelease),
+  lostSince: Schema.NullOr(IsoDateTime),
+  headline: Schema.NullOr(Schema.String),
+  changes: Schema.Array(LoomDeployChange),
+});
+export type LoomDeployNotice = typeof LoomDeployNotice.Type;
+
+export const LoomDeployRestartReason = Schema.Literals(["deploy", "rollback", "restart"]);
+export type LoomDeployRestartReason = typeof LoomDeployRestartReason.Type;
+
+/** `loom.subscribeDeploy`: the current notice first (when there is one), then each restart warning. */
+export const LoomDeployEvent = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("notice"), notice: LoomDeployNotice }),
+  Schema.Struct({
+    type: Schema.Literal("restarting"),
+    at: IsoDateTime,
+    reason: LoomDeployRestartReason,
+    releaseId: Schema.String,
+  }),
+]);
+export type LoomDeployEvent = typeof LoomDeployEvent.Type;
+
 const goalRpc = <Tag extends string, Payload extends Schema.Top>(tag: Tag, payload: Payload) =>
   Rpc.make(tag, { payload, success: LoomGoalWriteResult, error: LoomWsError });
 
@@ -473,6 +520,12 @@ export const LoomWsRpcs = [
     payload: LoomReviewFileContentsInput,
     success: ReviewDiffFileContentsResult,
     error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.subscribeDeploy, {
+    payload: Schema.Struct({}),
+    success: LoomDeployEvent,
+    error: LoomWsError,
+    stream: true,
   }),
   // The hub's own error text reaches the dialog, so these fail with the source's error.
   Rpc.make(LOOM_WS_METHODS.usageLimitSourceLoginStart, {

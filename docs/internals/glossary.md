@@ -38,6 +38,13 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Side thread | A thread that lives on another thread's context beside the workstream graph: a root that is never a parent, so no control-plane reader reaches it. Today a query thread or a `/handoff` drafter (`SIDE_THREAD_ROLES`); the class decides only where it is shown. |
 | Anchor      | The thread a side thread hangs from in every presentation (sidebar, graph, thread tabs): the thread it was forked from.                                                                                                                                          |
 
+## Loom deploys
+
+| Term              | Meaning                                                                                                                                                                                                                                              |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deploy notice     | What a cockpit deploy changed, or the fact that it rolled back: `deploy-notice.json` in the state dir, written by deployctl, read at startup and sent to each browser once as the "Loom updated" or "Loom rolled back" toast. Not a Slack milestone. |
+| Noticeable change | A PR in a deploy notice whose effect a Loom user could see or feel; the rest are behind the scenes.                                                                                                                                                  |
+
 ## Providers and checkpoints
 
 | Term                | Meaning                                                                                                      |

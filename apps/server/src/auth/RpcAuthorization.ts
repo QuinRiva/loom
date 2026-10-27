@@ -236,6 +236,7 @@ export const RPC_REQUIRED_SCOPES = {
   [LOOM_WS_METHODS.reviewIntervals]: AuthFilesystemReadScope, // loom: change review, as review.*
   [LOOM_WS_METHODS.reviewDiff]: AuthFilesystemReadScope, // loom: change review, as review.*
   [LOOM_WS_METHODS.reviewFileContents]: AuthFilesystemReadScope, // loom: change review, as review.*
+  [LOOM_WS_METHODS.subscribeDeploy]: AuthOrchestrationReadScope, // loom: deploy toasts
 } as const satisfies Readonly<Record<WsRpcMethod, AuthEnvironmentScope>>;
 
 export function requiredScopeForRpcMethod(method: string): AuthEnvironmentScope {

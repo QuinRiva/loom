@@ -1,18 +1,23 @@
 /**
  * `/loom/agent` over HTTP with real `McpSessionRegistry` credentials: `humanEngaged` reads only the
  * engagement stamp, a child's profile drops `ask_user_question`, ask + wait deliver an answer,
- * cache warming reaches the broadcast, a parked gate coder keeps warm, `workstream`-less is refused.
+ * cache warming reaches the broadcast, a parked gate coder keeps warm, `workstream`-less is refused;
+ * deployctl's restart warning needs an operate-scoped environment session.
  */
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
+  AuthOrchestrationOperateScope,
+  AuthOrchestrationReadScope,
   CommandId,
   DOCUMENT_QUERY_ROLE,
   EventId,
   MessageId,
   ProviderInstanceId,
   RuntimeRequestId,
+  type LoomDeployEvent,
+  type LoomDeployRestartReason,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -20,9 +25,11 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 
+import * as EnvironmentAuth from "../../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../../config.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import type { McpCapability } from "../../mcp/McpInvocationContext.ts";
@@ -40,17 +47,53 @@ import {
   LoomCacheBroadcast,
   layer as LoomCacheBroadcastLayer,
 } from "../projection/LoomCacheBroadcast.ts";
+import { LoomDeployNotices } from "../deploy/LoomDeployNotices.ts";
 import { documentQueryClient } from "../query/queryPosture.ts";
 import { reactToAskEvent } from "../userInput/askUserQuestion.ts";
 import { LoomAgentRoutesLive } from "./loomAgentRoutes.ts";
 
 const ASK = "mcp__t3-code__ask_user_question";
 
+/** Restart warnings land on a queue the test reads back as the event stream. */
+const DeployNoticesTestLayer = Layer.effect(
+  LoomDeployNotices,
+  Effect.map(Queue.unbounded<LoomDeployEvent>(), (queue) => ({
+    restarting: (releaseId: string, reason: LoomDeployRestartReason) =>
+      Queue.offer(queue, { type: "restarting", at: "now", reason, releaseId }).pipe(Effect.asVoid),
+    events: Stream.fromQueue(queue),
+  })),
+);
+
+/** `Bearer operate` and `Bearer read` are sessions with that scope; anything else is no credential. */
+const EnvironmentAuthTestLayer = Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+  authenticateHttpRequest: (request) => {
+    const scope = {
+      "Bearer operate": AuthOrchestrationOperateScope,
+      "Bearer read": AuthOrchestrationReadScope,
+    }[request.headers.authorization ?? ""];
+    return scope === undefined
+      ? Effect.fail(new EnvironmentAuth.ServerAuthMissingCredentialError({}))
+      : Effect.succeed({
+          sessionId: "session" as never,
+          subject: "deployctl",
+          method: "bearer" as never,
+          scopes: [scope],
+        });
+  },
+});
+
 const TestLayer = HttpRouter.serve(LoomAgentRoutesLive, {
   disableListenLog: true,
   disableLogger: true,
 }).pipe(
-  Layer.provideMerge(Layer.merge(McpSessionRegistry.layer, LoomCacheBroadcastLayer)),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      McpSessionRegistry.layer,
+      LoomCacheBroadcastLayer,
+      DeployNoticesTestLayer,
+      EnvironmentAuthTestLayer,
+    ),
+  ),
   Layer.provide(
     Layer.mock(ServerEnvironment.ServerEnvironment)({
       getEnvironmentId: Effect.succeed("environment-loom-agent" as never),
@@ -386,6 +429,30 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
         assert.equal((yield* call(auth, method, path, {})).status, 403);
         assert.equal((yield* call("Bearer nope", method, path, {})).status, 401);
       }
+    }),
+  );
+
+  it.effect("the restart warning needs an operate session and a valid body", () =>
+    Effect.gen(function* () {
+      const client = yield* HttpClient.HttpClient;
+      const post = (authorization: string | null, body: unknown) =>
+        client
+          .post("/loom/deploy/restarting", {
+            headers: authorization === null ? {} : { authorization },
+            body: HttpBody.jsonUnsafe(body),
+          })
+          .pipe(
+            Effect.map((response) => response.status),
+            Effect.orDie,
+          );
+      const body = { releaseId: "20261027-221217-e5bc19c", reason: "deploy" } as const;
+      assert.equal(yield* post(null, body), 401);
+      assert.equal(yield* post("Bearer nope", body), 401);
+      assert.equal(yield* post("Bearer read", body), 403);
+      assert.equal(yield* post("Bearer operate", { releaseId: "x", reason: "reboot" }), 400);
+      assert.equal(yield* post("Bearer operate", body), 204);
+      const event = yield* Stream.runHead((yield* LoomDeployNotices).events);
+      assert.deepStrictEqual(Option.getOrThrow(event), { type: "restarting", at: "now", ...body });
     }),
   );
 });

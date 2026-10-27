@@ -243,6 +243,7 @@ const RPC_AGGREGATES = {
   [LOOM_WS_METHODS.reviewIntervals]: "review", // loom: change review
   [LOOM_WS_METHODS.reviewDiff]: "review", // loom: change review
   [LOOM_WS_METHODS.reviewFileContents]: "review", // loom: change review
+  [LOOM_WS_METHODS.subscribeDeploy]: "loom", // loom: deploy toasts
 } as const satisfies Readonly<Record<WsRpcMethod, string>>;
 
 const RPC_SPAN_PREFIX = "ws.rpc";
