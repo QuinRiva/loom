@@ -161,7 +161,9 @@ export function buildSearchSnippet(text: string, matchStart: number): string {
 // Word starts and ranking follow the title rules in JS.
 // Without FTS5 trigrams, or for two-character CJK words, scan the same eligible messages.
 // The scan folds ASCII case only, so accent variants and non-ASCII case variants may not match.
-export const messageHitsQuery = (
+
+// loom: not exported; the EXPLAIN QUERY PLAN test that read it went with upstream's index (1065)
+const messageHitsQuery = (
   sql: SqlClient.SqlClient,
   { match, substrings, projectId, excludedThreadIds }: typeof SearchRequest.Encoded,
 ) => sql`
