@@ -2,7 +2,7 @@
 """Comparison tables for run.sh: this run's census and delegation outputs against baselines/.
 
 Usage: compare.py BASELINE_MD BASELINE_DELEGATION TABLE_MD TRIGGERS_TXT DELEGATION_CUMULATIVE DELEGATION_SINCE_DEPLOY DAYS \
-                  BASELINE_CAPABILITIES CAPABILITIES_MD
+                  BASELINE_CAPABILITIES CAPABILITIES_MD BASELINE_TESTING TESTING_MD
 """
 import ast, datetime, math, re, sys
 
@@ -12,6 +12,9 @@ CUT = ["mdx-visual-plan", "mdx-visual-recap", "mdx-visual-explainer", "skill-aut
 CUT_AT = datetime.datetime(2026, 10, 23, tzinfo=datetime.timezone.utc)
 DELEGATION_FOLLOW_UP_BELOW = 3.0  # percent: no better than double the 1.5% baseline
 DELEGATION_MIN_CHILDREN = 200  # below this, 0 to 3 delegations cannot tell 1.5% from 3%
+TESTING_MIN_WRITERS = 20  # test-writing sessions; about a week of them
+TESTING_READ_FIRST_BELOW = 50.0  # percent of test writers that read docs/internals/testing.md before their first test edit
+TESTING_LINT_HIT_ABOVE = 5.0  # percent with a test-lint hit on their own test; the baseline is too thin for z alone
 
 
 def census(text):
@@ -77,6 +80,16 @@ def capabilities(text):
     return int(head[1]), float(head[2]), get
 
 
+def testing(text):
+    """{regime: (test writers, read the doc first, lint hit on own test)} from testing-doc.py's output."""
+    rows = {c[0]: list(map(int, c[1:])) for c in ([x.strip() for x in l.strip().strip("|").split("|")]
+            for l in text.splitlines() if l.startswith("| ")) if len(c) == 4 and c[1].isdigit()}
+    get = lambda prefix: next(v for k, v in rows.items() if k.startswith(prefix))
+    cols = zip(get("wrote a loom test"), get("of those, read `docs/internals/testing.md` before"),
+               get("of those, a later test-lint diagnostic on a test file"))
+    return dict(zip(["inline", "pointer", "neither"], cols))
+
+
 def instruction_before_baseline(text):
     """(read first, sessions) for llm-instruction-change from the baseline's missed-fire table."""
     line = next(l for l in text.splitlines() if re.match(r"\| `llm-instruction-change` +\| edit", l))
@@ -92,6 +105,7 @@ def instruction_before_now(text):
 
 base_md, base_del, table, triggers, del_cum, del_dep = (open(p).read() for p in sys.argv[1:7])
 base_cap, cap = (capabilities(open(p).read()) for p in sys.argv[8:10])
+base_test, test = (testing(open(p).read()) for p in sys.argv[10:12])
 start = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=float(sys.argv[7]))
 then, now = census(base_md), census(table)
 b_del, n_cum, n_dep = delegation(base_del), delegation(del_cum), delegation(del_dep)
@@ -145,3 +159,18 @@ print(f"| of those, called `tool_search` before substituting | {cell(b_cap[2:4])
 print(f"| MDX lints from `~/loom` (sessions outside a loom checkout) | {b_cap[4]} ({b_cap[4] / b_cap[1]:.1f}/day) "
       f"| {n_cap[4]} ({n_cap[4] / n_cap[1]:.1f}/day) | 0 | {'**yes**' if n_cap[4] else 'no'} |")
 print(f"| needed a browser and used a browser tool (context) | {cell(b_cap[5:7])} | {cell(n_cap[5:7])} | more | – |")
+
+print("\n### Testing conventions behind a pointer (PR #460): sessions that wrote a loom test\n")
+print("Each session is classed by the AGENTS.md in its own prompt: the conventions inline (baseline) or the pointer to "
+      "`docs/internals/testing.md` (PR #460, from checkouts made after it merges). Sessions with neither predate the test "
+      "lints and are left out.\n")
+print("| measure | baseline: inline, to 27 Oct | now: inline | now: pointer | follow up when (pointer) | follow up? |")
+print("|---|--:|--:|--:|---|---|")
+b_t, n_in, n_t = base_test["inline"], test["inline"], test["pointer"]
+few = n_t[0] < TESTING_MIN_WRITERS
+read_low = pct(n_t[1], n_t[0]) < TESTING_READ_FIRST_BELOW
+print(f"| read the doc before the first test edit | {cell(b_t[:2])} | {cell(n_in[:2])} | {cell(n_t[:2])} "
+      f"| under {TESTING_READ_FIRST_BELOW:.0f}% | {'too few writers' if few else '**yes**' if read_low else 'no'} |")
+hit = not few and (pct(n_t[2], n_t[0]) > TESTING_LINT_HIT_ABOVE or z((b_t[2], b_t[0]), (n_t[2], n_t[0])) >= 2)
+print(f"| test-lint hit on a test it edited | {cell(b_t[::2])} | {cell(n_in[::2])} | {cell(n_t[::2])} "
+      f"| over {TESTING_LINT_HIT_ABOVE:.0f}%, or above baseline by z ≥ 2 | {'too few writers' if few else '**yes**' if hit else 'no'} |")
