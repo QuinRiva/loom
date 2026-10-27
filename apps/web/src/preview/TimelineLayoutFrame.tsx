@@ -6,20 +6,28 @@ import {
 } from "../components/chat/timelineLayout";
 
 /**
- * Reproduces `MessagesTimeline`'s layout chain, since wide-block bleed keys off
- * `--timeline-available-width` and a bare render would misreport table layout. The padding
- * mirrors the `LegendList` scroll container so the measured width matches production.
+ * Reproduces `MessagesTimeline`'s layout chain, which the wide-block bleed keys off: the
+ * production `.messages-timeline-scroll` padding, and LegendList's per-row `contain: paint`
+ * that clips anything bled past the scroller's content box.
  */
 export function TimelineLayoutFrame({ children }: { children: ReactNode }) {
-  const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
-  useTimelineAvailableWidthVar(viewport);
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  useTimelineAvailableWidthVar(scroller);
 
   return (
-    <div ref={setViewport} className="relative h-full min-h-0">
-      <div className="scrollbar-gutter-both h-full min-h-0 overflow-y-auto overflow-x-hidden px-3 sm:px-5">
-        <div className="messages-timeline-row-frame">
-          <div className={TIMELINE_ROW_CLASS_NAME} data-timeline-root="true">
-            {children}
+    <div data-chat-canvas className="relative h-full min-h-0">
+      <div
+        ref={setScroller}
+        className="messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-y-auto overflow-x-hidden"
+      >
+        <div className="[contain:paint_layout_style]">
+          <div className="messages-timeline-row-frame">
+            <div
+              className={`@container/chat-lane ${TIMELINE_ROW_CLASS_NAME}`}
+              data-timeline-root="true"
+            >
+              {children}
+            </div>
           </div>
         </div>
       </div>
