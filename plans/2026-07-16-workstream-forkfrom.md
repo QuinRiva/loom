@@ -3,6 +3,7 @@ manager_sessions:
   - id: a3c5934f-e03d-4702-bd40-524af5d3c5e8
     role: plan
     authored_at: 2026-07-16T04:28:11.950Z
+status: done
 ---
 
 # `forkFrom` — fork-based child spawning for cached shared-prefix fan-out

@@ -3,6 +3,7 @@ manager_sessions:
   - id: 9ac69034-5f12-4fa9-81e7-1f2fd2985a1e
     role: plan
     authored_at: 2026-07-21T05:04:29.355Z
+status: done
 ---
 
 # `notify_thread` — global cross-thread push messaging

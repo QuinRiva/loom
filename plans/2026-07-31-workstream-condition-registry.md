@@ -3,6 +3,7 @@ manager_sessions:
   - id: 95006bd4-74ef-4bba-9710-ac805038e07f
     role: plan
     authored_at: 2026-08-04T04:30:48.830Z
+status: done
 ---
 
 # Workstream liveness: stateless rung ladder + derived attention (adopted design)

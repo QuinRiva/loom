@@ -3,6 +3,7 @@ manager_sessions:
   - id: f83f1494-12c5-48b9-a18c-71583fe29bda
     role: plan
     authored_at: 2026-07-07T12:04:18.723Z
+status: done
 ---
 
 # LOOM-ONLY deepening pair: receipt-dedup delivery module + MCP tool bridge collapse

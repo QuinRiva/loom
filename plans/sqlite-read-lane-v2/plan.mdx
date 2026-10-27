@@ -3,6 +3,8 @@ reader:
   who: loom's owner, reviewing cold to approve or redirect the direction before any code is written
   knows: loom's server architecture in general (Effect layers, the event-sourced orchestrator); none of the research reports, the earlier plan, or the thread behind this document
   after_first_screen: "Pin each read to its SQLite connection in code instead of trusting Effect's build order, and move ingestion's one hot read onto the writer's connection — a day's work, nothing new added, and I am approving that rather than a worker pool or a cache."
+status: done
+supersedes: plans/sqlite-read-lane/plan.mdx
 ---
 
 # Pin every read to its SQLite connection, and move ingestion's one hot read off the worker

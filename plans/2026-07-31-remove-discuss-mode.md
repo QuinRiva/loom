@@ -3,6 +3,7 @@ manager_sessions:
   - id: fc537094-bc30-48d6-b476-eb045c25dbfe
     role: plan
     authored_at: 2026-08-01T03:24:40.822Z
+status: done
 ---
 
 # Remove Discuss mode: terminal threads resume with full capability
