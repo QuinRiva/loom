@@ -47,6 +47,12 @@ a recap-genre artefact at the same path unless it is plainly a plan's sign-off,
 in which case `plans/<slug>/…` is fine. When it is written and checked, tell
 the reader the path and ask them to open, triage and decide in-app.
 
+A recap of work a plan governed names that plan in its frontmatter
+(`plan: plans/<slug>/plan.mdx`) and, in the same commit, adds
+`recap: recaps/<slug>/recap.mdx` to the plan's frontmatter, the one edit a
+frozen plan takes besides its status; the lint checks the pair. A review of a
+plan, or a recap that cites plans as evidence, links none of them.
+
 ## Before drafting
 
 **Write the reader brief first** — who reads this and what they are there to

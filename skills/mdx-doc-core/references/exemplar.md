@@ -28,6 +28,7 @@ reader:
   after_first_screen: they can correct any line or say "go"
 kicker: "Intent brief · draft for your corrections · 3 Mar 2026"
 status: draft
+# plan: plans/<slug>/plan.mdx once a plan exists
 ---
 
 # Archive a batch of contacts in one go, without losing one by mistake
@@ -104,7 +105,9 @@ above:
    `<Column label="Before">` and `<Column label="After">`, each holding a
    `<Screen>` of the list header, every other control preserved so the delta
    is the only thing that differs. The column labels name the states; the
-   frames carry no `Before`/`After` pill of their own.
+   frames carry no `Before`/`After` pill of their own. Frontmatter:
+   `status: draft` and `intent:` naming the brief; the fields and their
+   lifecycle are in `mdx-visual-plan/SKILL.md`, 'The plan's life'.
 2. **What it means** — two or three lines: what is in the first cut, what is
    deferred, and the one line pointing at the open question at the end.
 3. **`## 1. The approach`** — a `<Callout tone="decision">` stating the chosen
@@ -132,7 +135,10 @@ No visual surface. The first screen is the recommendation and the bets it
 settles — _one export queue instead of two; consumers subscribe by name rather
 than by registration order; the wire format and ids unchanged; about two
 days_ — followed by
-a short objective-and-scope paragraph. Then one numbered section per change:
+a short objective-and-scope paragraph. Frontmatter: `status: draft` and
+`intent:` naming the brief; the fields and their lifecycle are in
+`mdx-visual-plan/SKILL.md`, 'The plan's life'. Then one numbered section per
+change:
 a `<DataModel>` or `<Endpoint>` beside the prose that needs it, an
 `<AnnotatedCode>` of the load-bearing file, a `<Mermaid>` only where a real
 two-dimensional relationship (layering, data flow) clarifies something, and
