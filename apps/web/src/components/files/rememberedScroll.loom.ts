@@ -9,9 +9,15 @@ import { useRightPanelStore } from "~/rightPanelStore";
 interface RememberedScroll {
   readonly top: number;
   /** The file's reveal request when this was recorded: that reveal has been consumed. */
-  readonly revealRequestId: number;
+  readonly revealRequestId?: number;
   /** Code views: the top line, since a remount re-estimates wrapped line heights above it. */
-  anchor?: { readonly line: number; readonly offset: number } | undefined;
+  anchor?:
+    | {
+        readonly line: number;
+        readonly offset: number;
+        readonly side?: "additions" | "deletions";
+      }
+    | undefined;
 }
 
 const MAX_REMEMBERED = 200;
@@ -23,6 +29,13 @@ const settled = new WeakMap<Element, string>();
 
 export function readRememberedScroll(key: string) {
   return remembered.get(key);
+}
+
+export function rememberScroll(key: string, entry: RememberedScroll) {
+  remembered.delete(key);
+  remembered.set(key, entry);
+  const oldest = remembered.keys().next().value;
+  if (remembered.size > MAX_REMEMBERED && oldest !== undefined) remembered.delete(oldest);
 }
 
 const filePrefix = (threadKey: string, filePath: string) => `${threadKey}\u0000${filePath}\u0000`;
@@ -102,10 +115,7 @@ export function rememberedScrollRef(
     const onScroll = () => {
       if (restoring) return;
       const entry: RememberedScroll = { top: scroller.scrollTop, revealRequestId };
-      remembered.delete(key);
-      remembered.set(key, entry);
-      const oldest = remembered.keys().next().value;
-      if (remembered.size > MAX_REMEMBERED && oldest !== undefined) remembered.delete(oldest);
+      rememberScroll(key, entry);
       // One layout read once scrolling pauses, not one per scroll frame.
       clearTimeout(anchorTimer);
       anchorTimer = setTimeout(() => {
