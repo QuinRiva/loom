@@ -85,7 +85,11 @@ import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { type HandoffTimelineRun } from "./V2LifecycleRow";
 // loom: wide-block bleed — the timeline publishes its true content width, and
 // its rows use the shared prose-measure class the bleed CSS assumes.
-import { publishTimelineAvailableWidth, TIMELINE_ROW_CLASS_NAME } from "./timelineLayout";
+import {
+  publishTimelineAvailableWidth,
+  TIMELINE_ROW_CLASS_NAME,
+  timelineContentWidth,
+} from "./timelineLayout";
 // loom: 3d-3 — control cards, handoff receipts, model-change dividers, conversation jumps.
 import { ControlDigestRow } from "../../loom/ControlDigestRow";
 import { KICKOFF_BUBBLE } from "@t3tools/client-runtime/state/loom/controlBubble"; // loom: query threads
@@ -914,11 +918,19 @@ const ConversationTimeline = memo(function ConversationTimeline({
       return;
     }
 
+    // loom: the scroller's padding tracks the lane insets, which can change
+    // without resizing the viewport, so observe its content box too.
+    const scroller = timelineViewportElement.querySelector<HTMLElement>(
+      ".messages-timeline-scroll",
+    );
     const measure = () => {
       const viewportWidth = timelineViewportElement.getBoundingClientRect().width;
-      // loom: publish the true available content width so wide blocks (markdown
-      // tables) can bleed past the prose measure up to what the viewport offers.
-      publishTimelineAvailableWidth(timelineViewportElement, viewportWidth);
+      // loom: publish the width rows can paint into so wide blocks (markdown
+      // tables) can bleed past the prose measure without being clipped.
+      publishTimelineAvailableWidth(
+        timelineViewportElement,
+        scroller ? timelineContentWidth(scroller) : viewportWidth,
+      );
       const contentWidth =
         timelineViewportElement
           .querySelector<HTMLElement>("[data-timeline-root]")
@@ -936,7 +948,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
 
     const frame = requestAnimationFrame(measure);
 
-    const stopObserving = observeResize(timelineViewportElement, measure);
+    const stopObserving = observeResize(
+      scroller ? [timelineViewportElement, scroller] : timelineViewportElement, // loom:
+      measure,
+    );
 
     return () => {
       cancelAnimationFrame(frame);

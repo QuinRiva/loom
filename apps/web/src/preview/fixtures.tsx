@@ -71,6 +71,17 @@ const WIDE_TABLE_MARKDOWN = `Comparison of provider capabilities across a wide s
 | Meta | llama-4-405b | 256k | Yes | Partial | No | Medium | 32k | Open | Self-hostable, strong price/performance on-prem |
 `;
 
+/** A real hand-back table that rendered cropped on both edges with both sidebars open. */
+const FILE_CHIP_TABLE_MARKDOWN = `Both documents are shorter and have passed their fact check. Narrow the window until the lane is under ~40rem: no column may be cropped.
+
+| | Before | Now |
+| --- | --- | --- |
+| **Run sheet**, for the room: \`plans/18-mirvac-run-sheet.mdx\` | 6,437 words | 2,756 words |
+| **Explainer**, for tonight: \`plans/18-how-to-explain.mdx\` | 3,719 words | 1,434 words |
+| **Prep sheet**, the short version, unchanged: \`plans/20-carl-prep.mdx\` | | 2,746 words |
+| **Workbook**: \`plans/17-mirvac-sheet-with-example.xlsx\` | | Guide, fields, example, Documents |
+`;
+
 const NARROW_TABLE_MARKDOWN = `A small table should stay narrow and hug its content. It must not stretch to the bleed budget:
 
 | Key | Value |
@@ -1448,6 +1459,13 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         "Wide table (bleed)",
         WIDE_TABLE_MARKDOWN,
         "Regression guard for PR #68: table bleeds past max-w-3xl up to the viewport budget.",
+      ),
+      markdownFixture(
+        "file-chip-table",
+        "File-chip table (narrow lane)",
+        FILE_CHIP_TABLE_MARKDOWN,
+        "Both sidebars open: the table must stay inside the lane (or scroll), never crop.",
+        "/Users/julius/project",
       ),
       markdownFixture(
         "narrow-table",

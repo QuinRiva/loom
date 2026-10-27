@@ -17,6 +17,19 @@ export const TIMELINE_AVAILABLE_WIDTH_VAR = "--timeline-available-width";
  */
 export const TIMELINE_ROW_CLASS_NAME = "chat-content-lane";
 
+/**
+ * Width a timeline row can paint into: the scroller's content box. LegendList gives each row
+ * container `contain: paint`, so a block bled past it into the scroller's padding is clipped.
+ */
+export function timelineContentWidth(scroller: HTMLElement): number {
+  const style = getComputedStyle(scroller);
+  return (
+    scroller.clientWidth -
+    Number.parseFloat(style.paddingLeft) -
+    Number.parseFloat(style.paddingRight)
+  );
+}
+
 /** Publish the viewport's current content width onto the bleed CSS variable. */
 export function publishTimelineAvailableWidth(element: HTMLElement, viewportWidth: number): void {
   element.style.setProperty(TIMELINE_AVAILABLE_WIDTH_VAR, `${Math.round(viewportWidth)}px`);
@@ -24,7 +37,7 @@ export function publishTimelineAvailableWidth(element: HTMLElement, viewportWidt
 
 /**
  * Observe `element` and keep {@link TIMELINE_AVAILABLE_WIDTH_VAR} in sync with
- * its content width. `onMeasure` receives each measured width so callers can
+ * its content-box width. `onMeasure` receives each measured width so callers can
  * derive additional layout state from the same observation.
  */
 export function useTimelineAvailableWidthVar(
@@ -37,7 +50,7 @@ export function useTimelineAvailableWidthVar(
     }
 
     const measure = () => {
-      const viewportWidth = element.getBoundingClientRect().width;
+      const viewportWidth = timelineContentWidth(element);
       publishTimelineAvailableWidth(element, viewportWidth);
       onMeasure?.(viewportWidth);
     };
