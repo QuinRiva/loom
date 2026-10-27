@@ -7,6 +7,7 @@
 import {
   CommandId,
   DOCUMENT_QUERY_ROLE,
+  HANDOFF_DRAFTER_ROLE,
   type LoomThreadWorkstream,
   type OrchestrationV2ThreadShell,
   type ThreadId,
@@ -34,7 +35,6 @@ import {
   buildDraftForkLaunch,
   buildDrafterKickoffPrompt,
   dispatchDraftFork,
-  HANDOFF_DRAFTER_ROLE,
 } from "./handoffDraft.ts";
 
 /**

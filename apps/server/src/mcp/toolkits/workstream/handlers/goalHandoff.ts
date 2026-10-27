@@ -5,12 +5,17 @@
  *
  * @module mcp/toolkits/workstream/handlers/goalHandoff
  */
-import { type CommandId, GoalId, type ProjectId, type ThreadId } from "@t3tools/contracts";
+import {
+  type CommandId,
+  GoalId,
+  HANDOFF_DRAFTER_ROLE,
+  type ProjectId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import * as GitWorkflowService from "../../../../git/GitWorkflowService.ts";
-import { HANDOFF_DRAFTER_ROLE } from "../../../../loom/handoff/handoffDraft.ts";
 import { findHandoffDuplicates } from "../../../../loom/handoff/handoffDuplicates.ts";
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
 import * as ThreadLaunchService from "../../../../orchestration-v2/ThreadLaunchService.ts";

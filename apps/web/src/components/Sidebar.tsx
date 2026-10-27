@@ -236,6 +236,7 @@ import {
 } from "./sidebar/SidebarListMarkers";
 // loom: 3d-3 — attention (inbox placement) and the Loom goal menu.
 import { rowAttentionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: 3d-3
+import { sidebarHostRowThreadId } from "./Sidebar.logic.loom"; // loom: side-thread sub-rows
 import { GoalFormDialogHost } from "../loom/GoalFormDialogHost";
 import { readLoomGoal } from "../loom/loomGoalState";
 import { showWithLoomGoalMenu, useLoomGoalActions } from "../loom/sidebarGoalActions";
@@ -386,7 +387,12 @@ function useSidebarThreads(input: {
           scopeThreadRef(
             routeThreadRef.environmentId,
             resolveSidebarRowThreadId(
-              routeThreadRef.threadId,
+              // loom: a side thread's sub-row lives in its host's row, which the shelves retain
+              sidebarHostRowThreadId(
+                routeThreadRef.threadId,
+                routeThreadRef.environmentId,
+                threads,
+              ),
               routeThreadRef.environmentId,
               threads,
             ),

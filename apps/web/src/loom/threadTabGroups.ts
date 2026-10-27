@@ -1,12 +1,13 @@
 /**
- * loom: thread-tab group keys (each tab's root via `subagent` edges in the family-merged snapshot;
- * a fork is a root) and liveness. The cold shell omits settled roots and their idle sub-threads, so
+ * loom: thread-tab group keys (each tab's root via `subagent` edges and side-thread anchors in the
+ * family-merged snapshot; any other fork is a root) and liveness. The cold shell omits settled roots and their idle sub-threads, so
  * absence is not gone: only a removal the shell saw since its latest authoritative snapshot prunes.
  * The index keeps its identity until an edge, the thread set or the removals change.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
+import { hostRowOf, presentationParentsOf } from "@t3tools/client-runtime/state/loom/sideThread";
 import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
@@ -17,7 +18,7 @@ import { threadEnvironment } from "../state/threads";
 interface EnvironmentLineage {
   /** Threads archived or deleted since the shell's latest authoritative snapshot. */
   readonly removed: ReadonlyMap<ThreadId, number>;
-  /** Each unarchived thread's `subagent` parent (null for a root). */
+  /** Each unarchived thread's `presentationParentOf` (null for a root). */
   readonly parents: ReadonlyMap<ThreadId, ThreadId | null>;
 }
 
@@ -38,15 +39,7 @@ const lineageAtom = (() => {
         (environmentId) => {
           const snapshot = get(threadEnvironment.snapshotAtom(environmentId));
           if (snapshot === null) return [];
-          const parents = new Map(
-            snapshot.threads.map(
-              ({ id, lineage }) =>
-                [
-                  id,
-                  lineage.relationshipToParent === "subagent" ? lineage.parentThreadId : null,
-                ] as const,
-            ),
-          );
+          const parents = presentationParentsOf(snapshot.threads);
           const { removedAt } = get(environmentShell.stateValueAtom(environmentId));
           return [[environmentId, { removed: removedAt, parents }] as const];
         },
@@ -71,14 +64,10 @@ export function resolveThreadGroupKey(
 ): string | null {
   const parents = lineage.get(ref.environmentId)?.parents;
   if (!parents?.has(ref.threadId)) return null;
-  const seen = new Set([ref.threadId]);
-  let rootId = ref.threadId;
-  for (let parent = parents.get(rootId); parent && !seen.has(parent);) {
-    seen.add(parent);
-    rootId = parent;
-    parent = parents.get(rootId);
-  }
-  return scopedThreadKey({ environmentId: ref.environmentId, threadId: rootId });
+  return scopedThreadKey({
+    environmentId: ref.environmentId,
+    threadId: hostRowOf(ref.threadId, parents),
+  });
 }
 
 /** Whether the shell saw the thread archived or deleted and it has not come back. */

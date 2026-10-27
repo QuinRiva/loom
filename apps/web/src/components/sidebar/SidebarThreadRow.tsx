@@ -115,6 +115,7 @@ import { useClientSettings } from "../../hooks/useSettings";
 // loom: 3d-3 — attention override, rollup badge, agent-started cue, prompt-cache liveness, S4.
 import { loomTopStatus } from "../Sidebar.logic.loom";
 import { LoomRollupBadge, useLoomSubThreadsUnsettled } from "../../loom/LoomRollupBadge";
+import { LoomSideThreadRows } from "../../loom/SideThreadRows"; // loom: side-thread sub-rows
 import { CacheFuelRing } from "../../loom/CacheFuelRing"; // loom: prompt-cache liveness
 import { CacheHoverBlock } from "../../loom/CacheHoverBlock"; // loom: prompt-cache liveness
 import { pendingQuestionOf, rowAttentionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: S4, 3d-3
@@ -1276,6 +1277,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           </TooltipTrigger>
           {detailsTooltip}
         </Tooltip>
+        {/* loom: side threads nest under their host row */}
+        <LoomSideThreadRows
+          hostThreadKey={threadKey}
+          onActivate={onThreadActivate}
+          dragging={sortable?.isDragging === true}
+        />
       </li>
     );
   }
@@ -1559,6 +1566,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         </TooltipTrigger>
         {detailsTooltip}
       </Tooltip>
+      {/* loom: side threads nest under their host row */}
+      <LoomSideThreadRows
+        hostThreadKey={threadKey}
+        onActivate={onThreadActivate}
+        dragging={sortable?.isDragging === true}
+      />
     </li>
   );
 });

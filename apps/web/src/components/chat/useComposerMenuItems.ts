@@ -36,7 +36,7 @@ import {
 } from "../pullRequest/pullRequestList.logic";
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
 import { matchThreadMentionItems } from "~/loom/threadMention"; // loom: the `!` thread menu (DL-750)
-import { isVisibleHandoffDrafter } from "~/loom/handoffDrafter"; // loom: hide healthy /handoff drafters
+import { isListedThread } from "@t3tools/client-runtime/state/loom/sideThread"; // loom: hide unattended side threads
 import { LOOM_DRAFT_SLASH_ITEMS } from "~/loom/composerIntercepts"; // loom:
 import {
   searchSlashCommandItems,
@@ -180,7 +180,7 @@ export function useComposerMenuItems({
     if (composerTrigger.kind === "path") {
       return [
         ...matchComposerThreadItems({
-          shells: environmentThreadShells.filter(isVisibleHandoffDrafter), // loom: hide healthy /handoff drafters
+          shells: environmentThreadShells.filter((shell) => isListedThread(shell.source)), // loom: hide unattended side threads
           environmentId,
           excludeThreadId: activeThreadId,
           query: composerTrigger.query,

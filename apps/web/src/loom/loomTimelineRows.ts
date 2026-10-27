@@ -6,10 +6,11 @@
  */
 import { useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
-import type {
-  LoomThreadShellFields,
-  OrchestrationV2ThreadShell,
-  ThreadId,
+import {
+  HANDOFF_DRAFTER_ROLE,
+  type LoomThreadShellFields,
+  type OrchestrationV2ThreadShell,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { Atom } from "effect/reactivity";
@@ -73,7 +74,7 @@ export function handoffReceiptRows(
   );
   const drafters = threads.filter(
     (thread) =>
-      thread.workstream?.role === "handoff-drafter" &&
+      thread.workstream?.role === HANDOFF_DRAFTER_ROLE &&
       thread.workstream.forkFromThreadId === sourceId,
   );
   const liveDrafterIds = new Set(drafters.map((drafter) => drafter.id));

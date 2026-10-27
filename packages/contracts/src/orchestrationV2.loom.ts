@@ -477,6 +477,42 @@ export const LoomThreadWorkstream = Schema.Struct({
 });
 export type LoomThreadWorkstream = typeof LoomThreadWorkstream.Type;
 
+/** A `/handoff` drafter's role: an unattended fork of the source that places one handoff. */
+export const HANDOFF_DRAFTER_ROLE = "handoff-drafter";
+
+/**
+ * Side threads (plans/side-thread-class/plan.mdx): Loom roots, never parents, so no control-plane
+ * reader reaches them; this registry is read by PRESENTATION only, placing each under its anchor
+ * (`forkFromThreadId`). `attended`: the human reads it directly, so it is listed and drawn; an
+ * unattended one (a drafter, whose failure flags its live source) is hidden until it carries attention.
+ */
+const SIDE_THREAD_ROLES = {
+  [DOCUMENT_QUERY_ROLE]: { attended: true },
+  [HANDOFF_DRAFTER_ROLE]: { attended: false },
+} as const satisfies Record<string, { readonly attended: boolean }>;
+export type SideThreadRole = keyof typeof SIDE_THREAD_ROLES;
+
+export interface SideThread {
+  readonly role: SideThreadRole;
+  readonly anchorThreadId: ThreadId;
+  readonly attended: boolean;
+}
+
+const isSideThreadRole = (role: string | null | undefined): role is SideThreadRole =>
+  role != null && Object.hasOwn(SIDE_THREAD_ROLES, role);
+
+/** The side thread a sidecar describes, or null for an ordinary thread (or a member with no fork source). */
+export const sideThreadOf = (
+  workstream: Pick<LoomThreadWorkstream, "role" | "forkFromThreadId"> | null | undefined,
+): SideThread | null =>
+  workstream && isSideThreadRole(workstream.role) && workstream.forkFromThreadId !== null
+    ? {
+        role: workstream.role,
+        anchorThreadId: workstream.forkFromThreadId,
+        attended: SIDE_THREAD_ROLES[workstream.role].attended,
+      }
+    : null;
+
 /** The active provider thread's context window: tokens used of `maxTokens`. */
 export const LoomContextUsage = Schema.Struct({
   usedTokens: NonNegativeInt,
