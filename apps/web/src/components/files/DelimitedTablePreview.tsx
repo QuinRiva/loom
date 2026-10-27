@@ -7,6 +7,7 @@ export function DelimitedTablePreview(props: {
   readonly name: string;
   readonly text: string;
   readonly delimiter: "," | "\t";
+  readonly rememberScroll?: (scroller: Element | null) => (() => void) | undefined; // loom:
 }) {
   const table = parseDelimitedPreview(props.text, props.delimiter);
   const [header, ...body] = table.rows;
@@ -17,7 +18,10 @@ export function DelimitedTablePreview(props: {
           Table limited to the first 100 rows and 30 columns. Switch to source for the rest.
         </FileSurfaceNotice>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div
+        className="min-h-0 flex-1 overflow-auto"
+        ref={(element) => props.rememberScroll?.(element)} // loom: remembered scroll position
+      >
         <table
           className="min-w-full border-separate border-spacing-0 text-xs"
           aria-label={props.name}
