@@ -96,7 +96,7 @@ export const parseGoalTaskMarkdown = (
     if (id !== undefined && (knownTaskIds.has(id) || UUID_SHAPE.test(id))) {
       if (!knownTaskIds.has(id)) {
         return {
-          error: `Line "${raw.trim()}" carries task id ${id}, which is not a task in this goal: your view of the tree is stale (or the id was mistyped). Re-read the tree (${agentToolName("goal_task_list")}, or \`t3 goal show\`) and rewrite from what it returns; drop the "(id)" to submit the line as a new task.`,
+          error: `Line "${raw.trim()}" carries task id ${id}, which is not a task in this goal: your view of the tree is stale (or the id was mistyped). Re-read the tree (${agentToolName("goal_task_list")}) and rewrite from what it returns; drop the "(id)" to submit the line as a new task.`,
         };
       }
       if (seen.has(id)) {
