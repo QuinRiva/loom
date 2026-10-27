@@ -215,6 +215,10 @@
       "types": "./src/state/loom/shelllessThreads.ts",
       "default": "./src/state/loom/shelllessThreads.ts"
     },
+    "./state/loom/sideThread": {
+      "types": "./src/state/loom/sideThread.ts",
+      "default": "./src/state/loom/sideThread.ts"
+    },
     "./state/loom/threadOrigin": {
       "types": "./src/state/loom/threadOrigin.ts",
       "default": "./src/state/loom/threadOrigin.ts"

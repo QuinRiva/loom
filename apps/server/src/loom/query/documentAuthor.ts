@@ -51,7 +51,7 @@ export const parseManagerSessions = (contents: string): ReadonlyArray<ManagerSes
 };
 
 /** Roles that author a document; a `reviewer` or other signer only annotated it. */
-const AUTHOR_ROLES = new Set(["plan", "architecture", "intent", "manager"]);
+const AUTHOR_ROLES = new Set(["plan", "recap", "explainer", "architecture", "intent", "manager"]);
 
 /**
  * Signing sessions in the order to try them: the most recent authoring-role signer first

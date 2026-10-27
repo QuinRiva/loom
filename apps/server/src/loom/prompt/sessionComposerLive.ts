@@ -6,6 +6,7 @@
  */
 import {
   DOCUMENT_QUERY_ROLE,
+  HANDOFF_DRAFTER_ROLE,
   LOOM_CACHE_HORIZON_MS,
   type LoomThreadWorkstream,
   type OrchestrationV2AppThread,
@@ -33,7 +34,6 @@ import {
 } from "../../provider/Drivers/Pi/loomExtension.ts";
 import { LOOM_QUERY_FORK_ENV } from "../query/queryPosture.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { HANDOFF_DRAFTER_ROLE } from "../handoff/handoffDraft.ts";
 import { RETRO_REVIEWER_OVERLAY_PROMPT, RETRO_REVIEWER_TOOLS } from "../handoff/retroDraft.ts";
 import { RETRO_REVIEWER_ROLE } from "../handoff/retroRole.ts";
 import { loomPaths } from "../loomPaths.ts";

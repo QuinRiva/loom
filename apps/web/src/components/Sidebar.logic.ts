@@ -29,7 +29,8 @@ import {
 } from "../lib/threadSort";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { normalizeSearchText } from "../lib/utils";
-import { isVisibleHandoffDrafter } from "../loom/handoffDrafter"; // loom: hide healthy /handoff drafters
+import { sidebarHostedThreadIds } from "./Sidebar.logic.loom"; // loom: side threads nest under their host
+import { isTopLevelRow } from "@t3tools/client-runtime/state/loom/sideThread"; // loom: side threads nest under their host
 import { isLatestRunSettled } from "../session-logic";
 import { observeIntersection } from "../lib/observeIntersection";
 
@@ -528,17 +529,18 @@ export function resolveSidebarRowThreadId(
 }
 
 export function filterSidebarV2VisibleThreads<
-  // loom: `source` for handoff-drafter visibility
+  // loom: `source` for side-thread placement
   T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage" | "source"> & {
     environmentId: string;
     projectId: string;
   },
 >(threads: readonly T[], scopedProjectKeys: ReadonlySet<string> | null): T[] {
+  const hosted = sidebarHostedThreadIds(threads); // loom: side threads nest under their host
   return threads.filter(
     (thread) =>
       thread.archivedAt === null &&
       !isSidebarSubagentThread(thread) &&
-      isVisibleHandoffDrafter(thread) && // loom: healthy /handoff drafters stay hidden
+      isTopLevelRow(thread.source, hosted) && // loom: side threads take a row only when they cannot nest
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );

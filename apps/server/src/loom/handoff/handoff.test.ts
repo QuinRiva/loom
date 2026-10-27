@@ -10,6 +10,7 @@ import {
   CommandId,
   EventId,
   GoalId,
+  HANDOFF_DRAFTER_ROLE,
   LOOM_WS_METHODS,
   ProjectId,
   ProviderDriverKind,
@@ -45,11 +46,7 @@ import {
   writeEvents,
 } from "../testkit/loomOrchestratorLayer.ts";
 import { makeLoomWsHandlers } from "../wsMethods.ts";
-import {
-  buildDrafterKickoffPrompt,
-  buildDrafterTitle,
-  HANDOFF_DRAFTER_ROLE,
-} from "./handoffDraft.ts";
+import { buildDrafterKickoffPrompt, buildDrafterTitle } from "./handoffDraft.ts";
 import {
   classifyHandoffSettlement,
   HANDOFF_HUNG_GRACE_MS,

@@ -9,6 +9,7 @@ import {
   type GoalId,
   LoomWsMethodError,
   type OrchestrationV2ServerCommand,
+  HANDOFF_DRAFTER_ROLE,
   type OrchestrationV2ThreadShell,
   ThreadId,
 } from "@t3tools/contracts";
@@ -21,9 +22,6 @@ import { runlessForkSource } from "../../orchestration-v2/runlessFork.loom.ts";
 import { isForkableSourceRunStatus } from "../../orchestration-v2/ThreadForkService.ts";
 import { controlMessage } from "../orchestration/dispatcher/controlMessage.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
-
-/** The role every handoff-drafter special case keys on (3a's `mcp__t3-code__goal_handoff`, the reactor). */
-export const HANDOFF_DRAFTER_ROLE = "handoff-drafter";
 
 const TITLE_EXPLANATION_MAX = 50;
 

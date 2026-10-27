@@ -5,6 +5,7 @@
  * an increment; goal cascades never overwrite a goal written after the event (`updated_at`).
  */
 import {
+  HANDOFF_DRAFTER_ROLE,
   isLoomDomainEvent,
   type GoalId,
   type IsoDateTime,
@@ -383,7 +384,7 @@ const stampHandoffOrigin = Effect.fn("loomProjection.stampHandoffOrigin")(functi
 ) {
   const destination = yield* readWorkstream(sql, event.payload.destinationThreadId);
   if (destination === null || destination.handoffOrigin?.initiatedBy === "human") return;
-  const drafter = caller?.role === "handoff-drafter";
+  const drafter = caller?.role === HANDOFF_DRAFTER_ROLE;
   const human =
     drafter ||
     (event.payload.drafterThreadId !== null && event.payload.drafterThreadId !== event.threadId);

@@ -44,7 +44,10 @@ written and checked, tell the reader the path and ask them to open it and mark
 anything that does not land. A child thread's reader is reached through its
 parent: the report carries the path, the reader brief's three lines and the one
 thing that needs the human, so the parent can hand the document on without
-reading it first.
+reading it first. An explainer is signed with `sign_document` (role
+`explainer`) when the thread has the tool: a Query on the explainer forks the
+thread that signed it, and an unsigned explainer sends the question to
+whichever thread the reader opened it from.
 
 ## Before drafting
 

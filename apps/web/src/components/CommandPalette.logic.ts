@@ -33,7 +33,7 @@ import { type ReactNode } from "react";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
 import { isSidebarSubagentThread } from "./Sidebar.logic";
-import { isVisibleHandoffDrafter } from "../loom/handoffDrafter"; // loom: hide healthy /handoff drafters
+import { isListedThread } from "@t3tools/client-runtime/state/loom/sideThread"; // loom: hide unattended side threads
 
 export const RECENT_THREAD_LIMIT = 12;
 export const ITEM_ICON_CLASS = "size-4 text-icon-muted";
@@ -401,7 +401,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
     (thread) =>
       thread.archivedAt === null &&
       !isSidebarSubagentThread(thread) &&
-      isVisibleHandoffDrafter(thread), // loom: healthy /handoff drafters stay hidden; broken (flagged) ones surface
+      isListedThread(thread.source), // loom: unattended side threads (/handoff drafters) stay hidden unless flagged
   );
 
   return visibleThreads.map((thread) => {

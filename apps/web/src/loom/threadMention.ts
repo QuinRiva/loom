@@ -1,9 +1,9 @@
 import type { ComposerThreadItem } from "@t3tools/client-runtime/composerThreadItems";
+import { isListedThread } from "@t3tools/client-runtime/state/loom/sideThread";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { basenameOfPath } from "../pierre-icons";
-import { isVisibleHandoffDrafter } from "./handoffDrafter";
 
 /** Max threads the `!` menu lists (titles are non-unique). */
 const THREAD_MENTION_MATCH_LIMIT = 8;
@@ -11,7 +11,7 @@ const THREAD_MENTION_MATCH_LIMIT = 8;
 /**
  * The `!` thread-reference menu: threads whose title contains the whole query, case-insensitively,
  * prefix matches first, then most recent. Only the composer's environment is listed, because the
- * agent reads threads from its own server; healthy `/handoff` drafters stay hidden. Titles are
+ * agent reads threads from its own server; unattended side threads (`/handoff` drafters) stay hidden. Titles are
  * non-unique, so each item's description is `role · outcome · branch`.
  */
 export const matchThreadMentionItems = (input: {
@@ -27,7 +27,7 @@ export const matchThreadMentionItems = (input: {
         shell.environmentId === input.environmentId &&
         shell.id !== input.excludeThreadId &&
         shell.title.trim().length > 0 &&
-        isVisibleHandoffDrafter(shell),
+        isListedThread(shell.source),
     )
     .flatMap((shell) => {
       const rank = shell.title.toLowerCase().indexOf(query);

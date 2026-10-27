@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { HANDOFF_DRAFTER_ROLE, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
@@ -34,7 +34,7 @@ function EnvironmentHandoffToasts({ environmentId }: { environmentId: Environmen
     const prior = previous.current ?? new Map<string, LoomTimelineRow>();
     const sources = new Set([
       ...threads.flatMap((thread) =>
-        thread.workstream?.role === "handoff-drafter" && thread.workstream.forkFromThreadId
+        thread.workstream?.role === HANDOFF_DRAFTER_ROLE && thread.workstream.forkFromThreadId
           ? [thread.workstream.forkFromThreadId]
           : [],
       ),

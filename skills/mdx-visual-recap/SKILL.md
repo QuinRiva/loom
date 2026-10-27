@@ -45,7 +45,10 @@ recaps/<slug>/recap.mdx
 A folder per recap so sibling artefacts can sit beside it. A decision batch is
 a recap-genre artefact at the same path unless it is plainly a plan's sign-off,
 in which case `plans/<slug>/…` is fine. When it is written and checked, tell
-the reader the path and ask them to open, triage and decide in-app.
+the reader the path and ask them to open, triage and decide in-app. A recap is
+signed with `sign_document` (role `recap`) when the thread has the tool: a
+Query on the recap forks the thread that signed it, and an unsigned recap sends
+the question to whichever thread the reader opened it from.
 
 A recap of work a plan governed names that plan in its frontmatter
 (`plan: plans/<slug>/plan.mdx`) and, in the same commit, adds

@@ -29,6 +29,15 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Outbox effect           | Side-effect intent committed with the events, such as starting a provider turn or capturing a checkpoint. |
 | Effect worker           | The worker that runs outbox effects after commit and feeds their results back as commands.                |
 
+<!-- loom: side threads -->
+
+## Loom side threads
+
+| Term        | Meaning                                                                                                                                                                                                                                                          |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Side thread | A thread that lives on another thread's context beside the workstream graph: a root that is never a parent, so no control-plane reader reaches it. Today a query thread or a `/handoff` drafter (`SIDE_THREAD_ROLES`); the class decides only where it is shown. |
+| Anchor      | The thread a side thread hangs from in every presentation (sidebar, graph, thread tabs): the thread it was forked from.                                                                                                                                          |
+
 ## Providers and checkpoints
 
 | Term                | Meaning                                                                                                      |
