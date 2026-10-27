@@ -3,9 +3,12 @@ manager_sessions:
   - id: 86c158b7-7422-42ee-abb0-c9065deaa1ec
     role: architecture
     authored_at: 2026-06-22T22:58:54.791Z
+status: done
 ---
 
 # Workflow-based sub-agents in T3 Code — landscape research & design options
+
+> V1-era design history (June 2026, before the pull 9 V2 port), moved here from `.plans/workflow-subagent-sessions-research.md` on 2026-10-27. Intent only: source paths it names are V1; verify against the code. Sibling `.plans/…` paths it cites are at commit `c579a09002`.
 
 **Status:** research / design exploration (not a commitment to build)
 **Audience:** anyone designing how T3 Code spawns, displays, and lets you interact with sub-agent sessions

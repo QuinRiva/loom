@@ -19,9 +19,13 @@ const outFile = outIndex === -1 ? undefined : args[outIndex + 1];
 const png = args.includes("--png");
 const linksOnly = args.includes("--links-only");
 
-/** Lifecycle kind by root-relative path; `plans/renderer-audit/` is a render fixture, not a plan. */
+/** Lifecycle kind by root-relative path; `plans/renderer-audit/` and `plans/mdx-review-blocks/` are render fixtures, not plans. */
 function kindOf(relative) {
-  if (relative.startsWith("plans/renderer-audit/")) return undefined;
+  if (
+    relative.startsWith("plans/renderer-audit/") ||
+    relative.startsWith("plans/mdx-review-blocks/")
+  )
+    return undefined;
   if (/^plans\/(.+\/plan\.mdx?|[^/]+\.md)$/.test(relative)) return "plan";
   if (/^plans\/.+\/intent\.mdx?$/.test(relative)) return "brief";
   if (/^recaps\/.+\/recap\.mdx$/.test(relative)) return "recap";
