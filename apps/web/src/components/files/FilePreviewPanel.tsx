@@ -126,6 +126,12 @@ import {
 import { LoomMdxAnnotationLayer, LoomMdxReviewCount } from "~/loom/LoomMdxAnnotationLayer"; // loom: query threads
 import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
+// loom: previews reopen where the reader left them after a thread switch.
+import {
+  readRememberedScroll,
+  rememberedScrollRef,
+  scrollAreaViewport,
+} from "./rememberedScroll.loom";
 import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
 // loom: change review — marks, the whole-file change view and its header (loom/review/).
 import { LoomFilesReviewBar } from "~/loom/review/BaselineChip";
@@ -453,6 +459,7 @@ function useFileLineReveal(
   relativePath: string | null,
   revealLine: number | null,
   revealRequestId: number,
+  revealConsumed: boolean, // loom: a remembered position already covers this reveal
 ): FilePostRender {
   const [revealStatesByPath] = useState(() => new Map<string, FileRevealState>());
 
@@ -491,7 +498,7 @@ function useFileLineReveal(
     if (state.latestRequestId !== revealRequestId) {
       cancelPendingReveal();
       state.latestRequestId = revealRequestId;
-      state.handledRequestId = null;
+      state.handledRequestId = revealConsumed ? revealRequestId : null; // loom:
     }
 
     if (revealLine === null) {
@@ -678,6 +685,7 @@ interface EditableFileSurfaceProps {
   wordWrap: boolean;
   onPostRender: FilePostRender;
   onPendingChange: (relativePath: string, pending: boolean) => void;
+  rememberScroll: ReturnType<typeof rememberedScrollRef>; // loom: remembered scroll position
 }
 
 interface FileSelectionOverride {
@@ -696,6 +704,7 @@ function EditableFileSurface({
   wordWrap,
   onPostRender,
   onPendingChange,
+  rememberScroll, // loom:
 }: EditableFileSurfaceProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -885,7 +894,14 @@ function EditableFileSurface({
 
   return (
     <EditProvider createEditor={createFileEditor}>
-      <div ref={surfaceRef} className="flex min-h-0 flex-1">
+      <div
+        // loom: the Virtualizer takes no ref; its outer element is the scroller.
+        ref={(element) => {
+          surfaceRef.current = element;
+          return rememberScroll(element?.firstElementChild);
+        }}
+        className="flex min-h-0 flex-1"
+      >
         <Virtualizer
           className="file-preview-virtualizer min-h-0 flex-1 overflow-auto"
           config={{
@@ -963,6 +979,7 @@ function RenderedMarkdownSurface({
   workspaceMutationId,
   readOnly,
   onPendingChange,
+  rememberScroll, // loom:
 }: Omit<
   EditableFileSurfaceProps,
   "resolvedTheme" | "revealLine" | "revealRequestId" | "wordWrap" | "onPostRender"
@@ -986,7 +1003,10 @@ function RenderedMarkdownSurface({
   // so another worktree's review doc stays triageable while the file stays read-only.
   if (isMdxPreviewFile(relativePath)) {
     return (
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea
+        className="min-h-0 flex-1"
+        ref={(root) => rememberScroll(scrollAreaViewport(root))}
+      >
         <BleedFrame>
           {/* loom: `<Image src="shots/x.png">` resolves against the document's own
               directory and loads through a signed asset URL, exactly as a `.md`
@@ -1009,7 +1029,10 @@ function RenderedMarkdownSurface({
   // the task-toggle write path.
   if (readOnly) {
     return (
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea
+        className="min-h-0 flex-1"
+        ref={(root) => rememberScroll(scrollAreaViewport(root))}
+      >
         <BleedFrame>
           <FileMarkdownPreview
             text={contents}
@@ -1024,7 +1047,8 @@ function RenderedMarkdownSurface({
   }
 
   return (
-    <ScrollArea className="min-h-0 flex-1">
+    // loom: remembered scroll position
+    <ScrollArea className="min-h-0 flex-1" ref={(root) => rememberScroll(scrollAreaViewport(root))}>
       {/* loom: BleedFrame (wide-block bleed) */}
       <BleedFrame>
         <FileMarkdownPreview
@@ -1259,7 +1283,25 @@ export default function FilePreviewPanel({
       : relativePath && attachment === undefined
         ? resolvePathLinkTarget(relativePath, cwd)
         : null;
-  const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
+  // loom: positions are kept per thread, file and view. A remembered source position recorded
+  // under this reveal request means the reveal already ran, so the memory wins over re-revealing;
+  // a new request (a citation chip, a reveal) still lands on its line.
+  const scrollKey = `${scopedThreadKey(threadRef)}:${cwd}:${relativePath ?? ""}`;
+  const revealConsumed =
+    revealLine !== null &&
+    readRememberedScroll(`${scrollKey}:source`)?.revealRequestId === revealRequestId;
+  const scrollRefFor = (view: "rendered" | "source" | "table") =>
+    rememberedScrollRef(
+      `${scrollKey}:${view}`,
+      revealRequestId,
+      view === "source" && revealLine !== null && !revealConsumed,
+    );
+  const onFilePostRender = useFileLineReveal(
+    relativePath,
+    revealLine,
+    revealRequestId,
+    revealConsumed, // loom:
+  );
   // loom: a baseline-marked file opens whole, side by side, unless it is a document that
   // renders (markdown, MDX, HTML, tables), which opens as a document with its changes opt-in.
   // Keyed on the file type, not `rendered`, so the source toggle never lands in the diff. An
@@ -1604,6 +1646,7 @@ export default function FilePreviewPanel({
                 workspaceMutationId={workspaceMutationId}
                 readOnly={isHostFile || !canWriteFiles}
                 onPendingChange={onPendingChange}
+                rememberScroll={scrollRefFor("rendered")} // loom:
               />
             ) : tableDelimiter && renderTable ? (
               <DelimitedTablePreview
@@ -1611,20 +1654,32 @@ export default function FilePreviewPanel({
                 name={relativePath}
                 text={file.data.contents}
                 delimiter={tableDelimiter}
+                rememberScroll={scrollRefFor("table")} // loom:
               />
             ) : // loom: unboundedLines renders elided and read-only
             file.data.truncated || isHostFile || unboundedLines || !canWriteFiles ? (
-              <SourceFilePreview
-                name={relativePath}
-                // loom: elided long lines
-                text={elidedContents ?? file.data.contents}
-                cacheKey={projectFileCacheKey(
-                  cwd,
-                  relativePath,
-                  elidedContents ?? file.data.contents,
-                )}
-                onPostRender={onFilePostRender}
-              />
+              // loom: remembered scroll position. The Virtualizer inside takes no ref and is keyed
+              // on name, theme and length, so a layout-free wrapper sharing that key hands each
+              // scroller over; the outer provider holds the wrapper until the Virtualizer mounts.
+              <DiffWorkerPoolProvider>
+                <div
+                  key={`${relativePath}:${resolvedTheme}:${(elidedContents ?? file.data.contents).length}`}
+                  className="contents"
+                  ref={(element) => scrollRefFor("source")(element?.firstElementChild)}
+                >
+                  <SourceFilePreview
+                    name={relativePath}
+                    // loom: elided long lines
+                    text={elidedContents ?? file.data.contents}
+                    cacheKey={projectFileCacheKey(
+                      cwd,
+                      relativePath,
+                      elidedContents ?? file.data.contents,
+                    )}
+                    onPostRender={onFilePostRender}
+                  />
+                </div>
+              </DiffWorkerPoolProvider>
             ) : (
               <DiffWorkerPoolProvider>
                 <EditableFileSurface
@@ -1639,6 +1694,7 @@ export default function FilePreviewPanel({
                   wordWrap={wordWrap}
                   onPostRender={onFilePostRender}
                   onPendingChange={onPendingChange}
+                  rememberScroll={scrollRefFor("source")} // loom:
                 />
               </DiffWorkerPoolProvider>
             )

@@ -19,6 +19,10 @@ Fork-seam rules (loom state lives in loom-owned files — `apps/web/src/loom/`, 
 | 3. One-shot cross-navigation intent | A value set once by one surface and consumed once by another; never lingers         | Small ephemeral store, set-once / read-once                                                              | Loom: `loom/loomScrollStore.ts` (scroll-to-dispatch) — already correct, leave it alone                                                                                                                              |
 | 4. Transient render state           | State meaningful only while a component is mounted                                  | Component `useState` / `useRef`                                                                          | `WorkstreamGraph` viewBox and drag refs; in-flight flags (`isSpawning`); the goal title/description **edit drafts** in `GoalTasksPanel` (deliberately not persisted — persisted drafts would resurrect stale edits) |
 
+Scroll positions (the chat timeline's, file previews' in `rememberedScroll.loom.ts`) sit between
+tiers 1 and 4: an in-memory map keyed by thread that survives remounts and thread switches but not
+a reload, because persisting on every scroll frame costs more than a reload's reset is worth.
+
 Picking the tier is the design decision. If a choice should outlive the component that sets it,
 it is tier 1 or 2 and belongs in a store — not in `useState` layered over the persisted world.
 
