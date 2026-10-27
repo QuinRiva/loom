@@ -1,0 +1,311 @@
+---
+kicker: "Plan · side threads outside the operational graph · 27 Oct 2026"
+reader:
+  who: loom's owner, approving in principle that a query thread stops being a root in his inbox; a reviewer gate stands in for him on detail, and a coder implements this plan without further approval
+  knows: the thread model (roots, children, forks, consults, the workstream graph) and his own "ghost node" framing; none of the code named here
+  after_first_screen: what a side thread is, where it shows (under its anchor in the sidebar, as a satellite on the graph, in the anchor's tab group) and where it never shows (a top-level inbox row, workstream_list, any rollup), and that no control-plane behaviour changes
+manager_sessions:
+  - id: 01a17c0b-f41e-7112-92f4-77e3d302d8d5
+    name: Side-thread class plan
+    role: plan
+    authored_at: 2026-10-27T06:46:13.983Z
+---
+
+# Side threads: one named class that presentation reads, nothing the control plane does
+
+**Recommendation: name the class that query threads and `/handoff` drafters already belong to, `side thread`, as one registry in the loom contracts that every presentation surface reads instead of role names, with four uniform rules: it nests under its anchor's row in the sidebar and is never a top-level inbox item, it hangs as a satellite under its anchor on the graph, it joins its anchor's tab group, and it stays structurally outside `workstream_list` and every rollup.** Nothing on the server's operational graph moves: a side thread keeps `parentThreadId` null and is never anyone's parent, which is what already keeps it out of dispatcher wakes, join barriers, cascades, gate routing and the tree `workstream_list` walks. The class is **derived from the role** (no migration, no stored column), and its one attribute, whether the human reads the thread directly, tells a query thread (shown under its author) from a drafter (hidden until it needs you, as today).
+
+**Your symptom goes away:** a Query no longer "opens a completely new root thread" in the inbox; it appears as a slim indented row under the thread that wrote the document, and the inbox's sort, unread and attention are untouched by it. **Cost:** about a day and a half of coder time, web and client-runtime only, plus a one-line server change (the thread that signed a document) and a sentence in two skills so recaps and explainers get signed like plans do. **Two bets:** that `forkFromThreadId` is the right anchor for every member (it is, for both members today), and that a sub-row rendered inside the anchor's sidebar row is enough nesting for a flat inbox (no tree, no collapse state, nothing persisted).
+
+<Columns>
+  <Column label="Before">
+<Screen
+  surface="panel"
+  caption="A query thread is a top-level card in the inbox, above the author it was forked from"
+  html={"<div style='display:flex;flex-direction:column;height:100%;box-sizing:border-box;padding:12px 10px;gap:4px'><div style='display:flex;align-items:center;gap:8px;padding:2px 6px 8px;white-space:nowrap'><strong style='font-size:12px'>Inbox</strong><div style='flex:1'></div><small>4</small></div><div class='wf-card' style='padding:8px 10px;display:flex;flex-direction:column;gap:4px;border-color:var(--wf-accent)'><div style='display:flex;align-items:center;gap:6px;white-space:nowrap'><span style='font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0'>Query: plan.mdx</span><small>2m</small></div><small class='wf-muted'>read-only fork · answering…</small></div><div class='wf-card' style='padding:8px 10px;display:flex;flex-direction:column;gap:4px'><div style='display:flex;align-items:center;gap:6px;white-space:nowrap'><span style='font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0'>Plan query threads for document review</span><span class='wf-pill' style='font-size:10px;padding:1px 6px'>4/6</span><small>18m</small></div><small class='wf-muted'>Reviewer gate on the planner's draft</small></div><div class='wf-card' style='padding:8px 10px;display:flex;flex-direction:column;gap:4px'><div style='display:flex;align-items:center;gap:6px;white-space:nowrap'><span style='font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0'>Fix sidebar flicker on reconnect</span><small>1h</small></div><small class='wf-muted'>Done · PR #438 merged</small></div><div class='wf-card' style='padding:8px 10px;display:flex;flex-direction:column;gap:4px'><div style='display:flex;align-items:center;gap:6px;white-space:nowrap'><span style='font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0'>Cadence pull 10 reconciliation</span><small>3h</small></div><small class='wf-muted'>Waiting on you · Accept?</small></div></div>"}
+/>
+  </Column>
+  <Column label="After">
+<Screen
+  surface="panel"
+  caption="The same inbox: the query thread is a slim row under its author, and the inbox count does not include it"
+  html={"<div style='display:flex;flex-direction:column;height:100%;box-sizing:border-box;padding:12px 10px;gap:4px'><div style='display:flex;align-items:center;gap:8px;padding:2px 6px 8px;white-space:nowrap'><strong style='font-size:12px'>Inbox</strong><div style='flex:1'></div><small>3</small></div><div class='wf-card' style='padding:8px 10px 6px;display:flex;flex-direction:column;gap:4px'><div style='display:flex;align-items:center;gap:6px;white-space:nowrap'><span style='font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0'>Plan query threads for document review</span><span class='wf-pill' style='font-size:10px;padding:1px 6px'>4/6</span><small>18m</small></div><small class='wf-muted'>Reviewer gate on the planner's draft</small><div style='display:flex;align-items:center;gap:6px;margin:4px 0 0 14px;padding:4px 8px;border-radius:var(--wf-radius);background:var(--wf-accent-soft);white-space:nowrap'><span style='width:14px;height:14px;border-radius:999px;border:1.4px solid var(--wf-accent);color:var(--wf-accent);font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none'>?</span><span style='font-size:11.5px;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0'>Query: plan.mdx</span><span style='width:6px;height:6px;border-radius:999px;background:var(--wf-accent);flex:none'></span></div></div><div class='wf-card' style='padding:8px 10px;display:flex;flex-direction:column;gap:4px'><div style='display:flex;align-items:center;gap:6px;white-space:nowrap'><span style='font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0'>Fix sidebar flicker on reconnect</span><small>1h</small></div><small class='wf-muted'>Done · PR #438 merged</small></div><div class='wf-card' style='padding:8px 10px;display:flex;flex-direction:column;gap:4px'><div style='display:flex;align-items:center;gap:6px;white-space:nowrap'><span style='font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0'>Cadence pull 10 reconciliation</span><small>3h</small></div><small class='wf-muted'>Waiting on you · Accept?</small></div></div>"}
+/>
+  </Column>
+</Columns>
+
+**What this covers.** The class and its registry; the sidebar sub-row and the removal of side threads from the top-level inbox, the command palette rule, the graph satellite rule, the thread-tab grouping rule; folding the three existing ad-hoc role checks into the class; signing for recaps and explainers. **Not doing:** any change to how side threads are created, forked, launched, held read-only or settled (role-keyed server mechanism, untouched); a mobile sub-row (today's mobile rows stay as they are; open question at the end); keyboard arrow-navigation onto sub-rows. **Done means:** on a seeded dev instance, a Query from a signed plan shows no new top-level row, shows a slim "Query: plan.mdx" row under the author's row with the active highlight, the author's rollup badge and inbox position are unchanged, the graph still draws the satellite, the query thread's tab sits in the author's tab group, `/handoff` behaves exactly as today, and `vp check` and `vp run typecheck` pass. **Two questions at the end:** whether a drafter stays hidden while drafting, and whether mobile nests in this change or a follow-up.
+
+## 1. Where a side thread shows, and where it never shows
+
+<Table
+  density="compact"
+  columns={["Surface", "Attended side thread (a query thread)", "Unattended side thread (a /handoff drafter)"]}
+  rows={[
+    ["Sidebar, top-level row", { badge: { label: "never", tone: "risk" }, md: "unless it carries attention" }, { badge: { label: "never", tone: "risk" }, md: "unless it carries attention (today's rule)" }],
+    ["Sidebar, sub-row under its host row", { badge: { label: "yes", tone: "success" }, md: "slim, indented, active highlight when open" }, { badge: { label: "no", tone: "neutral" }, md: "hidden, as today" }],
+    ["Inbox sort, unread, attention of the host", { badge: { label: "untouched", tone: "success" }, md: "the sub-row is part of the host's row, not a list item" }, { badge: { label: "untouched", tone: "success" } }],
+    ["Workstream graph", { badge: { label: "satellite", tone: "success" }, md: "dashed, under the anchor, never an edge" }, { badge: { label: "no", tone: "neutral" }, md: "as today" }],
+    ["Thread tabs", { badge: { label: "anchor's group", tone: "success" } }, { badge: { label: "anchor's group", tone: "success" } }],
+    ["Command palette, @-mentions", { badge: { label: "listed", tone: "success" } }, { badge: { label: "hidden", tone: "neutral" }, md: "unless attention" }],
+    ["`workstream_list`, digests, control notices", { badge: { label: "never", tone: "risk" }, md: "structural: a root of its own tree, no parent" }, { badge: { label: "never", tone: "risk" } }],
+    ["Rollup, join barrier, cancel cascade, gate routing", { badge: { label: "never", tone: "risk" }, md: "structural: lineage walks never reach it" }, { badge: { label: "never", tone: "risk" } }],
+    ["Mobile thread list", { badge: { label: "unchanged", tone: "warning" }, md: "top-level row, as today; follow-up in §8" }, { badge: { label: "unchanged", tone: "warning" }, md: "top-level row, as today" }],
+  ]}
+/>
+
+Read the two badge columns as the whole rule: the class decides placement; the single attribute `attended` decides whether the thread is shown at all. Everything in the last three rows is already true today and stays true because nothing structural changes; the file and symbol behind each row is named in §3 to §6.
+
+## 2. What a side thread is
+
+The plan defines four terms; the implementer writes them into `docs/internals/glossary.md` under a `<!-- loom -->` marker (per the domain-modelling rule that the glossary write happens at implementation).
+
+- **Side thread.** A thread that lives on another thread's context, beside the operational graph: a Loom root (`parentThreadId` null), never a parent, with no goal of its own (a query thread has none; a drafter carries its source's goal until it is archived), that exists to serve the human or a tool rather than to do delegated work. Replaces "ghost node" and "pseudo-node". Today: a query thread and a `/handoff` drafter.
+- **Anchor.** The thread a side thread hangs from in every presentation: the thread it was forked from, `workstream.forkFromThreadId`. Both members are forks, so the field is the anchor for the whole class; a member with no fork source is not a side thread (it falls back to an ordinary root, so nothing is ever unreachable).
+- **Host row.** The sidebar row a side thread nests under: its anchor's row when the anchor is a root, else the anchor's workstream root (sidebar v2 hides children, so the root is the nearest row that exists). Found by the same parent walk the thread tabs already use.
+- **Attended.** Whether the human reads the thread directly. A query thread is attended (the human chats in it); a drafter is unattended (it runs once, places a handoff, and the server archives it). Attended side threads are listed and drawn; unattended ones are hidden until they carry attention.
+
+<Table
+  density="compact"
+  columns={["Candidate", "Member?", "Why"]}
+  rows={[
+    [
+      "`document-query` (a Query on a plan or recap)",
+      { badge: { label: "yes · attended", tone: "success" } },
+      "A fork of the document's author, read-only, human-driven. The only reason it was a root was to stay out of the control plane; the class gives it the presentation to match.",
+    ],
+    [
+      "`handoff-drafter` (`/handoff`)",
+      { badge: { label: "yes · unattended", tone: "success" } },
+      "A fork of the source, unattended, archived once it hands off. Its three ad-hoc rules (hidden unless attention, the receipt row on the source, the settlement toast) are the class rule plus two role-specific surfaces that stay role-keyed (§5).",
+    ],
+    [
+      "`retro-reviewer` (`/retro`)",
+      { badge: { label: "no", tone: "neutral" } },
+      "Not a fork: a fresh root with no structured link to the reviewed thread (`forkFromThreadId` null; the source is named only in prose in `purpose`). The human opens it as a conversation of its own and reads its recap there, often after the reviewed workstream has settled, so an inbox row is what it needs. It already sits outside the emergent-goal reactor by role; nothing changes.",
+    ],
+    [
+      "A `consult_thread` fork",
+      { badge: { label: "n/a", tone: "neutral" } },
+      "Never materialised as a thread (the fork is discarded; the asker's card holds the exchange). If one were ever persisted, it would be an unattended side thread anchored on its target, and the registry gains one row.",
+    ],
+    [
+      "A `thread_fork` result, a `goal_continue` root, a handed-off root",
+      { badge: { label: "no", tone: "neutral" } },
+      "Real work roots that take a goal, spawn children and finish with an outcome; they belong in the inbox.",
+    ],
+  ]}
+/>
+
+<Callout tone="decision" title="Derived from the role, not stored">
+  The registry below is a constant in the contracts package, and `sideThreadOf(workstream)` computes membership from the two sidecar fields every client already holds (`role`, `forkFromThreadId`). A stored column would buy nothing: membership never changes over a thread's life, both members are minted server-side with their role, and a derived field needs no migration and cannot drift from the role. The one thing a stored column could add, letting a human mark an arbitrary thread as a side thread, is not asked for.
+</Callout>
+
+## 3. The registry and its selectors
+
+`packages/contracts/src/orchestrationV2.loom.ts` already hosts `DOCUMENT_QUERY_ROLE`. `HANDOFF_DRAFTER_ROLE` moves there from `apps/server/src/loom/handoff/handoffDraft.ts` (the four server importers switch to the contracts import; the web's three string literals `"handoff-drafter"` become the constant), and the registry sits beside them:
+
+<Code
+  language="ts"
+  wrap
+  code={"/**\n * Side threads (plans/side-thread-class/plan.mdx): threads that live beside the\n * operational graph on another thread's context. A side thread is a Loom ROOT (no lineage\n * parent) and never a parent, so every control-plane reader (dispatcher wakes, join\n * barriers, rollups, cascades, gate routing, workstream_list) excludes it structurally;\n * this registry is read by PRESENTATION only. Its anchor is the thread it was forked\n * from (`forkFromThreadId`): the sidebar nests it under the anchor's row, the graph\n * hangs it under the anchor's card, the thread tabs group it with the anchor's\n * workstream. `attended` is whether the human reads the thread directly: an attended\n * side thread is listed and drawn; an unattended one is hidden until it carries\n * attention (a broken drafter raises needs_guidance on its live source, where the\n * source timeline's receipt row reaches it; only a drafter whose source is gone is\n * flagged itself, and must then surface).\n */\nexport const HANDOFF_DRAFTER_ROLE = \"handoff-drafter\";\n\nexport const SIDE_THREAD_ROLES = {\n  [DOCUMENT_QUERY_ROLE]: { attended: true },\n  [HANDOFF_DRAFTER_ROLE]: { attended: false },\n} as const satisfies Record<string, { readonly attended: boolean }>;\nexport type SideThreadRole = keyof typeof SIDE_THREAD_ROLES;\n\nexport interface SideThread {\n  readonly role: SideThreadRole;\n  readonly anchorThreadId: ThreadId;\n  readonly attended: boolean;\n}\n\n/** The side thread a sidecar describes, or null for an ordinary thread (or a member with no fork source). */\nexport const sideThreadOf = (\n  workstream: Pick<LoomThreadWorkstream, \"role\" | \"forkFromThreadId\"> | null | undefined,\n): SideThread | null => {\n  const role = workstream?.role ?? null;\n  if (role === null || !Object.hasOwn(SIDE_THREAD_ROLES, role) || workstream!.forkFromThreadId === null)\n    return null;\n  return {\n    role: role as SideThreadRole,\n    anchorThreadId: workstream!.forkFromThreadId,\n    attended: SIDE_THREAD_ROLES[role as SideThreadRole].attended,\n  };\n};\n"}
+/>
+
+The three listing predicates and the host walk are client-side selectors in a new `packages/client-runtime/src/state/loom/sideThread.ts`, so web and mobile read one rule (the mobile half is a follow-up, §8):
+
+<Code
+  language="ts"
+  wrap
+  code={"import { sideThreadOf } from \"@t3tools/contracts\";\n\ntype Shell = Pick<OrchestrationV2ThreadShell, \"id\" | \"lineage\" | \"workstream\">;\n\nconst hasAttention = (shell: Pick<Shell, \"workstream\">) =>\n  (shell.workstream?.attention.length ?? 0) > 0;\n\n/** Listed in any flat list of threads (palette, @-mentions): everything but an unattended side thread without attention. */\nexport const isListedThread = (shell: Pick<Shell, \"workstream\">) => {\n  const side = sideThreadOf(shell.workstream);\n  return side === null || side.attended || hasAttention(shell);\n};\n\n/**\n * Takes a top-level sidebar row: an ordinary thread always; a side thread only when it\n * carries attention (the way a broken one reaches you), or when it is attended and its\n * anchor is not in the snapshot (archived or deleted), so a way in is never lost.\n */\nexport const isTopLevelRow = (shell: Pick<Shell, \"workstream\">, present: ReadonlySet<ThreadId>) => {\n  const side = sideThreadOf(shell.workstream);\n  return side === null || hasAttention(shell) || (side.attended && !present.has(side.anchorThreadId));\n};\n\n/** Nests as a sub-row under its host: an attended side thread that takes no top-level row. */\nexport const isSubRow = (shell: Pick<Shell, \"workstream\">, present: ReadonlySet<ThreadId>) =>\n  sideThreadOf(shell.workstream)?.attended === true && !isTopLevelRow(shell, present);\n\n/**\n * The thread a shell hangs from in presentation: its `subagent` parent (the workstream\n * edge), else its side-thread anchor, else null for a root. The one place lineage and the\n * class meet; the thread tabs and the sidebar host walk both read it.\n */\nexport const presentationParentOf = (shell: Pick<Shell, \"lineage\" | \"workstream\">): ThreadId | null =>\n  shell.lineage.relationshipToParent === \"subagent\"\n    ? shell.lineage.parentThreadId\n    : (sideThreadOf(shell.workstream)?.anchorThreadId ?? null);\n\n/** The root reached by walking `presentationParentOf` edges (an unloaded ancestor is still named; a cycle stops). */\nexport const hostRowOf = (threadId: ThreadId, parents: ReadonlyMap<ThreadId, ThreadId | null>): ThreadId => {\n  const seen = new Set([threadId]);\n  let root = threadId;\n  for (let parent = parents.get(root); parent && !seen.has(parent); ) {\n    seen.add(parent);\n    root = parent;\n    parent = parents.get(root);\n  }\n  return root;\n};\n"}
+/>
+
+`hostRowOf` is `resolveThreadGroupKey`'s loop in `apps/web/src/loom/threadTabGroups.ts` lifted out; that file's `parents` map is built with `presentationParentOf` instead of its inline `subagent` test, which is the whole thread-tabs change. A chain (a `/handoff` typed inside a query thread forks the query thread) walks drafter, query thread, author, root.
+
+**No new persisted client state.** Every value here is derived from the environment's shell snapshot in atoms, the same shape as the rollup index (`rollupsAtom` in `apps/web/src/loom/LoomRollupBadge.tsx`), so it is outside the four tiers in `docs/architecture/loom-ui-state-tiers.md`: nothing is seeded, nothing overrides a user choice, nothing is written to a store.
+
+## 4. The sidebar rule, exactly
+
+**Top level.** `filterSidebarV2VisibleThreads` in `apps/web/src/components/Sidebar.logic.ts` replaces `isVisibleHandoffDrafter(thread)` with `isTopLevelRow(thread.source, present)`, where `present` is the set of ids of the `threads` it was given (one `Set` per call; the function's `Pick` gains `"id"`). `apps/web/src/loom/handoffDrafter.ts` is deleted; its reasoning lives in the registry comment. The same swap, to `isListedThread(thread.source)`, lands in `CommandPalette.logic.ts` (the thread list), `ChatComposer.tsx` line 2654 (the `@` list) and `loom/threadMention.ts` (the `!` list), the three other readers of the deleted helper.
+
+**Sub-row.** A new `apps/web/src/loom/SideThreadRows.tsx` exports `LoomSideThreadRows({ hostThreadKey, onActivate })`, memoised, rendered by **two marked hunks** in `Sidebar.tsx`'s `SidebarThreadRow`: inside the row's `<li>`, directly after the `</Tooltip>` that wraps the row surface, in both the card variant and the slim variant. Inside the `<li>` rather than as a list sibling so that a drag of the host moves the sub-rows with it (dnd-kit transforms the `<li>`), the `[content-visibility:auto]` hint stays on one element, and the list of sortable ids is untouched. It:
+
+- reads `sideThreadRowsAtom(hostThreadKey)` from a new `apps/web/src/loom/sideThreadRows.ts`: a per-environment atom family over `environmentSnapshotAtom(environmentId).threads` builds `Map<hostId, SideThreadRowModel[]>` once per snapshot (`presentationParentOf` for the parents map, `isSubRow` for eligibility, `hostRowOf` for the host, sorted by `createdAt`), and the per-host atom returns the previous array when a JSON key of `[threadId, title, role, running]` has not changed, exactly as `rollupAtom` does, so a host row re-renders only when its own sub-rows change;
+- returns null when the host has none, so the ordinary row's markup and height are unchanged for every thread that is not an anchor;
+- renders `<ul data-thread-selection-safe onPointerDown={stop}>` (the `stopPropagation` the row's action buttons already use in `handleActionPointerDown`, so a press on a sub-row never starts the host's drag or the selection sweep) of one `<li role="button" tabIndex={0}>` per side thread: indented by the row's content inset plus 1.25rem, height 1.75rem, `text-xs`, a role glyph (`MessageCircleQuestionIcon` for `document-query`, `GitForkIcon` otherwise; a small `Record<SideThreadRole, Icon>` in the component), the title truncated, and a static `size-1.5 rounded-full bg-info` dot at the right while `activityRunStatus` is running (no pulse: no repainting animation);
+- marks the sub-row whose thread is the route thread (`useParams({ strict: false }).threadId`, as `HandoffToastCoordinator` reads it) with `aria-current="page"` and `bg-sidebar-row-active`; other sub-rows take `hover:bg-sidebar-row-hover`. Theme tokens only, no `components/ui` restyle;
+- calls `onActivate(scopeThreadRef(environmentId, threadId))` on click or Enter; the host row already holds `onThreadActivate` and passes it through.
+
+**Route retention.** The sidebar keeps the route thread visible in a collapsed shelf (`routeThreadOnly`, three call sites in `useSidebarThreads`, plus the settled-tail lookup). When the route thread is a sub-row, its host must be the retained thread: a new `sidebarRouteRowKey(threads, routeThreadKey)` in `apps/web/src/components/Sidebar.logic.loom.ts` returns the host's key for a sub-row thread and the key itself otherwise, and the four lookups use its result. One marked hunk.
+
+**What the sub-row does not do.** It does not take part in the sidebar's sort, multi-select, keyboard arrow navigation, drag, snooze, settle or pin: those are the host's. A side thread's own settled or snoozed state is ignored; it shows while live (not archived), and a superseded query thread (archived on the next Query after a rewrite) leaves the snapshot and the row. Its context menu, archive and delete remain reachable from the thread's own header once open.
+
+**Attention.** A side thread that carries a stored attention reason (today: `error` from the liveness sweep, or `needs_guidance` when a deferred fork is refused) is a top-level row until the reason clears, and not a sub-row: one place, and the sidebar's existing attention override (`loomAttentionOf`) labels it. This is the drafter's current rule applied to the whole class.
+
+## 5. Graph, tabs, palette; what stays role-keyed
+
+**Graph.** `apps/web/src/components/WorkstreamPanel.tsx` has two role tests: `graphAnchorId` (a query thread opens its author's workstream) and `satellites` (query threads whose author is in the subtree). Both become `sideThreadOf(node)?.attended === true` with the anchor; nothing in `apps/web/src/lib/forkJoinLayout.ts` changes (`deriveQueryOverlay` already keys on `forkFromThreadId`). The satellite card in `WorkstreamGraph.tsx` is unchanged: only attended side threads are satellites and `document-query` is the only attended member, so its query-specific body (file name, question and promotion counts, "forking…" before the first question) stays as it is; placement is the class's, the card's words are the role's.
+
+**Tabs.** `threadTabGroups.ts` builds its parents map with `presentationParentOf` (§3). A query thread's tab now opens in its author's group, and `isThreadGone` is unchanged.
+
+**What stays role-keyed, with the reason.**
+
+<Table
+  density="compact"
+  columns={["Site", "Keeps the role", "Why"]}
+  rows={[
+    ["`loomTimelineRows.ts` handoff receipt rows; `HandoffToastCoordinator.tsx`", "`HANDOFF_DRAFTER_ROLE`", "The receipt row and the settlement toast are the drafter's product surfaces (what the handoff did), not placement; a query thread has no receipt."],
+    ["`LoomStagedCards.tsx` waiting row; `DocumentQueryHeader.tsx`; `WorkstreamQuickFacts.tsx` facts line; `useSeedPromotedQueryComments.ts`; `documentQueryPins.ts`", "`DOCUMENT_QUERY_ROLE`", "Query content: the document, the pins, Promote. The class says where the thread shows; these say what it shows."],
+    ["Server: `documentQuery.ts`, `handoffDraft.ts`, `HandoffDrafterReactor.ts`, `sessionComposerLive.ts`, `queryGuard.ts`, `loomAgentRoutes.ts`, `EmergentGoalReactor.ts`, `Orchestrator.loom.ts`", "role constants", "Mechanism, not presentation: how each role is forked, launched, prompted, held read-only, settled. Untouched; the only server edit is the import path for `HANDOFF_DRAFTER_ROLE` and one literal in `loomProjection.ts`'s handoff-origin stamp becoming the constant."],
+  ]}
+/>
+
+## 6. The control plane: nothing changes, and why that is already true
+
+<Table
+  density="compact"
+  columns={["Reader", "Where", "Why a side thread is outside it today"]}
+  rows={[
+    ["`workstream_list`", "`handlers/list.ts` → `LoomStore.listWorkstreamTree(rootThreadId)`", "Selects `root_thread_id = ?`; a side thread's `rootThreadId` is itself, so it is in nobody's tree and its own list is a tree of one."],
+    ["Rollups, the sidebar badge, the active strip", "`workstreamRollupOf` → `descendantsOf(lineage.parentThreadId)`; `rollupsAtom` roots = threads that are someone's parent", "Lineage `parentThreadId` is null and nothing has it as a parent."],
+    ["Dispatcher wakes, join barriers, cancel and archive cascades, gate routing, quiescence, digests", "`apps/server/src/loom/orchestration/*`", "All keyed on `parent_thread_id` / `root_thread_id` or on a route edge; a side thread has neither, and a query thread's tool allow-list (`DOCUMENT_QUERY_TOOLS`) excludes spawn, submit and routes."],
+    ["Emergent goal minting", "`EmergentGoalReactor.ts`", "Skips `document-query` by role and the drafter by its inherited goal. Unchanged."],
+  ]}
+/>
+
+The plan adds no filter to any of these and gives no side thread a `parentThreadId`. The only server-side behaviour change in this plan is in §7 (which signer a Query resolves), and it is not on the operational graph.
+
+## 7. Recap and explainer signing
+
+A Query forks the thread whose pi session signed the document (`manager_sessions` in the frontmatter). `skills/mdx-visual-plan/SKILL.md` tells its author to sign; `skills/mdx-visual-recap/SKILL.md` and `skills/mdx-visual-explainer/SKILL.md` do not, so a Query on a recap fell back to the viewing thread. Two changes:
+
+1. **One sentence in each skill**, in its "Where it goes" section, after the hand-back line, mirroring the plan skill's wording. Recap: "A recap is signed with `sign_document` (role `recap`) when the thread has the tool: a Query on the recap forks the thread that signed it, and an unsigned recap sends the question to whichever thread the reader opened it from." Explainer: the same with "explainer" and role `explainer`. These are model-read instructions: the edit follows `skill-authoring` and `llm-instruction-change` (load both; the diff is quoted in the coder's report), and reaches cockpit sessions at the next release, since `~/.pi/agent/skills/mdx-*` symlink into `loom-releases/current`.
+2. **`AUTHOR_ROLES` in `apps/server/src/loom/query/documentAuthor.ts`** gains `"recap"` and `"explainer"`, so a recap signed by its author and later by a `reviewer` still resolves to the author rather than the most recent signer.
+
+`sign_document` accepts any role string, so no change to the signing tool.
+
+## 8. Mobile
+
+The mobile thread list (`apps/mobile/src/features/threads/threadListV2.ts`, two filters at lines 213 and 624; rows in `thread-list-v2-items.tsx`) has no nesting and today lists side threads at top level, drafters included while they draft. The rule is the same as the web's and the predicates are in client-runtime for it. This plan does not change mobile: hiding without a sub-row would be a one-way door (a query thread opened on web would be unreachable on the phone), and the sub-row is a separate list item kind with its own simulator verification. The recommended follow-up applies `isTopLevelRow` in both filters and inserts a `side-thread` item after its host in the section builders. The question form asks whether to fold that into this change.
+
+## 9. Work items, in order
+
+<Steps>
+  <Step at="1" title="Contracts and client-runtime: the class and its selectors.">
+    `HANDOFF_DRAFTER_ROLE`, `SIDE_THREAD_ROLES`, `SideThread`, `sideThreadOf` in `packages/contracts/src/orchestrationV2.loom.ts`; the five selectors in `packages/client-runtime/src/state/loom/sideThread.ts` (§3). Update the four server imports of `HANDOFF_DRAFTER_ROLE` (`handoffDraft.ts` stops defining it; `goalHandoff.ts`, `HandoffDrafterReactor.ts`, `sessionComposerLive.ts` import from contracts) and the literal in `loomProjection.ts`. A small pure test file for `isTopLevelRow` and `isSubRow` only: the attention override and the absent-anchor fallback are the two rules that keep a side thread reachable, and no single surface's code shows them. The host walk is `resolveThreadGroupKey`'s loop lifted, already covered by its cases in `threadTabsStore.test.ts`.
+  </Step>
+  <Step at="2" title="Sidebar: top level and sub-rows.">
+    `Sidebar.logic.ts` swap; delete `loom/handoffDrafter.ts`; `sideThreadRows.ts` atoms; `SideThreadRows.tsx`; the two row hunks and the route-retention hunk in `Sidebar.tsx`; `sidebarRouteRowKey` in `Sidebar.logic.loom.ts`. No test exercises the deleted helper today; `Sidebar.logic.test.ts` is run as a regression check, not edited.
+  </Step>
+  <Step at="3" title="Palette, mentions, tabs, graph.">
+    `CommandPalette.logic.ts`, `ChatComposer.tsx`, `threadMention.ts` to `isListedThread`; `threadTabGroups.ts` to `presentationParentOf`; `WorkstreamPanel.tsx` anchor and satellites to `sideThreadOf`.
+  </Step>
+  <Step at="4" title="Signing and docs.">
+    `AUTHOR_ROLES` in `documentAuthor.ts`; the sentence in the recap and explainer skills under `skill-authoring` and `llm-instruction-change`; `docs/user/plan-queries.md` gains "and sit under it in the sidebar" where it says query threads hang off the writing thread on the graph; the four glossary rows.
+  </Step>
+  <Step at="5" title="Live verification, then ship." badge="dev-verify">
+    §11. Branch `t3/side-thread-class`, `// loom:` on every hunk in an upstream file, `pnpm ship` once reviewed.
+  </Step>
+</Steps>
+
+## 10. Change map
+
+<Details summary="Files touched, in reading order">
+<FileTree
+  title="Side-thread class"
+  entries={[
+    { path: "packages/contracts/src/orchestrationV2.loom.ts", change: "modified", note: "HANDOFF_DRAFTER_ROLE, SIDE_THREAD_ROLES, SideThread, sideThreadOf" },
+    { path: "packages/client-runtime/src/state/loom/sideThread.ts", change: "added", note: "isListedThread, isTopLevelRow, isSubRow, presentationParentOf, hostRowOf" },
+    { path: "packages/client-runtime/src/state/loom/sideThread.test.ts", change: "added", note: "isTopLevelRow / isSubRow reachability rules" },
+    { path: "apps/web/src/loom/handoffDrafter.ts", change: "removed", note: "folded into the class" },
+    { path: "apps/web/src/loom/sideThreadRows.ts", change: "added", note: "per-environment host→rows atom; per-host memoised atom" },
+    { path: "apps/web/src/loom/SideThreadRows.tsx", change: "added", note: "the sub-row list rendered inside a host row" },
+    { path: "apps/web/src/components/Sidebar.tsx", change: "modified", note: "two row hunks (card, slim) + route retention; all // loom:" },
+    { path: "apps/web/src/components/Sidebar.logic.ts", change: "modified", note: "filterSidebarV2VisibleThreads uses isTopLevelRow" },
+    { path: "apps/web/src/components/Sidebar.logic.loom.ts", change: "modified", note: "sidebarRouteRowKey" },
+    { path: "apps/web/src/components/CommandPalette.logic.ts", change: "modified", note: "isListedThread" },
+    { path: "apps/web/src/components/chat/ChatComposer.tsx", change: "modified", note: "isListedThread" },
+    { path: "apps/web/src/loom/threadMention.ts", change: "modified", note: "isListedThread" },
+    { path: "apps/web/src/loom/threadTabGroups.ts", change: "modified", note: "parents map via presentationParentOf; loop → hostRowOf" },
+    { path: "apps/web/src/components/WorkstreamPanel.tsx", change: "modified", note: "graphAnchorId and satellites via sideThreadOf" },
+    { path: "apps/web/src/loom/loomTimelineRows.ts", change: "modified", note: "literal → HANDOFF_DRAFTER_ROLE" },
+    { path: "apps/web/src/loom/HandoffToastCoordinator.tsx", change: "modified", note: "literal → HANDOFF_DRAFTER_ROLE" },
+    { path: "apps/server/src/loom/handoff/handoffDraft.ts", change: "modified", note: "import HANDOFF_DRAFTER_ROLE from contracts" },
+    { path: "apps/server/src/loom/handoff/HandoffDrafterReactor.ts", change: "modified", note: "import path" },
+    { path: "apps/server/src/loom/prompt/sessionComposerLive.ts", change: "modified", note: "import path" },
+    { path: "apps/server/src/mcp/toolkits/workstream/handlers/goalHandoff.ts", change: "modified", note: "import path" },
+    { path: "apps/server/src/loom/projection/loomProjection.ts", change: "modified", note: "literal → HANDOFF_DRAFTER_ROLE" },
+    { path: "apps/server/src/loom/query/documentAuthor.ts", change: "modified", note: "AUTHOR_ROLES + recap, explainer" },
+    { path: "skills/mdx-visual-recap/SKILL.md", change: "modified", note: "one signing sentence" },
+    { path: "skills/mdx-visual-explainer/SKILL.md", change: "modified", note: "one signing sentence" },
+    { path: "docs/user/plan-queries.md", change: "modified", note: "sidebar placement, one clause" },
+    { path: "docs/internals/glossary.md", change: "modified", note: "side thread, anchor, host row, attended (loom-marked)" },
+  ]}
+/>
+</Details>
+
+## 11. Verification
+
+- **Gates.** `vp check` and `vp run typecheck`; `vp test run packages/client-runtime/src/state/loom/sideThread.test.ts apps/web/src/components/Sidebar.logic.test.ts apps/web/src/loom/threadTabsStore.test.ts`; the unmarked-hunk sweep (`pnpm ship` runs it).
+- **Live, dev-verify recipe** (`docs/dev-site-testing.md`). The earlier query-thread verifiers left a seeded home at `/tmp/t3verify-qt` with a signed plan and a live pi author; reuse it. In the browser:
+  1. Open the author thread, select a passage of its plan, press Query, ask a question. Assert: the main window navigates to the query thread; the sidebar shows **no** new top-level row; the author's row now carries a slim indented "Query: plan.mdx" row with the active highlight and a running dot while the answer streams; the author's row keeps its position and its rollup badge; the inbox count did not change.
+  2. Open the Workstream panel from the query thread: the graph is the author's, with the dashed satellite under the author. Open the tab strip: the query thread's tab is in the author's group.
+  3. Settle the author (collapse the settled shelf), reload on the query thread's URL: the author's row is retained in the shelf with the sub-row active under it.
+  4. Type `/handoff <reason>` in a thread: no sidebar row appears while it drafts; the source timeline shows the receipt row; the "Handed off" toast fires as today; the new goal's root appears as an ordinary inbox row.
+  5. Command palette: "Query: plan.mdx" is listed; the drafter (while live) is not.
+  6. Edit the plan and Query again: the old query thread's sub-row disappears (superseded, archived), a new one appears; the old satellite recedes on the graph.
+  7. Query a **recap** signed under the new skill sentence (sign one by hand with `/sign-document recaps/<slug>/recap.mdx recap`): the Query card names the signing thread, not the viewing thread.
+- **Mobile.** Not changed; confirm by reading, not by simulator, that `threadListV2.ts` is untouched.
+
+## 12. Risks
+
+- **A sub-row inside a sortable `<li>`.** dnd-kit measures the `<li>`, so a host with sub-rows is taller while dragging; the drop-position maths uses measured rects, so this is correct, but the first live drag of an anchor row should be looked at. Fallback if it misbehaves: render the sub-row list as a non-sortable sibling `<li>` after the host (one hunk in the items loop instead of two in the row), accepting that sub-rows stay put during a drag.
+- **A host that is a child.** When the author is a workstream child (this plan's own author is one), the sub-row sits under the root's row, labelled by the query thread's title, which names the document but not the author. Acceptable for a first cut; the row's tooltip can carry "fork of" plus the author's title if it proves confusing.
+- **`contain-intrinsic-size` hints** on the row `<li>` (`auto 78px` / `auto 36px`) are estimates for off-screen rows; a host with sub-rows is taller, so a long scroll may jump by a few pixels once. `auto` remembers the rendered size after first paint.
+- **A fourth member later** needs only a registry row, but a member whose anchor is not `forkFromThreadId` would need the registry to name its anchor field; the `SideThread` shape already carries `anchorThreadId`, so only `sideThreadOf` changes.
+
+## 13. Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "drafter-visibility",
+      title: "Keep a /handoff drafter hidden while it drafts, or show it as a sub-row and satellite under its source?",
+      subtitle: "Today a drafter is invisible for the thirty to ninety seconds it lives, reachable from the receipt row on the source's timeline; the registry's attended flag decides this in one place.",
+      refs: [{ label: "2. What a side thread is", anchor: "2-what-a-side-thread-is" }],
+      mode: "single",
+      options: [
+        {
+          id: "hidden",
+          label: "Keep it hidden: unattended, surfaces only on attention (no behaviour change)",
+          recommended: true,
+          detail: "No row that appears and vanishes a minute later; the receipt row and the toast already cover it.",
+        },
+        {
+          id: "shown",
+          label: "Show it: a sub-row under the source and a satellite on the graph while it drafts",
+          detail: "One registry flag flip; the sidebar and graph churn for every /handoff.",
+        },
+      ],
+    },
+    {
+      id: "mobile-timing",
+      title: "Nest side threads in the mobile thread list in this change, or leave mobile as it is and do it as a follow-up?",
+      subtitle: "Mobile lists query threads and live drafters at top level today; nesting there is a new list item kind plus simulator verification, and hiding without nesting would make a query thread unreachable on the phone.",
+      refs: [{ label: "8. Mobile", anchor: "8-mobile" }],
+      mode: "single",
+      options: [
+        {
+          id: "follow-up",
+          label: "Follow-up: mobile unchanged now, a recorded task applies the shared predicates and a sub-row item later",
+          recommended: true,
+          detail: "Keeps this change web-only and verifiable in one browser pass; the rule is already shared in client-runtime.",
+        },
+        {
+          id: "now",
+          label: "Now: add the mobile filter and sub-row item in the same change",
+          detail: "About half a day more, plus lint:mobile and a simulator pass.",
+        },
+      ],
+    },
+  ]}
+/>
