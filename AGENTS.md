@@ -189,7 +189,7 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 ## Plans and work artifacts
 
-- <!-- loom: plan policy pending --> Plans, recaps and explainers written under the MDX skills (`plans/`, `recaps/`, `explainers/`) are committed with the work; how they are kept current over a feature's life and retired is an open decision, being worked out under the goal "Plan lifecycle and task-tree relation". Agent scratch (progress logs, fixtures, raw tool dumps) stays out of the tree.
+- <!-- loom: plans are committed history --> Intent briefs, plans, recaps and explainers under `plans/`, `recaps/` and `explainers/` are committed with the work as dated records of intent, not documentation: the current truth is the code plus `docs/internals` and `docs/architecture`. A plan is frozen at approval; after that only its frontmatter (`status` and its links) and one As built section at done change, as the `mdx-visual-plan` skill states. Agent scratch (progress logs, fixtures, raw tool dumps) stays out of the tree.
 - Track active maintainer work in the GitHub issue or project item that owns it. External proposals follow `CONTRIBUTING.md` and belong in Ideas discussions.
 - A merged PR is the implementation record. Close or update its tracking item when the work lands; do not preserve a second checklist in the repository.
 
