@@ -2,9 +2,9 @@
 reader:
   who: Carl, loom's maintainer, who asked for plans to be rethought over their whole life before the AGENTS.md rule is written, and approved the intent-first workflow the day before
   knows: plans live under plans/, threads cite them by path, the task tree is live per goal; not how often plans were amended after approval or what a settled goal's tree holds
-  after_first_screen: he can say what each of brief, plan, task tree and report is for over a feature's life, and pick the plan's lifecycle or correct a line
-kicker: "Intent brief · draft for your corrections · 27 Oct 2026"
-status: draft
+  after_first_screen: he can say what each of brief, plan, task tree and report is for over a feature's life; his two answers and his linking and supersession points are folded into Decided
+kicker: "Intent brief · approved 27 Oct 2026"
+status: approved
 manager_sessions:
   - id: 01a17a62-b8a6-76e0-9f88-5798237c68e1
     name: Plan-lifecycle intent brief
@@ -36,44 +36,17 @@ manager_sessions:
 
 **Approaches in play.**
 
-- Frozen plan plus one As built section at done, by the orchestrator from the coders' reports. _My pick._ Wins if one pass at done catches the divergence that matters; the one plan done this way (`plans/2026-07-28-thread-catchup-silent-truncation.md` §10) still reads cleanly three months on.
+- Frozen plan plus one As built section at done, by the orchestrator from the coders' reports. _Chosen._ Wins if one pass at done catches the divergence that matters; the one plan done this way (`plans/2026-07-28-thread-catchup-silent-truncation.md` §10) still reads cleanly three months on.
 - Plan as a living document, amended by the diverging coder or the orchestrator at each phase (Roo Code). Wins if a later reader wants plan and build in one file. Dropped: the two runs of it in loom became ledgers (pull 9's plan took 15 same-day commits of "AS LANDED (3a-4, DL-348)" rows and still needed a separate decision log), coders would share one file in a shared worktree, and the brief took the living role on 26 Oct.
 - Dropped: commit the settled task tree beside the plan. It persists in the DB and is searchable, and a settled tree is a ticked checklist the merged PR already states.
 
-**Decided.** "plans, recaps and explainers are committed history" (27 Oct). "We should probably amend these plans to set their current status if we are going to use a status moving forward." The brief is rewritten in place and only you change its meaning (26 Oct).
-_Assumed:_ one `status` word for plan and brief (`draft | approved | done | dropped | superseded`, plus `superseded_by: <slug>`), `done` meaning merged for a plan and "works for you" for a brief; whoever writes a replacing plan marks the old one in the same commit, and the lint warns when `status` is missing; the plan's steps seed the tree's phases and the root task names the plan, nothing more; the convention lives in the global skill, so fathom and pi-craft get it too; one bulk pass sets `status` on the 67 existing plans and marks the v1/v2 pairs, listing for you any it cannot judge; the 29 tracked June `.plans/` files go to the audit follow-up. Redirect if wrong.
+**Decided.** "plans, recaps and explainers are committed history" (27 Oct). "We should probably amend these plans to set their current status if we are going to use a status moving forward." The brief is rewritten in place and only you change its meaning (26 Oct). A plan after approval: "Frozen at approval; one As built section at done names where the build departed", written by "The orchestrator, once at done, from the coders' reports" (your two answers, 27 Oct). Linking: "when we create the plan, it should have a link to the intent brief. If we have a recap (we don't always have a recap …), I would anticipate that it makes sense to have the plan link to the recap and vice versa." Supersession: "if something does get superseded, we do go back to that plan and say, 'Hey this plan is superseded by this new piece of work, this new intent, this new plan,' and have a tag that points to the new one … to ensure that outdated plans aren't read as the current implementation once they are superseded."
+_Assumed:_ one `status` word for plan and brief (`draft | approved | done | dropped | superseded`), `done` meaning merged for a plan and "works for you" for a brief; breadcrumbs are frontmatter fields (`intent:`, `plan:`, `recap:`, `supersedes:`, `superseded_by:`, workspace-relative paths) because the reader is an agent reading the file raw and a lint can check that each target exists and points back, and the recap's author adds the plan's `recap:` line, a frontmatter-only edit a frozen plan allows; the supersession trigger is the plan skill's before-drafting step (search `plans/`, `recaps/`, `explainers/`, `docs/` and `thread_search` for the area, mark what you replace in the same commit) checked by the plan's review gate, with the lint catching only a dangling or one-way link; the plan's steps seed the tree's phases and the root task names the plan, nothing more; the convention lives in the global skill, so fathom and pi-craft get it too; one bulk pass sets `status` and breadcrumbs on the 67 existing plans, marks the v1/v2 pairs, and sorts the 29 tracked June `.plans/` files (scratch leaves the tree; the only record of a decision moves to `plans/<date>-<slug>.md` with a status), listing for you any it cannot judge. Redirect if wrong.
 
-**Not doing.** Moving or renaming any existing plan (every way a thread finds one ends in its path). Touching PRs #456, #458, #471. Tooling beyond the lint's status check.
-
-**Questions for you.**
-
-<QuestionForm
-  questions={[
-    {
-      id: "plan-after-approval",
-      title: "What happens to a plan after you approve it?",
-      subtitle: "Settles whether the Roo Code living plan comes back, or the brief keeps that role and the plan stays a dated record of intent.",
-      mode: "single",
-      options: [
-        { id: "frozen-as-built", label: "Frozen at approval; one As built section at done names where the build departed", recommended: true, detail: "What was intended then and what shipped, in one file, with no per-coder edits." },
-        { id: "living", label: "Living: amended in place as the feature is built, like the brief", detail: "Plan and build in one file, kept current; each divergence costs a coder a plan edit and the file drifts toward a ledger." },
-        { id: "frozen-bare", label: "Frozen at approval, nothing added; departures stay in reports and recaps", detail: "Cheapest; a later reader must find the reports to learn what diverged." },
-      ],
-    },
-    {
-      id: "who-writes",
-      title: "Who writes the As built section and flips the status to done?",
-      subtitle: "Your words named both, 'the relevant thread agent or the orchestrator'. Coders already write 'where I departed' in their reports; someone carries it to the plan.",
-      mode: "single",
-      options: [
-        { id: "orchestrator", label: "The orchestrator, once at done, from the coders' reports", recommended: true, detail: "One edit, one author, no two threads in the same file; it already reads every report." },
-        { id: "coder", label: "Each coder, the moment its work departs from the plan", detail: "Fresher and more complete; concurrent edits to one shared file, and the plan grows during the build." },
-      ],
-    },
-  ]}
-/>
+**Not doing.** Moving or renaming any plan under `plans/` (every way a thread finds one ends in its path). Touching PRs #456, #458, #471. Tooling beyond the lint's status and link checks.
 
 **Still unknown.**
 
 - Does one As built pass at done keep what matters, or do departures get lost between a coder's report and the orchestrator's note? The first three features built under the rule show it; if they go missing, the review gate gains a check.
 - Does a lint warning make `status` stick? The November prompt census counts plans without one.
+- Does a superseded plan get its marker? A lint cannot know a plan should have been superseded; only the before-drafting habit and the gate can. The first plan written in an area that already has one shows it.
