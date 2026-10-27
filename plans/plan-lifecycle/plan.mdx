@@ -3,8 +3,8 @@ reader:
   who: the reviewer gate judging this plan against the approved brief beside it, then the coders who implement it one PR at a time, inheriting nothing the planner read
   knows: how loom's MDX skills, roles and the lint fit together today; not the evidence in the brief's report, nor which in-flight PRs touch the same files
   after_first_screen: that every model-read change is named with its exact text, that the lint gains a frontmatter stage it can run alone, that the bulk pass has one mechanical rule and ends with a list for Carl, and in which order the three PRs land
-kicker: "Implementation plan · under the approved brief plans/plan-lifecycle/intent.mdx · revised 27 Oct 2026 after review"
-status: approved
+kicker: "Implementation plan · under the approved brief plans/plan-lifecycle/intent.mdx · done 27 Oct 2026, PRs #493, #494 and the echoes PR"
+status: done
 intent: plans/plan-lifecycle/intent.mdx
 manager_sessions:
   - id: 01a17a62-b8a6-76e0-9f88-5798237c68e1
@@ -203,3 +203,18 @@ Mechanical breadcrumbs the same pass adds: `plan:` on `plans/intent-first-workfl
 - **PR 2:** `pnpm ship` dry run's unmarked-hunk sweep (`docs/upstream-sync/pull7-tools/unmarkedsweep.sh`) reports the `AGENTS.md` hunk as marked; `git diff` shows no change outside the named lines of the two files.
 - **PR 3:** at the coder's hand-back, the only findings are the listed unjudged files; at ship, after Carl's answers are applied on the branch, `--links-only plans recaps` exits 0 with no findings; `git ls-files .plans | wc -l` is 0; `git log --follow` on one moved file reaches its June commit; `grep -rL '^status:' plans/*/plan.mdx plans/*/plan.md plans/*/intent.* plans/*.md` returns only `plans/renderer-audit/plan.mdx`.
 - **End to end:** the next feature under the intent-first workflow produces a `plan.mdx` with `status: draft` and `intent:`, the gate records that the planner searched, and the last PR's branch carries the orchestrator's `status: done` commit with an `## As built` section or none. That is the brief's first "You'll know it works when" line, checked on the first real feature.
+
+## As built
+
+Shipped as PR #493 (rule and lint, with the brief and this plan), #494 (the bulk pass) and the echoes PR this section rides on, 27 Oct 2026. Departures from the text above, each with its reason:
+
+- **PR order (§7).** The echoes landed on `main` without waiting for #460 and #470, which were still open with no merge in sight; #460 already has to rebase over #486's bullet, so this one adds a line to the same hunk and the PR body says so.
+- **Lint exclusions (§4.2, §5).** `plans/mdx-review-blocks/plan.mdx` is a renderer-test fixture imported raw by `mdxPlan.test.ts`, so it joined `renderer-audit` in `kindOf`'s exclusion; a one-line script edit inside the otherwise frontmatter-only PR 3. The `grep -rL '^status:'` check in §8 therefore lists both fixtures.
+- **`.plans/` (§5).** All 29 files were settled without Carl: 24 moved (the 20 listed plus the four "judge" files, three as `done` because what they recommended shipped and `provider-intent-startup-reconciliation-design` as `superseded` by upstream's Orchestration V2 effect outbox, `superseded_by: upstream:orchestration-v2-effect-outbox`, not #9167 as the coder first guessed) and 5 deleted at pre-pass commit `c579a09002`.
+- **Frontmatter blocks (§5).** `plans/mdx-plan-annotation/plan.mdx` also had no frontmatter block, not only `restart-turn-continuation`; both gained one.
+- **Breadcrumbs not added (§5).** No `intent:`/`plan:` pair between the two moved role-scoped June files: on a dated `plans/*.md` the lint's kind is always "plan", so a `plan:` there would demand a `recap:` back-link.
+- **The one item for Carl.** `plans/checkpoint-ref-retention/plan.mdx` stays `approved` (still wanted, not built; the live repo now holds about 16,300 `refs/t3/*` refs against 6,800 when it was written), with a kicker saying it predates the V2 ref namespace.
+- **Text (§3.3).** The PR 1 gate changed "the one edit a frozen plan takes besides its status" to "an edit" in the recap skill, since a frozen plan also takes `superseded_by` and its As built section.
+- **§6.** Nothing to do for fathom: it commits plans in its `workbench/` sidecar.
+
+The brief's first "Still unknown" has its first data point: this plan's As built section was written once, by the orchestrator, from the coders' and gates' reports, on the last PR's branch before it shipped.
