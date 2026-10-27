@@ -95,7 +95,7 @@ const childFields = {
   taskShape: Schema.optionalKey(
     described(
       Schema.Literals(["explore", "thorough", "mechanical"]),
-      "Omit: a model-class hint ('explore' open-ended, 'thorough' edge cases and review gates, 'mechanical' bounded volume) that resolves only where the server configures workstreamModelProfiles, and none are configured by default.",
+      "Server-resolved model hint; omit for most spawns. 'explore' for open-ended work whose plan will change, 'thorough' for edge cases, migrations and review gates, 'mechanical' for bounded high-volume work.",
     ),
   ),
   sensitive: Schema.optionalKey(
