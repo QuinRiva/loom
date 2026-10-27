@@ -49,7 +49,7 @@ the reader the path and ask them to open, triage and decide in-app.
 
 A recap of work a plan governed names that plan in its frontmatter
 (`plan: plans/<slug>/plan.mdx`) and, in the same commit, adds
-`recap: recaps/<slug>/recap.mdx` to the plan's frontmatter, the one edit a
+`recap: recaps/<slug>/recap.mdx` to the plan's frontmatter, an edit a
 frozen plan takes besides its status; the lint checks the pair. A review of a
 plan, or a recap that cites plans as evidence, links none of them.
 
