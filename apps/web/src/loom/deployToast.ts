@@ -3,7 +3,7 @@ import type { EnvironmentId, LoomDeployChange, LoomDeployNotice } from "@t3tools
 /** A brand-new browser profile is not greeted by last week's deploy. */
 const NOTICE_MAX_AGE_MS = 24 * 60 * 60_000;
 /** Rows the list shows before "See all": every noticeable row, then behind-the-scenes filler. */
-export const DEPLOY_LIST_ROWS = 8;
+const DEPLOY_LIST_ROWS = 8;
 
 export const deployNoticeSeenKey = (environmentId: EnvironmentId) =>
   `loom.deployNotice.seen:${environmentId}`;
