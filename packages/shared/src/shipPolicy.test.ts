@@ -34,6 +34,13 @@ describe("resolveMergeAuthority", () => {
     expect(resolveMergeAuthority(nested)).toBe("agent");
   });
 
+  it("an instance ceiling of human caps agent; an absent ceiling is a no-op", () => {
+    const root = project(JSON.stringify({ merge: { authority: "agent" } }));
+    expect(resolveMergeAuthority(root, "human")).toBe("human");
+    expect(resolveMergeAuthority(project(), "human")).toBe("human");
+    expect(resolveMergeAuthority(root, undefined)).toBe("agent");
+  });
+
   it("falls back to human for malformed or unknown values", () => {
     expect(resolveMergeAuthority(project("{ not json"))).toBe("human");
     expect(resolveMergeAuthority(project(JSON.stringify({ merge: { authority: "robot" } })))).toBe(

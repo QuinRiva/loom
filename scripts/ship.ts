@@ -14,6 +14,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { MERGE_AUTHORITY_CEILING_ENV } from "@t3tools/shared/shipPolicy";
 
 // The PR target for this fork. This clone has an `upstream` remote
 // (pingdotgg/t3code); without pinning the default, `gh` resolves the PR base to
@@ -656,7 +657,8 @@ export const shipCommand = Command.make(
       summary: Option.getOrUndefined(summary),
       kind: Option.getOrUndefined(kind),
       mergeOnly,
-      prOnly,
+      // An instance merge ceiling forces --pr-only, whatever the caller passed.
+      prOnly: prOnly || process.env[MERGE_AUTHORITY_CEILING_ENV] === "human",
       dryRun,
       includeUntracked,
       title: Option.getOrUndefined(title),

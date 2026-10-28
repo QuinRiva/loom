@@ -32,6 +32,12 @@ walking up from the working directory (missing file: the safe default):
   branch. This repo (loom) is `agent`, which is why the sequence below carries
   through the merge.
 
+An instance can cap this: `mergeAuthorityCeiling: "human"` in its
+`userdata/settings.json` makes every new thread on it read `human` whatever the
+repo declares, and sets `T3CODE_MERGE_AUTHORITY_CEILING=human` in its agents'
+environment, under which `pnpm ship` stops at the open PR as if given `--pr-only`.
+The ceiling only lowers authority, never raises it.
+
 The policy is injected into every thread's system prompt (the SHIPPING POLICY
 block), so a thread knows its merge boundary however it ships. It is guidance,
 not enforcement: a human-only repo should also protect `main` so an agent token

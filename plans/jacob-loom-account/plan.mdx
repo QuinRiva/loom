@@ -1,0 +1,412 @@
+---
+reader:
+  who: Carl, maintainer of Loom and of this VM, reading to approve; a reviewer gates it against the intent brief first
+  knows: Loom's architecture intimately; that he provisioned Jacob's instance in July; nothing of its state today or of the research behind this document
+  after_first_screen: "Jacob's instance is healthy and only needs four one-off steps from me plus his own logins; the framework comes from his own synced clones after one pi-craft path fix; only I can merge on loom, by a ruleset; a thread moves by copy, verify, archive, then a delete I confirm 30 days later, with my instance otherwise untouched."
+kicker: "Implementation plan · approved 28 Oct 2026"
+status: approved
+intent: plans/jacob-loom-account/intent.mdx
+manager_sessions:
+  - id: 01a18039-744e-72c5-88ab-c4b290ea7284
+    name: Jacob instance + migration plan
+    role: plan
+    authored_at: 2026-10-28T05:47:37.000Z
+---
+
+# Open Jacob's instance with four one-off steps, mirror the framework by mount, and move his threads with a copy, verify, archive tool
+
+**Recommendation.** Leave Jacob's instance where it is: it runs cleanly as user `jacob` on port 13910 and has followed every one of your releases within six minutes. Close its three gaps (no route in, no model route, no framework) with **four commands only you can run** (a Tailscale Serve entry, a second proxy client key, two shared directories, a backup hook) and a set of steps Jacob runs as himself (pair, pi packages, `gh` login, clones). Give him "the full execution framework", and the room to diverge from it, by **running his agents from his own clones of pi-craft and pi-fathom, kept on `main` by a fast-forward timer, with his `jacob-pi-loom` package listed last and its names prefixed `jacob-`** (pi keeps the first registration of a same-named skill or tool, so a later package only adds; Jacob chose add-only over shadowing); an experiment is a branch checked out in place, a contribution is a PR from that branch, his agents never merge (a HUMAN-ONLY cap in his instance settings, §3.3), and a loom divergence is his own build pinned in place of the release train, with one rule: migrate threads only while he is on the train. This needs a small pi-craft change that stops nine files hard-coding `/home/Carl`; the release's roles, skills and loom extensions are already shared. Move threads with a **new `t3 loom-migrate` command shipped in the release** (export as you, import as jacob with his server stopped, verify, then you archive): it keeps every id verbatim, copies rows including projections rather than replaying events, rewrites only paths and the project id, and carries pi session files and checkpoint refs with it. **About three days of agent work for the tool plus a dry run, and about two hours of your time across the one-off steps.**
+
+<Stats
+  items={[
+    { value: "3 gaps", label: "Why he cannot use it today", tone: "risk", detail: "Loopback only; model credentials expired 25 Jul; none of pi-craft, your skills or a GitHub login" },
+    { value: "4 steps", label: "Only you can run", tone: "info", detail: "Serve 13910 · proxy key · shared dirs · backup hook" },
+    { value: "44 roots", label: "Candidate threads of his", tone: "accent", detail: "From four indirect signals; no login identity is recorded in the database" },
+    { value: "~3 days", label: "Copy tool plus dry run", tone: "neutral", detail: "Extends the dev-DB slicer; shipped in the release so both users can run it" },
+  ]}
+/>
+
+<Callout tone="decision" title="What you are approving" focus>
+  Your instance, database and units are **not touched** by any step here, and your server is never restarted. What does change on your side, each additive and reversible: a second client key in `/home/Carl/cli-proxy/config.yaml` (hot-reloaded), two upload lines in `/home/Carl/.local/bin/loom-backup`, one Tailscale Serve entry, one rule added to loom's existing "Protect main" ruleset on GitHub, and a pi-craft change that resolves the proxy key path from the running user's home, which your agents load live and which resolves to the same file for you before and after (§2 states that as a checked precondition). Then the reversible archive of each migrated tree after verification and, 30 days later, a deletion you confirm by hand (§5.4). Your six answers are recorded in the brief's Decided line and built in below; the plan's own two calls (you archive and delete in the UI; historical paths in message text are left as history) take their recommended answers.
+</Callout>
+
+**What it means.** In scope: Jacob reaches, logs into and configures his own instance; his agents behave like yours (same rules, skills, extensions, model presets, proxy) and act under his GitHub identity; a tool that copies whole workstream trees from your instance to his, proves nothing was lost, and leaves the source archived. Uncommitted worktree changes travel with the thread (Jacob: "likely worktrees would hold some useful work"). Deferred to a later cut: cross-tree consult navigation (the rows copy, the links to trees that stayed behind do not resolve), and a per-user section in the global rules file. **Done means:** every "you'll know it works when" line in the brief passes on the real host, the first batch Carl confirms has migrated with a clean verification manifest and a resume smoke test, and its trees sit archived on 13900.
+
+## 1. What stops Jacob today, and the fix for each
+
+Verified on the host on 28 Oct, read-only. His instance runs `/srv/loom/n/bin/node apps/server/dist/bin.mjs` from his pinned `~/loom/release-current`, on the same release as yours (as of writing, `20261028-021159-d40a3d5`, picked up by his refresh timer within minutes of your promote).
+
+<Table
+  density="compact"
+  columns={["Capability", "State", "Today", "Fix, and who runs it"]}
+  rows={[
+    { tone: "risk", cells: ["Reach the UI", { badge: { label: "blocked", tone: "risk" } }, "`127.0.0.1:13910` only; no Serve entry; he has used SSH once, on 13 Jul", "`tailscale serve --bg --http=13910 http://127.0.0.1:13910`; `carl-dev` is already shared to `jacob.trzebinski@gmail.com` and his devices reach 13900 that way. _Carl: the Tailscale operator is `Carl`._"] },
+    { tone: "warning", cells: ["Log in", { badge: { label: "easy", tone: "warning" } }, "His one browser session expired 12 Aug; the boot pairing link lasts 5 min and names `localhost`", "`bin.mjs pair` as jacob mints a standard-scope link (`settings:write`, `providers:manage`, `access:write`, `filesystem:write`); swap the host for `carl-dev.tail30bb77.ts.net`. _Jacob._"] },
+    { tone: "risk", cells: ["Run a turn", { badge: { label: "blocked", tone: "risk" } }, "pi uses his own `anthropic` OAuth, access token expired 25 Jul; no `cliproxy` provider; cannot read `/home/Carl/cli-proxy/.apikey`", "A second entry in the proxy's `api-keys` list (hot-reloads), written to `/home/jacob/cli-proxy/.apikey`; pi-craft's `cliproxy.ts` reads `<home>/cli-proxy/.apikey` for whichever user runs it, which is your current path unchanged. _Carl writes the key; one pi-craft PR._"] },
+    { tone: "risk", cells: ["Push and open PRs", { badge: { label: "blocked", tone: "risk" } }, "No `~/.gitconfig`, `gh` not logged in, not a collaborator on `QuinRiva/loom`; pi-craft and pi-fathom are private", "`gh auth login` and git identity as jacob; collaborator access per the brief's answer. _Jacob; Carl grants access._"] },
+    { tone: "warning", cells: ["Carl's skills, roles, extensions", { badge: { label: "partial", tone: "warning" } }, "Release roles, skills and loom extensions already arrive via `/srv/loom/releases`; none of pi-craft, `~/.pi/agent/skills`, `extensions/`, `agents/`, npm packages", "§3: one read-only mount plus a copied package list. _Carl mounts; Jacob installs._"] },
+    { tone: "success", cells: ["Follows releases", { badge: { label: "works", tone: "success" } }, "`loom-refresh.timer` re-links `~/loom/release-current` and restarts him; 11 clean transitions since 17 Oct", "Nothing."] },
+    { tone: "warning", cells: ["Backed up", { badge: { label: "none", tone: "warning" } }, "`loom-backup` covers only your `statev2.sqlite` and `~/.pi`", "A jacob-owned nightly `VACUUM INTO` to `/mnt/fast/jacob-backup-staging`, which your script uploads beside its own. _Jacob's timer; two lines in Carl's script._"] },
+  ]}
+/>
+
+The "issues" from July cannot be reconstructed: his trace logs hold about two days and his journal starts 17 Oct, both clean apart from the expected exit 130 on each release restart. His own 13 Jul transcript shows what went wrong: "can you leak carls skills", then "why didnt you write it as an mdx plan" when the plan did not render. The missing framework was the issue, not instability.
+
+## 2. The account, step by step
+
+Each step names who runs it. Nothing here touches your server; the three root-level commands are reversible one-liners (an fstab line, a directory, a Serve entry).
+
+<Steps>
+  <Step at="Carl 1" title="Publish 13910 on the tailnet." badge="operator">
+    `tailscale serve --bg --http=13910 http://127.0.0.1:13910`, then `tailscale serve status` shows a second proxy beside yours. Jacob loads `http://carl-dev.tail30bb77.ts.net:13910` and sees the pairing page. If a shared-node device cannot reach a second plain-HTTP port, the fallback is an HTTPS Serve entry (`--https=<port>`; Loom's `pair --tailscale` defaults to 443 and takes `--tailscale-serve-port` for another), which needs HTTPS certificates enabled on the tailnet.
+  </Step>
+  <Step at="Carl 2" title="Create the two shared directories." badge="root">
+    `sudo install -d -m 1777 /srv/loom-handoff` (the migration staging area: each batch is a subdirectory you create and `chown -R jacob` once exported) and `sudo install -d -o jacob -m 755 /mnt/fast/jacob-backup-staging`. Nothing of yours becomes readable: `/home/Carl` stays mode 700.
+  </Step>
+  <Step at="Carl 3" title="Give his instance its own proxy client key." badge="operator">
+    Add a second entry to `api-keys` in `/home/Carl/cli-proxy/config.yaml` (the proxy hot-reloads it) and write it with `sudo install -D -o jacob -g jacob -m 600 /dev/stdin /home/jacob/cli-proxy/.apikey` (`-D` creates `/home/jacob/cli-proxy`; `chown jacob` it too). Your own key stays exactly where it is, `/home/Carl/cli-proxy/.apikey`; nothing in your home is added or linked. Write the management key the same way to `/home/jacob/cli-proxy/.mgmtkey` (your answer: "give him the management key"); he pastes it into his Usage → Limits hub source. **Re-authenticating his own seat is his to do** ("He will obviously need to be able to re-auth *his* key"): when `jacob@unseen.id`'s browser login lapses (about every four weeks), his Usage page shows the re-login reminder and **Log in…** runs the same flow his own instance uses for a new seat: `apps/server/src/usage/cliproxyApi.ts:435-449` asks the proxy for `anthropic-auth-url`, he signs in as that account, and pastes the code back to `oauth-callback`; the pool picks the refreshed file up without a restart and your instance sees it within minutes (`docs/user/usage.md`, "Logins made outside Loom are picked up too"). New seats of his join the same way. Fallback if that flow fails on his side: your `./account login` then `./account finish`, with him opening the link, exactly as today. Codex seats: the proxy binary supports `-codex-login` and `-codex-device-login`, but your `account` script, the router sidecar and Loom's in-app login are Claude-only, and every codex preset in Loom uses pi's direct `openai-codex` provider; a Codex seat in the pool is a later step, not this plan.
+  </Step>
+  <Step at="pi-craft PR" title="Make pi-craft user-agnostic." badge="small PR">
+    Nine files hard-code `/home/Carl`. Your agents load pi-craft live from your working tree (`../../pi-craft` in your pi settings) and every one of your model presets routes through `cliproxy/*`, so this change must be a no-op for you: the two runtime files build their paths from the running user's home with `os.homedir()` rather than from an environment variable or a `~` the shell may not expand. `plugins/pi-craft/extensions/cliproxy.ts:20` becomes `apiKey` built as `"!cat " + join(homedir(), "cli-proxy/.apikey")`, which for you is the same `/home/Carl/cli-proxy/.apikey` as today, and `plugins/pi-craft/extensions/anthropic-subs.ts:20` becomes `AUTH_DIR = join(homedir(), "cli-proxy/auths")`, which for you is the same directory as today and for Jacob does not exist, so the extension registers nothing on his side. **Precondition, checked before the PR merges:** `node -e 'console.log(require("os").homedir())'` printed under your cockpit unit's environment gives `/home/Carl` (the unit runs as you with `HOME` set), and the dry-run instance's cliproxy turn succeeds with the branch checked out. The skills (`skill-authoring`, `platform-update`, `lesson-triage`) and `agents/evidence-reader.md` swap `/home/Carl` for `~` in prose. The remaining hits are docs and experiment notes and stay.
+  </Step>
+  <Step at="Jacob 1" title="Pi configuration." badge="as jacob">
+    Clones at `~/pi-craft` (`QuinRiva/pi-craft`) and `~/pi-fathom` (`QuinRiva/pi-fathom`), the same paths you use, so the `../../pi-craft` package entry and every `~/pi-craft/...` reference in skills resolve unchanged; a `pi-sync.timer` of his own keeps them on `main` (§3.1). `~/.pi/agent/AGENTS.md` becomes a symlink to `~/pi-craft/AGENTS.md`, as yours is. `~/.pi/agent/settings.json` takes your `packages` list (§3) with `../../jacob-pi-loom` appended last and with `defaultProvider: cliproxy` and your default model. `~/.pi/agent/skills/` gets the same symlinks yours has, pointed at `/srv/loom/releases/current/skills/*` so they track promotions on their own. `extensions/` and `agents/` are copied once from the handoff directory. pi's npm and git packages install on first run.
+  </Step>
+  <Step at="Jacob 2" title="Identity and checkouts." badge="as jacob">
+    `gh auth login` as `jay-kob` (his login: 1,014 commits in fathom-platform as Jacob Trzebinski; today it has `read` on `QuinRiva/loom`, `QuinRiva/pi-craft` and `QuinRiva/pi-fathom` per `gh api repos/QuinRiva/<repo>/collaborators/jay-kob/permission`, which is enough to clone and pull all three and to fork); `git config --global user.name` and `user.email`. Clones under `/home/jacob/code/`: `loom` (`QuinRiva/loom`) and `fathom-platform` (`Stratus-Labs/fathom-platform`), the two repos every candidate thread lives in; this list is a starting point, projects are his to add ("jacob should be allowed to set up any/as-many projects as he'd like"). `t3 project add` for each project root (`/home/jacob/code/loom`, `/home/jacob/code/fathom-platform/data-pipeline-jobs/lease-extraction`); the project roles under `.t3code/roles/` come with the clone. Worktrees then land under `/home/jacob/.t3/cockpit/worktrees/`.
+  </Step>
+  <Step at="Jacob 3" title="Loom settings and the unit." badge="as jacob">
+    Copy the `workstreamModelPresets` block and `keybindings.json` from the handoff directory into `/home/jacob/.t3/cockpit/userdata/`; every preset names `cliproxy/claude-*` or `openai-codex/gpt-6.1-sol`, so the proxy key is what makes them work. Optionally bring his unit to the shape of yours: `--max-old-space-size=8192`, `KillMode=mixed`, `SQLITE_TMPDIR=/dev/shm`; not the agent-shell containment or the GCP variables, which are yours. `systemctl --user daemon-reload && systemctl --user restart loom-cockpit`.
+  </Step>
+  <Step at="Jacob 4" title="Pair, then prove it." badge="as jacob">
+    `cd ~/loom/release-current && T3CODE_HOME=/home/jacob/.t3/cockpit node apps/server/dist/bin.mjs pair`, replace `localhost:13910` with the tailnet host, open it. Then the four checks from the brief: a turn on `cliproxy/claude-fable-5-1` answers; `/skills` in a thread lists pi-craft's skills and the release's; an agent opens a PR on a scratch branch under his login; Settings → Connections shows his standard scopes.
+  </Step>
+  <Step at="Backup" title="His database and ~/.pi join the nightly upload." badge="jacob timer + 2 lines">
+    A jacob-owned `loom-backup.timer` runs the same `VACUUM INTO` plus `quick_check` as yours into `/mnt/fast/jacob-backup-staging/statev2.sqlite` and mirrors his `~/.pi` beside it. Your `/home/Carl/.local/bin/loom-backup` gains `db/jacob-statev2.zst` and `pi-jacob/` targets reading that staging directory, which is why it is mode 755 under his ownership.
+  </Step>
+</Steps>
+
+## 3. The framework: what is shared, copied once, or per user
+
+Jacob asked for "the full execution framework of skills and knowledge already provided in carls loom instance", and then for "ultimate flexibility, while still maintaining parity with upstream": in sync by default, free to experiment locally, able to PR back to pi-craft, pi-fathom and loom, and with his own `jacob-pi-loom` package for bespoke things. Here is every piece an agent in your instance gets and how his gets it; §3.1 is the layering and sync mechanism, §3.2 how he leaves and rejoins the loom release train. Nothing he adds writes into your copies.
+
+<Table
+  density="compact"
+  columns={["Piece (where yours lives)", "How", "Jacob gets it by", "If it drifts"]}
+  rows={[
+    ["Global rules: `~/.pi/agent/AGENTS.md`, a symlink to `/home/Carl/pi-craft/AGENTS.md`", { badge: { label: "synced clone", tone: "success" } }, "a symlink to `~/pi-craft/AGENTS.md` in his clone", "Lags your commits by the sync interval. The 'Working with Carl' section applies to his agents verbatim until pi-craft gains a per-user section (deferred)."],
+    ["pi-craft: 9 skill groups, 7 extensions, agents, notes (`/home/Carl/pi-craft`, git, `QuinRiva/pi-craft`, private)", { badge: { label: "synced clone", tone: "success" } }, "his clone at `~/pi-craft` on `main`, fast-forwarded by `pi-sync.timer`; after the path PR", "Only committed changes reach him, a few minutes late; your working tree was clean at audit. On an experiment branch his runtime lags until he switches back (§3.1)."],
+    ["pi-fathom (`/home/Carl/pi-fathom`, git, `QuinRiva/pi-fathom`, private; project-scoped since 23 Oct)", { badge: { label: "synced clone", tone: "success" } }, "his clone at `~/pi-fathom`, same timer; registered in the project where you register it", "As pi-craft."],
+    ["`jacob-pi-loom`: his bespoke skills, extensions, prompts (his repo, his choice of remote)", { badge: { label: "his own", tone: "accent" } }, "`~/jacob-pi-loom`, listed last in his `packages`, names prefixed `jacob-`", "Cannot touch yours, and cannot shadow a pi-craft name either (first registration wins); a clash would show as a collision diagnostic naming pi-craft as the winner."],
+    ["Release roles, built-in skills, loom pi extensions (`loom-releases/current/{roles,skills}`; `caches/pi-loom-extension.ts` generated per home)", { badge: { label: "already shared", tone: "success" } }, "the existing `/srv/loom/releases` mount; the server passes them by path", "Cannot drift: same release, generated per home."],
+    ["`~/.pi/agent/skills/` symlinks into `loom-releases/current/skills/`, written by deployd on promote", { badge: { label: "copied once", tone: "info" } }, "the same symlinks, into `/srv/loom/releases/current/skills/`", "A new first-party skill added at promote needs the symlink added by hand on his side (deployd installs only into your pi home). The server still passes it to his agents by path, so only interactive pi notices."],
+    ["pi packages in `~/.pi/agent/settings.json`: web-access, subagents, plannotator, visual-explainer, studio, image-tools, btw, session-search, my-pi-setup, pi-vertex-claude, pi-anthropic-messages", { badge: { label: "copied once", tone: "info" } }, "the same list; the two local forks from their public GitHub remotes", "Versions drift as you bump yours. The list is small; a later timer can diff the two settings files. Accepted for the first cut."],
+    ["`~/.pi/agent/extensions/` (pi-browser, read-full, consult-manager, subagent config) and `agents/`", { badge: { label: "copied once", tone: "info" } }, "staged in the handoff directory by you, copied by him", "Drifts silently. Moving these into pi-craft removes the drift and is a candidate follow-up."],
+    ["Workstream model presets: `userdata/settings.json` → `workstreamModelPresets` (7 roles); no `workstreamModelProfiles` set", { badge: { label: "copied once", tone: "info" } }, "the JSON block", "Only matters when you roll models forward; the platform-update skill can write both files once it knows about his."],
+    ["Keybindings (`userdata/keybindings.json`); `themes/` is empty", { badge: { label: "copied once", tone: "info" } }, "the file", "Cosmetic."],
+    ["Provider credentials: `auth.json`, proxy key, `gh`, GCP (per user, mode 600)", { badge: { label: "per user", tone: "neutral" } }, "his own logins; the proxy key from step Carl 3", "Must not be shared."],
+  ]}
+/>
+
+### 3.1 Layering: how pi composes several packages, and the sync timer
+
+pi loads the `packages` list in `~/.pi/agent/settings.json` in the order written, global packages before project ones, de-duplicating by canonical path (`dist/core/resource-loader.js`, `mergePaths`, in the pinned pi 1.3.0 under the release's `node_modules`). Two rules decide what happens when two packages carry the same name:
+
+- **Skills: the first one loaded wins by name.** `loadSkills` (`dist/core/skills.js:316-410`) fills a map by skill name; a later skill with the same name is dropped and a `collision` diagnostic names winner and loser. Load order is `~/.pi/agent/skills/` first, then the project's `.pi/skills/`, then each package's skills in list order.
+- **Extensions all load, and a tool or command name goes to its first registrant.** `getAllRegisteredTools` (`dist/core/extensions/runner.js:411`) keeps the first extension that registered a name and the loader reports the conflict as an error diagnostic; both extensions stay loaded for everything else they do.
+
+So "later adds, earlier overrides". Jacob chose add-only: his list is your list verbatim (`../../pi-craft`, the npm and git packages, the two forks) with `../../jacob-pi-loom` **last**, and his skills, tools and prompts carry a `jacob-` prefix ("i'd probably rename my skill to be 'jacob' specific to ensure no collisions"). A pi-craft change he wants to try is a branch in `~/pi-craft`, not a shadowing copy. If he ever needs to override a pi-craft name on his side, moving his package first does it, and the collision diagnostic in `/skills` names the loser.
+
+<Columns>
+  <Card heading="His own clones, on `main`, fast-forwarded by a timer" tone="success" badge="RECOMMENDED" meta={["one copy per repo", "experiment = a branch", "PR from the same clone"]}>
+    `pi-sync.timer` (his user unit, every 5 minutes) runs, for `~/pi-craft` and `~/pi-fathom`: skip unless `git symbolic-ref --short HEAD` is `main` and `git status --porcelain` is empty, else `git pull --ff-only`. An experiment is `git switch -c jacob/<topic>` in place: his next agent launch runs the branch, the timer leaves it alone, and `git switch main` returns him to the train. A contribution is `gh pr create` from that branch (write access per the brief's GitHub answer). **Drift failure mode:** only your committed changes reach him, up to 5 minutes late, and while he sits on a branch he does not get your new commits until he switches back (the timer prints a one-line notice each tick it skips, so a forgotten branch is visible in `journalctl --user -u pi-sync`).
+  </Card>
+  <Card heading="Read-only mount of your working trees for the runtime; clones only for PRs" tone="neutral" badge="NOT CHOSEN" meta={["zero drift", "two-step experiments"]}>
+    `/srv/loom/pi-craft` and `/srv/loom/pi-fathom` bind-mounted read-only (step Carl 2), `~/pi-craft` a symlink to the mount, his clones elsewhere. He sees your uncommitted edits the moment you save. **Drift failure mode the other way:** to try his own pi-craft change live he must repoint the symlink at his clone and back, so an experiment is a switch he can forget, and while switched he is on a stale clone; and your half-finished edit is live for his agents as it is for yours.
+  </Card>
+</Columns>
+
+### 3.2 Diverging from, and rejoining, the loom release train
+
+His `loom-refresh.timer` (`/home/jacob/bin/loom-refresh.sh`) re-pins `~/loom/release-current` to whichever release your manifest marks `current` and restarts his server. To run his own loom build instead:
+
+1. `systemctl --user stop loom-refresh.timer`, so a promote of yours cannot re-pin him mid-experiment.
+2. Build from his clone: `cd ~/code/loom && git switch jacob/<topic> && pnpm install && pnpm build` (`pnpm` and `node` come from `/srv/loom/n/bin`; `pnpm build` is `vp run --filter './apps/*' build` and produces `apps/server/dist/bin.mjs` plus the web bundle it serves; not `pnpm cockpit:build`, which also starts a server in place).
+3. `ln -sfn ~/code/loom ~/loom/release-current && systemctl --user restart loom-cockpit.service`. His unit's `WorkingDirectory` and `ExecStart` already go through that symlink, so nothing in the unit changes. His database migrates forward if his branch adds a loom migration (`LoomMigrations.ts`, numbered 1001+), which is the one-way part: a branch that adds a migration cannot be rolled back to the train until that migration is on `main`.
+4. To rejoin: `rm ~/.local/state/loom/applied-release && systemctl --user start loom-refresh.timer`. Within 60 seconds the script sees no applied release, re-pins to your current one and restarts him.
+
+**What the shared pieces assume about his release:** `t3 loom-migrate` runs from his pinned release, and `import` checks that his migration ledger equals yours; so **threads migrate only while he is on the train** (the tool refuses otherwise, and the batch waits). The `~/.pi/agent/skills/` symlinks point at `/srv/loom/releases/current/skills/`, your current release's skills, whatever his server runs; his own build's roles and skills are passed to his agents by path by his server, so they follow his build. PRs to loom come from `~/code/loom` branches like any other. A long-lived fork of loom is out of scope by Jacob's choice ("i don't want to manage and maintain a separate fork of loom, ideally experiments are quick and proven"); §3.2 is the short-lived path only.
+
+### 3.3 Only Carl merges; his agents stop at the PR
+
+Jacob asked that his agents not merge "without his explicit approval (or from carls agents, carl himself)". Carl's answer is stricter and is the rule: "Only *I* should be able to actually merge on github, but he should be able to submit a PR". On Carl's repos, Jacob's approval does not suffice. Two layers deliver it, one enforced and one guidance:
+
+<Callout tone="decision" title="Enforced on GitHub: a 'Restrict updates' rule on loom's main, with you as the only bypass">
+  `QuinRiva` is a **user** account and `QuinRiva/loom` is **public** (`gh api repos/QuinRiva/loom --jq .owner.type` → `User`, `.private` → `false`), so repository rulesets with a bypass list are available on it whatever the plan (plan-gating applies to private repos only; your token has no `user` scope, so the plan name itself could not be read). A ruleset already exists: **"Protect main"** (`gh api repos/QuinRiva/loom/rulesets/20094908`): active, targets the default branch, rules `deletion`, `non_fast_forward` and `pull_request` with 0 required approvals and an empty bypass list. The change is one rule and one bypass entry on that ruleset: add **Restrict updates** (rule type `update`: "only allow users with bypass permission to update matching refs"; merging a pull request is an update of `main`) and add **Repository admin** to the bypass list in "always" mode. You are the repository's owner and so its admin; `jay-kob` with write is not. Result: he pushes branches and opens PRs and issues; GitHub refuses his merge click and any `gh pr merge` under his token, with a rules violation; your own `pnpm ship` merges and your agents' merges, all under your token, pass as bypass. On `pi-craft` and `pi-fathom` he keeps read, which cannot merge or push, so nothing is needed there. Reversible by removing the rule. The `triage`-plus-fork shape (no write anywhere) was weighed and rejected: it gives up branch pushes for an enforcement the ruleset already provides.
+</Callout>
+
+<Callout tone="decision" title="Guidance in his instance: a ceiling on merge authority, so his agents do not try">
+  Today the merge rule is per repository: `packages/shared/src/shipPolicy.ts` walks up to the nearest `.t3code/ship.json`, loom's is committed as `agent`, and `apps/server/src/loom/prompt/sessionComposerLive.ts:132` puts the resulting SHIPPING POLICY block into every thread's prompt; his clone inherits `agent`. A new optional setting in his `userdata/settings.json`, `mergeAuthorityCeiling: "human"` (schema in `packages/contracts/src/settings.loom.ts` beside `workstreamModelPresets`), applied in two places: the composer takes the lower of the repo's `ship.json` and the ceiling before calling `shipPolicyPromptBlock`, so every thread of his reads HUMAN-ONLY whatever repo it works in; and the server exports `T3CODE_MERGE_AUTHORITY_CEILING=human` into each agent's environment, which `scripts/ship.ts` (whose `--pr-only` path already implements the human ceiling) honours by stopping at the open PR. Unset on your instance. About half a day in loom, with a composer test. This layer is trusted, not enforced: it stops his agents attempting a merge GitHub would refuse anyway, and it holds on any repo of his own where no ruleset exists.
+</Callout>
+
+The shape in practice: **his agents stop at the open PR; you merge** (by hand, or through your own agents under your `agent` policy after review). Jacob merging by hand, or a "ship it" to his own agent, is not a path on your repos: the ruleset refuses the first and the ceiling the second. GitHub also does not let a login approve a PR it opened, so a review approval from him was never available for PRs his agents open.
+
+## 4. What a thread is, in full
+
+A thread is more than its rows. The copy tool moves every store in this table; the column on the right is what it does with each. Ids never change: thread, goal, task, run, checkpoint scope and attachment ids are random or derived from the thread id, never from a path, so lineage, consults, report file names, attachment names and checkpoint ref names all survive a copy unchanged. Only two kinds of value are rewritten: **absolute paths** and the **project id** (a random UUID per instance).
+
+<Table
+  density="compact"
+  columns={["Store (kind)", "What it embeds", "Tool", "How, and why"]}
+  rows={[
+    ["`orchestration_events`: V2 events keyed by thread id; V1 events for threads imported before 7 Oct _(source of truth)_", "worktree path, brief and report paths, pi session path, cwd, project id", { badge: { label: "copy + rewrite", tone: "info" } }, "Appended with fresh `sequence` numbers in source order."],
+    ["`orchestration_v2_projection_*`: threads, runs, messages, turn items, provider threads, sessions, checkpoint scopes, checkpoints, handoffs, subagents _(derived)_", "the pi session path (`provider_threads`, `nativeThreadRef.nativeId`); checkpoint scope `cwd`; thread `worktreePath`, `projectId`, `pullRequests`", { badge: { label: "copy + rewrite", tone: "info" } }, "Copied, not replayed: `ProjectionMaintenance.rebuild` replays every event in the database, so a merge copies rows and sets `projection_metadata.last_sequence`."],
+    ["`loom_thread_workstream`, `loom_goals`, `loom_goal_tasks` _(source of truth)_", "`report_path`, `kickoff_brief_path`, `project_id`; goals are unique by (project, slug)", { badge: { label: "copy + rewrite", tone: "info" } }, "Goals and tasks are plain tables with no event behind them. A goal shared with a tree that stays behind is copied, not moved; a slug collision on his side aborts."],
+    ["`loom_thread_consults`, `loom_thread_peer_messages`, context transfers _(derived)_", "asker and target thread ids", { badge: { label: "copy", tone: "neutral" } }, "Rows keep `target_title`; 43% of consults and 58% of peer messages cross trees, so the far end may not exist on his side (deferred)."],
+    ["`loom_usage_ledger`, `loom_thread_snooze_requests`, `loom_review_snapshots`, V1 `projection_*` tables, legacy-import markers _(source of truth)_", "review snapshots: worktree path, git common dir, ref name", { badge: { label: "copy + rewrite", tone: "info" } }, "The dev slicer's rule, every table with a `thread_id` column, catches all of these."],
+    ["`loom_thread_search` (FTS5), `loom_thread_embeddings` _(derived)_", "–", { badge: { label: "rebuild", tone: "success" } }, "`rebuildThreadSearchIndex` after the report files land; embeddings re-sweep at boot."],
+    ["Effect outbox, launch workflows, receipts, scheduled tasks, auth sessions _(per instance)_", "–", { badge: { label: "skip", tone: "neutral" } }, "Export refuses a tree with pending or running outbox rows; 0 scheduled tasks live."],
+    ["Files under `userdata/`: `workstream-reports/`, `workstream-briefs/`, `workstream-launch-identity/`, `pending-steering/`, `attachments/` _(source of truth)_", "launch identity embeds your `userdata/` path and the release skill paths", { badge: { label: "copy, chown", tone: "info" } }, "Attachments by referenced id, not by prefix. Launch identity is dropped so the next launch composes it afresh under his paths."],
+    ["pi session file under `~/.pi/agent/sessions/`, in a directory named after the cwd _(agent memory)_", "header `cwd`, ignored on resume because loom passes `cwdOverride`", { badge: { label: "copy, rewrite path", tone: "risk" } }, "A missing or unreadable file makes pi start an empty session silently: the one store whose loss nobody would notice without the smoke test."],
+    ["Checkpoint refs under `refs/t3/` (orchestration-v2 checkpoints, loom-baseline, loom-review), named by scope and ordinal, in the project's common `.git` _(diff and restore)_", "–", { badge: { label: "git bundle", tone: "info" } }, "Names are a pure function of the thread id; objects travel in a bundle fetched into his clone. The V1 refs `refs/t3/checkpoints/<thread>/{turn,baseline}/N` (11,468 in `/home/Carl/loom`) are left behind on purpose: nothing in the current server reads them, and they stay in your repos untouched."],
+    ["Worktree under `<home>/worktrees/` and its branch _(uncommitted work)_", "–", { badge: { label: "branch in bundle", tone: "warning" } }, "Export commits a dirty tree's changes as a labelled WIP commit on the thread's branch and the branch rides the bundle; on his side the worktree recreates itself from the branch at the next turn."],
+  ]}
+/>
+
+## 5. The copy tool
+
+<Callout tone="decision" title="A new `t3 loom-migrate` command in the release, built on the dev slicer's selection code">
+  The tool ships inside `bin.mjs` as `t3 loom-migrate export | import | verify`, registered in `apps/server/src/binCli.ts` beside the loom `goal` command, so both users run it from `/srv/loom/releases/current` with no source checkout or install. It extracts the reusable parts of `apps/server/scripts/migrate-dev-db.ts` (family selection by `lineage.rootThreadId`, the "every table with a `thread_id` column" copy, the foreign-key cascade, FTS handling, `ensureNotInUse`) into `apps/server/src/persistence/threadTreeSlice.loom.ts` and adds what a merge into a live instance needs: insert instead of replace, path and project remap in rows and event payloads, file and session copy, a git bundle, and a verification manifest.
+</Callout>
+
+<Columns>
+  <Card heading="Shipped in the release as a CLI subcommand" tone="success" badge="CHOSEN" meta={["runs as either user", "no checkout needed"]}>
+    Jacob has no source checkout with `node_modules`; a `vp run` script would need one under his user. The release already bundles `binCli.ts`, so a subcommand is available to both at the path his unit already uses.
+  </Card>
+  <Card heading="A `vp run` script like `migrate-dev-db`" tone="neutral" badge="REJECTED" meta={["import would run from Carl's checkout"]}>
+    The import must run as `jacob` with his server stopped, and `sudo -u jacob` into a checkout under `/home/Carl` cannot work with his home and yours both mode 700.
+  </Card>
+</Columns>
+
+### 5.1 The flow
+
+<Mermaid
+  caption="One batch: export as Carl, import as jacob, verify, then archive on the source"
+  legend={[{ tone: "risk", label: "the only write to Carl's instance" }, { tone: "warning", label: "Jacob's server stopped" }]}
+  source={'flowchart LR\n  A["Carl: statev2.sqlite<br/>read-only"] --> E["export<br/>as Carl"]\n  E --> B["/srv/loom-handoff/batch<br/>slice.sqlite · files · bundles · manifest"]\n  B --> I["import<br/>as jacob"]:::tone-warning\n  I --> J["Jacob: DB · userdata · sessions · clone"]\n  J --> V["verify<br/>counts · hashes · refs · resume"]\n  V --> R["archive on 13900<br/>Carl, in the UI"]:::tone-risk\n'}
+/>
+
+Read it left to right. The export never opens your database read-write (`file:…?mode=ro`, as the dev slicer does) and never changes a row. The bundle is a faithful snapshot: no remapping happens at export, so the batch directory doubles as a backup of exactly what left your instance, kept until you delete it. The import rewrites on the way in. Archiving is yours, one click per root in the sidebar, reversible with one more; the delete 30 days later is yours too, after a scheduled check and your confirmation (§5.4).
+
+### 5.2 `export` (as Carl)
+
+`node ~/loom-releases/current/apps/server/dist/bin.mjs loom-migrate export --root <id> [--root …] --out /srv/loom-handoff/<batch>` (`t3` is on neither user's PATH; `t3 loom-migrate` below is shorthand for that invocation from the user's own release path):
+
+1. **Select** the family of each root (every thread whose `lineage.rootThreadId` is the root), plus the `continues_thread_id` and `fork_from_thread_id` chain so a goal-continue chain moves as a unit (the three Mirvac threads in §6 are one chain), plus the goals those threads reference and their tasks. Print the set and stop unless `--yes`.
+2. **Refuse a tree that is not quiesced**: any run in `queued|preparing|starting|running|waiting`, any node not terminal, a pending `runtime_requests` row, a nonterminal background turn item, an outbox row `pending|running`, a `pending-steering/<id>.json`. The operator stops the turn in the UI first. `--root` in the dev slicer bypasses this check on purpose; here it is mandatory.
+3. **Carry uncommitted work.** For each thread whose `worktreePath` is dirty (`GIT_OPTIONAL_LOCKS=0 git status --porcelain`, so the check itself never rewrites an index), and only after the quiescence check has passed, the tool runs `git -C <worktree> add -A && git -C <worktree> commit --no-verify -m "loom-migrate WIP: <thread id> <timestamp>"` on the thread's own branch: untracked files included, `.gitignore` respected, hooks skipped. The manifest records the pre-commit `status --porcelain` output and the WIP commit SHA per thread. This is the one write the export makes inside your repos, on the thread's branch only, and it is exactly what the thread's next turn would have done; a worktree whose branch is checked out elsewhere, or that is mid-rebase or mid-merge, makes the export stop and name it.
+4. **Slice**, inside the same read transaction as the quiescence check (`BEGIN` on the read-only attach, check, then copy, then `COMMIT`), so a turn that starts between the two is never half captured: every table with a `thread_id` column filtered to the set, `orchestration_events` by aggregate, goals and tasks by id, consults, peer messages and context transfers where either end is in the set, into a fresh `slice.sqlite` created with the source schema. Ids and paths untouched.
+5. **Files**: reports, briefs, round and quiescent reports by stem glob; `pending-steering`; attachments by every id referenced from messages, turn items and tool-output images (not by prefix); each thread's pi session jsonl from `provider_threads.payload.nativeThreadRef.nativeId`. Copied under `files/` with their relative paths.
+6. **Git**: for each project in the set, `git bundle create <project>.bundle` with every `refs/t3/orchestration-v2/checkpoints/<scope>/*`, `refs/t3/loom-baseline/<scope>/*` (computed with `loomBaselineRef`) and `refs/t3/loom-review/*` ref named in the slice, plus each thread's work branch at its post-WIP tip. The bundle is how the branch reaches his clone: `import` fetches it in step 7, no GitHub round trip, no push of a WIP commit to `origin`, and the checkpoint refs travel in the same file (pushing the branch to origin and fetching was the alternative; it leaves WIP commits on the shared remote and still needs a bundle for the refs). Your project repos are `/home/Carl/loom/.git` and `/home/Carl/fathom-platform/.git` (the lease-extraction root is itself a worktree of the latter).
+7. **Manifest**: per thread, row counts per table, max event `sequence`, file paths with SHA-256, ref names with their SHA, project id with its workspace root, worktree path and branch. Then `sudo chown -R jacob:jacob` the batch. The export's only writes are the WIP commits of step 3 (on thread branches, in your repos) and the batch directory; your database is opened read-only throughout.
+
+### 5.3 `import` (as jacob, server and refresh timer stopped)
+
+`systemctl --user stop loom-refresh.timer loom-cockpit.service`, then `T3CODE_HOME=/home/jacob/.t3/cockpit node ~/loom/release-current/apps/server/dist/bin.mjs loom-migrate import --batch /srv/loom-handoff/<batch> --project <carlRoot>=<jacobRoot> …`, then `systemctl --user start loom-cockpit.service loom-refresh.timer`. The timer is stopped because `loom-refresh.sh` runs every 60 seconds and restarts his server whenever a release becomes current, whether or not it was running; you promote about daily, so an import that overlaps a promote would otherwise boot his server onto a half-written database. The tool runs from his pinned `~/loom/release-current`, not `/srv/loom/releases/current`, which can flip mid-batch; the pinned release is the one his database's migration ledger matches. The destination home is `T3CODE_HOME`; the session directory and the project clones come from `--sessions-dir` (default `~/.pi/agent/sessions`) and the `--project` map, so the dry run in §5.5 can point all three at scratch locations.
+
+1. **Guards**: `ensureNotInUse` on his database (the dev slicer's pid and `BEGIN IMMEDIATE` check); the two migration ledgers (`effect_sql_migrations`, `loom_sql_migrations`) must be identical, which the shared release makes true; every project in the manifest must map to a live row in his `projection_projects`; every thread, goal, task and attachment id must be absent on his side (or, with `--replace`, present and unchanged since its last import: see below); every goal slug must be free in its target project. Any failure aborts before a write.
+2. **Snapshot before any write**: `VACUUM INTO <batch>/pre-import-<timestamp>.sqlite` of his database, `quick_check`ed, the same way his nightly backup is taken. It stays in the batch directory beside the export bundle, so an import that goes wrong is undone by stopping the server and copying the snapshot back; the procedure for that is one line in the runbook. Files written under `userdata/` and the sessions directory by a failed import are only ever additions, listed in `import-manifest.json`, and are removed by `import --rollback <batch>`.
+3. **All database writes in one transaction** (`BEGIN IMMEDIATE` … `COMMIT`): a bad `json_set`, a full disk or a killed shell leaves his database exactly as the snapshot has it. Files and git refs are written after the commit, and `verify` (§5.4) is what proves they all landed.
+4. **Rewrite** while inserting, with the map below, in both the column and the JSON payload (`json_set` on the known keys, never a blind `replace` across text).
+5. **Append** events in source `sequence` order with new sequence numbers; renumber `peer_messages.seq` likewise; set `projection_metadata.last_sequence`.
+6. **Files** copied into his `userdata/` and `<sessions-dir>/--<new cwd encoded>--/` (he runs the command, so ownership is his; mode 600 on sessions, which the resume sanitiser rewrites in place). Launch identity files are **not** copied: the next launch composes one under his paths.
+7. **Git**: `git fetch <bundle> 'refs/t3/*:refs/t3/*'` and the work branches into the clone named by the `--project` map. The worktree directory itself is not created; the server recreates it from the branch at the next turn under `<T3CODE_HOME>/worktrees/`, so the remapped path must sit there.
+8. **Search**: `rebuildThreadSearchIndex`. Embeddings re-sweep on boot.
+9. Write `import-manifest.json` with the same counts and hashes measured on his side.
+
+**Re-importing a tree** (`import --replace`), for when `export --check` finds that a thread kept moving on your instance after export and it was exported again: allowed only when every row count of his existing copy still matches the previous `import-manifest.json`, that is, nobody has touched the tree on his side. The tool then deletes his copy of that tree's rows and files inside the same transaction as the fresh insert, after the snapshot in step 2. If his copy has changed, the tool stops and names the thread; the two copies have diverged and merging them is a human decision, not a tool's.
+
+<Table
+  density="compact"
+  columns={["Value", "From", "To", "Where it lives"]}
+  rows={[
+    ["Project id", "`c2dc6422…` (lease-extraction), `de7b4bb4…` (loom)", "his project rows, by workspace root given on the command line", "the thread row's `project_id` and payload `projectId`; workstream and goal rows; `thread.created` events"],
+    ["T3 home", "`/home/Carl/.t3/cockpit`", "`/home/jacob/.t3/cockpit`", "worktree, report and brief paths; checkpoint scope and provider session `cwd`; review snapshot paths; legacy-import session path"],
+    ["Project root", "`/home/Carl/.t3/project-roots/fathom-platform/data-pipeline-jobs/lease-extraction`, `/home/Carl/loom`", "`/home/jacob/code/fathom-platform/data-pipeline-jobs/lease-extraction`, `/home/jacob/code/loom`", "the same fields, for threads that ran on the root rather than a worktree"],
+    ["pi session path", "`/home/Carl/.pi/agent/sessions/--<carl cwd>--/<file>`", "`/home/jacob/.pi/agent/sessions/--<jacob cwd>--/<file>`", "the provider-thread row's `nativeId`; the `provider-thread.updated` and `run-attempt.updated` events"],
+    ["Message and tool-output text", "historical paths and citation links carrying your environment id", { badge: { label: "left as history", tone: "neutral" } }, "the composer already tells a relocated agent that 'absolute paths you remember are historical'; citations to your environment will not resolve on his"],
+  ]}
+/>
+
+Why rows must be copied rather than events replayed: `loom_goals`, `loom_goal_tasks`, the usage ledger and snooze requests are plain tables with no event behind them, and `ProjectionMaintenance.rebuild` is all-or-nothing over the whole database. Why the foreign-home guard makes the path remap mandatory rather than nice-to-have: at boot, if every recorded worktree path sits outside his `worktreesDir`, his server goes read-only; and if some do, unremapped copies would aim git side effects at paths under `/home/Carl`.
+
+### 5.4 `verify`, then archive, then a confirmed delete after 30 days
+
+`t3 loom-migrate verify --batch …` runs on his side after `import` and compares `manifest.json` with `import-manifest.json`: every per-thread, per-table count equal; every file present with the same hash and readable by jacob; every ref present in his clone with the same SHA; every session path in `provider_threads` pointing at an existing file. It prints one line per thread and a non-zero exit on any difference. Then the operator smoke test, which is the only proof that the agent's memory survived, because a missing session file resumes silently as an empty one: start his server, open one migrated thread per project, send "where were we?", and the answer refers to the thread's actual work.
+
+Only then does archive happen, and only by you, in the UI, so it goes through `thread.archived` events like any archive and can be undone the same way (Loom cascades archive to the tree's descendants, `apps/server/src/loom/orchestration/redrive.ts:181-194`). Before you do, `export --check` re-reads each thread's max event `sequence` on your instance and warns if it moved since export (someone kept working on the source copy); a moved thread is exported again and brought over with `import --replace` (§5.3), not archived stale.
+
+**Delete after 30 days, confirmed by a human every time.** Your answer: "archive now, delete from your instance after 30 days if he has not come back for it". The mechanism, per batch:
+
+1. When you archive the batch's roots, you create one **scheduled task** (Settings → Scheduled tasks; one-shot, 30 days out, posting into the thread that ran the migration, so it dies with that thread) whose prompt names the batch directory. Loom has no agent-reachable delete, so the task's agent prepares the decision and you make it.
+2. When it fires, the agent reads `<batch>/manifest.json` for the root ids, checks **his** copies read-only (`sudo $(which sqlite3) "file:/home/jacob/.t3/cockpit/userdata/statev2.sqlite?mode=ro"`: each root present, `deleted_at` null, its max event `sequence` at or past the import's), checks the roots are still archived and untouched on yours (`export --check`), and asks you with one question listing the roots and both findings. If a root is missing or unhealthy on his side, it asks you to hold and notifies Jacob through the Slack bridge; nothing is deleted.
+3. On your "yes", **you delete each root in the sidebar**. `thread.delete` is a soft delete (`thread.deleted` event, `deleted_at` on the row; `packages/contracts/src/orchestrationV2.ts:2807`): Loom cascades it to every descendant (`redrive.ts:209-220`), the tree leaves every view and the search index, its worktrees are removed only if "Delete worktrees with deleted threads" is on in project settings, and scheduled tasks posting into it are deleted with it. Rows, report and brief files, session files and checkpoint refs are **not** purged by a delete (checkpoint refs have their own retention sweep); they are invisible, not gone.
+4. The agent then records the deletion in `<batch>/manifest.json` (`deletion: { confirmedBy, at, roots }`) and the task is done. Never automatic: a task that fires with nobody answering does nothing.
+
+After the delete, the last copies on your side are the **batch directory** `/srv/loom-handoff/<batch>/` (the export bundle: `slice.sqlite`, files, git bundles, manifest; and his `pre-import-<ts>.sqlite` snapshot), owned by jacob after the export's `chown`, on this host's disk and in nobody's backup. Its retention is yours; the recommendation is to keep it until the delete has happened and his nightly backup has run at least once since the import, then remove it by hand.
+
+### 5.5 The dry run
+
+Before the first real batch, as jacob, everything under a scratch root so nothing of his is written: `sqlite3 -readonly /home/jacob/.t3/cockpit/userdata/statev2.sqlite "VACUUM INTO '/tmp/jacob-dry/userdata/statev2.sqlite'"`; a scratch clone of the project repo at `/tmp/jacob-dry/code/fathom-platform` (so the bundle fetch and the smoke turn's `git worktree add` land there, not in his real clone); then `T3CODE_HOME=/tmp/jacob-dry … loom-migrate import --batch <one-thread batch> --sessions-dir /tmp/jacob-dry/sessions --project <carlRoot>=/tmp/jacob-dry/code/fathom-platform/data-pipeline-jobs/lease-extraction`. The worktree paths are remapped under `/tmp/jacob-dry/worktrees`, which is that server's own `worktreesDir`, so the foreign-home guard does not fire (it would, and block every provider launch, if the import had remapped them under his real home while the server booted from the scratch one). Boot a server against it on a spare port with `T3CODE_HOME=/tmp/jacob-dry`, pair, open the thread, and run the smoke test. His real database, `userdata/`, `~/.pi/agent/sessions` and clone are untouched; the only real thing the dry run uses is his pi configuration (providers, packages), which it reads. This settles the brief's unknown about whether pi keeps the provider-thread id when `nativeId` is rewritten (`adapter.ts:2344-2352` keeps an existing id on resume, which reads as yes). `rm -rf /tmp/jacob-dry` afterwards.
+
+## 6. Which threads are his
+
+Nothing in the database records which login made a thread: `dispatchCommand` has the session id in scope and stamps only `createdBy: "user"` (`apps/server/src/ws.ts:1579`, `:1969`, `:2143`); events carry `actor_kind` of `server` or `provider`; launch identity files record no user. So the list cannot be a query, and the brief's assumption stands: **Jacob proposes, you confirm**. What the research could do is build a candidate list from four indirect signals, each checked where the author is known: the five-week window (20 Aug to 20 Sep) in which you were on Slack only and his was the only browser session; messages where he names himself or an agent relays "the human (Jacob)"; Slack-bridge messages carrying his sender id `U04V79SPF9T`; and a writing-style tell (a lowercase "i" with no capital "I" in the same message: you did it in 1 of 2,565 messages before he had access, he in 32 of 217 during the window). The known positive, "Jacob's Loom experiments", is found by two of them. Recall after 20 Sep is incomplete; precision is high except where marked.
+
+<Details summary="The 44 candidate roots, strongest first (all dates 2026; children counted from loom_thread_workstream)">
+
+<Table
+  density="compact"
+  filterable
+  columns={["Thread", "Project", "Created", "Last active", "Archived", "Children", "Signal"]}
+  rows={[
+    ["Mirvac Audit Template (goal handoff `…360d542f`)", "lease-extraction", "10-26", "10-27", "no", "18", "self-id 1 · lowercase-i 20 · Mirvac chain"],
+    ["Doctree and Visual Explainer Skill `b6710819`", "lease-extraction", "10-13", "10-27", "no", "64", "self-id 31 · slack 1 · lowercase-i 8"],
+    ["Loom file browser downloads PR and archive viewer issue `622fb61f`", "loom", "10-22", "10-27", "no", "1", "self-id 2 · lowercase-i 1"],
+    ["Jacob's Loom experiments `fdb4bf4b` (known positive)", "loom", "10-14", "10-22", "yes", "5", "self-id 1 · lowercase-i 2"],
+    ["New model onboarding: Fable 5.1, GPT-6 Astra `2f564360`", "loom", "09-08", "09-09", "no", "3", "self-id 1 · window 16"],
+    ["CSM-412 dual-basis insurance fix `bc51c513`", "lease-extraction", "09-02", "09-03", "no", "12", "self-id 2 · window 17"],
+    ["CSM-415 fixes: Jacob decision round `a414cbec`", "lease-extraction", "08-27", "09-02", "no", "0", "self-id 1 · window 2"],
+    ["CSM-415 trading-name source diagnosis `dacb95e3`", "lease-extraction", "08-20", "08-27", "no", "11", "self-id 1 · window 38"],
+    ["CRE Capability One-Pager Marketing Doc `bec9bc12`", "loom-slack-bridge", "10-14", "10-22", "yes", "0", "slack 3"],
+    ["Fathom one-pager marketing spikes (goal handoff `…78939044`)", "lease-extraction", "10-14", "10-14", "no", "9", "self-id 3 · slack 1"],
+    ["Jacob: watch request `e8b15788`", "loom-slack-bridge", "09-21", "09-21", "yes", "0", "slack 3"],
+    ["Jacob: connectivity check `600ce544`", "loom-slack-bridge", "09-21", "09-21", "yes", "0", "slack 2"],
+    ["Mirvac ingestion: KF sync review `c9aed43b`", "lease-extraction", "10-28", "10-28", "no", "2", "lowercase-i 1"],
+    ["Mirvac meeting prep (goal continue `…4820b360`)", "lease-extraction", "10-27", "10-28", "no", "28", "lowercase-i 7 · Mirvac chain"],
+    ["Mirvac Audit Template, continued (goal continue `…53f8febd`)", "lease-extraction", "10-27", "10-27", "no", "6", "lowercase-i 1 · Mirvac chain"],
+    ["ERP CSV graph ∩ doctree graph (goal handoff `…2e6c02ea`)", "lease-extraction", "10-19", "10-27", "yes", "15", "lowercase-i 3"],
+    ["Investa-led demo building (goal continue `…3cd0e879`)", "lease-extraction", "10-15", "10-26", "yes", "15", "lowercase-i 5"],
+    ["Lantern House run and review `7690e681`", "lease-extraction", "09-29", "10-15", "yes", "46", "lowercase-i 10"],
+    ["252 Pitt pre-audit: review and roll-out `3ae711a3`", "lease-extraction", "10-06", "10-11", "no", "9", "lowercase-i 5"],
+    ["Client Onboarding Pre-Audit Skill `6a84e6db`", "lease-extraction", "10-06", "10-11", "no", "6", "lowercase-i 1"],
+    ["Audit missing-documents discrepancy `b8192f39`", "lease-extraction", "10-01", "10-08", "yes", "3", "lowercase-i 1"],
+    ["Synthetic demo building → staging E2E `484881a5`", "lease-extraction", "09-21", "10-08", "yes", "45", "lowercase-i 16"],
+    ["Kador charge variance audit `201d48fc`", "lease-extraction", "09-07", "10-08", "yes", "17", "lowercase-i 1 · window 20"],
+    ["Kador charge schedule before-and-after `095af9d3`", "lease-extraction", "09-09", "10-08", "yes", "34", "lowercase-i 3 · window 29"],
+    ["April Group final March audit report `071ac980`", "lease-extraction", "08-17", "10-08", "yes", "27", "lowercase-i 11 · window 5 · root predates window"],
+    ["Langfuse trace br-tag rendering bug `cda49654`", "lease-extraction", "09-28", "10-02", "no", "8", "lowercase-i 1 (weak)"],
+    ["Build the Knight Frank demo `e58d5341`", "lease-extraction", "09-30", "10-01", "no", "118", "lowercase-i 24"],
+    ["Rethinking agent→human questions `8256e5f2`", "loom", "09-30", "10-01", "no", "15", "lowercase-i 1 (weak)"],
+    ["KF office demo-building selection `cdf19f03`", "lease-extraction", "09-22", "09-30", "yes", "207", "lowercase-i 8"],
+    ["Add sub-account to CLI proxy `4dc46805`", "cli-proxy", "08-13", "09-10", "no", "0", "lowercase-i 1 · window 2 · root predates window"],
+    ["March report: decisions and follow-through `f06a6b51`", "lease-extraction", "08-21", "09-04", "no", "16", "lowercase-i 14 · window 68"],
+    ["Lease-audit concept specification `ce56973d`", "lease-extraction", "08-25", "08-26", "no", "5", "window 1"],
+    ["Fix workstream credential errors `dacfbd79`", "loom", "08-25", "08-25", "no", "0", "lowercase-i 1 · window 6"],
+    ["Evaluate docling-graph vs lease-extraction `3f04f49b`", "lease-extraction", "08-23", "08-23", "no", "3", "window 1"],
+    ["March report: v3 design migration `1203f203`", "lease-extraction", "08-18", "08-21", "no", "26", "lowercase-i 7 · window 23 · handover 14 · root predates window"],
+    ["First up, we're continuing working on the same goa… `be2ddd01`", "lease-extraction", "07-07", "08-18", "no", "21", "lowercase-i 1 · Carl's root"],
+    ["April Group round-5 + final report `313bd8cd`", "lease-extraction", "08-13", "08-17", "no", "24", "lowercase-i 6"],
+    { tone: "risk", cells: ["Child prompt stack dedup (loom) `17ba1f69`", "loom", "08-10", "08-12", "no", "13", "lowercase-i 1: known Carl false positive, drop"] },
+    { tone: "warning", cells: ["Tenant-audit field anomaly investigation `971ec42a`", "lease-extraction", "08-19", "08-30", "no", "18", "handover 10 · likely Carl"] },
+    { tone: "warning", cells: ["Cadence pull 6 (multi-week) `0dca88eb`", "loom", "08-19", "08-29", "yes", "11", "handover 2 · Carl via Slack"] },
+    { tone: "warning", cells: ["KF DocSync Monitor triage `3d9c82b5`", "lease-extraction", "08-18", "08-19", "no", "12", "handover 8 · likely Carl"] },
+    { tone: "warning", cells: ["PFC rethink: lease-id attribution `b2896955`", "lease-extraction", "08-19", "08-19", "no", "4", "handover 1 · likely Carl"] },
+    { tone: "warning", cells: ["Upstream pull handoff: loom cadence `378fe7e3`", "loom", "07-05", "08-19", "no", "20", "handover 1 · Carl"] },
+    ["Separate Jacob's Loom account and migrate threads `b9194ae3` (this goal; both of you write in it)", "loom", "10-28", "10-28", "no", "5", "self-id 3 · stays with Carl"],
+  ]}
+/>
+
+The query that produced it runs read-only in under half a second and is committed beside this plan as `plans/jacob-loom-account/jacob-thread-candidates.sql` (it is specific to Jacob: his Slack id, his writing tell; it does not belong in product source), so it can be re-run before each batch (the self-id and Slack signals keep growing while he still works on 13900). Rows marked "root predates window" are trees you started and he continued while you were away; whose instance they belong to is your call, and a tree can only be in one place.
+
+</Details>
+
+Two things the list shapes in the tool: goal chains (`goal_handoff`, `goal_continue`) are selected as a unit, and a tree that stays with you is never half-copied. The `loom` project threads among them are a reason his clone of `QuinRiva/loom` is in step Jacob 2 even if he never contributes code.
+
+## 7. Change map
+
+<Details summary="Files the implementation touches">
+
+<FileTree
+  title="Loom (this repo)"
+  entries={[
+    { path: "apps/server/src/persistence/threadTreeSlice.loom.ts", change: "added", note: "family selection, quiescence check, thread-id-column copy, FK cascade, FTS handling, ensureNotInUse: extracted from migrate-dev-db.ts" },
+    { path: "apps/server/scripts/migrate-dev-db.ts", change: "modified", note: "imports the extracted helpers; behaviour unchanged" },
+    { path: "apps/server/src/cli/loomMigrate.loom.ts", change: "added", note: "t3 loom-migrate export | import | verify; remap table, file and session copy, git bundle, manifests" },
+    { path: "apps/server/src/cli/loomMigrate.loom.test.ts", change: "added", note: "round-trip on a seeded fixture: export, import into a fresh home, verify equal; refusal on a live run and on an id collision" },
+    { path: "apps/server/src/binCli.ts", change: "modified", note: "registers the command beside goalCommand, with a // loom: mark" },
+    { path: "packages/contracts/src/settings.loom.ts", change: "modified", note: "optional mergeAuthorityCeiling: \"human\" in loom settings (§3.3)" },
+    { path: "apps/server/src/loom/prompt/sessionComposerLive.ts", change: "modified", note: "SHIPPING POLICY block takes min(repo ship.json, ceiling); exports T3CODE_MERGE_AUTHORITY_CEILING to the agent env" },
+    { path: "scripts/ship.ts", change: "modified", note: "honours T3CODE_MERGE_AUTHORITY_CEILING=human as --pr-only" },
+    { path: "plans/jacob-loom-account/", change: "added", note: "this brief and plan, plus jacob-thread-candidates.sql, the candidate-list query re-run before each batch" },
+  ]}
+/>
+
+<FileTree
+  title="pi-craft (separate repo, one PR)"
+  entries={[
+    { path: "plugins/pi-craft/extensions/cliproxy.ts", change: "modified", note: "apiKey path from os.homedir(): unchanged for Carl" },
+    { path: "plugins/pi-craft/extensions/anthropic-subs.ts", change: "modified", note: "AUTH_DIR from os.homedir(): unchanged for Carl; registers nothing when the directory is absent" },
+    { path: "plugins/pi-craft/skills/skill-authoring/SKILL.md", change: "modified", note: "~ for /home/Carl" },
+    { path: "plugins/pi-craft/skills/platform-update/", change: "modified", note: "SKILL.md, targets.yaml, platform_update.py: ~ for /home/Carl; later, knows Jacob's userdata/settings.json" },
+    { path: "plugins/pi-craft/skills/lesson-triage/SKILL.md", change: "modified", note: "~ for /home/Carl" },
+    { path: "plugins/pi-craft/agents/evidence-reader.md", change: "modified", note: "~ for /home/Carl" },
+  ]}
+/>
+
+<FileTree
+  title="Host (outside any repo; the procedure goes in ~/loom-releases/RUNBOOK.md, which never mentions Jacob today)"
+  entries={[
+    { path: "github.com/QuinRiva/loom → Settings → Rules → Protect main", change: "modified", note: "add rule Restrict updates; bypass list: Repository admin (always)" },
+    { path: "/home/Carl/loom-releases/RUNBOOK.md", change: "modified", note: "Jacob's instance: the four Carl-only steps, the batch procedure, the pre-import snapshot restore, the backup hook" },
+    { path: "/srv/loom-handoff/", change: "added", note: "mode 1777; one subdirectory per batch" },
+    { path: "/mnt/fast/jacob-backup-staging/", change: "added", note: "owned jacob, 755; read by Carl's loom-backup" },
+    { path: "/home/Carl/cli-proxy/config.yaml", change: "modified", note: "second api-keys entry" },
+    { path: "/home/Carl/.local/bin/loom-backup", change: "modified", note: "uploads db/jacob-statev2.zst and pi-jacob/" },
+    { path: "/home/jacob/cli-proxy/.apikey", change: "added", note: "600, written by Carl via sudo install -D" },
+    { path: "/home/jacob/.pi/agent/", change: "modified", note: "settings.json, AGENTS.md symlink, skills symlinks, extensions/, agents/" },
+    { path: "/home/jacob/.config/systemd/user/loom-backup.{service,timer}", change: "added", note: "nightly VACUUM INTO staging" },
+    { path: "/home/jacob/.config/systemd/user/pi-sync.{service,timer}", change: "added", note: "every 5 min: fast-forward ~/pi-craft and ~/pi-fathom when on main and clean" },
+    { path: "/home/jacob/{pi-craft,pi-fathom,jacob-pi-loom}", change: "added", note: "his clones and his own package; packages list has jacob-pi-loom first" },
+    { path: "/home/jacob/code/{loom,fathom-platform}", change: "added", note: "his clones; project roots for t3 project add" },
+  ]}
+/>
+
+</Details>
+
+Order of work: the pi-craft PR and steps Carl 1 to 3 first (an afternoon; they unblock Jacob's steps, which he can do the same day); the tool in one PR with its test; the dry run on a throwaway copy of his database; then the first batch you confirm. The account can be live and in use before the tool exists.
+
+## 8. Verification
+
+- **Account** (brief's checks, on the real host): Jacob loads `http://carl-dev.tail30bb77.ts.net:13910` from his laptop and pairs; a new thread in his `loom` project runs a turn on `cliproxy/claude-fable-5-1`; `/skills` lists `mdx-visual-plan` (release) and `skill-authoring` (pi-craft); an agent in that thread pushes a scratch branch and opens a draft PR on `QuinRiva/loom` under his login, then closes it; `ls /home/Carl` as jacob is denied. **Layering and divergence:** he adds `skills/hello-jacob/SKILL.md` to `~/jacob-pi-loom`, a new thread of his lists it under `/skills` and a thread of yours does not; he copies a pi-craft skill into `jacob-pi-loom` under the same name and his `/skills` output shows his path as the winner with a collision diagnostic; he makes a one-line change on a `jacob/<topic>` branch in `~/pi-craft`, opens a PR with `gh pr create`, and `git -C /home/Carl/pi-craft status` on your side is unchanged; `pi-sync` skips while that branch is checked out and fast-forwards within 5 minutes of `git switch main`; he pins a local loom build (§3.2), his server comes up on it, and after `rm ~/.local/state/loom/applied-release && systemctl --user start loom-refresh.timer` he is back on your current release within a minute with his threads intact. The nightly backup's next run uploads `db/jacob-statev2.zst`.
+- **Tool** (`vp check`, `vp run typecheck`, the round-trip test): `loomMigrate.loom.test.ts` seeds a workstream with `seedWorkstream.ts`, dirties its worktree with one tracked edit and one untracked file, exports it, imports into a fresh home, and asserts `verify` passes, the thread opens, and the imported branch's tip is the WIP commit containing both files; a second case asserts `export` refuses a thread with a running run and `import` refuses a colliding id.
+- **Only Carl merges**: after the ruleset change, `gh api repos/QuinRiva/loom/rulesets/20094908 --jq '[.rules[].type]'` lists `update`, and its `bypass_actors` names the admin role; as `jay-kob`, `gh pr merge <draft PR>` on loom fails with a rules violation while `gh pr create` succeeded; `pnpm ship` on your side still merges.
+- **Merge ceiling**: with `mergeAuthorityCeiling: "human"` in his `userdata/settings.json`, a new thread of his in the `loom` project shows the HUMAN-ONLY SHIPPING POLICY block in its launch identity (`userdata/workstream-launch-identity/<stem>.json`, `appendSystemPrompt`), `env` carries `T3CODE_MERGE_AUTHORITY_CEILING=human`, and `pnpm ship` in his worktree stops at the open PR; a thread of yours still reads AGENT-OK.
+- **Dry run** (§5.5): one thread into a throwaway copy of his database; "where were we?" answered from memory; `git -C ~/code/fathom-platform for-each-ref refs/t3/` shows the thread's refs; the diff view on an old turn renders.
+- **First batch**: `verify` clean, the smoke test on one thread per project, the trees visible in his sidebar under the right projects, then archived on yours and present in your Archive view. Counts in the two manifests are the evidence kept with the batch.
+- **A side finding to act on separately.** Your direct `anthropic-<seat>` pi providers read `claude-<email>.json` under `/home/Carl/cli-proxy/auths/`, but the files are now named `claude-a42236a2-<email>.json`; consults that route through those providers fail with "Failed to resolve API key … anthropic-caaarl", and your `usageSources.tokenFile` paths are likely stale the same way. Not touched by this plan; anything mirrored to Jacob would inherit it, which is one more reason his instance uses the proxy key only.
+
+## 9. Risks
+
+<Table
+  density="compact"
+  columns={["Risk", "Likelihood", "What limits it"]}
+  rows={[
+    { tone: "risk", cells: ["A migrated agent resumes with an empty memory and nobody notices", "low once the tool exists; certain without it", "`verify` checks every session path exists under his home; the smoke test is mandatory before archive; the export bundle keeps the original jsonl"] },
+    { tone: "warning", cells: ["A thread keeps being worked on 13900 after export, and the archive hides newer turns", "medium (Jacob is working daily)", "`export --check` compares max `sequence` before archive; the operator exports close to the archive; both copies survive either way"] },
+    { tone: "warning", cells: ["The shared-node device cannot reach a second Serve port", "low", "Fallback to an HTTPS Serve entry (443 is what `pair --tailscale` defaults to); tested by one page load before anything else"] },
+    { tone: "warning", cells: ["An import fails or is interrupted part way", "low", "Server and refresh timer stopped; snapshot taken before any write; one transaction; `import --rollback` removes added files"] },
+    { tone: "warning", cells: ["A worktree's uncommitted work is lost or half-captured", "low", "Export commits it on the thread's branch after the quiescence check, records the status and SHA in the manifest, and the branch rides the bundle; a mid-rebase or elsewhere-checked-out branch stops the export"] },
+    { tone: "neutral", cells: ["His agent, or Jacob, merges on loom anyway", "none once the rule is on", "The 'Restrict updates' rule on main with you as the only bypass refuses it at GitHub; the HUMAN-ONLY block and the ship script stop his agents from trying"] },
+    { tone: "warning", cells: ["A source tree is deleted while his copy is unhealthy", "low", "The 30-day task checks his database read-only and your archive state first, and you confirm each delete by hand; the batch directory keeps the last copy"] },
+    { tone: "warning", cells: ["Goal slug or id collision on his side", "low (his database holds two threads from July)", "`import` aborts before any write on a collision"] },
+    { tone: "neutral", cells: ["Cross-tree consults and peer messages point at trees that stayed behind", "certain for some rows", "Rows copy with `target_title`, so they display; navigation fails; deferred by design"] },
+    { tone: "neutral", cells: ["Your proxy pool is one quota shared with no per-key cap", "certain under the recommended answer", "His usage is visible per key in the proxy log; the seat-routing rule is unchanged; pulling a seat is the existing `./account off`"] },
+    { tone: "neutral", cells: ["Copied-once pieces (npm packages, extensions, presets) drift", "certain over months", "Named in §3; a follow-up moves extensions into pi-craft and teaches platform-update about his settings file"] },
+  ]}
+/>
+
+## Settled
+
+Two calls this plan made on its own, taking the recommended answers at approval: the archive and the later delete are yours, in the sidebar, with the tool printing the list and the sequence check (keeping the tool read-only against your instance); and historical paths and citation links inside copied message text are left as history (the composer already tells a relocated agent that old absolute paths are historical).
+

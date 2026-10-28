@@ -8,13 +8,18 @@ import { readT3codeConfig } from "./t3codeConfig.ts";
  */
 export type MergeAuthority = "agent" | "human";
 
+/** Set to `human` in an agent's environment by an instance's `mergeAuthorityCeiling`; `pnpm ship`
+ * then stops at the open PR whatever the repo's policy says. */
+export const MERGE_AUTHORITY_CEILING_ENV = "T3CODE_MERGE_AUTHORITY_CEILING";
+
 /**
  * Walk up from `cwd` for the nearest `.t3code/ship.json`
  * (`{ "merge": { "authority": "agent" | "human" } }`). Missing, unreadable, or
  * invalid → `"human"`; never throws, so a broken config can only make shipping
- * more conservative.
+ * more conservative. An instance `ceiling` can only lower the result, never raise it.
  */
-export function resolveMergeAuthority(cwd: string): MergeAuthority {
+export function resolveMergeAuthority(cwd: string, ceiling?: "human"): MergeAuthority {
+  if (ceiling === "human") return "human";
   try {
     const raw = readT3codeConfig(cwd, "ship.json") ?? "{}";
     return (JSON.parse(raw) as { merge?: { authority?: unknown } }).merge?.authority === "agent"
