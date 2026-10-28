@@ -95,11 +95,11 @@ files too (above). In order, the script:
    anyone else's push).
 6. Creates the PR into `main`, titled `--title` or the first line of `-m`, its
    body your `--body` then the `Loom-Summary:` / `Loom-Kind:` trailers; a
-   branch that already has an open PR, such as one opened with `--pr-only`,
-   reuses it instead.
-7. Merges it (`gh pr merge --merge`), repeating the trailers in the merge
-   commit, where deployctl reads them for the deploy toast, and confirms the
-   merged state.
+   branch that already has an open PR into `main`, such as one opened with
+   `--pr-only`, reuses it and its title instead.
+7. Merges it (`gh pr merge --merge`), the merge body being the PR title then
+   the trailers, where deployctl reads them for the deploy toast, and confirms
+   the merged state.
 8. Deletes the remote branch explicitly once the merge is confirmed.
 
 ## Repo gotchas (each has bitten before)

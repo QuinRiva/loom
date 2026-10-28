@@ -73,10 +73,11 @@ it("stops at the open PR with --pr-only", () => {
 });
 
 it("reuses an already-open PR instead of creating one", () => {
-  const options = { branch: "feature", message: "msg", mergeOnly: false, prOpen: true };
-  const steps = planShipSteps(options);
+  const options = { branch: "feature", ...note, mergeOnly: false, openPrTitle: "Open PR" };
+  const steps = planShipSteps({ ...options, title: "Ignored" });
   assert.notInclude(stepKinds(steps), "pr-create");
-  assert.include(stepKinds(steps), "pr-merge");
+  // The merge body leads with the reused PR's own title.
+  assert.match(steps.find((step) => step.kind === "pr-merge")?.args.at(-1) ?? "", /^Open PR\n\n/);
   assert.equal(planShipSteps({ ...options, prOnly: true }).at(-1)?.kind, "push");
 });
 

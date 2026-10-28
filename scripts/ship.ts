@@ -49,7 +49,8 @@ export interface ShipPlanOptions {
   readonly kind: ShipKind;
   readonly mergeOnly: boolean;
   readonly prOnly?: boolean | undefined;
-  readonly prOpen?: boolean | undefined;
+  /** Title of the branch's already-open PR, which ship reuses instead of creating one. */
+  readonly openPrTitle?: string | undefined;
   readonly title?: string | undefined;
   readonly body?: string | undefined;
 }
@@ -167,7 +168,7 @@ export class ShipMergeNotConfirmedError extends Schema.TaggedError<ShipMergeNotC
  * branches skip the rebase) are unit-testable without touching git/gh.
  */
 export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep> {
-  const title = options.title ?? options.message.split("\n")[0];
+  const title = options.openPrTitle ?? options.title ?? options.message.split("\n")[0] ?? "";
   // deployctl reads these back from the merge commit (`%(trailers:key=Loom-Summary)`), so they
   // must stay the last paragraph of the merge body.
   const trailers = `Loom-Summary: ${options.summary}\nLoom-Kind: ${options.kind}`;
@@ -269,7 +270,9 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
       )
     : steps;
   // A branch whose PR is already open (e.g. from an earlier --pr-only) reuses it.
-  return options.prOpen ? planned.filter((step) => step.kind !== "pr-create") : planned;
+  return options.openPrTitle !== undefined
+    ? planned.filter((step) => step.kind !== "pr-create")
+    : planned;
 }
 
 /**
@@ -420,7 +423,12 @@ const treeIsDirty = Effect.fn("treeIsDirty")(function* () {
 const decodeOpenPrs = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
     Schema.Array(
-      Schema.Struct({ number: Schema.Number, url: Schema.String, baseRefName: Schema.String }),
+      Schema.Struct({
+        number: Schema.Number,
+        url: Schema.String,
+        title: Schema.String,
+        baseRefName: Schema.String,
+      }),
     ),
   ),
 );
@@ -436,7 +444,7 @@ const findOpenPr = Effect.fn("findOpenPr")(function* (branch: string) {
     "--state",
     "open",
     "--json",
-    "number,url,baseRefName",
+    "number,url,title,baseRefName",
   ];
   const result = yield* runProcess("inspect", "gh", args, true).pipe(Effect.scoped);
   if (result.exitCode !== 0) {
@@ -559,7 +567,7 @@ export const runShip = Effect.fn("runShip")(function* (options: {
     kind,
     mergeOnly: options.mergeOnly,
     prOnly: options.prOnly,
-    prOpen: Option.isSome(openPr),
+    openPrTitle: Option.getOrUndefined(Option.map(openPr, (pr) => pr.title)),
     title: options.title,
     body: options.body,
   });
