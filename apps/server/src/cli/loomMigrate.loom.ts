@@ -68,7 +68,11 @@ interface ExportManifest extends Measure {
     branch: string | null;
     statusBeforeExport: string;
     wipCommit: string | null;
+    /** A dirty shared project root: its changes stay in place and are captured here (batch-relative), never committed. */
+    rootCapture?: { patch: string; untracked: string } | undefined;
   }>;
+  /** Goals these trees share with roots left out of the batch: those roots cannot follow in a later batch. */
+  sharedGoals: Array<{ goalId: string; outsideRoots: Array<string> }>;
   /** `relative` is under the batch's `files/`; userdata files land at the same path under the destination state dir. */
   files: Array<{ kind: "userdata" | "session"; source: string; relative: string; sha256: string }>;
   /** pi session files, by the `nativeId` path rows hold and the cwd their header names. */
@@ -174,6 +178,23 @@ const selectionWhere = (
     default:
       return threadIdNullable === undefined ? null : `WHERE thread_id IN ${s.threads}`;
   }
+};
+
+const isElsewhere = (column: string, ids: string) =>
+  `(${column} NOT IN ${ids} AND ${column} IN (SELECT thread_id FROM main.orchestration_v2_projection_threads))`;
+/**
+ * Rows two batches can both carry (the same source row, between threads of different trees): a
+ * later batch skips one already here, and a rollback keeps one whose other thread is still here.
+ */
+const SHARED_ROWS: Record<string, (ids: string) => string> = {
+  loom_thread_consults: (ids) =>
+    `${isElsewhere("asker_thread_id", ids)} OR ${isElsewhere("target_thread_id", ids)}`,
+  loom_thread_peer_messages: (ids) =>
+    `${isElsewhere("sender_thread_id", ids)} OR ${isElsewhere("target_thread_id", ids)}`,
+  orchestration_v2_projection_context_transfers: (ids) =>
+    `${isElsewhere("source_thread_id", ids)} OR ${isElsewhere("target_thread_id", ids)}`,
+  [PROVIDER_SESSIONS_TABLE]: (ids) =>
+    `provider_session_id IN (SELECT provider_session_id FROM main.orchestration_v2_projection_provider_session_bindings WHERE ${isElsewhere("thread_id", ids)})`,
 };
 
 const NO_SELECTION: Selection = { threads: "()", goals: "()" };
@@ -303,7 +324,18 @@ const selectTree = Effect.fn("loomMigrate.selectTree")(function* (
     `SELECT project_id AS id, workspace_root AS "workspaceRoot" FROM src.projection_projects
     WHERE project_id IN ${idList([...threads, ...goals].map((row) => row.projectId))}`,
   );
-  return { roots: [...roots], threads, goals, projects };
+  const outside = yield* sql.unsafe<{ goalId: string; root: string }>(
+    `SELECT DISTINCT w.goal_id AS "goalId", ${familyRootSql("t")} AS root
+    FROM src.loom_thread_workstream w JOIN src.orchestration_v2_projection_threads t USING (thread_id)
+    WHERE w.goal_id IN ${idList(goals.map((goal) => goal.id))} AND ${familyRootSql("t")} NOT IN ${idList(roots)}`,
+  );
+  const sharedGoals = goals
+    .map((goal) => ({
+      goalId: goal.id,
+      outsideRoots: outside.filter((row) => row.goalId === goal.id).map((row) => row.root),
+    }))
+    .filter((goal) => goal.outsideRoots.length > 0);
+  return { roots: [...roots], threads, goals, projects, sharedGoals };
 });
 
 /** What keeps a tree from being exported: anything still running or owed. */
@@ -347,17 +379,20 @@ const GIT_OPERATION_MARKERS = [
 
 /**
  * Commits each dirty worktree's changes on its thread branch (untracked files included, hooks
- * skipped), the one write the export makes in the source's repos. A project root is shared by
- * every thread that runs there, so uncommitted changes in one stop the export instead.
+ * skipped), the one write the export makes in the source's repos. A project root (a thread with no
+ * worktree runs there) is shared by every thread and the human, so its changes are never committed:
+ * they stay in place and are captured into `<out>/roots/` as a patch plus the untracked files.
  */
 const captureWorktrees = Effect.fn("loomMigrate.captureWorktrees")(function* (
   threads: ReadonlyArray<ThreadRow>,
-  projectRoots: ReadonlySet<string>,
+  projects: ReadonlyArray<{ id: string; workspaceRoot: string }>,
+  out: string,
 ) {
+  const rootOf = new Map(projects.map((project) => [project.id, project.workspaceRoot]));
   const byPath = new Map<string, Array<ThreadRow>>();
   for (const thread of threads) {
-    if (thread.worktreePath === null) continue;
-    byPath.set(thread.worktreePath, [...(byPath.get(thread.worktreePath) ?? []), thread]);
+    const path = thread.worktreePath ?? rootOf.get(thread.projectId);
+    if (path !== undefined) byPath.set(path, [...(byPath.get(path) ?? []), thread]);
   }
   const worktrees: ExportManifest["worktrees"] = [];
   for (const [path, members] of byPath) {
@@ -374,12 +409,41 @@ const captureWorktrees = Effect.fn("loomMigrate.captureWorktrees")(function* (
       continue;
     }
     const status = yield* git(path, ["status", "--porcelain"]);
-    if (projectRoots.has(path)) {
-      if (status !== "")
-        return yield* fail(
-          `${path} is a project root with uncommitted changes, shared by every thread that runs there, so the export does not commit them. Commit or clear them, then re-run.\n${status}`,
-        );
-      worktrees.push({ path, threads: ids, branch: null, statusBeforeExport: "", wipCommit: null });
+    const project = projects.find((entry) => entry.workspaceRoot === path);
+    if (project !== undefined) {
+      const rootCapture =
+        status === ""
+          ? undefined
+          : {
+              patch: `roots/${project.id}.patch`,
+              untracked: `roots/${project.id}-untracked`,
+            };
+      if (rootCapture !== undefined) {
+        const patch = yield* git(path, ["diff", "--binary", "HEAD"]);
+        const untracked = (yield* git(path, ["ls-files", "--others", "--exclude-standard", "-z"]))
+          .split("\0")
+          .filter((file) => file !== "");
+        yield* attempt(`capturing the changes in ${path}`, () => {
+          NodeFS.mkdirSync(NodePath.join(out, rootCapture.untracked), { recursive: true });
+          NodeFS.writeFileSync(
+            NodePath.join(out, rootCapture.patch),
+            patch === "" ? "" : `${patch}\n`,
+          );
+          for (const file of untracked) {
+            const target = NodePath.join(out, rootCapture.untracked, file);
+            NodeFS.mkdirSync(NodePath.dirname(target), { recursive: true });
+            NodeFS.copyFileSync(NodePath.join(path, file), target);
+          }
+        });
+      }
+      worktrees.push({
+        path,
+        threads: ids,
+        branch: null,
+        statusBeforeExport: status,
+        wipCommit: null,
+        rootCapture,
+      });
       continue;
     }
     for (const marker of GIT_OPERATION_MARKERS) {
@@ -597,6 +661,10 @@ const printTree = (tree: Effect.Success<ReturnType<typeof selectTree>>) =>
         return `  ${root}  ${members.find((thread) => thread.id === root)?.title ?? ""} (${members.length} threads)`;
       }),
       ...tree.projects.map((project) => `  project ${project.workspaceRoot}`),
+      ...tree.sharedGoals.map(
+        (goal) =>
+          `  warning: goal ${goal.goalId} is also used by ${goal.outsideRoots.join(", ")}; add them with --root, or they cannot follow in a later batch (the goal will already be there)`,
+      ),
     ].join("\n"),
   );
 
@@ -640,10 +708,7 @@ const runExport = Effect.fn("loomMigrate.export")(function* (input: {
             return yield* fail(
               `Not quiesced; stop these in the UI first:\n${blockers.map((line) => `  ${line}`).join("\n")}`,
             );
-          const worktrees = yield* captureWorktrees(
-            tree.threads,
-            new Set(tree.projects.map((project) => project.workspaceRoot)),
-          );
+          const worktrees = yield* captureWorktrees(tree.threads, tree.projects, out);
           for (const table of schema.tables) yield* sql.unsafe(table.sql).unprepared;
           const selection = {
             threads: idList(threadIds),
@@ -685,6 +750,7 @@ const runExport = Effect.fn("loomMigrate.export")(function* (input: {
         ),
         projects: [...tree.projects],
         worktrees,
+        sharedGoals: tree.sharedGoals,
         ...files,
         bundles,
         ...measured,
@@ -694,7 +760,14 @@ const runExport = Effect.fn("loomMigrate.export")(function* (input: {
     // A refused or failed export leaves no partial batch behind (its WIP commits stay on their branches).
     Effect.onError(() =>
       Effect.sync(() => {
-        for (const name of ["slice.sqlite", "slice.sqlite-wal", "slice.sqlite-shm", "files", "git"])
+        for (const name of [
+          "slice.sqlite",
+          "slice.sqlite-wal",
+          "slice.sqlite-shm",
+          "files",
+          "git",
+          "roots",
+        ])
           NodeFS.rmSync(NodePath.join(out, name), { recursive: true, force: true });
       }),
     ),
@@ -702,6 +775,10 @@ const runExport = Effect.fn("loomMigrate.export")(function* (input: {
   yield* writeJson(NodePath.join(out, "manifest.json"), manifest);
   for (const worktree of manifest.worktrees.filter((entry) => entry.wipCommit !== null))
     yield* Console.log(`  WIP ${worktree.wipCommit} on ${worktree.branch} (${worktree.path})`);
+  for (const worktree of manifest.worktrees.filter((entry) => entry.rootCapture !== undefined))
+    yield* Console.log(
+      `  warning: project root ${worktree.path} has uncommitted changes, left in place (shared, never committed); captured in ${out}/${worktree.rootCapture!.patch} and ${worktree.rootCapture!.untracked}/:\n${worktree.statusBeforeExport}`,
+    );
   for (const missing of manifest.missingSessions)
     yield* Console.log(`  warning: session file ${missing} is missing on this side too`);
   yield* Console.log(
@@ -795,9 +872,9 @@ const makeRemap = (input: {
           if (key === "projectId") swap(record, key, input.projectMap.get(value) ?? value);
           else if (PATH_KEYS.has(key)) swap(record, key, path(value));
         } else if (key === "documents" && Array.isArray(value)) {
-          value.forEach((item, index) => {
-            if (typeof item === "string") swap(value, index, path(item));
-          });
+          value.forEach((item, index) =>
+            typeof item === "string" ? swap(value, index, path(item)) : walk(item),
+          );
         } else walk(value);
       }
     };
@@ -864,15 +941,19 @@ const deleteImported = Effect.fn("loomMigrate.deleteImported")(function* (
   threadIds: ReadonlyArray<string>,
 ) {
   const sql = yield* SqlClient.SqlClient;
+  const ids = idList(threadIds);
   for (const name of [...movedTables(schema), "loom_thread_embeddings"]) {
     if (!schema.tables.some((table) => table.name === name)) continue;
-    if (schema.threadIdNullable.has(name))
-      yield* sql.unsafe(`DELETE FROM main."${name}" WHERE thread_id IN ${idList(threadIds)}`);
+    const shared = SHARED_ROWS[name];
+    if (schema.threadIdNullable.has(name) && shared === undefined)
+      yield* sql.unsafe(`DELETE FROM main."${name}" WHERE thread_id IN ${ids}`);
     const pk = (yield* pkColumns(alias, name)).map((column) => `"${column}"`).join(", ");
-    if (pk !== "" && name !== "loom_thread_embeddings")
-      yield* sql.unsafe(
-        `DELETE FROM main."${name}" WHERE (${pk}) IN (SELECT ${pk} FROM "${alias}"."${name}")`,
-      );
+    if (pk === "" || name === "loom_thread_embeddings") continue;
+    yield* sql.unsafe(
+      `DELETE FROM main."${name}" WHERE (${pk}) IN (SELECT ${pk} FROM "${alias}"."${name}")${
+        shared === undefined ? "" : ` AND NOT (${shared(ids)})`
+      }`,
+    );
   }
 });
 
@@ -1023,6 +1104,8 @@ const runImport = Effect.fn("loomMigrate.import")(function* (input: {
       );
     // Once whole threads collide, the per-table detail is noise.
     for (const name of presentThreads.length > 0 ? [] : movedTables(schema)) {
+      // The same source row, already brought by the batch that carried its other end.
+      if (name in SHARED_ROWS) continue;
       const pk = yield* pkColumns("batch", name);
       if (pk.length === 0) continue;
       const same = (alias: string) =>
@@ -1132,7 +1215,9 @@ const runImport = Effect.fn("loomMigrate.import")(function* (input: {
             for (let start = 0; start < rows.length; start += size) {
               const chunk = rows.slice(start, start + size);
               if (name !== "orchestration_events") {
-                yield* sql`INSERT INTO main.${sql(name)} ${sql.insert(chunk as never)}`;
+                yield* name in SHARED_ROWS
+                  ? sql`INSERT OR IGNORE INTO main.${sql(name)} ${sql.insert(chunk as never)}`
+                  : sql`INSERT INTO main.${sql(name)} ${sql.insert(chunk as never)}`;
                 continue;
               }
               // Source order, fresh sequence numbers.
@@ -1162,9 +1247,12 @@ const runImport = Effect.fn("loomMigrate.import")(function* (input: {
       projectMap: Object.fromEntries(projectMap),
       files: [],
       refs: [],
-      ...(yield* measure(schema, threadIds, goalIds)),
+      threads: {},
+      goals: {},
+      tables: {},
     };
     yield* Effect.gen(function* () {
+      Object.assign(record, yield* measure(schema, threadIds, goalIds));
       for (const file of previous?.record.files ?? []) NodeFS.rmSync(file.path, { force: true });
       for (const ref of previous?.record.refs ?? [])
         yield* git(ref.repo, ["update-ref", "-d", ref.ref, ref.sha]).pipe(Effect.ignore);

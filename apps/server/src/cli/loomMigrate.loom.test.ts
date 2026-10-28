@@ -50,9 +50,9 @@ const CODER = "seed-thread-coder-done";
 
 it.live(
   "t3 loom-migrate carries a tree with its uncommitted work and pi session, and refuses live runs and present ids",
-  () =>
-    Effect.gen(function* () {
-      const tmp = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-loom-migrate-"));
+  () => {
+    const tmp = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-loom-migrate-"));
+    return Effect.gen(function* () {
       const carl = NodePath.join(tmp, "carl");
       const jacob = NodePath.join(tmp, "jacob");
       const carlDb = NodePath.join(carl, "userdata", "statev2.sqlite");
@@ -63,9 +63,6 @@ it.live(
         { stdio: "pipe" },
       );
       const carlRoot = NodePath.join(carl, "worktrees", "seed-workspace");
-      // The seed's turns leave notes in the shared project root; the operator commits them before export.
-      git(carlRoot, "add", "-A");
-      git(carlRoot, "commit", "-q", "-m", "seed notes");
 
       // The done coder gets its own worktree and branch, one tracked edit, one untracked file and a session.
       const worktree = NodePath.join(carl, "worktrees", "coder-done");
@@ -134,6 +131,21 @@ it.live(
       // The goal-continue chain moves with its root; the consulted tree outside it does not.
       assert.property(manifest.threads, "seed-thread-staged-root");
       assert.notProperty(manifest.threads, "seed-thread-needs-guidance-root");
+      // That tree shares the goal, which the export names.
+      assert.deepEqual(manifest.sharedGoals, [
+        { goalId: "seed-goal-0000", outsideRoots: ["seed-thread-needs-guidance-root"] },
+      ]);
+      // The seed's turns left notes in the shared project root: captured, never committed there.
+      const rootEntry = manifest.worktrees.find(
+        (entry: { path: string }) => entry.path === carlRoot,
+      );
+      assert.include(rootEntry.statusBeforeExport, "seed-notes/");
+      assert.isTrue(
+        NodeFS.existsSync(
+          NodePath.join(export1, rootEntry.rootCapture.untracked, "seed-notes", `${CODER}.md`),
+        ),
+      );
+      assert.include(git(carlRoot, "status", "--porcelain"), "seed-notes/");
 
       // Jacob: a fresh home with its own clone registered as a project.
       const jacobRoot = NodePath.join(tmp, "jacob-code", "seed");
@@ -203,5 +215,46 @@ it.live(
       assert.include(collision, "Already present here");
       assert.include(collision, "seed-thread-orchestrator");
       assert.isFalse(NodeFS.existsSync(NodePath.join(export2, "import-manifest.json")));
-    }).pipe(Effect.provide(NodeServices.layer)),
+
+      // A later tree that shares an edge (the done coder consulted it) imports on its own, and
+      // rolling it back keeps the edge for the tree already here. Given its own goal first.
+      sqlite(
+        carlDb,
+        "UPDATE loom_thread_workstream SET goal_id = NULL WHERE thread_id = 'seed-thread-needs-guidance-root'",
+      );
+      const export3 = NodePath.join(tmp, "batch-3");
+      yield* runCli(
+        [
+          "loom-migrate",
+          "export",
+          "--root",
+          "seed-thread-needs-guidance-root",
+          "--out",
+          export3,
+        ].concat(["--yes", "--base-dir", carl]),
+      );
+      const consults = () =>
+        sqlite(
+          jacobDb,
+          "SELECT count(*) AS n FROM loom_thread_consults WHERE target_thread_id = 'seed-thread-needs-guidance-root'",
+        )[0]!.n;
+      assert.equal(consults(), 1);
+      yield* runCli(importArgs(export3));
+      yield* runCli(["loom-migrate", "verify", "--batch", export3, "--base-dir", jacob]);
+      yield* runCli([
+        "loom-migrate",
+        "import",
+        "--rollback",
+        "--batch",
+        export3,
+        "--base-dir",
+        jacob,
+      ]);
+      assert.equal(consults(), 1);
+      yield* runCli(["loom-migrate", "verify", "--batch", export1, "--base-dir", jacob]);
+    }).pipe(
+      Effect.ensuring(Effect.sync(() => NodeFS.rmSync(tmp, { recursive: true, force: true }))),
+      Effect.provide(NodeServices.layer),
+    );
+  },
 );
