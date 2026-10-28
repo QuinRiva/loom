@@ -14,9 +14,9 @@ hand, which is how the footguns (pushing without rebasing, wrong `gh` base,
 undeleted remote branches) creep back in:
 
 ```sh
-pnpm ship -m "<concise summary>"              # feature branch
-pnpm ship -m "<concise summary>" --merge-only # upstream-sync branch (see below)
-pnpm ship -m "<concise summary>" --dry-run    # preview the exact steps
+pnpm ship -m "<commit message>" --summary "<what a Loom user gets, one line>" --kind noticeable|behind
+pnpm ship … --merge-only # upstream-sync branch (see below)
+pnpm ship … --dry-run    # preview the exact steps
 ```
 
 It pins the PR target (`gh repo set-default QuinRiva/loom`), commits, rebases
@@ -37,7 +37,7 @@ honour it however you ship.
 source of truth; its "Judgement calls" section has the detail. In short:
 
 - Ship only after approval, with only your work in the tree.
-- PR framing: pass `--title` / `--body` when `--fill` (the commit message)
+- PR framing: pass `--title` / `--body` when the commit message
   would not tell a reviewer enough. Write a body or comment one line per
   paragraph; GitHub renders every newline as a line break.
 - Upstream-sync branches (a `git merge upstream/main` commit in history) must
