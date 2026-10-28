@@ -140,6 +140,9 @@ export const LoomServerSettingsFields = {
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
   providerFailover: ProviderFailoverSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  // Caps every thread's merge authority at HUMAN-ONLY whatever a repo's `.t3code/ship.json` says:
+  // the SHIPPING POLICY block, and `pnpm ship` stops at the open PR. Hand-edit settings.json.
+  mergeAuthorityCeiling: Schema.optionalKey(Schema.Literal("human")),
   // Share of new ROOT threads on the 1-hour prompt cache (children are always
   // 5-minute): a root is 1-hour when sha256(threadId)[0] < 256 × share, fixed at
   // its first launch. 0 = every root 5-minute, 1 = every root 1-hour. Read at

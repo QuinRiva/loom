@@ -12,7 +12,11 @@ import {
   type OrchestrationV2AppThread,
   ThreadId,
 } from "@t3tools/contracts";
-import { resolveMergeAuthority, shipPolicyPromptBlock } from "@t3tools/shared/shipPolicy";
+import {
+  MERGE_AUTHORITY_CEILING_ENV,
+  resolveMergeAuthority,
+  shipPolicyPromptBlock,
+} from "@t3tools/shared/shipPolicy";
 import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -116,6 +120,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
     const goal = workstream?.goalId == null ? null : yield* loomStore.goals.get(workstream.goalId);
     // The retro reviewer's profile is its whole job: nothing to announce behind tool_search.
     const resident = workstream?.role === RETRO_REVIEWER_ROLE ? undefined : new Set(overlay.tools);
+    const { mergeAuthorityCeiling } = yield* settings.getSettings;
     const appendSystemPrompt = [
       WORK_MODEL_ADDENDUM,
       resident &&
@@ -129,7 +134,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
         loomPaths(config),
       ),
       overlay.prompt,
-      shipPolicyPromptBlock(resolveMergeAuthority(projectRoot)),
+      shipPolicyPromptBlock(resolveMergeAuthority(projectRoot, mergeAuthorityCeiling)),
       catalogue.length > 0
         ? [
             "Available roles for spawning children (built in; a project may add its own under `.t3code/roles/`). A free-text role may still be used when none fits:",
@@ -153,6 +158,7 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
       extensions: [extensionPath],
       env: {
         PI_CACHE_RETENTION: cacheRetentionForThread(thread.id, !isChild, longShare),
+        ...(mergeAuthorityCeiling && { [MERGE_AUTHORITY_CEILING_ENV]: mergeAuthorityCeiling }),
       },
       modelSelection: thread.modelSelection,
       tools: overlay.tools,

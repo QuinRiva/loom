@@ -14,6 +14,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { MERGE_AUTHORITY_CEILING_ENV } from "@t3tools/shared/shipPolicy";
 
 // The PR target for this fork. This clone has an `upstream` remote
 // (pingdotgg/t3code); without pinning the default, `gh` resolves the PR base to
@@ -243,8 +244,9 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
       kind: "pr-merge",
       title: "Merge the PR",
       executable: "gh",
-      // GitHub's default merge body is the PR title; keep it as the first line.
-      args: ["pr", "merge", "--merge", "--body", `${title}\n\n${trailers}`],
+      // GitHub's default merge body is the PR title; keep it as the first line. `--admin`: a
+      // Restrict-updates ruleset reports BLOCKED even to its bypass actor (cli/cli#13388).
+      args: ["pr", "merge", "--merge", "--admin", "--body", `${title}\n\n${trailers}`],
     },
     {
       kind: "pr-confirm",
@@ -656,7 +658,8 @@ export const shipCommand = Command.make(
       summary: Option.getOrUndefined(summary),
       kind: Option.getOrUndefined(kind),
       mergeOnly,
-      prOnly,
+      // An instance merge ceiling forces --pr-only, whatever the caller passed.
+      prOnly: prOnly || process.env[MERGE_AUTHORITY_CEILING_ENV] === "human",
       dryRun,
       includeUntracked,
       title: Option.getOrUndefined(title),

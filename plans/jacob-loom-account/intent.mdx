@@ -1,0 +1,47 @@
+---
+reader:
+  who: Carl, who owns this VM and both Loom instances and approves what happens to them; Jacob, who will use the result, reads alongside him
+  knows: Loom's architecture and that he set up Jacob's instance in July; not what state it is in today, nor what the research found
+  after_first_screen: he can say what Jacob gets, that his own instance is untouched until a verified archive and a confirmed delete 30 days later, what moving a thread means, and that his six answers are recorded as he gave them
+kicker: "Intent brief · approved 28 Oct 2026"
+status: approved
+plan: plans/jacob-loom-account/plan.mdx
+manager_sessions:
+  - id: 01a18039-744e-72c5-88ab-c4b290ea7284
+    name: Jacob instance + migration plan
+    role: intent
+    authored_at: 2026-10-28T05:47:27.902Z
+---
+
+# Jacob works in his own Loom, with everything Carl's agents have, and his live threads follow him there
+
+**Goal.** "Set up his loom account properly so that he can log in and use that, and provide him with the access that he needs to configure it as he desires … think about how we could potentially migrate some of his threads that he's actively working on to his account." His instance exists and runs (user `jacob`, port 13910, your release, refreshed after each deploy) but nobody can reach it, it has no model route, and its agents have none of your skills, extensions or GitHub identity, so he has used yours since August. Jacob adds: "a shared pool of account resourcing with cliproxy for all of carls accounts, and my own accounts"; "the full execution framework of skills and knowledge already provided in carls loom instance"; and "I like being in sync with the changes he makes to prompts/skills/extensions/loom, but also would like to have the ability to experiment, diverge from loom … or push to loom with a PR … i don't want to overwrite his pi-craft/pi-fathom, but should also be able to push PRs to them (in addition to potentially my own jacob-pi-loom/ repo for my bespoke things)".
+
+**You'll know it works when.**
+
+- Jacob opens `http://carl-dev.tail30bb77.ts.net:13910` from his own machine, pairs once, and lands in an inbox that holds only his threads.
+- A thread he starts there runs a turn on `cliproxy/claude-…` exactly as one on your instance does, and its agents load the same global rules, skills, pi-craft extensions and loom extensions yours do.
+- He adds a skill to his own `jacob-pi-loom` package and it loads in his next thread; your agents never see it. He opens a PR against pi-craft (or pi-fathom, or loom) from a branch in his own clone, and your runtime is unchanged until you merge. He can run his instance on his own loom build and come back to your release train without losing anything.
+- An agent in his instance pushes a branch and opens a PR or issue under Jacob's GitHub identity, not yours, and **never merges**: GitHub itself refuses any merge to loom's main that is not yours, and every thread of his reads a HUMAN-ONLY shipping policy so his agents stop at the open PR.
+- He logs one of his own Anthropic seats into the pool from his own Usage page, and both Usage pages show the whole pool and who is drawing on it.
+- He edits his own units, settings and pi configuration by SSH as `jacob`; nothing of his needs you after the four one-off steps.
+- **Migrating a thread** means: the whole workstream tree (rows, files, pi session, checkpoint refs, and the worktree's uncommitted changes) is copied into his instance, a verification pass proves it all arrived, and only then is the tree archived on your side. He opens it on 13910, asks "where were we?", and the agent answers from its memory. On your side it sits in Archive, one click from restored, until you confirm its deletion 30 days later.
+- Your inbox stops mixing: the migrated trees sit in your Archive and, once Jacob says he is done on 13900, you revoke his login there.
+- When his `jacob@unseen.id` seat's login lapses, he re-authenticates it himself from his Usage page; nothing of yours is needed.
+- **Must not:** change your instance, database or units beyond that final archive; lose any row, file, session, checkpoint or uncommitted change of a migrated thread (the export bundle and a pre-import snapshot of his database are kept until you say otherwise); give Jacob `sudo`; restart or stop your server. The only things of yours that change, each additive and reversible: a second proxy client key, two lines in your backup script, one Serve entry, and a pi-craft path change that must resolve identically for you before and after (plan §2).
+
+**Approaches in play.**
+
+- Fix the three gaps in place and build a one-shot copy tool that extends the existing dev-DB slicer. Wins because his instance already runs cleanly on the release train; the gaps are configuration, not crashes. _My pick._
+- Dropped: a fresh Loom on his own machine (his worktrees and checkpoint refs live in repos here), and re-running the July plan (it assumed no Tailscale and his own provider logins; both now wrong).
+
+**Decided.** "I don't want him to lose anything." "Once everything set up, I'll provide a list of threads to migrate over." Your six form answers, 28 Oct: models, "shared pool: his instance gets its own client key to your proxy, and his further accounts join the pool when he logs them in"; usage, "give him the management key", with "He will obviously need to be able to re-auth *his* key"; access, "SSH as jacob, his own systemd units, an admin-scoped Loom login, and no sudo"; GitHub, "write on QuinRiva/loom … pi-craft and pi-fathom stay at the read he has", with "Only *I* should be able to actually merge on github, but he should be able to submit a PR" (Jacob had asked that his own approval suffice; on your repos it does not: plan §3.3); your copy of a migrated tree, "archive now, delete from your instance after 30 days if he has not come back for it" (plan §5.4; every deletion is confirmed by a human); framework, "his own clones, on main, fast-forwarded by a timer". Jacob's requests above are his asks, settled by these answers.
+_Assumed:_ Jacob stays on this VM as user `jacob`, on the shared release train; the copy tool is an operator command, not a product feature; Jacob proposes the migration list (44 candidates are in the plan) and you confirm it; the nightly backup gains his database and `~/.pi`; his rules file links to the `AGENTS.md` in his synced pi-craft clone ("being a few minutes behind carls commits isn't bad"); `jacob-pi-loom` is listed last in his pi settings, add-only, with `jacob-` prefixed names ("to ensure no collisions"); his GCP credentials are his own; he adds as many projects as he likes. Redirect any of these if wrong.
+
+**Not doing.** Sudo for Jacob. A migration UI. Moving threads mid-turn (the turn is stopped first). Touching your `state.sqlite` (V1). Fixing your stale `anthropic-<seat>` token paths, found on the way (plan §8). Changing the proxy's seat-routing rules. A long-lived loom fork ("ideally experiments are quick and proven"). Sharing threads between the instances after migration ("an extension and not required"). His own Slack bridge (a follow-up). A personal repo for his plans: they stay in the project worktree and ride the PR you merge. Codex seats in the pool (the proxy can hold them; Loom's in-app login and your account tooling are Claude-only).
+
+**Still unknown.**
+
+- Does a `tailscale serve` entry for 13910 reach Jacob's devices, which see `carl-dev` as a shared node rather than as tailnet members? One command by you and one page load by him settles it.
+- Does pi keep a thread's provider id when the session file path is rewritten under his home? The dry run, which imports one thread into a scratch home with a scratch clone and session directory, settles it; if not, the tool rewrites the id too.
+- What the July "issues" were. Logs from then are gone; his own transcript shows the missing framework, not crashes, so the plan treats the three gaps as the issues.
