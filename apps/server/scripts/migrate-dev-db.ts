@@ -19,6 +19,14 @@ import * as ProjectionStore from "../src/orchestration-v2/ProjectionStore.ts";
 import { rebuildMessageSearch } from "../src/orchestration-v2/messageSearchIndex.ts";
 import { migrationManifest, runMigrations } from "../src/persistence/Migrations.ts";
 import { rebuildThreadSearchIndex } from "../src/persistence/threadSearchIndex.loom.ts"; // loom
+import {
+  copyTables,
+  ensureNotInUse,
+  familyRootSql,
+  PER_INSTANCE_TABLES,
+  PROVIDER_SESSIONS_TABLE,
+  readSliceSchema,
+} from "../src/persistence/threadTreeSlice.loom.ts"; // loom
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 export class MigrateDevDbNotInWorktreeError extends Schema.TaggedError<MigrateDevDbNotInWorktreeError>()(
@@ -59,35 +67,6 @@ export class MigrateDevDbSourceIsDestinationError extends Schema.TaggedError<Mig
 ) {
   override get message(): string {
     return `Source database '${this.sourcePath}' resolves to a path this command rewrites. Pick a different --source or --base-dir.`;
-  }
-}
-
-export class MigrateDevDbServerRunningError extends Schema.TaggedError<MigrateDevDbServerRunningError>()(
-  "MigrateDevDbServerRunningError",
-  {
-    databasePath: Schema.String,
-    pid: Schema.Number,
-  },
-) {
-  override get message(): string {
-    return `Dev database at '${this.databasePath}' is open by a running server (pid ${this.pid} per server-runtime.json). Stop that server first; if that pid is not actually a T3 server (stale descriptor, reused pid), delete the server-runtime.json next to the database and retry.`;
-  }
-}
-
-export class MigrateDevDbDestinationBusyError extends Schema.TaggedError<MigrateDevDbDestinationBusyError>()(
-  "MigrateDevDbDestinationBusyError",
-  {
-    databasePath: Schema.String,
-    reason: Schema.Literals(["write-locked", "wal-held"]),
-    cause: Schema.optional(Schema.Defect()),
-  },
-) {
-  override get message(): string {
-    const detail =
-      this.reason === "write-locked"
-        ? "the database is write-locked"
-        : "another connection is holding its WAL";
-    return `Dev database at '${this.databasePath}' looks in use (${detail}). Stop the dev server first; if none is running, delete the -wal/-shm files next to it.`;
   }
 }
 
@@ -149,63 +128,6 @@ const removeDatabaseFiles = Effect.fn("removeDatabaseFiles")(function* (database
   }
 });
 
-const ServerRuntimeState = Schema.fromJsonString(Schema.Struct({ pid: Schema.Number }));
-const decodeServerRuntimeState = Schema.decodeEffect(ServerRuntimeState);
-
-const isProcessAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    // EPERM means the process exists but belongs to someone else.
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-};
-
-// The runtime PID catches idle servers; leftover -shm files can come from read-only connections.
-const ensureNotInUse = Effect.fn("ensureDevDbNotInUse")(function* (databasePath: string) {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-
-  const runtimeStatePath = path.join(path.dirname(databasePath), "server-runtime.json");
-  const runtimeState = yield* fs
-    .readFileString(runtimeStatePath)
-    .pipe(Effect.flatMap(decodeServerRuntimeState), Effect.option);
-  if (Option.isSome(runtimeState) && isProcessAlive(runtimeState.value.pid)) {
-    return yield* new MigrateDevDbServerRunningError({
-      databasePath,
-      pid: runtimeState.value.pid,
-    });
-  }
-
-  if (!(yield* fs.exists(databasePath))) {
-    return;
-  }
-  const checkpoint = yield* Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql.unsafe("PRAGMA busy_timeout = 0").unprepared;
-    yield* sql.unsafe("BEGIN IMMEDIATE").unprepared;
-    yield* sql.unsafe("ROLLBACK").unprepared;
-    return yield* sql.unsafe<{ busy: number }>("PRAGMA wal_checkpoint(TRUNCATE)").unprepared;
-  }).pipe(
-    Effect.provide(NodeSqliteClient.layer({ filename: databasePath })),
-    Effect.mapError(
-      (cause) =>
-        new MigrateDevDbDestinationBusyError({
-          databasePath,
-          reason: "write-locked",
-          cause,
-        }),
-    ),
-  );
-  if (checkpoint[0] !== undefined && Number(checkpoint[0].busy) !== 0) {
-    return yield* new MigrateDevDbDestinationBusyError({
-      databasePath,
-      reason: "wal-held",
-    });
-  }
-});
-
 const RECOVERY_KINDS: ReadonlyArray<ProjectionStore.ProjectionRecoveryKind> = [
   "queued-runs",
   "runtime",
@@ -214,17 +136,9 @@ const RECOVERY_KINDS: ReadonlyArray<ProjectionStore.ProjectionRecoveryKind> = [
 ];
 
 const CLEARED_TABLES: ReadonlyArray<string> = [
-  "scheduled_tasks",
-  "orchestration_v2_effect_outbox",
-  "orchestration_v2_thread_launch_workflows",
+  ...PER_INSTANCE_TABLES, // loom: shared with t3 loom-migrate
   "orchestration_command_receipts",
-  "provider_session_runtime",
-  "auth_sessions",
-  "auth_pairing_links",
 ];
-
-const PROVIDER_SESSIONS_TABLE = "orchestration_v2_projection_provider_sessions";
-const FTS5_SHADOW_SUFFIXES = ["_data", "_idx", "_content", "_docsize", "_config"];
 
 // Settled threads stay: they are most of real history, and the UI shows them.
 const rootIsVisible = (sql: SqlClient.SqlClient) => sql`
@@ -245,40 +159,10 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (
 ) {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`ATTACH DATABASE ${`${NodeURL.pathToFileURL(sourcePath).href}?mode=ro`} AS src`;
-  const schema = yield* sql<{ type: string; name: string; sql: string }>`
-    SELECT type, name, sql FROM src.sqlite_master
-    WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'`;
-  const threadColumns = yield* sql<{ name: string; notnull: number }>`
-    SELECT m.name, c."notnull" FROM src.sqlite_master m, pragma_table_info(m.name, 'src') c
-    WHERE m.type = 'table' AND c.name = 'thread_id'`;
-  const threadIdNullable = new Map(threadColumns.map((row) => [row.name, row.notnull === 0]));
-  // FTS5 makes its own shadow tables and contentless rows cannot be copied:
-  // create the virtual table, skip its shadow tables and rows, and rebuild the
-  // index once the messages and triggers are in.
-  const virtualTables = schema
-    .filter((entry) => entry.type === "table" && /^CREATE VIRTUAL TABLE/i.test(entry.sql))
-    .map((entry) => entry.name);
-  const isShadowTable = (name: string) =>
-    virtualTables.some((virtual) =>
-      FTS5_SHADOW_SUFFIXES.some((suffix) => name === `${virtual}${suffix}`),
-    );
-  const tables = schema.filter((entry) => entry.type === "table" && !isShadowTable(entry.name));
+  // loom: threadTreeSlice.loom.ts. FTS5 virtual tables are created, not copied; their index is rebuilt below.
+  const schema = yield* readSliceSchema("src", CLEARED_TABLES);
+  const { tables, cleared } = schema;
   const filtered = tables.some((table) => table.name === "orchestration_v2_projection_threads");
-  // A row that points into a cleared table cannot be copied, so whatever references one is
-  // cleared with it, however far down the chain a newer migration added it.
-  const references = yield* sql<{ name: string; parent: string }>`
-    SELECT m.name, f."table" AS parent FROM src.sqlite_master m, pragma_foreign_key_list(m.name, 'src') f
-    WHERE m.type = 'table'`;
-  const cleared = new Set(CLEARED_TABLES);
-  for (let grew = true; grew;) {
-    grew = false;
-    for (const { name, parent } of references) {
-      if (cleared.has(parent) && !cleared.has(name)) {
-        cleared.add(name);
-        grew = true;
-      }
-    }
-  }
 
   // loom: empty temp tables shadow the cleared ones, so selecting on the source sees what the snapshot will.
   const shadowed = tables.filter((table) => cleared.has(table.name)).map((table) => table.name);
@@ -314,16 +198,14 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (
         yield* selected === undefined
           ? sql`INSERT OR IGNORE INTO copied_threads
               SELECT family.thread_id FROM src.orchestration_v2_projection_threads family
-              JOIN src.orchestration_v2_projection_threads root ON root.thread_id =
-                COALESCE(json_extract(family.payload_json, '$.lineage.rootThreadId'), family.thread_id)
+              JOIN src.orchestration_v2_projection_threads root ON root.thread_id = ${sql.literal(familyRootSql("family"))} -- loom: familyRootSql
               WHERE ${rootIsCopied(sql, input.root)}` // loom: --root
           : sql`INSERT INTO copied_threads
               SELECT DISTINCT value FROM json_each(${selected.threadIds})`;
       }
-      for (const { name } of tables) {
-        if (cleared.has(name) || virtualTables.includes(name)) continue;
-        const nullable = threadIdNullable.get(name);
-        const filter = !filtered
+      // loom: copyTables (threadTreeSlice.loom.ts)
+      yield* copyTables(schema, "src", (name, nullable) =>
+        !filtered
           ? ""
           : name === "orchestration_events"
             ? // Two ranges let SQLite seek the (aggregate_kind, stream_id) index instead of scanning.
@@ -331,13 +213,12 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (
                 OR aggregate_kind < 'thread' OR aggregate_kind > 'thread'`
             : nullable === undefined || name === PROVIDER_SESSIONS_TABLE
               ? ""
-              : `WHERE thread_id IN (SELECT thread_id FROM copied_threads)${nullable ? " OR thread_id IS NULL" : ""}`;
-        yield* sql.unsafe(`INSERT INTO main."${name}" SELECT * FROM src."${name}" ${filter}`)
-          .unprepared;
-      }
+              : `WHERE thread_id IN (SELECT thread_id FROM copied_threads)${nullable ? " OR thread_id IS NULL" : ""}`,
+      );
       yield* sql`DELETE FROM main.sqlite_sequence`;
       yield* sql`INSERT INTO main.sqlite_sequence SELECT name, seq FROM src.sqlite_sequence`;
-      for (const entry of schema) {
+      for (const entry of schema.entries) {
+        // loom: SliceSchema
         if (entry.type !== "table") yield* sql.unsafe(entry.sql).unprepared;
       }
       yield* rebuildMessageSearch(sql);
@@ -373,9 +254,8 @@ const selectKeptSlice = Effect.fn("selectDevDbKeptSlice")(function* (input: RunM
 
   // Clone or drop whole thread families to preserve fork and subagent lineage reads.
   yield* sql`CREATE TEMP TABLE thread_families AS
-    SELECT thread_id, updated_at,
-      COALESCE(json_extract(payload_json, '$.lineage.rootThreadId'), thread_id) AS root_id
-    FROM orchestration_v2_projection_threads`;
+    SELECT thread_id, updated_at, ${sql.literal(familyRootSql("family"))} AS root_id -- loom: familyRootSql
+    FROM orchestration_v2_projection_threads family`;
 
   yield* sql`CREATE TEMP TABLE stopped_families AS
     SELECT f.root_id, root.project_id, MAX(f.updated_at) AS updated_at, COUNT(*) AS size
