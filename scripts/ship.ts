@@ -167,7 +167,7 @@ export class ShipMergeNotConfirmedError extends Schema.TaggedError<ShipMergeNotC
  * branches skip the rebase) are unit-testable without touching git/gh.
  */
 export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep> {
-  const title = options.title ?? options.message;
+  const title = options.title ?? options.message.split("\n")[0];
   // deployctl reads these back from the merge commit (`%(trailers:key=Loom-Summary)`), so they
   // must stay the last paragraph of the merge body.
   const trailers = `Loom-Summary: ${options.summary}\nLoom-Kind: ${options.kind}`;
@@ -598,7 +598,7 @@ export const shipCommand = Command.make(
     message: Flag.String("message").pipe(
       Flag.withAlias("m"),
       Flag.withDescription(
-        "Commit message for pending work, and the PR title unless --title is given.",
+        "Commit message for pending work; its first line is the PR title unless --title is given.",
       ),
     ),
     summary: Flag.String("summary").pipe(
@@ -612,7 +612,9 @@ export const shipCommand = Command.make(
       Flag.optional,
     ),
     title: Flag.String("title").pipe(
-      Flag.withDescription("PR title and merge-commit title line (default: the -m message)."),
+      Flag.withDescription(
+        "PR title, also the first line of the merge-commit body (default: the -m first line).",
+      ),
       Flag.optional,
     ),
     body: Flag.String("body").pipe(
