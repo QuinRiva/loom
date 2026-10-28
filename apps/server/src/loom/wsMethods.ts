@@ -41,6 +41,7 @@ import { ServerConfig } from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import type { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
 import type { WorkspaceFileSystem } from "../workspace/WorkspaceFileSystem.ts";
+import { LoomDeployNotices } from "./deploy/LoomDeployNotices.ts";
 import { lookupDocumentQueryAuthor } from "./query/documentAuthor.ts";
 import { askDocumentQuery, promoteDocumentQuery } from "./query/documentQuery.ts";
 import { LoomUsageLedger } from "./economics/LoomUsageLedger.ts";
@@ -130,6 +131,7 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
   const usageLimitSources = yield* UsageLimitSources;
   const reviewSnapshots = yield* ReviewSnapshotService;
   const orchestrator = yield* OrchestratorV2;
+  const deployNotices = yield* LoomDeployNotices;
   const draftServices = yield* Effect.context<OrchestratorV2 | LoomStoreV2 | Crypto.Crypto>();
   const queryServices = yield* Effect.context<
     | OrchestratorV2
@@ -296,6 +298,8 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
       reviewRead(LOOM_WS_METHODS.reviewDiff)(reviewSnapshots.diff(input)),
     [LOOM_WS_METHODS.reviewFileContents]: (input: LoomReviewFileContentsInput) =>
       reviewRead(LOOM_WS_METHODS.reviewFileContents)(reviewSnapshots.fileContents(input)),
+    // Deploy toasts: the startup notice, then each restart warning deployctl posts.
+    [LOOM_WS_METHODS.subscribeDeploy]: () => deployNotices.events,
   };
 });
 

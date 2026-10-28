@@ -16,6 +16,7 @@ import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
 import { UsageLimitSources } from "../usage/UsageLimitSources.ts";
 import { ReviewSnapshotService } from "./review/ReviewSnapshotService.ts";
+import { LoomDeployNotices } from "./deploy/LoomDeployNotices.ts";
 import { LoomThreadConsult } from "./workstream/consult.ts";
 import { makeLoomWsHandlers } from "./wsMethods.ts";
 
@@ -26,6 +27,7 @@ const TestLayer = Layer.mergeAll(
   Layer.mock(LoomThreadConsult)({}),
   Layer.mock(UsageLimitSources)({}),
   Layer.mock(ReviewSnapshotService)({}),
+  Layer.mock(LoomDeployNotices)({}),
   // The drafter handlers capture the orchestrator; these tests never call them.
   Layer.succeed(OrchestratorV2, {} as never),
   Layer.mock(ProjectStoreV2)({}),

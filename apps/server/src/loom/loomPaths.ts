@@ -14,6 +14,8 @@ export const loomPaths = (config: Pick<ServerDerivedPaths, "stateDir">) => ({
   workstreamLaunchIdentityDir: NodePath.join(config.stateDir, "workstream-launch-identity"),
   workstreamPromptDebugDir: NodePath.join(config.stateDir, "prompt-debug"),
   workstreamConsultsDir: NodePath.join(config.stateDir, "workstream-consults"),
+  // deployctl writes it (plans/deploy-toasts/plan.mdx §1 in loom-slack-bridge).
+  deployNoticePath: NodePath.join(config.stateDir, "deploy-notice.json"),
 });
 
 export type LoomPaths = ReturnType<typeof loomPaths>;

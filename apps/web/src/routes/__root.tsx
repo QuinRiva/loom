@@ -34,6 +34,7 @@ import { DesktopUpdateLaunchNotice } from "../components/sidebar/updateEverythin
 import { LegacyThreadMigrationToast } from "../components/LegacyThreadMigrationToast";
 import { ThreadNotificationCoordinator } from "../components/ThreadNotificationCoordinator";
 import { HandoffToastCoordinator } from "../loom/HandoffToastCoordinator"; // loom:
+import { DeployToastCoordinator } from "../loom/DeployToastCoordinator"; // loom: deploy toasts
 import { HubLoginDialogHost } from "../loom/HubLoginDialog"; // loom
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
@@ -255,6 +256,8 @@ function RootRouteView() {
           <ThreadNotificationCoordinator />
           {/* loom: a /handoff failure reaches you on any thread */}
           <HandoffToastCoordinator />
+          {/* loom: the deploy warning, "Loom updated" and rollback toasts */}
+          <DeployToastCoordinator />
           {/* loom: the hub login dialog, opened from the composer banner and the Usage page */}
           <HubLoginDialogHost />
           <ReopenClosedViewShortcut />

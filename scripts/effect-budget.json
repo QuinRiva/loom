@@ -435,6 +435,7 @@
   "apps/web/src/hooks/useTheme.ts": 1,
   "apps/web/src/hooks/useThreadVisitedMigration.ts": 1,
   "apps/web/src/hooks/useWorkspaceMutationRefresh.ts": 1,
+  "apps/web/src/loom/DeployToastCoordinator.tsx": 1,
   "apps/web/src/loom/HandoffToastCoordinator.tsx": 1,
   "apps/web/src/loom/HubLoginBanner.tsx": 1,
   "apps/web/src/loom/HubLoginDialog.tsx": 1,
