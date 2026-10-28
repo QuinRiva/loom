@@ -70,6 +70,14 @@ it("stops at the open PR with --pr-only", () => {
   assert.include(stepKinds(steps), "push");
 });
 
+it("reuses an already-open PR instead of creating one", () => {
+  const options = { branch: "feature", message: "msg", mergeOnly: false, prOpen: true };
+  const steps = planShipSteps(options);
+  assert.notInclude(stepKinds(steps), "pr-create");
+  assert.include(stepKinds(steps), "pr-merge");
+  assert.equal(planShipSteps({ ...options, prOnly: true }).at(-1)?.kind, "push");
+});
+
 it("deletes the remote branch explicitly and never uses --delete-branch", () => {
   const steps = planShipSteps({ branch: "feature", message: "msg", mergeOnly: false });
   const deleteStep = steps.find((step) => step.kind === "delete-branch");

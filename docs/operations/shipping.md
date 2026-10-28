@@ -90,9 +90,12 @@ files too (above). In order, the script:
    tree is clean).
 3. Fetches and rebases onto current `origin/main` (skipped with `--merge-only`).
 4. Runs the gate: `vp check`, `vp run typecheck`, the unmarked-delta sweep.
-5. Pushes the branch with `git push -u origin HEAD`.
+5. Pushes the branch with `git push --force-with-lease -u origin HEAD` (the
+   lease lets a rebased, already-pushed branch update without clobbering
+   anyone else's push).
 6. Creates the PR into `main` (`gh pr create --base main --fill`, or with your
-   `--title`/`--body`).
+   `--title`/`--body`); a branch that already has an open PR, such as one
+   opened with `--pr-only`, reuses it instead.
 7. Merges it (`gh pr merge --merge`) and confirms the merged state.
 8. Deletes the remote branch explicitly once the merge is confirmed.
 

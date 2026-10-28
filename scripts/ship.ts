@@ -45,6 +45,7 @@ export interface ShipPlanOptions {
   readonly message: string;
   readonly mergeOnly: boolean;
   readonly prOnly?: boolean | undefined;
+  readonly prOpen?: boolean | undefined;
   readonly title?: string | undefined;
   readonly body?: string | undefined;
 }
@@ -118,6 +119,15 @@ export class ShipRebaseConflictError extends Schema.TaggedError<ShipRebaseConfli
       "Escalate to the orchestrator/human — resolving this needs goal context the ship",
       "script does not have. See docs/operations/shipping.md.",
     ].join(" ");
+  }
+}
+
+export class ShipPrBaseError extends Schema.TaggedError<ShipPrBaseError>()("ShipPrBaseError", {
+  number: Schema.Number,
+  base: Schema.String,
+}) {
+  override get message(): string {
+    return `Open PR #${this.number} targets "${this.base}", not main; ship would merge it there. Retarget it with \`gh pr edit ${this.number} --repo ${SHIP_REPO} --base main\` and re-run.`;
   }
 }
 
@@ -208,7 +218,8 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
       kind: "push",
       title: "Push branch and set upstream",
       executable: "git",
-      args: ["push", "-u", "origin", "HEAD"],
+      // A re-ship of an already-pushed branch (an open PR) has just been rebased.
+      args: ["push", "--force-with-lease", "-u", "origin", "HEAD"],
     },
     {
       kind: "pr-create",
@@ -239,9 +250,14 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
     },
   ];
   // --pr-only is the `human` merge-authority ceiling: stop at the open PR.
-  return options.prOnly
-    ? steps.slice(0, steps.findIndex((step) => step.kind === "pr-create") + 1)
+  const planned = options.prOnly
+    ? steps.slice(
+        0,
+        steps.findIndex((step) => step.kind === "pr-merge"),
+      )
     : steps;
+  // A branch whose PR is already open (e.g. from an earlier --pr-only) reuses it.
+  return options.prOpen ? planned.filter((step) => step.kind !== "pr-create") : planned;
 }
 
 /**
@@ -352,6 +368,45 @@ const treeIsDirty = Effect.fn("treeIsDirty")(function* () {
   return result.stdout.trim().length > 0;
 });
 
+const decodeOpenPrs = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Array(
+      Schema.Struct({ number: Schema.Number, url: Schema.String, baseRefName: Schema.String }),
+    ),
+  ),
+);
+
+const findOpenPr = Effect.fn("findOpenPr")(function* (branch: string) {
+  const args = [
+    "pr",
+    "list",
+    "--repo",
+    SHIP_REPO,
+    "--head",
+    branch,
+    "--state",
+    "open",
+    "--json",
+    "number,url,baseRefName",
+  ];
+  const result = yield* runProcess("inspect", "gh", args, true).pipe(Effect.scoped);
+  if (result.exitCode !== 0) {
+    yield* Console.error(result.stderr);
+    return yield* new ShipStepExitError({
+      kind: "inspect",
+      executable: "gh",
+      argumentCount: args.length,
+      exitCode: result.exitCode,
+    });
+  }
+  const [pr] = yield* decodeOpenPrs(result.stdout);
+  // gh pr merge merges into the PR's own base, but ship rebased and gated against main.
+  if (pr !== undefined && pr.baseRefName !== "main") {
+    return yield* new ShipPrBaseError({ number: pr.number, base: pr.baseRefName });
+  }
+  return Option.fromNullishOr(pr);
+});
+
 const runCommitStep = Effect.fn("runCommitStep")(function* (step: ShipStep) {
   if (!(yield* treeIsDirty())) {
     yield* Console.log("\n▸ Commit pending work\n  (working tree clean — nothing to commit)");
@@ -444,15 +499,22 @@ export const runShip = Effect.fn("runShip")(function* (options: {
   if (paths.length > 0 && !options.includeUntracked) {
     return yield* new ShipUntrackedFilesError({ paths });
   }
+  const openPr = yield* findOpenPr(branch);
   const steps = planShipSteps({
     branch,
     message: options.message,
     mergeOnly: options.mergeOnly,
     prOnly: options.prOnly,
+    prOpen: Option.isSome(openPr),
     title: options.title,
     body: options.body,
   });
 
+  if (Option.isSome(openPr)) {
+    yield* Console.log(
+      `Reusing open PR #${openPr.value.number} (${openPr.value.url}); not creating one.`,
+    );
+  }
   if (options.dryRun) {
     yield* Console.log(`Ship plan for "${branch}"${options.mergeOnly ? " (merge-only)" : ""}:`);
     for (const step of steps) {
@@ -469,7 +531,7 @@ export const runShip = Effect.fn("runShip")(function* (options: {
   }
   yield* Console.log(
     options.prOnly
-      ? `\n✓ Opened the PR for "${branch}"; not merged (--pr-only).`
+      ? `\n✓ The PR for "${branch}" is open; not merged (--pr-only).`
       : `\n✓ Shipped "${branch}" and deleted the remote branch.`,
   );
 });
