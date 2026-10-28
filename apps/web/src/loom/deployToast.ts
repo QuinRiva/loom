@@ -26,19 +26,24 @@ export function claimDeployNotice(
 
 const NOTICEABLE = "You'll notice";
 
+/** No change carries a kind: nothing to group by, and "nothing noticeable" is unknown. */
+const unclassified = (changes: ReadonlyArray<LoomDeployChange>) =>
+  changes.length > 0 && changes.every((change) => change.kind === null);
+
 /**
  * The list's sections, trimmed unless `showAll`: every noticeable row, then the rest up to
- * {@link DEPLOY_LIST_ROWS} in total. With no classification (summaries failed) everything sits
- * under one heading; an unclassified row among classified ones is listed as noticeable.
+ * {@link DEPLOY_LIST_ROWS} in total. Kinds come from each PR's `Loom-Kind:` merge trailer; with
+ * none at all everything sits under one heading, and among classified rows a PR merged without
+ * the trailer is listed as behind the scenes.
  */
 export function deployListView(changes: ReadonlyArray<LoomDeployChange>, showAll: boolean) {
-  const sections = changes.every((change) => change.kind === null)
+  const sections = unclassified(changes)
     ? [{ heading: "In this update", changes }]
     : [
-        { heading: NOTICEABLE, changes: changes.filter((change) => change.kind !== "behind") },
+        { heading: NOTICEABLE, changes: changes.filter((change) => change.kind === "noticeable") },
         {
           heading: "Behind the scenes",
-          changes: changes.filter((change) => change.kind === "behind"),
+          changes: changes.filter((change) => change.kind !== "noticeable"),
         },
       ].filter((section) => section.changes.length > 0);
   let budget = DEPLOY_LIST_ROWS;
@@ -54,6 +59,6 @@ export function deployListView(changes: ReadonlyArray<LoomDeployChange>, showAll
   return { sections: shown.filter((section) => section.changes.length > 0), hidden };
 }
 
-/** The all-behind case closes on its own; anything noticeable, or unknown, stays. */
+/** Nothing noticeable closes on its own, as {@link deployListView} files it; an unclassified list stays. */
 export const deployNoticeIsQuiet = (changes: ReadonlyArray<LoomDeployChange>) =>
-  changes.every((change) => change.kind === "behind");
+  !unclassified(changes) && changes.every((change) => change.kind !== "noticeable");

@@ -20,6 +20,8 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 // the fork parent and fails with "No commits between…".
 const SHIP_REPO = "QuinRiva/loom";
 const PROTECTED_BRANCHES = ["main", "master", "HEAD"] as const;
+const SHIP_KINDS = ["noticeable", "behind"] as const;
+export type ShipKind = (typeof SHIP_KINDS)[number];
 
 export type ShipStepKind =
   | "set-default"
@@ -43,9 +45,12 @@ export interface ShipStep {
 export interface ShipPlanOptions {
   readonly branch: string;
   readonly message: string;
+  readonly summary: string;
+  readonly kind: ShipKind;
   readonly mergeOnly: boolean;
   readonly prOnly?: boolean | undefined;
-  readonly prOpen?: boolean | undefined;
+  /** Title of the branch's already-open PR, which ship reuses instead of creating one. */
+  readonly openPrTitle?: string | undefined;
   readonly title?: string | undefined;
   readonly body?: string | undefined;
 }
@@ -58,6 +63,21 @@ export class ShipProtectedBranchError extends Schema.TaggedError<ShipProtectedBr
 ) {
   override get message(): string {
     return `Refusing to ship from "${this.branch}": ship from a feature branch, never directly on main.`;
+  }
+}
+
+export class ShipSummaryKindError extends Schema.TaggedError<ShipSummaryKindError>()(
+  "ShipSummaryKindError",
+  {
+    problems: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    return [
+      `Refusing to ship: ${[...this.problems, "--summary and --kind are required;"].join(" ")} the "Loom updated" toast lists them after the next deploy.`,
+      '  --summary "<one line>"     what someone using Loom gets from this change, in their terms rather than the code\'s.',
+      "  --kind noticeable|behind   noticeable if they would see or feel it while using Loom, behind if not.",
+    ].join("\n");
   }
 }
 
@@ -148,19 +168,11 @@ export class ShipMergeNotConfirmedError extends Schema.TaggedError<ShipMergeNotC
  * branches skip the rebase) are unit-testable without touching git/gh.
  */
 export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep> {
-  const prArgs =
-    options.title !== undefined || options.body !== undefined
-      ? [
-          "pr",
-          "create",
-          "--base",
-          "main",
-          // gh requires --title whenever --body is given; the commit message is the title's source.
-          "--title",
-          options.title ?? options.message,
-          ...(options.body !== undefined ? ["--body", options.body] : []),
-        ]
-      : ["pr", "create", "--base", "main", "--fill"];
+  const title = options.openPrTitle ?? options.title ?? options.message.split("\n")[0] ?? "";
+  // deployctl reads these back from the merge commit (`%(trailers:key=Loom-Summary)`), so they
+  // must stay the last paragraph of the merge body.
+  const trailers = `Loom-Summary: ${options.summary}\nLoom-Kind: ${options.kind}`;
+  const prBody = [options.body?.trimEnd(), trailers].filter(Boolean).join("\n\n");
 
   const steps: ReadonlyArray<ShipStep> = [
     {
@@ -225,13 +237,14 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
       kind: "pr-create",
       title: "Open the PR into main",
       executable: "gh",
-      args: prArgs,
+      args: ["pr", "create", "--base", "main", "--title", title, "--body", prBody],
     },
     {
       kind: "pr-merge",
       title: "Merge the PR",
       executable: "gh",
-      args: ["pr", "merge", "--merge"],
+      // GitHub's default merge body is the PR title; keep it as the first line.
+      args: ["pr", "merge", "--merge", "--body", `${title}\n\n${trailers}`],
     },
     {
       kind: "pr-confirm",
@@ -257,7 +270,39 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
       )
     : steps;
   // A branch whose PR is already open (e.g. from an earlier --pr-only) reuses it.
-  return options.prOpen ? planned.filter((step) => step.kind !== "pr-create") : planned;
+  return options.openPrTitle !== undefined
+    ? planned.filter((step) => step.kind !== "pr-create")
+    : planned;
+}
+
+/**
+ * Validate the user-facing summary and kind every shipped PR carries. Pure so the refusal is
+ * unit-testable; runs before anything else so a refused ship has changed nothing.
+ */
+export function assertSummaryKind(
+  summary: string | undefined,
+  kind: string | undefined,
+): Effect.Effect<{ readonly summary: string; readonly kind: ShipKind }, ShipSummaryKindError> {
+  const line = summary?.trim() ?? "";
+  const problems =
+    summary === undefined && kind === undefined
+      ? []
+      : [
+          summary === undefined
+            ? "--summary is missing."
+            : line === ""
+              ? "--summary is empty."
+              : "",
+          /[\r\n]/.test(line) ? "--summary spans several lines." : "",
+          kind === undefined
+            ? "--kind is missing."
+            : SHIP_KINDS.includes(kind as ShipKind)
+              ? ""
+              : `--kind "${kind}" is neither noticeable nor behind.`,
+        ].filter(Boolean);
+  return summary === undefined || kind === undefined || problems.length > 0
+    ? Effect.fail(new ShipSummaryKindError({ problems }))
+    : Effect.succeed({ summary: line, kind: kind as ShipKind });
 }
 
 /**
@@ -270,6 +315,13 @@ export function assertShippableBranch(
     ? Effect.fail(new ShipProtectedBranchError({ branch }))
     : Effect.succeed(branch);
 }
+
+/** The step for display, JSON-quoting any argument with spaces so a multi-line --body reads as one. */
+const commandLine = (step: ShipStep): string =>
+  [
+    step.executable,
+    ...step.args.map((arg) => (/[\s"]/.test(arg) ? JSON.stringify(arg) : arg)),
+  ].join(" ");
 
 const collectStream = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
   stream.pipe(
@@ -340,7 +392,7 @@ const runProcess = Effect.fn("runProcess")(function* (
 });
 
 const runInherited = Effect.fn("runInherited")(function* (step: ShipStep) {
-  yield* Console.log(`\n▸ ${step.title}\n  ${step.executable} ${step.args.join(" ")}`);
+  yield* Console.log(`\n▸ ${step.title}\n  ${commandLine(step)}`);
   const result = yield* runProcess(step.kind, step.executable, step.args, false).pipe(
     Effect.scoped,
   );
@@ -371,7 +423,12 @@ const treeIsDirty = Effect.fn("treeIsDirty")(function* () {
 const decodeOpenPrs = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
     Schema.Array(
-      Schema.Struct({ number: Schema.Number, url: Schema.String, baseRefName: Schema.String }),
+      Schema.Struct({
+        number: Schema.Number,
+        url: Schema.String,
+        title: Schema.String,
+        baseRefName: Schema.String,
+      }),
     ),
   ),
 );
@@ -387,7 +444,7 @@ const findOpenPr = Effect.fn("findOpenPr")(function* (branch: string) {
     "--state",
     "open",
     "--json",
-    "number,url,baseRefName",
+    "number,url,title,baseRefName",
   ];
   const result = yield* runProcess("inspect", "gh", args, true).pipe(Effect.scoped);
   if (result.exitCode !== 0) {
@@ -422,7 +479,7 @@ const runCommitStep = Effect.fn("runCommitStep")(function* (step: ShipStep) {
 });
 
 const runRebaseStep = Effect.fn("runRebaseStep")(function* (step: ShipStep) {
-  yield* Console.log(`\n▸ ${step.title}\n  ${step.executable} ${step.args.join(" ")}`);
+  yield* Console.log(`\n▸ ${step.title}\n  ${commandLine(step)}`);
   const result = yield* runProcess(step.kind, step.executable, step.args, false).pipe(
     Effect.scoped,
   );
@@ -446,7 +503,7 @@ const runRebaseStep = Effect.fn("runRebaseStep")(function* (step: ShipStep) {
 });
 
 const runConfirmStep = Effect.fn("runConfirmStep")(function* (step: ShipStep) {
-  yield* Console.log(`\n▸ ${step.title}\n  ${step.executable} ${step.args.join(" ")}`);
+  yield* Console.log(`\n▸ ${step.title}\n  ${commandLine(step)}`);
   const result = yield* runProcess(step.kind, step.executable, step.args, true).pipe(Effect.scoped);
   if (result.exitCode !== 0) {
     return yield* new ShipStepExitError({
@@ -486,6 +543,8 @@ const runShipStep = Effect.fn("runShipStep")(function* (step: ShipStep) {
 
 export const runShip = Effect.fn("runShip")(function* (options: {
   readonly message: string;
+  readonly summary?: string | undefined;
+  readonly kind?: string | undefined;
   readonly mergeOnly: boolean;
   readonly prOnly: boolean;
   readonly title?: string | undefined;
@@ -493,6 +552,7 @@ export const runShip = Effect.fn("runShip")(function* (options: {
   readonly dryRun: boolean;
   readonly includeUntracked: boolean;
 }) {
+  const { summary, kind } = yield* assertSummaryKind(options.summary, options.kind);
   const branch = yield* assertShippableBranch(yield* getCurrentBranch());
   const untracked = yield* captureGit(["ls-files", "-z", "--others", "--exclude-standard"]);
   const paths = untracked.stdout.split("\0").filter((path) => path.length > 0);
@@ -503,9 +563,11 @@ export const runShip = Effect.fn("runShip")(function* (options: {
   const steps = planShipSteps({
     branch,
     message: options.message,
+    summary,
+    kind,
     mergeOnly: options.mergeOnly,
     prOnly: options.prOnly,
-    prOpen: Option.isSome(openPr),
+    openPrTitle: Option.getOrUndefined(Option.map(openPr, (pr) => pr.title)),
     title: options.title,
     body: options.body,
   });
@@ -516,9 +578,11 @@ export const runShip = Effect.fn("runShip")(function* (options: {
     );
   }
   if (options.dryRun) {
-    yield* Console.log(`Ship plan for "${branch}"${options.mergeOnly ? " (merge-only)" : ""}:`);
+    yield* Console.log(
+      `Ship plan for "${branch}"${options.mergeOnly ? " (merge-only)" : ""}:\n  summary: ${summary}\n  kind: ${kind}`,
+    );
     for (const step of steps) {
-      yield* Console.log(`  • ${step.title}\n      ${step.executable} ${step.args.join(" ")}`);
+      yield* Console.log(`  • ${step.title}\n      ${commandLine(step)}`);
     }
     return;
   }
@@ -541,14 +605,26 @@ export const shipCommand = Command.make(
   {
     message: Flag.String("message").pipe(
       Flag.withAlias("m"),
-      Flag.withDescription("Commit message / PR title source for the work being shipped."),
+      Flag.withDescription(
+        "Commit message for pending work; its first line is the PR title unless --title is given.",
+      ),
+    ),
+    summary: Flag.String("summary").pipe(
+      Flag.withDescription("One line on what someone using Loom gets from this change (required)."),
+      Flag.optional,
+    ),
+    kind: Flag.String("kind").pipe(
+      Flag.withDescription(
+        "noticeable if a Loom user would see or feel it, else behind (required).",
+      ),
+      Flag.optional,
     ),
     title: Flag.String("title").pipe(
-      Flag.withDescription("Explicit PR title (otherwise the PR is filled from the commit)."),
+      Flag.withDescription("PR title (default: the first line of -m)."),
       Flag.optional,
     ),
     body: Flag.String("body").pipe(
-      Flag.withDescription("Explicit PR body (otherwise the PR is filled from the commit)."),
+      Flag.withDescription("PR body; the summary and kind trailers are appended to it."),
       Flag.optional,
     ),
     mergeOnly: Flag.Boolean("merge-only").pipe(
@@ -574,9 +650,11 @@ export const shipCommand = Command.make(
       Flag.withDefault(false),
     ),
   },
-  ({ message, title, body, mergeOnly, prOnly, dryRun, includeUntracked }) =>
+  ({ message, summary, kind, title, body, mergeOnly, prOnly, dryRun, includeUntracked }) =>
     runShip({
       message,
+      summary: Option.getOrUndefined(summary),
+      kind: Option.getOrUndefined(kind),
       mergeOnly,
       prOnly,
       dryRun,

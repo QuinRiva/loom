@@ -1,7 +1,9 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import { assertShippableBranch, planShipSteps, type ShipStep } from "./ship.ts";
+import { assertShippableBranch, assertSummaryKind, planShipSteps, type ShipStep } from "./ship.ts";
+
+const note = { message: "msg", summary: 'Fixes "#12": tables scroll', kind: "noticeable" } as const;
 
 function stepKinds(steps: ReadonlyArray<ShipStep>): ReadonlyArray<string> {
   return steps.map((step) => step.kind);
@@ -25,7 +27,7 @@ it.effect("passes through a feature branch", () =>
 );
 
 it("orders the sequence set-default → commit → rebase → gate → push → PR → merge → confirm → delete", () => {
-  const steps = planShipSteps({ branch: "feature", message: "msg", mergeOnly: false });
+  const steps = planShipSteps({ branch: "feature", ...note, mergeOnly: false });
   assert.deepEqual(stepKinds(steps), [
     "set-default",
     "commit",
@@ -47,7 +49,7 @@ it("orders the sequence set-default → commit → rebase → gate → push → 
 });
 
 it("skips the rebase for an upstream-sync (merge-only) branch", () => {
-  const steps = planShipSteps({ branch: "feature", message: "msg", mergeOnly: true });
+  const steps = planShipSteps({ branch: "feature", ...note, mergeOnly: true });
   assert.notInclude(stepKinds(steps), "fetch");
   assert.notInclude(stepKinds(steps), "rebase");
   // Everything else still runs.
@@ -58,7 +60,7 @@ it("skips the rebase for an upstream-sync (merge-only) branch", () => {
 it("stops at the open PR with --pr-only", () => {
   const steps = planShipSteps({
     branch: "feature",
-    message: "msg",
+    ...note,
     mergeOnly: false,
     prOnly: true,
   });
@@ -71,15 +73,16 @@ it("stops at the open PR with --pr-only", () => {
 });
 
 it("reuses an already-open PR instead of creating one", () => {
-  const options = { branch: "feature", message: "msg", mergeOnly: false, prOpen: true };
-  const steps = planShipSteps(options);
+  const options = { branch: "feature", ...note, mergeOnly: false, openPrTitle: "Open PR" };
+  const steps = planShipSteps({ ...options, title: "Ignored" });
   assert.notInclude(stepKinds(steps), "pr-create");
-  assert.include(stepKinds(steps), "pr-merge");
+  // The merge body leads with the reused PR's own title.
+  assert.match(steps.find((step) => step.kind === "pr-merge")?.args.at(-1) ?? "", /^Open PR\n\n/);
   assert.equal(planShipSteps({ ...options, prOnly: true }).at(-1)?.kind, "push");
 });
 
 it("deletes the remote branch explicitly and never uses --delete-branch", () => {
-  const steps = planShipSteps({ branch: "feature", message: "msg", mergeOnly: false });
+  const steps = planShipSteps({ branch: "feature", ...note, mergeOnly: false });
   const deleteStep = steps.find((step) => step.kind === "delete-branch");
   assert.deepEqual(deleteStep?.args, ["push", "origin", "--delete", "feature"]);
   for (const step of steps) {
@@ -88,45 +91,56 @@ it("deletes the remote branch explicitly and never uses --delete-branch", () => 
 });
 
 it("never pushes to main directly", () => {
-  const steps = planShipSteps({ branch: "feature", message: "msg", mergeOnly: false });
+  const steps = planShipSteps({ branch: "feature", ...note, mergeOnly: false });
   const pushSteps = steps.filter((step) => step.executable === "git" && step.args[0] === "push");
   for (const step of pushSteps) {
     assert.notInclude(step.args, "main");
   }
 });
 
-it("fills the PR from the commit by default and honours explicit title/body", () => {
-  const filled = planShipSteps({ branch: "feature", message: "msg", mergeOnly: false }).find(
-    (step) => step.kind === "pr-create",
-  );
-  assert.include(filled?.args ?? [], "--fill");
+it.effect("refuses a missing, multi-line or empty summary and an unknown kind", () =>
+  Effect.gen(function* () {
+    const problems = (summary: string | undefined, kind: string | undefined) =>
+      assertSummaryKind(summary, kind).pipe(
+        Effect.flip,
+        Effect.map((error) => error.problems),
+      );
+    // Both missing is the plain refusal; its message carries the guidance.
+    assert.deepEqual(yield* problems(undefined, undefined), []);
+    assert.deepEqual(yield* problems("ok", undefined), ["--kind is missing."]);
+    assert.deepEqual(yield* problems("one\ntwo", "behind"), ["--summary spans several lines."]);
+    assert.deepEqual(yield* problems(" ", "loud"), [
+      "--summary is empty.",
+      '--kind "loud" is neither noticeable nor behind.',
+    ]);
+    const ok = yield* assertSummaryKind(" Tables scroll ", "behind");
+    assert.deepEqual(ok, { summary: "Tables scroll", kind: "behind" });
+  }),
+);
 
-  const framed = planShipSteps({
-    branch: "feature",
-    message: "msg",
-    mergeOnly: false,
-    title: "Nice title",
-    body: "Explains the change",
-  }).find((step) => step.kind === "pr-create");
-  assert.notInclude(framed?.args ?? [], "--fill");
-  assert.include(framed?.args ?? [], "--title");
-  assert.include(framed?.args ?? [], "Nice title");
-  assert.include(framed?.args ?? [], "--body");
-  assert.include(framed?.args ?? [], "Explains the change");
+it("titles the PR from -m unless --title is given, and ends both bodies with the trailers", () => {
+  const trailers = 'Loom-Summary: Fixes "#12": tables scroll\nLoom-Kind: noticeable';
+  const args = (options: { title?: string; body?: string }) => {
+    const steps = planShipSteps({ branch: "feature", ...note, mergeOnly: false, ...options });
+    return ["pr-create", "pr-merge"].map((kind) => steps.find((step) => step.kind === kind)?.args);
+  };
 
-  // gh rejects --body without --title, so the commit message stands in.
-  const bodyOnly = planShipSteps({
-    branch: "feature",
-    message: "msg",
-    mergeOnly: false,
-    body: "Explains the change",
-  }).find((step) => step.kind === "pr-create");
-  assert.deepEqual(bodyOnly?.args.slice(0, 6), [
-    "pr",
-    "create",
-    "--base",
-    "main",
-    "--title",
-    "msg",
+  assert.deepEqual(args({}), [
+    ["pr", "create", "--base", "main", "--title", "msg", "--body", trailers],
+    ["pr", "merge", "--merge", "--body", `msg\n\n${trailers}`],
+  ]);
+  // The merge body's first line is the PR title, as in GitHub's default merge message.
+  assert.deepEqual(args({ title: "Nice title", body: "Explains the change\n" }), [
+    [
+      "pr",
+      "create",
+      "--base",
+      "main",
+      "--title",
+      "Nice title",
+      "--body",
+      `Explains the change\n\n${trailers}`,
+    ],
+    ["pr", "merge", "--merge", "--body", `Nice title\n\n${trailers}`],
   ]);
 });

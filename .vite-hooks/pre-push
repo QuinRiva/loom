@@ -14,7 +14,7 @@ while read -r _local_ref _local_sha remote_ref _remote_sha; do
 Refusing to push directly to $remote_ref.
 
 Land work on main via a feature branch and a PR:
-  git switch -c <branch> && pnpm ship -m "<summary>"
+  git switch -c <branch> && pnpm ship -m "<commit message>" --summary "<one line>" --kind <noticeable|behind>
 See docs/operations/shipping.md.
 
 Genuine emergency only: ALLOW_PUSH_TO_MAIN=1 git push ...
