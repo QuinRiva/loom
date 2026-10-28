@@ -1,7 +1,12 @@
 import type { EnvironmentId, LoomDeployChange, LoomDeployNotice } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { claimDeployNotice, deployListView, deployNoticeSeenKey } from "./deployToast";
+import {
+  claimDeployNotice,
+  deployListView,
+  deployNoticeIsQuiet,
+  deployNoticeSeenKey,
+} from "./deployToast";
 
 const env = "env-1" as EnvironmentId;
 const AT = Date.parse("2026-10-27T22:15:42Z");
@@ -42,5 +47,15 @@ describe("deployListView", () => {
   it("puts unclassified changes under one heading", () => {
     const view = deployListView([change(1, null), change(2, null)], false);
     expect(view.sections.map((section) => section.heading)).toEqual(["In this update"]);
+  });
+
+  it("files a change without a kind as behind the scenes once any change has one", () => {
+    const mixed = [change(1, "behind"), change(2, null)];
+    expect(deployListView(mixed, false).sections).toEqual([
+      { heading: "Behind the scenes", changes: mixed },
+    ]);
+    expect(deployNoticeIsQuiet(mixed)).toBe(true);
+    expect(deployNoticeIsQuiet([...mixed, change(3, "noticeable")])).toBe(false);
+    expect(deployNoticeIsQuiet([change(1, null)])).toBe(false);
   });
 });

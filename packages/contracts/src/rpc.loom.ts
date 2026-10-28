@@ -392,7 +392,10 @@ export const LoomReviewFileContentsInput = Schema.Struct({
 });
 export type LoomReviewFileContentsInput = typeof LoomReviewFileContentsInput.Type;
 
-/** One merged PR of a deploy; `summary` and `kind` are null when the model did not run. */
+/**
+ * One merged PR of a deploy; `summary` and `kind` come from its merge commit's `Loom-Summary:` /
+ * `Loom-Kind:` trailers (written by `pnpm ship`) and are null for a PR merged without them.
+ */
 export const LoomDeployChange = Schema.Struct({
   pr: Schema.Number,
   title: Schema.String,
