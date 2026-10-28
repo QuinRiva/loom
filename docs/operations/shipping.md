@@ -103,8 +103,9 @@ files too (above). In order, the script:
    body your `--body` then the `Loom-Summary:` / `Loom-Kind:` trailers; a
    branch that already has an open PR into `main`, such as one opened with
    `--pr-only`, reuses it and its title instead.
-7. Merges it (`gh pr merge --merge`), the merge body being the PR title then
-   the trailers, where deployctl reads them for the deploy toast, and confirms
+7. Merges it (`gh pr merge --merge --admin`; `main`'s Restrict-updates ruleset
+   reports a bypass actor's PR as blocked without `--admin`), the merge body
+   being the PR title then the trailers, where deployctl reads them for the deploy toast, and confirms
    the merged state.
 8. Deletes the remote branch explicitly once the merge is confirmed.
 

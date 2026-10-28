@@ -244,8 +244,9 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
       kind: "pr-merge",
       title: "Merge the PR",
       executable: "gh",
-      // GitHub's default merge body is the PR title; keep it as the first line.
-      args: ["pr", "merge", "--merge", "--body", `${title}\n\n${trailers}`],
+      // GitHub's default merge body is the PR title; keep it as the first line. `--admin`: a
+      // Restrict-updates ruleset reports BLOCKED even to its bypass actor (cli/cli#13388).
+      args: ["pr", "merge", "--merge", "--admin", "--body", `${title}\n\n${trailers}`],
     },
     {
       kind: "pr-confirm",

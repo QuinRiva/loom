@@ -127,7 +127,7 @@ it("titles the PR from -m unless --title is given, and ends both bodies with the
 
   assert.deepEqual(args({}), [
     ["pr", "create", "--base", "main", "--title", "msg", "--body", trailers],
-    ["pr", "merge", "--merge", "--body", `msg\n\n${trailers}`],
+    ["pr", "merge", "--merge", "--admin", "--body", `msg\n\n${trailers}`],
   ]);
   // The merge body's first line is the PR title, as in GitHub's default merge message.
   assert.deepEqual(args({ title: "Nice title", body: "Explains the change\n" }), [
@@ -141,6 +141,6 @@ it("titles the PR from -m unless --title is given, and ends both bodies with the
       "--body",
       `Explains the change\n\n${trailers}`,
     ],
-    ["pr", "merge", "--merge", "--body", `Nice title\n\n${trailers}`],
+    ["pr", "merge", "--merge", "--admin", "--body", `Nice title\n\n${trailers}`],
   ]);
 });
