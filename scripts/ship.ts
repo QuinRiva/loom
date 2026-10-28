@@ -122,6 +122,15 @@ export class ShipRebaseConflictError extends Schema.TaggedError<ShipRebaseConfli
   }
 }
 
+export class ShipPrBaseError extends Schema.TaggedError<ShipPrBaseError>()("ShipPrBaseError", {
+  number: Schema.Number,
+  base: Schema.String,
+}) {
+  override get message(): string {
+    return `Open PR #${this.number} targets "${this.base}", not main; ship would merge it there. Retarget it with \`gh pr edit ${this.number} --repo ${SHIP_REPO} --base main\` and re-run.`;
+  }
+}
+
 export class ShipMergeNotConfirmedError extends Schema.TaggedError<ShipMergeNotConfirmedError>()(
   "ShipMergeNotConfirmedError",
   {
@@ -360,7 +369,11 @@ const treeIsDirty = Effect.fn("treeIsDirty")(function* () {
 });
 
 const decodeOpenPrs = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(Schema.Array(Schema.Struct({ number: Schema.Number, url: Schema.String }))),
+  Schema.fromJsonString(
+    Schema.Array(
+      Schema.Struct({ number: Schema.Number, url: Schema.String, baseRefName: Schema.String }),
+    ),
+  ),
 );
 
 const findOpenPr = Effect.fn("findOpenPr")(function* (branch: string) {
@@ -374,10 +387,11 @@ const findOpenPr = Effect.fn("findOpenPr")(function* (branch: string) {
     "--state",
     "open",
     "--json",
-    "number,url",
+    "number,url,baseRefName",
   ];
   const result = yield* runProcess("inspect", "gh", args, true).pipe(Effect.scoped);
   if (result.exitCode !== 0) {
+    yield* Console.error(result.stderr);
     return yield* new ShipStepExitError({
       kind: "inspect",
       executable: "gh",
@@ -385,8 +399,12 @@ const findOpenPr = Effect.fn("findOpenPr")(function* (branch: string) {
       exitCode: result.exitCode,
     });
   }
-  const prs = yield* decodeOpenPrs(result.stdout);
-  return Option.fromNullishOr(prs[0]);
+  const [pr] = yield* decodeOpenPrs(result.stdout);
+  // gh pr merge merges into the PR's own base, but ship rebased and gated against main.
+  if (pr !== undefined && pr.baseRefName !== "main") {
+    return yield* new ShipPrBaseError({ number: pr.number, base: pr.baseRefName });
+  }
+  return Option.fromNullishOr(pr);
 });
 
 const runCommitStep = Effect.fn("runCommitStep")(function* (step: ShipStep) {
