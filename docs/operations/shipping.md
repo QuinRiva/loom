@@ -79,8 +79,8 @@ yourself when you have touched native mobile code.
 ## The sequence (what `scripts/ship.ts` does)
 
 Run `pnpm ship -m "<commit message>" --summary "<one line>" --kind noticeable|behind`;
-add `--merge-only` for an upstream-sync branch (below), `--pr-only` to stop at the open PR (steps 1 to 6: the `human`
-ceiling, or when the human has said they will merge or close the PR themselves),
+add `--merge-only` for an upstream-sync branch (below), `--pr-only` to stop at
+the open PR (steps 1 to 6: the `human` ceiling, or when the human has said they will merge or close the PR themselves),
 `--dry-run` to preview the steps and `--include-untracked` to commit untracked
 files too (above). In order, the script:
 
@@ -94,13 +94,12 @@ files too (above). In order, the script:
    lease lets a rebased, already-pushed branch update without clobbering
    anyone else's push).
 6. Creates the PR into `main`, titled `--title` or the first line of `-m`, its
-   body your `--body` followed by the two trailers below; a branch that
-   already has an open PR, such as one opened with `--pr-only`, reuses it
-   instead.
-7. Merges it (`gh pr merge --merge --body`, the body being the PR title then
-   `Loom-Summary:` and `Loom-Kind:` trailers, which deployctl reads for the
-   deploy toast) and
-   confirms the merged state.
+   body your `--body` then the `Loom-Summary:` / `Loom-Kind:` trailers; a
+   branch that already has an open PR, such as one opened with `--pr-only`,
+   reuses it instead.
+7. Merges it (`gh pr merge --merge`), repeating the trailers in the merge
+   commit, where deployctl reads them for the deploy toast, and confirms the
+   merged state.
 8. Deletes the remote branch explicitly once the merge is confirmed.
 
 ## Repo gotchas (each has bitten before)
@@ -139,7 +138,7 @@ files too (above). In order, the script:
 
 ## Judgement calls (yours, not the script's)
 
-- **PR framing.** The PR reuses the commit message. When the PR wants a clearer
+- **PR framing.** When the PR wants a clearer
   title or a body that explains the change for a reviewer, pass `--title` /
   `--body`. GitHub renders every newline in a PR body or comment as a line
   break, so write one line per paragraph or list item rather than hard-wrapped

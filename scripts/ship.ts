@@ -73,7 +73,7 @@ export class ShipSummaryKindError extends Schema.TaggedError<ShipSummaryKindErro
 ) {
   override get message(): string {
     return [
-      `Refusing to ship: ${[...this.problems, "--summary and --kind are required."].join(" ")} The merge commit carries them as Loom-Summary and Loom-Kind trailers, and the "Loom updated" toast lists them after the next deploy.`,
+      `Refusing to ship: ${[...this.problems, "--summary and --kind are required;"].join(" ")} the "Loom updated" toast lists them after the next deploy.`,
       '  --summary "<one line>"     what someone using Loom gets from this change, in their terms rather than the code\'s.',
       "  --kind noticeable|behind   noticeable if they would see or feel it while using Loom, behind if not.",
     ].join("\n");
@@ -612,9 +612,7 @@ export const shipCommand = Command.make(
       Flag.optional,
     ),
     title: Flag.String("title").pipe(
-      Flag.withDescription(
-        "PR title, also the first line of the merge-commit body (default: the -m first line).",
-      ),
+      Flag.withDescription("PR title (default: the first line of -m)."),
       Flag.optional,
     ),
     body: Flag.String("body").pipe(
