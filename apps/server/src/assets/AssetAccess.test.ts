@@ -889,7 +889,7 @@ describe("AssetAccess", () => {
       const editedResponse = HttpServerResponse.toWeb(yield* assetFileResponse(edited));
       expect(yield* Effect.promise(() => editedResponse.text())).toBe("in-place edit");
 
-      const replacement = path.join(root, `replacement${path.extname(filePath)}`);
+      const replacement = path.join(root, "replacement.mp4");
       yield* fs.writeFileString(replacement, "replacement");
       yield* fs.rename(replacement, filePath);
       expect(yield* resolveAsset(token, name)).toBeNull();
