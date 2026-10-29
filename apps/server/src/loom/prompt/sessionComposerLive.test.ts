@@ -285,9 +285,9 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
               `${addendumWith("browser", "devices", "delegation", "history")}\n\n${CHILD_READERSHIP_CLAUSE}`,
             ),
           );
-          assert.include(appendSystemPrompt, "`html_preview`");
-          assert.include(appendSystemPrompt, "`thread_search`");
-          assert.notInclude(appendSystemPrompt, "`watch_pull_request`");
+          assert.include(appendSystemPrompt, "`mcp__t3-code__html_preview`");
+          assert.include(appendSystemPrompt, "`mcp__t3-code__thread_search`");
+          assert.notInclude(appendSystemPrompt, "`mcp__t3-code__watch_pull_request`");
         }),
       ),
   );

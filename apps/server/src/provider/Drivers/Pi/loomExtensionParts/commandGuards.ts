@@ -21,7 +21,7 @@ const HEREDOC_REWRITE_NOTE = `${NOTE} Quoted your heredoc delimiter (FROM became
 
 const HEREDOC_WARN_NOTE = `${NOTE} Your unquoted heredoc FROM has backticks or \`$(\` in its body, which bash ran as command substitution before delivery. If the body was meant literally (markdown, a Slack message), send it again with a quoted delimiter (TO). If the substitution was intended, ignore this.`;
 
-const BROWSER_NOTE = `${NOTE} Loom provides a headless browser: \`html_preview\` renders an HTML document to a screenshot with its console output and \`preview_*\` drives a live tab at any URL, both loaded with \`tool_search\` (query "browser screenshot"); if you need a browser of your own, carry on.`;
+const BROWSER_NOTE = `${NOTE} Loom provides a headless browser: \`mcp__t3-code__html_preview\` renders an HTML document to a screenshot with its console output and \`mcp__t3-code__preview_*\` drives a live tab at any URL, both loaded with \`tool_search\` (query "browser screenshot"); if you need a browser of your own, carry on.`;
 
 export const commandGuardsPart: LoomExtensionPart = {
   name: "command-guards",

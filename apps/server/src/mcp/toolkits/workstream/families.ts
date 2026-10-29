@@ -118,30 +118,30 @@ export const CAPABILITIES: ReadonlyArray<{
     id: "browser",
     tools: namesOf(PreviewToolkit, PreviewControlsToolkit, HtmlToolkit),
     phrase:
-      "a headless browser: `html_preview` renders an HTML document to a screenshot with its console output, and `preview_*` drives a live tab at any URL that the human can watch (navigate, click, type, snapshot)",
+      "a headless browser: `mcp__t3-code__html_preview` renders an HTML document to a screenshot with its console output, and `mcp__t3-code__preview_*` drives a live tab at any URL that the human can watch (navigate, click, type, snapshot)",
   },
   {
     id: "devices",
     tools: namesOf(DeviceToolkit),
     phrase:
-      "iOS simulators and Android emulators streamed to the human's Device panel (`device_*`)",
+      "iOS simulators and Android emulators streamed to the human's Device panel (`mcp__t3-code__device_*`)",
   },
   {
     id: "pull-requests",
     tools: PULL_REQUESTS,
     phrase:
-      "pull requests: link one to this thread and be woken when its checks or comments change instead of polling (`watch_pull_request`, `link_pull_request`)",
+      "pull requests: link one to this thread and be woken when its checks or comments change instead of polling (`mcp__t3-code__watch_pull_request`, `mcp__t3-code__link_pull_request`)",
   },
   {
     id: "delegation",
     tools: DELEGATION,
     phrase:
-      "children of your own and the graph around them (`workstream_spawn`, `workstream_scaffold`, `notify_thread`)",
+      "children of your own and the graph around them (`mcp__t3-code__workstream_spawn`, `mcp__t3-code__workstream_scaffold`, `mcp__t3-code__notify_thread`)",
   },
   {
     id: "history",
     tools: HISTORY,
-    phrase: "search over every past thread's content (`thread_search`)",
+    phrase: "search over every past thread's content (`mcp__t3-code__thread_search`)",
   },
 ];
 

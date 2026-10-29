@@ -905,7 +905,7 @@ describe("command-guards part", () => {
   });
 
   const BROWSER_NOTE =
-    '[t3 command guard] Loom provides a headless browser: `html_preview` renders an HTML document to a screenshot with its console output and `preview_*` drives a live tab at any URL, both loaded with `tool_search` (query "browser screenshot"); if you need a browser of your own, carry on.';
+    '[t3 command guard] Loom provides a headless browser: `mcp__t3-code__html_preview` renders an HTML document to a screenshot with its console output and `mcp__t3-code__preview_*` drives a live tab at any URL, both loaded with `tool_search` (query "browser screenshot"); if you need a browser of your own, carry on.';
 
   it("notes loom's browser, without blocking, when a command installs, launches or hunts one", () => {
     for (const command of [
