@@ -40,6 +40,7 @@ source alone does not explain. Most code changes do not need an internal documen
 
 - [Architecture overview](./internals/overview.md)
 - [Glossary](./internals/glossary.md)
+- [Testing conventions](./internals/testing.md) <!-- loom: test mechanics -->
 - [Connection runtime](./internals/connection-runtime.md)
 - [Providers](./internals/providers.md)
 - [Adding a provider](./internals/adding-a-provider.md)
