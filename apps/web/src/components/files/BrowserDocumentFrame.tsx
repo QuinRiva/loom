@@ -75,15 +75,8 @@ export function BrowserDocumentFrame(props: {
   readonly documentKey?: string | undefined;
 }) {
   const key = props.documentKey ?? props.src;
-  return props.pdf ? (
-    <embed
-      key={props.src}
-      src={props.src}
-      type="application/pdf"
-      title={props.title}
-      className="min-h-0 w-full flex-1 border-0"
-    />
-  ) : props.htmlRender ? (
+  // loom: PDFs go through FileDocument.
+  return props.htmlRender && !props.pdf ? (
     <HtmlRenderDocument
       key={key}
       src={props.src}
@@ -92,14 +85,26 @@ export function BrowserDocumentFrame(props: {
       className="min-h-0 flex-1"
     />
   ) : (
-    <FileDocument key={key} src={props.src} title={props.title} />
+    <FileDocument key={key} src={props.src} title={props.title} pdf={props.pdf} />
   );
 }
 
 // URL renewals must not discard form input or scroll; a new key mounts a fresh document.
-function FileDocument(props: { readonly src: string; readonly title: string }) {
+function FileDocument(props: {
+  readonly src: string;
+  readonly title: string;
+  readonly pdf: boolean;
+}) {
   const [src] = useState(props.src);
-  return (
+  // loom: the PDF viewer also keeps its first URL, so a re-signed URL keeps its page.
+  return props.pdf ? (
+    <embed
+      src={src}
+      type="application/pdf"
+      title={props.title}
+      className="min-h-0 w-full flex-1 border-0"
+    />
+  ) : (
     <iframe
       src={src}
       title={props.title}

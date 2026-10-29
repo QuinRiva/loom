@@ -543,7 +543,16 @@ const finalizeWorkspaceFileAsset = Effect.fn("AssetAccess.finalizeWorkspaceFileA
           },
       fileName: path.basename(resolved.relativePath),
       imageDimensions,
-      fileRevision: undefined,
+      // loom: an HTML or PDF preview reloads only when this changes, not after every command.
+      fileRevision: yield* openMediaFile(canonicalFile).pipe(
+        Effect.map((file) =>
+          file === null
+            ? undefined
+            : `${file.info.dev}:${file.info.ino}:${file.info.size}:${file.info.mtimeNs}:${file.info.ctimeNs}`,
+        ),
+        Effect.scoped,
+        Effect.orElseSucceed(() => undefined),
+      ),
     };
   },
 );
@@ -618,6 +627,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
       claims = finalized.claims;
       fileName = finalized.fileName;
       imageDimensions = finalized.imageDimensions;
+      fileRevision = finalized.fileRevision; // loom: workspace file revision
       break;
     }
     case "draft-workspace-file": {
