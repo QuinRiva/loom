@@ -100,18 +100,18 @@ signals:
     kind: structural
     scope: session
     check: instruction_edit_ungated
-    why: "An edit or write to roles/*.md, .t3code/roles/, skills/*/SKILL.md or an AGENTS.md, from 2026-10-12 09:55 UTC (when the llm-instruction-change skill merged; before it there was no protocol to load), in a session with no read of an llm-instruction-change*/SKILL.md (any project's variant) and whose thread no reviewer gate loops back to. Census category 11."
+    why: "An edit or write to roles/*.md, .t3code/roles/, skills/*/SKILL.md or an AGENTS.md, from 2026-10-12 09:55 UTC (when the llm-instruction-change skill merged; before it there was no protocol to load), in a session with no read of an llm-instruction-change*/SKILL.md (any project's variant; the read tool, or cat, sed or head in bash) and whose thread no reviewer gate loops back to, unless the session later spawned or scaffolded a reviewer whose arguments name the edited file (roles/x.md, skills/x/SKILL.md, AGENTS.md). Census category 11."
     origin: loom-evals plan (2026-11)
-    narrowed: "2026-11-02: first-20 review 14 of 20, passes. Small fixes: any llm-instruction-change*/SKILL.md read counts (one hit had read pi-fathom's variant); edits before the skill existed are not counted (4 hits); a fork's copied-in history is not scanned again (1 hit, for every trace check)."
+    narrowed: "2026-11-02: first-20 review 14 of 20, passes. Small fixes: any llm-instruction-change*/SKILL.md read counts (one hit had read pi-fathom's variant); edits before the skill existed are not counted (4 hits); a fork's copied-in history is not scanned again (1 hit, for every trace check). Second review 12 of 20: 5 false positives loaded the protocol with cat or sed, 2 had a reviewer spawned over the edit by the editing root; both now count (12 of 12 kept)."
     status: seed
 
   - id: visual-unseen
     kind: structural
     scope: session
     check: visual_unseen
-    why: "An edit or write to apps/web/**/*.tsx (only when the new text carries className, style, <div or <span), *.css or *.html, then a workstream_submit (or the session's end) with no html_preview, preview_*, browser_* or device_* call and no read of a .png in between. Census category 9. A child's unrendered .tsx edit may follow AGENTS.md (subagents do not launch dev servers unless their brief says to): judge the next first-20 against the brief."
+    why: "An edit or write to apps/web/**/*.tsx (only when the new text carries className, style, <div or <span), *.css or *.html, then a workstream_submit (or the session's end) with no html_preview, preview_*, browser_* or device_* call and no read of a .png in between, in a root or planner session only. Census category 9. A child coder's or reviewer's unrendered edit follows its brief and AGENTS.md (subagents do not launch dev servers unless their brief says to), so children are not counted."
     origin: loom-evals plan (2026-11)
-    narrowed: "2026-11-02: first-20 review 0 of 20, all README.md edits (98 of the 122 hits). README.md dropped: it is no rendered UI surface."
+    narrowed: "2026-11-02: first-20 review 0 of 20, all README.md edits (98 of the 122 hits). README.md dropped: it is no rendered UI surface. 2026-11-02 second review 5 of 20: 10 of the 15 false positives were child coders whose brief gave the live check to another thread, forbade a browser or did not ask for one; now roots and planners only (5 of 6 on that sample)."
     status: seed
 
   - id: tests-claimed-not-run
@@ -145,18 +145,18 @@ signals:
     kind: structural
     scope: session
     check: kill_by_pattern
-    why: "A bash command step starts with pkill carrying a pattern, or kill fed by $(pgrep|pidof|ps …) other than `ps -o pgid= -p <pid>` (a captured PID), or pgrep piped into xargs kill; --help steps are skipped. Steps split outside quotes, $( ) and heredoc bodies, so a grep for 'pgrep\\|pkill' does not count. A bare pgrep listing and kill $(cat pidfile) do not count. guard-fired counts the block; this counts the attempt."
+    why: "A bash command step starts with pkill carrying a pattern, or kill fed by $(pgrep|pidof|ps …) other than `ps -o pgid= -p <pid>` (a captured PID) or `ps -eo pid=,pgid=|sid= | awk` (the documented dev-verify kill over a captured group, docs/dev-site-testing.md §6), or pgrep piped into xargs kill; `pkill -P <pid>` (children of a known parent) and --help steps are skipped. Steps split outside quotes, $( ) and heredoc bodies, so a grep for 'pgrep\\|pkill' does not count. A bare pgrep listing and kill $(cat pidfile) do not count. guard-fired counts the block; this counts the attempt."
     origin: loom-evals plan (2026-11)
-    narrowed: "2026-11-02: first-20 review 12 of 20, passes. Fixed the three false-positive shapes: `kill -TERM -$(ps -o pgid= -p $PID)` (a captured PID), pkill as an alternative inside a quoted grep pattern, pkill --help (and a heredoc's script text)."
+    narrowed: "2026-11-02: first-20 review 12 of 20, passes. Fixed the three false-positive shapes: `kill -TERM -$(ps -o pgid= -p $PID)` (a captured PID), pkill as an alternative inside a quoted grep pattern, pkill --help (and a heredoc's script text). Second review 11 of 20: the 9 false positives were the dev-verify recipe's own `ps -eo pid=,pgid= | awk` kill and `pkill -P <pid>`, both now skipped (11 of 11 kept)."
     status: seed
 
   - id: sleep-poll
     kind: structural
     scope: session
     check: sleep_poll
-    why: "Three or more bash calls in one session, which had bg_start in its tool set, contain `sleep <n>` with n of 5 or more (shorter is settle time, not a poll) and do not themselves background a process (&, setsid, nohup: a dev server settling). Variant: whether any of them watches gh pr, gh run or checks (a watch tool existed). Census T13 is the 120-second foreground sleep."
+    why: "Two or more bash calls in one session, which had bg_start in its tool set, run `sleep <n>` with n of 5 or more (shorter is settle time) and then, in the same command, probe what they wait on: `gh pr` or `gh run` (watch_pull_request existed), a bg_start job log (…/jobs/*.log; bg_wait with timeout_s reports it), or `ps … -p` or `wc` on a running job's output. A command that backgrounds (&, setsid, nohup) or kills a process is settling, not polling, and a bare `sleep N` is a wait between UI actions that bg_wait cannot replace. Variant: the commonest probe. Census T13 is the 120-second foreground sleep."
     origin: loom-evals plan (2026-11)
-    narrowed: "2026-11-02: first-20 review 16 of 20, passes, but none of the 20 sessions had bg_start (it arrived about 8 October), so the polling had no non-blocking alternative. Now counts only sessions that had bg_start, and skips sleeps in a command that backgrounds a process (the 4 false positives)."
+    narrowed: "2026-11-02: first-20 review 16 of 20, passes, but none of the 20 sessions had bg_start (it arrived about 8 October), so the polling had no non-blocking alternative. Now counts only sessions that had bg_start, and skips sleeps in a command that backgrounds a process (the 4 false positives). 2026-11-02 second review 5 of 20: 15 false positives were bare sleeps between browser actions, waits on a setsid dev server's /tmp log and settle sleeps after a kill. Now counts only a sleep followed in its command by a probe, two or more per session (all 5 true positives have two or more; `ls` after a sleep was dropped as a probe, since it appeared only in false positives)."
     status: seed
 
   - id: file-reread
@@ -172,9 +172,9 @@ signals:
     kind: structural
     scope: session
     check: unasked_commit
-    why: "A bash step runs git commit in a reviewer, researcher, planner, assessor or root session, and the commit lands in a repository outside the session's own worktree (the step's -C or cd directory, nearest ancestor with a .git entry, compared by common git directory: another worktree of the same repository, as a reviewer's inline fix in its coder's worktree, a scratch repository nested in the worktree such as workbench, one under /tmp, or one the command builds with mktemp or git init are not counted) or, in the session's own checkout, on main/master (git's own `[main abc1234]` result line) of a main checkout (a .git directory, not a worktree). Coders and shippers are asked to commit by their role text and are excluded."
+    why: "A bash step runs git commit in a reviewer, researcher, planner, assessor or root session, and the commit lands in a repository outside the session's own worktree (the step's -C or cd directory, nearest ancestor with a .git entry, compared by common git directory: another worktree of the same repository, as a reviewer's inline fix in its coder's worktree, a scratch repository nested in the worktree such as workbench, one under /tmp, or one the command builds with mktemp or git init are not counted) or, in the session's own checkout, on main/master (git's own `[main abc1234]` result line) of a main checkout (a .git directory, not a worktree). Coders and shippers are asked to commit by their role text and are excluded. A `cd` inside a ( … ) subshell ends with the subshell."
     origin: loom-evals plan (2026-11)
-    narrowed: "2026-11-02: first-20 review 1 of 20. Asks to fix, implement or ship imply a commit and usually come after the kickoff, so the kickoff-mentions-commit test was the wrong proxy (14 roots); reviewers commit inline fixes under fixed_inline (4). Now counts only a commit in another repository or on main of a main checkout, which keeps the one true positive (a root committing in Carl's /home/Carl/pi-fathom checkout)."
+    narrowed: "2026-11-02: first-20 review 1 of 20. Asks to fix, implement or ship imply a commit and usually come after the kickoff, so the kickoff-mentions-commit test was the wrong proxy (14 roots); reviewers commit inline fixes under fixed_inline (4). Now counts only a commit in another repository or on main of a main checkout, which keeps the one true positive (a root committing in Carl's /home/Carl/pi-fathom checkout). Second review 2 of 4: one false positive carried a subshell's cd into the next git commit, now fixed."
     status: seed
 
   - id: guard-fired

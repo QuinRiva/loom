@@ -8,7 +8,7 @@ Writes ~/loom-evals/dashboard.md and a copy in ~/loom-evals/readings/<week>/, an
 import argparse
 import json
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 
 from dashboard import EVALS_HOME, WINDOWS, default_week, week_windows
 
@@ -108,12 +108,15 @@ def table(rows, metrics, label_of, kind_of, slices, totals=True):
 
 def review_mark(name, narrowed):
     """(mark for the row label, note for its cells, held) from reviews/<name>.json. Plan §3.4: a check whose
-    first-20 review scored under 50% shows no number until it is narrowed and reviewed again."""
+    first-20 review scored under 50% shows no number until it is narrowed and reviewed again. `narrowed` is named
+    only when the review predates it."""
     f = EVALS_HOME / "reviews" / f"{name}.json"
     if not f.exists():
         return "Unreviewed", None, False
     r = json.loads(f.read_text())
     tp, n = r["true_positive"], r["reviewed"]
+    # The review file's own date: a review written the day of the narrowing or later already judged it.
+    narrowed = narrowed if narrowed and date.fromtimestamp(f.stat().st_mtime).isoformat() < narrowed else None
     if tp * 2 < n:
         return f"low precision {tp}/{n}, " + (f"narrowed {narrowed}" if narrowed else "to narrow or retire"), None, True
     return None, f"precision {tp}/{n} in its review" + (f", narrowed {narrowed} since" if narrowed else ""), False
@@ -196,7 +199,7 @@ def main():
         rows = apply_review(frags["escapes.json"]["rows"], marks, lambda m: "escapes")
         label = lambda m: f"{m} ({marks['escapes'][0]})" if marks["escapes"][0] else m
         out.append("Gates whose files were fixed again within 14 days / gates resolved clean or fixed_inline. Kind 1 is a later fix commit "
-                   "changing lines the gated coder's commits wrote; kind 2 a later gate's must-fix rework over the same files. The headline is "
+                   "changing lines the gated coder's commits wrote; kind 2 a later gate's must-fix rework over a file this gate was the last to pass. The headline is "
                    "kinds 1 and 2 by another tree (`kind-union:other-tree`); `unknown` is a fix commit with no Loom-Thread trailer. " + rule)
         order = lambda m: (["union", "1", "2"].index(m.split(":")[1].removeprefix("kind-")), ["other-tree", "unknown", "same-tree"].index(m.split(":")[2]))
         metrics = sorted({r["metric"] for r in rows}, key=order)
