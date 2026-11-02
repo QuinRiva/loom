@@ -11,6 +11,7 @@ import { type ReactNode, useState } from "react";
 import { ContextPanelView, type ContextPanelViewProps } from "../loom/context-viz/ContextPanel";
 import type { ContextUsageEntry } from "../loom/context-viz/contextUsageStore";
 import { ContextVizSettingsRows } from "../loom/context-viz/ContextVizSettingsRows";
+import { GROWTH_PREVIEW_FIXTURES } from "../loom/context-viz/growth/growth.preview";
 import { CompositionView } from "../loom/context-viz/composition/CompositionView";
 import reportJson from "../loom/context-viz/preview/report.fixture.json";
 import type { PreviewGroup } from "./fixtures";
@@ -163,5 +164,6 @@ export const CONTEXT_VIZ_PREVIEW_GROUP: PreviewGroup = {
       description: "The cost lens with Group repeats off.",
       render: () => <Composition initialLens="cost" initialGrouped={false} />,
     },
+    ...GROWTH_PREVIEW_FIXTURES,
   ],
 };
