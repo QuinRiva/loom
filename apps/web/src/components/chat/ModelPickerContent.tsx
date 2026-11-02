@@ -604,7 +604,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     };
     const tabsWithLegacyRow = new Set<ProviderInstanceId>();
     for (const model of flatModels) {
-      if (!matchesLockedProvider(model)) continue;
+      if (model.excluded || !matchesLockedProvider(model)) continue; // loom: excluded rows never list outside search
       const isFavorite = favoritesSet.has(providerModelKey(model.instanceId, model.slug));
       if (isFavorite) addRow("favorites");
       if (model.isLegacy && !isFavorite) {
