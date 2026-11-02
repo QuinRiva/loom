@@ -30,11 +30,10 @@ export const buildGateReworkMessage = (
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
     `Review round ${round}: the ${reviewer.role ?? "reviewer"} \`${reviewer.id}\` returned findings on your work: your review gate looped it back to you for rework.`,
-    // loom: wording owned by step 8
     ...(alongside.length > 0
       ? [
           "",
-          `Also reopened this round, in the same worktree: ${alongside.map((id) => `\`${id}\``).join(", ")}.`,
+          `The same verdict reopened ${alongside.map((id) => `\`${id}\``).join(", ")}; ${alongside.length === 1 ? "it reworks" : "they rework"} in this worktree alongside you, and the reviewer re-verifies once every reopened sibling has resubmitted.`,
         ]
       : []),
     "",
@@ -62,7 +61,6 @@ export const buildGateReverifyMessage = (
       ? `Report reference: \`${coder.reportPath}\` (read the full round report on demand).`
       : "_No report file was found for the rework._") + formatReportExcerpt(reports[index] ?? null);
   const [only] = coders;
-  // loom: wording owned by step 8 (every line below that is not the one-sibling text)
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
@@ -73,7 +71,7 @@ export const buildGateReverifyMessage = (
           reference(only, 0),
         ]
       : [
-          `Review round ${round}: ${coders.length} siblings returned their rework: your review gate routed them to you for re-verification.`,
+          `Review round ${round}: the ${coders.length} siblings it reopened returned their rework: your review gate routed them to you together for re-verification.`,
           ...coders.flatMap((coder, index) => [
             "",
             `### ${coder.role ?? "coder"} \`${coder.id}\``,
@@ -86,7 +84,7 @@ export const buildGateReverifyMessage = (
     "",
     coders.length === 1
       ? "Submit your verdict with `mcp__t3-code__workstream_submit`: `clean` or `fixed_inline` resolves the gate (both threads complete), `needs_rework` loops again while rounds remain (then yields you to the orchestrator), any other outcome yields you to the orchestrator."
-      : "Submit your verdict with `mcp__t3-code__workstream_submit`: `clean` or `fixed_inline` resolves the gate (you and every sibling complete), `needs_rework` with `rework` naming the siblings to send back loops again while rounds remain (then yields you to the orchestrator), any other outcome yields you to the orchestrator.",
+      : "Submit one verdict for the set with `mcp__t3-code__workstream_submit`: `clean` or `fixed_inline` resolves the gate (you and every sibling complete), `needs_rework` naming in `rework` the siblings to send back loops again while rounds remain (then yields you to the orchestrator), any other outcome yields you to the orchestrator.",
   ].join("\n");
 };
 

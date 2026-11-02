@@ -368,18 +368,19 @@ export const routeWorkSubmit = <T extends GateNode>(
   if (outcome !== "done") {
     const targets = loopTargetsOn(thread.routes, outcome);
     if (targets.length > 0) {
-      const named = rework?.length ? rework : targets.length === 1 ? targets : [];
-      const routeTo = targets.filter(
-        (id) => named.includes(id) && live(id, (state) => state !== "cancelled"),
-      );
-      if (routeTo.length === 0) return { ...base, decision: "yield" };
-      // One cap per gate: every loop route of a gate carries the same maxRounds.
+      const liveTargets = targets.filter((id) => live(id, (state) => state !== "cancelled"));
+      // One cap per gate: every loop route of a gate carries the same maxRounds. The cap is read
+      // before the named set, so a capped verdict yields whether or not it names anyone.
       const cap =
         thread.routes.find((route) => route.kind === "loop" && route.on.includes(outcome))
           ?.maxRounds ?? DEFAULT_GATE_MAX_ROUNDS;
-      return thread.gateRounds < cap
-        ? { ...base, decision: "loop", round: thread.gateRounds + 1, routeTo }
-        : { ...base, decision: "cap-breach" };
+      if (thread.gateRounds >= cap)
+        return { ...base, decision: liveTargets.length === 0 ? "yield" : "cap-breach" };
+      const named = rework?.length ? rework : targets.length === 1 ? targets : [];
+      const routeTo = liveTargets.filter((id) => named.includes(id));
+      return routeTo.length === 0
+        ? { ...base, decision: "yield" }
+        : { ...base, decision: "loop", round: thread.gateRounds + 1, routeTo };
     }
     if (thread.routes.some((route) => route.kind === "resolve" && route.on.includes(outcome))) {
       return {
@@ -446,13 +447,13 @@ export const workSubmitRefusal = (
     return `Thread ${thread.id} is ${thread.outcome}; mcp__t3-code__workstream_submit cannot act on a terminal thread.`;
   const targets = loopTargetsOn(thread.routes, outcome);
   const listed = targets.join(", ");
-  // loom: wording owned by step 8
   if (rework?.length && targets.length === 0)
     return `rework only accompanies an outcome your review gate loops on; '${outcome}' loops nothing.`;
   const stray = rework?.find((id) => !targets.includes(id));
   if (stray !== undefined)
     return `rework names ${stray}, which is not a sibling your gate loops on '${outcome}'; its siblings are: ${listed}.`;
-  if (!rework?.length && targets.length > 1)
+  // At the cap the verdict yields to the orchestrator whoever it names, so no name is owed.
+  if (!rework?.length && targets.length > 1 && decision !== "cap-breach")
     return `Your review gate covers several siblings; '${outcome}' must name the ones to reopen in rework (any of: ${listed}).`;
   return null;
 };

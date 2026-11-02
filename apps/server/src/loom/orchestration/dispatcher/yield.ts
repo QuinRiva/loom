@@ -19,16 +19,16 @@ interface YieldChild {
   readonly reportPath: string | null;
 }
 
-/** A cap-breach yield's gate context: both parties' latest reports and the round count. */
+/** A cap-breach yield's gate context: the round count and every sibling's latest report. */
 export interface YieldGateContext {
   readonly rounds: number;
   readonly maxRounds: number;
-  readonly counterpart: {
+  readonly counterparts: ReadonlyArray<{
     readonly id: ThreadId;
     readonly role: string | null;
     readonly reportPath: string | null;
     readonly report: string | null;
-  } | null;
+  }>;
 }
 
 /**
@@ -50,8 +50,8 @@ const reference = (reportPath: string | null) =>
 
 /**
  * Composes the yield wake text: the child yielded (turn over, NOT done,
- * dependents gated), why, its report reference with a bounded excerpt (and the
- * counterpart's on a cap breach), and the decision menu.
+ * dependents gated), why, its report reference with a bounded excerpt (and each
+ * gate sibling's on a cap breach), and the decision menu.
  */
 export const buildYieldWakeMessage = (
   child: YieldChild,
@@ -75,15 +75,12 @@ export const buildYieldWakeMessage = (
         ? `Your Workstream sub-thread ${who} YIELDED to you: it submitted \`${outcome}\` but its review gate's round cap is exhausted (${gate.rounds}/${gate.maxRounds} rework rounds used), so the control plane handed its turn to you instead of looping again. It carries \`awaiting_orchestrator\`: the gate is NOT resolved and dependents stay gated.`
         : `Your Workstream sub-thread ${who} YIELDED to you: it submitted its work with outcome \`${outcome}\`, which matched no route, so the control plane handed its turn to you instead of completing it. It carries \`awaiting_orchestrator\`: it has NOT finished and its dependents stay gated.${parked}`) +
     held;
-  const counterpartSection =
-    gate?.counterpart != null
-      ? [
-          "",
-          `Gate counterpart ${gate.counterpart.role === null ? `\`${gate.counterpart.id}\`` : `${gate.counterpart.role} \`${gate.counterpart.id}\``}, latest round report:`,
-          "",
-          reference(gate.counterpart.reportPath) + formatReportExcerpt(gate.counterpart.report),
-        ]
-      : [];
+  const counterpartSection = (gate?.counterparts ?? []).flatMap((counterpart) => [
+    "",
+    `Gate counterpart ${counterpart.role === null ? `\`${counterpart.id}\`` : `${counterpart.role} \`${counterpart.id}\``}, latest round report:`,
+    "",
+    reference(counterpart.reportPath) + formatReportExcerpt(counterpart.report),
+  ]);
   // The rework side of a gate completes only through the reviewer: setting it done would
   // bypass re-verification, so that option is withheld and the recovery rule given instead.
   const rework = flags.gateSide === "rework";
@@ -116,7 +113,7 @@ export const buildYieldWakeMessage = (
 };
 
 /**
- * The yield wake's `controlPayload`: the yielding child, the gate counterpart
+ * The yield wake's `controlPayload`: the yielding child, the gate siblings
  * (if any), then any piggybacked digest's items, so the card represents
  * everything the sent text carries. `synthesised` marks a quiescent yield.
  */
@@ -143,8 +140,7 @@ export const buildYieldPayload = (
       ...reportItemFields(child.reportPath, report),
     },
   ];
-  const counterpart = gate?.counterpart ?? null;
-  if (counterpart !== null) {
+  for (const counterpart of gate?.counterparts ?? []) {
     items.push({
       threadId: counterpart.id,
       ...(counterpart.role !== null ? { role: counterpart.role } : {}),

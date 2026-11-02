@@ -162,24 +162,21 @@ export interface WakeMember {
   }>;
 }
 
-/** A resolved gate pair: the verdict-carrying source and its loop target. */
+/** A resolved gate: the verdict-carrying source and the loop targets in the batch with it. */
 export interface WakePair {
   readonly source: WakeMember;
-  readonly target: WakeMember;
+  readonly targets: ReadonlyArray<WakeMember>;
 }
-
-const loopTargetOf = (member: WakeMember): ThreadId | null =>
-  member.routes?.find((route) => route.kind === "loop" && route.to !== undefined)?.to ?? null;
 
 /** A member whose last outcome resolved a gate (`clean` / `fixed_inline`). */
 export const isResolvedSource = (member: WakeMember): boolean =>
   member.lastOutcome?.decision === "resolve";
 
 /**
- * Partitions a parent's batch, order-preserving, into resolved gate pairs and singles. A pair is a
- * member whose last outcome RESOLVED the gate and whose loop target is also in the batch. A
- * force-dissolved gate is not paired: that would fabricate a verdict and strip the target of its
- * first-look excerpt.
+ * Partitions a parent's batch, order-preserving, into resolved gates and singles. A gate is a
+ * member whose last outcome RESOLVED it plus every loop target of its also in the batch. A
+ * force-dissolved gate is not grouped: that would fabricate a verdict and strip the targets of
+ * their first-look excerpt.
  */
 export const groupBatchForWake = (
   members: ReadonlyArray<WakeMember>,
@@ -189,12 +186,15 @@ export const groupBatchForWake = (
   const pairs: WakePair[] = [];
   for (const member of members) {
     if (claimed.has(member.id) || !isResolvedSource(member)) continue;
-    const targetId = loopTargetOf(member);
-    const target = targetId === null ? undefined : byId.get(targetId);
-    if (target === undefined || claimed.has(target.id)) continue;
-    pairs.push({ source: member, target });
+    const targets = (member.routes ?? []).flatMap((route) => {
+      const target =
+        route.kind === "loop" && route.to !== undefined ? byId.get(route.to) : undefined;
+      return target === undefined || claimed.has(target.id) ? [] : [target];
+    });
+    if (targets.length === 0) continue;
+    pairs.push({ source: member, targets });
     claimed.add(member.id);
-    claimed.add(target.id);
+    for (const target of targets) claimed.add(target.id);
   }
   return { pairs, singles: members.filter((member) => !claimed.has(member.id)) };
 };
@@ -217,15 +217,16 @@ const roundsClause = (member: WakeMember): string => {
 };
 
 /**
- * Renders one resolved gate pair as a single section: the verdict, both
- * parties, rounds used, released dependents, and one report reference each —
- * an excerpt only for the source's verdict report (the target's round report
- * was already verified by the gate).
+ * Renders one resolved gate as a single section: the verdict, every party,
+ * rounds used, released dependents, and one report reference each — an excerpt
+ * only for the source's verdict report (each target's round report was already
+ * verified by the gate).
  */
 export const renderWakePair = (pair: WakePair): string => {
-  const { source, target } = pair;
+  const { source, targets } = pair;
   const verdict = source.lastOutcome?.outcome ?? "resolved";
-  const header = `### ✅ Gate resolved \`${verdict}\`: ${source.role ?? "reviewer"} \`${source.id}\` + ${target.role ?? "coder"} \`${target.id}\`${roundsClause(source)}`;
+  const parties = targets.map((target) => ` + ${target.role ?? "coder"} \`${target.id}\``).join("");
+  const header = `### ✅ Gate resolved \`${verdict}\`: ${source.role ?? "reviewer"} \`${source.id}\`${parties}${roundsClause(source)}`;
   const meta = [timestampLine(source), releasedClause(source)]
     .filter((part) => part !== "")
     .join(" · ");
@@ -233,11 +234,12 @@ export const renderWakePair = (pair: WakePair): string => {
     source.reportPath !== null
       ? `Verdict report: \`${source.reportPath}\`, excerpt:${formatReportExcerpt(source.report)}`
       : "_No verdict report was filed._";
-  const targetRef =
+  const targetRefs = targets.map((target) =>
     target.reportPath !== null
       ? `${target.role ?? "coder"} round report: \`${target.reportPath}\` (reference only; verified by the gate).`
-      : `_No ${target.role ?? "coder"} round report was filed._`;
-  return [header, meta, "", sourceRef, "", targetRef].filter((part) => part !== "").join("\n");
+      : `_No ${target.role ?? "coder"} round report was filed._`,
+  );
+  return [header, meta, "", sourceRef, "", ...targetRefs].filter((part) => part !== "").join("\n");
 };
 
 /**

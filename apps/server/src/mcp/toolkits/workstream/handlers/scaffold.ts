@@ -20,7 +20,14 @@ import { LoomToolError, type LoomToolInput } from "../defs.ts";
 import { requestKey, stableCommandId, stableThreadId } from "../idempotency.ts";
 import { resolveChildModel, withUpstreamOptionIds } from "../modelSelection.ts";
 import { appendWarnings } from "../render.ts";
-import { anchorError, gateRoutes, nodeShapeError, trimmed, withImpliedEdges } from "./childNode.ts";
+import {
+  anchorError,
+  gateReworkRefs,
+  gateRoutes,
+  nodeShapeError,
+  trimmed,
+  withImpliedEdges,
+} from "./childNode.ts";
 import { asToolError, childrenOf, dispatch, fail, nowIso, requireShell } from "./shared.ts";
 
 const NOTHING = "Nothing was created.";
@@ -92,10 +99,9 @@ export const workstreamScaffold = Effect.fn("LoomToolkit.workstreamScaffold")(fu
           : yield* resolveRef(node.key, "forkFrom", node.forkFrom);
       if (forkFrom === node.threadId)
         return yield* reject(node.key, `forkFrom cannot name the node itself. ${NOTHING}`);
-      const gateRework =
-        node.gate === undefined
-          ? undefined
-          : yield* resolveRef(node.key, "gate.rework", node.gate.rework);
+      const gateRework = yield* Effect.forEach(gateReworkRefs(node.gate), (ref) =>
+        resolveRef(node.key, "gate.rework", ref),
+      );
       const edges = withImpliedEdges({
         blockedBy: yield* Effect.forEach(node.blockedBy ?? [], (ref) =>
           resolveRef(node.key, "blockedBy", ref),
@@ -171,10 +177,10 @@ export const workstreamScaffold = Effect.fn("LoomToolkit.workstreamScaffold")(fu
       title: trimmed(node.title)!,
       purpose,
       blockedBy: edges.blockedBy,
-      ...(gateRework === undefined
+      ...(node.gate === undefined
         ? {}
         : {
-            routes: gateRoutes(gateRework, node.gate?.maxRounds),
+            routes: gateRoutes(gateRework, node.gate.maxRounds),
             kickoffBriefPath: yield* asToolError(writeWorkstreamBrief(node.threadId, purpose)),
           }),
       spawnGeneration: parent.activeRunId ?? requestId,

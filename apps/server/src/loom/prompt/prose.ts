@@ -73,12 +73,12 @@ export interface KickoffHandback {
   readonly sessionPath?: string | null;
 }
 
-const gateClause = (target: KickoffHandback): ReadonlyArray<string> => {
+const handbackFiles = (target: KickoffHandback): ReadonlyArray<string> => {
   const steers =
     target.sessionPath == null
       ? ""
       : ` (later steers are not in it; they are in its session \`${target.sessionPath}\`)`;
-  const files = [
+  return [
     ...(target.reportPath === null ? [] : [`report \`${target.reportPath}\``]),
     ...(target.briefPath == null
       ? target.sessionPath == null
@@ -86,9 +86,28 @@ const gateClause = (target: KickoffHandback): ReadonlyArray<string> => {
         : [`its session \`${target.sessionPath}\``]
       : [`the brief it worked from \`${target.briefPath}\`${steers}`]),
   ];
+};
+
+/** One sibling reads as before; several name the set and give one hand-back line each. */
+const gateClause = (targets: ReadonlyArray<KickoffHandback>): ReadonlyArray<string> => {
+  const [only] = targets;
+  if (targets.length === 1 && only !== undefined) {
+    const files = handbackFiles(only);
+    return [
+      `You are inside a review gate: a \`gate\` names the ${only.role ?? "thread"} ${only.id} as the work you verify, and your mcp__t3-code__workstream_submit outcomes route it; your role's gate protocol applies from your FIRST submit.`,
+      ...(files.length === 0 ? [] : [`Its hand-back: ${files.join("; ")}.`]),
+    ];
+  }
+  const named = targets.map((target) => `${target.role ?? "thread"} ${target.id}`).join(", ");
+  const lines = targets.flatMap((target) => {
+    const files = handbackFiles(target);
+    return files.length === 0
+      ? []
+      : [`- ${target.role ?? "thread"} ${target.id}: ${files.join("; ")}`];
+  });
   return [
-    `You are inside a review gate: a \`gate\` names the ${target.role ?? "thread"} ${target.id} as the work you verify, and your mcp__t3-code__workstream_submit outcomes route it; your role's gate protocol applies from your FIRST submit.`,
-    ...(files.length === 0 ? [] : [`Its hand-back: ${files.join("; ")}.`]),
+    `You are inside a review gate: a \`gate\` names ${targets.length} threads as the work you verify (${named}), and your mcp__t3-code__workstream_submit outcomes route them as one set; your role's gate protocol applies from your FIRST submit.`,
+    ...(lines.length === 0 ? [] : ["Their hand-backs:", ...lines]),
   ];
 };
 
@@ -121,8 +140,8 @@ export const KICKOFF_CLOSING =
 export const workstreamChildPrompt = (input: {
   readonly role: string;
   readonly brief: string;
-  readonly gateTarget?: KickoffHandback | null;
-  /** The `blockedBy` siblings other than the gate target. */
+  readonly gateTargets?: ReadonlyArray<KickoffHandback>;
+  /** The `blockedBy` siblings other than the gate targets. */
   readonly dependencies?: ReadonlyArray<KickoffHandback>;
   /** The sibling whose transcript this child starts from (`forkFrom`). */
   readonly forkedFrom?: string | null;
@@ -130,7 +149,7 @@ export const workstreamChildPrompt = (input: {
   [
     `You are a ${input.role} sub-thread spawned by a parent orchestrator in T3 Code.`,
     ...(input.forkedFrom != null ? [copiedHistoryClause(input.forkedFrom)] : []),
-    ...(input.gateTarget != null ? gateClause(input.gateTarget) : []),
+    ...(input.gateTargets?.length ? gateClause(input.gateTargets) : []),
     ...dependencyClause(input.dependencies ?? []),
     "",
     KICKOFF_BRIEF_HEADING,

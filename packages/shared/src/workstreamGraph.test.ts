@@ -359,12 +359,15 @@ describe("routeWorkSubmit over several siblings", () => {
     });
   });
 
-  it("reads one cap for the gate", () => {
+  it("reads one cap for the gate, and at the cap yields with no names owed", () => {
     const reviewer = gnode({ id: "reviewer", routes: gateOver(["a", "b"], 2), gateRounds: 2 });
     const threads = [reviewer, gnode({ id: "a" }), gnode({ id: "b" })];
     expect(routeWorkSubmit(reviewer, threads, "needs_rework", [tid("a")])).toMatchObject({
       decision: "cap-breach",
     });
+    const capped = routeWorkSubmit(reviewer, threads, "needs_rework");
+    expect(capped).toMatchObject({ decision: "cap-breach" });
+    expect(workSubmitRefusal(reviewer, "needs_rework", capped.decision, false)).toBeNull();
   });
 
   it("clean resolves with every non-terminal sibling", () => {

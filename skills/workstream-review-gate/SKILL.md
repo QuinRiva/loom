@@ -3,9 +3,9 @@ name: workstream-review-gate
 description: >-
   The reviewer-side protocol for a workstream review gate. Read this BEFORE
   your first mcp__t3-code__workstream_submit whenever you are the reviewer in a review gate
-  — your kickoff says "You are inside a review gate" and names the thread you
-  verify. Not needed for ungated review work, whose findings simply go to the
-  orchestrator.
+  — your kickoff says "You are inside a review gate" and names the thread, or
+  threads, you verify. Not needed for ungated review work, whose findings
+  simply go to the orchestrator.
 ---
 
 # Review-gate protocol (reviewer side)
@@ -16,25 +16,30 @@ orchestrator**. The loop is round-capped (default 2 rework rounds; your spawn
 may set another cap). Exactly one of you is active at a time, and you share
 **one worktree** with the coder (your parent's) — the coder's run diffs are the
 change under review, and any inline fix you make lands in that same tree,
-attributed to the gate.
+attributed to the gate. A gate may cover several sibling coders (your kickoff
+lists them): they are one change-set, one verdict covers the set, and one
+`needs_rework` is one round however many siblings it reopens.
 
 ## Verdicts and routing
 
 End every round with one `mcp__t3-code__workstream_submit` call carrying your report and an
 outcome (the tool's own description is the contract of record):
 
-| Outcome           | Meaning                                                     | Routes to                                                                |
-| ----------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `clean`           | No must-fix findings                                        | Gate resolves; you and the coder complete together                       |
-| `fixed_inline`    | Clean, but you fixed trivia yourself                        | Same as `clean`, distinct so a human can audit reviewer-authored changes |
-| `needs_rework`    | Must-fix findings for the coder                             | **The coder** is resumed with your report                                |
-| `rework_approach` | The approach (not the code) is wrong, or escalation (below) | Yields you to the live orchestrator                                      |
-| `needs_human`     | Only a human can decide                                     | Raises the human-attention flag                                          |
+| Outcome           | Meaning                                                     | Routes to                                                                             |
+| ----------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `clean`           | No must-fix findings                                        | Gate resolves; you and the coder complete together                                    |
+| `fixed_inline`    | Clean, but you fixed trivia yourself                        | Same as `clean`, distinct so a human can audit reviewer-authored changes              |
+| `needs_rework`    | Must-fix findings for the coder                             | **The coder** is resumed with your report (several siblings: the ones `rework` names) |
+| `rework_approach` | The approach (not the code) is wrong, or escalation (below) | Yields you to the live orchestrator                                                   |
+| `needs_human`     | Only a human can decide                                     | Raises the human-attention flag                                                       |
 
 On `needs_rework` your report is the coder's next assignment — write findings
 as an actionable brief, not commentary. Attach `counts: { mustFix, niceToHave }`
 so the verdict is legible at a glance, and list any findings you are
-escalating as rejected in `contested` (verbatim-quotable).
+escalating as rejected in `contested` (verbatim-quotable). Over several
+siblings, every reopened one receives the same report, so put each sibling's
+findings under its own heading and name only the siblings with must-fix
+findings in `rework`; you are resumed once, after all of them have resubmitted.
 
 - For a plan: the planner's report says what it searched for a prior plan in
   the area and what it found, and a plan it replaces is marked
@@ -65,16 +70,17 @@ If you fixed anything, you MUST re-run project verification (`vp check`,
 5. **A finding contested twice** → escalate with `rework_approach`; the
    control plane yields you to the live orchestrator. The round cap needs no
    special token: keep submitting the truthful `needs_rework`, and at the cap
-   the control plane records a cap-breach and yields you with both parties'
-   reports itself — submitting `rework_approach` there would erase the
+   the control plane records a cap-breach and yields you with every party's
+   report itself — submitting `rework_approach` there would erase the
    cap-breach reason from the audit trail.
 
 ## Rework rounds
 
-- **Delta-review discipline.** When you are resumed with the coder's rework,
-  scope to the delta plus your previously flagged items. Raising brand-new
-  findings on unchanged code in a rework round is a review failure — unless
-  the rework itself exposed them.
+- **Delta-review discipline.** When you are resumed with the coder's rework
+  (one round report per reopened sibling), scope to the delta plus your
+  previously flagged items, per sibling. Raising brand-new findings on
+  unchanged code in a rework round is a review failure — unless the rework
+  itself exposed them.
 - **Findings are claims.** The coder may reject a finding with reasons.
   Adjudicate the rejection on its merits; if you still disagree, contest it
   once. If it comes back contested again, neither of you loops on it —

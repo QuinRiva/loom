@@ -113,6 +113,54 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
     }),
   );
 
+  it.effect(
+    "a gate over several siblings: rework refusals land before any report; the verdict names the reopened set",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* LoomStoreV2;
+        const root = ThreadId.make("trio-root");
+        yield* seedThread({ threadId: root });
+        const a = yield* spawn(root, "A");
+        const b = yield* spawn(root, "B");
+        const c = yield* spawn(root, "C");
+        const reviewer = yield* spawn(root, "Review", {
+          role: "reviewer",
+          gate: { rework: [a, b, c] },
+        });
+        for (const coder of [a, b, c])
+          yield* callAs(coder, "workstream_submit", { markdown: report("code") });
+
+        const unnamed = yield* callAs(reviewer, "workstream_submit", {
+          markdown: report("fix these"),
+          outcome: "needs_rework",
+        });
+        assert.isTrue(unnamed.isError);
+        assert.include(unnamed.text, `any of: ${a}, ${b}, ${c}`);
+        const stray = yield* callAs(reviewer, "workstream_submit", {
+          markdown: report("fix these"),
+          outcome: "needs_rework",
+          rework: [a, root],
+        });
+        assert.isTrue(stray.isError);
+        assert.include(stray.text, `rework names ${root}`);
+        assert.isNull((yield* store.getWorkstream(reviewer))!.reportPath);
+
+        const loop = yield* callAs(reviewer, "workstream_submit", {
+          markdown: report("fix these"),
+          outcome: "needs_rework",
+          rework: [`thread:${b}`, a],
+        });
+        assert.isFalse(loop.isError, loop.text);
+        assert.include(loop.text, `findings routed to \`${a}\`, \`${b}\` for rework (round 1)`);
+        assert.include(loop.text, `not reopened: \`${c}\``);
+        assert.include(loop.text, "once all of them have resubmitted");
+        assert.deepEqual(
+          (yield* store.getWorkstream(reviewer))!.lastRoutes.map((route) => route.to),
+          [a, b],
+        );
+      }),
+  );
+
   it.effect("a report with no non-empty response block is refused before it is written", () =>
     Effect.gen(function* () {
       const store = yield* LoomStoreV2;

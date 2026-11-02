@@ -5,6 +5,7 @@
  * before writing, so a refused submit never replaces the record; each gate round has its own file.
  */
 import {
+  gateLoopTargetsOf,
   holdErasedByCompletion,
   routeWorkSubmit,
   workSubmitRefusal,
@@ -14,6 +15,7 @@ import * as Effect from "effect/Effect";
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
 import { NO_RESPONSE_BLOCK, SUBMIT_REFUSED_WHILE_RAISED } from "../../../../loom/prompt/prose.ts";
 import { reportResponse, writeWorkstreamReport } from "../../../../loom/workstream/report.ts";
+import { resolveThreadRef } from "../../../../loom/workstream/threadResolve.ts";
 import type { WorkstreamCaller } from "../authorisation.ts";
 import type { LoomToolInput } from "../defs.ts";
 import { requestKey, stableCommandId } from "../idempotency.ts";
@@ -43,8 +45,16 @@ export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(functi
   // The arm's own routing, mirrored to refuse before a report is written and to name a round's file.
   const tree = yield* asToolError(store.listWorkstreamTree(row.rootThreadId));
   const asNode = (node: typeof row) => ({ ...node, id: node.threadId });
-  const routing = routeWorkSubmit(asNode(row), tree.map(asNode), outcome ?? "done");
-  const refusal = workSubmitRefusal(asNode(row), outcome ?? "done", routing.decision, false);
+  const siblings = gateLoopTargetsOf(row);
+  const rework = input.rework?.map((ref) => resolveThreadRef(ref, new Set(siblings)));
+  const routing = routeWorkSubmit(asNode(row), tree.map(asNode), outcome ?? "done", rework);
+  const refusal = workSubmitRefusal(
+    asNode(row),
+    outcome ?? "done",
+    routing.decision,
+    false,
+    rework,
+  );
   if (refusal !== null) return yield* fail(refusal);
   if (holdErasedByCompletion({ attention: row.attention, decision: routing.decision }) !== null)
     return yield* fail(SUBMIT_REFUSED_WHILE_RAISED);
@@ -63,18 +73,21 @@ export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(functi
     createdAt: yield* nowIso,
     reportPath,
     ...(outcome === undefined ? {} : { outcome }),
+    ...(rework === undefined ? {} : { rework }),
     ...(contested === undefined ? {} : { contested }),
     ...(input.counts === undefined ? {} : { counts: input.counts }),
   });
   const recorded = committed(result, "thread.outcome-recorded")[0];
-  const route = committed(result, "thread.route-taken")[0];
+  const routes = committed(result, "thread.route-taken");
   const echo = renderSubmitOutcome({
     decision: recorded?.payload.decision ?? routing.decision,
     outcome: outcome ?? "done",
     round: recorded?.payload.round ?? routing.round,
-    ...(route?.payload.kind === "loop"
+    siblings,
+    reopened: routes.flatMap((route) => (route.payload.kind === "loop" ? [route.payload.to] : [])),
+    ...(routes[0]?.payload.kind === "loop"
       ? { leg: "rework" as const }
-      : route?.payload.kind === "loop-back"
+      : routes[0]?.payload.kind === "loop-back"
         ? { leg: "reverify" as const }
         : {}),
   });
