@@ -5,7 +5,14 @@
  *
  * @module mcp/toolkits/workstream/handlers/goalTasks
  */
-import { GoalTaskId, type LoomGoalTask, type LoomThreadWorkstream } from "@t3tools/contracts";
+import {
+  type GoalId,
+  GoalTaskId,
+  type IsoDateTime,
+  type LoomGoalTask,
+  type LoomThreadWorkstream,
+} from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import {
@@ -15,6 +22,7 @@ import {
   validateGoalTaskText,
 } from "../../../../loom/goals/goalTaskMarkdown.ts";
 import {
+  type GoalTaskWrite,
   renderGoalTaskBranch,
   renderGoalTaskEcho,
   renderTasks,
@@ -36,26 +44,46 @@ import { asToolError, fail, publishGoal, requireActiveGoal } from "./shared.ts";
 
 const tasksStore = Effect.map(LoomStore.LoomStoreV2, (store) => store.tasks);
 
-/** The write's echo, scoped to what the caller owns; the write itself is already published. */
-const echo = (
+/**
+ * The write's reply, scoped to what the caller owns (the write itself is already published), and
+ * the caller's read mark moved to the newest change the reply saw, its own write included.
+ */
+const echo = Effect.fn("LoomToolkit.goalTaskEcho")(function* (
   row: LoomThreadWorkstream,
+  goalId: GoalId,
   tasks: ReadonlyArray<LoomGoalTask>,
   summary: string,
-  placedTaskId?: GoalTaskId,
-) =>
-  renderGoalTaskEcho({
+  write: GoalTaskWrite,
+) {
+  const store = yield* LoomStore.LoomStoreV2;
+  const deleted = yield* asToolError(store.tasks.listDeleted(goalId));
+  const text = renderGoalTaskEcho({
     summary,
     tasks,
+    deleted,
     anchorTaskId: row.anchorTaskId,
-    isChild: row.parentThreadId !== null,
-    ...(placedTaskId === undefined ? {} : { placedTaskId }),
+    readAt: yield* asToolError(store.goalTreeReads.get(row.threadId)),
+    write,
   });
+  const newest = [...flattenGoalTasks(tasks), ...deleted]
+    .map((task) => task.updatedAt)
+    .reduce<IsoDateTime | null>(
+      (latest, at) => (latest === null || at > latest ? at : latest),
+      null,
+    );
+  if (newest !== null) yield* asToolError(store.goalTreeReads.mark(row.threadId, newest));
+  return text;
+});
 
 export const goalTaskList = Effect.fn("LoomToolkit.goalTaskList")(function* (
   input: LoomToolInput<"goal_task_list">,
   caller: WorkstreamCaller,
 ) {
+  const at = DateTime.formatIso(yield* DateTime.now);
   const { goal, row } = yield* requireActiveGoal(caller.threadId);
+  yield* asToolError(
+    Effect.flatMap(LoomStore.LoomStoreV2, (store) => store.goalTreeReads.mark(row.threadId, at)),
+  );
   const anchor = input.scope === "tree" ? null : resolveThreadAnchor(goal.tasks, row.anchorTaskId);
   return anchor === null
     ? renderTasks(goal.tasks)
@@ -102,7 +130,10 @@ export const goalTaskAdd = Effect.fn("LoomToolkit.goalTaskAdd")(function* (
             }),
           ),
         ).pipe(Effect.tap(() => publishGoal(goal.id)));
-  return echo(row, tasks, `Added task ${taskId}: ${text}`, taskId);
+  return yield* echo(row, goal.id, tasks, `Added task ${taskId}: ${text}`, {
+    kind: "add",
+    taskId,
+  });
 });
 
 export const goalTaskUpdate = Effect.fn("LoomToolkit.goalTaskUpdate")(function* (
@@ -140,7 +171,7 @@ export const goalTaskUpdate = Effect.fn("LoomToolkit.goalTaskUpdate")(function* 
     ),
   );
   yield* publishGoal(goal.id);
-  return echo(row, tasks, `Updated task ${taskId}.`);
+  return yield* echo(row, goal.id, tasks, `Updated task ${taskId}.`, { kind: "update", taskId });
 });
 
 /**
@@ -177,19 +208,19 @@ export const goalTasksRewrite = Effect.fn("LoomToolkit.goalTasksRewrite")(functi
       : composeBranchRewrite({ submitted: parsed.lines, tasks: goal.tasks, anchor, deleted });
   if ("error" in scoped) return yield* fail(scoped.error);
 
-  const minted = yield* Effect.forEach(
+  const uuids = yield* Effect.forEach(
     scoped.lines.filter((line) => line.taskId === null),
     () => createdUuid(caller, undefined, "goal_tasks_rewrite"),
   );
-  const { tasks, summary, changed } = resolveGoalTaskRewrite({
+  const { tasks, summary, changed, minted, touched } = resolveGoalTaskRewrite({
     lines: scoped.lines,
     current,
-    mintTaskId: () => GoalTaskId.make(minted.shift()!),
+    mintTaskId: () => GoalTaskId.make(uuids.shift()!),
   });
   const tree = changed
     ? yield* asToolError(
         Effect.flatMap(tasksStore, (store) => store.replaceTree(goal.id, tasks)),
       ).pipe(Effect.tap(() => publishGoal(goal.id)))
     : goal.tasks;
-  return echo(row, tree, summary);
+  return yield* echo(row, goal.id, tree, summary, { kind: "rewrite", minted, touched });
 });

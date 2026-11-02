@@ -1,13 +1,14 @@
 /**
  * The goal tools on the real orchestrator: anchored branch scoping, restore by resubmission, the
- * unanchored child's rewrite refusal, owner-only goal_update, and exactly one `goal.updated` per
- * write (none for a refusal or no-change rewrite).
+ * unanchored child's rewrite refusal, owner-only goal_update, exactly one `goal.updated` per
+ * write (none for a refusal or no-change rewrite), and the unscoped reply with its read mark.
  */
 import { assert, it } from "@effect/vitest";
 import { CommandId, GoalId, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as PubSub from "effect/PubSub";
+import * as TestClock from "effect/testing/TestClock";
 
 import { flattenGoalTasks } from "../../../../loom/goals/goalTaskTree.ts";
 import { LoomGoalBroadcast } from "../../../../loom/projection/LoomGoalBroadcast.ts";
@@ -44,6 +45,10 @@ const goalRoot = Effect.fn("goalTasksTest.goalRoot")(function* (name: string) {
 });
 
 const taskIdOf = (text: string) => text.match(/^Added task (\S+):/)![1]!;
+/** The id on a rewrite reply's `+ text (id)` line. */
+const mintedIdOf = (reply: string, text: string) =>
+  reply.match(new RegExp(`\\+ ${text} \\((\\S+)\\)`))![1]!;
+const OTHERS = "Changed by other threads since you last read the tree:";
 
 it.layer(HandlerTestLayer)("goal task tools", (it) => {
   it.effect("the owner adds, ticks and rewrites the whole tree; one goal.updated per write", () =>
@@ -81,6 +86,108 @@ it.layer(HandlerTestLayer)("goal task tools", (it) => {
         assert.lengthOf((yield* (yield* LoomStoreV2).goals.get(goalId))!.tasks, 2);
       }),
     ),
+  );
+
+  it.effect(
+    "an unscoped reply names the write, others' changes since the last read, and a rewrite's new ids",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { root } = yield* goalRoot("slim");
+          const phaseA = taskIdOf((yield* callAs(root, "goal_task_add", { text: "Phase A" })).text);
+          const phaseB = taskIdOf((yield* callAs(root, "goal_task_add", { text: "Phase B" })).text);
+          const child = spawnedId(
+            (yield* callAs(root, "workstream_spawn", {
+              role: "reviewer",
+              title: "Free reviewer",
+              purpose: "Review.",
+            })).text,
+          );
+
+          // Never stamped (as an existing row is), so nothing reads as changed; then it is stamped.
+          yield* TestClock.adjust("1 second");
+          const found = yield* callAs(child, "goal_task_add", {
+            text: "Found",
+            parentTaskId: phaseB,
+          });
+          const foundId = taskIdOf(found.text);
+          assert.equal(
+            found.text,
+            [
+              `Added task ${foundId}: Found`,
+              `Where it sits:\n  Phase B (${phaseB})\n    + Found (${foundId})`,
+              "Goal pulse: 0/3 done · 3 open tasks",
+            ].join("\n\n"),
+          );
+
+          yield* TestClock.adjust("1 second");
+          const ticked = (yield* callAs(root, "goal_task_update", { taskId: phaseA, done: true }))
+            .text;
+          // The caller's own tick is the write, never one of the others' changes.
+          assert.equal(
+            ticked,
+            [
+              `Updated task ${phaseA}.`,
+              `Where it sits:\n  [x] Phase A (${phaseA})`,
+              `${OTHERS}\n  added    Found (${foundId}), under Phase B`,
+              "Goal pulse: 1/3 done · 2 open tasks",
+            ].join("\n\n"),
+          );
+          // Seen once, gone: the next reply has no such section.
+          yield* TestClock.adjust("1 second");
+          assert.notInclude(
+            (yield* callAs(root, "goal_task_update", { taskId: phaseA, text: "Phase A, done" }))
+              .text,
+            OTHERS,
+          );
+
+          // A rewrite's reply carries the ids it minted, under their parents, ready to anchor.
+          yield* callAs(child, "goal_task_list", {});
+          yield* TestClock.adjust("1 second");
+          const listed = (yield* callAs(root, "goal_task_list", {})).text;
+          const rewritten = (yield* callAs(root, "goal_tasks_rewrite", {
+            markdown: `${listed.replace(/\n {2}- \[ \] Found.*$/m, "").replace(/^- \[ \] Phase B.*$/m, "")}\n- [ ] Phase C\n  - [ ] Step C1`,
+          })).text;
+          const phaseC = mintedIdOf(rewritten, "Phase C");
+          const stepC1 = mintedIdOf(rewritten, "Step C1");
+          assert.include(
+            rewritten,
+            `Added, with the ids the server assigned:\n  + Phase C (${phaseC})\n    + Step C1 (${stepC1})`,
+          );
+          assert.include(
+            rewritten,
+            `Removed:\n- [ ] Phase B (${phaseB})\n  - [ ] Found (${foundId})`,
+          );
+          assert.notInclude(rewritten, OTHERS);
+          assert.include(
+            (yield* callAs(root, "workstream_spawn", {
+              role: "coder",
+              title: "Step owner",
+              purpose: "Own a step.",
+              anchorTaskId: stepC1,
+            })).text,
+            "Spawned Workstream sub-thread",
+          );
+
+          // The child listed before the rewrite: its next reply sees what the root added and removed.
+          yield* TestClock.adjust("1 second");
+          const noted = (yield* callAs(child, "goal_task_add", { text: "Noted" })).text;
+          assert.include(
+            noted,
+            [
+              OTHERS,
+              `  added    Phase C (${phaseC})`,
+              `  added    Step C1 (${stepC1}), under Phase C`,
+              `  removed  Phase B (${phaseB}), with 1 task beneath it`,
+            ].join("\n"),
+          );
+          // Every tree line is bullet-less: pasted into a rewrite, the reply is refused.
+          assert.include(
+            (yield* callAs(root, "goal_tasks_rewrite", { markdown: noted })).text,
+            "Could not parse this line as a task",
+          );
+        }),
+      ),
   );
 
   it.effect(

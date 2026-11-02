@@ -12,6 +12,8 @@ import {
 } from "@t3tools/shared/workstreamGraph";
 import * as Effect from "effect/Effect";
 
+import { renderOpenBranch } from "../../../../loom/goals/goalTaskRender.ts";
+import { resolveThreadAnchor } from "../../../../loom/goals/goalTaskTree.ts";
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
 import { NO_RESPONSE_BLOCK, SUBMIT_REFUSED_WHILE_RAISED } from "../../../../loom/prompt/prose.ts";
 import { reportResponse, writeWorkstreamReport } from "../../../../loom/workstream/report.ts";
@@ -79,8 +81,9 @@ export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(functi
   });
   const recorded = committed(result, "thread.outcome-recorded")[0];
   const routes = committed(result, "thread.route-taken");
+  const decision = recorded?.payload.decision ?? routing.decision;
   const echo = renderSubmitOutcome({
-    decision: recorded?.payload.decision ?? routing.decision,
+    decision,
     outcome: outcome ?? "done",
     round: recorded?.payload.round ?? routing.round,
     siblings,
@@ -91,5 +94,18 @@ export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(functi
         ? { leg: "reverify" as const }
         : {}),
   });
-  return `${echo}\nReport: ${reportPath}`;
+  const goal =
+    row.goalId === null || row.anchorTaskId === null || !COMPLETING.has(decision)
+      ? null
+      : yield* asToolError(store.goals.get(row.goalId));
+  const anchor = goal === null ? null : resolveThreadAnchor(goal.tasks, row.anchorTaskId);
+  const open = anchor === null ? "" : renderOpenBranch(anchor);
+  return `${echo}\nReport: ${reportPath}${
+    open === ""
+      ? ""
+      : `\n\nStill open in your branch; your parent's notice of your completion lists these lines:\n${open}`
+  }`;
 });
+
+/** Decisions whose route ends in the parent's child-done notice (a gate loop resolves later). */
+const COMPLETING = new Set<string>(["terminal", "resolve", "loop"]);

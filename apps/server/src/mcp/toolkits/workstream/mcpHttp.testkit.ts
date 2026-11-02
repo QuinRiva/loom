@@ -105,6 +105,7 @@ const loomToolkitServiceStubs = (
     Layer.mock(LoomStore.LoomStoreV2)({
       goals: {} as never,
       tasks: {} as never,
+      goalTreeReads: {} as never,
       consults: {} as never,
       cache: {} as never,
       snoozeRequests: {} as never,
