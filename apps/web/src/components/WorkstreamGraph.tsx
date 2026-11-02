@@ -549,7 +549,6 @@ function GraphEdge({
     const rounds = source?.gateRounds ?? 0;
     const cap = source ? getGateLoopCap(source) : rounds;
     const stroke = loopStrokeOf(source);
-    // loom: the dot is this arrow's own sibling, so a gate over several siblings marks only the reopened ones.
     const target = byId.get(edge.toKey as ThreadId);
     const badge = edge.badge ?? { x: midX, y: (edge.y1 + edge.y2) / 2 };
     const verdict = source?.lastOutcome?.outcome;

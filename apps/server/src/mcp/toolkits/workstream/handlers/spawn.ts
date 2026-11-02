@@ -68,7 +68,8 @@ export const workstreamSpawn = Effect.fn("LoomToolkit.workstreamSpawn")(function
           selection: withUpstreamOptionIds((yield* requireShell(source.threadId)).modelSelection),
           warnings: [],
         };
-  const gateRework = gateReworkRefs(input.gate).map(childRef);
+  // Deduped after resolution: `x` and `thread:x` pass the shape check as two references.
+  const gateRework = [...new Set(gateReworkRefs(input.gate).map(childRef))];
   const edges = withImpliedEdges({
     blockedBy: (input.blockedBy ?? []).map(childRef),
     gateRework,

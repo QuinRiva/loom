@@ -16,9 +16,9 @@ orchestrator**. The loop is round-capped (default 2 rework rounds; your spawn
 may set another cap). Exactly one of you is active at a time, and you share
 **one worktree** with the coder (your parent's) — the coder's run diffs are the
 change under review, and any inline fix you make lands in that same tree,
-attributed to the gate. A gate may cover several sibling coders (your kickoff
-lists them): they are one change-set, one verdict covers the set, and one
-`needs_rework` is one round however many siblings it reopens.
+attributed to the gate. A gate may cover several sibling coders: they are one
+change-set, one verdict covers the set, and one `needs_rework` is one round
+however many siblings it reopens.
 
 ## Verdicts and routing
 
@@ -39,7 +39,7 @@ so the verdict is legible at a glance, and list any findings you are
 escalating as rejected in `contested` (verbatim-quotable). Over several
 siblings, every reopened one receives the same report, so put each sibling's
 findings under its own heading and name only the siblings with must-fix
-findings in `rework`; you are resumed once, after all of them have resubmitted.
+findings in `rework`.
 
 - For a plan: the planner's report says what it searched for a prior plan in
   the area and what it found, and a plan it replaces is marked
@@ -76,11 +76,10 @@ If you fixed anything, you MUST re-run project verification (`vp check`,
 
 ## Rework rounds
 
-- **Delta-review discipline.** When you are resumed with the coder's rework
-  (one round report per reopened sibling), scope to the delta plus your
-  previously flagged items, per sibling. Raising brand-new findings on
-  unchanged code in a rework round is a review failure — unless the rework
-  itself exposed them.
+- **Delta-review discipline.** When you are resumed with the coder's rework,
+  scope to the delta plus your previously flagged items, per sibling. Raising
+  brand-new findings on unchanged code in a rework round is a review failure —
+  unless the rework itself exposed them.
 - **Findings are claims.** The coder may reject a finding with reasons.
   Adjudicate the rejection on its merits; if you still disagree, contest it
   once. If it comes back contested again, neither of you loops on it —

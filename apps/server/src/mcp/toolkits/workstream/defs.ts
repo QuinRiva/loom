@@ -86,7 +86,7 @@ const childFields = {
   gate: Schema.optionalKey(
     described(
       GateInput,
-      `A review gate on this child, typically a reviewer: its ${t("workstream_submit")} verdicts route in the control plane; 'needs_rework' loops the siblings the verdict names (the one sibling, when the gate has one), 'clean' or 'fixed_inline' resolve the gate and complete the child and every sibling. Hang downstream work on this gated child, not on a rework sibling alone, since a rework round reopens that sibling's done.`,
+      `A review gate on this child, typically a reviewer: its ${t("workstream_submit")} verdicts route in the control plane; 'needs_rework' loops the siblings the verdict names, 'clean' or 'fixed_inline' resolve the gate and complete the child and every sibling. Hang downstream work on this gated child, not on a rework sibling alone, since a rework round reopens that sibling's done.`,
     ),
   ),
   forkFrom: optionalText(
@@ -295,7 +295,7 @@ const LOOM_TOOL_SPECS = {
       rework: Schema.optionalKey(
         described(
           Schema.Array(Schema.String),
-          "With a verdict your review gate loops on ('needs_rework'): the ids of the gate's siblings to reopen; the ones not named stay as they are. Required when the gate covers several siblings, since none is implied; omitted on a gate over one, which reopens that one.",
+          "With a verdict your review gate loops on ('needs_rework'): the ids of the gate's siblings to reopen; the ones not named stay as they are. Required when the gate covers several siblings; omitted on a gate over one, which reopens that one.",
         ),
       ),
       contested: Schema.optionalKey(

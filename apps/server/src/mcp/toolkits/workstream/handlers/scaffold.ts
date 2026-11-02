@@ -99,9 +99,13 @@ export const workstreamScaffold = Effect.fn("LoomToolkit.workstreamScaffold")(fu
           : yield* resolveRef(node.key, "forkFrom", node.forkFrom);
       if (forkFrom === node.threadId)
         return yield* reject(node.key, `forkFrom cannot name the node itself. ${NOTHING}`);
-      const gateRework = yield* Effect.forEach(gateReworkRefs(node.gate), (ref) =>
-        resolveRef(node.key, "gate.rework", ref),
-      );
+      const gateRework = [
+        ...new Set(
+          yield* Effect.forEach(gateReworkRefs(node.gate), (ref) =>
+            resolveRef(node.key, "gate.rework", ref),
+          ),
+        ),
+      ];
       const edges = withImpliedEdges({
         blockedBy: yield* Effect.forEach(node.blockedBy ?? [], (ref) =>
           resolveRef(node.key, "blockedBy", ref),

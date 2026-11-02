@@ -64,21 +64,18 @@ export const nodeShapeError = (node: NodeInput, nothing: string): string | undef
     return `gate.maxRounds must be an integer between 1 and ${MAX_GATE_MAX_ROUNDS}. Each round is a full rework + re-review cycle; if you expect to need more than a few, the work should be re-scoped instead of looped. ${nothing}`;
   const rework = gateReworkRefs(node.gate).map((ref) => ref.trim());
   if (node.gate !== undefined && rework.length === 0)
-    return `gate.rework names no sibling: a gate loops rework to at least one. ${nothing}`;
+    return `gate.rework names no sibling. ${nothing}`;
   if (new Set(rework).size !== rework.length)
     return `gate.rework names a sibling twice (${rework.join(", ")}): each sibling is one loop edge. ${nothing}`;
   return undefined;
 };
 
-/**
- * A gate on the reviewer: `needs_rework` loops to each target, `clean`/`fixed_inline` resolve.
- * Resolved ids are deduped: `x` and `thread:x` pass the shape check as two references.
- */
+/** A gate on the reviewer: `needs_rework` loops to each target, `clean`/`fixed_inline` resolve. */
 export const gateRoutes = (
   rework: ReadonlyArray<ThreadId>,
   maxRounds: number | undefined,
 ): ReadonlyArray<WorkstreamRoute> => [
-  ...[...new Set(rework)].map((to) => ({
+  ...rework.map((to) => ({
     on: ["needs_rework"],
     kind: "loop" as const,
     to,
