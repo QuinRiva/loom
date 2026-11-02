@@ -70,7 +70,7 @@ signals:
     kind: structural
     scope: session
     check: merge_bypass
-    why: "A bash command ran `gh pr merge` in a session whose cwd (or project root) has .t3code/ship.json, and no command in the session ran `pnpm ship`. Census category 3: a merge around the guarded ship procedure."
+    why: "A bash command step runs `gh pr merge` in a session whose cwd (or project root) has .t3code/ship.json and a `ship` package script (only loom today), and no command step in the session runs `pnpm ship` (a grep for the words does not count). Census category 3: a merge around the guarded ship procedure."
     origin: loom-evals plan (2026-11)
     status: seed
 
@@ -142,7 +142,7 @@ signals:
     kind: structural
     scope: session
     check: sleep_poll
-    why: "Three or more bash calls in one session contain `sleep <n>`. Variant: whether any of them watches gh pr, gh run or checks (a watch tool existed). Census T13 is the 120-second foreground sleep."
+    why: "Three or more bash calls in one session contain `sleep <n>` with n of 5 or more (shorter is settle time, not a poll). Variant: whether any of them watches gh pr, gh run or checks (a watch tool existed). Census T13 is the 120-second foreground sleep."
     origin: loom-evals plan (2026-11)
     status: seed
 
@@ -150,7 +150,7 @@ signals:
     kind: structural
     scope: session
     check: file_reread
-    why: "A read or read_full with identical (path, offset, limit) arguments four or more times. Paging with different offsets is not a hit."
+    why: "A read or read_full with identical (path, offset, limit) arguments four or more times; images are excluded, since a re-rendered screenshot is re-read by design. Paging with different offsets is not a hit."
     origin: loom-evals plan (2026-11)
     status: seed
 

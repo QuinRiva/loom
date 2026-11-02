@@ -237,11 +237,16 @@ def _ships(d):
         return False
 
 
+def _runs(cmd, rx):
+    """A command step (split on ; && || and newlines, not pipes: a grep pattern's \\| is not a step) starts by running rx."""
+    return any(re.match(r"(?:(?:do|then|else|sudo|timeout \S+)\s+|\w+=\S*\s+)*(?:" + rx + r")\b", g) for g in re.split(r"\s*(?:;|&&|\|\||\n)\s*", cmd))
+
+
 def check_merge_bypass(s, ctx):
     cmds = _cmds(s)
-    if any("pnpm ship" in c for _, c, _ in cmds) or not any(_ships(d) for d in (s["cwd"], ctx.get("project_root")) if d):
+    if any(_runs(c, r"pnpm (?:run )?ship|vp run ship") for _, c, _ in cmds) or not any(_ships(d) for d in (s["cwd"], ctx.get("project_root")) if d):
         return []
-    return _hits([(ts, "bash", c, None) for ts, c, _ in cmds if re.search(r"\bgh pr merge\b", c)])
+    return _hits([(ts, "bash", c, None) for ts, c, _ in cmds if _runs(c, r"gh pr merge")])
 
 
 def check_failed_then_publish(s, ctx):
