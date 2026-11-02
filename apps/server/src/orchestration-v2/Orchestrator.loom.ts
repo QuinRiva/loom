@@ -543,8 +543,11 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
   ) => emit(loomEvent(type, threadId, now, payload));
   const workstreamOf = (threadId: ThreadId) => read(loomStore.getWorkstream(threadId));
   const requireWorkstream = (threadId: ThreadId) =>
-    Effect.flatMap(workstreamOf(threadId), (row) =>
-      row === null ? fail(`Thread ${threadId} has no workstream record.`) : Effect.succeed(row),
+    workstreamOf(threadId).pipe(
+      Effect.filterOrElse(
+        (row) => row !== null,
+        () => fail(`Thread ${threadId} has no workstream record.`),
+      ),
     );
   const requireThread = (threadId: ThreadId) =>
     Effect.flatMap(read(projectionStore.getThreadShell(threadId)), (shell) =>
@@ -1293,6 +1296,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
                   (error) =>
                     error._tag === "OrchestratorDispatchError" ||
                     error._tag === "OrchestratorProviderAdapterError",
+                  // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
                   () => Effect.succeed(undefined),
                 ),
               );

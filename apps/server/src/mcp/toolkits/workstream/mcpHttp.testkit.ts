@@ -25,11 +25,17 @@ import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
 import * as ProviderAdapterRegistry from "../../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
+import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
+import * as PeerLinkRequests from "../../../peer/PeerLinkRequests.ts";
+import * as PeerLinks from "../../../peer/PeerLinks.ts";
+import * as RemoteDelegation from "../../../peer/RemoteDelegation.ts";
 import * as PreviewManager from "../../../preview/Manager.ts";
 import * as PreviewBrowser from "../../../preview/PreviewBrowser.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
+import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../../../project/ProjectSetupScriptRunner.ts";
+import * as DocumentText from "../../../provider/DocumentText.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as PullRequestReviewGuideService from "../../../pullRequest/PullRequestReviewGuideService.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
@@ -93,11 +99,17 @@ const stubServices = (stubs: McpServiceStubs) =>
     Layer.mock(ServerSecretStore.ServerSecretStore)({}),
     Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({}),
     Layer.mock(ThreadSearch.ThreadSearch)({}),
+    Layer.mock(PeerForwarding.PeerForwarding)({}),
+    Layer.mock(PeerLinkRequests.PeerLinkRequests)({}),
+    Layer.mock(PeerLinks.PeerLinks)({}),
+    Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+    Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({}),
+    Layer.mock(DocumentText.DocumentText)({}),
     loomToolkitServiceStubs(stubs.loomStore, stubs.consult),
   );
 
 /** Every service Loom's toolkit captures when `/mcp` builds, stubbed (one line in upstream's tests). */
-const loomToolkitServiceStubs = (
+export const loomToolkitServiceStubs = (
   loomStore: McpServiceStubs["loomStore"] = {},
   consult: NonNullable<McpServiceStubs["consult"]> = Layer.mock(LoomThreadConsult)({}),
 ) =>

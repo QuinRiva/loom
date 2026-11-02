@@ -61,7 +61,7 @@ import {
   type ProviderAdapterV2Event,
 } from "@t3tools/provider-core/server/ProviderAdapter";
 import { makePiAdapterV2 } from "@t3tools/provider-pi/server/adapter";
-import { PI_PROVIDER, PiAdapterV2Driver } from "@t3tools/provider-pi/server";
+import { PiAdapterV2Driver } from "@t3tools/provider-pi/server";
 import * as ProviderAdapterRegistry from "../ProviderAdapterRegistry.ts";
 import { makePiRpcConnection, type PiRpcRecord } from "@t3tools/provider-pi/server/rpc";
 import { buildPiRpcLaunch } from "@t3tools/provider-pi/server/mcpInjection";
@@ -648,12 +648,15 @@ const resumeThroughDriver = Effect.fnUntraced(function* (withLoomLayer: boolean)
   );
   const sessionFile = NodePath.join(dir, "0001_codex.jsonl");
   NodeFS.writeFileSync(sessionFile, CODEX_HISTORY);
-  const registry = ProviderAdapterRegistry.layerFromDrivers({
-    drivers: [PiAdapterV2Driver],
-    configMap: {
-      [PI_PROVIDER]: { driver: PI_PROVIDER, enabled: true, config: { binaryPath: "pi" } },
-    },
-  }).pipe(Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, fake.spawner)));
+  const registry = ProviderAdapterRegistry.layerFromAdaptersEffect(
+    PiAdapterV2Driver.create({
+      instanceId: PI_INSTANCE_ID,
+      environment: [],
+      displayName: undefined,
+      enabled: true,
+      config: { ...PiAdapterV2Driver.defaultConfig(), binaryPath: "pi" },
+    }).pipe(Effect.map((adapter) => [adapter])),
+  ).pipe(Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, fake.spawner)));
   return yield* Effect.gen(function* () {
     const adapter = yield* (yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2).get(
       PI_INSTANCE_ID,

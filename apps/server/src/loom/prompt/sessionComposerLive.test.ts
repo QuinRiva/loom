@@ -170,7 +170,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           assert.deepEqual(second, first);
           assert.include(first.appendSystemPrompt, "PROJECT RULE ONE");
           assert.notInclude(second.appendSystemPrompt, "PROJECT RULE TWO");
-          const sidecar = yield* Schema.decodeUnknownEffect(
+          const sidecar = yield* Schema.decodeEffect(
             Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
           )(
             yield* (yield* FileSystem.FileSystem).readFileString(

@@ -289,7 +289,8 @@ export const makeThreadEmbedder = Effect.fn("ThreadEmbedder.make")(function* (
     Effect.map(Option.getOrUndefined),
     Effect.catch((error) =>
       queryWarned
-        ? Effect.succeed(undefined)
+        ? // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
+          Effect.succeed(undefined)
         : Effect.sync(() => (queryWarned = true)).pipe(
             Effect.andThen(
               Effect.logWarning("thread-search.embedder.query-failed", {

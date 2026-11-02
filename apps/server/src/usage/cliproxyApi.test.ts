@@ -582,7 +582,7 @@ describe("CLIProxyAPI built-in management API", () => {
           body: { five_hour: { utilization: 10, resets_at: null }, ...budget },
         }),
       });
-      const result = yield* (yield* test.api).readAccounts(config);
+      const result = yield* readAll(yield* test.api, []); // loom: listing moved out of `readAccounts`
       expect(
         result[0]?.usageLimits.windows.map((window) => [window.id, window.usedPercent]),
       ).toEqual([
@@ -610,7 +610,7 @@ describe("CLIProxyAPI built-in management API", () => {
           },
         }),
       });
-      const result = yield* (yield* test.api).readAccounts(config);
+      const result = yield* readAll(yield* test.api, []); // loom: listing moved out of `readAccounts`
       expect(result[0]?.usageLimits.windows.map((window) => window.id)).toEqual(["five_hour"]);
     }),
   );

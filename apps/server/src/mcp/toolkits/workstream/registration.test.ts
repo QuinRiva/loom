@@ -324,7 +324,7 @@ it.effect("a Loom credential reaches the scheduled-task tools and no other orche
           getThreadShell: () => Effect.succeed(shell),
           getThreadRecords: () => Effect.succeed(idleThreadProjection(shell)),
         },
-        projects: { getById: () => Effect.succeed(Option.none()) },
+        projects: { getById: () => Effect.succeedNone },
         scheduledTasks: { list: () => Effect.succeed({ tasks: [] }) },
       },
       { threadId: LOOM_TEST_THREAD, capabilities: ["workstream", "pull-requests"] },

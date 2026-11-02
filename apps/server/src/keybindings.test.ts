@@ -148,7 +148,9 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
   it.effect("ships configurable thread navigation defaults", () =>
     Effect.sync(() => {
       const defaultsByCommand = new Map(
-        Keybindings.DEFAULT_KEYBINDINGS.map((binding) => [binding.command, binding.key] as const),
+        SharedKeybindings.DEFAULT_KEYBINDINGS.map(
+          (binding) => [binding.command, binding.key] as const,
+        ),
       );
 
       assert.equal(defaultsByCommand.get("thread.previous"), "mod+shift+[");
@@ -176,7 +178,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
   it.effect("ships no two defaults claiming the same key in the same context", () =>
     Effect.sync(() => {
       const seen = new Map<string, string>();
-      for (const binding of Keybindings.DEFAULT_KEYBINDINGS) {
+      for (const binding of SharedKeybindings.DEFAULT_KEYBINDINGS) {
         // modelPicker.jump.N intentionally shadows thread.jump.N under a `when`
         // clause; the collision that matters is same key + same when.
         const contextKey = `${binding.key}\u0000${binding.when ?? ""}`;
@@ -273,7 +275,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         ];
         for (const rule of customRules) {
           assert.isFalse(
-            Keybindings.DEFAULT_KEYBINDINGS.some(
+            SharedKeybindings.DEFAULT_KEYBINDINGS.some(
               (defaultRule) => defaultRule.key === rule.key && defaultRule.when === undefined,
             ),
             `fixture shortcut ${rule.key} now collides with a default keybinding; pick a free shortcut`,

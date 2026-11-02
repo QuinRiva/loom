@@ -154,7 +154,7 @@ export const layer = Layer.effect(
       // The default pi instance's settings (upstream retired the legacy `providers` block).
       const pi = yield* settings.getSettings.pipe(
         Effect.flatMap((current) =>
-          Schema.decodeUnknownEffect(PiSettings)(
+          Schema.decodeEffect(PiSettings)(
             deriveProviderInstanceConfigMap(current)[defaultInstanceIdForDriver(PI_PROVIDER)]
               ?.config ?? {},
           ),

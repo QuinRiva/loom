@@ -46,7 +46,7 @@ export const callLoomTool = Effect.fn("registration.callLoomTool")(
           ? `This is a read-only query thread: ${def.name} changes workstream state and was refused. The author is the document's only writer; the human promotes an exchange to it as a comment. workstream_list, goal_task_list, consult_thread and set_thread_title still work.`
           : `This is a read-only consult fork of thread ${caller.threadId}: ${def.name} changes workstream state and was refused. Answer from this session's context; workstream_list and goal_task_list still work.`,
       });
-    const input = yield* Schema.decodeUnknownEffect(def.input)(payload ?? {}, {
+    const input = yield* Schema.decodeEffect(def.input)(payload ?? {}, {
       onExcessProperty: "error",
     }).pipe(
       Effect.mapError(

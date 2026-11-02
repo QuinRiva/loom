@@ -37,7 +37,7 @@ export const readWorkstreamBriefAt = Effect.fn("loom.readWorkstreamBriefAt")(fun
 ) {
   const fs = yield* FileSystem.FileSystem;
   return yield* fs.readFileString(filePath).pipe(
-    Effect.map(Option.some),
+    Effect.asSome,
     Effect.orElseSucceed(() => Option.none<string>()),
   );
 });

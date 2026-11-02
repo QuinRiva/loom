@@ -209,7 +209,7 @@ const cacheWarmingRoute = HttpRouter.route(
       );
       yield* (yield* LoomCacheBroadcast).update(caller.threadId, { warming });
       return HttpServerResponse.empty({ status: 204 });
-    }).pipe(Effect.catch(() => Effect.succeed(reply(400, "Expected { warming }.")))),
+    }).pipe(Effect.orElseSucceed(() => reply(400, "Expected { warming }."))),
   ),
 );
 

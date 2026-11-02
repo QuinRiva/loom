@@ -659,7 +659,9 @@ export const make = Effect.gen(function* () {
     const initial = yield* readCycle;
     if (!initial) return;
     if (initial.poller.initialPending.size === 0) {
-      yield* Effect.raceFirst(Effect.sleep(initial.activeInterval), Queue.take(wake));
+      yield* Queue.take(wake).pipe(
+        Effect.timeoutOrElse({ duration: initial.activeInterval, orElse: () => Effect.void }),
+      );
     }
 
     while (true) {
@@ -708,7 +710,9 @@ export const make = Effect.gen(function* () {
 
       const current = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
       if (!failed && current?.initialPending.size) continue;
-      yield* Effect.raceFirst(Effect.sleep(nextDelay), Queue.take(wake));
+      yield* Queue.take(wake).pipe(
+        Effect.timeoutOrElse({ duration: nextDelay, orElse: () => Effect.void }),
+      );
     }
   });
 

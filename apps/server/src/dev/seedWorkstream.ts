@@ -39,6 +39,7 @@ import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as ServerConfig from "../config.ts";
 import {
   dispatchServerCommand,
@@ -770,7 +771,7 @@ const main = Effect.gen(function* () {
     Layer.provide(
       Layer.mergeAll(
         ServerSettings.layer.pipe(
-          Layer.provide(ServerSecretStore.layer),
+          Layer.provide(Layer.merge(ServerSecretStore.layer, ManagedPolicy.layer)),
           Layer.provide(ServerConfig.layer(config)),
         ),
         Layer.mock(WorkspacePaths.WorkspacePaths)({

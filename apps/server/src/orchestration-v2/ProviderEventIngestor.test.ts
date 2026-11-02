@@ -265,6 +265,7 @@ it.effect("refreshes the failing instance snapshot after a committed usage_limit
           refresh: Effect.die("unused"),
           resolveMaintenance: () => Effect.die("unused"),
           applyUsageLimits: () => Effect.die("unused"),
+          retractUsageLimits: () => Effect.die("unused"), // loom: usage-limit retraction
           streamChanges: Stream.empty,
         },
       };

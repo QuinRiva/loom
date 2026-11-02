@@ -87,7 +87,10 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const pubsub = yield* PubSub.unbounded<LoomGoalShellStreamItem>();
     return {
-      publish: (item) => PubSub.publish(pubsub, item).pipe(Effect.asVoid),
+      // Untraced: one publish per goal shell item.
+      publish: Effect.fnUntraced(function* (item) {
+        yield* PubSub.publish(pubsub, item);
+      }),
       subscribe: PubSub.subscribe(pubsub),
     };
   }),

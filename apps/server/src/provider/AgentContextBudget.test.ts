@@ -12,6 +12,7 @@ import { DeviceService } from "../device/DeviceService.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
+import { loomToolkitServiceStubs } from "../mcp/toolkits/workstream/mcpHttp.testkit.ts"; // loom:
 import { PreviewAutomationBroker } from "../mcp/PreviewAutomationBroker.ts";
 import {
   CLAUDE_PROVIDER,
@@ -77,6 +78,10 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(ThreadManagementService)({}),
   Layer.mock(ThreadSearch)({}),
   Layer.mock(VcsStatusBroadcaster)({}),
+  // loom: Loom's workstream toolkit registers beside upstream's
+  loomToolkitServiceStubs().pipe(
+    Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-agent-context-budget-" })),
+  ),
 ).pipe(Layer.provideMerge(NodeServices.layer));
 
 const utf8Bytes = (text: string) => Buffer.byteLength(text, "utf8");

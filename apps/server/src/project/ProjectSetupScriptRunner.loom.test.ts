@@ -16,6 +16,7 @@ import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as TestClock from "effect/testing/TestClock";
 
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as ProjectService from "./ProjectService.ts";
@@ -74,13 +75,16 @@ const runWith = <A, E, R>(
         Layer.provide(
           Layer.mergeAll(
             Layer.mock(ProjectService.ProjectService)({
-              getById: () => Effect.succeed(Option.some(project)),
-              getByWorkspaceRoot: () => Effect.succeed(Option.some(project)),
+              getById: () => Effect.succeedSome(project),
+              getByWorkspaceRoot: () => Effect.succeedSome(project),
             }),
             Layer.mock(TerminalManager.TerminalManager)({
               subscribe: () => Effect.succeed(() => undefined),
               closeIdle: () => Effect.void,
               ...terminal,
+            }),
+            Layer.mock(ProjectionStore.ProjectionStoreV2)({
+              getThreadShell: () => Effect.succeed(null),
             }),
             ServerSettings.layerTest(),
             NodeServices.layer,

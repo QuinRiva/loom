@@ -137,7 +137,7 @@ export const LoomOrchestratorTestLayer = Layer.mergeAll(
   ),
   Layer.provide(ProviderTurnStartServiceTestkit.layer),
   Layer.provide(
-    Layer.succeed(ProjectEnrichmentService.ProjectEnrichmentService, {
+    Layer.mock(ProjectEnrichmentService.ProjectEnrichmentService)({
       peek: () =>
         Effect.succeed({
           repositoryIdentity: null,
@@ -151,6 +151,7 @@ export const LoomOrchestratorTestLayer = Layer.mergeAll(
           faviconPath: null,
           repositoryIdentityResolved: false,
         }),
+      readRepositoryIdentity: () => Effect.succeed(null),
       invalidate: () => Effect.void,
       subscribeChanges: Effect.never,
     }),
@@ -162,7 +163,7 @@ export const LoomOrchestratorTestLayer = Layer.mergeAll(
   Layer.provide(ServerConfigLayer),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(
-    Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
+    Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
       getInstance: (instanceId) =>
         Effect.succeed(instanceId === providerInstance.instanceId ? providerInstance : undefined),
       listInstances: Effect.succeed([providerInstance]),

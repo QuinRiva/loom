@@ -314,8 +314,9 @@ export const make = Effect.gen(function* () {
     yield* api.oauthCallback(config, body);
     // The exchange runs on the hub after the callback is accepted.
     const status = yield* api.authStatus(config, input.state).pipe(
-      Effect.flatMap((reply) =>
-        reply.status === "wait" ? Effect.fail("wait" as const) : Effect.succeed(reply),
+      Effect.filterOrFail(
+        (reply) => reply.status !== "wait",
+        () => "wait" as const,
       ),
       Effect.retry({
         while: (error) => error === "wait",

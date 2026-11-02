@@ -110,7 +110,7 @@ export const readWorkstreamReportAt = Effect.fn("loom.readWorkstreamReportAt")(f
 ) {
   const fs = yield* FileSystem.FileSystem;
   return yield* fs.readFileString(filePath).pipe(
-    Effect.map(Option.some),
+    Effect.asSome,
     Effect.orElseSucceed(() => Option.none<string>()),
   );
 });

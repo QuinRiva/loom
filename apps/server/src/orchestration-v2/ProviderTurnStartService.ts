@@ -1143,9 +1143,12 @@ export const layer: Layer.Layer<
           }
           // Providers refuse to fork a busy thread, so a source that started a turn after
           // dispatch planned this fork gets the portable context dispatch gives a busy source.
-          const sourceBusy = sourceProjection.runs.some(
-            (candidate) => candidate.ordinal > sourceRun.ordinal && isActiveRun(candidate),
-          );
+          // loom: a run-less (V1-imported) source is a pi session file, which pi forks by copying.
+          const sourceBusy =
+            sourceRun !== undefined &&
+            sourceProjection.runs.some(
+              (candidate) => candidate.ordinal > sourceRun.ordinal && isActiveRun(candidate),
+            );
           if (!sourceBusy) {
             return yield* loadFromProvider(
               session.forkThread({

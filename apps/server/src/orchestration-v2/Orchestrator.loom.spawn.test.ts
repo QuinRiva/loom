@@ -190,14 +190,14 @@ it.layer(LoomOrchestratorTestLayer)("Loom spawn and scaffold", (it) => {
         assert.include(causeOf(reused), "already used");
 
         // Under the parent lock the loser is refused by validation, not by a failed commit.
-        const raced = yield* Effect.all(
-          ["keys-race-1", "keys-race-2"].map((id) =>
+        const raced = yield* Effect.forEach(
+          ["keys-race-1", "keys-race-2"],
+          (id) =>
             spawnChild({
               parentThreadId: parent,
               threadId: ThreadId.make(id),
               graphKey: "race",
             }).pipe(Effect.match({ onSuccess: () => null, onFailure: (error) => error })),
-          ),
           { concurrency: "unbounded" },
         );
         const losers = raced.filter((error) => error !== null);

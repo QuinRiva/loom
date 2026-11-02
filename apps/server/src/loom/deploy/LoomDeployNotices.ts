@@ -54,18 +54,15 @@ export const layer = Layer.effect(
     const notice = yield* readDeployNotice(loomPaths(yield* ServerConfig).deployNoticePath);
     const pubsub = yield* PubSub.unbounded<LoomDeployEvent>();
     return {
-      restarting: (releaseId, reason) =>
-        DateTime.now.pipe(
-          Effect.flatMap((now) =>
-            PubSub.publish(pubsub, {
-              type: "restarting",
-              at: DateTime.formatIso(now),
-              reason,
-              releaseId,
-            }),
-          ),
-          Effect.asVoid,
-        ),
+      restarting: Effect.fn("LoomDeployNotices.restarting")(function* (releaseId, reason) {
+        const now = yield* DateTime.now;
+        yield* PubSub.publish(pubsub, {
+          type: "restarting",
+          at: DateTime.formatIso(now),
+          reason,
+          releaseId,
+        });
+      }),
       events: Stream.concat(
         notice === null ? Stream.empty : Stream.make({ type: "notice" as const, notice }),
         Stream.fromPubSub(pubsub),

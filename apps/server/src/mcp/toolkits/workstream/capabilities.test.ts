@@ -62,18 +62,16 @@ it.effect(
           loomStore: { getWorkstream: () => Effect.succeed(null) },
           projects: {
             getShell: () =>
-              Effect.succeed(
-                Option.some({
-                  id: PROJECT_ID,
-                  title: "Loom",
-                  workspaceRoot: "/workspace/loom",
-                  defaultModelSelection: null,
-                  scripts: [],
-                  repositoryIdentity: null,
-                  createdAt: "2026-10-01T00:00:00.000Z",
-                  updatedAt: "2026-10-01T00:00:00.000Z",
-                }),
-              ),
+              Effect.succeedSome({
+                id: PROJECT_ID,
+                title: "Loom",
+                workspaceRoot: "/workspace/loom",
+                defaultModelSelection: null,
+                scripts: [],
+                repositoryIdentity: null,
+                createdAt: "2026-10-01T00:00:00.000Z",
+                updatedAt: "2026-10-01T00:00:00.000Z",
+              }),
           },
         },
         { threadId: LOOM_TEST_THREAD, capabilities: ["workstream", "pull-requests"] },

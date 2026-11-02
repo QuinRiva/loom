@@ -472,12 +472,12 @@ export const layerWithOptions = (
                 const subagent = yield* projectionStore.getThread(threadId).pipe(
                   Effect.map((thread) => thread.lineage.relationshipToParent === "subagent"),
                   // loom: a Loom child (workstream row) is not upstream's delegated subagent: it may watch PRs (DL-305/471/474)
-                  Effect.flatMap((subagent) =>
-                    subagent && Option.isSome(loomStore)
-                      ? loomStore.value
-                          .getWorkstream(threadId)
-                          .pipe(Effect.map((row) => row === null))
-                      : Effect.succeed(subagent),
+                  Effect.filterOrElse(
+                    (subagent) => !subagent || Option.isNone(loomStore),
+                    () =>
+                      Option.getOrThrow(loomStore)
+                        .getWorkstream(threadId)
+                        .pipe(Effect.map((row) => row === null)),
                   ),
                   Effect.orElseSucceed(() => false),
                 );

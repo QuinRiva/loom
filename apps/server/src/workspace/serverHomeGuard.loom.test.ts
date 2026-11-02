@@ -150,6 +150,7 @@ it.layer(NodeServices.layer)("a refused boot touches nothing in the home", (it) 
           mode: Option.none(),
           port: Option.some(8789),
           host: Option.none(),
+          lan: Option.none(),
           baseDir: Option.some(baseDir),
           cwd: Option.none(),
           devUrl: Option.none(),

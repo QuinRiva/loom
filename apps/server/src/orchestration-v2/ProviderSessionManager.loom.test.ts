@@ -36,6 +36,7 @@ import { LoomStoreV2 } from "../loom/projection/LoomStore.ts";
 import { SCHEDULING } from "../mcp/toolkits/workstream/families.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EventSink from "./EventSink.ts";
@@ -145,6 +146,10 @@ const openWith = (
     const ingestor = ProviderEventIngestor.layer.pipe(
       Layer.provide(
         Layer.mergeAll(
+          Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+            // @effect-diagnostics-next-line effectSucceedWithVoid:off - Optional instances require undefined rather than void.
+            getInstance: () => Effect.succeed(undefined),
+          }),
           eventSink,
           IdAllocator.layer,
           stores,
