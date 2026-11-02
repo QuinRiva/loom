@@ -1,0 +1,323 @@
+---
+reader:
+  who: the reviewer gating this plan against the intent brief and the codebase, then the coder threads that build it; none were in the planning conversation
+  knows: the loom control plane's vocabulary (gate, round, leg, re-drive, receipt), the files named here by path; not the live database's contents or why the leg ids matter
+  after_first_screen: can say what a gate over several siblings is made of, what one needs_rework does to it, and the two bets that make the change small and safe
+kicker: "Implementation plan · under plans/multi-sibling-gate/intent.mdx · 30 Oct 2026"
+status: draft
+intent: plans/multi-sibling-gate/intent.mdx
+manager_sessions:
+  - id: 01a18b50-3aa7-7703-9216-5d072654ce4c
+    name: Multi-sibling gate intent and plan
+    role: plan
+    authored_at: 2026-10-30T05:58:33.816Z
+---
+
+# A gate over several siblings is several loop edges, one verdict, one barrier
+
+A review gate over N siblings is **N loop routes on the reviewer, one per sibling**, which is the shape `routes` already stores; nothing about a stored gate changes. A `needs_rework` names the siblings to reopen (`rework` on `workstream_submit`) and emits **one `thread.route-taken` per named sibling**, so the event schema does not change either. The re-drive planner sends one rework leg per reopened sibling, and sends the **one re-verify leg only when every reopened sibling has routed back** (a cancelled one drops out of the wait). `clean` or `fixed_inline` completes the reviewer and every sibling still open. **One verdict is one round**, counted on the reviewer as today.
+
+Two bets make it small. First, multiplicity by repetition of the records that exist (routes, traversal events, legs) rather than widening any record to a list; the one record that must hold a set is the reviewer's current-round traversal, which becomes `lastRoutes` behind a one-line migration. Second, per-sibling leg ids stay receipt-deduped exactly as today, with the one migration re-keying the historical receipts to the new ids (deterministic: each receipt's `aggregate_id` is the leg's target), so no finished gate in the live database can re-fire; the only state the planner reads is the barrier's. Roughly two coder-days across shared routing, the arm, the planner, the projection, the tool surface, the texts models read, and three small web fixes; no new verdict token, no new table.
+
+<Callout tone="decision" title="What is being approved" focus>
+  The model in §1, the six decisions in §2 (each with the alternative it rejects), and the ordered steps in §3. The brief's two questions are decided by the owner, in its Decided line: **the reviewer names the reopened set, and a gate over several siblings refuses a `needs_rework` that names none**; **re-verification waits for the whole set**. §2.2 and §2.3 implement those decisions.
+</Callout>
+
+**Scope.** Spawn and scaffold accept one sibling or a list in `gate.rework`; submit gains `rework`; the arm, planner, projection, wakes and web graph handle the set; the texts models read say so. **Not in scope:** several reviewers over one sibling (a coder's `pendingRework` stays one flag, as today), the mobile app (it does not draw the graph; its shell type gains nothing it renders), shipping or human-policy changes. **Done means** the brief's five checks pass on the dev-verify instance with the seeded two-sibling gate, the tests in §5 pass, and `vp check` and `vp run typecheck` are clean. One open question at the end: whether `gate.rework` keeps accepting a bare string. **Base:** this plan is written against `origin/main` at `fe75bb6` (29 Oct); the branch is 2,480 commits behind it with no local commits and is fast-forwarded before any coder starts (a tree task under Build). File and symbol names below are main's.
+
+## 1. The model
+
+A gate is still derived, never stored: the reviewer is the thread whose `routes` carry loop edges, and the gate's siblings are those edges' targets. Today there is one such edge; after this change there may be several, and every pure predicate that already iterates `routes` (`gateSourceFor`, `unresolvedGateSourcesOf`, `isMemberOfUnresolvedGate`, `validateNewNodes`, the graph layout's loop arrows) needs no change at all.
+
+<Mermaid
+  caption="One reviewer, three loop edges; round 1 reopened two of the three. Solid: the edges stored on the reviewer. Dashed: what this round did."
+  legend={[{ tone: "warning", label: "reopened this round" }, { tone: "neutral", label: "untouched this round" }]}
+  source={'flowchart TB\n  R["reviewer<br/>round 1 · waiting"]\n  A["mock-timeline<br/>reworking"]:::tone-warning\n  B["mock-graph<br/>reworking"]:::tone-warning\n  C["mock-cards<br/>parked · untouched"]:::tone-neutral\n  R -->|loop| A\n  R -->|loop| B\n  R -->|loop| C\n  A -.->|routed back| R\n  B -.->|re-verify waits for B| R\n'}
+/>
+
+The round, step by step, with what each party receives. The worked example is the three mockup designers from the brief.
+
+<Steps>
+  <Step at="spawn" title="The orchestrator scaffolds three designers and one reviewer whose gate names all three in `rework`.">
+    `gateRoutes` writes three loop routes and one resolve route on the reviewer; all three targets are added to its `blockedBy`. The reviewer's kickoff says it is inside a gate naming three threads.
+  </Step>
+  <Step at="verdict" title="The reviewer submits `needs_rework` naming mock-timeline and mock-graph in `rework`.">
+    The arm records one `thread.outcome-recorded` (decision `loop`, round 1) and **two** `thread.route-taken` events (kind `loop`, round 1, one per named sibling). The reviewer's `gateRounds` becomes 1 and its `lastRoutes` holds the two traversals.
+
+    > **Reviewer receives (tool result):** Work submitted with outcome 'needs_rework': findings routed to mock-timeline and mock-graph for rework (round 1); mock-cards was not reopened. You are NOT done; you will be resumed to re-verify once both have resubmitted.
+  </Step>
+  <Step at="rework legs" title="The planner sends one rework leg per reopened sibling.">
+    `server:workstream-gate:<reviewer>:1:rework:<mock-timeline>` and the same for mock-graph. Each reopens a done sibling, sets its `pendingRework`, and delivers the findings with a line naming the other sibling reopened in the same round (they share one worktree). mock-cards gets nothing and stays done.
+  </Step>
+  <Step at="resubmit" title="mock-timeline resubmits; nothing happens to the reviewer yet." tone="neutral" dashed>
+    Its submit is intercepted as today (decision `loop`, a `loop-back` traversal to the reviewer). The planner sees one of two reopened siblings back and plans no re-verify. mock-timeline is parked, suppressed from the quiet-child rail by `isWaitingInGate` exactly as a single coder is today.
+  </Step>
+  <Step at="barrier" title="mock-graph resubmits; the re-verify leg fires once, carrying both reports.">
+    `server:workstream-gate:<reviewer>:1:reverify` with `sources: [mock-timeline, mock-graph]`, each with its loop-back event id. One message, two report items.
+
+    > **Reviewer receives:** Review round 1: two of the three threads you gate returned their rework. [reference and excerpt per sibling] This is a DELTA review per sibling … Submit `clean` or `fixed_inline` to resolve the gate for all three, or `needs_rework` naming the siblings to send back again.
+  </Step>
+  <Step at="resolve" title="The reviewer submits `clean`; three resolve legs complete the three siblings.">
+    `thread.route-taken` (kind `resolve`) per sibling still open; one `thread.gate.resolve` leg per such sibling. The orchestrator's digest reports the gate once, as the reviewer's `gate-resolved` item plus a report chip per sibling.
+  </Step>
+</Steps>
+
+## 2. Decisions
+
+### 2.1 Multiplicity by repetition, not by widening
+
+<Callout tone="decision" title="N loop routes, N traversal events, N legs; one list on the reviewer">
+  `WorkstreamRoute` keeps its single `to`. A gate over N siblings is N loop routes with the same `on` and `maxRounds`. A fan-out verdict emits N `thread.route-taken` events in one commit. The planner emits N rework legs and N resolve legs. The only record that must hold a set is the reviewer's **current round's traversals**, `LoomThreadWorkstream.lastRoute` (one record) becoming `lastRoutes` (a list, replaced when the round or kind changes, appended within a round).
+</Callout>
+
+<Columns>
+  <Column label="Chosen: repeat the record">
+    The live cockpit database holds **766 reviewer rows with a loop route** and **267 `thread.workstream-created` events** carrying one; both stay valid as written, because a one-sibling gate is the one-route case of the new shape. `forkJoinLayout.ts` already iterates `m.routes` and draws one return arrow per loop route, so the graph draws the set with no change. `gateSourceFor`, `unresolvedGateSourcesOf`, `isMemberOfUnresolvedGate` and `validateNewNodes` already iterate every route. The `thread.route-taken` payload is unchanged, so the 1,008 stored traversal events replay and the timeline's history fold decodes them as before.
+  </Column>
+  <Column label="Rejected: `to` becomes a list">
+    Widening `WorkstreamRoute.to` and `LoomRouteRecord.to` to arrays would mean rewriting 769 stored `routes` values, versioning or transforming three event payloads on replay (`workstream-created`, `route-taken`, and the history fold in `LoomStore.history`), and touching every reader of `.to`. The brief's "decode that reads both" is the shim the repo rules forbid; the migration route is far more work for the same end state. The one cost of repetition is `maxRounds` written on every loop route of a gate; `gateRoutes` writes the same value on each and the cap is read from the first loop route, as `getGateLoopCap` does today.
+  </Column>
+</Columns>
+
+### 2.2 The reviewer names the reopened set; a multi-sibling gate refuses a verdict that names none
+
+`workstream_submit` gains `rework?: string[]`: thread ids (or `thread:<id>`) of the gate's loop targets to reopen. Rules, applied by the arm and mirrored by the submit handler so the refusal lands before the report file is written:
+
+- `rework` on an outcome that matches no loop route of the caller is refused: it only accompanies a verdict the gate loops on.
+- A name that is not a loop target of the caller's routes is refused, with the targets listed.
+- A loop verdict with no `rework` on a gate with **one** loop target reopens that one (today's behaviour, unchanged). On a gate with **several**, it is refused with the targets listed: the owner's decision in the brief ("a gate over several siblings refuses a needs_rework that names none").
+- Named targets that are cancelled or missing drop out; if none remain the verdict degrades to `yield`, which generalises today's dead-target rule (R4) from one target to the set.
+
+The pure decision widens: `WorkSubmitRouting.routeTo` becomes `ReadonlyArray<ThreadId>` (empty unless `loop`) and `resolveWith` becomes the list of non-terminal loop targets. `routeWorkSubmit(thread, threads, outcome, rework?)` takes the resolved ids and does the set arithmetic; the three refusals above join the shared `workSubmitRefusal` (`packages/shared/src/workstreamGraph.ts`), which the arm and `handlers/submit.ts` already both call, so neither side can drift.
+
+### 2.3 Re-verification waits for the whole reopened set
+
+The planner derives the barrier from projection state alone. For a non-terminal reviewer whose `lastRoutes` are loop traversals of round r, with members M = the traversals' targets that exist and are not cancelled:
+
+- a member has **routed back** when its own `lastRoutes` holds a `loop-back` of round r to this reviewer;
+- the re-verify leg is owed when every member has routed back and at least one exists; its `sources` are the members with their loop-back event ids; its id is unchanged, `server:workstream-gate:<reviewer>:<r>:reverify`, one per round.
+
+The suppression predicate follows the same scoping. `isWaitingInGate`'s source-waiting test counts a loop target only while it holds `pendingRework` or its last outcome is a loop-back of the reviewer's **current** round (`target.lastOutcome.round === thread.gateRounds`); a sibling parked from an earlier round that this round did not rename does not keep the reviewer suppressed. Without that clause, round 2 naming only A, then A cancelled, would leave the reviewer suppressed by B's old loop-back and the dead gate would never surface. `lastOutcome.round` is in the client shell, so the web keeps one predicate.
+
+What the wait does with the ways a member can stop short, none of which is new machinery:
+
+<Table
+  density="compact"
+  columns={["A reopened sibling …", "Barrier", "Who hears, and how (all existing rails)"]}
+  rows={[
+    ["resubmits (any outcome but `needs_human`)", { badge: { label: "counts as back", tone: "success" }, md: "intercepted as today" }, "nobody yet; the reviewer, once the set is back"],
+    ["yields `needs_human`", { badge: { label: "waits", tone: "warning" }, md: "`pendingRework` stays set" }, "the orchestrator, through the attention notice; the reviewer shows `waiting on rework`"],
+    ["goes quiet (quiescence synthesis)", { badge: { label: "waits", tone: "warning" }, md: "synthesised `quiescent` yields before the interception" }, "the orchestrator, through the yield wake marked gate-parked"],
+    ["is cancelled", { badge: { label: "drops out", tone: "neutral" }, md: "no longer a member" }, "if every member is cancelled, no re-verify is owed and the reviewer's idle wake surfaces the dead gate, as a single dead target does today"],
+    ["is set done by the parent mid-round", { badge: { label: "waits", tone: "warning" }, md: "`target-done-mid-round` warning, as today" }, "the parent, in the warning's advice: cancel that sibling when the others are still live (it drops out of the wait); set the reviewer done only to dissolve the whole gate"],
+  ]}
+/>
+
+Rejected, and settled by the owner's decision in the brief ("once, when every reopened sibling has resubmitted"): re-verify per resubmission. It needs no barrier, but the reviewer then judges a partial set, and a second `needs_rework` while another member is still reworking would open round r+1 on top of an unfinished round r.
+
+### 2.4 One verdict is one round
+
+`gateRounds` is already assigned from the traversal's `round` on the reviewer, so N events of the same round are one increment and the fold is replay-safe. A reopened sibling's loop-back carries `round = reviewer.gateRounds` as today. The cap check in `routeWorkSubmit` and the cap-breach yield are untouched except that the yield's "gate counterpart" becomes a list of every sibling's latest report.
+
+### 2.5 Per-sibling leg ids, made safe by re-keying the historical receipts
+
+Rework and resolve legs are per sibling, so their command ids gain the target: `server:workstream-gate:<reviewer>:<round>:rework:<sibling>` and `…:resolve:<sibling>`. That is a hazard the brief did not anticipate: the pass input (`listPassInput`, read by `readPassInput` in `redrive.ts`) includes done rows for seven days after their outcome and for as long as any sibling is live, so the planner **re-plans the legs of finished gates** and relies on the receipt under the old id to swallow them. In the live cockpit database 62 done coders hold a `loop-back` and 64 done reviewers hold a `resolve`; a changed id with no receipt would re-deliver a rework resume to a finished coder, reopening it, or a resolve to a reopened sibling.
+
+<Callout tone="decision" title="The migration re-keys the historical receipts; dedupe stays receipt-based, as today">
+  Every gate receipt in `orchestration_command_receipts` has `aggregate_id` equal to the leg's target thread (verified over all 158 rework and resolve receipts in the live database: none names the reviewer), so the new id is a pure function of the old row: `UPDATE … SET command_id = command_id || ':' || aggregate_id WHERE command_id GLOB 'server:workstream-gate:*:rework' OR … ':resolve'`. It cannot miss a row. Re-verify receipts keep their id. The planner then plans rework and resolve legs for every traversal exactly as today and lets `dispatchServerCommand`'s receipt check swallow the delivered ones; the only state it reads is the barrier's (§2.3).
+</Callout>
+
+Rejected: deciding a leg is owed from the parties' state instead (`pendingRework`, routed back, outcome null). It fails one real shape: a done reviewer holding a `resolve` whose sibling is **reopened later**, by `workstream_set_outcome` none or by a newer gate's rework leg. The sibling's outcome is null again, the reviewer's traversal still matches, the new id has no receipt, and the stale resolve leg would mark the reopened thread done mid-work and clear its attention. The live database has done that reopen 16 times after 8 resolves. A state guard would also inherit a stale `pendingRework` on a sibling whose gate was dissolved mid-round (one live row), which would starve a later gate's rework leg. Rejected too: keeping the old id for a one-sibling gate and adding the suffix only for several, which leaves two id shapes forever.
+
+### 2.6 Stored shape: one column, one migration, no shim
+
+One loom migration, numbered at the **next free loom id when the coder starts** (1067 as of `origin/main` `fe75bb6`: 1060 to 1066 exist and are applied in the live database), `apps/server/src/persistence/Migrations/<n>_LoomMultiSiblingGate.ts`, registered in `LoomMigrations.ts` and never in `Migrations.ts`. Two statements: add `last_routes TEXT NOT NULL DEFAULT '[]'`, fill it with `json_array(json(last_route))` where `last_route` is not null, and drop `last_route` (the column is `NOT NULL` like `routes`, `blocked_by` and `attention`, so no null-to-list decode exists anywhere); then the receipt re-key of §2.5. The cockpit database at `/home/Carl/.t3/cockpit/userdata/statev2.sqlite` (the brief's `~/.t3/userdata/statev2.sqlite` holds only the V1 `state.sqlite`) has 153 rows with a traversal and 158 receipts to re-key. `routes` is untouched. The contract field becomes `lastRoutes: Schema.Array(LoomRouteRecord)`; the V1 importer writes `[]`; it stays omitted from `LoomThreadShellFields`, so no client sees it.
+
+### 2.7 The web graph gets fixes, not drawing
+
+The layout already draws one loop arrow per loop route. Three edits, all in files the brief named:
+
+- `WorkstreamGraph.tsx` loop-edge badge: the open-round dot (`●`, and the wider pill) reads `target?.pendingRework` where `target` is looked up through `gateLoopTargetOf(source)`, i.e. always the first route's sibling. It must read the **edge's own** target, `byId.get(edge.toKey)`. The rounds-of-cap text stays the reviewer's and is the same on every arrow of one gate.
+- `WorkstreamTimeline.tsx` gate list: the `<li>` key is `kind:on`, which collides across N loop routes; key by `kind:on:to`. Each route renders its own "loops to X on needs rework (≤2 rounds)" line via `describeRoute`, unchanged.
+- `loomFixtures.ts`: a fixture with a three-sibling gate mid-round (two reopened, one holding `pendingRework`), so the preview harness shows the arrows and settles the brief's one unknown.
+
+The history fold renders one "Rework round n → X" row per reopened sibling on the reviewer's timeline; that is the least new drawing and reads correctly.
+
+## 3. The changes, in order
+
+Each step names what it reuses before what it adds. Steps 1 to 4 are the behaviour and can be one coder; 5 to 8 are surfaces and texts and can run in parallel once step 1's contracts land.
+
+**Step 1: contracts and the pure routing.** `packages/contracts/src/orchestrationV2.loom.ts`: `LoomThreadWorkstream.lastRoute` → `lastRoutes: Schema.Array(LoomRouteRecord)`; `thread.work.submit` gains `rework: Schema.optional(Schema.Array(ThreadId))`; `thread.gate.reverify` replaces `sourceThreadId`/`routeEventId` with `sources: Schema.Array(Schema.Struct({ threadId, routeEventId }))`; `thread.gate.rework` and `thread.gate.resolve` keep theirs. `packages/shared/src/workstreamGraph.ts`: `gateLoopTargetOf` → `gateLoopTargetsOf` returning the list (every caller updated; the single-value helper is deleted); `isWaitingInGate` tests `.some` over the targets, scoped to the current round as §2.3 says; `WorkSubmitRouting.routeTo`/`resolveWith` become lists; `routeWorkSubmit` gains the `rework` parameter and the set rules of §2.2; `workSubmitRefusal` gains the three `rework` refusals.
+
+<AnnotatedCode
+  filename="packages/shared/src/workstreamGraph.ts (routeWorkSubmit, loop branch after the change)"
+  language="ts"
+  code={"const loops = thread.routes.filter((r) => r.kind === \"loop\" && r.on.includes(outcome));\nif (loops.length > 0) {\n  const targets = loops.map((r) => r.to!);\n  const named = rework ?? (targets.length === 1 ? targets : []);\n  const live = named.filter((id) => {\n    const t = threads.find((e) => e.id === id);\n    return t !== undefined && t.outcome !== \"cancelled\";\n  });\n  if (live.length === 0) return { ...base, decision: \"yield\" };\n  const cap = loops[0]!.maxRounds ?? DEFAULT_GATE_MAX_ROUNDS;\n  return thread.gateRounds < cap\n    ? { ...base, decision: \"loop\", round: thread.gateRounds + 1, routeTo: live }\n    : { ...base, decision: \"cap-breach\" };\n}\n"}
+  annotations={[
+    { lines: "1", label: "every matching loop route", note: "`.filter`, where today's `.find` took the first; the targets are the gate" },
+    { lines: "4", label: "the owner's decision", note: "a multi-sibling gate with no `rework` has no live targets and falls to the refusal the callers raise before this" },
+    { lines: "5-9", label: "R4 for a set", note: "cancelled or missing names drop out; none left is a yield, as one dead target is today" },
+    { lines: "10", label: "one cap per gate", note: "read from the first loop route; `gateRoutes` writes the same cap on each" },
+  ]}
+/>
+
+**Step 2: projection, store, migration.** `loomProjection.ts` `thread.route-taken`: append to `lastRoutes` when the head has the same `round` and `kind`, else replace with the one record; skip a record whose `eventId` is already present (replay). `LoomStore.ts`: codec and column `last_routes`, `listPassInput` unchanged. The migration per §2.6, plus the two cases in `LoomMigrations.test.ts` (§5). `LoomV1WorkstreamImporter.ts` writes `lastRoutes: []`.
+
+**Step 3: the arm.** `Orchestrator.loom.ts` `workSubmit`: validate `rework` per §2.2 (resolve each id against the caller's loop targets; refuse with the list); on `loop` emit one `thread.route-taken` per `routing.routeTo` entry (kind `loop` for the reviewer's own route, `loop-back` for the intercepted target, which stays one entry); on `resolve` emit one per `resolveWith` entry. `gateTarget` splits: rework and resolve legs check the reviewer's `lastRoutes` contains `{ eventId: leg.routeEventId, to: leg.threadId }`; the reverify leg checks each of `leg.sources` against that coder's `lastRoutes` for a `loop-back` to the reviewer with that event id. `thread.outcome.set`'s `target-done-mid-round` warning and `warnStartedDependents` are untouched (the latter fires per reopened sibling, which is right).
+
+**Step 4: the planner and the leg messages.** `redrive.ts`: `gateLegCommand` emits one rework or resolve command per traversal in the reviewer's `lastRoutes` (ids per §2.5, receipt-deduped as today) and the one re-verify command per §2.3's barrier; `GateLeg` becomes a union, rework `{ kind, source: reviewer, targetThreadId, round }` and reverify `{ kind, sources: coders[], targetThreadId: reviewer, round }`. `gateLegs.ts`: `buildGateReverifyMessage(coders, round, reports)` renders a reference and excerpt per coder and one `controlPayload` item per coder; `buildGateReworkMessage` gains the reviewer's other reopened siblings this round (`alongside`). `WorkstreamDispatcher.ts` `reDrive` reads the reports of every row whose `lastRoutes` are not `resolve` and that is open or holds `pendingRework`, as the single-row filter does now.
+
+**Step 5: the tool surface.** `childNode.ts`: `gateRoutes(targets, maxRounds)` writes one loop route per target; `withImpliedEdges` takes `gateRework: ReadonlyArray<ThreadId>` and adds each to `blockedBy` with one warning naming them; `nodeShapeError` refuses an empty list and a duplicate. `spawn.ts` and `scaffold.ts` normalise `gate.rework` to a list and resolve each entry with their existing `childRef`/`resolveRef`. `submit.ts`: resolve `rework` entries with `resolveThreadRef` against the caller's loop targets, pass them to the mirrored `routeWorkSubmit` and to the command; `render.ts` `renderSubmitOutcome` names the reopened siblings and, when some were not, says so. `loom/prompt/childPrompt.ts` builds a `KickoffHandback` per loop target (today `gateTarget` is one, via `gateLoopTargetOf`) and `prose.ts`'s `gateClause` renders the set; `handlers/prompt.ts` and the dispatcher's kickoff already go through `childPrompt.ts`. `outcome.ts` needs nothing: `isMemberOfUnresolvedGate` already iterates routes.
+
+**Step 6: wakes and yields.** `wakes.ts` `groupBatchForWake`: a pair becomes the resolved source plus every loop target in the batch; `renderWakePair` and `digest.ts` `pairTargetToPayloadItem` render one target line and chip each. `rails.ts` `terminalDeltas` holds a resolved reviewer's item until every sibling its resolve traversals name is done; the cap-breach `YieldGateContext.counterpart` becomes `counterparts`, and `yield.ts` renders one section per sibling.
+
+**Step 7: web.** The three edits of §2.7.
+
+**Step 8: texts models read.** Substance only; the coder writes each under `llm-instruction-change` and the reviewer vetoes it. Every message and echo keeps **today's exact text when the gate has one sibling** (the brief's must-not); the set wording below applies only when it has several.
+
+- **`defs.ts`, `GateInput.rework`:** one sibling or a list; every one is added to `blockedBy`.
+- **`defs.ts`, the `gate` description:** `needs_rework` loops the siblings the reviewer names in `rework`; `clean` and `fixed_inline` complete the reviewer and every sibling.
+- **`defs.ts`, `workstream_submit.rework` (new):** which of your gate's siblings to reopen, by id; required when the gate has several; only with a verdict the gate loops on.
+- **Toolkit `prose.ts`, the spawn and scaffold gate sentences:** the `gate: { rework: coderId }` example becomes one-or-several; the "wire downstream work on the reviewer" advice stands.
+- **Toolkit `prose.ts`, the `workstream_submit` guidance:** a reviewer over several siblings names the reopened set.
+- **`loom/prompt/prose.ts`, `workstreamChildPrompt`:** the gate clause names threads, plural, as the work you verify.
+- **`gateLegs.ts`, the rework message:** names the other siblings reopened this round and that they share the worktree.
+- **`gateLegs.ts`, the reverify message:** one report per returned sibling; the verdict covers the set; `needs_rework` names which go back again.
+- **`yield.ts`, the cap-breach text:** counterparts, plural, one report section each.
+- **`render.ts`, the `renderSubmitOutcome` loop echo:** lists the reopened siblings and the ones left untouched.
+- **The review-gate skill, `skills/workstream-review-gate/SKILL.md`:** the set protocol: findings per sibling under its own heading, `rework` names the reopened set, delta review per sibling.
+- **`roles/reviewer.md` line 41:** "names the thread you verify" becomes threads.
+- **`roles/orchestrator.md`:** <Badge tone="success">no change</Badge> line 40's "one reviewer per change-set" is now followable as written; line 41's recovery rule still holds.
+- **`docs/design/workstream-review-gates.md` §4.1:** "a gate is the derived pair" becomes the derived set; the rest of the design reads per sibling.
+
+**Step 9: seed and verifier.** `seedWorkstream.ts`: the gated pair becomes a gated trio by adding a second coder to the reviewer's routes, with the reviewer's `needs_rework` naming only the first; `verifySeed.ts` asserts the first holds `pendingRework`, the second does not, and the reviewer's `lastRoutes` has one entry.
+
+<Details summary="Change map: every touched file">
+  <FileTree
+    title="Multi-sibling gate"
+    entries={[
+      { path: "packages/contracts/src/orchestrationV2.loom.ts", change: "modified", note: "lastRoutes; submit.rework; gate.reverify.sources" },
+      { path: "packages/shared/src/workstreamGraph.ts", change: "modified", note: "gateLoopTargetsOf, isWaitingInGate scoped to the round, routeWorkSubmit(rework), workSubmitRefusal" },
+      { path: "packages/shared/src/workstreamGraph.test.ts", change: "modified", note: "set cases (§5)" },
+      { path: "apps/server/src/persistence/Migrations/<next>_LoomMultiSiblingGate.ts", change: "added", note: "last_routes NOT NULL '[]' + receipt re-key" },
+      { path: "apps/server/src/persistence/LoomMigrations.ts", change: "modified", note: "register it" },
+      { path: "apps/server/src/persistence/LoomMigrations.test.ts", change: "modified", note: "seeded row + seeded receipts" },
+      { path: "apps/server/src/loom/projection/loomProjection.ts", change: "modified", note: "route-taken appends within a round" },
+      { path: "apps/server/src/loom/projection/loomProjection.test.ts", change: "modified", note: "append / replace / replay" },
+      { path: "apps/server/src/loom/projection/LoomStore.ts", change: "modified", note: "last_routes codec and default" },
+      { path: "apps/server/src/loom/legacy/LoomV1WorkstreamImporter.ts", change: "modified", note: "lastRoutes: []" },
+      { path: "apps/server/src/orchestration-v2/Orchestrator.loom.ts", change: "modified", note: "workSubmit set rules + N events; gateTarget per leg kind" },
+      { path: "apps/server/src/orchestration-v2/Orchestrator.loom.submit.test.ts", change: "modified", note: "multi-sibling gate case" },
+      { path: "apps/server/src/loom/orchestration/redrive.ts", change: "modified", note: "legs per sibling, barrier" },
+      { path: "apps/server/src/loom/orchestration/redrive.test.ts", change: "modified", note: "barrier + historical-rows cases" },
+      { path: "apps/server/src/loom/orchestration/dispatcher/gateLegs.ts", change: "modified", note: "reverify over N coders; rework names siblings alongside" },
+      { path: "apps/server/src/loom/orchestration/dispatcher/WorkstreamDispatcher.ts", change: "modified", note: "reports map over lastRoutes" },
+      { path: "apps/server/src/loom/orchestration/dispatcher/wakes.ts", change: "modified", note: "pair → source + targets" },
+      { path: "apps/server/src/loom/orchestration/dispatcher/digest.ts", change: "modified", note: "one target item per sibling" },
+      { path: "apps/server/src/loom/orchestration/dispatcher/rails.ts", change: "modified", note: "resolved hold over the set; counterparts" },
+      { path: "apps/server/src/loom/orchestration/dispatcher/yield.ts", change: "modified", note: "counterparts" },
+      { path: "apps/server/src/loom/prompt/prose.ts", change: "modified", note: "gateClause over a set" },
+      { path: "apps/server/src/loom/prompt/childPrompt.ts", change: "modified", note: "a KickoffHandback per target" },
+      { path: "apps/server/src/mcp/toolkits/workstream/defs.ts", change: "modified", note: "gate.rework one-or-list; submit.rework" },
+      { path: "apps/server/src/mcp/toolkits/workstream/prose.ts", change: "modified", note: "gate sentences" },
+      { path: "apps/server/src/mcp/toolkits/workstream/render.ts", change: "modified", note: "loop echo names the set" },
+      { path: "apps/server/src/mcp/toolkits/workstream/handlers/childNode.ts", change: "modified", note: "gateRoutes(targets), withImpliedEdges list, shape checks" },
+      { path: "apps/server/src/mcp/toolkits/workstream/handlers/spawn.ts", change: "modified", note: "resolve each target" },
+      { path: "apps/server/src/mcp/toolkits/workstream/handlers/scaffold.ts", change: "modified", note: "resolve each target" },
+      { path: "apps/server/src/mcp/toolkits/workstream/handlers/submit.ts", change: "modified", note: "rework resolution + mirror" },
+      { path: "apps/server/src/mcp/toolkits/workstream/handlers/submit.test.ts", change: "modified", note: "refusals before the report is written" },
+      { path: "apps/server/src/dev/seedWorkstream.ts", change: "modified", note: "gated trio, one reopened" },
+      { path: "apps/server/src/dev/verifySeed.ts", change: "modified", note: "trio assertions" },
+      { path: "apps/web/src/components/WorkstreamGraph.tsx", change: "modified", note: "dot reads the edge's own target" },
+      { path: "apps/web/src/components/WorkstreamTimeline.tsx", change: "modified", note: "route key includes `to`" },
+      { path: "apps/web/src/preview/loomFixtures.ts", change: "modified", note: "three-sibling gate fixture" },
+      { path: "skills/workstream-review-gate/SKILL.md", change: "modified", note: "set protocol" },
+      { path: "roles/reviewer.md", change: "modified", note: "threads, plural" },
+      { path: "docs/design/workstream-review-gates.md", change: "modified", note: "§4.1 derived set" },
+    ]}
+  />
+</Details>
+
+## 4. Contracts at a glance
+
+<DataModel
+  entities={[
+    {
+      id: "ws",
+      name: "LoomThreadWorkstream (changed fields)",
+      fields: [
+        { name: "routes", type: "WorkstreamRoute[]", note: "unchanged; N loop routes = a gate over N siblings" },
+        { name: "gateRounds", type: "int", note: "unchanged; set from the traversal's round, N events of one round are one increment" },
+        { name: "pendingRework", type: "bool", note: "unchanged; one flag per sibling" },
+        { name: "lastRoutes", type: "LoomRouteRecord[]", note: "was lastRoute; the current round's traversals" },
+      ],
+    },
+    {
+      id: "submit",
+      name: "thread.work.submit (changed fields)",
+      fields: [
+        { name: "outcome", type: "string?", note: "unchanged" },
+        { name: "rework", type: "ThreadId[]?", note: "new; loop targets to reopen; required when the gate has several" },
+      ],
+    },
+    {
+      id: "reverify",
+      name: "thread.gate.reverify (changed fields)",
+      fields: [
+        { name: "sources", type: "{ threadId, routeEventId }[]", note: "was sourceThreadId + routeEventId; one per returned sibling" },
+        { name: "round", type: "int", note: "unchanged" },
+        { name: "message", type: "LoomGateLegMessage", note: "unchanged; items per sibling" },
+      ],
+    },
+  ]}
+/>
+
+Leg command ids after the change: `server:workstream-gate:<reviewer>:<round>:rework:<sibling>`, `…:resolve:<sibling>`, and `…:reverify` unchanged.
+
+## 5. Verification
+
+**Tests, each with why it earns its place.** The repo rule is focused tests for backend behaviour; every one below extends a suite that exists.
+
+- `packages/shared/src/workstreamGraph.test.ts`, `routeWorkSubmit`: a three-target gate with `rework` naming two loops to exactly those two; naming none on a multi-target gate yields no live targets; a named cancelled target drops out, all cancelled yields; `clean` resolves with every non-terminal target. `isWaitingInGate`: the reviewer is suppressed while any sibling of the current round holds it or awaits re-verify, and **not** by a sibling parked from an earlier round once the current round's members are all cancelled (§2.3's scoping). `workSubmitRefusal`: the three `rework` refusals. This is the contract every other layer mirrors.
+- `apps/server/src/loom/orchestration/redrive.test.ts`, `planReDrive`: two reopened and one back plans no re-verify; both back plans one re-verify with two sources; one cancelled and one back plans one with one source; a reviewer's two traversals plan two rework legs with per-sibling ids. The barrier is the new machinery and this is the only place it lives.
+- `apps/server/src/orchestration-v2/Orchestrator.loom.submit.test.ts`: the existing gate case gains a sibling: two `route-taken` events on the verdict, `lastRoutes` of two, a reverify leg with two sources accepted, a stale one (wrong event id on either source) refused, three resolve traversals on `clean`. This is where the events are committed.
+- `apps/server/src/loom/projection/loomProjection.test.ts`: `route-taken` appends within a round, replaces on a new round or kind, ignores a replayed event id.
+- `apps/server/src/persistence/LoomMigrations.test.ts`: a row with a `last_route` object comes out with `last_routes` of one and a null row with `[]`; a seeded `…:1:resolve` receipt whose `aggregate_id` is the sibling comes out keyed `…:1:resolve:<sibling>`, **and that id equals what `gateLegCommand` plans for the same row**, so a reopened sibling after a historical resolve gets no second resolve leg. The migration touches live data and this equality is the whole safety argument of §2.5.
+- `handlers/submit.test.ts`: `rework` naming a non-target, and a multi-target gate's verdict naming none, are refused before any report file exists.
+
+Not added, because they would only restate the code they sit on: a two-coder reverify message case in `gateLegs.test.ts` and a two-target spawn case in `spawn.test.ts`.
+
+**Gates.** `vp check` and `vp run typecheck` clean. Typecheck is also the sweep for every `lastRoute` and `gateLoopTargetOf` reader; the plan's change map is what it should find.
+
+**Seen in the browser.** First the preview harness (`docs/web-component-preview.md`): the §2.7 fixture, looking for three arrows from one reviewer, the dot on the reopened siblings only, and the reviewer timeline's three gate lines. Then the dev-verify recipe (`docs/dev-site-testing.md`) on a scratch home with `vp run dev:seed`: the seeded trio shows two return arrows, the dot on the first coder, the reviewer "waiting on rework", and the second coder done and untouched. These are the brief's first, second and third checks on real server state; the fourth and fifth (barrier and resolve) are the orchestrator-layer test above, since the seed runs no agents.
+
+## 6. Risks
+
+- **The receipt re-key and the planner's id drift apart.** Cost: a finished or reopened thread messaged or completed by a stale leg. Guarded by the migration test's equality check (§5): the re-keyed receipt id is asserted equal to `gateLegCommand`'s id for the same row, so the two cannot diverge unnoticed.
+- **A barrier that never completes.** A member parked by `needs_human` or quiescence holds the reviewer at "waiting on rework" indefinitely; the orchestrator hears through that member's own notice, as for a single coder today, and the recovery rule (set the reviewer done) is unchanged. No new rail.
+- **Arrows overlap in the graph.** Three loops leaving one card share a port; `routeUnderChannel` already pulls overlapping lanes apart, and the preview fixture is the check. If it reads badly the fix is a per-route port offset in `forkJoinLayout.ts`, not a redesign.
+- **Two reviewers over one sibling** keep today's ambiguity (`pendingRework` is one flag; `gateSourceFor` takes the first). Out of scope and unchanged.
+
+<QuestionForm
+  questions={[
+    {
+      id: "rework-shape",
+      title: "Does gate.rework on spawn and scaffold keep accepting a bare string as well as a list?",
+      subtitle: "Every existing orchestrator call and the tool prose pass rework as one id; the handler normalises either shape to a list on entry.",
+      mode: "single",
+      options: [
+        {
+          id: "both",
+          label: "Yes: one sibling as a string or several as a list, normalised at the handler boundary",
+          recommended: true,
+          detail: "A one-line Schema.Union on the tool input; no internal record carries two shapes.",
+        },
+        {
+          id: "list",
+          label: "No: a list only, and every single-sibling call writes a one-element list",
+          detail: "One shape in the prose; every existing habit and role text that shows the string form is rewritten.",
+        },
+      ],
+    },
+  ]}
+/>
