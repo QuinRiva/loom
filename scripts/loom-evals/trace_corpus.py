@@ -7,7 +7,9 @@ driver builds the thread list from the database instead of a /retro manifest. Ea
 under ~/loom-evals/scan-cache/ keyed by the file's size and mtime, the check code and the thread's context,
 so a weekly run parses only sessions that changed; --full rebuilds. Writes, under
 ~/loom-evals/readings/<week>/: trace.json in the fragment shape of plans/loom-evals/plan.mdx §5 (metric =
-check id, value = sessions hit, n = sessions scanned) and hits/<check>.jsonl, oldest first.
+check id, value = sessions hit, n = sessions scanned; `checks` maps each active check to the date signals.yaml
+says it was last narrowed) and hits/<check>.jsonl, newest first, so a review's first 20 are the current behaviour.
+A forked session's copied-in history is not scanned again (retro_scan.own_history).
 """
 import argparse, hashlib, json, os, sys, time
 from collections import defaultdict
@@ -21,7 +23,7 @@ from dashboard import ERA, EVALS_HOME, EXCLUDED_THREADS, WINDOWS, connect, defau
 import retro_scan  # noqa: E402
 
 CORPUS = """
-select pt.thread_id, json_extract(pt.payload_json, '$.nativeThreadRef.nativeId'), w.role, w.parent_thread_id, w.report_path,
+select pt.thread_id, json_extract(pt.payload_json, '$.nativeThreadRef.nativeId'), w.role, w.parent_thread_id,
        json_extract(t.payload_json, '$.modelSelection.model'), p.workspace_root
 from orchestration_v2_projection_provider_threads pt
 join orchestration_v2_projection_threads t using (thread_id)
@@ -37,9 +39,9 @@ CODE = hashlib.sha256(Path(retro_scan.__file__).read_bytes() + retro_scan.CATALO
 def scan_one(job):
     """Parse one session and run every check; returns the cache record."""
     path, ctx, key = job
-    s = retro_scan.parse_session(path, ctx["role"] == "root")
+    s = retro_scan.own_history(retro_scan.parse_session(path, ctx["role"] == "root"))
     hits = {sid: fn(s, ctx) for sid, fn in retro_scan.trace_checks().items()}
-    return dict(key=key, first=s["first"], model=s["model"], hits={k: v for k, v in hits.items() if v})
+    return dict(key=key, first=s["start"] or s["first"], model=s["model"], hits={k: v for k, v in hits.items() if v})
 
 
 def main():
@@ -60,11 +62,11 @@ def main():
     cache_dir = EVALS_HOME / "scan-cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     sessions, todo, missing = [], [], 0
-    for tid, path, role, parent, report, model, project_root in sorted(rows, key=lambda r: r[1]):
+    for tid, path, role, parent, model, project_root in sorted(rows, key=lambda r: r[1]):
         if not Path(path).exists():
             missing += 1
             continue
-        ctx = dict(role=role or ("child" if parent else "root"), report=retro_scan.read_report(report), gated=tid in gated, project_root=project_root)
+        ctx = dict(role=role or ("child" if parent else "root"), gated=tid in gated, project_root=project_root)
         st = Path(path).stat()
         key = hashlib.sha256(json.dumps([st.st_size, st.st_mtime_ns, CODE, ctx], sort_keys=True).encode()).hexdigest()
         cache = cache_dir / (Path(path).stem.split("_", 1)[-1] + ".json")
@@ -79,7 +81,8 @@ def main():
     print(f"{len(sessions)} sessions ({missing} session files missing): {len(todo)} parsed, {len(sessions) - len(todo)} from cache, "
           f"{time.monotonic() - started:.0f}s", file=sys.stderr)
 
-    checks = list(retro_scan.trace_checks())
+    signals = retro_scan.trace_signals()
+    checks = list(signals)
     hits, scanned = defaultdict(list), []
     for x in sessions:
         rec = json.loads(x["cache"].read_text())
@@ -91,11 +94,14 @@ def main():
 
     out_dir = EVALS_HOME / "readings" / a.week
     (out_dir / "hits").mkdir(parents=True, exist_ok=True)
+    for stale in (out_dir / "hits").glob("*.jsonl"):  # a check retired since the last run leaves no hits file behind
+        if stale.stem not in checks and stale.stem != "escapes":
+            stale.unlink()
     for sid in checks:
         with open(out_dir / "hits" / f"{sid}.jsonl", "w") as f:
-            f.writelines(json.dumps(h, sort_keys=True) + "\n" for h in sorted(hits[sid], key=lambda h: (h["at"] or "", h["session_path"], h["variant"] or "")))
+            f.writelines(json.dumps(h, sort_keys=True) + "\n" for h in sorted(hits[sid], key=lambda h: (h["at"] or "", h["session_path"], h["variant"] or ""), reverse=True))
 
-    # A session belongs to a window by its first message; by=variant rows share the window's all-sessions n.
+    # A session belongs to a window by its start (a fork by its own, not its source's); by=variant rows share the window's all-sessions n.
     out = []
     for w in WINDOWS:
         lo, hi = wins[w]
@@ -114,6 +120,7 @@ def main():
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "window": {"from": iso(wins["week"][0]), "to": iso(to)},
         "source": f"{a.db} (read-only) and {len(sessions)} pi session files of threads created {a.since} to {iso(to)}",
+        "checks": {sid: {"narrowed": str(s.get("narrowed") or "")[:10] or None} for sid, s in signals.items()},
         "rows": out,
     }, indent=1, sort_keys=True) + "\n")
     for sid in checks:
