@@ -11,7 +11,7 @@ import { resolveWorkGroupScrollAnchor } from "@t3tools/client-runtime/work-log/s
 import { observeResize } from "~/lib/observeResize";
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import { memo, use, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import { LegendList, useSyncLayout, type LegendListRef } from "@legendapp/list/react"; // loom: useSyncLayout
 import { workEntryDisplayIndicatesToolFailure } from "../../session-logic";
 import ChatMarkdown from "../ChatMarkdown";
 import { Minimize2Icon, XIcon } from "lucide-react";
@@ -213,13 +213,20 @@ function ExpandedWorkGroupEntries({
     setRestoringPosition(false);
   };
 
+  // loom: when history pages in, the timeline remounts this row and measures it at ~4px before the
+  // list fills; filled within a frame, the row never resizes for the timeline's resize observer,
+  // so the 4px sticks and the next row overlaps. Re-measure the row whenever this list resizes.
+  const syncRowLayout = useSyncLayout();
   useLayoutEffect(() => {
     const element = listRef.current?.getScrollableNode();
     if (!element) return;
     updateScrollFades();
     const content = element.firstElementChild;
-    return observeResize(content ? [element, content] : element, updateScrollFades);
-  }, [updateScrollFades]);
+    return observeResize(content ? [element, content] : element, () => {
+      updateScrollFades();
+      syncRowLayout(); // loom
+    });
+  }, [updateScrollFades, syncRowLayout]);
 
   const renderEntry = ({ item }: { item: TimelineWorkEntry }) => (
     <SimpleWorkEntryRow key={item.id} workEntry={item} workspaceRoot={workspaceRoot} />

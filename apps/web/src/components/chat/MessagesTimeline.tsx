@@ -649,7 +649,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
     routeThreadKey: listIdentityKey,
     history: historyControls,
     onExpandRun: expandCitedRun,
-    onExpandWorkGroup: onToggleWorkGroup,
+    // loom: a plain expand, not onToggleWorkGroup: from a list at its end, the disclosure settle
+    // re-pins the end on every size change and undoes the jump's scroll.
+    onExpandWorkGroup: (groupId) =>
+      setExpandedWorkGroupIds((current) =>
+        current.has(groupId) ? current : new Set([...current, groupId]),
+      ),
     onManualNavigation,
   });
   // Run status/timestamps change per stream event; keep them out of shared row context.
