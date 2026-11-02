@@ -770,10 +770,14 @@ describe("VcsStatusBroadcaster", () => {
 
       assert.equal(singleRemoteCalls, 2);
       assert.equal(batchEntries.length, 1);
-      assert.deepStrictEqual(batchEntries[0], [
-        { cwd: "/repo/one", branch: "one" },
-        { cwd: "/repo/two", branch: "two" },
-      ]);
+      // loom: entry order follows which forked subscription registers first.
+      assert.deepStrictEqual(
+        batchEntries[0]?.toSorted((a, b) => a.cwd.localeCompare(b.cwd)),
+        [
+          { cwd: "/repo/one", branch: "one" },
+          { cwd: "/repo/two", branch: "two" },
+        ],
+      );
       yield* Scope.close(scope, Exit.void);
     }).pipe(Effect.provide(Layer.merge(testLayer, TestClock.layer())));
   });
