@@ -74,6 +74,7 @@ import {
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
+  threadListV2SearchArchivedItems, // loom
 } from "../threads/threadListV2";
 import { ArchivedSearchResultRow } from "../threads/ArchivedSearchResultRow.loom"; // loom
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
@@ -455,7 +456,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const pendingOrder = usePendingThreadOrder();
   const {
     layout: threadListV2Layout,
-    items: threadListV2Items,
+    items: threadListV2ShellItems, // loom: archived search hits join below
     contentOnlyThreadKeys,
     olderSettledShelf,
   } = useThreadListV2({
@@ -480,6 +481,23 @@ export function HomeScreen(props: HomeScreenProps) {
     settledShelfExpanded,
     selectedThreadKey,
   });
+  // loom: archived roots the search returned have no shell; they follow the list's rows
+  const threadListV2Items: ReadonlyArray<ThreadListV2ListItem> =
+    props.searchQuery.trim().length === 0
+      ? threadListV2ShellItems
+      : [
+          ...threadListV2ShellItems,
+          ...threadListV2SearchArchivedItems(
+            threadSearch.matches,
+            v2ScopedProjectGroup === null
+              ? null
+              : new Set(
+                  v2ScopedProjectGroup.projectRefs.map((ref) =>
+                    scopedProjectKey(ref.environmentId, ref.projectId),
+                  ),
+                ),
+          ),
+        ];
   // Called as `props.onSelectThread(...)`, the compiler would cache this handler on the whole
   // props object, which is new on every render of Home's parent.
   const { onSelectThread } = props;

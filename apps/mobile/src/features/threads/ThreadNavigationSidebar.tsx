@@ -84,6 +84,7 @@ import {
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
+  threadListV2SearchArchivedItems, // loom
 } from "./threadListV2";
 import { useSelectWorkspaceDetail } from "../workspace/useSelectWorkspaceDetail";
 import { ArchivedSearchResultRow } from "./ArchivedSearchResultRow.loom"; // loom
@@ -329,10 +330,25 @@ function ThreadNavigationSidebarPane(
     settledShelfExpanded,
     selectedThreadKey: props.selectedThreadKey ?? null,
   });
+  // loom: archived roots the search returned have no shell; they follow the list's rows, above Show more
+  const searchArchivedItems =
+    props.searchQuery.trim().length === 0
+      ? []
+      : threadListV2SearchArchivedItems(
+          threadSearch.matches,
+          selectedProjectScope === null
+            ? null
+            : new Set(
+                selectedProjectScope.projectRefs.map((ref) =>
+                  scopedProjectKey(ref.environmentId, ref.projectId),
+                ),
+              ),
+        );
   const listItems: readonly SidebarListItem[] =
     settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0
       ? [
           ...threadListV2Items,
+          ...searchArchivedItems, // loom
           {
             type: "v2-show-more",
             key: "v2-show-more",
@@ -344,7 +360,9 @@ function ThreadNavigationSidebarPane(
                 : {}),
           },
         ]
-      : threadListV2Items;
+      : searchArchivedItems.length === 0 // loom
+        ? threadListV2Items
+        : [...threadListV2Items, ...searchArchivedItems];
   const listMenuActions = [
     {
       id: "environment",
