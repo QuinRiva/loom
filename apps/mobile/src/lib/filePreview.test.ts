@@ -170,7 +170,15 @@ vi.mock("../state/session", () => ({
   usePreparedConnection: () => ({ _tag: "Some", value: { httpBaseUrl: "https://example.com" } }),
 }));
 vi.mock("../state/atom-registry", () => ({ appAtomRegistry: {} }));
-vi.mock("../state/threads", () => ({ environmentThreadShells: {}, threadEnvironment: {} }));
+vi.mock("../state/threads", async () => {
+  const { Atom } = await import("effect/reactivity");
+  return {
+    environmentThreadShells: {},
+    threadEnvironment: {},
+    // loom: ThreadFeed's control bubbles read the thread's messages
+    environmentThreadDetails: { threadAtom: () => Atom.make(null) },
+  };
+});
 vi.mock("../state/entities", () => ({
   useLiveThreadLinkLabels: (text: string) => text,
   useThreadChipIcons: () => new Map(),

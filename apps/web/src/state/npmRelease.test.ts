@@ -51,6 +51,7 @@ const configFor = (environmentId: EnvironmentId | null, supported = true) =>
     issues: [],
     providers: [],
     availableEditors: [],
+    remoteEditorSshHost: null, // loom: client-launched editor SSH host
     observability: {
       logsDirectoryPath: "/test/logs",
       localTracingEnabled: false,

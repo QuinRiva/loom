@@ -127,12 +127,17 @@ async function type(selector: string, value: string) {
   await userEvent.fill(input(selector), value);
   await act(async () => input(selector).blur());
 }
+// loom: pi leads the driver list, so the Codex-only manual setup needs Codex picked first.
+const configureCodexManually = async () => {
+  await act(async () => radio("Codex")!.click());
+  await click("Configure manually");
+};
 const signInStep = () => document.querySelector('[aria-label="Sign-in step"]');
 
 async function prepareCodexInstance() {
   await using stack = new AsyncDisposableStack();
   const screen = stack.use(await render(dialog()));
-  await click("Configure manually");
+  await configureCodexManually();
   await type("#add-provider-label", "Work");
   await click("Next");
   stack.move();
@@ -155,7 +160,7 @@ describe("AddProviderInstanceDialog environment routing", () => {
       providerInstances: { codex_2: { driver: "codex", enabled: false } },
     });
     await using _screen = await render(dialog());
-    await click("Configure manually");
+    await configureCodexManually();
     await click("Next");
     await click("Add instance");
     expect(settingsHooks.mutate).toHaveBeenCalledWith({
