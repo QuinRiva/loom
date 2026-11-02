@@ -393,6 +393,45 @@ it.layer(LoomOrchestratorTestLayer)("Loom work.submit routing", (it) => {
     }),
   );
   it.effect(
+    "outcome.set carries a cancel reason to the event and history, and drops it on done",
+    () =>
+      Effect.gen(function* () {
+        const thread = ThreadId.make("submit-cancel-reason");
+        yield* spawnChild({ parentThreadId: parent, threadId: thread, graphKey: "cancel-reason" });
+        const set = (outcome: "cancelled" | "done" | null, n: number) =>
+          dispatch({
+            type: "thread.outcome.set",
+            commandId: CommandId.make(`server:test-cancel-reason:${n}`),
+            threadId: thread,
+            createdAt,
+            outcome,
+            reason: "superseded",
+          });
+        const payloads = (result: {
+          readonly storedEvents: ReadonlyArray<OrchestrationV2StoredEvent>;
+        }) =>
+          result.storedEvents
+            .filter(({ event }) => event.type === "thread.outcome-set")
+            .map(({ event }) => event.payload);
+        assert.deepEqual(payloads(yield* set("cancelled", 1)), [
+          { outcome: "cancelled", cause: "set", reason: "superseded" },
+        ]);
+        assert.deepEqual(payloads(yield* set(null, 2)), [{ outcome: null, cause: "set" }]);
+        assert.deepEqual(payloads(yield* set("done", 3)), [{ outcome: "done", cause: "set" }]);
+        const history = yield* (yield* LoomStoreV2).history(thread);
+        assert.deepEqual(
+          history.flatMap((entry) =>
+            entry.type === "outcome-set" ? [[entry.outcome, entry.reason]] : [],
+          ),
+          [
+            ["cancelled", "superseded"],
+            [null, undefined],
+            ["done", undefined],
+          ],
+        );
+      }),
+  );
+  it.effect(
     "DL-246: outcome.set cancelled interrupts the running run and cancels every queued run in one command",
     () =>
       Effect.gen(function* () {

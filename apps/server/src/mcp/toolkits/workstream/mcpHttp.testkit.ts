@@ -121,6 +121,7 @@ export const loomToolkitServiceStubs = (
       goalTreeReads: {} as never,
       consults: {} as never,
       cache: {} as never,
+      launchStamps: {} as never,
       snoozeRequests: {} as never,
       peerMessages: {} as never,
       ...loomStore,

@@ -1,0 +1,738 @@
+---
+reader:
+  who: Carl, Loom's maintainer and only user, deciding which evals to pursue, park or drop; he also wants to be able to explain the measurement gap to someone else
+  knows: how he drives a workstream day to day (orchestrators, coders, reviewers, gates, briefs, reports), the roles and skills, that a retro skill and a lessons inbox exist, and the May prompt-rule research read months ago; none of the four research reports behind this document and none of their code names
+  after_first_screen: in one sentence, what Loom cannot see about its agents; which three evals would see it first and roughly what each costs; where the value is small; and he can record pursue, park or drop per eval, or say "go"
+kicker: "Intent brief · approved 2 Nov 2026 · Evals 1, 2, 3 and the Eval 5 proxy build now; Eval 4 after the upstream pull; 6, 7 and 8 parked"
+status: approved
+plan: plans/loom-evals/plan.mdx
+manager_sessions:
+  - id: 01a19984-e49a-7413-bbfb-e50652a27b21
+    name: Evals proposal document
+    role: intent
+    authored_at: 2026-11-02T00:01:56.872Z
+---
+
+# Loom records everything its agents do and measures none of it on a standing basis
+
+Every brief, system prompt, transcript, report, gate verdict and per-message cost is stored, yet since June about **169 changes** to the text agents run on (roles, skills, the global `AGENTS.md`) shipped with **about 7** citing any measurement and **none** re-checked afterwards, so nothing can say whether a single one changed what agents do. Recommend **three evals now**, all built on data already stored: a failure census of 40 recent threads, a weekly outcome dashboard, and deterministic checks over the session logs, plus a one-day script counting what clean review gates let through. Together one to two weeks of agent work and under about $20 a month to run. A **fourth**, a replay suite for role and skill edits, waits for the eval runner upstream T3 Code shipped on 26 October, which arrives with the next pull. **Three are parked**, each with the number that says why.
+
+<Stats
+  items={[
+    {
+      value: "169",
+      label: "instruction edits since June",
+      tone: "risk",
+      detail: "Roles, skills and AGENTS.md. About 7 cited a measurement; 0 were re-run after shipping; 1 had a before/after probe, and it caught a ship-blocker",
+    },
+    {
+      value: "31%",
+      label: "gates bounce first time",
+      tone: "warning",
+      detail: "First review verdict is needs_rework since the orchestration re-platform on 7 Oct (43% over all history). 98% of gates still end in resolve",
+    },
+    {
+      value: "5.4",
+      label: "steers per goal",
+      tone: "neutral",
+      detail: "Carl's messages to a root after its opening ask, mean since 7 Oct. Median 2; 23 of 225 goals took more than 10. He wrote into 1.8% of children",
+    },
+    {
+      value: "$12.70",
+      label: "median goal, list price",
+      tone: "neutral",
+      detail: "Mean $74; the top 10% of goals carry 73% of $48.8k. Routed through subscriptions, so this measures effort, not cash",
+    },
+  ]}
+/>
+
+<Callout tone="decision" title="What it means now" focus>
+  **Build now:** the failure census (Eval 1), the outcome dashboard (Eval 2), the trace checks (Eval 3), and the scripted half of gate calibration (Eval 5), with your hour on it only if it finds defects that slipped through. **Build when the upstream pull lands:** the replay suite in upstream's shape with a pi template (Eval 4). **Park:** replaying real coder tasks from checkpoints (Eval 6), a model-per-role A/B (Eval 7) and brief and report handoff probes (Eval 8; recommended drop, Carl chose park). Carl answered every question in the form on 2 November; the answers are recorded under Decided.
+
+  <Badge tone="success">pursue now · 3</Badge> <Badge tone="info">proxy now · 1</Badge> <Badge tone="info">after the pull · 1</Badge> <Badge tone="neutral">park · 3</Badge>
+</Callout>
+
+<Table
+  density="compact"
+  columns={["Eval", "Kind", "The question it answers", "Build / run cost", "Recommendation"]}
+  rows={[
+    {
+      tone: "success",
+      cells: [
+        "1 · Failure census",
+        "Trajectory grader, by hand",
+        "What actually goes wrong, how often, and what it costs, across 40 recent threads",
+        "No build; about $40 of reading once, then quarterly; 1 hour of Carl",
+        { badge: { label: "pursue now", tone: "success" }, md: "first, it feeds 3 and 4" },
+      ],
+    },
+    {
+      tone: "success",
+      cells: [
+        "2 · Outcome dashboard",
+        "Outcome metric over time",
+        "Did anything move after an edit or a model rollover: rework, steers, children going quiet, restarts, cost per goal, by role and model",
+        "1 to 2 days; $0 a week",
+        { badge: { label: "pursue now", tone: "success" }, md: "the before/after every later claim needs" },
+      ],
+    },
+    {
+      tone: "success",
+      cells: [
+        "3 · Trace checks",
+        "Trajectory grader, scripted",
+        "Which rules agents break, which they follow anyway, and whether reports claim work the transcript never did",
+        "2 to 3 days extending the retro scanner; $0 a week",
+        { badge: { label: "pursue now", tone: "success" }, md: "$0 to run, forever" },
+      ],
+    },
+    {
+      tone: "info",
+      cells: [
+        "4 · Replay suite, upstream's shape",
+        "Offline replay, fake threads",
+        "Does this role, skill or tool-text edit fix the failure it was written for without breaking a behaviour that was already right",
+        "3 to 5 days once the runner arrives; $1 to $3 a run",
+        { badge: { label: "after the pull", tone: "info" }, md: "a tripwire, not a score" },
+      ],
+    },
+    {
+      tone: "info",
+      cells: [
+        "5 · Gate calibration",
+        "Trajectory grader over verdicts",
+        "Do must-fix findings hold up, and what escapes a clean gate",
+        "1 day for the escape proxy; 1 hour of Carl for the human half",
+        { badge: { label: "proxy now", tone: "info" }, md: "human hour only if the proxy finds escapes" },
+      ],
+    },
+    [
+      "6 · Real-task replay from checkpoints",
+      "Offline replay, real tasks",
+      "Does a coder role edit change outcomes on Loom's own past tasks",
+      "3 to 5 days; $300 to $1,300 list per comparison",
+      { badge: { label: "park", tone: "neutral" }, md: "pin the corpus, build nothing" },
+    ],
+    [
+      "7 · Model-per-role A/B",
+      "Outcome metric, randomised",
+      "Is Opus worth it for coders when Sonnet would do",
+      "1 to 2 days; $0 extra; about 10 weeks to read",
+      { badge: { label: "park", tone: "neutral" }, md: "needs Eval 2 to read it" },
+    ],
+    [
+      "8 · Brief and report probes",
+      "Trajectory grader, model-judged",
+      "Does brief quality predict rework; can a parent act on a report alone",
+      "1 day; a few dollars a run",
+      { badge: { label: "park", tone: "neutral" }, md: "already measured once; small effect. Carl: park, not drop" },
+    ],
+  ]}
+/>
+
+**Kinds of eval.** An *offline replay* re-runs a fixed set of scenarios (fake threads or real past tasks) under changed instruction text and compares with the unchanged text. A *trajectory grader* reads what agents actually did in real sessions, by script, by model or by hand. An *outcome metric* is a rate recomputed on a schedule from production records. Section 1 has the detail.
+
+**Goal.** "I'd like you to understand how loom is being used, and from that perspective propose some evals that *could* potentially be used to improve how loom works. Think about the gaps that we have in our ability to measure, particularly agent behaviour - and how creating evals could be used to measure and then potentially improve performance." The semantic goal: make it possible to say, with a number, whether a change to how agents are instructed made them behave differently, at a cost one person can carry.
+
+**You'll know it works when.**
+
+- The next edit to a role, skill or `AGENTS.md` line goes in with a count beside it: how many recent threads showed the failure it targets, and the same count read again a few weeks later.
+- Before the monthly model rollover the replay suite runs on the old and the new model, and the dashboard is read a fortnight after.
+- "Did the 30 September prompt prune change anything?" is answered from a saved query in minutes, not by a fresh study.
+- **Must not:** cost Carl more than an hour or two of reading a month; add more than tens of dollars a month of standing model spend; add a sentence to the always-on prompts; depend on a hosted eval platform or a public benchmark.
+
+**Approaches in play.**
+
+- Small evals built from Loom's own failures and logs, in the shape every harness builder with a documented win used. *The pick.* Wins if the census finds failures frequent enough to count.
+- Adopt upstream's `evals/` runner and extend it for pi rather than build a parallel harness. Wins if its fake-thread templates can host pi's tool protocol; a spike after the pull settles it.
+- Dropped: a public benchmark or a hosted eval platform. They measure a model plus a generic scaffold, not Loom's orchestration, they rot (OpenAI retired SWE-bench Verified and estimates about 30% of SWE-bench Pro tasks are broken), and a one-person project has no traffic for online A/B tests or annotation campaigns. Section 6 has the detail.
+
+**Decided.** Carl's form answers, 2 November: Eval 1 "Pursue now, as the first step"; Eval 2 "Pursue now"; Eval 3 "Pursue now"; Eval 4 "Pursue once the upstream pull lands, with cases taken from the census"; Eval 5 "Build the escape proxy now; the hour of reading only if it finds escapes"; Eval 6 "Park; exempt a sample of start refs from the retention sweep so it stays possible"; Eval 7 "Park until the dashboard exists to read it"; Eval 8 "Park". "keep in mind that Loom is a single user project (it's just a personal project)". "Be honest when the value is small." From the global `AGENTS.md`: "Bias against adding rules. If the model already does the right thing without the rule, don't add it." *Assumed:* the retro scanner and the sqlite ledger are the base everything builds on, rather than a new tool; the upstream eval runner is adopted at the next pull, not re-implemented; when the approved checkpoint-ref retention sweep is finally built, a sample of coder start refs is exempted or snapshotted so Eval 6 stays possible, since that costs a line of code now and a lost corpus later.; the finding-disposition field named in §3.2 is derived from the per-round gate counts and the existing `contested` field rather than added, because an agent-written field on every rework submit is text in front of agents, which the must-not above forbids (plan §2.3); the cancel reason is a five-value enum on one optional tool parameter, the single addition to always-on text, shipped through a veto gate and removed if parents leave it empty. Redirect if wrong.
+
+**Not doing.** Public benchmarks. A hosted eval platform. Online A/B tests of Loom's own UI. Annotation campaigns. Reviving the 288-trial synthetic rule ablation from May (its synthetic tasks were found "too easy", and real tasks are now available instead). Simulated users.
+
+**Questions for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "eval-1-census",
+      title: "Eval 1: have an agent read and code 40 recent threads for what went wrong, with you reviewing the resulting failure categories and counts for an hour?",
+      subtitle: "The cheapest item and the one every builder with a documented win started with; it decides what Evals 3 and 4 check. About $40 of reading, repeated quarterly.",
+      mode: "single",
+      refs: [{ label: "3. The proposed evals", anchor: "3-the-proposed-evals" }],
+      options: [
+        { id: "now", label: "Pursue now, as the first step", recommended: true },
+        { id: "park", label: "Park until there is a reason to look" },
+        { id: "drop", label: "Drop: the retro skill already does this per tree" },
+      ],
+    },
+    {
+      id: "eval-2-dashboard",
+      title: "Eval 2: build a weekly outcome dashboard from the live database (rework rate, steers per goal, children going quiet, restarts, cost per goal, by role and model)?",
+      subtitle: "One to two days of agent work, $0 a week to run. It cannot attribute a change to a cause, but without it no before/after exists for anything.",
+      mode: "single",
+      refs: [{ label: "3. The proposed evals", anchor: "3-the-proposed-evals" }],
+      options: [
+        { id: "now", label: "Pursue now", recommended: true },
+        { id: "park", label: "Park" },
+        { id: "drop", label: "Drop: the usage meter is enough" },
+      ],
+    },
+    {
+      id: "eval-3-trace",
+      title: "Eval 3: extend the retro scanner into deterministic checks over every session log (rules broken, guards fired, reports claiming work the transcript never did)?",
+      subtitle: "Two to three days, $0 a week. The checks are structural (which tool was called), not phrase matches, because three of the retro's phrase signals measured 0% precision.",
+      mode: "single",
+      refs: [{ label: "3. The proposed evals", anchor: "3-the-proposed-evals" }],
+      options: [
+        { id: "now", label: "Pursue now", recommended: true },
+        { id: "park", label: "Park until the census says which checks matter" },
+        { id: "drop", label: "Drop" },
+      ],
+    },
+    {
+      id: "eval-4-replay-suite",
+      title: "Eval 4: when the next upstream pull brings the evals package, add a pi template (it ships with Claude and Codex ones only) and 10 to 15 cases from Loom's own failures, and run it before shipping any role, skill or tool-text edit and before each model rollover?",
+      subtitle: "Three to five days once the runner is in, $1 to $3 a run. With 3 samples a case it only sees a behaviour flip from always to never; it cannot score a wording tweak.",
+      mode: "single",
+      refs: [{ label: "3. The proposed evals", anchor: "3-the-proposed-evals" }],
+      options: [
+        { id: "after-pull", label: "Pursue once the upstream pull lands, with cases taken from the census", recommended: true },
+        { id: "now", label: "Pursue now, writing a pi runner before the pull" },
+        { id: "park", label: "Park" },
+        { id: "drop", label: "Drop" },
+      ],
+    },
+    {
+      id: "eval-5-gates",
+      title: "Eval 5: check whether the review gates are right, by scripting an escape proxy (later fix commits on files a clean gate passed) and, if it finds escapes, you reading 15 gates for an hour?",
+      subtitle: "The gates are Loom's main quality signal and nobody has checked their precision. The proxy is a day and $0; the hour is yours.",
+      mode: "single",
+      refs: [{ label: "3. The proposed evals", anchor: "3-the-proposed-evals" }],
+      options: [
+        { id: "proxy", label: "Build the escape proxy now; the hour of reading only if it finds escapes", recommended: true },
+        { id: "both", label: "Build the proxy and schedule the hour of reading regardless" },
+        { id: "park", label: "Park both" },
+      ],
+    },
+    {
+      id: "eval-6-real-replay",
+      title: "Eval 6: replay finished coder tasks from their real starting code state under a variant role text?",
+      subtitle: "Feasible: 793 of 808 coder threads since 1 September have a recoverable starting tree. But one paired comparison on 20 tasks costs $300 to $1,300 at list price and detects only a large effect.",
+      mode: "single",
+      refs: [{ label: "3. The proposed evals", anchor: "3-the-proposed-evals" }],
+      options: [
+        { id: "park", label: "Park; exempt a sample of start refs from the retention sweep so it stays possible", recommended: true },
+        { id: "now", label: "Pursue now, as a spike on 5 tasks" },
+        { id: "drop", label: "Drop, and let the retention sweep take the refs" },
+      ],
+    },
+    {
+      id: "eval-7-model-ab",
+      title: "Eval 7: randomise the coder model (Opus against Sonnet) per spawn, as the prompt-cache A/B already randomises per root, and read rework and steers after about ten weeks?",
+      subtitle: "The one experiment where production volume makes the statistics work for free. It costs nothing extra to run, but a weaker coder costs you rework during the trial, and the saving is subscription pacing, not cash.",
+      mode: "single",
+      refs: [{ label: "3. The proposed evals", anchor: "3-the-proposed-evals" }],
+      options: [
+        { id: "park", label: "Park until the dashboard exists to read it", recommended: true },
+        { id: "now", label: "Pursue now alongside the dashboard" },
+        { id: "drop", label: "Drop: the tiering is settled" },
+      ],
+    },
+    {
+      id: "eval-8-handoff",
+      title: "Eval 8: judge briefs and reports with a model (does a parent know files changed, decisions and what is left from the report alone; does brief quality predict rework)?",
+      subtitle: "The review-process study already measured this once: about 70% of brief words restate context and 7 of 262 verdicts hinged on the brief. The hand-back friction you feel is better served by running the lessons triage that never ran.",
+      mode: "single",
+      refs: [{ label: "3. The proposed evals", anchor: "3-the-proposed-evals" }],
+      options: [
+        { id: "drop", label: "Drop", recommended: true },
+        { id: "park", label: "Park" },
+        { id: "now", label: "Pursue now" },
+      ],
+    },
+    {
+      id: "anything-else",
+      title: "Anything the research missed, or a failure you see that none of these would catch?",
+      mode: "freeform",
+      placeholder: "A goal title, a correction you keep making, a behaviour you want counted",
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- Can upstream's fake-thread runner host pi's tool protocol? Its templates are Claude and Codex captures only, and its skill-eval PR lists pi as "Not delivered". A one-day spike after the pull settles it; if not, Eval 4 becomes a small pi-native runner reusing upstream's case format and rules.
+- Can Carl's steering rate be separated from Carl's own habits changing? Only by reading the dashboard alongside the census; the dashboard detects, the census explains.
+- What is the escape proxy's own precision? A later "fix" commit on the same files may be unrelated. The first 20 hits get read before the number is trusted.
+
+## 1. What "eval" means here
+
+An eval is a measurement of agent behaviour that can be repeated: the same question asked of the same kind of evidence, so two readings can be compared. Four kinds matter for Loom, and every proposal below names which it is.
+
+<Table
+  density="compact"
+  columns={["Kind", "What it is", "What Loom has today as a seed", "Proposals"]}
+  rows={[
+    [
+      "**Offline replay**",
+      "Re-run a fixed set of scenarios under a variant role, skill or tool text and compare against the unchanged text on the same model",
+      "Nothing standing. One probe ran once (August, child-prompt-dedup) and was thrown away. Upstream's `evals/` package is the model",
+      "4 (fake threads), 6 (real tasks)",
+    ],
+    [
+      "**Trajectory grader**",
+      "A scripted or model-judged pass over what agents actually did in real sessions: tool calls, commands, what the report claimed",
+      "The retro scanner (`skills/retro/scripts/retro_scan.py`, 19 signals), run on one tree at a time when Carl types `/retro`",
+      "1 (by hand), 3 (scripted), 5 (verdicts), 8 (model-judged)",
+    ],
+    [
+      "**Outcome metric over time**",
+      "A rate recomputed on a schedule from production records: rework, human corrections, quiescence, cost per goal",
+      "Every number exists in `statev2.sqlite`; none is recomputed. The usage meter reads cost only",
+      "2, 7 (with randomisation)",
+    ],
+    [
+      "**Regression suite**",
+      "Trap scenarios run before a release or a model rollover, pass or fail: never push to main, never `git stash`, never kill by pattern",
+      "Command guards block some of these at call time but their firings are never counted. Orchestration tests run scripted agents, never a model",
+      "Guard cases inside 4; counts inside 3",
+    ],
+  ]}
+/>
+
+A fifth thing is often called an eval and is not proposed: a public benchmark score. Section 6 says why.
+
+## 2. The gap, with numbers
+
+**What Loom records.** For every thread: its brief (27 MB of them), the exact assembled system prompt of its first turn (4,306 files since 23 September), its full pi transcript (about 2,970 session files since 1 October), its report and every gate round's report (5,954 files, 928 of them per-round gate reports), its outcome with the reviewer's must-fix and nice-to-have counts, and its cost per message and model (244,000 ledger rows, $48.8k at list price). Per-turn git checkpoints hold the starting file tree of 98% of finished coder threads since September.
+
+**What it does not do with any of it.** No metric is recomputed on a schedule. No scenario is re-run when a role, skill or model changes. Nothing links an instruction version to an outcome. Every quantitative claim about agent behaviour in the repo's history was built by an agent for one decision and thrown away: the 262-gate review-process study, a census of 2,175 sessions for skill reads, "4 of 5 consults failed", "10 of 20 raises". None was re-run after its change shipped.
+
+### The instruction surface changes without measurement
+
+Since 1 June there were about **169 Loom-authored commits** to `roles/`, `.t3code/roles/`, `AGENTS.md` and `skills/` (13 in June, 50 in July, 16 in August, 34 in September, the rest in October). This count is a heuristic over commit messages and the plans they cite, so a measurement recorded only in a thread report would be missed.
+
+<Table
+  density="compact"
+  columns={["Evidence behind the change", "Changes", "Example"]}
+  rows={[
+    {
+      tone: "success",
+      cells: [
+        "Before/after behavioural probe",
+        "**1**",
+        "Child-prompt-dedup (August): old and new builds replayed on one scenario. Verdict \"DON'T SHIP\": a tool-enabling path could not enable launch-excluded tools. The one probe that ran caught a ship-blocker",
+      ],
+    },
+    [
+      "A failure counted before the change, never re-measured after",
+      "about 5",
+      "The review-process study (262 gates); \"10 of 20 recent raises\" behind the attention audit; \"4 of 5\" behind the consult fix",
+    ],
+    ["Byte or token count only", "about 2", "The system-prompt audit; the retro tool-profile count"],
+    [
+      "Wording review by another model or thread, no measurement",
+      "a handful",
+      "The built-in roles; the `skill-authoring` word-count reviews",
+    ],
+    {
+      tone: "risk",
+      cells: [
+        "No measurement cited",
+        "**about 160**",
+        "The 19 October orchestrator role line \"judges a hand-back by the effort it leaves the human\", which came out of a retro; the 30 September role prune, whose only follow-up is a watch-list of symptoms that relies on Carl noticing",
+      ],
+    },
+  ]}
+/>
+
+Changes run under the `llm-instruction-change` protocol (a noise floor, at least three runs per arm, a change record): **0**. The protocol assumes a pipeline with a row corpus and a prompt-version changelog; Loom's prompts have neither, which is the shape gap Evals 2 and 4 close.
+
+### What the blindness costs today
+
+The figures below are from the live database for 30 June to 1 November 2026. Loom's orchestration was re-platformed on **7 October**; records before that were imported and carry less (no mark of who wrote a message, no `ask_user_question` payloads, no cause on an outcome), so the cleanest window is the 3.7 weeks since, and both eras are given where they differ. One runaway coder thread that raised `needs_guidance` 13,582 times in a control-plane loop in August is excluded; it is the only filter applied. Costs are the provider's list price for calls that mostly ran on subscriptions.
+
+<Table
+  density="compact"
+  columns={["Where Carl's effort goes", "Number", "Source and caveat"]}
+  rows={[
+    [
+      "Gates bounce",
+      "**43%** of first review verdicts are needs_rework over all history; **31%** since 7 Oct (50% before). 98% of gates still end in resolve. needs_rework carries a mean of 2.3 must-fix findings",
+      "714 gates with a verdict. The coder accepts essentially every rework (82 acceptances against 79 loops); only 19 submits ever contested a finding",
+    ],
+    [
+      "Gates pass the wrong thing",
+      "One sharp post-mortem: \"The gates were well built and honestly run. They just measured the wrong things… it was passed on the database receipt. In two of those cases the screenshot filed as evidence shows the defect\"",
+      "The Pull 9 re-platform post-mortem. A July retro proposal said the same: no \"clean\" on unrun tests. Escapes after a clean gate are not recorded anywhere, so the rate is unknown",
+    ],
+    [
+      "Roots ask Carl to choose",
+      "**135** asks from 68 roots (about a quarter of roots) since 7 Oct; **89 minutes** mean wait for an answer; about 40% of answers were free text rather than a pick; about **1 in 7** asked the agent to explain or questioned the framing",
+      "Examples: \"I think you need to explain the issue to me in more detail with an example\"; \"I don't understand your question, I thought we were about to do a cheap spike?\"",
+    ],
+    [
+      "Carl steers roots, not children",
+      "Mean **5.4** messages per goal after the opening ask (median 2; 62 goals took none, 23 took more than 10). He wrote into **1.8%** of children since 7 Oct, against 5.0% before, when a third of those were \"bump\" or \"continue\"",
+      "The quiescence rail (the control plane writing a stand-in report when a child goes quiet) took quiet children from 3.7% to 1%. That fix worked and nobody measured it until now",
+    ],
+    [
+      "Work is redone",
+      "**304** children cancelled; **132** restarted under the same or a \"retry\" or \"fresh\" title. Titles like \"Render-gate fix (fresh builder)\" are among the most expensive coder threads",
+      "No cancel reason is stored and nothing links a replacement to what it replaced, so this is a title-matching proxy",
+    ],
+    [
+      "Cost concentrates",
+      "Median goal **$12.70**, mean $74, top goal $4,453. The top 10% of goals carry **73%** of cost: long campaigns averaging 45 threads, 2.4 roots, 40 human messages, 4.6 gate loops and 31 days",
+      "Roots and coders are each about a third of spend. Expensive goals are long campaigns with heavy steering and repeated rework, not single runaway threads",
+    ],
+    [
+      "Rules break uncounted",
+      "The repo's \"three ways to hurt yourself\" exist because each happened. Command guards block some at call time; their firings sit in transcripts and are never counted. Two retros found a ship without the guarded skill",
+      "The lessons inbox captured the same `vp` PATH trap in sibling worktrees five or six separate times in three days; nothing aggregates repeats",
+    ],
+  ]}
+/>
+
+The human-in-the-loop instruments that exist run rarely and leave their triage unfinished. `/retro` has 6 persisted proposal batches since July and 3 scanner runs since mid-October, two of which never reached the index; its signal precision rests on 2 reviewed runs. The lessons inbox holds 45 entries, 1 promoted, and the monthly triage the skill describes has no scheduled task behind it, so it has never run.
+
+## 3. The proposed evals
+
+Each card gives the question, the gap it closes, what Carl would do differently depending on the answer, the evidence that the gap costs something today, how it works, its cost, what the outside research says, what the noise floor implies where two variants are compared, and the main risk. The noise floor comes from the `llm-instruction-change` skill: two identical runs of the same prompt on the same inputs agree on about half their records, zero failures in four samples only bounds the true failure rate below 53%, and detecting a 10-point paired improvement at 80% power needs about 75 to 230 items.
+
+### 3.1 Failure census
+
+<Card
+  eyebrow="EVAL 1"
+  heading="What actually goes wrong across 40 recent threads, how often, and what does it cost?"
+  tone="success"
+  badge="PURSUE NOW · first"
+  meta={["trajectory grader, by hand", "no build", "about $40 a round", "1 hour of Carl", "quarterly"]}
+>
+  - **Gap it closes.** Every eval needs criteria, and the research is unanimous that criteria come from reading real traces first: Shankar's EvalGen study found that "users need criteria to grade outputs, but grading outputs helps users define criteria", and Anthropic does "not take eval scores at face value until someone… reads some transcripts". Loom's failure catalogue today is 25 retro proposals, 45 inbox lessons and 40 Loom issues filed by agents since late September, in three unlinked corpora, none with a frequency.
+  - **What changes with the answer.** Which checks Eval 3 scripts and which cases Eval 4 replays; which role lines are candidates for removal because the failure they target never appears (the `AGENTS.md` bias against rules has no instrument today); which failures are rare enough to ignore.
+  - **Evidence it costs something.** The top 10% of goals carry 73% of spend and average 4.6 gate loops and 40 human messages; nobody has read a sample of those to say why. The retro's per-tree view found "measured the wrong things" once; a cross-tree read says whether it is a pattern.
+  - **How it works.** An agent draws 40 threads since 7 October, stratified by role and including the expensive tail, runs the retro scanner's digest on each, reads the digests and the human messages, and open-codes each failure in a sentence (Hamel Husain's method: binary pass/fail with a written critique, then group into categories). Carl reviews the codebook (the failure categories, their definitions and counts), not the threads, for about an hour: which categories he recognises, which surprise him. Output is a ranked table of failure categories with counts and a candidate check or case for each.
+  - **Cost.** No build; the scanner exists. About $40 of model reading per round at researcher-thread rates. Repeat quarterly, or after a model rollover.
+  - **What the research says.** Every builder with a documented win started here: Anthropic found its research agents spawning 50 subagents for simple queries by watching runs; the Rechat case broke a plateau with assertion tests drawn from observed failures. Hamel's recommended size is 30 to 50 traces per round.
+  - **Sample size.** 40 threads will almost certainly surface any failure that hits more than about 1 thread in 14 (a 94% chance) and will miss rarer ones. That is the right trade: a failure rarer than that is not worth a standing eval.
+  - **Main risk.** The codes become role rules without measurement, which is exactly the pattern that produced 160 unmeasured edits. The census outputs candidate checks and cases, never prompt edits.
+</Card>
+
+### 3.2 Outcome dashboard
+
+<Card
+  eyebrow="EVAL 2"
+  heading="Did anything move after an edit or a model rollover?"
+  tone="success"
+  badge="PURSUE NOW"
+  meta={["outcome metric over time", "1 to 2 days", "$0 a week", "optional classifier $1 to $2 a month"]}
+>
+  - **Gap it closes.** No before/after exists for anything. The 30 September prune, the 19 October orchestrator line and the monthly `platform-update` rollover all shipped into a system with no baseline to compare against.
+  - **What changes with the answer.** Whether a rollover is held or reverted when rework or steering jumps in the following fortnight; where the next census looks; whether a role edit that was meant to cut a failure is followed up or quietly dropped.
+  - **Evidence it costs something.** The quiescence rail cut quiet children from 3.7% to 1% and that was learned four weeks later by a one-off study. The one randomised experiment in production, the prompt-cache retention A/B over 2,985 launches, proves Loom can already randomise and read out an arm per thread; it measured cost only.
+  - **How it works.** A committed SQL file or `vp run` dev script reads `statev2.sqlite` read-only and writes one markdown table a week: goals and children started, first-verdict rework rate and gates per goal, human messages per goal (roots) and into children, `ask_user_question` count and share answered in free text, quiescent and cancel-then-restart rates, tool failure rate by tool, protocol refusals, cost per goal (median and mean) and cost per resolved gate, each sliced by role and by model. A scheduled task runs it; the `platform-update` and `llm-instruction-change` skills cite its last two readings. An optional second tier classifies Carl's root messages with a cheap model into decision, explain-to-me, wrong premise, missing fact, skipped process (the categories a 75-message sample already showed), giving a human-correction rate rather than a message count.
+  - **Cost.** One to two days of agent work; $0 a week deterministic; about $1 to $2 a month for the classifier over roughly 330 root messages a week. Three small schema additions would turn one-off studies into queries and belong in the same change: a cancel reason, each review finding's disposition (fixed, contested or ignored; the submit's `contested` field is stored but no submit has used it since 7 October), and a stamp of which version of each instruction surface a thread ran (the prompt-debug sidecar already holds the text).
+  - **What the research says.** Cursor's production signals are dissatisfied follow-up requests (up 2.2% when semantic search was removed) and code retention; upstream T3 Code's open skill-eval PR records follow-up corrections and reverts per turn and labels them "observational and confounded", never letting them produce a verdict. Anthropic's September 2025 postmortem: "The evaluations we ran simply didn't capture the degradation users were reporting", fixed with continuous evals on production. METR's RCT is the warning: developers felt 20% faster and measured 19% slower, so felt quality is not a metric.
+  - **Sample size.** About 60 goals and 70 gates a week since 7 October. A week-to-week change in rework rate under about 15 points is within noise; read it over four-week windows, where the noise is about 8 points. It is observational and confounded by project mix, model rollovers and Carl's own habits, so it detects, never attributes; attribution is Eval 4's job.
+  - **Main risk.** It becomes a report nobody reads, like the prompt-prune watch-list. Mitigation is structural: the two skills that change instructions or models must quote its readings, and the census (Eval 1) is pointed at whatever it shows.
+</Card>
+
+### 3.3 Trace checks
+
+<Card
+  eyebrow="EVAL 3"
+  heading="Which rules do agents break, which do they follow anyway, and do reports claim work the transcript never did?"
+  tone="success"
+  badge="PURSUE NOW"
+  meta={["trajectory grader, scripted", "2 to 3 days", "$0 a week", "extends the retro scanner"]}
+>
+  - **Gap it closes.** Rule-following is invisible. The command guards (search, command, consult, query, pgrep) block known-bad commands at call time and their firings are never counted; rules with no guard (stage by path, run `vp check` before claiming done, consult the parent before `needs_guidance`) are not observed at all. Report honesty is checked only by the retro's phrase-matching `report-departure` signal, per invoked tree.
+  - **What changes with the answer.** A rule nobody breaks comes out of the prompt (the `AGENTS.md` bias against rules, finally with evidence). A rule broken often becomes a command guard rather than another sentence. A role whose reports claim verification the transcript lacks gets the fix, not every role.
+  - **Evidence it costs something.** The post-mortem gate that passed on a database receipt while the screenshot showed the defect; two retros on shipping without the guarded skill; 38 submit refusals, 16 of them "report has no response block"; prompting a thread that was already done about 25 times.
+  - **How it works.** New checks in `retro_scan.py` run over every session file since 1 October, not one tree, and write counts per role and model into the Eval 2 table. The checks are structural, over tool calls and their results: a report that says "verified", "tests pass" or "shipped" with no matching command in the transcript; `git add -A`, `git stash`, a `pgrep` or `pkill`, a `git push` to main; a `sleep` polling loop where a watch tool exists; the same file read four or more times; a commit by a thread that is not a shipper and was not asked; a guard firing. Each new check is reviewed on its first 20 hits before its count is trusted.
+  - **Cost.** Two to three days; $0 a week, since nothing calls a model.
+  - **What the research says.** OpenAI's skill evals run exactly these over trace logs (did the agent invoke the skill, run the expected command, how many commands, is `git status` clean afterwards); Anthropic's tool guide adds call counts, tokens and tool errors, and its fix for Claude appending "2025" to search queries came from reading tool-call data, not a benchmark.
+  - **Sample size.** Deterministic, so no model noise; the question is precision. Three retro phrase signals measured 0% and `tool-error` 21% across the two reviewed runs, which is why these checks match tool structure rather than wording, and why each gets a reviewed sample first.
+  - **Main risk.** Checks drift into phrase matching for convenience and inherit the retro signals' precision. The bar is: a check counts a tool call or its absence, or it does not ship.
+</Card>
+
+### 3.4 Replay suite in upstream's shape
+
+<Card
+  eyebrow="EVAL 4"
+  heading="Does this role, skill or tool-text edit fix the failure it was written for without breaking a behaviour that was right?"
+  tone="info"
+  badge="PURSUE AFTER THE UPSTREAM PULL"
+  meta={["offline replay, fake threads", "3 to 5 days", "$1 to $3 a run", "pi template is the unknown"]}
+>
+  - **Gap it closes.** The one instrument that attributes. Of 169 instruction edits, the only one replayed before shipping caught a ship-blocker. Upstream T3 Code shipped a top-level `evals/` package on 26 October 2026 (`evals/mcp-tool-use`, `evals/thread-titles`, `evals/test-signal`, `evals/shared`) that replays 88 small fake threads against the real instruction text imported from the checkout, with a cheap model playing the shell, each case marked bad (reproduces a real mistake), guard (protects correct behaviour) or control, about three samples each, judged against a baseline on the same model. It is on `upstream/main` and not yet in Loom; it arrives with the next pull. It has no pi template.
+  - **What changes with the answer.** Whether an edit to a role, a skill or an MCP tool description ships, and whether the monthly model rollover proceeds: a bad case that moved from always-failing to always-passing is a reason to ship, a guard case that moved the other way is a reason not to.
+  - **Evidence it costs something.** Upstream's documented results: a case checking that every delegated child brief routes UI through managed devices went from 0/3 to 3/3 on two models; a denied-access case from 0/3 to 3/3 on four; and, in a PR still open, one added bullet took "settle this thread" from 0/3 to 3/3. In Loom, the orchestrator scaffolded children and forgot to brief them 66 times, two retros found a ship without the guarded skill, one found a child aimed at the wrong worktree and one an orchestrator folding review findings without weighing them: all are case-shaped.
+  - **How it works.** Loom adds a pi template (a trimmed capture of one real pi turn's harness prompt, as upstream did for Claude and Codex), points the runner at Loom's roles, skills and MCP tool text, and writes 10 to 15 cases from the census: bad cases for the orchestrator that scaffolds without briefing and the child that escalates without consulting, guard cases for the shipper that refuses to push to main and the child that consults first, and controls of ordinary work. Three samples per case on one model, compared with the unchanged text on the same model. A free companion arriving in the same pull is upstream's context-budget ratchet, which fails CI when the composed instruction text grows past main; it covers Claude and Codex text today, and pointed at Loom's composed role and tool text it is what would protect the 30 September prune.
+  - **Cost.** Three to five days once the runner is in, most of it the pi template. Upstream's full 88-case suite costs about $9 on Sonnet and $17 on Opus; 15 cases at 3 samples is about $1 to $3 a run. Dry runs cost $0.
+  - **What the research says.** This is the only kind of eval with documented decisions at Loom's scale: Aider's 89-task edit-format benchmark took GPT-4 Turbo from 20% to 61% and made unified diffs the default; SWE-agent's interface ablations (a 100-line file viewer at 18.0% against 12.7% for the whole file) set its tool design; Anthropic reached state of the art on SWE-bench with "precise refinements to tool descriptions". Upstream's rules, which the `llm-instruction-change` skill largely mirrors, are: a case names the real experience it reproduces, is written before the fix so it fails on the old text, has controls, runs several samples, and compares against a baseline on the same model.
+  - **Sample size.** Three samples see one thing: a case flipping from always to never, which is what upstream's wins were. A prompt that fails 30% of the time passes 3 of 3 by luck 34% of the time, so a 1/3 against 2/3 difference is noise. A suite-wide 10-point improvement would need 75 to 230 cases; Loom will not have them and should not try. This is a tripwire for gross failures and a rollover check, not a score for wording.
+  - **Main risk.** Fake threads tip the agent off: the May ablation found "synthetic tasks are too easy… prompts tip the agent off", and a case written after the fix passes by construction. Upstream's write-the-case-first rule and the census as the source of cases are the mitigations; a case that never fails on the old text is deleted.
+</Card>
+
+### 3.5 Gate calibration
+
+<Card
+  eyebrow="EVAL 5"
+  heading="Do the review gates' must-fix findings hold up, and what escapes a clean gate?"
+  tone="info"
+  badge="PROXY NOW · HUMAN HOUR IF IT FINDS ESCAPES"
+  meta={["trajectory grader over verdicts", "1 day for the proxy", "$0", "1 hour of Carl, conditional"]}
+>
+  - **Gap it closes.** The gates are Loom's main automated quality signal and their accuracy has never been checked. 43% of first verdicts are needs_rework and 98% of gates resolve, which is consistent with gates that catch real defects and with gates that generate churn the coder accepts without argument (only 19 submits ever contested a finding). Escapes after a clean verdict are recorded nowhere.
+  - **What changes with the answer.** Which model reviews (GPT runs 29% of reviewer threads, Opus most of the rest; reviewers cost $4.4k against coders' $16.3k); whether "no clean on unrun tests" becomes a rule, a check in Eval 3, or nothing; whether a 31% rework rate is a cost to cut or a defect rate to be glad of.
+  - **Evidence it costs something.** The Pull 9 post-mortem: gates "measured the wrong things" and passed on database receipts while the filed screenshots showed the defect. METR found about half of test-passing SWE-bench PRs would not be merged, so a gate reading tests alone overstates.
+  - **How it works.** Tier A, scripted: for each gate that resolved clean or fixed-inline since 7 October (about 250), find later commits within 14 days that touch the same files with "fix" or "revert" in the message, or a later gate's must-fix on the same files. Report the escape rate by reviewer model and by coder model. Tier B, human: if tier A finds escapes worth an hour, Carl reads 15 gates (the diff, the findings, the escape if any) and marks each must-fix real or not and names what was missed; that gives the gate's precision and recall against the one judge who matters.
+  - **Cost.** A day for the proxy, $0 to run. An hour of Carl's reading for tier B, which is the expensive resource and why it is conditional.
+  - **What the research says.** Everyone's second step is measuring the grader: Cognition measures its evaluator agents' precision and recall against a ground-truth set and has humans review the evidence continuously; Hamel aligns the judge to one "benevolent dictator"; Anthropic's Opus 4.5 scored 42% on CORE-Bench until grader and spec bugs were fixed, then 95%. Loom's reviewers are agent graders, so the lesson transfers as written.
+  - **Sample size.** Fifteen gates give a precision estimate with error bars of about 25 points: a sanity check, not a score. The proxy over 250 gates is the statistical half; its own precision is unknown until the first 20 hits are read.
+  - **Main risk.** The proxy counts unrelated later fixes as escapes, or misses escapes fixed under another name. It is a lower bound with a reviewed sample, and the human hour is spent only if it finds something.
+</Card>
+
+### 3.6 Real-task replay from checkpoints
+
+<Card
+  eyebrow="EVAL 6"
+  heading="Does a coder role edit change outcomes on Loom's own past tasks, re-run from their real starting code?"
+  tone="neutral"
+  badge="PARK · PIN THE CORPUS"
+  meta={["offline replay, real tasks", "3 to 5 days", "$300 to $1,300 list per comparison", "feasible but costly"]}
+>
+  - **Gap it closes.** The gold question: not "does the agent behave in a fake thread" but "does it do the real job better". The May experiment ruled this out for lack of code state. That premise is now false: Loom's per-turn checkpoints (hidden git refs, never pruned) hold the exact file tree at the start of a coder thread's first turn. Of 808 finished coder threads since 1 September, **793 (98%)** have a recoverable starting tree and all 808 have their brief; a 6-week-old thread's tree was rebuilt with one `git worktree add` in 2.5 seconds. About **60 to 65%** (13 of a random 20) are replayable single-shot from brief plus tree and gradable against a recoverable end state; the rest took a mid-thread steer (about 25%), depended on environment that only exists as of today such as a dev server seeded from the live database (about 20%), or went through a rework round (about 11%).
+  - **What changes with the answer.** Whether a coder role or skill edit ships, judged on real work rather than a fake thread; whether a cheaper coder model does the same job.
+  - **Evidence it costs something.** Coders are a third of spend ($16.3k list, mean $10.80 a thread) and 1,617 of 5,994 threads. Every coder-role and coder-skill edit since June shipped unmeasured, like the rest.
+  - **How it works.** Pick done coder threads with no substantive steer; rebuild the start tree in a fresh worktree; copy any out-of-tree inputs from their as-read content in the original transcript; start an isolated dev server on that worktree with the variant text in its `roles/coder.md` (built-in roles are read fresh per launch; a project overlay only appends) and a pi agent directory separate from the live one; run the original brief on the original model; have a judge compare the result with the original's surviving branch and report; repeat with the unchanged text for a paired comparison.
+  - **Cost.** Three to five days to build the rebuild, isolation and judge steps. One comparison of 20 tasks at 2 arms and 3 samples is 120 coder runs: $300 to $1,300 at list price depending on task size, plus judge calls, and a day or two of wall-clock. Most of that is subscription-routed, but it competes with real work for the same quota.
+  - **What the research says.** Private suites drawn from real usage are what changed decisions at Cognition (its suite drove a model swap worth +12% end to end and surfaced "context anxiety") and what cline-bench is built from (sessions where a model failed and a human stepped in). Nobody at one-person scale has published one.
+  - **Sample size.** Twenty tasks detect only a large effect; the 75 to 230 items a 10-point paired improvement needs would cost about $1,400 to $15,000 at list per comparison and days of compute. That is the honest reason to park: the cheap version of the same question (did coder rework and steering move after the edit) comes from Evals 2 and 3 on production for free, and Eval 4 attributes gross failures for $3.
+  - **Main risk, and the one action now.** The approved checkpoint-ref retention plan (a 14-day sweep of terminal threads' refs, not yet built, and its own kicker says it must be re-grounded first) would delete this corpus. The Assumed line above exempts or snapshots a sample of coder start refs when that sweep is built. Cost: a line of code then.
+</Card>
+
+### 3.7 Model-per-role A/B
+
+<Card
+  eyebrow="EVAL 7"
+  heading="Is Opus worth it for coders when Sonnet would do?"
+  tone="neutral"
+  badge="PARK UNTIL EVAL 2 EXISTS"
+  meta={["outcome metric, randomised", "1 to 2 days", "$0 extra", "about 10 weeks to read"]}
+>
+  - **Gap it closes.** Cost by role and model can be queried today; outcome by role and model cannot, and nothing randomises model choice. Tiering is visible in the data (planners on Fable, shippers on Sonnet, about 92% of coders on Opus) and was set by judgement.
+  - **What changes with the answer.** The coder tier in the `platform-update` rollover. Coders are $16.3k of $48.8k list; a tier down would cut that line by the price gap between the two models and ease subscription pacing.
+  - **Evidence it costs something.** Only the cost figure. Nothing says Opus coders are rejected less, which is the point.
+  - **How it works.** As the prompt-cache A/B assigns an arm per root launch, assign a coder model per spawn at random and record it; read first-verdict rework rate, Carl's messages into the thread and cancel-then-restart from the Eval 2 table after about ten weeks.
+  - **Cost.** A day or two to wire the arm and the readout; $0 extra, since the threads run anyway. The real cost is rework during the trial if the cheaper arm is worse.
+  - **What the research says.** Cursor's Tab reinforcement learning and semantic-search A/B are the production precedents; both rest on large user traffic. Cognition decided model swaps on a private suite instead. The usage data says a one-person project cannot A/B UI, but it can A/B a model choice because every thread is a trial.
+  - **Sample size.** About 100 to 120 coders a week, perhaps 60 of them gated. An unpaired design needs roughly 300 per arm to see a 10-point difference from the 69% first-pass rate since 7 October, so about ten weeks. The one place in this document where production volume makes the statistics work for free.
+  - **Main risk.** The outcome measure is the reviewer's verdict, and reviewers differ by model too; stratify by reviewer model or fix it for the trial. Parked only because it needs Eval 2 to read it and the saving is pacing, not cash.
+</Card>
+
+### 3.8 Brief and report probes
+
+<Card
+  eyebrow="EVAL 8"
+  heading="Does brief quality predict rework, and can a parent act on a child's report alone?"
+  tone="neutral"
+  badge="PARK · CARL'S CALL; DROP WAS RECOMMENDED"
+  meta={["trajectory grader, model-judged", "1 day", "a few dollars a run", "already measured once"]}
+>
+  - **Gap it closes.** Whether what the orchestrator writes down for a child, and what the child hands back, is good enough. The hand-back friction Carl feels is real: 25 of the 45 inbox lessons are human corrections, mostly about how to communicate with him.
+  - **How it would work.** Factory's method after context compression: ask the model recall, artefact, continuation and decision questions about the report and grade them on a rubric; and regress brief properties (length, restated standing context, explicit acceptance criteria) against rework rounds.
+  - **Why drop was recommended.** The review-process study already did the brief half once on 262 gates: about 70% of brief words restated context the child already had, and 7 of 262 verdicts hinged on the brief, which says brief quality rarely decides the outcome. Factory's result (its summaries 3.70 against 3.44 and 3.35 for Anthropic's and OpenAI's) is a vendor grading itself with a model judge, directional at best. And the cheaper instrument for Carl's hand-back friction already exists and has never run: the lessons triage over 25 hand-labelled corrections.
+  - **What the research says.** Anthropic's multi-agent work fixed delegation failures by watching runs and tightening brief requirements, not by scoring briefs; Amp replaced compaction with handoff on product reasoning with no eval published.
+  - **If pursued anyway.** A day to build, a few dollars of judge calls a run, and the confounding that a hard task gets both a long brief and more rework.
+</Card>
+
+## 4. What already exists, and what each proposal changes about it
+
+Nothing above is new in kind. Each extends or revives something Loom or pi-craft already has.
+
+<Table
+  density="compact"
+  columns={["Prior art", "What it does today", "Extended by", "What changes"]}
+  rows={[
+    [
+      "`/retro` and its scanner (`skills/retro/`)",
+      "Scans one workstream tree with 19 signals when Carl invokes it; 6 proposal batches since July, 3 scanner runs since mid-October, 2 of them never indexed",
+      "Evals 1 and 3",
+      "Runs across trees and on a schedule; adds structural checks beside the phrase signals; its proposals gain a frequency",
+    ],
+    [
+      "Lessons inbox (`capture_lesson`, `lesson-triage`)",
+      "45 entries, 1 promoted; the monthly triage has no scheduled task and has never run; the same trap captured five or six times",
+      "Eval 1 reads it as labelled data",
+      "Not re-proposed. Creating the scheduled triage is a separate small fix, noted for the parent",
+    ],
+    [
+      "pi-craft rule ablation (May)",
+      "Designed 288 synthetic trials; ran 9 on one real task for about $60; synthetic tasks abandoned as \"too easy\"; the predictions table never filled in",
+      "Eval 4 reuses its trace-checkable task ideas; Eval 6 replaces its synthetic tasks with real ones",
+      "Its method lives on; its synthetic suite does not",
+    ],
+    [
+      "`llm-instruction-change` skill",
+      "Encodes the noise floor, paired comparisons and tiers; 0 Loom changes have run under it because it assumes a row corpus and a version changelog",
+      "Evals 2 and 4 supply the missing corpus (cases) and changelog (the surface-version stamp)",
+      "Its paired-comparison protocol becomes runnable for agent prompts",
+    ],
+    [
+      "Review-process study (October)",
+      "Mined 262 gates once for brief restating and verdict causes",
+      "Eval 5 (verdict disposition), Eval 8 parked",
+      "Its \"persist the contested list\" follow-up is already in the schema but unused; Eval 2's finding-disposition field supersedes it",
+    ],
+    [
+      "Prompt-cache retention A/B",
+      "Randomises a cache arm per root launch, 2,985 launches; the readout set the share of roots given the long cache to 80%",
+      "Eval 7",
+      "Same mechanism, a behavioural outcome instead of cost",
+    ],
+    [
+      "Upstream `evals/` package (26 Oct 2026)",
+      "Replays 88 fake threads against upstream's instruction text; Claude and Codex templates only; not in Loom yet",
+      "Eval 4",
+      "Loom adds a pi template, its own roles and MCP tools, and its own cases; nothing parallel is built",
+    ],
+  ]}
+/>
+
+## 5. Considered and not proposed
+
+<Table
+  density="compact"
+  columns={["Option", "Why not"]}
+  rows={[
+    [
+      "Public coding benchmarks (SWE-bench Verified or Pro, Terminal-Bench, Aider polyglot)",
+      "They measure a model plus a generic scaffold, not Loom's orchestration; they cost hundreds of runs at 100k+ tokens each; and they rot: OpenAI's own audit found 59.4% of 138 hard Verified problems flawed and stopped reporting it, then a second audit found 27 to 34% of Pro broken. METR found an agent passing tests on 38% of tasks produced PRs \"none mergeable as-is\"",
+    ],
+    [
+      "A hosted eval platform (promptfoo, Braintrust, Langfuse, Inspect) or a new eval package beside upstream's",
+      "Loom already has the storage, the renderer for results (MDX) and, after the pull, the runner. A platform adds an account and a schema to maintain for one user; a parallel package is lost at the next upstream pull",
+    ],
+    [
+      "Online A/B tests of Loom's UI, or reinforcement learning from usage",
+      "One user produces too little traffic for anything but the model-choice A/B in Eval 7, where every thread is a trial",
+    ],
+    [
+      "Annotation campaigns, a dedicated eval team, evaluator-agent fleets in containers",
+      "Carl is the annotator. His budget is an hour or two a month, which fixes the census at 40 threads and the gate calibration at 15",
+    ],
+    [
+      "Reviving the 288-trial synthetic ablation as designed",
+      "Its own smoke trials found the tasks too easy and the prompts tipping the agent off; real tasks are now recoverable (Eval 6) if that question is ever worth its price",
+    ],
+    [
+      "Simulated users (as in τ-bench, where a model plays the customer)",
+      "Carl is the user and his messages are in the logs; a simulated Carl would be graded against the real one, which is Eval 2's classifier tier",
+    ],
+    [
+      "pass^k reliability scoring (a behaviour counts only if all k samples pass) as its own eval",
+      "Folded into Eval 4: guard cases on must-always behaviours (never push to main, always the guarded ship) pass only if all three samples pass",
+    ],
+  ]}
+/>
+
+## 6. What the outside research says, for explaining it to someone else
+
+The builders whose evals changed a real decision all used small private suites built from failures they had observed, run as paired before/after comparisons on their own instruction text. Leaderboards mattered for picking models and little else. Every source with a value story also says it read the transcripts, and several found the grader was the bug.
+
+<Table
+  density="compact"
+  columns={["Who", "What they measured", "The decision it changed", "Transfers to Loom?"]}
+  rows={[
+    [
+      "Aider",
+      "89 refactoring tasks built to provoke lazy edits, across edit formats",
+      "Unified diffs became the default for GPT-4 Turbo: 20% to 61%, lazy comments cut threefold. \"Emotional appeal\" prompts scored worse",
+      { badge: { label: "method, as-is", tone: "success" }, md: "provoke a known failure, compare variants" },
+    ],
+    [
+      "Anthropic",
+      "Tool descriptions on SWE-bench; agent evals that grade outcomes with light process checks; should-act and should-not-act pairs",
+      "Sonnet 3.5 reached 49% (state of the art then) with two tools after \"precise refinements to tool descriptions\". Web search over- and under-triggering took \"many rounds\" to balance",
+      { badge: { label: "as-is", tone: "success" }, md: "Loom's roles, skills and tool text are the same surface" },
+    ],
+    [
+      "Upstream T3 Code",
+      "88 fake threads replayed against real instruction text; bad, guard and control cases; 3 samples; baseline on the same model",
+      "Device-routing and access-denied cases 0/3 to 3/3 in merged PRs; a context-budget ratchet, after which compact tool schemas cut tool context 23%",
+      { badge: { label: "adopt", tone: "success" }, md: "arrives with the next pull; needs a pi template" },
+    ],
+    [
+      "Cursor",
+      "Semantic search offline and in an online A/B",
+      "Kept it: +12.5% offline accuracy; removing it raised dissatisfied follow-ups 2.2%",
+      { badge: { label: "signal only", tone: "info" }, md: "follow-up corrections transfer; the A/B needs traffic" },
+    ],
+    [
+      "Cognition",
+      "A private suite from real usage; evaluator agents measured for precision and recall",
+      "Swapped GPT-4o subsystems for o1; rebuilt for Sonnet 4.5 (+12% end to end); found and fixed \"context anxiety\" by capping context at 200k",
+      { badge: { label: "scaled down", tone: "info" }, md: "Eval 6 is this at 20 tasks; Eval 5 is the grader check" },
+    ],
+    [
+      "OpenAI",
+      "Skill evals: 10 to 20 prompts a skill with negative controls, deterministic trace checks first, rubric second. SWE-bench audits",
+      "Retired SWE-bench Verified; harness engineering described qualitatively with no measured comparison published",
+      { badge: { label: "trace checks as-is", tone: "success" }, md: "benchmarks do not" },
+    ],
+    [
+      "Hamel Husain, Shankar et al.",
+      "Open-code 30 to 50 traces; binary pass/fail with critique; align the judge to one person; criteria drift",
+      "Rechat broke a plateau with assertion tests from observed failures",
+      { badge: { label: "as-is", tone: "success" }, md: "Carl is the benevolent dictator; his hour is the budget" },
+    ],
+    [
+      "METR",
+      "Expected against measured developer speed-up; mergeability of test-passing PRs",
+      "Developers felt 20% faster and measured 19% slower; about half of test-passing SWE-bench PRs would not be merged",
+      { badge: { label: "a warning", tone: "warning" }, md: "felt quality is not a metric; tests alone overstate" },
+    ],
+    [
+      "Factory, Amp",
+      "Compression and handoff quality by model-judged recall probes",
+      "Factory's own summaries scored best in its own comparison; Amp switched to handoff on product reasoning, no eval",
+      { badge: { label: "weak", tone: "neutral" }, md: "the basis for recommending Eval 8 be dropped; parked instead" },
+    ],
+  ]}
+/>
+
+Two things the research says about Loom's posture. First, Anthropic found that early on "a prompt tweak might boost success rates from 30% to 80%", so a few cases are enough while failures are gross; the fine-grained scoring that needs hundreds of items is for later, if ever. Second, several of the practices with the clearest wins (Claude Code's internal evals for "concision, file edits, over-engineering", OpenAI's harness engineering) are described without numbers, and the one widely quoted line that Claude Code "just runs on vibes" is second-hand and unverified. The absence of published numbers from the biggest teams is a reason to keep Loom's evals small, not a reason to skip them.
+
+## 7. Sequence and total cost
+
+<Steps>
+  <Step at="Week 1" title="Eval 1 census and Eval 2 dashboard, in parallel." badge="about $40 + 2 days">
+    A researcher thread reads 40 threads and hands Carl a codebook for an hour's review. A coder builds the weekly table and its scheduled task, plus the three schema fields (cancel reason, finding disposition, surface-version stamp).
+  </Step>
+  <Step at="Week 2" title="Eval 3 trace checks, scripted from the census." badge="2 to 3 days">
+    Structural checks into the retro scanner, each reviewed on its first 20 hits, their counts joined into the Eval 2 table. Eval 5's escape proxy is built in the same pass.
+  </Step>
+  <Step at="Next upstream pull" title="Eval 4: a pi template and 10 to 15 cases." badge="3 to 5 days, $1 to $3 a run" dashed>
+    Timing depends on the pull. A one-day spike settles whether upstream's runner hosts pi; if not, a pi-native runner reusing upstream's case format and rules.
+  </Step>
+  <Step at="Monthly" title="Read the dashboard at the platform update; run the suite before and after." badge="1 hour of Carl">
+    The `platform-update` and `llm-instruction-change` skills quote the last two readings. The census repeats quarterly or after a rollover.
+  </Step>
+</Steps>
+
+<Table
+  density="compact"
+  columns={["Scope", "Agent build", "Standing run cost", "Carl's time"]}
+  rows={[
+    ["Evals 1, 2, 3 and the Eval 5 proxy", "about 6 to 9 days of coder and researcher threads", "under $20 a month at list, almost all of it the optional classifier and census reading", "1 to 2 hours a month"],
+    ["Eval 4", "3 to 5 days after the pull", "$1 to $3 a run, a few runs a month", "none beyond reading results"],
+    ["Evals 6 and 7 if revived", "3 to 5 days; 1 to 2 days", "$300 to $1,300 per comparison; $0", "none; rework during the trial"],
+  ]}
+/>
+
+###### Sources: four research threads run 1 to 2 November 2026 over the live database (30 June to 1 November), the workstream reports, the retro corpus, the lessons inbox, the loom and fathom-platform git repositories, upstream T3 Code at `upstream/main`, and the published engineering writing of Anthropic, OpenAI, Aider, Cursor, Cognition, Factory, OpenHands, LangChain, METR, Hamel Husain and Shankar et al. Every number in this document is from one of those four reports; estimates of build days and run dollars are the author's, scaled from the reports' per-thread and per-run costs.

@@ -9,6 +9,7 @@ import {
   CommandId,
   DOCUMENT_QUERY_ROLE,
   type LoomAttentionReason,
+  type LoomCancelReason,
   type LoomCommand,
   type LoomDomainEvent,
   type LoomEventType,
@@ -561,7 +562,8 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
     threadId: ThreadId,
     outcome: LoomThreadWorkstream["outcome"],
     cause: LoomOutcomeSetCause,
-  ) => on("thread.outcome-set", threadId, { outcome, cause });
+    reason?: LoomCancelReason, // loom: cancel reason
+  ) => on("thread.outcome-set", threadId, { outcome, cause, ...(reason && { reason }) });
   /** `reviewer`: a gate leg's source, blocked on its own target by construction, so never a warning. */
   const warnStartedDependents = Effect.fn("Orchestrator.warnStartedDependents")(function* (
     row: LoomThreadWorkstream,
@@ -1253,10 +1255,13 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
     case "thread.outcome.set": {
       const row = yield* requireWorkstream(command.threadId);
       if (row.outcome === command.outcome) return {};
+      const cascade = command.commandId.startsWith(LOOM_CASCADE_CANCEL_PREFIX);
       yield* setOutcome(
         command.threadId,
         command.outcome,
-        command.commandId.startsWith(LOOM_CASCADE_CANCEL_PREFIX) ? "cascade" : "set",
+        cascade ? "cascade" : "set",
+        // loom: a reason describes a parent's cancel only; on done or reopen it is dropped.
+        cascade || command.outcome !== "cancelled" ? undefined : command.reason,
       );
       yield* clearAttention(row);
       if (command.outcome === "done" && row.pendingRework) {

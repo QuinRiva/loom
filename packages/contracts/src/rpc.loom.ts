@@ -19,6 +19,7 @@ import {
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import {
+  LoomCancelReason,
   LoomGoalShell,
   LoomOutcome,
   LoomRouteKind,
@@ -243,6 +244,7 @@ export const LoomThreadHistoryEntry = Schema.Union([
     type: Schema.Literal("outcome-set"),
     ...historyEvent,
     outcome: Schema.NullOr(LoomOutcome),
+    reason: Schema.optional(LoomCancelReason), // loom: cancel reason
   }),
 ]);
 export type LoomThreadHistoryEntry = typeof LoomThreadHistoryEntry.Type;

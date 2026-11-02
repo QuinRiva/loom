@@ -75,6 +75,10 @@ numbers, and the Tree table carries each full thread id for `--extract` and
 6. **Report tells** — report lines admitting a departure from the brief, an
    unverified claim or a blocker.
 7. **Tool-set gaps** — threads launched without a tool their role needs.
+8. **Trace checks** — per check, the threads whose tool calls match it
+   (a killed command then silence, a merge around `pnpm ship`, `git add
+   -A`, …) with one excerpt; each check's `why` in `signals.yaml` says
+   what it matches and its known noise.
 
 ### 1.2 Extract the orchestrator (free)
 

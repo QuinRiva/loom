@@ -1,0 +1,452 @@
+---
+reader:
+  who: the review gate (an agent) judging this plan against the approved intent brief, then the three coders and one integration reviewer who build from it; Carl only where it reopens the brief
+  knows: the intent brief at plans/loom-evals/intent.mdx (Evals 2, 3 and the Eval 5 proxy build now; its must-not lines); Loom's work model in general; none of the database tables, the retro scanner's code, or the research threads behind the brief
+  after_first_screen: "Four Python scripts under scripts/loom-evals plus fourteen structural checks in the retro scanner (the census's twelve, less its gate-escape item which is the Eval 5 proxy, its two dashboard proxies and its informational memory count, plus the brief's five the census did not cover), read-only against the live database and the session files, run weekly by a Loom scheduled task; two schema additions of the brief's three (the finding-disposition field is derived from data already stored, not added); one optional tool parameter is the only addition to always-on prompt text and it goes through a veto gate; three coders in parallel, one integration review."
+kicker: "Implementation plan · built 2 Nov 2026 · three coders, three gates, one integration review · under plans/loom-evals/intent.mdx"
+status: done
+intent: plans/loom-evals/intent.mdx
+manager_sessions:
+  - id: 01a199a6-bca2-7529-bd46-b7a31d8c58dc
+    name: Evals build plan
+    role: plan
+    authored_at: 2026-11-02T00:51:40.543Z
+---
+
+# A weekly table from data Loom already keeps, and the two schema fields that make it sharper
+
+Build **four read-only Python scripts under `scripts/loom-evals/`** (the outcome dashboard, the gate escape proxy, a trace-check corpus driver and the renderer that joins them into one markdown table), **fourteen structural checks in `skills/retro/scripts/retro_scan.py`** declared in its `signals.yaml` (the failure census's candidate list, which has a first unreviewed hit count for most, plus the five items of the brief's list the census did not cover), and **two schema additions**: a cancel reason carried on the `thread.outcome-set` event and read from the event log (no new column), and an instruction-surface stamp table per launched thread (one migration, 1067). A **Loom scheduled task** (Monday 06:00, a Sonnet thread) runs the one entrypoint weekly and writes `~/loom-evals/dashboard.md` beside its JSON readings, mirroring where `/retro` keeps its runs. Everything reads `statev2.sqlite` through `file:…?mode=ro` and never copies it. **Cost: about $2 a month** for the weekly turn, a one-off $20 to $30 of agent reading to review each check's first 20 hits, and ten minutes of Carl's reading a month.
+
+<Stats
+  items={[
+    { value: "289", label: "resolved gates to proxy", tone: "info", detail: "clean or fixed_inline since 7 Oct: 183 in loom, 80 in lease-extraction, 26 elsewhere" },
+    { value: "2,992", label: "session files since 1 Oct", tone: "info", detail: "4.2 GB; mapped to thread, role and model through the database, scanned incrementally; the census's first pass covered 1,739 of them" },
+    { value: "1", label: "addition to always-on text", tone: "warning", detail: "an optional reason parameter on workstream_set_outcome, about ten words plus five enum values; the only item that touches a must-not line" },
+    { value: "2 of 3", label: "brief's schema fields built", tone: "neutral", detail: "finding disposition is derived from the per-round counts and the existing contested field; no new field" },
+  ]}
+/>
+
+<Callout tone="decision" title="What it means now" focus>
+  Three coders run in parallel in one worktree with disjoint files: **dashboard and schedule**, **schema and tool text**, **trace checks and escape proxy**. One integration reviewer then runs the entrypoint against the live database and checks the seams. The failure census (Eval 1) finished first and shapes two things: its twelve candidate checks are the Eval 3 list (§3.2), and its two largest failure categories, both in orchestrator roots talking to Carl and invisible to any trace check, get **two $0 proxy columns in the first dashboard build** (quote-and-ask, cancel-and-replace; §1.3) rather than waiting for the classifier. Three things depart from the brief's wording and are the gate's to accept or send back: the **finding-disposition field is not added** (§2.3 shows the three numbers already exist as fields); the **cancel reason is a closed enum, not free text**, so the dashboard can count it (§2.1); and the **skill pointer lines** the brief wants in `platform-update` and `llm-instruction-change` live in the pi-craft repository, outside this worktree, so they are a follow-up PR there, not work in this plan (§8). Eval 4 and the optional classifier tier are not in this plan.
+
+  <Badge tone="success">build · dashboard, 2 fields, 14 checks, proxy</Badge> <Badge tone="warning">must-not adjacent · 1 tool parameter</Badge> <Badge tone="neutral">derived, not built · finding disposition</Badge> <Badge tone="neutral">follow-up elsewhere · skill pointers</Badge>
+</Callout>
+
+**What done means.** `bash scripts/loom-evals/run.sh` on the production VM writes a dashboard whose every number has a table and column named beside it in this plan; running it twice gives readings identical apart from `generated_at`; the scheduled task has run once and its thread posted the path; migration 1067 applies to a `VACUUM INTO` copy of the live database (repository `AGENTS.md` rule 2), deleted afterwards; `vp check` and `vp run typecheck` pass; the one tool-text change carries an `llm-instruction-change` record and the integration reviewer saw the declared-tools word count move by fewer than 20 words. Two questions at the end: the cancel-reason enum's shape, and whether readings stay outside the repository.
+
+<Table
+  density="compact"
+  columns={["Work package", "Coder", "Files it owns", "Must not touch", "Section"]}
+  rows={[
+    [
+      "A · Outcome dashboard, renderer, entrypoint, scheduled task",
+      "A",
+      "`scripts/loom-evals/run.sh`, `dashboard.py`, `render.py`, `README.md`; one line in root `package.json`",
+      "`skills/retro/`, `apps/server/`, `packages/contracts/`",
+      "§1",
+    ],
+    [
+      "B · Cancel reason and launch stamp (contracts, orchestrator, history fold, one migration, tool text, history row)",
+      "B",
+      "`packages/contracts/src/orchestrationV2.loom.ts`, `packages/contracts/src/rpc.loom.ts`, `apps/server/src/orchestration-v2/Orchestrator.loom.ts`, `apps/server/src/loom/projection/LoomStore.ts`, `LoomHistoryEvents.ts`, `apps/server/src/loom/prompt/launchStamp.ts` (new), `sessionComposerLive.ts`, `persistence/Migrations/1067_*`, `LoomMigrations.ts`, `mcp/toolkits/workstream/defs.ts`, `handlers/outcome.ts`, `apps/web/src/lib/workstreamPresentation.ts`",
+      "`scripts/`, `skills/`",
+      "§2",
+    ],
+    [
+      "C · Fourteen trace checks, corpus driver, escape proxy",
+      "C",
+      "`skills/retro/scripts/retro_scan.py`, `skills/retro/signals.yaml`, one line in `skills/retro/SKILL.md`; `scripts/loom-evals/trace_corpus.py`, `gate_escapes.py`",
+      "`run.sh`, `render.py`, `dashboard.py`, `apps/`, `packages/`",
+      "§3, §4",
+    ],
+    [
+      "R · Integration review",
+      "reviewer",
+      "nothing; runs `run.sh` against the live database read-only and reads the dashboard",
+      "",
+      "§5",
+    ],
+  ]}
+/>
+
+## 1. Outcome dashboard (Eval 2)
+
+### 1.1 Where it lives and why
+
+<Callout tone="decision">
+  Python under `scripts/loom-evals/`, invoked by `bash scripts/loom-evals/run.sh` (and `vp run loom-evals` as a one-line alias in the root `package.json`). Python because the retro scanner and the existing `scripts/prompt-telemetry/` census are Python already, the standard library's `sqlite3` opens a `file:` URI read-only without a dependency, and a fresh worktree can run it with no `vp i`, which a TypeScript script under `scripts/` would need. The directory is measurement scripts, not an eval runner; upstream's `evals/` package arrives at the repository root at the next pull and nothing here collides with it.
+</Callout>
+
+<Columns>
+  <Column label="Chosen: scripts/loom-evals, Python">
+    Shares `parse_session` with `retro_scan.py` (imported via `sys.path`), the `mode=ro` and `$T3CODE_HOME` conventions with `scripts/prompt-telemetry/run.sh`, and runs on the production VM where python3, sqlite3, git and PyYAML already exist for `/retro`. One language for all three jobs (SQL metrics, session-file checks, git walking).
+  </Column>
+  <Column label="Rejected: a server-side timer Layer">
+    `apps/server/src/loom/stateDirRetention.ts` shows the pattern (a Layer that runs every six hours) and it would cost $0 and no thread. Rejected because two of the three jobs need python over 4 GB of session files and git over two repositories, which the server should not spawn, and because the number would then be computed by code nobody can re-run by hand against another week.
+  </Column>
+</Columns>
+
+**Prior art the brief missed.** `scripts/prompt-telemetry/` (three one-off measurements of October's prompt edits, with baselines) already does read-only census over session files and the database and writes markdown to `.artifacts/`. This plan reuses its conventions and does not fold it in; its skill-read census is a candidate standing metric for a later week once the dashboard exists.
+
+### 1.2 Reading the database
+
+`dashboard.py` opens `${T3CODE_HOME:-~/.t3/cockpit}/userdata/statev2.sqlite` as `sqlite3.connect("file:" + path + "?mode=ro", uri=True)` and runs `PRAGMA query_only = 1` on the connection. Never `immutable=1` (it ignores the WAL and reads stale rows), never a copy, never `.backup`. The queries below each run in about a second on the live 6.6 GB database (measured 2 Nov: the four Loom event types since 7 Oct in 1.1 s, failed tool items in 0.25 s, the usage ledger in 10 ms). The one runaway thread the brief excludes is `9d1afa3a-43e9-4807-9f3a-286313c6d341` (13,582 attention raises in August), held in an `EXCLUDED_THREADS` constant and applied to every query.
+
+**Era.** The orchestration was re-platformed on 7 October 2026. Rows created before carry less: no `loom.humanAuthored` mark on messages, no `ask_user_question` request rows, no `cause` on an outcome, and no `thread.outcome-recorded` event (the sidecar's `last_outcome.eventId` is null on imported rows). The dashboard's default window starts 7 October; a metric that cannot be computed before that prints `n/a before 7 Oct` rather than a number. A thread's model is `json_extract(payload_json, '$.modelSelection.model')` on `orchestration_v2_projection_threads`, shortened past the provider prefix (`cliproxy/claude-opus-5-5` reads `opus-5-5`); its role is `loom_thread_workstream.role`, null for a root, which reads `root`.
+
+### 1.3 The metrics, each with its source
+
+<Table
+  density="compact"
+  columns={["Metric (brief §3.2)", "Source: table and column", "Slice", "Before 7 Oct"]}
+  rows={[
+    ["Goals started", "`loom_goals.created_at`", "root model", "available"],
+    ["Children started", "`loom_thread_workstream` where `parent_thread_id` is not null and `kickoff_at` in window", "role, model", "available"],
+    ["First-verdict rework rate", "reviewer rows (`routes` holds a `loop` route); first `thread.outcome-recorded` event per reviewer in `orchestration_events` (`application_event_version = 2`), `outcome = 'needs_rework'`", "reviewer model, coder model (the loop route's `to`)", "n/a: no per-round events; `gate_rounds > 0` is the only proxy and is shown as such"],
+    ["Gates per goal", "reviewer rows with a `loop` route grouped by `goal_id`", "root model", "available"],
+    ["Human messages per goal (roots) and into children", "`orchestration_v2_projection_messages` where `role = 'user'` and `json_extract(payload_json, '$.loom.humanAuthored') = 1`, split by whether `thread_id` is a root; the root's first message excluded", "root model; child role", "n/a: no humanAuthored mark"],
+    ["ask_user_question count and free-text share", "`orchestration_v2_projection_runtime_requests` where `runtime_request_id` starts `loom-ask:`; the matching `orchestration_v2_projection_turn_items` row of type `user_input_request` carries `questions[].options`, so free text is an answer matching no option label", "root model", "n/a: no request rows"],
+    ["Quiescent rate", "`thread.outcome-recorded` payload `synthesised = true` over children that finished", "role, model", "n/a"],
+    ["Cancel and cancel-then-restart", "`thread.outcome-set` events in `orchestration_events` with `outcome = 'cancelled'`: `cause` and, once B deploys, `json_extract(payload_json, '$.reason')` (null on every earlier event, so no guard); the canceller from the event's `command_id` prefix (`command:mcp:<caller>` is the parent, otherwise the UI). Restart heuristic: a later child under the same parent, same role, created within 60 minutes of the cancel", "role, model, reason", "cause present on none; 305 cancels over all history, 39 since 7 Oct"],
+    { tone: "info", cells: ["Cancel and replace (census category 4, misread ask: a $0 proxy)", "the subset of cancels above where a sibling with the same title (or the same title plus `fresh`, `retry`, `v2`) is spawned within an hour of a `humanAuthored` message to the root; the narrower form of the restart heuristic, reported beside it", "root model, child role", "n/a: no humanAuthored mark"] },
+    { tone: "info", cells: ["Quote-and-ask (census category 2, hand-back Carl cannot act on: a $0 proxy)", "`orchestration_v2_projection_messages` where `role = 'user'`, `loom.humanAuthored = 1`, the thread is a root, `text` contains `t3-citation://` (the composer's quote of the agent's text) and `?`; per root turn and per goal. 113 such messages since 7 Oct, 112 with a question", "root model", "n/a: no humanAuthored mark"] },
+    ["Tool failure rate by tool", "`orchestration_v2_projection_turn_items` of type `dynamic_tool` or `command_execution` with `status = 'failed'`, by `toolName` or `title`", "role, model", "n/a"],
+    ["Protocol refusals", "the same items where `toolName` starts `mcp__t3-code__` and `status = 'failed'`, by tool", "role", "n/a"],
+    ["Cost per goal (median and mean) and per resolved gate", "`loom_usage_ledger.cost_usd` joined to `loom_thread_workstream.goal_id`; per gate, the reviewer's and its coder's threads over gates resolved in the window", "root model; reviewer model", "available (the ledger is backfilled)"],
+    ["Instruction surface in force", "`~/loom-releases/manifest.json` (every production release with `sha` and `builtAt`) labels each week with the release running; once migration 1067 lands, `loom_thread_launch_stamps.loom_commit` per thread (read only when `sqlite_master` shows the table)", "release", "release labels only"],
+    ["Trace-check counts (Eval 3)", "the `trace.json` fragment §3 writes", "role, model, check", "session files exist from 1 Oct; role and model via the database"],
+    ["Gate escape rate (Eval 5)", "the `escapes.json` fragment §4 writes", "reviewer model, coder model", "n/a: gates before 7 Oct have no per-round events"],
+  ]}
+/>
+
+Every row is computed for four windows: the ISO week being run, the trailing four weeks, the four before those, and everything since 7 October. The brief's reading rule applies and is printed under the table: a week-to-week move under about 15 points in a rate is noise; read four-week windows.
+
+### 1.4 Where the table goes
+
+`~/loom-evals/` (created on first run), beside `~/loom-retro/`: `dashboard.md` is rewritten each run and `readings/<ISO week>/` keeps the JSON fragments (`metrics.json`, `trace.json`, `escapes.json`) and a copy of that week's `dashboard.md`. `render.py` reads whichever fragments are present and prints one markdown table per metric group with the four windows as columns, then the week's cancel reasons verbatim, then an `Unreviewed` note against any trace check whose first-20 review has not been recorded (§3.4). Nothing is committed: the readings are derived data, recomputable for any week with `run.sh --week 2026-W44`, exactly as `/retro` keeps its runs outside the tree. The two skills that must quote the last two readings read `~/loom-evals/readings/` by path (§8).
+
+### 1.5 What runs it weekly
+
+<Callout tone="decision">
+  A Loom scheduled task on the loom project: `fixed_time` 06:00 on weekday 1 (Monday), workspace strategy `worktree` from `origin/main` with `startFromOrigin`, model Sonnet, prompt: run `bash scripts/loom-evals/run.sh`, then reply with the printed dashboard path and the three metrics that moved most against the previous four weeks, and nothing else. Created once with `mcp__t3-code__schedule_task` after the merge; its exact definition is recorded in `scripts/loom-evals/README.md` so it can be re-created. Cost about $0.30 to $0.50 a run on Sonnet (a system prompt of about 50k tokens and a short turn), about $2 a month.
+</Callout>
+
+<Columns>
+  <Column label="Chosen: Loom scheduled task">
+    Exists today (`scheduled_tasks` is empty; the mechanism is upstream's and works). A fresh worktree from `origin/main` runs current scripts, which a cron entry in the stale `~/loom` checkout (main is at 19 October there) would not. The weekly thread is also the first reader: it names what moved, so the table is not a report nobody opens. A thread a week in the sidebar is the cost.
+  </Column>
+  <Column label="Rejected: a cron entry on the VM">
+    $0 and no thread, but it lives outside the repository and the server, nobody would see it fail, and it would need a checkout kept current by hand. The repository's rule against fabricating environment to make a command work points the same way.
+  </Column>
+</Columns>
+
+The optional classifier tier (a cheap model bucketing Carl's root messages into decision, explain-to-me, wrong premise, missing fact, skipped process) is a later, separate step: it needs the message corpus the dashboard will have shown is worth classifying, and it is the only standing model spend the brief's budget line was about. The census moved two of its would-be outputs forward as $0 proxies in §1.3 (quote-and-ask for a hand-back Carl cannot act on, cancel-and-replace for a misread ask) because those are the two largest failure categories it found (6 of 40 threads each) and no trace check can see either; the classifier, when built, grades the same messages the proxies count.
+
+## 2. The schema additions
+
+The brief puts three in this change. Grounded in the code, two are built and one is derived.
+
+<Callout tone="warning" title="Tool parameter descriptions are always-on prompt text">
+  Every MCP tool's parameter descriptions are in the tools array of every request. The brief's must-not line forbids adding a sentence to the always-on prompts. So each field below prefers a value the control plane fills itself, and the one field an agent must write is optional, an enum, and described in about ten words. Its wording ships only under the `llm-instruction-change` skill (tier 2: a new field, so a pre-registered hypothesis and a record) and through a reviewer gate briefed to veto any wording beyond what §2.1 shows. The integration reviewer confirms the declared-tools word count the prompt-debug sidecar prints moved by fewer than 20 words.
+</Callout>
+
+### 2.1 Cancel reason: built, one optional enum parameter
+
+Thirty-nine cancels since 7 October, 36 of them a parent's `workstream_set_outcome cancelled` (the event's `command_id` reads `command:mcp:<parent>:workstream-set-outcome:…`), one a cascade, none from the UI. Nothing says why. A reason the control plane could fill does not exist: the call carries only `threadId` and `outcome`, and the only candidate inference (the next child under the same parent with the same anchor task) matched 2 of 39.
+
+<FieldDiff
+  title="workstream_set_outcome, as the model sees it"
+  beforeLabel="Today"
+  afterLabel="Proposed"
+  fields={[
+    { name: "threadId", before: "This thread when omitted, else a direct child's id.", after: "This thread when omitted, else a direct child's id.", kept: true },
+    { name: "outcome", before: "'done' releases dependents. 'cancelled' abandons the work without releasing dependents and cascades: …", after: "unchanged", kept: true },
+    { name: "reason", before: null, after: "optional enum superseded | scope_dropped | stuck | mistake | other; description: \"Why, when cancelling.\"", note: "The one agent-written field in this plan. Enum so the dashboard counts it; free text is the question at the end." },
+  ]}
+/>
+
+The chain, each piece named:
+
+- **Contract** (`packages/contracts/src/orchestrationV2.loom.ts`): `LoomCancelReason = Schema.Literals([...])`; `thread.outcome.set` command gains `reason: Schema.optional(LoomCancelReason)`; the `thread.outcome-set` event payload gains the same optional field beside `cause`.
+- **Orchestrator** (`apps/server/src/orchestration-v2/Orchestrator.loom.ts`): `setOutcome` passes the command's `reason` through on the `set` cause; the cascade's and the gate's outcome writes carry none.
+- **No sidecar column, no migration.** The reason lives on the event in `orchestration_events`, which is where the dashboard reads cancels anyway (§1.3) and where the history rail reads them (below). A `loom_thread_workstream` column would have no reader and would be a permanent migration on the live database; `loomProjection.ts` is untouched.
+- **Tool** (`apps/server/src/mcp/toolkits/workstream/defs.ts` `workstream_set_outcome`; `handlers/outcome.ts` passes `input.reason`): the parameter above. A reason on a `done` or `none` is accepted and dropped by the handler, so the description needs no second clause.
+- **History rail**, the one place a human sees it, four one-line changes along the existing chain: `apps/server/src/loom/projection/LoomHistoryEvents.ts` (`thread.outcome-set` row gains `reason: Schema.optional(LoomCancelReason)`); `LoomStore.ts` `history` fold (the `thread.outcome-set` case passes `reason: row.payload.reason`); `packages/contracts/src/rpc.loom.ts` (the `outcome-set` member of `LoomThreadHistoryEntry` gains the same optional field); `apps/web/src/lib/workstreamPresentation.ts` (the history `outcome-set` case's `Cancelled` row sets `detail` to the reason when present). The node-based fallback row built from `node.outcome` stays without a reason: `WorkstreamNode` does not change. The web UI's own cancel (`apps/web/src/loom/workstreamState.ts` `setOutcome`) sends no reason; the field is optional so nothing else changes. Mobile renders the same presentation helper.
+- **Dashboard**: the cancel row in §1.3 splits by `json_extract(payload_json, '$.reason')` on the event, null before B deploys, so coder A's script runs unchanged before and after.
+
+### 2.2 Instruction-surface stamp: built, control-plane filled, no event
+
+Which version of each instruction surface a thread ran. The brief says the prompt-debug sidecar holds the text; it does, for 30 days (`apps/server/src/loom/stateDirRetention.ts` prunes `prompt-debug/` at `RETENTION = 30 days`). Two durable records already exist and the plan builds on them rather than on the sidecar: the **launch identity** `userdata/workstream-launch-identity/<thread>.json`, written once per thread by `sessionComposerLive.ts` `launchIdentity`, holding the composed `appendSystemPrompt` (role overlay, work model, goal context), the skill paths and the active tools; and the **session file's** `system` message, whose `sections` hold the whole assembled prompt. What neither holds is a version pointer: which commit and which files produced that text.
+
+<DataModel
+  entities={[
+    {
+      id: "stamp",
+      name: "loom_thread_launch_stamps",
+      change: "added",
+      note: "One row per first launch, written by the composer beside the launch identity; a ledger like loom_usage_ledger, not an event fold",
+      fields: [
+        { name: "thread_id", type: "TEXT", pk: true },
+        { name: "launched_at", type: "TEXT", note: "ISO" },
+        { name: "loom_commit", type: "TEXT", note: "git rev-parse HEAD of LOOM_REPO_ROOT (the release worktree has a .git)" },
+        { name: "role", type: "TEXT", nullable: true },
+        { name: "role_sha", type: "TEXT", nullable: true, note: "sha256 of roles/<role>.md" },
+        { name: "project_role_sha", type: "TEXT", nullable: true, note: "sha256 of <project>/.t3code/roles/<role>.md" },
+        { name: "skills_sha", type: "TEXT", nullable: true, note: "sha256 over the overlay's skill files, sorted by path" },
+        { name: "agents_global_sha", type: "TEXT", nullable: true, note: "~/.pi/agent/AGENTS.md" },
+        { name: "agents_project_sha", type: "TEXT", nullable: true, note: "<cwd>/AGENTS.md" },
+        { name: "prompt_sha", type: "TEXT", note: "sha256 of appendSystemPrompt as written to the launch identity" },
+        { name: "skill_paths", type: "TEXT", nullable: true, note: "JSON array of the overlay's skill file paths, the one value the hashes cannot carry" },
+      ],
+    },
+    {
+      id: "ws",
+      name: "loom_thread_workstream",
+      note: "unchanged: the cancel reason is on the thread.outcome-set event, not a column",
+      fields: [
+        { name: "thread_id", type: "TEXT", pk: true },
+        { name: "outcome", type: "TEXT", nullable: true },
+      ],
+    },
+  ]}
+  relations={[{ from: "ws", to: "stamp", kind: "1-1", label: "thread_id" }]}
+/>
+
+- **No contract change and no event.** The stamp is launch provenance the server observes, not a fact an agent or a human causes, so it is not a domain event and the replay-safe projector never sees it; `loom_usage_ledger` and `loom_thread_cache` (written from `compose` today via `loomStore.cache.record`) are the precedent. Nothing crosses the wire yet, so no schema in `packages/contracts`.
+- **Where it is written**: a new `apps/server/src/loom/prompt/launchStamp.ts` computes the record from the inputs `composeIdentity` already holds (`overlay`, `projectRoot`, the composed prompt) plus `git rev-parse HEAD` in `LOOM_REPO_ROOT` (cached per process) and the two `AGENTS.md` paths; `launchIdentity` calls `loomStore.launchStamps.record(...)` on the first write only, under `Effect.ignore({ log: true })` as the cache record is, so a stamp failure never fails a launch. **Migration 1067** `apps/server/src/persistence/Migrations/1067_LoomThreadLaunchStamps.ts` creates the table with an index on `(loom_commit, launched_at)`, registered in `LoomMigrations.ts` after 1066; never `Migrations.ts`, never below 1000. No backfill: for threads before the deploy the dashboard labels by release from `~/loom-releases/manifest.json`, which is coarser (release, not file) and blind to pi-craft and global `AGENTS.md` edits, which is exactly the gap the stamp closes going forward.
+- **Zero prompt surface.** Nothing an agent reads changes.
+
+### 2.3 Finding disposition: derived, no field
+
+The brief wants each review finding's disposition (fixed, contested or ignored) and asks whether a new field replaces or extends the submit's unused `contested`. The per-round events already carry the three numbers. For every gate that looped since 7 October the reviewer's second-round submit records the findings **remaining**, not the original count: a round-1 `needs_rework {mustFix: 4, niceToHave: 6}` is followed by `clean {mustFix: 0, niceToHave: 0}`, or by `fixed_inline {mustFix: 0, niceToHave: 1}` when the reviewer let one through (eight of eight gates since 20 October read this way).
+
+<Table
+  density="compact"
+  columns={["Disposition", "Derived from", "Stored where"]}
+  rows={[
+    ["Raised", "the first `thread.outcome-recorded` of the gate: `counts.mustFix`, `counts.niceToHave`", "`orchestration_events`, already"],
+    ["Contested by the coder", "the coder's rework submit `contested[]` (1 use since 7 Oct; 19 ever)", "`thread.outcome-recorded.contested`, already"],
+    ["Let through by the reviewer", "`counts` on the resolving submit (`clean` or `fixed_inline`) when above zero", "already"],
+    ["Fixed", "raised minus contested minus let through", "a query"],
+  ]}
+/>
+
+A per-finding list (which finding was which) would be a structured parameter the coder writes on every rework submit: prompt surface and effort on every gate for a distinction the counts already give in aggregate. **Not built.** `contested` stays as it is; the dashboard reports the four numbers per gate and by reviewer model. If the census (Eval 1) finds coders silently skipping findings the reviewer then passes, that is the moment to revisit, with a count beside it.
+
+## 3. Trace checks (Eval 3)
+
+### 3.1 Shape: check functions in the scanner, a corpus driver beside the dashboard
+
+`retro_scan.py` today parses a session once (`parse_session`: every tool call with its arguments and id, every error result, the tool set from `toolsAdded`, human and control turns) and runs five structural checks named in `signals.yaml` (`tool_error`, `repeated_call`, `turn_outlier`, `control_decision`, `missing_tool`). It keeps no successful tool result, no link from a result to its call and no session `cwd`, and checks 1 to 4, 7 and `guard-fired` need all three, so `parse_session` gains the session header's `cwd` and a per-call result record (`toolCallId`, `isError`, the exit code when the text carries `Command exited with code N`, and the first 300 characters) rather than C writing a second parser. The fourteen new checks are functions in the same file, each taking the parsed session (plus the thread's role and report text where the check needs them) and returning its hits (a list of `(timestamp, tool, excerpt)`), declared in `signals.yaml` as `kind: structural`, `scope: session`, `status: seed`, `origin: loom-evals plan (2026-11)`. `scan()` runs them per tree and the digest gains one `## Trace checks` section (one line per check with hits and threads, the same shape as `## Tool-set gaps`); `skills/retro/SKILL.md` §1.1 gains one list item naming it, the only skill-text change, loaded by the retro reviewer alone.
+
+`scripts/loom-evals/trace_corpus.py` is the weekly driver: it builds the thread list from the database instead of a `/retro` manifest and writes `trace.json` plus `hits/<check>.jsonl`.
+
+<Code
+  language="sql"
+  filename="trace_corpus.py: the corpus query (read-only)"
+  code={"select pt.thread_id,\n       json_extract(pt.payload_json, '$.nativeThreadRef.nativeId') as session_path,\n       w.role, w.parent_thread_id, w.root_thread_id, w.report_path, w.kickoff_at,\n       json_extract(t.payload_json, '$.modelSelection.model') as model,\n       p.title as project\nfrom orchestration_v2_projection_provider_threads pt\njoin orchestration_v2_projection_threads t using (thread_id)\nleft join loom_thread_workstream w using (thread_id)\nleft join projection_projects p on p.project_id = t.project_id\nwhere pt.driver = 'pi' and t.created_at >= :since\n  and json_extract(pt.payload_json, '$.nativeThreadRef.nativeId') like '%/.pi/agent/sessions/%'"}
+/>
+
+That is how role and model are known per session file: the database, not the file. 5,816 pi provider threads carry a session path this way. A thread relaunched or forked has several session files and each is scanned under the thread's role. The model also appears in the session's own `model_change` entries, used only when the database has none. Session files with no database thread (Carl's own pi sessions, `/tmp` dev instances) are out of the corpus by construction, as `prompt-telemetry` excludes them too. A report is `report_path` plus its `.round-<n>.md` siblings.
+
+**Incremental.** 2,992 files and 4.2 GB since 1 October. The driver caches one JSON per session under `~/loom-evals/scan-cache/<session id>.json` keyed by the file's size and mtime, so the weekly run parses only files that changed; `--full` rebuilds.
+
+### 3.2 The fourteen checks
+
+Every check matches tool-call structure: a `toolCall` block's `name` and `arguments`, or a `toolResult` block's text where that text is the control plane's own, never the model's prose. The one phrase match allowed is the report's claim, and it only counts paired with the absence of a command. The list is the census's candidate checks (its numbering in the first column; census category in brackets; its first-pass hit count over 1,739 sessions since 7 October, unreviewed) followed by the brief's five items the census did not cover. Three census items are not session checks: item 10 (gate escape) is the Eval 5 proxy, planned once in §4; items 11 and 12 are dashboard columns in §1.3, because their evidence is human messages in the database. Item 5 (`memory_remember` calls per role, 23 sessions) is dropped: no decision hangs on the count, and a later census round can re-propose it with one.
+
+<Table
+  density="compact"
+  columns={["Check id", "Counts a session when", "Structure matched", "First pass, and known noise to split out"]}
+  rows={[
+    ["1 · `killed-then-silent` (cat 6)", "a `bash` result ends with `Command exited with code 137` or `143`, or starts with the bash tool's own `Command timed out after`, or a `bg_wait` result reports the job killed, and the assistant turn after it ends with no further tool call and no `workstream_submit`", "the tool's own result markers (not program output: `timed out` and `Killed` inside a test log do not count) and the absence of a following call", "12 sessions in the census pass, both census cases among them; 1 of 12 produced a quiescent report. The marker strings are the ones in the session corpus today: 149 `Command timed out after` results, 38 `exited with code 137`"],
+    ["2 · `merge-bypass` (cat 3)", "a `bash` command contains `gh pr merge` in a session whose `cwd` repository has `.t3code/ship.json`, and no call's command contains `pnpm ship`", "call arguments plus a file check at the session's cwd", "7 loom sessions; 43 across repositories, but only loom has the ship script, so the check is scoped by the file"],
+    ["3 · `failed-then-publish` (cat 3)", "a non-zero exit from a `mv`, `cp` or `git` command is followed in the same turn by `pnpm ship` or `gh pr create` with no `git status --porcelain` between", "result exit code, then call order within the turn", "not yet run by the census"],
+    ["4 · `write-outside-worktree` (cat 3)", "an `edit` or `write` whose `path` is absolute and outside the session's `cwd`, `/tmp`, `~/loom-retro`, `~/loom-evals` and `.artifacts/`", "call arguments against the session header's `cwd`", "53 sessions; precision expected low, so the allow-list above grows from the first-20 review"],
+    ["6 · `instruction-edit-ungated` (cat 11)", "an `edit` or `write` to `roles/`, `.t3code/roles/`, `skills/*/SKILL.md` or an `AGENTS.md`, in a session with no `read` of the `llm-instruction-change` SKILL.md and whose thread has no reviewer gating it in the database (any `loom_thread_workstream` row whose `routes` holds a `loop` route with `to` equal to the thread)", "call arguments, a read call, and the workstream graph", "84 sessions edit instruction text; the join with the two conditions has not been run"],
+    ["7 · `visual-unseen` (cat 9)", "an `edit` or `write` to `apps/web/**/*.tsx`, `*.css`, `*.html` or a `README.md`, and before `workstream_submit` no `html_preview`, `preview_*`, `browser_*` or `device_*` call and no `read` of a `.png`", "call arguments and the absence of a render call", "114 sessions; narrow to markup and style diffs (a `.tsx` edit touching only logic is excluded by a `className|style|<div|<span` test on the edit's new text)"],
+    ["8 · `tests-claimed-not-run` (cat 8)", "its report (or a round report) matches `\\b(verified|tests? pass(ed)?|typecheck passes|vp check passes)\\b` and no `bash` or `bg_start` command matches `vp (check|test|run (typecheck|test|check:changed))|vpr test|pnpm (test|check)|vitest|pytest|npm test|cargo test|go test|lint-doc\\.sh|lint-plan\\.mjs`; a second count where the command exists but its result `isError` or exit code is non-zero", "report text paired with the absence of a call", "18 coder sessions; 73 across roles. Restricted to coders and reviewers; a planner's `verified` of a rendered document is covered by `lint-doc.sh` in the class"],
+    ["9 · `moved-text-unwritten` (cat 8)", "a report line claims text was `moved`, `added` or `written` to `<path>` (an absolute or repository-relative path in inline code on the same line) and the session has no `edit` or `write` call whose `path` is that file, and no `bash` command naming it", "report text paired with the absence of a write call to that path; the same allowed shape as check 8", "not yet run; the census phrased it as a file-content check, which the brief's bar does not allow, so this is the tool-call form; a `git mv` in a bash command counts as a write"],
+    ["brief · `forbidden-git`", "a `bash` command (tokenised on `;`, `&&`, `||`, `|`) contains `git add -A`, `git add .`, `git add --all`, `git stash`, or `git push` whose arguments name `main` or `master` (`origin main`, `HEAD:main`, `--force` with either)", "call arguments", "`git stash list` is read-only: excluded by token. A bare `--force` to a feature branch after a rebase is legitimate and not counted"],
+    ["brief · `kill-by-pattern`", "a `bash` command contains `pkill` or `pgrep` (outside a `pgrep -af` listing), or `kill` fed by a `$( … )`", "call arguments", "the command guard blocks most at call time; `guard-fired` counts the block, this counts the attempt"],
+    ["brief · `sleep-poll`", "three or more `bash` calls in one session contain `\\bsleep\\s+\\d`", "call arguments, per session", "split by whether any such command also contains `gh pr|gh run|checks` (a watch tool existed); census case T13 is the 120-second foreground sleep"],
+    ["brief · `file-reread`", "a `read` or `read_full` call with identical `(path, offset, limit)` arguments occurs four or more times", "call arguments", "paging with different offsets is not a hit"],
+    ["brief · `unasked-commit`", "a `bash` command contains `git commit`, the role is one that no role text asks to commit (`reviewer`, `researcher`, `planner`, `assessor`, or a root), and the kickoff text (the first `user` turn) does not contain `commit`", "call arguments plus the role from the database; the role text and the brief are the two places an ask can come from, and both are inputs, not the model's prose", "`roles/coder.md` line 29 tells coders to commit their own files and `roles/shipper.md` is the committing role, so both are excluded or the check fires on every coder. Roots are included because the orchestrator role text does not ask them to commit; a root committing a plan is a real hit for the first-20 review to judge, and a root's ask is Carl's message, which the kickoff test reads"],
+    ["brief · `guard-fired`", "a `toolResult` text starts `Blocked by the t3 ` or contains `[t3 command guard]`, or starts `Refused:`", "the control plane's result text, by guard name", "441 session files carry a block today; rewrites (61 files) counted separately"],
+  ]}
+/>
+
+The brief's `report claims shipped` case is folded into check 8's command class as `pnpm ship|gh pr merge|git push` against a report matching `shipped|merged`. Coder C starts from the census's first-pass script, copied out of `/tmp` to `/home/Carl/.t3/cockpit/worktrees/loom/t3-25b1ef2b/.artifacts/census-prevalence.py` (62 lines, gitignored); if that copy is gone the table above is the specification.
+
+### 3.3 Output
+
+`trace.json`: rows `{check, by: role|model|all, key, window, sessions_hit, sessions_scanned}`. `hits/<check>.jsonl`: one line per hit with `thread_id`, `session_path`, `role`, `model`, `at`, `tool`, and a 300-character excerpt of the matched arguments or result, oldest first. A later census round, or a retro, adds a check as the same kind of `signals.yaml` entry plus a function; the slot is the table above, not a separate mechanism. The census's first-pass script (the `.artifacts/census-prevalence.py` copy named above) is the starting point for checks 1 to 8.
+
+### 3.4 Reviewing a check before its count is trusted
+
+A check's count prints as `unreviewed` in the dashboard until `~/loom-evals/reviews/<check>.json` exists with `{reviewed: 20, true_positive: n, notes: [...]}`, the same discipline as `/retro`'s `signal-review.json` and `retro_signal_stats.py`. The census's hit counts above are exactly that unreviewed first pass. The review is agent work, not Carl's: after the first full run, one researcher child reads the first 20 lines of each `hits/<check>.jsonl` (the session excerpt is enough; it opens a session file only when the excerpt is ambiguous), writes the review file, and reports precision per check. A check under 50% precision after review is narrowed or retired in `signals.yaml` before the dashboard shows its number. Cost: about $20 to $30 once for fourteen checks.
+
+## 4. Gate escape proxy (Eval 5, tier A, and the census's check 10)
+
+The census's category 10 (gate passed what was later corrected, 2 of 40 threads) and the brief's Eval 5 tier A are one measurement, built once here. The census phrased its signal as a file in a clean gate's diff edited again after a human message to the parent, or a later sibling spawned to fix the same branch; both are candidate kinds in §4.4.
+
+### 4.1 The gates
+
+`gate_escapes.py` selects reviewer rows in `loom_thread_workstream` whose `routes` holds a `loop` route, `json_extract(last_outcome, '$.decision') = 'resolve'`, outcome `clean` or `fixed_inline`, `outcome_at >= 2026-10-07`: **289** on 2 November (loom 183, lease-extraction 80, loom-slack-bridge 11, pi-fathom 7, pi-craft 6, two others). The coder is the loop route's `to`; reviewer and coder models from `orchestration_v2_projection_threads`.
+
+### 4.2 Which files a gate passed
+
+<Callout tone="decision">
+  Files are the union of three sources, in this order of trust, with the source recorded per file: **the coder's commits** (every commit in the project's repositories whose message carries `Loom-Thread: <coder id>`), **the coder's checkpoints** (`orchestration_v2_projection_checkpoints.payload_json` `files[].path` for `thread_id = coder`), and **absolute paths in the coder's report** under the project's workspace root. Neither of the first two alone covers lease-extraction.
+</Callout>
+
+Grounding, from the repositories on 2 November:
+
+- **Trailers must be read from `%B` with a regex, not `%(trailers:key=Loom-Thread)`.** Lease-extraction's nested `workbench` repository appends a second trailer block (`Fathom-Commit`, `Fathom-Branch`) after a blank line, so git's trailer parser sees only that block: `%(trailers)` found 2 of 610 agent commits since 7 October there, while the trailers are present in every message. In loom, 248 of 250 agent commits on `origin/main` since 20 October carry the trailer.
+- **Checkpoints miss the nested repository.** 197 of 262 done loom coders since 7 October have a checkpoint with files; only 50 of 174 lease-extraction coders do, because their edits land in `workbench`, which the checkpoint scope does not cover.
+- **Reports carry absolute paths** by the work-model rule, so the third source is extraction of a path shape, not a judgement of prose; a path is kept only if it exists in the repository at the gate's time.
+
+### 4.3 Which repositories to walk
+
+Per project, the git common directories its threads used: `git -C <workspace_root> rev-parse --git-common-dir` plus nested checkouts the project's review snapshots name (`loom_review_snapshots.git_common_dir` by `thread_id`, available from 22 October). Today that resolves to `/home/Carl/loom/.git` for loom; `/home/Carl/fathom-platform/.git` and the bare `/home/Carl/workbench.git` for lease-extraction; `/home/Carl/loom-slack-bridge/.git`, `/home/Carl/pi-fathom/.git`, `/home/Carl/pi-craft/.git`, `/home/Carl/cli-proxy/.git` for the rest. The script fetches nothing and walks `git log --branches --remotes` (never `--all`: `refs/t3/` holds 5,260 checkpoint commits by `T3 Code` since 7 October in fathom-platform alone), reading `%H %aI %an %B` and splitting on a record separator.
+
+### 4.4 What counts as an escape
+
+Two kinds make the **headline rate**, the number that decides whether Carl's hour is spent; a third is reading material only. For each gate resolved at time T with file set F:
+
+- **Kind 1, fix commit** (the brief's): a commit whose author date is in (T, T + 14 days], that touches any file in F (`git show --name-only`), whose subject matches `\b(fix|revert|hotfix|regression)\b` (conventional `fix(...)` included), and whose `Loom-Thread` is neither the coder nor the reviewer.
+- **Kind 2, later must-fix** (the brief's): another gate resolved or looped in (T, T + 14 days] whose coder's file set intersects F and whose first verdict was `needs_rework` with `counts.mustFix > 0`.
+- **Kind 3, fix child** (the census's form, tightened): a sibling spawned under the gate's parent in (T, T + 14 days] whose title or kickoff brief contains `fix`, `retry`, `regression` or `fresh` and whose own file set (same three sources) intersects F. Written to `hits/escapes.jsonl` with its kind, **not counted in any rate**: a planned later phase matches it too often to be a number.
+
+The census's other form (a commit on F after a human message to the root) is dropped: with 5.4 human messages per goal nearly every later same-tree commit qualifies, and two coders would pick different windows. Every candidate carries its kind and a tag, `same-tree` (the later thread shares `root_thread_id` with the gate) or `other-tree`, because a planned phase 2 in the same workstream touching the same files with a `fix(...)` subject is the obvious false positive. Rates are printed **per kind** (kind 1, kind 2, and their union over gates) and per tag, by reviewer model and by coder model; the dashboard's headline cell is the union of kinds 1 and 2, `other-tree` tag, all models.
+
+`escapes.json`: rows `{by: reviewer_model|coder_model|all, key, window, kind: 1|2|union, tag: same-tree|other-tree|all, gates, escapes}`. `hits/escapes.jsonl`: every candidate with the gate, the commit, the files in common and the subject, oldest first; the first 20 are the reading set the brief asks for, reviewed by the same researcher child as §3.4. The proxy is a lower bound with unknown precision until then, and tier B (Carl's hour) is spent only if the review finds real escapes.
+
+## 5. Sequence and parallelism
+
+<Steps>
+  <Step at="Day 1" title="Three coders start in the same worktree." badge="A, B, C in parallel">
+    A owns `scripts/loom-evals/run.sh`, `dashboard.py`, `render.py`, `README.md` and one `package.json` line. B owns the two contracts files, the orchestrator, `LoomStore.ts` and `LoomHistoryEvents.ts`, migration 1067, `defs.ts`, `outcome.ts`, `launchStamp.ts`, `sessionComposerLive.ts` and the web presentation case. C owns `retro_scan.py`, `signals.yaml`, one line of `skills/retro/SKILL.md`, `trace_corpus.py` and `gate_escapes.py`. No file is in two lists. A's dashboard reads the event's `reason` (null until B deploys) and `loom_thread_launch_stamps` only when `sqlite_master` shows the table, so it runs on any database state.
+  </Step>
+  <Step at="Day 1" title="The fragment contract is fixed before anyone writes a reader." badge="in this plan">
+    Each script writes one JSON file under `~/loom-evals/readings/<ISO week>/`: `{generated_at, window: {from, to}, source, rows: [{metric, by, key, window, value, n, note}]}` with `window` one of `week`, `4w`, `prev4w`, `since-2026-10-07`. `render.py` reads any subset. `run.sh` calls `dashboard.py`, then `python3 scripts/loom-evals/trace_corpus.py`, then `gate_escapes.py`, then `render.py`, and prints the dashboard path; a script that fails leaves its fragment absent, the run continues, and `render.py` prints a `fragment missing: <script> failed` line at the top of the dashboard and in place of each absent table, so a missing number is never read as zero.
+  </Step>
+  <Step at="Day 2 to 3" title="B's tool text goes through llm-instruction-change and its own gate." badge="veto gate">
+    B writes the change record the skill requires (tier 2: a new field) and its reviewer is briefed to veto any wording beyond the enum and its ten-word description, and to check the prompt-debug declared-tools word count moved by fewer than 20 words.
+  </Step>
+  <Step at="Day 3 to 4" title="Integration review on the seams." badge="R">
+    With A, B and C merged to the feature branch, the reviewer runs `bash scripts/loom-evals/run.sh` on the production VM against the live database read-only, twice, and checks: readings identical apart from `generated_at`; every §1.3 row present with an `n`; the cancel row splits by reason, checked on a dev instance running the feature branch (the dev-verify recipe, seeded by `vp run migrate-dev-db`, with `T3CODE_HOME` pointed at that instance's home for `run.sh`) after cancelling a scratch child there with a reason, because the live server runs the released code until a deploy and a branch server is never started against the live database; `trace.json` and `escapes.json` present and rendered; `hits/` files oldest-first; `/retro`'s existing runs under `~/loom-retro/runs/` still scan (`retro_scan.py --manifest … --out /tmp/…`) and their digest gains the `## Trace checks` section; every `// loom:` mark present on hunks in upstream files (every file B touches is loom-only, checked against `upstream/main`; the root `package.json` alias follows the fork's existing script lines); migration 1067 numbered and registered in `LoomMigrations.ts` only.
+  </Step>
+  <Step at="After merge" title="Schedule, first run, first-20 reviews." badge="one researcher child">
+    The orchestrator creates the scheduled task from the README's definition and watches its first run. A researcher child reviews the first 20 hits of each check and of the escape proxy and writes `~/loom-evals/reviews/*.json`; the dashboard drops its `unreviewed` marks. Tier B of Eval 5 is proposed to Carl only if that review finds escapes.
+  </Step>
+</Steps>
+
+<Details summary="Change map: every file, with its owner">
+
+<FileTree
+  title="Files"
+  entries={[
+    { path: "scripts/loom-evals/run.sh", change: "added", note: "A · entrypoint; calls the four scripts; prints the dashboard path" },
+    { path: "scripts/loom-evals/dashboard.py", change: "added", note: "A · §1.3 queries, read-only; writes metrics.json" },
+    { path: "scripts/loom-evals/render.py", change: "added", note: "A · fragments to dashboard.md; four windows; unreviewed marks" },
+    { path: "scripts/loom-evals/README.md", change: "added", note: "A · how to run, the scheduled task definition, the fragment contract, the era caveats" },
+    { path: "package.json", change: "modified", note: "A · \"loom-evals\": \"bash scripts/loom-evals/run.sh\"" },
+    { path: "packages/contracts/src/orchestrationV2.loom.ts", change: "modified", note: "B · LoomCancelReason; reason on thread.outcome.set and thread.outcome-set" },
+    { path: "packages/contracts/src/rpc.loom.ts", change: "modified", note: "B · optional reason on the outcome-set history entry (wire)" },
+    { path: "apps/server/src/orchestration-v2/Orchestrator.loom.ts", change: "modified", note: "B · setOutcome carries reason on cause set" },
+    { path: "apps/server/src/loom/projection/LoomStore.ts", change: "modified", note: "B · history fold passes reason; launchStamps.record" },
+    { path: "apps/server/src/loom/projection/LoomHistoryEvents.ts", change: "modified", note: "B · optional reason on the outcome-set history row" },
+    { path: "apps/server/src/loom/prompt/launchStamp.ts", change: "added", note: "B · compute the stamp from the composer's inputs" },
+    { path: "apps/server/src/loom/prompt/sessionComposerLive.ts", change: "modified", note: "B · record the stamp on the first identity write, ignore failures" },
+    { path: "apps/server/src/persistence/Migrations/1067_LoomThreadLaunchStamps.ts", change: "added", note: "B" },
+    { path: "apps/server/src/persistence/LoomMigrations.ts", change: "modified", note: "B · register 1067" },
+    { path: "apps/server/src/mcp/toolkits/workstream/defs.ts", change: "modified", note: "B · the one parameter; // loom: marked; llm-instruction-change record" },
+    { path: "apps/server/src/mcp/toolkits/workstream/handlers/outcome.ts", change: "modified", note: "B · pass reason" },
+    { path: "apps/web/src/lib/workstreamPresentation.ts", change: "modified", note: "B · Cancelled row detail = reason" },
+    { path: "skills/retro/scripts/retro_scan.py", change: "modified", note: "C · parse_session keeps cwd and per-call results; fourteen check functions; Trace checks digest section" },
+    { path: "skills/retro/signals.yaml", change: "modified", note: "C · fourteen structural entries, status seed, origin loom-evals plan (2026-11)" },
+    { path: "skills/retro/SKILL.md", change: "modified", note: "C · one list item in §1.1 naming the new digest section" },
+    { path: "scripts/loom-evals/trace_corpus.py", change: "added", note: "C · corpus query, cache, trace.json, hits/" },
+    { path: "scripts/loom-evals/gate_escapes.py", change: "added", note: "C · gates, files, repositories, candidates, escapes.json, hits/escapes.jsonl" },
+  ]}
+/>
+
+</Details>
+
+## 6. Verification
+
+- **Dashboard, real data.** On the production VM: `bash scripts/loom-evals/run.sh --week 2026-W44` twice; `diff` the two `readings/2026-W44/` directories (identical apart from `generated_at`); open `~/loom-evals/dashboard.md` and check one number by hand against its §1.3 query in `sqlite3 "file:$T3CODE_HOME/userdata/statev2.sqlite?mode=ro"`. The process holds no write lock: `fuser` on the database shows only the server writing.
+- **Scanner compatibility.** `python3 skills/retro/scripts/retro_scan.py --manifest ~/loom-retro/runs/2026-10-27-cache-layer-30s-ttl-recap/manifest.json --out /tmp/retro-check` writes a digest with the existing sections unchanged and `## Trace checks` added; `--extract` still works.
+- **Corpus run.** `python3 scripts/loom-evals/trace_corpus.py --since 2026-10-01 --full` completes; a second run with the cache touches no file older than a week; `hits/guard-fired.jsonl` is non-empty (441 files carry a guard result today) and its first line is a `Blocked by the t3` result; `killed-then-silent` hits include the census's T09 and T13 sessions and `merge-bypass` finds about 7 loom sessions, within a few of the census's first pass.
+- **Escape proxy.** `gate_escapes.py` reports 289 gates (as of 2 November), walks the seven common directories named in §4.3 without `--all`, prints rates per kind and tag, and `hits/escapes.jsonl` lines carry a gate, a commit or child, its kind and the files in common. Spot-check one loom candidate's trailer by `git show -s --format=%B <sha>`.
+- **Schema.** `vp test run apps/server/src/persistence/LoomMigrations.test.ts`; a new case in `apps/server/src/orchestration-v2/Orchestrator.loom.submit.test.ts` or a sibling: `thread.outcome.set` with `outcome: cancelled, reason: superseded` commits a `thread.outcome-set` event carrying the reason, and `LoomStore.history` returns an `outcome-set` entry with it; a `done` with a reason commits without one. A composer test (`sessionComposerLive.test.ts`) asserts one stamp row per first launch and none on a fork's replayed identity. `vp check` and `vp run typecheck`.
+- **Tool text.** The prompt-debug sidecar of a thread launched before and after prints `Declared tools … parameter words`; the difference is under 20. The `llm-instruction-change` record is in the PR.
+- **Schedule.** After merge, `mcp__t3-code__list_scheduled_tasks` shows the task; its first run's thread posts the dashboard path and three movers.
+
+## 7. Risks
+
+<Table
+  density="compact"
+  columns={["Risk", "Where it bites", "Mitigation in this plan"]}
+  rows={[
+    { tone: "warning", cells: ["The reason enum is not written: parents omit an optional parameter", "§2.1", "The dashboard shows cancels with no reason as their own bucket; if that bucket stays above half after four weeks the field is removed, not promoted to required"] },
+    { tone: "warning", cells: ["Checkpoint file lists include a sibling thread's edits in a shared worktree", "§4.2", "Sources are recorded per file; the first-20 review reads the commit source first; a file from checkpoints alone is marked"] },
+    { tone: "warning", cells: ["The headline escape rate decides Carl's hour and the proxy's precision is unknown", "§4.4", "Only the brief's two kinds count; the census's fix-child form is reading material; the rate is per kind and per tag, and tier B is proposed only after the first-20 review, not on the raw number"] },
+    { tone: "warning", cells: ["Report phrase match over-fires (three retro phrase signals measured 0%)", "§3.2 checks 8 and 9", "Each counts only paired with the absence of a command or of the text in the file; the `unreviewed` mark holds until 20 hits are read; under 50% precision it is narrowed or retired"] },
+    { tone: "warning", cells: ["The two root proxies measure Carl's habits as much as the agents' (a quote with a question is also how he answers well)", "§1.3 quote-and-ask, cancel-and-replace", "They are rates to watch across weeks, read with the census; the classifier, when built, grades the same messages and replaces the proxy with a labelled rate"] },
+    { tone: "neutral", cells: ["Weekly turn drifts into doing more than running the script", "§1.5", "The prompt names the one command and the one reply; the task runs on Sonnet; its threads are visible and the cost is in the dashboard's own ledger row"] },
+    { tone: "neutral", cells: ["The database grows and the corpus query slows", "§1.2, §3.1", "Queries measured at about a second today; the session cache keeps the scan incremental; `--since` bounds every walk"] },
+    { tone: "neutral", cells: ["pi-craft skills never quote the readings", "§8", "Out of this repository; a follow-up PR there adds one line each pointing at `~/loom-evals/readings/`; until then the weekly thread's reply is the pointer"] },
+  ]}
+/>
+
+## 8. Carried forward from the brief, and what this plan leaves outside
+
+- **Still unknown, carried:** the escape proxy's own precision (settled by the first-20 review, §4.4); whether Carl's steering rate can be separated from his habits changing (the dashboard detects, the census explains; its two proxy columns are the sharpest form of this question); whether upstream's runner hosts pi (Eval 4, not this plan). The census's two largest categories (an unchecked premise behind advice; a hand-back Carl cannot act on) have no trace check; the first is Eval 4's case 1 and 2, the second is the quote-and-ask proxy here and a model-judged case later.
+- **Outside this worktree:** the one-line pointers in `platform-update` and `llm-instruction-change` to `~/loom-evals/readings/`. Both skills live under `/home/Carl/pi-craft/plugins/pi-craft/skills/`; the brief says they will quote the last two readings, and a plan here cannot edit them. One small PR in pi-craft once the first reading exists.
+- **Not in this plan:** Eval 4; the classifier tier (§1.5); folding `scripts/prompt-telemetry/` into the dashboard; a UI for the dashboard (a markdown file in `~/loom-evals/` is the deliverable; the weekly thread is how it reaches Carl); backfilling stamps for threads launched before the deploy (release labels from `~/loom-releases/manifest.json` cover history); the lessons-triage scheduled task the brief notes for the parent.
+
+## As built
+
+Built on 2 November 2026 by three coders (commits `fa2131c7ba`, `d61ca2dd81`, `727d30043b`, `36935e7110`) and one integration review (`02cc5a170e`), all gates clean or fixed inline. Where the build departed from this plan, and why:
+
+- **Release labels come from `~/loom-releases/deploy.log`, not `manifest.json`** (§1.3): the manifest holds 16 entries and marks every release before 26 October `failed` after the fact, so it would have labelled most weeks wrongly; the deploy log's successful cockpit promotions and rollbacks give the release actually running.
+- **Weeks are local time (AEDT), not UTC** (§1.3, §1.5): the task runs Monday 06:00 local and a UTC week would not have ended; with no `--week` the entrypoint takes the previous complete local week. `trace_corpus.py` imports its window, era and connection helpers from `dashboard.py`, so those names are a contract between A's and C's scripts.
+- **The scheduled task takes the model of the thread that creates it** (§1.5): `schedule_task` has no model parameter, so the README's definition is created from a Sonnet thread rather than naming Sonnet.
+- **The cancel reason is dropped on `done` and `none` in the orchestrator, not the handler** (§2.1), so every dispatcher behaves alike and the orchestrator-level test holds; the handler passes it through.
+- **The stamp is written on the first composed launch, not the first identity write** (§2.2): a fork's first write is a replayed record. `roleOverlay.ts` gained a `roleFiles` helper so the stamp hashes the same role files the overlay reads, and `mcpHttp.testkit.ts` gained a `launchStamps` stub for the typecheck; neither was in the file list. The declared-tools word count moved by 3 (38 to 41 parameter words on `workstream_set_outcome`), confirmed on a dev instance.
+- **Seven checks were narrowed to stay structural** (§3.2): `merge-bypass` requires both `.t3code/ship.json` and a `ship` package script (four repositories have the file, one has the script); `forbidden-git` excludes `git add -A <paths>` and requires each segment to start with `git`; `kill-by-pattern` counts `kill $(pgrep|pidof|ps …)` and `pgrep` piped into `xargs kill`, not captured-PID forms; `failed-then-publish` is cleared by any `git status`; `sleep-poll` counts sleeps of 5 s or more; `file-reread` excludes images; `tests-claimed-not-run` excludes "not verified", splits a `verified`-only claim into its own variant (reviewers say it of code they read), and narrows the folded "shipped" claim to a PR or main reference; `moved-text-unwritten` skips sessions with no write call. Hits files carry one line per variant per session with a count, so one noisy session cannot fill a first-20 set.
+- **The escape proxy walks `--branches --remotes --not --remotes=upstream`** (§4.3): in loom, 14,877 of 15,831 commits since 6 October are the upstream fork's, and with them every gate "escaped" through someone else's `fix(...)`; rebased copies are deduplicated by author date and subject. Report paths are kept when a walked commit or `ls-tree HEAD` names them, as the stand-in for "exists at the gate's time".
+- **The corpus is 2,118 to 2,163 session files, not 2,992** (§3.1): the difference is dev-instance sessions under `/tmp` with no database thread, out of the corpus by construction.
+- **First readings.** The first run (week 2026-W44) completed in about 18 s and twice gave identical readings. The escape proxy's headline is 55% of 293 gates (kinds 1 and 2, other-tree), noise-dominated by hot files (`prose.ts` matched 114 times) and other coders' "review round" rework commits; 34.5% with checkpoint-only file matches dropped. It stays `Unreviewed` until the first-20 review, which is expected to narrow it, and tier B is not proposed on this number. `unasked-commit` for roots and `tests-claimed` `verified` for reviewers are expected to be noisy for the same reason.
+
+<QuestionForm
+  questions={[
+    {
+      id: "cancel-reason-shape",
+      title: "Cancel reason: a closed enum the dashboard can count, or one line of free text the dashboard lists verbatim?",
+      subtitle: "Either is one optional parameter; the enum adds five values to the tool text and gives a rate for free, free text gives the why and needs the later classifier to count it.",
+      mode: "single",
+      refs: [{ label: "2.1 Cancel reason: built, one optional enum parameter", anchor: "2-1-cancel-reason-built-one-optional-enum-parameter" }],
+      options: [
+        { id: "enum", label: "Enum: superseded, scope_dropped, stuck, mistake, other", recommended: true },
+        { id: "text", label: "Free text, one line; listed verbatim under the weekly table" },
+        { id: "none", label: "No reason parameter at all; keep the restart heuristic only" },
+      ],
+    },
+    {
+      id: "readings-home",
+      title: "Do the weekly readings stay under ~/loom-evals/ outside the repository, as /retro keeps its runs, or get committed?",
+      subtitle: "Outside: no PR a week, recomputable from the database for any week. Committed: history travels with the code but every run becomes a shipped change.",
+      mode: "single",
+      refs: [{ label: "1.4 Where the table goes", anchor: "1-4-where-the-table-goes" }],
+      options: [
+        { id: "home", label: "Outside the repository under ~/loom-evals/, the query committed", recommended: true },
+        { id: "repo", label: "Committed under a gitignored-exempt directory, one PR a week" },
+      ],
+    },
+  ]}
+/>
+
+###### Grounded on 2 November 2026 against the live database (read-only), the retro scanner and signals catalogue, the session composer and launch-identity code, the prompt-debug and retention code, the scheduled-task contracts, the loom, fathom-platform and workbench git histories, and `~/loom-releases/manifest.json`. Counts quoted are as of that date.

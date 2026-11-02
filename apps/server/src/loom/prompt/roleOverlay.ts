@@ -178,6 +178,22 @@ export const listRoleOverlays = (input: RoleLookup): ReadonlyArray<RoleSummary> 
   );
 };
 
+const roleSlug = (role: string | null) =>
+  (role ?? DEFAULT_ROLE)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "") || DEFAULT_ROLE;
+
+// loom: the files a role composes from, either possibly absent; the launch stamp hashes them.
+export const roleFiles = (input: RoleLookup & { readonly role: string | null }) => {
+  const overlayDir = findOverlayDir(input.projectRoot);
+  const file = `${roleSlug(input.role)}.md`;
+  return {
+    builtin: NodePath.join(input.builtinDir ?? BUILTIN_ROLES_DIR, file),
+    project: overlayDir === undefined ? null : NodePath.join(overlayDir, file),
+  };
+};
+
 /**
  * Read fresh at session start; the body is the prompt overlay. No role means the orchestrator. A
  * role without `tools:` (a project role naming none, a free-text role) takes the orchestrator's
@@ -186,11 +202,7 @@ export const listRoleOverlays = (input: RoleLookup): ReadonlyArray<RoleSummary> 
 export const loadRoleOverlay = (
   input: RoleLookup & { readonly role: string | null },
 ): RoleOverlay => {
-  const slug =
-    (input.role ?? DEFAULT_ROLE)
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "") || DEFAULT_ROLE;
+  const slug = roleSlug(input.role);
   const builtinDir = input.builtinDir ?? BUILTIN_ROLES_DIR;
   const overlayDir = findOverlayDir(input.projectRoot);
   const role = composeRole(slug, builtinDir, overlayDir);

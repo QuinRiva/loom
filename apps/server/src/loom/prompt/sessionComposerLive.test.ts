@@ -23,6 +23,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -61,6 +62,7 @@ import {
 import { agentGitEnv } from "../workstream/agentGitIdentity.ts";
 import type { LoomOpenSessionFields } from "@t3tools/contracts";
 import type { LoomSessionComposerShape } from "./sessionComposer.ts";
+import { LOOM_REPO_ROOT } from "./roleOverlay.ts";
 import { loomHiddenToolsEnv, makeLoomSessionComposer } from "./sessionComposerLive.ts";
 
 const decodeSidecar = Schema.decodeEffect(
@@ -342,9 +344,31 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           const sourceFile = identityFile(identityDir, source);
           const sourceFields = yield* composer.compose(source);
           const sourceBytes = yield* fs.readFileString(sourceFile);
+          yield* composer.compose(source);
 
           assert.deepEqual(yield* composer.compose(fork), asThread(sourceFields, fork));
           assert.equal(yield* fs.readFileString(sourceFile), sourceBytes);
+          // One launch stamp per composed identity: the source's first launch, none for the replay.
+          const sql = yield* SqlClient.SqlClient;
+          const stamps = sql<{
+            readonly thread_id: string;
+            readonly role: string;
+            readonly role_sha: string;
+            readonly prompt_sha: string;
+          }>`SELECT thread_id, role, role_sha, prompt_sha FROM loom_thread_launch_stamps
+              WHERE thread_id IN (${source}, ${fork}) ORDER BY thread_id`;
+          const sha = (text: string | Buffer) =>
+            NodeCrypto.createHash("sha256").update(text).digest("hex");
+          assert.deepEqual(yield* stamps, [
+            {
+              thread_id: source,
+              role: "researcher",
+              role_sha: sha(
+                NodeFS.readFileSync(NodePath.join(LOOM_REPO_ROOT, "roles", "researcher.md")),
+              ),
+              prompt_sha: sha(sourceFields.appendSystemPrompt),
+            },
+          ]);
 
           // Its relaunch is its own child identity, written once from then on (DL-740).
           const relaunched = yield* composer.compose(fork);
@@ -355,6 +379,10 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           );
           assert.deepEqual(yield* composer.compose(fork), relaunched);
           assert.equal(yield* fs.readFileString(sourceFile), sourceBytes);
+          assert.deepEqual(
+            (yield* stamps).map((stamp) => stamp.thread_id),
+            [fork, source],
+          );
         }),
       ),
   );

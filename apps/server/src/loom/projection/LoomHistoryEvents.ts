@@ -1,6 +1,7 @@
 import {
   EventId,
   IsoDateTime,
+  LoomCancelReason,
   LoomOutcome,
   LoomRouteKind,
   NonNegativeInt,
@@ -35,7 +36,10 @@ export const HistoryEventRow = Schema.Union([
     kind: Schema.optional(LoomRouteKind),
   }),
   historyRow("thread.gate-rework-accepted", { sourceThreadId: ThreadId, round: NonNegativeInt }),
-  historyRow("thread.outcome-set", { outcome: Schema.NullOr(LoomOutcome) }),
+  historyRow("thread.outcome-set", {
+    outcome: Schema.NullOr(LoomOutcome),
+    reason: Schema.optional(LoomCancelReason), // loom: cancel reason
+  }),
   // V1's lane axis: a yield was the `yielded` lane, done/cancelled were lanes.
   historyRow("thread.plan-lane-set", { planLane: Schema.String }),
 ]);
