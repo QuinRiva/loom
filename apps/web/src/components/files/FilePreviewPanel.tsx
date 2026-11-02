@@ -130,10 +130,9 @@ import {
   LONG_LINE_RENDER_CAP,
   UNBOUNDED_LINE_LENGTH,
 } from "./longLinePreview.loom";
-// loom: MDX plan renderer + debounced save coordinator
+// loom: MDX plan renderer
 import { LoomMdxAnnotationLayer, LoomMdxReviewCount } from "~/loom/LoomMdxAnnotationLayer"; // loom: query threads
 import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
-import { FileSaveCoordinator } from "./fileSaveCoordinator";
 // loom: previews reopen where the reader left them after a thread switch.
 import {
   fileScrollKey,
@@ -196,8 +195,7 @@ const MermaidFilePreview = lazy(() =>
 
 const FILE_EXPLORER_STORAGE_KEY = "t3code.fileExplorerOpen";
 const RENDER_MARKDOWN_STORAGE_KEY = "t3code.renderMarkdown";
-// loom: save debounce and the MDX plan read budget.
-const FILE_SAVE_DEBOUNCE_MS = 500;
+// loom: the MDX plan read budget.
 /**
  * Read budget requested for `.mdx` plan previews (8 MiB — the server clamps to
  * its plan ceiling). A fully evidence-embedded decision document crosses the
@@ -1331,15 +1329,17 @@ export default function FilePreviewPanel({
     !(tableDelimiter && renderTable) &&
     !renderBrowserFile &&
     !isDocument;
-  // loom: two independent reasons the preview can show less than the file holds. The server's
-  // read cap (8 MB with an explicit maxBytes) truncates every surface; the line cap is this
-  // panel's and reaches only the raw text surface, so a rendered markdown, MDX or table view
-  // must not claim to be elided or read-only.
+  // A truncated read of any other kind streams in full through WorkspaceLargeTextPreview.
+  const truncatedReadShown =
+    file.data?.truncated === true && (draft || isMarkdown || isMermaid || isHtml);
+  // loom: two independent reasons the preview can show less than the file holds: the server's
+  // read cap (8 MB with an explicit maxBytes) on the surfaces that render the truncated read,
+  // and this panel's line cap, which reaches only the elided raw text surface.
   const previewNotices = [
-    file.data?.truncated
-      ? `Preview limited to the first ${readMaxBytes ? "8 MB" : "1 MB"} of a ${file.data.byteLength.toLocaleString()} byte file.`
+    truncatedReadShown
+      ? `Preview limited to the first ${readMaxBytes ? "8 MB" : "1 MB"} of a ${file.data?.byteLength.toLocaleString()} byte file.`
       : null,
-    unboundedLines && showsRawText
+    unboundedLines && showsRawText && (truncatedReadShown || !file.data?.truncated)
       ? `Lines longer than ${UNBOUNDED_LINE_LENGTH.toLocaleString()} characters are shown to their first ${LONG_LINE_RENDER_CAP.toLocaleString()}, and this file is read-only here. Open it in an editor to see or change it in full.`
       : null,
   ].filter((notice) => notice !== null);

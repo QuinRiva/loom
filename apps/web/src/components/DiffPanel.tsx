@@ -278,7 +278,16 @@ export default function DiffPanel({
     selectThreadBranchBaseRef(state, routeThreadRef),
   );
   const toolCallSelection = diffSelection.kind === "tool-call" ? diffSelection : null;
+  // loom: change review — while an interval is selected the panel shows it (loom/review/); a
+  // tool-call diff opened from the timeline outranks it.
+  const loomReview = useLoomReviewSelection({
+    threadRef: routeThreadRef ?? null,
+    cwd: activeCwd ?? null,
+    ignoreWhitespace: diffIgnoreWhitespace,
+    enabled: (gitStatusQuery.data?.isRepo ?? true) && canReadFiles && toolCallSelection === null,
+  });
   const isGitSelection =
+    loomReview !== null || // loom: an interval reads as a git selection (totals, file list)
     diffSelection.kind === "branch" ||
     diffSelection.kind === "unstaged" ||
     diffSelection.kind === "commit";
@@ -293,13 +302,6 @@ export default function DiffPanel({
   );
   const toolCallItem = toolCallDetail.data?.item;
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
-  // loom: change review — while an interval is selected the panel shows it (loom/review/).
-  const loomReview = useLoomReviewSelection({
-    threadRef: routeThreadRef ?? null,
-    cwd: activeCwd ?? null,
-    ignoreWhitespace: diffIgnoreWhitespace,
-    enabled: isGitRepo && canReadFiles,
-  });
   const turnDiffSummaries = useThreadCheckpointSummaries(routeThreadRef);
   const orderedTurnDiffSummaries = turnDiffSummaries.toSorted((left, right) => {
     if (left.checkpointTurnCount !== right.checkpointTurnCount) {
