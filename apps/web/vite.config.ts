@@ -234,7 +234,10 @@ function resolveDevProxyTarget(
   }
 }
 
-const devProxyTarget = resolveDevProxyTarget(process.env.T3CODE_PORT, configuredWsUrl);
+// loom: never under Vitest: a T3CODE_PORT inherited from a running server would proxy browser tests to it
+const devProxyTarget = process.env.VITEST
+  ? undefined
+  : resolveDevProxyTarget(process.env.T3CODE_PORT, configuredWsUrl);
 
 // Brotli quality 5 encodes in hundreds of ms; default quality 11 would replace transfer stalls with encode stalls.
 function devCompressionPlugin(): Plugin {
