@@ -229,6 +229,7 @@ function Summary({
 }) {
   const latest = report.totals.latestCtx;
   const totals = model.classTotals;
+  const unusedSchemas = report.findings.find((f) => f.rule === "unused_tool_schemas");
   const findingsOf = (cls: GrowthClass) => report.findings.filter((f) => f.class === cls).length;
   const traced = (cls: "loom_tooling" | "agent_guidance", lead: string) => {
     const count = findingsOf(cls);
@@ -259,8 +260,12 @@ function Summary({
         </span>
       </div>
       <p className="text-sm leading-relaxed text-foreground/85">
-        <b className="font-medium text-foreground">{formatContextTokens(totals.fixed)}</b> is fixed
-        overhead. {traced("loom_tooling", "")}
+        <b className="font-medium text-foreground">{formatContextTokens(totals.fixed)}</b> is the
+        system prompt and the schemas of tools this session called
+        {unusedSchemas
+          ? ` (the ${formatContextTokens(unusedSchemas.tokens)} of never-called schemas counts under Loom tooling)`
+          : ""}
+        . {traced("loom_tooling", "")}
         {findingsOf("loom_tooling") > 0 && findingsOf("agent_guidance") > 0 ? ", " : null}
         {traced("agent_guidance", "")}
         {findingsOf("loom_tooling") + findingsOf("agent_guidance") > 0 ? ", and " : null}

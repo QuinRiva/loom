@@ -11,7 +11,7 @@ import type {
 export type GrowthClass = "fixed" | "loom_tooling" | "agent_guidance" | "task";
 
 export const CLASS_META: Record<GrowthClass, { readonly name: string; readonly color: string }> = {
-  fixed: { name: "Fixed overhead", color: "#71717a" },
+  fixed: { name: "System prompt and used schemas", color: "#71717a" },
   loom_tooling: { name: "Loom tooling", color: "#f97316" },
   agent_guidance: { name: "Agent guidance", color: "#ec4899" },
   task: { name: "Task size", color: "#94a3b8" },

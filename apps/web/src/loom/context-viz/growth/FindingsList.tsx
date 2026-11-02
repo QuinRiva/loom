@@ -21,7 +21,12 @@ const CLASS_WHAT: Record<GrowthClass, string> = {
   loom_tooling: "a tool returned or kept more than it should",
   agent_guidance: "the agent did something avoidable",
   task: "the work was that big",
-  fixed: "paid before any work",
+  fixed: "paid on every call",
+};
+const RULE_NAMES: Record<LoomContextFinding["rule"], string> = {
+  write_tool_echo: "write tools echoing large payloads",
+  unused_tool_schemas: "never-called tool schemas",
+  whole_file_read: "whole-file reads with no range",
 };
 const READS = new Set(["bash", "read", "read_full", "Read"]);
 
@@ -157,6 +162,9 @@ export function FindingsList({
   readonly lit: string | null;
   readonly onSelect: (card: Card | null) => void;
 }) {
+  const quiet = (Object.keys(RULE_NAMES) as Array<LoomContextFinding["rule"]>).filter(
+    (rule) => !cards.some((card) => card.key === rule),
+  );
   return (
     <section className="rounded-lg border border-border/70 px-1.5 py-3">
       <h3 className="px-2 text-sm font-semibold text-foreground">Findings</h3>
@@ -214,6 +222,11 @@ export function FindingsList({
           </div>
         );
       })}
+      {quiet.length > 0 && quiet.length < 3 ? (
+        <p className="px-2 pt-2 text-xs text-muted-foreground">
+          Checked and found nothing material: {quiet.map((rule) => RULE_NAMES[rule]).join(", ")}.
+        </p>
+      ) : null}
     </section>
   );
 }

@@ -450,8 +450,7 @@ export function LargestRows({
       row.kind === "group" ? (
         <div className="flex flex-col gap-0.5">
           <div className="font-medium text-foreground">
-            {row.group.items.length} {row.group.tool}{" "}
-            {item.kind === "tool_result" ? "replies" : "calls"} within 15% of one size
+            {row.group.items.length} {row.group.tool} replies within 15% of one size
           </div>
           <div>
             {row.group.tokens.toLocaleString()} tokens · superseded ≈
@@ -491,8 +490,7 @@ export function LargestRows({
                   ×{row.group.items.length} alike
                 </span>
                 <span className="min-w-0 text-xs font-medium text-foreground">
-                  {row.group.tool} {item.kind === "tool_result" ? "replies" : "arguments"},
-                  superseded ≈
+                  {row.group.tool} replies, superseded ≈
                   {formatValue(
                     ctx.lens === "tokens"
                       ? row.group.superseded
@@ -637,7 +635,7 @@ export function ReclaimRows({
       finding.rule === "write_tool_echo"
         ? {
             rule: finding.rule,
-            title: "Superseded tool echoes",
+            title: "Tool echoes, avoidable",
             tag: ["loom", "Loom tool"] as const,
             amount: finding.avoidableTokens,
             sub: formatPct(finding.avoidableTokens, used),

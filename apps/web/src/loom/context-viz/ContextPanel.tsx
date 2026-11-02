@@ -120,7 +120,8 @@ export function ContextPanelView(props: ContextPanelViewProps) {
           <p className="w-full text-xs text-muted-foreground">
             As of the latest call: {formatContextTokens(latestCtx)}
             {contextWindow ? ` of ${formatContextTokens(contextWindow)}` : ""}
-            {share ? ` (${share})` : ""} · {report.calls.length} calls · {props.turns} turns
+            {share ? ` (${share})` : ""} · {report.calls.filter((call) => call.valid).length} calls
+            · {props.turns} {props.turns === 1 ? "turn" : "turns"}
             {report.model ? ` · ${report.model}` : ""}
           </p>
         ) : null}

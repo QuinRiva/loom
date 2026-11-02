@@ -265,10 +265,8 @@ const median = (values: ReadonlyArray<number>) => {
 
 /** Carl's Group repeats: per tool (results and arguments apart), the items within 15% of its median. */
 export function repeatGroups(window: ReadonlyArray<LoomContextItem>): RepeatGroup[] {
-  const candidates = window.filter(
-    (item) => item.tool !== null && (item.kind === "tool_result" || item.kind === "tool_call_args"),
-  );
-  return [...groupBy(candidates, (item) => `${item.kind}|${item.tool}`)].flatMap(([key, items]) => {
+  const candidates = window.filter((item) => item.tool !== null && item.kind === "tool_result");
+  return [...groupBy(candidates, (item) => item.tool)].flatMap(([key, items]) => {
     const middle = median(items.map((item) => item.tokens));
     const members = items.filter((item) => Math.abs(item.tokens - middle) <= 0.15 * middle);
     if (members.length < 3) return [];
