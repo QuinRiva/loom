@@ -1,0 +1,219 @@
+---
+reader:
+  who: Loom's maintainer, choosing which of three context-usage mockups (if any) goes into an intent brief
+  knows: Loom's architecture and vocabulary, and the three mockups he liked; none of the ground truth or the child reports behind them
+  after_first_screen: the panel options are cheap and the cost sits in one server read; the timeline annotations are the expensive one because of where the data has to land; the rule engine is the expensive part of any option, and three arithmetic rules carry most of its value
+kicker: "Explainer · what each context-usage mockup costs to build and carry · 1 Nov 2026"
+manager_sessions:
+  - id: 01a19962-e945-757d-8e80-b263f993c7dc
+    name: Implementation cost explainer
+    role: explainer
+    authored_at: 2026-11-01T23:29:45.882Z
+---
+
+# What Loom pays for each context-usage mockup
+
+The data is nearly free: a server-side pass over pi's session jsonl gives every figure the mockups draw in **17 to 69 ms** on the 685K fixture and **under 0.7 s** on the largest recent session, with a reader the tree already ships; nothing persists, no migration, no adapter change. What separates the options is **where the per-item figure has to land**. A panel (composition, growth, or a combined Context tab) lands it in one on-demand answer of **12 KB gzipped** behind **about ten marked lines in five upstream files**. The timeline annotations land it on every row you read all day, which means stamping 184 turn items a second time through the orchestrator (**about 0.4 MB** re-sent per session, and still no history) or a client-side join, plus the first loom hunks in two row components upstream split out on 21 October. The expensive part everywhere is the **findings rule engine**: six rules on five thresholds, three regexes and two text matches, when **three arithmetic rules** found every large story in both fixtures.
+
+<Stats
+  items={[
+    { value: "17–69 ms", label: "Parse the 685K fixture", tone: "success", detail: "3.3 MB jsonl, 242 calls; 116 MB session under 0.7 s. Measured, warm cache." },
+    { value: "12 KB", label: "Per panel open, gzipped", tone: "success", detail: "74 KB raw for 242 calls and 184 tool results; the thread snapshot page budget is 1 MiB." },
+    { value: "~10 lines", label: "Upstream hunks for a panel", tone: "success", detail: "Across 5 files, each beside an existing loom hunk. Timeline annotations: 15–20 hunks across 6–8 files, 2 of them clean today." },
+    { value: "6 rules", label: "Findings engine", tone: "warning", detail: "5 thresholds, 3 regexes, 2 text matches. The hatched “avoidable” band sums their output, so it inherits every false positive." },
+  ]}
+/>
+
+<Callout focus title="What it means now">
+  **The composition panel is nearly free** and the **growth chart adds one hand-rolled SVG** on the same data path; a **combined Context tab** costs the same as the growth chart plus one findings list. **The timeline annotations are the expensive option**, not because of pixels but because the figure has no clean carrier onto the row and the rows are upstream's most-churned code. **The rule engine is the expensive part of whichever option you pick**, and it is expensive in trust rather than lines: every misclassified item is a lie labelled "Loom tooling". A free 80% exists for the timeline (the turn-boundary line, from data the client already holds) and for the findings (three arithmetic rules).
+</Callout>
+
+## 1. The four options, and where each one's cost sits
+
+<Table
+  density="compact"
+  columns={["Option", "Cost", "Where the figure lands", "Upstream touch", "Where the pain is"]}
+  rows={[
+    ["Composition panel", { badge: { label: "cheap", tone: "success" }, md: "" }, "one RPC, jsonl read on demand", "5 files, ~10 marked lines", "nowhere much; bars are CSS widths"],
+    ["Growth and diagnosis as a Context tab", { badge: { label: "moderate", tone: "info" }, md: "" }, "same RPC, plus the per-call series", "same 5 files", "a ~500-line hand-rolled SVG chart, and the six rules its avoidable band rests on"],
+    ["Combined Context tab (reviewer's suggestion)", { badge: { label: "moderate", tone: "info" }, md: "" }, "same RPC; one answer feeds both views", "same 5 files", "growth's cost plus reconciling the mockups' three definitions of fixed overhead, per-item figure and echo count"],
+    { tone: "warning", cells: ["Timeline annotations", { badge: { label: "expensive", tone: "warning" }, md: "" }, "every row: a second turn-item stamp through the orchestrator, or a client-side join by item id", "6–8 files, 15–20 hunks; two row files carry none today", "the carrier (§2.3) and the churn: `MessagesTimeline.tsx` has 244 commits since August"] },
+    ["Turn-boundary line only", { badge: { label: "free", tone: "success" }, md: "" }, "`providerTurns[].tokenUsage`, already on the client", "1 hunk", "says which turn grew, not which tool"],
+  ]}
+/>
+
+How to read it: the first three rows share one server read and one right-panel surface, so their costs stack rather than multiply; the fourth row is a different carrier altogether. The sections below are the evidence, in the order of the cost vectors you named: performance (§2), code smell and upkeep (§3), clutter (§4), then the cheaper 80% of each (§5).
+
+## 2. Performance
+
+### 2.1 Where the per-call data comes from: read on demand (measured)
+
+Every pi provider thread records its session file path as `nativeThreadRef.nativeId` (the adapter reads pi's `get_state` → `sessionFile`, `packages/provider-pi/src/server/adapter.ts` line 2337), and `LoomStore.threadForPiSession` already does the reverse lookup. So the server can open the jsonl for any pi thread, historical or live, with no new state. The tree already has a streaming, field-selective jsonl reader for exactly these files: `apps/server/src/usage/usageTranscriptReader.ts` (node:fs buffer streaming above 8 MB, resumable positions with a guard hash) driven by `piUsageFormat` in `packages/provider-pi/src/server/usage.ts`, which decodes `usage` from assistant, toolResult, compaction and cache-warm entries for the usage dashboard. A context reader is the same loop with a wider field selection (`toolCallId`, `toolName`, content length, tool-call arguments) and the delta identity on top.
+
+I timed a plain Node streaming pass (readline, 1 MiB chunks) over three real files on the cockpit VM, warm page cache, two ways: `JSON.parse` on every line, and parsing only assistant lines with a regex pull of `toolCallId` and `toolName` from tool results (the delta method needs nothing else from them).
+
+<Table
+  density="compact"
+  align={["left", "right", "right", "right", "right", "right"]}
+  columns={["Session file", "Size", "Lines", "LLM calls", "Parse every line", "Selective"]}
+  rows={[
+    ["The 685K fixture (orchestrator, 58 turns)", "3.3 MB", "512", "242", "69 ms", "17 ms"],
+    ["Largest recent lease-extraction session", "104.6 MB", "401", "162", "338 ms", "193 ms"],
+    ["Largest recent t3code session", "115.9 MB", "215", "96", "626 ms", "252 ms"],
+  ]}
+/>
+
+Two things the table hides. First, size is images, not conversation: the 105 MB file has 401 lines, so a few lines are tens of MB of base64 screenshots; a line-based stream holds one such line in memory (RSS peaked at 190 MB on the naive pass, 106 MB selective), which is why the existing reader's stream-json field selector (`apps/server/src/project/AgentSessionJson.ts`) is the right base rather than readline. Second, these are the outliers: across the 10,604 session files on this machine (11.8 GB) the mean is 1.1 MB, and the 350 to 514 MB files are old roo sub-runs that no Loom thread points at. A 50 MB file, by the measured 185 to 540 MB/s, is roughly **100 to 270 ms** (estimate from those rates, not measured).
+
+### 2.2 Where it could come from instead: storing it as the turn runs
+
+The adapter sees every per-call usage today: `reportLiveUsage` (`adapter.ts` lines 724–760) emits `provider_turn.updated` on each streamed message update with the in-flight call's `totalTokens`, `input`, `cacheRead` and `output`. Since `usedTokens − outputTokens` is `input + cacheRead + cacheWrite`, the exact `ctx(N)` is already in the event stream; what is missing is anyone keeping more than the last one (the projection row is an upsert per provider turn, and `orchestration_v2_events` holds 0 rows on the live database, so there is nothing to replay). Persisting a per-call series is therefore a loom reactor in the shape of `UsageLedgerReactor.ts` (~100 lines, reads the domain stream, `INSERT OR IGNORE` into a new `loom_context_calls` table via a `1067_` migration) or a `usage` method on the existing `LoomPiAdapterHooks` seam (one marked call at `message_end`, `adapter.ts` line 1844).
+
+The catch is coverage, not effort: a stored series starts the day it ships and never covers the 58-turn thread you took the screenshot in, so the jsonl reader has to exist anyway for history. "Both" is then two sources of truth for one number, with the live table disagreeing from the file whenever a turn is interrupted or a fork copies history. The honest options are **jsonl only** (one path, covers everything, re-read on demand) or **jsonl plus a cache keyed by file offset** (the usage scanner's `TranscriptParsePosition` pattern, so a reopen re-reads only the tail). A table of its own earns its place only if Loom starts deleting or losing session files, and `stateDirRetention.ts` does not touch `~/.pi/agent/sessions`.
+
+### 2.3 What crosses the socket, and when
+
+**Panel options.** One RPC (`loom.contextUsage`, in `rpc.loom.ts` beside `loom.threadSpend`) answered once per open. Stripped to what the three mockups draw (242 calls × ten numbers, 184 tool rows × eight fields, sections, definitions, totals), the fixture answer is **73,902 bytes raw, 11,613 gzipped**. For comparison the thread snapshot page is capped at 1 MiB, 10 user turns or 500 items (`threadHistoryPaging.ts`), and the usage dashboard's cold scan reads 1.4 GB. Over the relay or tunnel it is the same bytes; the server reads its own disk.
+
+**Timeline annotations.** The bytes are trivial (`"loomTokens":8812` is 19 bytes; 500 items on a page is 10 KB on 1 MiB) but the timing is the problem. The figure for tool result N is known only when call N+1's usage arrives, after the item is already complete and on the client. Carrying it on the turn item means a **second `turn-item.updated` for every tool result**: a command → event → projection write through the orchestrator, and a full-item re-send over the wire. The wire form is smaller than the stored item: `projectTurnItemForWire` in `WireProjection.ts` drops a `command_execution`'s output entirely (`outputOmitted`), reduces a `dynamic_tool`'s output to an envelope of ids and flags (`compactDynamicToolOutput` in `packages/shared/src/toolOutput.ts`), and sends its input whole only under 16 KB (a 160-character summary above). Run over the fixture thread's 184 stored items (live database, read-only, the reviewer's re-measurement through that function): 120 `dynamic_tool` items at 2.7 KB average on the wire (326 KB, down from 1.00 MB stored) and 64 `command_execution` at 1.16 KB (74 KB): **about 0.4 MB of re-sent items per session** to deliver 184 numbers, plus 184 extra orchestrator round trips and a projection write each. It only reaches subscribed clients while the turn runs (a later opener gets the stamped snapshot), so it is a live-path cost, not a storage one. It is also pi-only data on a provider-neutral contract (`OrchestrationV2TurnItemBaseFields`, `packages/contracts/src/orchestrationV2.ts` line 1373), which is the §3.2 smell. The alternative carrier is the §2.1 RPC with a client-side join by turn item id: pi's `toolCallId` is exactly Loom's `nativeItemRef.nativeId` (`baseItemFields(turn, toolCallId, …)`, `adapter.ts` line 1046), so the join is a Map lookup, not the fiddly split the mockup builder needed.
+
+**Turn-boundary line.** Zero: `providerTurns[].tokenUsage.usedTokens` and `.costUsd` are already in every thread projection (58 rows, 46 KB stored for the fixture thread), and `TurnFoldTimelineRow` has `row.runId` to key them.
+
+### 2.4 The timeline's render path
+
+`MessagesTimeline.tsx` renders rows through LegendList with recycled containers (`getItemType` buckets message rows by text length so recycled DOM fits), and an expanded tool group is a **nested LegendList of 24 px rows** (`compactWorkEntryHeight` in `TimelineWorkGroupRows.tsx`). Row components are `memo`'d. Against that:
+
+- **A margin figure** inline on each row keeps the 24 px height, so no layout change and no re-measure; the amber rule ("at least 5k and 3% of its turn") needs the turn total, which is one more pass in the row compiler `MessagesTimeline.logic.ts` (a Map lookup per row by item id; the compiler already runs on every projection change). Cost: small, if the figure arrives with the row. If it arrives later (the second stamp of §2.3), each memo'd row re-renders once more.
+- **The cost rail** is the twin of `TimelineMinimap.tsx`, whose refresh already runs in `MessagesTimeline.tsx` (`refreshMinimap` / `scheduleMinimapRefresh`, lines 795–846) on scroll inside a `requestAnimationFrame` and writes `dataset.inView` rather than React state; a rail sharing that refresh adds its hunk there, which §3.1 counts. A rail of 58 blocks is static until rows change; its "current" marker follows the minimap's strip map. One more effect (the minimap pays one) if it tracks positions itself; none if it reuses the minimap's `stripMap`.
+- **Hover cards** are a Tooltip per figure, mounted only on hover; 184 triggers cost nothing at rest. Nothing in the design animates.
+
+The real render-path cost is not frames, it is **churn**: `MessagesTimeline.tsx` has 244 commits since August, 21 of them upstream pulls, and the two row files the margin would live in were created by upstream on 21 October (#22674, #22675) when it split them out of the timeline. Every hunk there is re-placed at each pull.
+
+### 2.5 The chart and the findings: computed where, how often
+
+Both are derived data, so they belong in the server service that answers the RPC (`apps/server/src/loom/economics/`, beside `LoomUsageLedger.ts`), not in the panel: the client stays dumb, the rules live in one place, and the same service method can back an MCP tool so an agent can read its own context report (AGENTS.md: a capability a user can trigger is usually one an agent should reach). Computed **once per open**, then **again on provider-turn end**: the panel already observes `providerTurns` status changes through the projection, and a re-query is one parse (17 to 69 ms typical). Per-call live updates during a running turn would mean a re-parse per tool completion or a resume-offset cache; the composer meter already answers "how big is it now" live, and the panel answers "why", which is fine one turn stale. Not worth it in a first cut.
+
+### 2.6 Remote, tunnel, desktop, mobile
+
+Every option is a WebSocket RPC or projection data, so relay and tunnel behave as localhost does; nothing reads a local file from the client. Desktop wraps web and gets it free. **Mobile has no context meter at all today** (`apps/mobile/src` has no `tokenUsage` or `contextWindow` reference), so none of the options regresses it; a Context screen would be its own React Native build (the `features/diffs` screen is the pattern), and timeline annotations would need matching work in `ThreadFeed.tsx`. Web-only is a deliberate choice to write down, not a gap that opens.
+
+## 3. Code smell and upkeep
+
+### 3.1 Upstream files each option touches
+
+<Table
+  density="compact"
+  columns={["Option", "Invasiveness", "Upstream files (marked lines)", "Loom-owned"]}
+  rows={[
+    ["Any panel / Context tab", { badge: { label: "low", tone: "success" }, md: "" }, "`rightPanelStore.ts` (3: surface union, singleton list, switch case), `RightPanelTabs.tsx` (2 cases: icon, label), `RightPanelSurfaceContent.tsx` (1 case), `closedViewStore.ts` (1 case), `auth/RpcAuthorization.ts` (1 scope line)", "`rpc.loom.ts`, `wsMethods.ts`, a new `loom/economics/ContextUsage.ts`, `seedRightPanelSurfaces.ts`, `useLoomRightPanelSurfaces.ts`, the panel in `apps/web/src/loom/`"],
+    ["The door from the ring", { badge: { label: "none", tone: "success" }, md: "" }, "none for an “Open breakdown” button: `ContextWindowMeter` already takes a `loomSpend` slot that `ComposerFooterControls.tsx` fills with `LoomContextSpend`", "`ContextSpend.tsx`"],
+    { tone: "warning", cells: ["Timeline annotations", { badge: { label: "high", tone: "warning" }, md: "" }, "`MessagesTimeline.logic.ts` (rows carry a figure, 3–5), `TimelineWorkEntryRow.tsx` (2–3, first hunks), `TimelineWorkGroupRows.tsx` (2–3, first hunks), `MessagesTimeline.tsx` (turn header, Heaviest menu, rail mount, user and assistant rows: 4–6), `TimelineMinimap.tsx` or `timelineMinimapItems.ts` (1–3), and if stamping: `orchestrationV2.ts` (1) and `adapter.ts` (~10)", "the figure component, the rail"] },
+    ["Turn-boundary line", { badge: { label: "minimal", tone: "success" }, md: "" }, "`MessagesTimeline.tsx` (1, in `TurnFoldTimelineRow`)", "one component reading `providerTurns`"],
+    ["Per-call storage (if ever)", { badge: { label: "low", tone: "success" }, md: "" }, "`adapter.ts` (1 hook call) or none (a domain-stream reactor)", "`LoomMigrations.ts` entry `1067_`, the reactor"],
+  ]}
+/>
+
+What the badges mean: every panel line sits beside the existing `workstream` surface's loom hunk, so a pull conflict there is one already being resolved; a click on the ring itself rather than its popover would add one hunk in `ContextWindowMeter.tsx`; the timeline's 15 to 20 hunks land in the area upstream is actively refactoring (§2.4); and per-call storage, if it ever ships, does not remove the jsonl path (§2.2).
+
+### 3.2 Provider coupling
+
+All of this is pi: the delta identity is a property of pi's jsonl, and `piUsageFormat` is already pi's own reader. The clean seat is a service that keys on `providerThread.driver === "pi"` and the `nativeThreadRef` path and answers `null` for any other driver, with the UI hiding the tab or figure on `null`. That is where the panel options sit naturally. The leak is in the timeline-stamping route: a `tokens` field on `OrchestrationV2TurnItemBaseFields` is a provider-neutral promise that only pi keeps, which is the kind of field upstream's other adapters will never fill and reviewers will ask about at every pull. The join-by-id route keeps the contract untouched.
+
+### 3.3 The findings rule engine, honestly
+
+The growth mockup's findings come from `growth-derive.py`, and what it encodes is exactly what a real build would have to keep right:
+
+<Table
+  density="compact"
+  columns={["Rule", "Class it assigns", "What it rests on", "Found in the fixtures", "Goes stale when"]}
+  rows={[
+    ["Write-tool echo", "Loom tooling", "tool name matches `add|update|rewrite|set|submit` and result ≥ 2,000 tokens; “avoidable” = result minus the shortest reply from the same tool", "232K (34% of the window), high", "a Loom tool is renamed, or a write tool legitimately returns a large payload"],
+    ["Truncated then re-read", "Loom tooling", "footer text match (“[Showing lines”, “Full output: /tmp”), ≥ 3,000 tokens, plus later calls within 4 whose command mentions the same filename (regex)", "0 in the orchestrator; 20K in the child", "pi changes the bash footer; a tool truncates silently; `read`'s 2,000-line cap has a different footer"],
+    ["Automated notices", "Loom tooling", "user messages with the prefix “[T3 Workstream control plane”", "38K, low", "the digest wording changes. Loom already stores these as structured `controlPayload` on the message (migration 1024), so this one can be exact from Loom's own data instead"],
+    ["Unused tool schemas", "Fixed overhead / tooling", "tool definitions minus names called (set difference)", "17K, low", "never: pure arithmetic"],
+    ["Whole file read, then grep'd", "Agent guidance", "`read_full` or `read` without `offset`/`limit`, ≥ 3,000 tokens, and a later bash command containing the basename and `grep|sed|awk|rg` after splitting on `&&`, `;`, `|`", "55K in the child, medium", "any of the three parsers drifts; a file read whole then edited whole is a false positive"],
+    ["Identical call repeated", "Agent guidance", "same name and arguments as an earlier call", "16K, low; state may have changed", "never, but it is weak evidence by its own admission"],
+  ]}
+/>
+
+The engine is about 120 lines; writing it is not the cost. The cost is that the chart's **"without the avoidable items: 458K"** line and the **"287K traces to Loom tooling"** headline sum these rules' outputs, so every false positive is a confident wrong sentence on the first screen, labelled with whose fault it is. The thresholds (2,000, 3,000, within 4 calls) are tuned to two sessions. The "Loom tooling vs agent guidance" split is a judgement the code makes on Carl's behalf, and the two mockups already disagree on it: the timeline's "no cap" chip on `read_full` says tooling, the growth view says guidance.
+
+What a smaller set gives: the three rules that are **arithmetic over tool name and token count** (write-tool echo, unused schemas, whole-file reads over a size with the "then grep'd" clause dropped) found every large story in both fixtures (232K, 17K, 55K) with no text parsing and nothing to drift. The other three found 38K, 16K and 20K, all low or medium confidence, and each depends on a regex over text Loom does not own. The notices rule is the exception worth keeping, because Loom can make it exact from `controlPayload`. The rest of the diagnosis value lives in the **"biggest step" and "largest single items" lists**, which are sorts, not rules, and never lie.
+
+### 3.4 Pricing
+
+Two different needs. **What it cost so far** needs no table: every assistant entry in the jsonl carries pi's `usage.cost` priced by component (`input/output/cacheRead/cacheWrite/total`), so the cache-read price at any call is `cost.cacheRead / usage.cacheRead` from that call. **What it would cost from here** ("a cold cache now would cost $13.7", "cost to keep per later call") needs a current price, and `cacheModelPrice` in `packages/client-runtime/src/state/loom/cacheLiveness.ts` already holds it for four models (Opus 5.5, Fable 5.1, Sonnet 5.5, Opus 5), with `cacheStakeUsd` and `cacheWarmReadUsd` beside it, refreshed by the monthly platform update and consumed today by the cache fuel ring and `CacheHoverBlock`. The cost-to-keep lens is one more consumer of that table, not a new maintenance story; an unpriced model shows tokens only, as the hover block already does on `null`.
+
+### 3.5 Effect budget and `shadcn/no-restyle`
+
+New files under `apps/web/src/loom/` get their own `scripts/effect-budget.json` entries, so no option raises an upstream file's budget. A panel that re-queries on turn end follows `threadSpend.ts` (`createBatchedLookupStore` + `executeAtomQuery`), a store rather than an effect. "Click a step, scroll the timeline to its row" is already built: `loom/conversationJump.ts` parks an anchor the timeline consumes, its effect already budgeted. The rail is the one place an effect is likely (position sync), in a loom file. No design needs a restyled `components/ui` export: the bars are CSS widths in a feature component, the "Heaviest" menu is `DropdownMenu` as shipped, the tab is `RightPanelTabs`' own look. There is **no chart library in the tree** (no recharts, d3 or visx in `apps/web/package.json`), so the growth chart is hand-rolled SVG in the manner of `CacheFuelRing.tsx`: a 242-point stepped area with cliff labels, a hatched counterfactual band, per-turn bars, hover and pin. That chart is the single largest UI build in the set, roughly 500 lines; the composition panel's bars are an afternoon.
+
+## 4. Clutter
+
+### 4.1 The timeline column
+
+A figure on every row is permanent furniture on the thing you read all day: "+21", "+78", "+91" on prose rows, 184 figures per session, most under 1K. The mockup mitigates with hairlines on a linear scale and amber only at 5k and 3% of the turn, but the right gutter already holds `TimelineRowTimestamp` (`ms-auto`), and the mockup's ledger plus rail reserve about 85 px of lane at 1,100 px. The opt-in should be a loom setting in `packages/contracts/src/settings.loom.ts` (tier 2 in `docs/architecture/loom-ui-state-tiers.md`, with a row in the `LoomAutoOpenSettingsRows.tsx` pattern), not a reuse of upstream's `contextWindowMeterEnabled`, which governs the composer ring. **Off is today's timeline exactly**: no reserved gutter, no rail. The risk the design cannot mitigate is habituation: a number you see 184 times a session stops being read, and then the one that matters (26.4k) is found only by the amber, which is one threshold away from being noise too.
+
+### 4.2 The panel and the tab strip
+
+The right panel is one tabbed strip that already carries `diff`, `files`, `terminal`, `preview`, `tasks`, `workstream`, `pull-requests` and `dir` kinds (`rightPanelStore.ts`); a `context` kind is the norm, not a third thing. Its open state is tier 1 (persisted per thread by `rightPanelStore`), and it should **never be seeded**: the policy in the tiers doc is that only Workstream auto-opens, through `seedWorkstream`, and a panel that appears because a number got large is exactly the "last opener wins" disease it cures. The composition and growth views share one strip slot when combined; the reviewer's two-tabs-in-a-tab layout is the clutter risk there, and one scroll (chart on top, list below) avoids it. The composition panel's **"as of the latest call"** is a hidden state: after a compaction the composition resets, and the panel has to say so or it lies.
+
+### 4.3 Ways in and ways out
+
+<Table
+  density="compact"
+  columns={["Surface", "Way in", "Way out", "How you see it"]}
+  rows={[
+    ["Timeline figures and rail", "loom setting on", "setting off", "the figures are gone; nothing reserved"],
+    ["Context tab", "ring popover's “Open breakdown”, the “+” menu, shortcut", "close the tab (persisted per thread, never re-seeded)", "the tab strip"],
+    ["Pinned step on the chart", "click a step", "click again or Escape", "the highlighted rows in the timeline (via `conversationJump`)"],
+    ["“Mute under” threshold, cost-to-keep lens", "toggle in the panel", "toggle back", "tier 4: forgotten on close, deliberately"],
+  ]}
+/>
+
+## 5. The cheaper 80% of each
+
+<Columns columns={2}>
+  <Card eyebrow="Timeline" heading="The turn-boundary line, from data the client already holds" tone="success" badge="free">
+    "598.9k → 617.4k · +18.6k · $1.46" on every "Worked for" header: `providerTurns[].tokenUsage` keyed by `runId` from `TurnFoldTimelineRow`. One hunk, one loom component, zero new data, works on every historical thread. A "Heaviest turn" jump falls out of the same numbers. **Trade-off:** it says which turn grew, not which tool; the per-tool answer is the panel's. Also: the figure is pi's `contextUsage.tokens` at turn end, exact to within its chars/4 estimate of any trailing message.
+  </Card>
+  <Card eyebrow="Panel" heading="Read the jsonl on demand, persist nothing" tone="success" badge="cheap">
+    One service, one RPC, re-read on open and on turn end. Covers history and live threads with one path; 17 to 69 ms typical, under a second for the worst recent file. **Trade-off:** one turn stale during a running turn, and a session file deleted outside Loom means no breakdown (the meter still works). A resume-offset cache can come later without changing the contract.
+  </Card>
+  <Card eyebrow="Findings" heading="Three arithmetic rules, and sorted lists for the rest" tone="success" badge="most of the value">
+    Write-tool echo, unused schemas, whole-file reads over a size (plus notices, made exact from `controlPayload`). No regexes over bash, no footer matching. The "biggest step" and "largest items" lists carry the rest. **Trade-off:** no "then grep'd it anyway" story, no truncation follow-up story; the hatched avoidable band is smaller but every token in it is defensible.
+  </Card>
+  <Card eyebrow="Composition" heading="The “In window” view without the cost lens" tone="neutral" badge="optional cut">
+    The lens is additive and cheap (§3.4), so this cut saves little; it is listed because it removes the one forward-looking number ("cold cache now: $13.7") that depends on the price table being current.
+  </Card>
+</Columns>
+
+## 6. Open edges
+
+- **Frame cost of the rail is unmeasured.** The LegendList and nested-list analysis in §2.4 is from reading the code; a dropped frame on a 58-turn thread with the rail mounted needs a live build to rule out.
+- **Parse times are warm-cache.** A first open after a reboot pays the disk read; on this VM that is unlikely to double the numbers, but it was not measured.
+- **Parallel tool calls** (12 in the child session, 1 in the orchestrator) share a gap and are split by character share; those rows carry an "≈" in all three mockups and would in a build.
+- **Agents as readers.** If the analysis is a service method, an MCP tool (`thread_context_report`) costs a handler; whether an agent should be able to diagnose its own context was not in scope, but it changes nothing above and argues for the service shape either way.
+
+<QuestionForm
+  questions={[
+    {
+      id: "direction",
+      title: "Which direction goes into an intent brief?",
+      subtitle: "Pick any combination; the panel options share one data path and stack, the timeline options are a separate carrier.",
+      mode: "multi",
+      refs: [
+        { label: "1. The four options, and where each one's cost sits", anchor: "1-the-four-options-and-where-each-one-s-cost-sits" },
+        { label: "5. The cheaper 80% of each", anchor: "5-the-cheaper-80-of-each" }
+      ],
+      options: [
+        { id: "context-tab", label: "A Context tab: composition and growth in one panel, jsonl read on demand, three arithmetic rules plus exact notices", detail: "The moderate option; the chart is the largest build." },
+        { id: "composition-only", label: "The composition panel alone, jsonl read on demand, no rule engine", detail: "The cheap option; no chart, no findings." },
+        { id: "turn-line", label: "The turn-boundary line on every “Worked for” header, from data the client already holds", detail: "Free; can ship with either panel option or alone." },
+        { id: "timeline-full", label: "The timeline annotations in full: per-row figures, rail, Heaviest menu, truncation chips", detail: "The expensive option; needs the join-by-id carrier to avoid stamping turn items." },
+        { id: "none", label: "Nothing yet; fix the goal_task echo first and look again", detail: "The echo is 34% of the fixture's window; how small the tool change is has not been checked." }
+      ],
+      allowOther: true
+    }
+  ]}
+/>

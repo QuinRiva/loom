@@ -1,0 +1,55 @@
+---
+reader:
+  who: Carl, who liked all three context-usage mockups and approved what gets built; the gate and the coders read it as the lines they are held to
+  knows: the three mockups and the cost explainer's first screen; nothing of the plan or the file names
+  after_first_screen: he can say what will exist, how he turns each view on and off, and what removing a rejected view involves
+kicker: "Intent brief · approved 2 Nov 2026"
+status: approved
+plan: plans/context-viz-experiment/plan.mdx
+manager_sessions:
+  - id: 01a19980-1586-70ac-8028-4c2c35d87e83
+    name: Context-viz experiment intent brief and plan
+    role: intent
+    authored_at: 2026-11-02T00:16:42.053Z
+---
+
+# All three context views, each behind its own switch, built to be deleted
+
+**Goal.** "I think the best way for me to evaluate how useful this is, is to have it 'togglable' - so provide a quick toggle to turn it on/off … test all of these, then, determine which parts (if anything) that I like, and remove the rest. So I want to make sure that it's easy to remove and doesn't leave behind vestigial code." Build the timeline annotations, the composition panel and the growth chart with findings as the mockups show them, in Loom's real components, as three independent experiments on one data path.
+
+**You'll know it works when.**
+
+- Settings → Behavior has a **Context diagnostics** group of three switches, **Timeline**, **Composition** and **Growth**, beside the Auto-open workstream row; all three are on from the start on this machine. The composer's context ring and its popover are unchanged. With a switch off its view is gone entirely: no gutter reserved, no request made; with all three off, today's Loom exactly.
+- **Timeline on:** every tool row shows what it added to the context (exact for tool results), amber when it is at least 5k and 3% of its turn; each "Worked for" header shows start → end and a **Heaviest** menu that jumps to a row; a rail at the right edge shows where the window filled.
+- **Composition on:** a **Context** tab sits in the right panel's strip beside Diff on every pi thread, added once without stealing focus from the tab you had open (a thread whose panel you have never touched opens on it, as a root opens on Workstream); it lists what is in the window now by category, tool and call, with the **Cost to keep** lens and **Group repeats**; clicking an item lands on its row in the chat. Close the tab and it stays closed on that thread; the panel's + menu brings it back.
+- **Growth on:** the same tab shows context size per call with cliff labels, the hatched "without the avoidable items" line, findings from three rules, and the biggest-step and largest-items lists; clicking a finding lights its calls on the chart; pinning a step scrolls the chat to it.
+- On a child thread, which is one turn, the per-call views say as much as they do on a 58-turn orchestrator.
+- Removing a view you reject is deleting its folder and the hook lines a checklist names, after which `vp check`, typecheck and knip pass; the removal is rehearsed on a scratch branch before the final PR.
+- **Must not:** touch the orchestrator, the turn-item contract, the database or the pi adapter; animate anything; cost a frame on the timeline when the Timeline switch is on, or anything at all when it is off; change which tab is active on a panel you have arranged.
+
+**Approaches in play.**
+
+- One server read of pi's session jsonl on demand, one RPC, one answer all three views draw from; the timeline joins figures to rows by tool-call id on the client. Wins if the measured 17 to 69 ms parse holds on real threads. _The pick._
+- Dropped: stamping figures onto turn items through the orchestrator. 184 extra round trips and about 0.4 MB re-sent per session for 184 numbers, and a pi-only field on a provider-neutral contract.
+- Dropped: the turn-boundary line. "Most sub-threads are a single 'turn' … most _work_ is done in one turn." Anything that only resolves per turn is useless on a child; the per-call series is what matters, so the growth chart defaults to per-call steps.
+- Dropped: persisting a per-call series (a reactor and a migration). It would never cover the threads already run and would be a second source of truth beside the file.
+- Dropped: the switches and an "Open breakdown" button in the ring's popover. Carl chose Settings only (below); the Context tab follows the switch instead.
+
+**Decided.** "provide a quick toggle to turn it on/off"; "test all of these, then, determine which parts (if anything) that I like, and remove the rest"; "easy to remove and doesn't leave behind vestigial code".
+On the switches' start state: "No, turn all three on so I see everything at once."
+On where the quick toggles live: "Settings only, keep the popover as it is."
+On the panel views: "Yes, one Context tab with a Composition | Growth switch."
+
+- _Assumed:_ the switches are per device, like the ring's own switch, not synced; redirect if wrong.
+- _Assumed:_ where the mockups differed, the build takes: fixed overhead is the system prompt plus every tool schema (unused schemas are a finding inside it); a tool row's figure is its result alone, with what the agent wrote in the call counted separately as "the agent's own writing"; the echo finding counts the calls over 2,000 tokens (30 of 31 in the fixture), avoidable being each minus the tool's shortest reply.
+- _Assumed:_ pi only, web and desktop only. Other providers and mobile show nothing; mobile has no context meter today, so nothing regresses.
+- _Assumed:_ the Context tab is added to a pi thread's panel once, the first time the thread is visited with a panel switch on, in the strip and never as a focus steal, the way the Workstream tab is seeded today; turning both panel switches off closes it on every thread you visit.
+
+**Not doing.** Live per-call updates during a running turn (refresh on open and at turn end). The text and regex rules from the growth mockup (truncated-then-re-read, read-then-grep'd, identical repeats, automated notices) and near-duplicate grouping by text; three arithmetic rules only. A "before the first message" row in the timeline (the panel's Fixed overhead section carries it). An MCP tool for agents to read their own report. A keybinding. Any change to the context ring or its popover.
+
+**Still unknown.**
+
+- Does the rail cost a frame on a 58-turn thread with an expanded tool group? A live pass with the rail mounted settles it; if it does, the rail goes and the row figures stay.
+- Is 0.6 s acceptable for the one-in-a-hundred session file over 100 MB (screenshot-heavy)? A real thread settles it; the fix, if not, is a resume-offset cache behind the same contract.
+- Can prose and thinking rows be joined to their figures reliably (by order within a turn, not by id)? The fixture test settles it; if not, those rows show nothing and tool rows keep their exact figures.
+- With all three on, every pi thread pays one read on first open. Is that felt? The plan's cold-open measurement settles it.

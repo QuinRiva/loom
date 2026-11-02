@@ -1,0 +1,432 @@
+---
+reader:
+  who: the reviewer gate judging this plan against the approved brief, then the coders who take one phase each with none of this thread's context
+  knows: Loom's architecture and vocabulary and the intent brief beside this file; the mockups by sight; none of the cost explainer's investigation or the ground-truth fact sheet
+  after_first_screen: one server read of the pi session file feeds three switchable views through one RPC; about 22 marked lines touch upstream files and every other line sits in two folders that a checklist deletes
+kicker: "Implementation plan · under the approved brief · 2 Nov 2026"
+status: approved
+intent: plans/context-viz-experiment/intent.mdx
+manager_sessions:
+  - id: 01a19980-1586-70ac-8028-4c2c35d87e83
+    name: Context-viz experiment intent brief and plan
+    role: plan
+    authored_at: 2026-11-02T00:30:05.378Z
+---
+
+# One jsonl read, one RPC, three views behind three switches, and a checklist that deletes any of them
+
+Build a server service that reads a pi thread's session jsonl on demand and answers one report (every LLM call's context size, every item that entered the window with its exact or split token count, three findings), served by one new ws method **`loom.contextUsage`**. On the client, three per-device switches in Settings, all on from the start, gate three consumers of that one answer: per-row figures and a rail in the timeline, and a **Context** right-panel tab holding the composition list and the growth chart as sub-views, seeded into a pi thread's tab strip by the switch itself (the ring and its popover are untouched). The bets: **read the file, persist nothing** (17 to 69 ms on the 685K fixture, under 0.7 s on the largest session on this machine, and it covers every thread ever run) and **join figures to timeline rows on the client by tool-call id** (pi's `toolCallId` is Loom's `nativeItemRef.nativeId`, so the turn-item contract and the orchestrator stay untouched). The cost is about **22 marked lines across 13 upstream files**, all the rest in `apps/server/src/loom/context-viz/` and `apps/web/src/loom/context-viz/`, and the one large build is the growth chart's hand-rolled SVG.
+
+<Stats
+  items={[
+    { value: "1", label: "New ws method", tone: "success", detail: "`loom.contextUsage`, beside `loom.threadSpend`; one answer, ~75 KB raw / ~12 KB gzipped for 242 calls" },
+    { value: "~22", label: "Marked lines in upstream files", tone: "info", detail: "13 files, plus an import line in each; 11 already carry a loom hunk, and the two work-row files split out by upstream on 21 October carry their first" },
+    { value: "2", label: "Folders that hold everything else", tone: "success", detail: "server and web `loom/context-viz/`; deleting them is most of the removal" },
+    { value: "3", label: "Switches, per device, on by default", tone: "neutral", detail: "`contextVizTimeline`, `contextVizComposition`, `contextVizGrowth` in `settings.loom.ts`; Settings → Behavior, nothing in the ring popover" },
+  ]}
+/>
+
+<Callout focus title="What it means">
+  **In scope:** the three views as the mockups draw them, with the interactions §4 to §6 name; three arithmetic findings; the cost-to-keep lens; pi threads on web and desktop. **Deferred:** live per-call refresh during a turn, the text and regex rules, near-duplicate text grouping, an MCP tool, mobile, other providers. **Done means** the brief's checks pass on a real thread via the dev-verify recipe, the preview fixtures render all three views, and the removal checklist in §7 has been rehearsed on a scratch branch with `vp check`, `vp run typecheck` and knip green afterwards. Carl's three answers to the brief and the gate's three questions are settled in the body (§3.1 defaults and placement, §3.2 the door, §3.5 the sub-view memory, §4 the rail, §5 Group repeats); nothing is open.
+</Callout>
+
+The one piece of UI the mockups do not show is the door. Carl chose "Settings only, keep the popover as it is", so the Context tab follows the switch into the right panel's strip, the way the Workstream tab already does, and nothing else on the thread changes.
+
+<Columns columns={2}>
+  <Column label="Before: a pi thread's right panel today">
+    <Screen surface="panel" html={"<div style='box-sizing:border-box;height:100%;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:12px;color:var(--wf-ink)'><div style='display:flex;gap:6px;align-items:center;border-bottom:1px solid var(--wf-line);padding-bottom:8px'><span style='padding:4px 8px;border-radius:var(--wf-radius);background:var(--wf-accent-soft)'>Diff</span><span style='padding:4px 8px;color:var(--wf-muted)'>Files</span><span style='padding:4px 8px;color:var(--wf-muted)'>Workstream</span><span style='margin-left:auto;color:var(--wf-muted)'>+</span></div><div style='color:var(--wf-muted)'>Since your message · 3 files</div><div style='display:flex;flex-direction:column;gap:4px'><span>apps/web/src/loom/ContextSpend.tsx</span><span>packages/contracts/src/settings.loom.ts</span><span>apps/server/src/loom/wsMethods.ts</span></div></div>"} />
+  </Column>
+  <Column label="After: the Context tab in the strip, Diff still active">
+    <Screen surface="panel" html={"<div style='box-sizing:border-box;height:100%;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:12px;color:var(--wf-ink)'><div style='display:flex;gap:6px;align-items:center;border-bottom:1px solid var(--wf-line);padding-bottom:8px'><span style='padding:4px 8px;border-radius:var(--wf-radius);background:var(--wf-accent-soft)'>Diff</span><span style='padding:4px 8px;color:var(--wf-muted)'>Files</span><span style='padding:4px 8px;color:var(--wf-muted)'>Workstream</span><span style='padding:4px 8px;color:var(--wf-muted);border:1px dashed var(--wf-line);border-radius:var(--wf-radius)'>Context</span><span style='margin-left:auto;color:var(--wf-muted)'>+</span></div><div style='color:var(--wf-muted)'>Since your message · 3 files</div><div style='display:flex;flex-direction:column;gap:4px'><span>apps/web/src/loom/ContextSpend.tsx</span><span>packages/contracts/src/settings.loom.ts</span><span>apps/server/src/loom/wsMethods.ts</span></div></div>"} caption="Seeded once per pi thread while Composition or Growth is on, added without stealing focus; closing it keeps it closed on that thread, the + menu brings it back, and turning both panel switches off closes it wherever it is met." />
+  </Column>
+</Columns>
+
+## 1. The shape: one data path, three consumers
+
+<Mermaid
+  source={"flowchart LR\n  J[\"pi session jsonl<br/>~/.pi/agent/sessions\"] --> S[\"ContextUsage service<br/>server, read on demand\"]:::tone-success\n  S --> R[\"loom.contextUsage<br/>one ws method\"]\n  R --> ST[\"contextUsageStore<br/>client, per thread\"]\n  ST --> T[\"Timeline figures + rail<br/>join by toolCallId\"]:::tone-info\n  ST --> P[\"Context tab<br/>Composition | Growth\"]:::tone-info\n  SW[\"3 switches<br/>settings.loom.ts\"] -.gate.-> T\n  SW -.gate.-> P"}
+  caption="Read left to right: the file is read once per open and once per turn end; the two consumers on the right are the only places a switch is read, and each returns null before touching the store when its switch is off."
+  legend={[{ tone: "success", label: "server, new" }, { tone: "info", label: "web, new, switch-gated" }]}
+/>
+
+<Callout tone="decision" title="Read the file on demand; persist nothing">
+  The service finds the session file through `piSessionPathOf(threadId)` (already in `apps/server/src/loom/prompt/childPrompt.ts`: the latest pi provider thread's `nativeThreadRef.nativeId`, which the adapter sets from pi's `get_state` → `sessionFile`), streams it line by line, and answers. No table, no migration, no adapter change, no reactor. The answer is recomputed on open and whenever the thread's latest provider turn reaches a terminal status; the client never asks during a running turn.
+</Callout>
+
+<Columns columns={2}>
+  <Card heading="Read on demand" tone="success" badge="CHOSEN" meta={["0 migrations", "covers history", "17–69 ms typical"]}>
+    One source of truth. Every thread ever run on this machine has its file; a fork's file carries the copied history, so the series is continuous. The worst recent file (116 MB of screenshots, 215 lines) parses in 0.63 s with plain `JSON.parse` per line; if a real thread feels slow, a resume-offset cache in the shape of `TranscriptParsePosition` can be added later behind the same contract.
+  </Card>
+  <Card heading="Stamp figures onto turn items" tone="neutral" badge="REJECTED" meta={["orchestrator", "+1 contract field", "~0.4 MB/session"]}>
+    The figure for tool result N is known only when call N+1's usage arrives, after the item is complete and on the client, so it would be a second `turn-item.updated` per tool result through the orchestrator and a pi-only field on `OrchestrationV2TurnItemBaseFields`. The join-by-id route gives the same number with no contract change.
+  </Card>
+</Columns>
+
+**Gating, in order.** The switch (client setting) → the thread's active provider thread has `driver === "pi"` → the server finds a session file and can open it. Any miss answers `null`, and each view renders nothing for `null` except the Context tab, which shows one line ("No context breakdown for this thread" with the reason). Nothing animates; the one `transition` in the design is the mockups' hover, which is a Tooltip mount.
+
+## 2. The server: the reader, the attribution, the findings
+
+All of it lives in a new folder, `apps/server/src/loom/context-viz/`, and nothing in it is imported from outside the folder except by `wsMethods.ts`.
+
+### 2.1 The reader (`piSessionContext.ts`)
+
+Reuses: the file path from `piSessionPathOf`; the streaming posture of `apps/server/src/usage/usageTranscriptReader.ts` (node:fs, line-split, `// @effect-diagnostics nodeBuiltinImport:off`). It does not reuse `readTranscriptRecords` itself, which is typed to the usage dashboard's `UsageRecord`; widening that would be an upstream hunk in two files for one consumer. The reader is `node:readline` over `createReadStream`, `JSON.parse` on each line whose first 40 bytes carry one of `"type":"message"`, `"type":"compaction"`, `"type":"usage"`, `"type":"session"`; everything else is skipped unparsed. The reference for every rule below is `.artifacts/context-viz/analyse.py` (Python, the mockups' source of numbers), and the test fixtures are derived from the two sessions it was run on.
+
+<Steps>
+  <Step at="1" title="Entries to calls and pending items">
+    A `system` entry contributes one item per non-empty section in `sections` (`preamble`, `addendum`, `project_context`, `skills`, `cwd`) and one `tool_schema` item per entry of `toolsAdded` (chars = the JSON length of `{name, description, parameters}`); a second system entry mid-session (from `tool_search`) adds schemas the same way. A `user` entry is one `user_message` item, classified by prefix into `human`, `control_plane_notice` (`[T3 Workstream control plane`), `child_notification` (`Notification from thread`), `agent_brief` (`[Brief from`, `[From your parent`) or `consult`; the class is a label on the composition's sub-rows, never a finding input. A `toolResult` entry is one `tool_result` item with chars of its text blocks, the count of image blocks, `isError`, and its `toolCallId`. A `compaction` entry closes the series (step 4). A `usage` entry with `kind: "cache_warm"` is counted into totals and ignored for context. An `assistant` entry is a call: `ctx = input + cacheRead + cacheWrite`, `output`, `reasoning`, `cost` by component, `stopReason`, the toolCall blocks (id, name, arguments JSON length, a label derived as `analyse.py`'s `label_for`), and the char lengths of its thinking and text blocks.
+  </Step>
+  <Step at="2" title="The delta identity">
+    For consecutive valid calls, `appended(N) = ctx(N) − ctx(N−1) − output(N−1)`. A call is invalid when `ctx` is 0 or `stopReason` is `error` or `aborted`; its pending items roll forward into the next valid gap. Call 0's budget is its whole `ctx`.
+  </Step>
+  <Step at="3" title="One item in the gap: exact; several: split">
+    One pending item takes the whole budget and is `measured: true`. Several share it by character weight (chars ÷ 2.4 for tool schemas, ÷ 2.6 for tool results, ÷ 2.8 otherwise) after reserving 1,543 tokens per image block, and are `measured: false`. The identity held with a non-negative residual on all 314 gaps of the two fixtures, so a negative budget is a reader bug and is surfaced as `diagnostics.negativeGaps`, not clamped silently.
+  </Step>
+  <Step at="4" title="Compaction resets, forks continue">
+    After a `compaction` entry the next valid call opens a new series: its `ctx` is one `compaction_base` item (`measured: true`, label "Compacted: summary and kept messages") and `prev` is reset, so the chart draws a cliff down and the composition shows the base as one row. A fork's file begins with copied history, which is read like any other history; nothing special.
+  </Step>
+  <Step at="5" title="What the assistant wrote stays in the window">
+    Every valid call except the last contributes three items dated at the next call: `assistant_thinking` (exact, `reasoning`), and the rest of `output` split by chars between `assistant_text` and `tool_call_args` (both `measured: false`). These carry the call's message `id`, the call's index and, per text or thinking block, its content index, for the client's ordinal join (§3.4).
+  </Step>
+  <Step at="6" title="Carried calls and the cost to keep">
+    Each item records `firstSeenCall` and `carriedCalls` (valid calls from then to the end). `costToKeepUsd` = tokens × the write unit price at its first call + tokens × the read unit price at every later call, where a call's unit prices are `cost.cacheWrite ÷ usage.cacheWrite` and `cost.cacheRead ÷ usage.cacheRead` (null when the divisor is 0). No price table on the server.
+  </Step>
+  <Step at="7" title="Idle gaps and cache lapses">
+    Between consecutive calls more than 60 minutes apart, an `idleGap` is recorded; it is `cacheLapsed` when the later call's `cacheWrite` is at least 90% of its `ctx`, with `rewriteCostUsd = cost.cacheWrite` of that call. The fixture's one such gap cost $9.56.
+  </Step>
+</Steps>
+
+### 2.2 The findings (`findings.ts`)
+
+Three rules, all arithmetic over tool name and token count, in the order the composition and growth views list them. The deferred rules (truncation footer matching, read-then-grep'd, identical arguments repeated, automated-notice prefix) are not implemented; the "checked and found nothing" list in the growth view names only the three.
+
+<Table
+  density="compact"
+  columns={["Rule", "Class", "Fires when", "Tokens / avoidable", "Fixture"]}
+  rows={[
+    ["`write_tool_echo`", { badge: { label: "Loom tooling", tone: "warning" }, md: "" }, "a `tool_result` from a tool whose name's last segment is in `WRITE_TOOL_SUFFIXES` (`add`, `update`, `rewrite`, `set`, `submit`, `edit`, `write`) and its tokens ≥ 2,000", "sum of such results / each minus the tool's smallest result in the session", "30 of 31 `goal_task_*` calls, 232K, avoidable ≈227K"],
+    ["`unused_tool_schemas`", { badge: { label: "Loom tooling", tone: "warning" }, md: "" }, "a `tool_schema` whose name is never a toolCall in the session", "sum / the same", "31 of 54, ≈17K"],
+    ["`whole_file_read`", { badge: { label: "Agent guidance", tone: "accent" }, md: "" }, "a `tool_result` of `read`, `read_full` or `Read` whose arguments carry no `offset` or `limit` and tokens ≥ 3,000", "sum / the same (the whole read is what guidance can avoid)", "4 reads, 55K in the child session"],
+  ]}
+/>
+
+Each finding carries `itemIds` so the views can light its calls, a `detail` sentence built from counts only ("30 writes returned 7.7K tokens each on average; the shortest reply from the same tool was 164 tokens"), and `exact: true` for the first two and `false` for the third, where the "avoidable" claim is a judgement. The growth view's "without the avoidable items" line subtracts the cumulative avoidable tokens of all three at each call.
+
+### 2.3 The report (`contextUsage.loom.ts` in contracts)
+
+One schema file, exported from `packages/contracts/src/index.ts` by one marked line. Numbers are integers except costs; every array is in session order.
+
+<DataModel
+  entities={[
+    { id: "report", name: "LoomContextReport", change: "added", fields: [
+      { name: "sessionPath", type: "string" },
+      { name: "model", type: "string | null", note: "last valid call's model slug; the client prices from it" },
+      { name: "calls", type: "LoomContextCall[]" },
+      { name: "items", type: "LoomContextItem[]" },
+      { name: "findings", type: "LoomContextFinding[]" },
+      { name: "idleGaps", type: "{ beforeCall, minutes, cacheLapsed, rewriteCostUsd }[]" },
+      { name: "totals", type: "{ peakCtx, latestCtx, costUsd, cacheReadTokens, cacheWriteTokens, cacheWarmCount, cacheWarmCostUsd }" },
+      { name: "diagnostics", type: "{ malformedLines, negativeGaps, invalidCalls }" },
+    ]},
+    { id: "call", name: "LoomContextCall", change: "added", fields: [
+      { name: "index", type: "int", pk: true },
+      { name: "entryId", type: "string", note: "the jsonl assistant entry id" },
+      { name: "at", type: "ISO string" },
+      { name: "ctx", type: "int", note: "input + cacheRead + cacheWrite: the whole prompt" },
+      { name: "appendedTokens", type: "int", note: "the gap's budget (identity)" },
+      { name: "output / reasoning / input / cacheRead / cacheWrite", type: "int" },
+      { name: "costUsd", type: "number" },
+      { name: "readUnitUsd / writeUnitUsd", type: "number | null" },
+      { name: "stop", type: "string | null" },
+      { name: "valid", type: "boolean" },
+      { name: "toolCallIds", type: "string[]" },
+      { name: "series", type: "int", note: "increments after each compaction" },
+    ]},
+    { id: "item", name: "LoomContextItem", change: "added", fields: [
+      { name: "id", type: "string", pk: true, note: "toolCallId for results; `entryId` or `entryId:c<n>` otherwise" },
+      { name: "kind", type: "enum", note: "tool_result | user_message | system_section | tool_schema | compaction_base | assistant_text | assistant_thinking | tool_call_args" },
+      { name: "tool", type: "string | null" },
+      { name: "label", type: "string", note: "≤ 80 chars, cwd stripped" },
+      { name: "at", type: "ISO string" },
+      { name: "tokens", type: "int" },
+      { name: "measured", type: "boolean", note: "false = split by character share" },
+      { name: "chars / images", type: "int" },
+      { name: "isError", type: "boolean" },
+      { name: "firstSeenCall / carriedCalls", type: "int" },
+      { name: "costToKeepUsd", type: "number | null" },
+      { name: "userKind", type: "enum | null" },
+      { name: "message", type: "{ callIndex, contentIndex } | null", note: "assistant items only: the ordinal join key" },
+      { name: "wholeFile", type: "boolean", note: "true when the whole_file_read rule matched; the timeline's chip" },
+    ]},
+    { id: "finding", name: "LoomContextFinding", change: "added", fields: [
+      { name: "rule", type: "enum", pk: true },
+      { name: "class", type: "loom_tooling | agent_guidance" },
+      { name: "tokens / avoidableTokens", type: "int" },
+      { name: "itemIds", type: "string[]" },
+      { name: "detail", type: "string" },
+      { name: "exact", type: "boolean" },
+    ]},
+  ]}
+  relations={[
+    { from: "report", to: "call", kind: "1-n" },
+    { from: "report", to: "item", kind: "1-n" },
+    { from: "report", to: "finding", kind: "1-n" },
+    { from: "finding", to: "item", kind: "1-n", label: "itemIds" },
+  ]}
+/>
+
+The RPC: `LOOM_WS_METHODS.contextUsage = "loom.contextUsage"`, payload `{ threadId }`, success `{ report: LoomContextReport | null }`, error the group's `LoomWsError`. It is registered the way `loom.threadSpend` is: an `Rpc.make` entry in `rpc.loom.ts`, a handler in `apps/server/src/loom/wsMethods.ts` that calls `contextUsageReport(threadId)` and maps errors, `AuthOrchestrationReadScope` in `auth/RpcAuthorization.ts`, and `"loom"` in `observability/RpcInstrumentation.ts`. `contextUsageReport` is a plain `Effect.fn("ContextUsage.report")` in `contextUsageReport.ts` (it yields `OrchestratorV2`, which `wsMethods.ts` already holds, for `piSessionPathOf`, then runs the reader and the rules), **not** an `Effect.Service`: a service would need a layer line in `apps/server/src/loom/serverLayers.ts` and a `Layer.mock` line in both `wsMethods.test.ts` and `handoff/handoff.test.ts`, three more lines to add and remove for a function with no state and no cache. The function is still the one seam an MCP tool would call later.
+
+### 2.4 Tests (`piSessionContext.test.ts`, `findings.test.ts`)
+
+Two committed jsonl fixtures under the same folder, each a few KB, **synthesised** in the shape of the two real sessions (the real files are 3.3 MB and 1.3 MB of another project's commands and paths, and stay out of the tree; the fixtures use invented tool names, paths and text with the real files' usage numbers): one with the identity cases, one with a compaction. The cases, each one assertion on counts:
+
+- a single-result gap is exact (`measured: true`, tokens equal the identity);
+- two results in one gap split by chars and sum to the budget;
+- an aborted call's items roll into the next gap;
+- a compaction opens series 1 with one `compaction_base` item and the chart's `ctx` drops;
+- a `cache_warm` entry changes `totals.cacheWarmCount` and nothing else;
+- an image block reserves 1,543 tokens before the char split;
+- the three rules fire on the trimmed fixture with the expected ids and not on an empty session.
+
+No mocks: the reader takes a path, the tests write the fixture to a temp dir.
+
+## 3. The client core: switches, store, door, tab
+
+Everything under `apps/web/src/loom/context-viz/`. This section is what phases 3 to 5 build on and what a coder on the server phase never touches.
+
+### 3.1 The three switches (tier 2, per device)
+
+`LoomClientSettingsFields` and `LoomClientSettingsPatchFields` in `packages/contracts/src/settings.loom.ts` gain `contextVizTimeline`, `contextVizComposition`, `contextVizGrowth`, each `Schema.Boolean` defaulting to **`true`** (Carl: "No, turn all three on so I see everything at once"). Client settings persist per device (`localApi.ts`: browser storage, or the desktop bridge's file), the same tier as `contextWindowMeterEnabled` and `autoOpenWorkstreamPanel`; nothing syncs between devices, which is right for an experiment Carl runs on one machine. A default of `true` means a browser that has never seen the keys gets all three on, which is the chosen behaviour; a later flip of the default to `false` is one line.
+
+The Settings rows (`ContextVizSettingsRows.tsx`: a "Context diagnostics" group of three `SettingsRow` with a `Switch`, a reset button each, and the "changed labels" and "restore defaults" spreads) are rendered **from the existing loom-owned** `apps/web/src/loom/LoomAutoOpenSettingsRows.tsx`, which already sits inside `SettingsPanels.tsx` with its own three marked lines; it widens its `Pick<UnifiedSettings, …>` and spreads the new helpers. That is three lines in a loom file and **no new upstream line** for Settings. The group therefore lands in **Settings → Behavior beside Auto-open workstream**, not beside "Context window indicator": that switch lives in the Legacy features section (`LegacyFeaturesSection` in `SettingsPanels.tsx`), where an experiment's switches do not belong, and placing them there would cost an upstream line for a worse home.
+
+### 3.2 The door: the tab follows the switch (no upstream line, no popover change)
+
+Carl: "Settings only, keep the popover as it is." So the ring, its popover and `ContextSpend.tsx` are untouched, and the Context tab is **seeded** into a pi thread's right panel by the switch, through the seed path the tiers doc reserves for exactly this ("if a second auto-opened surface is ever added, the same action seeds both and activates exactly one by an explicit priority"):
+
+- `seedWorkstreamSurface` in the loom-owned `apps/web/src/loom/seedRightPanelSurfaces.ts` becomes `seedLoomSurfaces(current, { workstream, context })`: it adds each eligible surface the thread does not yet have, and on a thread with **no panel state at all** opens the panel on Workstream if eligible, else Context; on a thread with any state it adds the tabs and touches neither `activeSurfaceId` nor `isOpen` (the non-activating seed). The store action `seedWorkstream` in `rightPanelStore.ts` (two lines that are already loom hunks) passes the eligibility through; it runs the reducer under `automaticUpdate`, which is the point: an automatic transition bumps none of the user-action revisions.
+- Eligibility for `context` is: the active provider thread's driver is `pi` and `contextVizComposition || contextVizGrowth`. It is computed in `useLoomRightPanelSurfaces.ts` beside `workstreamRoot`, in the effect that already runs the seed, and recorded in `workstreamUiStore.ts`'s per-thread `AutoOpenedSurfaces` flag as `context: true`, so the seed fires **at most once per thread** and a tab Carl closes stays closed for that thread, with the `+` menu entry ("Context", available under the same eligibility) as the explicit way back.
+- **The way out, through the same automatic action, never `closeSurface`.** `closeSurface` is a user action: it runs through `closeAction` → `userAction`, which bumps `userActionRevisionByThreadKey` and `closeRevisionByThreadKey` even when the tab is absent, and upstream's proactive Diff and PR opener (`openProactive`) refuses to open once that revision has moved; a real close also lands in `closedViewStore`'s reopen history. Using it would mean that with the switches off, merely visiting a thread suppressed the automatic Diff tab, breaking "all three off is today's Loom exactly". So the reducer is the way out too: with `context: false`, `seedLoomSurfaces` removes a present `context` surface, mirroring what `closeSurface`'s updater does to `surfaces`, `activeSurfaceId` and `isOpen` but under `automaticUpdate`, with no revision bump and no reopen-history entry. The effect calls `seedWorkstream` with `context: false` **only when the thread holds the surface or its flag is set** (a thread with neither is untouched, so an off-switch visit writes nothing), and clears the flag so a later switch-on seeds again. Other threads' persisted tabs go as each is visited.
+
+`docs/architecture/loom-ui-state-tiers.md` says the Workstream tab is the only seeded surface in two places; P2 amends those sentences to name Context (and the removal reverts them).
+
+### 3.3 The store and the loader (`contextUsageStore.ts`)
+
+Pattern: `apps/web/src/loom/threadSpend.ts` (a store filled by `executeAtomQuery` with `{ refresh: true }`, no atom family in the components). A zustand store keyed by `scopedThreadKey` holding `{ status: "idle" | "loading" | "ready" | "none", report, refreshKey }`. `useContextUsageLoader(threadRef)` is mounted by whichever consumer is on (the timeline host, the Context tab, or both; a single-flight guard by key + refreshKey means two mounts cost one request): it reads `useQuietThreadProjection(threadRef)` (the structure held still through streamed text; `useThreadProjection` updates on every streamed token and would re-render the host and the rail per token during a running turn), derives `refreshKey` as the `updatedAt` of the newest provider turn whose status is terminal (`completed`, `failed`, `cancelled`, `interrupted`) and the active provider thread's driver, and when the driver is `pi` and the key changes, runs `loomCommands.contextUsage({ environmentId, input: { threadId } })` and writes the result. The query family entry goes beside `threadSpend` in `packages/client-runtime/src/state/loom/goalCommands.ts` (loom-owned; `staleTimeMs: 0`, since the store owns freshness). This is the folder's one `useEffect`, budgeted in `scripts/effect-budget.json` under its own path. Consumers read with selectors, so 184 row figures re-render once per answer, not per projection change. Because the switches default on, every pi thread visited pays one request on its first open; the store keeps the eight most recently visited threads' reports (about 150 KB raw each at the fixture's size) and drops the rest, so switching between threads does not re-read a file the server just parsed, and memory stays bounded.
+
+### 3.4 The join (`join.ts`, pure, with one fixture test)
+
+The timeline's rows know Loom items; the report knows jsonl entries. Three lookups, built once per report and memoised by reference:
+
+- **Tool results, exact by id.** `item.nativeItemRef.nativeId` is pi's `toolCallId` (`baseItemFields(turn, toolCallId, …)` in the adapter), and a `tool_result` item's `id` is the same string. A `Map<string, LoomContextItem>`.
+- **Runs to calls, by anchors.** A Loom run's tool items name the calls that issued them; a run owns every call from its first anchored call to the call before the next run's first anchor. Runs with no tool call (prose-only replies) take the unanchored calls between their neighbours by order. This gives each run its `startCtx`, `endCtx`, `addedTokens` and `costUsd` for the turn header, and the Heaviest menu's candidates.
+- **Assistant text and thinking, by ordinal.** A Loom `assistant_message` or `reasoning` item's `nativeItemRef.nativeId` is `<providerTurnId>:m<ordinal>:c<contentIndex>`; within the run's calls, the `ordinal`-th call's `assistant_text` or `assistant_thinking` item with that `contentIndex` is the figure. When the run's call count and its item ordinals disagree (a steer mid-turn, an interrupted stream), the figure is withheld rather than guessed; the test asserts that on the fixture no tool row is withheld and counts the prose rows that are.
+
+The user message that opens a run takes the `user_message` item dated just before the run's first call. Steers mid-turn show no figure.
+
+### 3.5 The Context tab (one new right-panel kind)
+
+A `context` singleton surface, added the way `workstream` was: `RIGHT_PANEL_KINDS`, the `RightPanelSurface` union and the `singletonSurface` switch in `rightPanelStore.ts` (3 marked lines), the label and icon cases in `RightPanelTabs.tsx` (2), the lazy import and the render case in `RightPanelSurfaceContent.tsx` (2), the persisted-entry guard in `closedViewStore.ts` (1), plus `LOOM_SURFACES.context` in the loom-owned `seedRightPanelSurfaces.ts` and a "Context" entry in `useLoomRightPanelSurfaces.ts`'s `+` menu list, available while either panel switch is on. It is seeded only as §3.2 describes (by the switch, once per thread, never as a focus steal) and never because a number got large. Its open state is tier 1 (persisted per thread by `rightPanelStore`).
+
+`ContextPanel.tsx` reads the two panel switches and renders a header (title, "as of the latest call, N calls, M turns, model", a Refresh button, and the **Composition | Growth** sub-view switch when both are on), then the sub-view that is on. The sub-view choice is **tier 4**, component state defaulting to Composition (Carl: "Forgotten on close (component state); the tab opens on Composition"); with both switches off the tab is being closed by §3.2's effect, and in the one render before that it shows a single line naming the switches.
+
+Two lines of hygiene so removal leaves no tombstone. First, in the build: the persisted-state migrate in `rightPanelStore.ts` gains `if (!RIGHT_PANEL_KINDS.includes(kind)) return []; // loom: drop retired kinds` ahead of the retired-kind lines that already exist (`artifact`, `graph`); it is general and stays. Second, at removal: zustand's persist runs `migrate` **only when the stored version differs** from `RIGHT_PANEL_STORAGE_VERSION` (16 today, and the store has no `merge` override), so the removal also bumps that constant to 17 on its existing line, which makes every browser's persisted `context` surfaces pass through the guard once. Without the bump, every pi thread ever seeded (most of them, with the switches on by default) would keep a `{ kind: "context" }` surface that `RightPanelTabs` can neither label nor draw: a blank tab, or a blank panel where it was active. The version line's own comment already records the convention for the collision this creates ("the next upstream bump takes 17" becomes 18); at the next pull the resolution is upstream's number plus one, with our guard folded in.
+
+## 4. View A: timeline annotations
+
+Visual contract: `.artifacts/context-viz/timeline-annotations.html` (screenshot `timeline-annotations.png`). Components in `apps/web/src/loom/context-viz/timeline/`: `RowFigure.tsx`, `GroupFigure.tsx`, `TurnHeaderFigure.tsx`, `Rail.tsx`, `TimelineHost.tsx`. Each hook below is one marked line that renders a component which reads the switch first and returns `null` when it is off, and reads `use(TimelineRowCtx).threadRef` (null on the guest page, which therefore shows nothing).
+
+<Table
+  density="compact"
+  columns={["Upstream file", "Where", "What the line mounts"]}
+  rows={[
+    ["`TimelineWorkEntryRow.tsx`", "`WorkEntryLogRow`, beside `TimelineRowTimestamp`", "`<RowFigure item={item} />`: the figure, hairline bar, amber, hover card, the `whole file · N KB, no cap` chip when `wholeFile`"],
+    ["`MessagesTimeline.logic.ts`", "the `work-toggle` row: one field on its type, one line where the compiler pushes it (beside `summary`, where `visibleGroupedEntries` is in scope)", "`toolCallIds: string[]`, the group's tool-call ids. The collapsed header row has no entries today (`groupId`, `hiddenCount`, `summary`); the expanded `work` row's `groupedEntries` exists only while expanded, so the header needs its own ids. `isRowUnchanged` does not compare the field: a finished group's ids do not change"],
+    ["`TimelineWorkGroupRows.tsx`", "`WorkGroupToggleTimelineRow` header, beside the timestamp", "`<GroupFigure toolCallIds={row.toolCallIds} />`: the group's total with its stacked hairline, `largest 26.4k move1.py`. No thinking hook: `ThinkingTimelineRow` is the live activity indicator (`LIVE_ACTIVITY_ROW_ID`), present only while a turn runs, when the report is not refreshed; a completed reasoning item is a work entry (`itemType === \"reasoning\"`) and gets its figure from `WorkEntryLogRow`'s hook"],
+    ["`TimelineAssistantRows.tsx`", "the assistant message row's meta line", "`<RowFigure message={message} />`: the prose estimate, or nothing when withheld"],
+    ["`TimelineUserMessageRow.tsx`", "the human bubble's time (`formatDayAwareTimestamp` in its Tooltip, about line 663), not `AutomationMessageRow`'s `TimelineRowTimestamp`", "`<RowFigure message={message} />`: the opening message's exact figure"],
+    ["`MessagesTimeline.tsx`", "`TurnFoldTimelineRow`, before the timestamp", "`<TurnHeaderFigure runId={row.runId} />`: `30.3k → 355.5k · +325.2k · 35.6% of 1M` and the **Heaviest** menu"],
+    ["`MessagesTimeline.tsx`", "after `<TimelineMinimap … />`", "`<TimelineHost rows={rows} listRef={listRef} currentIndex={minimapCurrentIndex} />`: mounts the loader and the rail"],
+  ]}
+/>
+
+**Carried over from the mockup.** The margin figure on every row that has one, on one linear scale per session (the largest item in the window is the full bar), so twenty 300-token rows are hairlines and one 26k file is unmissable. Amber at ≥ 5k **and** ≥ 3% of its run's `addedTokens`. The hover card: exact or ≈, the split (tool output, thinking, written by the agent, messages in), chars, and for a tool result its cost to keep so far. The turn header's start → end, delta and share of the window, with a **Heaviest** menu (`components/ui/menu`) listing the run's five largest items and scrolling to each through `listRef.scrollToIndex({ animated: false })` on the row the join found (the minimap animates its jumps; nothing here does). The group header's total and `largest …` label. The rail: the window as a vertical stacked bar in session order (each item's height is its share, amber segments where the row is amber, a marker for the rows currently in view from `currentIndex`), click scrolls to the row, hover names it; it hides below 1,100 px of timeline width.
+
+**Left out, with reasons.** The "Before the first message: system prompt 18.4k and 25 tool schemas 12.0k" row: a new loom row kind costs four hunks in `MessagesTimeline.logic.ts` and `MessagesTimeline.tsx`, and the Context tab's Fixed overhead section shows the same two numbers. The `truncated` chip: it needs the footer text match that is deferred with the text rules; the whole-file chip stays, since it comes from an arithmetic rule. Figures on steer messages mid-turn: not joinable by order. The "Your screenshot / An orchestrator" switcher: a fixture artefact.
+
+**The rail is in the first cut** (Carl: "Yes, build it last in the timeline phase and keep it unless the frame check fails"): P3 builds the figures and the Heaviest menu first, verifies them live, then the rail; the frame check in §10 is the rail's gate.
+
+**Render cost, and the check that proves it.** Rows stay 24 px (`compactWorkEntryHeight`), the figure is inline, no row re-measures. The rail reads `currentIndex`, which the timeline already computes for the minimap, so it needs no scroll listener and no effect; the host's one effect is the loader's. Verification §10 includes a frame check with the rail mounted on the 58-turn thread.
+
+## 5. View B: composition
+
+Visual contract: `.artifacts/context-viz/composition-panel.html` (`composition-panel-1100.png`, `composition-panel-hover.png`). Components in `apps/web/src/loom/context-viz/composition/`: `CompositionView.tsx`, `CompositionRows.tsx`, `costLens.ts`.
+
+**Carried over.** The header meter: a hatched **fixed** band (system sections and all schemas, as the brief decided) then categories in the mockup's order (tool results by tool, the agent's own writing, incoming messages by kind, thinking, assistant text, images, compaction base), each a CSS width. The two tiles (Fixed overhead, Conversation). **Fixed: sent on every call** as a section with one row per system section and one for tool definitions, carrying "31 of 54 tools never called in this thread: ≈16.9K" from the `unused_tool_schemas` finding. **Conversation: what arrived since**, three levels (category → tool → call) with bars as share of parent and % of window, rows under 1% of the window folded into "N more"; every row hoverable for the exact figure and its ≈ mark; a call row click parks `useConversationJumpStore.setRequest({ threadId, at: item.at })` so the chat lands on the turn it came from (`loom/conversationJump.ts` already pages back and unfolds). **Largest single items** with **Group repeats | Each item**. **What could be reclaimed**: superseded echoes (the echo finding's avoidable total, "N of M copies are older than the latest") and tool schemas never called, each with its tag. The cache callout: the latest call's read, written and uncached split, and the idle gap that lapsed the cache with its rewrite cost. The **In window | Cost to keep** lens: every bar and figure switches from tokens to `costToKeepUsd`, and the header gains "a cold cache now would cost $X" from `cacheStakeUsd(latestCtx, cacheModelPrice(report.model), retention)` in `packages/client-runtime/src/state/loom/cacheLiveness.ts`, or no line when the model is unpriced. "As of the latest call" in the header, and after a compaction the composition is the new series with one "Compacted: summary and kept messages" row at the top.
+
+**Group repeats** (settled; Carl: "Same tool and token counts within 15% of the group's median, at least three of them"). Without text comparison: items from the same tool whose tokens lie within 15% of the group's median form a group when there are at least three of them; the group row shows `×N`, its total, and "superseded ≈ total − latest". On the fixture this groups the 30 echoes into one row and leaves `bash` alone. The near-duplicate line-overlap clustering of the mockup is deferred with the text rules.
+
+**Left out.** "First of two whole-tree rewrites" (the identical-repeat rule is deferred). "Compact now: leaves ≈N" (an estimate of pi's keep-recent internals that nothing here can verify). The "19 other tools" style folding stays; the treemap and sunburst the mockup rejected stay rejected.
+
+## 6. View C: growth and findings
+
+Visual contract: `.artifacts/context-viz/growth-diagnosis.html` (`growth-diagnosis-1100.png`, `growth-diagnosis-child-1100.png`). Components in `apps/web/src/loom/context-viz/growth/`: `GrowthView.tsx`, `GrowthChart.tsx` (SVG, the one large build), `FindingsList.tsx`, `BiggestStep.tsx`, `series.ts` (pure: steps, cliffs, avoidable line, per-run bars).
+
+**Carried over.** The header strip: the window used with its share, and a stacked bar of **fixed**, **Loom tooling** (the two tooling findings), **agent guidance** (the whole-file finding) and **the task** (everything else), with the sentence built from those four numbers only ("36K is fixed overhead. 249K traces to two Loom tooling findings, 55K to one agent-guidance finding, and 346K is the task itself."). **How the window filled**: x is call order, never wall time; a stepped area of `ctx` per call coloured by the category of what each step added; **cliff labels** on steps at or above the mute threshold (`+66K goal_* tools · T7`); the **hatched "without the avoidable items" line** (ctx minus the cumulative avoidable tokens of the findings at that call, labelled with its final value); the window line at `maxTokens` from the projection; **idle markers** as dashed verticals ("16.5h idle · cache lapsed, rewrite cost $9.56"); a compaction as a drop. Below it, the **added per step** bars, stacked by category, with the **Steps: per call | per turn** control defaulting to per call (a child is one turn), **Mute under 2.0K | 5.0K | 10K** and **Scale: fit | window**, all tier 4. Hover a step to fill the **Biggest step** panel on the right (the step's items with exact or ≈ marks and the finding tag where one applies); click to pin, Escape or click again to unpin; a pinned step parks the conversation jump at its first item's `at`. **Findings**: one card per rule that fired (class, tokens, share of window, avoidable, exact or ≈), and under them the "task size" rows that are sums not rules (what the agent wrote, commands and file reads, conversation, thinking, other tool results, fixed overhead), then "Checked and found nothing material" naming any of the three rules that did not fire. Clicking a finding highlights its items' steps on the chart until clicked again.
+
+**Left out.** The "Orchestrator | Child" switcher (a fixture artefact). The auto-compact line: pi's threshold is not in the file and the adapter never sets `autoCompactThreshold`; the window line stands alone. The three-dot confidence tiers: with three rules, `exact` is the only honest distinction, shown as the ≈ mark. The deferred rules' cards and their lines in the "nothing material" list.
+
+**The chart's cost.** About 500 lines of SVG in the manner of `apps/web/src/loom/CacheFuelRing.tsx`; no chart library exists in the tree and none is added. 242 points, hover via a single transparent rect per step, no animation, no `ResizeObserver` beyond the panel's width from a ref callback.
+
+## 7. Removal: the checklist and the rehearsal
+
+Every line below is on the build's diff and nowhere else; the reviewer gate checks the diff against this table, and the final phase rehearses it.
+
+<Table
+  density="compact"
+  columns={["To remove", "Delete", "Then edit (one line each unless noted)", "Stays"]}
+  rows={[
+    ["Timeline view only", "`apps/web/src/loom/context-viz/timeline/`", "the 8 hooks in §4's table (two of them the `toolCallIds` field in `MessagesTimeline.logic.ts`) and their imports; `contextVizTimeline` in `settings.loom.ts` (2), its row in `ContextVizSettingsRows.tsx`; the timeline preview fixtures", "the rest"],
+    ["Composition view only", "`apps/web/src/loom/context-viz/composition/`", "`contextVizComposition` (2) and its rows; the sub-view switch in `ContextPanel.tsx`; its preview fixture", "the Context tab, which then holds Growth alone"],
+    ["Growth view only", "`apps/web/src/loom/context-viz/growth/`", "`contextVizGrowth` (2) and its rows; the sub-view switch; its preview fixture", "the Context tab, which then holds Composition alone"],
+    ["Both panel views", "the two folders above, `ContextPanel.tsx`", "`context` in `rightPanelStore.ts` (3), `RightPanelTabs.tsx` (2), `RightPanelSurfaceContent.tsx` (2), `closedViewStore.ts` (1); `LOOM_SURFACES.context`; `seedLoomSurfaces` reverts to the single-surface `seedWorkstreamSurface(current)` and `markAutoOpened(ref)` to its one-key form (the priority and the `context: false` removal go with it, or they are vestigial); the context eligibility, effect and off-switch call in `useLoomRightPanelSurfaces.ts`; the `context` key of `AutoOpenedSurfaces` in `workstreamUiStore.ts`; the context cases in `seedRightPanelSurfaces.test.ts`; the `+` menu entry; the two sentences in `loom-ui-state-tiers.md`; `RIGHT_PANEL_STORAGE_VERSION` 16 → 17 on its existing line (§3.5: the migrate runs only on a version change)", "the unknown-kind guard in the migrate (general hygiene, not a tombstone) and the bumped version number"],
+    { tone: "accent", cells: ["Everything", "both `context-viz/` folders, `packages/contracts/src/contextUsage.loom.ts`, the two jsonl test fixtures, the preview fixture JSON", "`index.ts` export (1); `LOOM_WS_METHODS.contextUsage` and its `Rpc.make` (2); `wsMethods.ts` handler and import (2); `RpcAuthorization.ts` (1); `RpcInstrumentation.ts` (1); `goalCommands.ts` entry (1); the 3 keys in `settings.loom.ts` (6); the 3 lines in `LoomAutoOpenSettingsRows.tsx`; the seed, flag and doc lines of the row above; the `scripts/effect-budget.json` entries; the group entry in `apps/web/src/preview/loomPreviewGroups.tsx` and its fixture file", "nothing: `rg 'context-viz|contextUsage|contextViz'` returns no hit"] },
+  ]}
+/>
+
+**The rehearsal.** On a scratch branch from the build's final commit: apply the "Everything" row, run `vp check`, `vp run typecheck` and `vp run knip:check`, confirm the `rg` line above is empty, open the dev instance in a browser whose persisted panels carried a Context tab and confirm no blank tab remains (the version bump ran the guard), and discard the branch. Its output (the three commands' tails) goes into the PR body. The same reviewer who checked the table against the diff signs off the rehearsal; a line found during the rehearsal that the table missed is added to the table and the plan's As built section.
+
+## 8. Phases, and who can work beside whom
+
+<Steps>
+  <Step at="P1" title="Server: reader, findings, service, RPC, tests" badge={{ label: "parallel with P2", tone: "info" }} aside="apps/server + contracts">
+    Owns `apps/server/src/loom/context-viz/` and the five RPC registration lines. Starts by writing `contextUsage.loom.ts` from §2.3 **together with the `LOOM_WS_METHODS.contextUsage` key and its `Rpc.make` entry in `rpc.loom.ts`** and committing those alone, so P2's `goalCommands.ts` entry has its tag to type against. Done when the tests of §2.4 pass and a one-off run against the fixture session's real file reproduces `ground-truth.md`'s headline numbers (peak 685,339; tool results 364,619; echoes 232,550 avoidable ≈227K).
+  </Step>
+  <Step at="P2" title="Client core: switches, store, seed, tab, join" badge={{ label: "parallel with P1", tone: "info" }} aside="apps/web + client-runtime">
+    Owns §3 entirely, the `context` surface's upstream lines, `format.ts`, the preview group (`contextVizFixtures.tsx` registered in the loom-owned `apps/web/src/preview/loomPreviewGroups.tsx` beside `CACHE_LIVENESS_PREVIEW_GROUP`; P3 to P5 append their fixtures to it) and a `ContextPanel.tsx` that already imports `CompositionView` and `GrowthView` from stub files, so P4 and P5 each fill a stub and never edit the panel. Builds against the committed contract and a hand-written `report` fixture until P1 lands. Done when the three rows are in Settings → Behavior, a pi thread's strip gains the Context tab once without stealing focus and loses it when both panel switches go off, the tab opens empty-but-honest, and the join's and seed's fixture tests pass.
+  </Step>
+  <Step at="P3" title="Timeline annotations" badge={{ label: "after P2", tone: "neutral" }} aside="§4">
+    Owns `timeline/` and the six row hooks. The rail is the last item built, after the figures are verified live.
+  </Step>
+  <Step at="P4" title="Composition" badge={{ label: "after P2, parallel with P3 and P5", tone: "neutral" }} aside="§5">
+    Owns `composition/` and the composition sub-view. Touches no upstream file.
+  </Step>
+  <Step at="P5" title="Growth and findings" badge={{ label: "after P2, parallel with P3 and P4", tone: "neutral" }} aside="§6">
+    Owns `growth/` and the growth sub-view. Touches no upstream file. The largest phase.
+  </Step>
+  <Step at="P6" title="Live verification, removal rehearsal, PR" badge={{ label: "after P3–P5", tone: "success" }} aside="§7, §10">
+    One pass of the dev-verify recipe on a real orchestrator thread and a real child; the rehearsal; the PR with before/after screenshots of the three views and the Settings group.
+  </Step>
+</Steps>
+
+Collisions to sequence: P2 and P3 both edit `MessagesTimeline.tsx` only if P2 mounts the host there; to avoid that, the host mounts in P3 and P2's tab mounts the loader itself. P1 and P2 both touch `packages/contracts`: P1 owns `contextUsage.loom.ts`, `rpc.loom.ts` and `index.ts`; P2 owns `settings.loom.ts`.
+
+<Details summary="Change map: every file the build touches">
+  <FileTree
+    title="Server and contracts"
+    entries={[
+      { path: "packages/contracts/src/contextUsage.loom.ts", change: "added", note: "§2.3 schemas; one file to delete" },
+      { path: "packages/contracts/src/index.ts", change: "modified", note: "1 marked export line" },
+      { path: "packages/contracts/src/rpc.loom.ts", change: "modified", note: "method key + Rpc.make (loom-owned)" },
+      { path: "packages/contracts/src/settings.loom.ts", change: "modified", note: "3 keys × 2 field records (loom-owned)" },
+      { path: "apps/server/src/loom/context-viz/piSessionContext.ts", change: "added", note: "reader + attribution, §2.1" },
+      { path: "apps/server/src/loom/context-viz/findings.ts", change: "added", note: "3 rules, §2.2" },
+      { path: "apps/server/src/loom/context-viz/contextUsageReport.ts", change: "added", note: "plain Effect.fn: piSessionPathOf → reader → findings; no layer, no mocks" },
+      { path: "apps/server/src/loom/context-viz/piSessionContext.test.ts", change: "added" },
+      { path: "apps/server/src/loom/context-viz/findings.test.ts", change: "added" },
+      { path: "apps/server/src/loom/context-viz/fixtures/identity.jsonl", change: "added", note: "hand-trimmed, a few KB" },
+      { path: "apps/server/src/loom/context-viz/fixtures/compaction.jsonl", change: "added" },
+      { path: "apps/server/src/loom/wsMethods.ts", change: "modified", note: "handler + import (loom-owned)" },
+      { path: "apps/server/src/auth/RpcAuthorization.ts", change: "modified", note: "1 marked scope line" },
+      { path: "apps/server/src/observability/RpcInstrumentation.ts", change: "modified", note: "1 marked aggregate line" },
+      { path: "packages/client-runtime/src/state/loom/goalCommands.ts", change: "modified", note: "1 query-family entry (loom-owned)" },
+    ]}
+  />
+  <FileTree
+    title="Web"
+    entries={[
+      { path: "apps/web/src/loom/context-viz/contextUsageStore.ts", change: "added", note: "store + loader hook, the folder's one effect" },
+      { path: "apps/web/src/loom/context-viz/join.ts", change: "added", note: "§3.4, pure" },
+      { path: "apps/web/src/loom/context-viz/join.test.ts", change: "added", note: "one fixture test" },
+      { path: "apps/web/src/loom/context-viz/ContextVizSettingsRows.tsx", change: "added" },
+      { path: "apps/web/src/loom/context-viz/ContextPanel.tsx", change: "added", note: "header, sub-view switch, empty states" },
+      { path: "apps/web/src/loom/context-viz/format.ts", change: "added", note: "`8.8K`, `≈`, `$9.56`; reuses `costFormat.ts`" },
+      { path: "apps/web/src/loom/context-viz/timeline/RowFigure.tsx", change: "added" },
+      { path: "apps/web/src/loom/context-viz/timeline/GroupFigure.tsx", change: "added" },
+      { path: "apps/web/src/loom/context-viz/timeline/TurnHeaderFigure.tsx", change: "added", note: "with the Heaviest menu" },
+      { path: "apps/web/src/loom/context-viz/timeline/Rail.tsx", change: "added" },
+      { path: "apps/web/src/loom/context-viz/timeline/TimelineHost.tsx", change: "added", note: "mounts the loader and the rail" },
+      { path: "apps/web/src/loom/context-viz/composition/CompositionView.tsx", change: "added" },
+      { path: "apps/web/src/loom/context-viz/composition/CompositionRows.tsx", change: "added" },
+      { path: "apps/web/src/loom/context-viz/composition/costLens.ts", change: "added", note: "cost-to-keep and cold-cache figures from `cacheLiveness.ts`" },
+      { path: "apps/web/src/loom/context-viz/growth/GrowthView.tsx", change: "added" },
+      { path: "apps/web/src/loom/context-viz/growth/GrowthChart.tsx", change: "added", note: "SVG, ~500 lines" },
+      { path: "apps/web/src/loom/context-viz/growth/FindingsList.tsx", change: "added" },
+      { path: "apps/web/src/loom/context-viz/growth/BiggestStep.tsx", change: "added" },
+      { path: "apps/web/src/loom/context-viz/growth/series.ts", change: "added", note: "pure: steps, cliffs, avoidable line" },
+      { path: "apps/web/src/loom/context-viz/preview/report.fixture.json", change: "added", note: "the reader run once over the fixture session, then scrubbed: labels, paths and tool names replaced, numbers kept; ~75 KB" },
+      { path: "apps/web/src/preview/contextVizFixtures.tsx", change: "added", note: "the preview group; P3 to P5 append fixtures" },
+      { path: "apps/web/src/loom/LoomAutoOpenSettingsRows.tsx", change: "modified", note: "3 lines: renders the rows, spreads the helpers (loom-owned)" },
+      { path: "apps/web/src/loom/seedRightPanelSurfaces.ts", change: "modified", note: "`LOOM_SURFACES.context`; `seedWorkstreamSurface` → `seedLoomSurfaces` with priority (loom-owned)" },
+      { path: "apps/web/src/loom/seedRightPanelSurfaces.test.ts", change: "modified", note: "the context cases: fresh thread, existing state, both switches off with the tab present, both off without it (state returned unchanged)" },
+      { path: "apps/web/src/loom/useLoomRightPanelSurfaces.ts", change: "modified", note: "context eligibility in the seed effect, the close on switch-off, the `+` menu entry (loom-owned)" },
+      { path: "apps/web/src/loom/workstreamUiStore.ts", change: "modified", note: "`AutoOpenedSurfaces.context`, `markAutoOpened` per surface, clear on switch-off (loom-owned)" },
+      { path: "docs/architecture/loom-ui-state-tiers.md", change: "modified", note: "two sentences: Context is the second seeded surface" },
+      { path: "apps/web/src/rightPanelStore.ts", change: "modified", note: "3 marked lines + the unknown-kind guard; `seedWorkstream` passes eligibility through on its existing loom lines" },
+      { path: "apps/web/src/components/RightPanelTabs.tsx", change: "modified", note: "2 marked cases" },
+      { path: "apps/web/src/components/chat/RightPanelSurfaceContent.tsx", change: "modified", note: "lazy import + case" },
+      { path: "apps/web/src/closedViewStore.ts", change: "modified", note: "1 marked case" },
+      { path: "apps/web/src/components/chat/TimelineWorkEntryRow.tsx", change: "modified", note: "1 hook + import" },
+      { path: "apps/web/src/components/chat/MessagesTimeline.logic.ts", change: "modified", note: "`toolCallIds` on the `work-toggle` row: type + push, 2 marked lines" },
+      { path: "apps/web/src/components/chat/TimelineWorkGroupRows.tsx", change: "modified", note: "1 hook + import" },
+      { path: "apps/web/src/components/chat/TimelineAssistantRows.tsx", change: "modified", note: "1 hook + import" },
+      { path: "apps/web/src/components/chat/TimelineUserMessageRow.tsx", change: "modified", note: "1 hook + import" },
+      { path: "apps/web/src/components/chat/MessagesTimeline.tsx", change: "modified", note: "2 hooks + imports" },
+      { path: "apps/web/src/preview/loomPreviewGroups.tsx", change: "modified", note: "one entry in `LOOM_PREVIEW_GROUPS` (loom-owned)" },
+      { path: "scripts/effect-budget.json", change: "modified", note: "entries for the new loom files only" },
+    ]}
+  />
+</Details>
+
+## 9. Decisions that differ from the mockups, in one place
+
+<Table
+  density="compact"
+  columns={["The mockups disagreed on", "Timeline", "Composition", "Growth", "The build"]}
+  rows={[
+    ["Fixed overhead", "system + all 25 schemas", "system + all 54 schemas, unused as a sub-row", "system + used schemas; unused filed under Loom tooling", "**system + all schemas**; unused schemas a finding that points inside it. Fixed means paid before any work."],
+    ["A tool row's figure", "result alone", "result alone; the agent's writing its own category", "steps include the previous call's output", "**result alone**, exact; `tool_call_args` is its own item class, ≈, listed as the agent's own writing; a step on the chart is the whole gap and its hover shows both"],
+    ["The echo count", "n/a", "×18 + ×13 = 31 calls, 232K", "30 writes ≥ 2K, avoidable ≈227K", "**the calls over 2,000 tokens** (30 of 31); avoidable is each minus the tool's shortest reply"],
+    ["Step unit", "per row", "n/a", "per turn by default", "**per call by default**; a child is one turn"],
+    ["Loom tooling vs agent guidance", "chip says tooling (`no cap`)", "tags per reclaim row", "class per rule", "**class per rule**, only three rules, named in §2.2"],
+  ]}
+/>
+
+## 10. Verification
+
+- **Preview harness** (`docs/web-component-preview.md`): a `Context diagnostics` group in `apps/web/src/preview/loomPreviewGroups.tsx` renders, from `report.fixture.json` (the reader run once over the fixture session, scrubbed, committed), each of: a work entry row with and without a figure, an amber row, a group header with `largest …`, a turn header with the Heaviest menu open, the rail at 58 turns, the composition view in both lenses with Group repeats on and off, the growth view at the three mute thresholds with a pinned step and a lit finding, and the Settings group. The fixtures are the first thing a coder on P3 to P5 opens, and `fixtures.test.tsx` already asserts every fixture renders.
+- **Dev-verify recipe** (`docs/dev-site-testing.md`) on the seeded instance, with `vp run migrate-dev-db --root <thread>` keeping the fixture orchestrator's tree so its session file is on disk: with all three switches turned off in Settings → Behavior, the timeline, the right panel and the network log match a build without this change (no `loom.contextUsage` request, no gutter, no Context tab, the ring popover unchanged). Switched back on: opening a pi thread whose panel has state adds the Context tab beside the active tab without changing which tab is active or opening a closed panel, and opening one whose panel has never been touched opens the panel on Context once (as a root opens on Workstream); closing it and revisiting the thread leaves it closed; the `+` menu reopens it; turning both panel switches off closes it on the thread in view, and with them off a turn that changes files still opens the Diff tab proactively (the user-action revision was not bumped). Timeline on: the `goal_task_update` rows read 8.8K amber, "Worked for" on turn 52 reads `+34.6K`, Heaviest jumps to a row. Composition on: the fixed band reads 52.7K, the echoes group to one row, the lens switches, clicking a call row lands the chat on its turn. Growth on: the chart peaks at 685K, the counterfactual line ends near 458K, the T7 cliff is labelled, clicking the echo finding lights its steps, pinning a step scrolls the chat. On the child thread: one turn, 75 calls, the growth chart still reads per call.
+- **Cold-open cost** (the default-on consequence): on the seeded instance with all three on, open the 58-turn thread for the first time after a server restart and read three numbers: the server's `loom.contextUsage` duration from the `loom` RPC aggregate in the instrumentation log (expected 70 ms warm, up to about 200 ms on a cold page cache for a 3 MB file; the 116 MB outlier on this machine is 0.63 s), the response size from the network panel (about 12 KB gzipped), and the join plus first figure render from a `performance.measure` around `buildJoin` in dev (expected under 5 ms for 1,000 items). One request per thread open, not two, when both the timeline host and the tab mount (the single-flight guard). Then the same thread with all three off: zero requests, zero loom work in the profile.
+- **Frame check**: with Timeline on and a tool group of 16 entries expanded on the 58-turn thread, scroll end to end with the performance panel recording; no long frame attributable to `Rail` or `RowFigure`. If there is one, the rail goes (question 1 below).
+- **Refresh**: send a message on a live pi thread with the tab open; the header's call count rises when the turn ends and not before.
+- **Gates**: `vp check`, `vp run typecheck`, `vp run check:changed`; the server tests of §2.4 and the join test; the removal rehearsal of §7.
+
+## 11. Risks
+
+<Table
+  density="compact"
+  columns={["Risk", "Where it bites", "What the plan does about it"]}
+  rows={[
+    [{ badge: { label: "medium", tone: "warning" }, md: "" }, "The ordinal join for prose and thinking rows (§3.4) mislabels a row after a steer or an interrupted stream", "withhold, never guess; the join test counts withheld rows on the fixture; tool rows are exact by id regardless"],
+    [{ badge: { label: "medium", tone: "warning" }, md: "" }, "The rail costs a frame on a long thread", "it reads `currentIndex` the minimap already computes and adds no listener; the frame check in §10 is a gate, and the rail is the last thing P3 builds"],
+    [{ badge: { label: "low", tone: "info" }, md: "" }, "Upstream churn: `MessagesTimeline.tsx` (244 commits since August) and the two row files split out on 21 October", "every hook is one marked line beside an existing timestamp; the removal table doubles as the pull-conflict map"],
+    [{ badge: { label: "low", tone: "info" }, md: "" }, "A 100 MB screenshot-heavy session takes 0.6 s and 190 MB RSS to parse", "measured outlier (1 in 100 files); the tab shows its loading line; a resume-offset cache is the later fix behind the same contract"],
+    [{ badge: { label: "low", tone: "info" }, md: "" }, "Default on: every pi thread pays a read on first open, and every pi thread gains a tab", "one request per open (single flight), 17 to 69 ms typical, an eight-thread client cache; the tab is added once, never activates over a choice, and the switches are the way out; §10 measures the cold open"],
+    [{ badge: { label: "low", tone: "info" }, md: "" }, "The automatic removal on switch-off is new ground for the seed policy", "it runs under `automaticUpdate` through the existing `seedWorkstream` action (no user-action revision bump, no reopen-history entry, so upstream's proactive Diff opener is unaffected), fires only on a thread that holds the tab or its flag, removes only the surface the setting created, clears the flag so switch-on reseeds, and is covered by the seed test's third and fourth cases"],
+    [{ badge: { label: "low", tone: "info" }, md: "" }, "A finding's class ('Loom tooling') is a sentence on the first screen that could be wrong", "three arithmetic rules with stated thresholds, `exact` marked, and the headline sentence built only from those numbers"],
+  ]}
+/>
+
+###### Decisions taken at approval: the rail ships last in the timeline phase (§4); the Context tab's sub-view is component state opening on Composition (§3.5); Group repeats clusters by tool and size (§5). No question is open.
+
