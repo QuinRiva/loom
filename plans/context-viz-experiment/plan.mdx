@@ -4,7 +4,7 @@ reader:
   knows: Loom's architecture and vocabulary and the intent brief beside this file; the mockups by sight; none of the cost explainer's investigation or the ground-truth fact sheet
   after_first_screen: one server read of the pi session file feeds three switchable views through one RPC; about 22 marked lines touch upstream files and every other line sits in two folders that a checklist deletes
 kicker: "Implementation plan · under the approved brief · 2 Nov 2026"
-status: approved
+status: done
 intent: plans/context-viz-experiment/intent.mdx
 manager_sessions:
   - id: 01a19980-1586-70ac-8028-4c2c35d87e83
@@ -430,3 +430,15 @@ Collisions to sequence: P2 and P3 both edit `MessagesTimeline.tsx` only if P2 mo
 
 ###### Decisions taken at approval: the rail ships last in the timeline phase (§4); the Context tab's sub-view is component state opening on Composition (§3.5); Group repeats clusters by tool and size (§5). No question is open.
 
+
+## As built
+
+Built as planned, on one data path with the three switches and the Context tab as §3 describes; the brief's checks all passed live on the 58-turn orchestrator and the one-turn child (PR #510). Where the build departed:
+
+- **The payload is 49.4 KB deflated, not 12 KB.** The real report for the 58-turn thread is 311 KB raw over 656 items; structure, not labels, is the weight. Five `LoomContextCall` fields no view reads (`entryId`, `appendedTokens`, `reasoning`, `stop`, `readUnitUsd`) were dropped from the contract and labels are capped at 60 characters, which took it from 55 KB. Going lower needs a columnar encoding, judged not worth it for an experiment. The child's report is 18.9 KB. Cold open measured 73 ms server, 2.3 ms join.
+- **Fixed overhead is 52.6K, not 52.7K** (the reader's exact count against the mockup's Python measure); **the counterfactual line ends at 441K, not 458K** (the build subtracts all three findings' avoidable tokens, the mockup fewer); **Group repeats yields two echo rows** (goal_task_update ×17, goal_task_add ×12), not one 250K row, because Carl's rule groups by tool and the 250K was the mockup's content-overlap cluster, which is deferred. Group repeats clusters tool results only, not tool-call arguments (seven child briefs are not superseded copies).
+- **Growth's fixed class is labelled "System prompt and used schemas"** (36.2K), with the summary sentence saying the 16.4K of never-called schemas counts under Loom tooling, so the two sub-views never show different numbers under the same name. The §9 definition (fixed = system + all schemas) stands in Composition.
+- **The Context tab header counts turns by run ordinal**, not from the quiet projection, which pages old runs out and read "36 turns" on a 58-turn thread. A footer under Growth's findings names which of the three rules did not fire.
+- **The rail stays:** scrolling the 58-turn thread with two groups expanded showed the same p50/p95 frame times with the Timeline switch on and off. The cost lens leaves the reclaim rows' headlines in tokens (apportioning avoidable cost is not a few lines). Cliff labels crowd at 480 px; deferred.
+- **The removal rehearsal** ran on a sibling worktree and was green only after two test files the §7 table missed were added. The table as built: the Everything row also reverts `apps/web/src/loom/autoOpenSeed.integration.test.ts` and `apps/web/src/loom/workstreamUiStore.test.ts`; `LoomAutoOpenSettingsRows.tsx` reverts whole, not three lines; `rightPanelStore.ts` also reverts its import line and the `seedWorkstream` signature; `rpc.loom.ts` has an import line and `wsMethods.ts` two imports. P3's real timeline hooks: the logic field is `nativeIds` (not `toolCallIds`); `TimelineWorkGroupRows.tsx` has three hunks plus its import because `WorkGroupHeader` builds its own trailing slot; `TimelineHost` takes `shared` and `currentRow`. The plan's `rg 'context-viz|contextUsage|contextViz'` can never be empty (`contextUsage` is an upstream field); the check is `rg 'context-viz|contextViz|loom\.contextUsage|LoomContextReport|LoomContextItem|LoomContextFinding|contextUsageReport'` outside `plans/` and `explainers/`, which returns nothing after removal, with per-file `contextUsage` hit counts matching the base. The "no blank tab" check was done by running a real v16 persisted blob through the v17 migrate rather than in a browser.
+- **Not from this feature, found on the way:** after a conversation jump opens a tool group, the group's rows draw over the next message, with all three switches off too.
