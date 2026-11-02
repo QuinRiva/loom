@@ -389,6 +389,7 @@ export const make = Effect.gen(function* () {
           nowMs,
           autoSettleAfterDays: projectSettings.sidebarAutoSettleAfterDays,
           autoSettleOnMerge: projectSettings.sidebarAutoSettleOnMerge,
+          loomFinishedRootAt: loomSettlement.get(thread.id)?.finishedRootAt ?? null, // loom:
           autoSettleKeepPullRequests: projectSettings.sidebarAutoSettleKeepPullRequests,
         });
         return settledAt === null ? Effect.succeed(thread) : settleThread(thread, null);

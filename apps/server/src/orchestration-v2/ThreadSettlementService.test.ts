@@ -42,6 +42,7 @@ import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ThreadSettlementService from "./ThreadSettlementService.ts";
 import * as LoomStore from "../loom/projection/LoomStore.ts"; // loom:
+import { IsoDateTime, type LoomThreadWorkstream } from "@t3tools/contracts"; // loom:
 
 const NOW_MS = Date.parse("2026-06-10T12:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -563,6 +564,7 @@ interface HarnessOptions {
   ) => Effect.Effect<void>;
   readonly onCloseIdle?: () => Effect.Effect<void>;
   readonly currentThreads?: ReadonlyArray<OrchestrationV2AppThread>;
+  readonly loomWorkstreams?: ReadonlyArray<LoomThreadWorkstream>; // loom:
 }
 
 const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options: HarnessOptions) {
@@ -705,8 +707,15 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     Layer.succeed(ServerSettings.ServerSettingsService, serverSettings),
     Layer.succeed(ServerActivation.ServerActivation, Deferred.await(activation)),
     Layer.succeed(Crypto.Crypto, testCrypto),
-    // loom: no Loom rows (the mock's nested stores are never read)
-    Layer.mock(LoomStore.LoomStoreV2)({ getWorkstream: () => Effect.succeed(null) } as never),
+    // loom: the given Loom rows, else none (the mock's nested stores are never read)
+    Layer.mock(LoomStore.LoomStoreV2)({
+      getWorkstream: (threadId: string) =>
+        Effect.succeed(options.loomWorkstreams?.find((row) => row.threadId === threadId) ?? null),
+      listWorkstreamTree: (rootThreadId: string) =>
+        Effect.succeed(
+          options.loomWorkstreams?.filter((row) => row.rootThreadId === rootThreadId) ?? [],
+        ),
+    } as never),
     FileSystem.layerNoop({
       exists: (path) => Effect.succeed(options.existingWorktreePaths?.includes(path) ?? false),
     }),
@@ -848,6 +857,46 @@ describe("ThreadSettlementServiceV2 worker", () => {
           expect((yield* Ref.get(fixture.commands)).map((command) => command.threadId)).toEqual([
             thread.id,
           ]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  // loom: a finished root settles at its outcome through the sweep's pre-check, with no PR lookup
+  it.effect("settles a finished Loom root at its outcome despite recent activity", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const thread = makeThread("loom-root", {
+          updatedAt: DateTime.makeUnsafe(NOW),
+          latestUserMessageAt: DateTime.makeUnsafe(Date.parse(NOW) - DAY_MS),
+        });
+        const outcomeAt = IsoDateTime.make("2026-08-28T06:00:00.000Z");
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([thread]),
+          settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleAfterDays: 5 },
+          loomWorkstreams: [
+            {
+              ...LoomStore.emptyWorkstream({
+                threadId: thread.id,
+                projectId: PROJECT_ID,
+                parentThreadId: null,
+                rootThreadId: thread.id,
+                at: outcomeAt,
+              }),
+              outcome: "done",
+              outcomeAt,
+            },
+          ],
+        });
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          const commands = yield* Ref.get(fixture.commands);
+          expect(commands.map(({ threadId, settledAt }) => [threadId, settledAt])).toEqual([
+            [thread.id, DateTime.makeUnsafe(outcomeAt)],
+          ]);
+          assert.deepEqual(yield* Ref.get(fixture.branchCalls), []);
         }).pipe(Effect.provide(fixture.layer));
       }),
     ),
