@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 
 import { EnvironmentAuthorizationError } from "./auth.ts";
+import { LoomContextUsageInput, LoomContextUsageResult } from "./contextUsage.loom.ts";
 import {
   EventId,
   GoalId,
@@ -77,6 +78,8 @@ export const LOOM_WS_METHODS = {
   reviewFileContents: "loom.review.fileContents",
   // Deploy toasts (plans/deploy-toasts/plan.mdx in loom-slack-bridge): the notice, then restarts.
   subscribeDeploy: "loom.subscribeDeploy",
+  // Context-viz experiment (plans/context-viz-experiment/plan.mdx §2.3): a pi thread's window, read from its jsonl.
+  contextUsage: "loom.contextUsage",
 } as const;
 
 /** Every Loom ws method fails with this (plus the group's authorization error). */
@@ -522,6 +525,11 @@ export const LoomWsRpcs = [
   Rpc.make(LOOM_WS_METHODS.reviewFileContents, {
     payload: LoomReviewFileContentsInput,
     success: ReviewDiffFileContentsResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.contextUsage, {
+    payload: LoomContextUsageInput,
+    success: LoomContextUsageResult,
     error: LoomWsError,
   }),
   Rpc.make(LOOM_WS_METHODS.subscribeDeploy, {

@@ -37,6 +37,7 @@ import {
   type TimelineRow,
 } from "./timelineRowContext";
 import { TimelineRowTimestamp, ActivityShimmerOverlay } from "./TimelineRowParts";
+import { GroupFigure } from "../../loom/context-viz/timeline/GroupFigure"; // loom: context-viz
 import {
   failedToolIconClassName,
   toolIconAcceptsTint,
@@ -599,6 +600,7 @@ export function WorkGroupToggleTimelineRow({
       createdAt={row.createdAt}
       timestampFormat={ctx.timestampFormat}
       onToggle={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      figure={<GroupFigure nativeIds={row.nativeIds} />} // loom: context-viz
     />
   );
 }
@@ -613,6 +615,7 @@ function WorkGroupHeader(props: {
   createdAt: string;
   timestampFormat: TimestampFormat;
   onToggle: () => void;
+  figure: ReactNode; // loom: context-viz
 }) {
   return (
     <WorkLogButton
@@ -634,7 +637,13 @@ function WorkGroupHeader(props: {
         </span>
       }
       trailing={
-        <TimelineRowTimestamp createdAt={props.createdAt} timestampFormat={props.timestampFormat} />
+        <>
+          <TimelineRowTimestamp
+            createdAt={props.createdAt}
+            timestampFormat={props.timestampFormat}
+          />
+          {props.figure /* loom: context-viz */}
+        </>
       }
     />
   );
