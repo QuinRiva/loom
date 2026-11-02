@@ -72,13 +72,17 @@ export const LoomContextItem = Schema.Struct({
   chars: NonNegativeInt,
   images: NonNegativeInt,
   isError: Schema.Boolean,
-  /** The call whose prompt first held it, and how many valid calls of its series carried it. */
+  /** The call whose prompt first held it, and how many valid calls carried it. */
   firstSeenCall: NonNegativeInt,
   carriedCalls: NonNegativeInt,
+  /** Held by the latest valid call: not compacted away, nor replaced by a later system entry. */
+  inWindow: Schema.Boolean,
   costToKeepUsd: Schema.NullOr(Schema.Number),
   userKind: Schema.NullOr(LoomContextUserKind),
   /** Assistant items only: the call that wrote it and its content index, the client's ordinal join. */
-  message: Schema.NullOr(Schema.Struct({ callIndex: NonNegativeInt, contentIndex: NonNegativeInt })),
+  message: Schema.NullOr(
+    Schema.Struct({ callIndex: NonNegativeInt, contentIndex: NonNegativeInt }),
+  ),
   /** The whole_file_read rule matched it. */
   wholeFile: Schema.Boolean,
 });
