@@ -455,7 +455,7 @@ const LOOM_TOOL_SPECS = {
     Schema.Struct({
       markdown: described(
         Schema.String,
-        `The complete revised tree at your scope, in the \`- [ ] Open task\` / \`- [x] Finished task (task-id)\` form ${t("goal_task_list")} returns, two spaces of indent per level. A line keeping an existing \`(id)\` is that task, with the text, done-state, parent and order you submit; a line without one is a new task; a task you omit is deleted, and comes back with its id if you resubmit its line. Text is at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters, a plain-language work item naming the outcome, never a finding, verdict or status note, with concrete work hung under a handful of phase or theme parents. Your anchor line stays, renamed or ticked at most.`,
+        `The complete revised tree at your scope, in the \`- [ ] Open task\` / \`- [x] Finished task (task-id)\` form ${t("goal_task_list")} returns, two spaces of indent per level. A line keeping an existing \`(id)\` is that task, with the text, done-state, parent and order you submit; a line without one is a new task; a task you omit is deleted, unless it sits beneath a finished line you kept whose whole subtree is finished (omit that line too to prune them), and comes back with its id if you resubmit its line. Text is at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters, a plain-language work item naming the outcome, never a finding, verdict or status note, with concrete work hung under a handful of phase or theme parents. Your anchor line stays, renamed or ticked at most.`,
       ),
     }),
     "soft",

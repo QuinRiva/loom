@@ -24,6 +24,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import { OrchestratorV2 } from "../../../orchestration-v2/Orchestrator.ts";
+import { resolveThreadAnchor } from "../../goals/goalTaskTree.ts";
 import { LoomStoreV2 } from "../../projection/LoomStore.ts";
 import { readWorkstreamReportAt } from "../../workstream/report.ts";
 import {
@@ -100,6 +101,12 @@ const fyiParent = (ctx: PassContext, parentId: ThreadId) =>
 const parentIdleOrPastGrace = (ctx: PassContext, parentId: ThreadId, onsetMs: number) =>
   ctx.shells.get(parentId)?.activityRunStatus == null ||
   nowMs(ctx) - onsetMs >= PARENT_BUSY_GRACE_MS;
+/** A child's live anchor task with its subtree, or null when it is unanchored or the task is gone. */
+const anchorOf = Effect.fn("loom.dispatcher.anchorOf")(function* (child: LoomThreadWorkstream) {
+  if (child.goalId === null || child.anchorTaskId === null) return null;
+  const goal = yield* (yield* LoomStoreV2).goals.get(child.goalId);
+  return goal === null ? null : resolveThreadAnchor(goal.tasks, child.anchorTaskId);
+});
 const readReport = (path: string | null) =>
   path === null ? Effect.succeed(null) : Effect.map(readWorkstreamReportAt(path), Option.getOrNull);
 
@@ -238,6 +245,7 @@ export const terminalDeltas: PassStep = {
                       .filter((other) => other.blockedBy.includes(child.threadId))
                       .map((other) => ({ id: other.id, role: other.role }))
                   : [],
+              anchor: yield* anchorOf(child),
             },
           });
         }),

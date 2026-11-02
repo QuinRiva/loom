@@ -93,6 +93,29 @@ export const renderGoalTaskBranch = (
 const renderGoalTaskPlacement = (spine: ReadonlyArray<LoomGoalTask>, added: LoomGoalTask): string =>
   `Recorded outside your branch, under:\n${renderSpine(spine)}\n${indent(spine.length)}+ ${added.text} (${added.id})`;
 
+/** Open tasks under their paths, bullet-less; a ticked line stays only as the path to open work. */
+const renderOpenLines = (tasks: ReadonlyArray<LoomGoalTask>, depth: number): string =>
+  tasks
+    .map((task) => {
+      const below = renderOpenLines(task.children, depth + 1);
+      return task.done && below.length === 0
+        ? ""
+        : `${indent(depth)}${task.done ? "[x] " : ""}${task.text} (${task.id})\n${below}`;
+    })
+    .join("");
+
+/** A branch's open lines at hand-back, its anchor marked; "" when the whole branch is ticked. */
+export const renderOpenBranch = (anchor: LoomGoalTask): string =>
+  renderOpenLines([anchor], 0).replace("\n", "   your anchor\n").trimEnd();
+
+/** A finished child's anchor as its parent's notice states it: its state, then the open lines beneath. */
+export const renderAnchorState = (anchor: LoomGoalTask): string => {
+  const open = flattenGoalTasks(anchor.children).filter((task) => !task.done).length;
+  return `Task: ${anchor.text} (${anchor.id}) · ${anchor.done ? "ticked" : "still open"}${
+    open === 0 ? "" : `, ${open} open beneath it:\n${renderOpenLines(anchor.children, 1).trimEnd()}`
+  }`;
+};
+
 /** One line of goal-level numbers, so a branch-scoped thread still sees the whole. */
 export const renderGoalPulse = (
   tasks: ReadonlyArray<LoomGoalTask>,

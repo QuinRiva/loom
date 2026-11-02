@@ -238,12 +238,18 @@ export const resolveGoalTaskRewrite = (input: {
     minted: new Set(ids.filter((_, index) => input.lines[index]!.taskId === null)),
     touched,
     summary:
-      parts.length === 0
-        ? "Rewrote the task tree: no changes (the submitted tree matches the current one)."
-        : `Rewrote the task tree: ${parts.join(", ")}.${
+      parts.length > 0
+        ? `Rewrote the task tree: ${parts.join(", ")}.${
             removed.length === 0
               ? ""
               : `\n\nRemoved:\n${removedLines}\nResubmit any of these lines, with its (id), in a rewrite to restore that task.`
-          }`,
+          }`
+        : survivors.length > 0
+          ? `Rewrote the task tree: no changes applied. ${
+              survivors.length === 1
+                ? "The finished task you omitted sits beneath a finished line you kept, so it was retained (omit that line too to prune it)."
+                : `The ${survivors.length} finished tasks you omitted sit beneath finished lines you kept, so they were retained (omit those lines too to prune them).`
+            }`
+          : "Rewrote the task tree: no changes (the submitted tree matches the current one).",
   };
 };

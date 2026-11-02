@@ -6,6 +6,7 @@
 import type {
   ControlPayloadItem,
   LoomAttentionReason,
+  LoomGoalTask,
   LoomOutcome,
   ThreadId,
   WorkOutcomeRecord,
@@ -15,6 +16,7 @@ import { type StartNode, dependenciesSatisfied } from "@t3tools/shared/workstrea
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 
+import { renderAnchorState } from "../../goals/goalTaskRender.ts";
 import { reportResponse } from "../../workstream/report.ts";
 
 /**
@@ -160,6 +162,8 @@ export interface WakeMember {
     readonly id: ThreadId;
     readonly role: string | null;
   }>;
+  /** The child's live anchor task with its subtree, as the notice states it; absent when unanchored. */
+  readonly anchor?: LoomGoalTask | null;
 }
 
 /** A resolved gate: the verdict-carrying source and the loop targets in the batch with it. */
@@ -211,6 +215,9 @@ const releasedClause = (member: WakeMember): string => {
     : `released: ${released.map((dep) => `${dep.role ?? "sub-thread"} \`${dep.id}\``).join(", ")}`;
 };
 
+const anchorLine = (member: WakeMember): string =>
+  member.anchor == null ? "" : renderAnchorState(member.anchor);
+
 const roundsClause = (member: WakeMember): string => {
   const rounds = member.gateRounds ?? 0;
   return rounds > 0 ? ` (${rounds} rework round${rounds === 1 ? "" : "s"})` : "";
@@ -239,7 +246,13 @@ export const renderWakePair = (pair: WakePair): string => {
       ? `${target.role ?? "coder"} round report: \`${target.reportPath}\` (reference only; verified by the gate).`
       : `_No ${target.role ?? "coder"} round report was filed._`,
   );
-  return [header, meta, "", sourceRef, "", ...targetRefs].filter((part) => part !== "").join("\n");
+  // A gate's parties may share one anchor; state each once.
+  const anchored = [source, ...targets].filter(
+    (member, i, all) => all.findIndex((other) => other.anchor?.id === member.anchor?.id) === i,
+  );
+  return [header, meta, ...anchored.map(anchorLine), "", sourceRef, "", ...targetRefs]
+    .filter((part) => part !== "")
+    .join("\n");
 };
 
 /**
@@ -258,7 +271,9 @@ export const renderWakeSingle = (member: WakeMember): string => {
       member.reportPath !== null
         ? `Verdict report: \`${member.reportPath}\`, excerpt:${formatReportExcerpt(member.report)}`
         : "_No verdict report was filed._";
-    return [header, meta, "", reference].filter((part) => part !== "").join("\n");
+    return [header, meta, anchorLine(member), "", reference]
+      .filter((part) => part !== "")
+      .join("\n");
   }
   const flags = member.attention.length > 0 ? ` (attention: ${member.attention.join(", ")})` : "";
   // An unreviewed completion is marked ☑️ so the closing can point at "the usual first look".
@@ -268,7 +283,7 @@ export const renderWakeSingle = (member: WakeMember): string => {
     member.reportPath !== null
       ? `Report reference: \`${member.reportPath}\` (read the full report on demand)`
       : "_No report was filed; status is the trigger, the report is best-effort context._";
-  return [header, meta, "", `${reference}${formatReportExcerpt(member.report)}`]
+  return [header, meta, anchorLine(member), "", `${reference}${formatReportExcerpt(member.report)}`]
     .filter((part) => part !== "")
     .join("\n");
 };

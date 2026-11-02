@@ -5,7 +5,8 @@
  * arm's warning.
  */
 import { assert, it } from "@effect/vitest";
-import { ThreadId } from "@t3tools/contracts";
+import { CommandId, GoalId, ProjectId, ThreadId } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -17,6 +18,7 @@ import {
   seedThread,
   writeEvents,
 } from "../../../../loom/testkit/loomOrchestratorLayer.ts";
+import * as Orchestrator from "../../../../orchestration-v2/Orchestrator.ts";
 import { callAs, HandlerTestLayer, spawnedId } from "./handlers.testkit.ts";
 
 const spawn = (parent: ThreadId, title: string, extra: Record<string, unknown> = {}) =>
@@ -83,6 +85,57 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
       assert.include(yieldEcho.text, "YIELDED to your parent orchestrator: you are NOT done");
       assert.deepEqual((yield* store.getWorkstream(yielded))!.attention, ["awaiting_orchestrator"]);
     }),
+  );
+
+  it.effect(
+    "an anchored child's submit lists its branch's open lines; ticked or unanchored, none",
+    () =>
+      Effect.gen(function* () {
+        const root = ThreadId.make("branch-root");
+        const goalId = GoalId.make("goal:branch");
+        yield* seedThread({ threadId: root });
+        yield* (yield* LoomStoreV2).goals.upsert({
+          id: goalId,
+          projectId: ProjectId.make("project:loom-test"),
+          slug: "branch",
+          title: "Goal branch",
+          description: "",
+        });
+        yield* (yield* Orchestrator.OrchestratorV2).dispatch({
+          type: "thread.goal.set",
+          commandId: CommandId.make("command:branch:goal-set"),
+          threadId: root,
+          createdAt: DateTime.formatIso(yield* DateTime.now),
+          goalId,
+        });
+        const add = (text: string, parentTaskId?: string) =>
+          Effect.map(
+            callAs(root, "goal_task_add", { text, ...(parentTaskId ? { parentTaskId } : {}) }),
+            (result) => result.text.match(/^Added task (\S+):/)![1]!,
+          );
+        const open = yield* add("Build the chip");
+        const verify = yield* add("Verify the chip", open);
+        const shipped = yield* add("Ship the docs", open);
+        const ticked = yield* add("Tidy the copy");
+        yield* callAs(root, "goal_task_update", { taskId: shipped, done: true });
+        yield* callAs(root, "goal_task_update", { taskId: ticked, done: true });
+
+        const anchored = yield* spawn(root, "Anchored", { anchorTaskId: open });
+        const reply = yield* callAs(anchored, "workstream_submit", { markdown: report("done") });
+        assert.match(
+          reply.text,
+          new RegExp(
+            `Report: \\S+\\n\\nStill open in your branch; your parent's notice of your completion lists these lines:\\n  Build the chip \\(${open}\\)   your anchor\\n    Verify the chip \\(${verify}\\)$`,
+          ),
+        );
+
+        const finished = yield* spawn(root, "Finished", { anchorTaskId: ticked });
+        const unanchored = yield* spawn(root, "Unanchored");
+        for (const thread of [finished, unanchored]) {
+          const quiet = yield* callAs(thread, "workstream_submit", { markdown: report("done") });
+          assert.match(quiet.text, /^Work submitted: [^\n]+\nReport: \S+$/);
+        }
+      }),
   );
 
   it.effect("submit echoes a gate loop as not done and a resolve as done for both", () =>

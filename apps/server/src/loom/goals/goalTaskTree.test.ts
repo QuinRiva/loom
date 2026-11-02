@@ -264,6 +264,9 @@ describe("finished subtree under a retained finished line", () => {
   it("keeps the children the submission omits, so the collapsed line round-trips", () => {
     const result = wholeTree(`- [x] Audit the usage pipeline (phase-1)\n${rest}`);
     expect(result.changed).toBe(false);
+    expect(result.summary).toBe(
+      "Rewrote the task tree: no changes applied. The 2 finished tasks you omitted sit beneath finished lines you kept, so they were retained (omit those lines too to prune them).",
+    );
     expect(result.tasks.map((task) => task.id).toSorted()).toEqual(
       currentFlat.map((task) => task.id).toSorted(),
     );
