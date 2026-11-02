@@ -3767,7 +3767,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         yield* seedProject({
           projectId,
           title: "Watch no-checks deadline",
-          workspaceRoot: "/workspace/watch-due",
+          workspaceRoot: `/workspace/watch-due-${fingerprinted}`, // loom: one active project per root (1018)
           defaultModelSelection: null,
           createdAt: "2026-10-01T00:00:00.000Z",
         });

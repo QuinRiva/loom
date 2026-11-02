@@ -135,7 +135,8 @@ it.effect("registers every migration file", () =>
     const dir = path.join(import.meta.dirname, "Migrations");
     const files = (yield* fs.readDirectory(dir)).flatMap((name) => {
       const match = /^(\d+)_(\w+)\.ts$/.exec(name);
-      return match ? [[Number(match[1]), match[2]] as const] : [];
+      // loom: the fork lane's 1001+ files share this directory; LoomMigrations.ts registers them.
+      return match && Number(match[1]) < 1000 ? [[Number(match[1]), match[2]] as const] : [];
     });
     assert.deepStrictEqual(
       files.toSorted(([a], [b]) => a - b),

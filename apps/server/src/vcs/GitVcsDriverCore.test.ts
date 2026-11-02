@@ -408,7 +408,8 @@ it.effect.each([
         assert.equal(Result.isSuccess(created), hookExitCode === 0);
         if (Result.isFailure(created)) {
           assert.equal(created.failure.operation, "GitVcsDriver.createWorktree");
-          assert.equal(created.failure.detail, "git worktree add failed");
+          // loom: an unclassified failure carries git's stderr after upstream's detail.
+          assert.match(created.failure.detail, /^git worktree add failed( git stderr: |$)/);
           assert.equal(created.failure.exitCode, hookExitCode);
         }
         const metadataQueries = spawnedArgs.filter((args) => args.includes("--git-common-dir"));

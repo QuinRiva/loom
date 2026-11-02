@@ -2705,7 +2705,8 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         projectId,
       });
 
-      expect(generatedModelSelection?.instanceId).toBe(ProviderInstanceId.make("claudeAgent"));
+      // loom: Loom's default writer is pi, so disabling it falls back to codex, the first fallback driver.
+      expect(generatedModelSelection?.instanceId).toBe(ProviderInstanceId.make("codex"));
     }),
   );
 

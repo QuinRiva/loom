@@ -687,12 +687,14 @@ it.effect("keeps the store's read failure as the cause when a command projection
     yield* sql`INSERT INTO orchestration_v2_projection_runtime_requests
       (runtime_request_id, thread_id, node_id, kind, status, created_at, payload_json)
       VALUES ('request:unreadable', ${unreadableRequest}, 'node:unreadable', 'user-input', 'pending', ${now}, '{}')`;
+    // loom: Loom skips an undecodable message row (ProjectionStore decodeMessageRows), so only
+    // the unreadable request fails its command projection.
+    yield* orchestrator.dispatch({
+      type: "queue.resume",
+      commandId: CommandId.make("resume-unreadable"),
+      threadId: unreadableMessage,
+    });
     for (const command of [
-      {
-        type: "queue.resume",
-        commandId: CommandId.make("resume-unreadable"),
-        threadId: unreadableMessage,
-      },
       {
         type: "thread.user-input.dismiss",
         commandId: CommandId.make("dismiss-unreadable"),
