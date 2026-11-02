@@ -1,38 +1,14 @@
-import {
-  type DiffsHighlighter,
-  getSharedHighlighter,
-  type SupportedLanguages,
-} from "@pierre/diffs";
 import { useEffect, useState } from "react";
 
 import { useTheme } from "~/hooks/useTheme";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
+import { getSyntaxHighlighterPromise } from "~/lib/syntaxHighlighting";
 
 /**
- * Shared Shiki access for plan code blocks. Reuses the app's existing highlighter
- * (`@pierre/diffs` `getSharedHighlighter`) — the same one code fences use — so the
- * MDX plan renderer never bundles a second Shiki. Consumed by `<Code>` and
- * `<AnnotatedCode>`.
+ * Highlighting for plan code blocks, through the app's shared highlighter (the one code fences
+ * use), so the MDX plan renderer never creates a second highlighter type on the thread.
+ * Consumed by `<Code>` and `<AnnotatedCode>`.
  */
-
-const highlighterByLanguage = new Map<string, Promise<DiffsHighlighter>>();
-
-/** Lazily load (and cache) a highlighter for one language, falling back to text. */
-function highlighterFor(language: string): Promise<DiffsHighlighter> {
-  const cached = highlighterByLanguage.get(language);
-  if (cached) return cached;
-  const promise = getSharedHighlighter({
-    themes: [resolveDiffThemeName("dark"), resolveDiffThemeName("light")],
-    langs: [language as SupportedLanguages],
-    preferredHighlighter: "shiki-js",
-  }).catch((error) => {
-    highlighterByLanguage.delete(language);
-    if (language === "text") throw error;
-    return highlighterFor("text");
-  });
-  highlighterByLanguage.set(language, promise);
-  return promise;
-}
 
 /** Highlight `code` to theme-aware HTML; returns `null` until the async load resolves. */
 export function useShikiHtml(code: string, language: string): string | null {
@@ -43,7 +19,7 @@ export function useShikiHtml(code: string, language: string): string | null {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- highlights with the lazily loaded Shiki highlighter
   useEffect(() => {
     let active = true;
-    void highlighterFor(language).then((highlighter) => {
+    void getSyntaxHighlighterPromise(language).then((highlighter) => {
       if (!active) return;
       try {
         setHtml(highlighter.codeToHtml(code, { lang: language, theme: themeName }));
