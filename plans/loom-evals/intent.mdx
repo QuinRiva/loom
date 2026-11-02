@@ -3,8 +3,8 @@ reader:
   who: Carl, Loom's maintainer and only user, deciding which evals to pursue, park or drop; he also wants to be able to explain the measurement gap to someone else
   knows: how he drives a workstream day to day (orchestrators, coders, reviewers, gates, briefs, reports), the roles and skills, that a retro skill and a lessons inbox exist, and the May prompt-rule research read months ago; none of the four research reports behind this document and none of their code names
   after_first_screen: in one sentence, what Loom cannot see about its agents; which three evals would see it first and roughly what each costs; where the value is small; and he can record pursue, park or drop per eval, or say "go"
-kicker: "Intent brief · draft for your decisions · 2 Nov 2026"
-status: draft
+kicker: "Intent brief · approved 2 Nov 2026 · Evals 1, 2, 3 and the Eval 5 proxy build now; Eval 4 after the upstream pull; 6, 7 and 8 parked"
+status: approved
 manager_sessions:
   - id: 01a19984-e49a-7413-bbfb-e50652a27b21
     name: Evals proposal document
@@ -14,7 +14,7 @@ manager_sessions:
 
 # Loom records everything its agents do and measures none of it on a standing basis
 
-Every brief, system prompt, transcript, report, gate verdict and per-message cost is stored, yet since June about **169 changes** to the text agents run on (roles, skills, the global `AGENTS.md`) shipped with **about 7** citing any measurement and **none** re-checked afterwards, so nothing can say whether a single one changed what agents do. Recommend **three evals now**, all built on data already stored: a failure census of 40 recent threads, a weekly outcome dashboard, and deterministic checks over the session logs, plus a one-day script counting what clean review gates let through. Together one to two weeks of agent work and under about $20 a month to run. A **fourth**, a replay suite for role and skill edits, waits for the eval runner upstream T3 Code shipped on 26 October, which arrives with the next pull. **Two are parked** and **one dropped**, each with the number that says why.
+Every brief, system prompt, transcript, report, gate verdict and per-message cost is stored, yet since June about **169 changes** to the text agents run on (roles, skills, the global `AGENTS.md`) shipped with **about 7** citing any measurement and **none** re-checked afterwards, so nothing can say whether a single one changed what agents do. Recommend **three evals now**, all built on data already stored: a failure census of 40 recent threads, a weekly outcome dashboard, and deterministic checks over the session logs, plus a one-day script counting what clean review gates let through. Together one to two weeks of agent work and under about $20 a month to run. A **fourth**, a replay suite for role and skill edits, waits for the eval runner upstream T3 Code shipped on 26 October, which arrives with the next pull. **Three are parked**, each with the number that says why.
 
 <Stats
   items={[
@@ -46,9 +46,9 @@ Every brief, system prompt, transcript, report, gate verdict and per-message cos
 />
 
 <Callout tone="decision" title="What it means now" focus>
-  **Build now:** the failure census (Eval 1), the outcome dashboard (Eval 2), the trace checks (Eval 3), and the scripted half of gate calibration (Eval 5), with your hour on it only if it finds defects that slipped through. **Build when the upstream pull lands:** the replay suite in upstream's shape with a pi template (Eval 4). **Park:** replaying real coder tasks from checkpoints (Eval 6) and a model-per-role A/B (Eval 7). **Drop:** brief and report handoff probes (Eval 8). An eval left undecided takes its recommendation; a bare "go" accepts all of them. The form is under "Questions for you", before the evidence.
+  **Build now:** the failure census (Eval 1), the outcome dashboard (Eval 2), the trace checks (Eval 3), and the scripted half of gate calibration (Eval 5), with your hour on it only if it finds defects that slipped through. **Build when the upstream pull lands:** the replay suite in upstream's shape with a pi template (Eval 4). **Park:** replaying real coder tasks from checkpoints (Eval 6), a model-per-role A/B (Eval 7) and brief and report handoff probes (Eval 8; recommended drop, Carl chose park). Carl answered every question in the form on 2 November; the answers are recorded under Decided.
 
-  <Badge tone="success">pursue now · 3</Badge> <Badge tone="info">proxy now · 1</Badge> <Badge tone="info">after the pull · 1</Badge> <Badge tone="neutral">park · 2</Badge> <Badge tone="neutral">drop · 1</Badge>
+  <Badge tone="success">pursue now · 3</Badge> <Badge tone="info">proxy now · 1</Badge> <Badge tone="info">after the pull · 1</Badge> <Badge tone="neutral">park · 3</Badge>
 </Callout>
 
 <Table
@@ -124,7 +124,7 @@ Every brief, system prompt, transcript, report, gate verdict and per-message cos
       "Trajectory grader, model-judged",
       "Does brief quality predict rework; can a parent act on a report alone",
       "1 day; a few dollars a run",
-      { badge: { label: "drop", tone: "neutral" }, md: "already measured once; small effect" },
+      { badge: { label: "park", tone: "neutral" }, md: "already measured once; small effect. Carl: park, not drop" },
     ],
   ]}
 />
@@ -146,7 +146,7 @@ Every brief, system prompt, transcript, report, gate verdict and per-message cos
 - Adopt upstream's `evals/` runner and extend it for pi rather than build a parallel harness. Wins if its fake-thread templates can host pi's tool protocol; a spike after the pull settles it.
 - Dropped: a public benchmark or a hosted eval platform. They measure a model plus a generic scaffold, not Loom's orchestration, they rot (OpenAI retired SWE-bench Verified and estimates about 30% of SWE-bench Pro tasks are broken), and a one-person project has no traffic for online A/B tests or annotation campaigns. Section 6 has the detail.
 
-**Decided.** "keep in mind that Loom is a single user project (it's just a personal project)". "Be honest when the value is small." From the global `AGENTS.md`: "Bias against adding rules. If the model already does the right thing without the rule, don't add it." *Assumed:* the retro scanner and the sqlite ledger are the base everything builds on, rather than a new tool; the upstream eval runner is adopted at the next pull, not re-implemented; when the approved checkpoint-ref retention sweep is finally built, a sample of coder start refs is exempted or snapshotted so Eval 6 stays possible, since that costs a line of code now and a lost corpus later. Redirect if wrong.
+**Decided.** Carl's form answers, 2 November: Eval 1 "Pursue now, as the first step"; Eval 2 "Pursue now"; Eval 3 "Pursue now"; Eval 4 "Pursue once the upstream pull lands, with cases taken from the census"; Eval 5 "Build the escape proxy now; the hour of reading only if it finds escapes"; Eval 6 "Park; exempt a sample of start refs from the retention sweep so it stays possible"; Eval 7 "Park until the dashboard exists to read it"; Eval 8 "Park". "keep in mind that Loom is a single user project (it's just a personal project)". "Be honest when the value is small." From the global `AGENTS.md`: "Bias against adding rules. If the model already does the right thing without the rule, don't add it." *Assumed:* the retro scanner and the sqlite ledger are the base everything builds on, rather than a new tool; the upstream eval runner is adopted at the next pull, not re-implemented; when the approved checkpoint-ref retention sweep is finally built, a sample of coder start refs is exempted or snapshotted so Eval 6 stays possible, since that costs a line of code now and a lost corpus later. Redirect if wrong.
 
 **Not doing.** Public benchmarks. A hosted eval platform. Online A/B tests of Loom's own UI. Annotation campaigns. Reviving the 288-trial synthetic rule ablation from May (its synthetic tasks were found "too easy", and real tasks are now available instead). Simulated users.
 
@@ -540,12 +540,12 @@ Each card gives the question, the gap it closes, what Carl would do differently 
   eyebrow="EVAL 8"
   heading="Does brief quality predict rework, and can a parent act on a child's report alone?"
   tone="neutral"
-  badge="DROP"
+  badge="PARK · CARL'S CALL; DROP WAS RECOMMENDED"
   meta={["trajectory grader, model-judged", "1 day", "a few dollars a run", "already measured once"]}
 >
   - **Gap it closes.** Whether what the orchestrator writes down for a child, and what the child hands back, is good enough. The hand-back friction Carl feels is real: 25 of the 45 inbox lessons are human corrections, mostly about how to communicate with him.
   - **How it would work.** Factory's method after context compression: ask the model recall, artefact, continuation and decision questions about the report and grade them on a rubric; and regress brief properties (length, restated standing context, explicit acceptance criteria) against rework rounds.
-  - **Why drop.** The review-process study already did the brief half once on 262 gates: about 70% of brief words restated context the child already had, and 7 of 262 verdicts hinged on the brief, which says brief quality rarely decides the outcome. Factory's result (its summaries 3.70 against 3.44 and 3.35 for Anthropic's and OpenAI's) is a vendor grading itself with a model judge, directional at best. And the cheaper instrument for Carl's hand-back friction already exists and has never run: the lessons triage over 25 hand-labelled corrections.
+  - **Why drop was recommended.** The review-process study already did the brief half once on 262 gates: about 70% of brief words restated context the child already had, and 7 of 262 verdicts hinged on the brief, which says brief quality rarely decides the outcome. Factory's result (its summaries 3.70 against 3.44 and 3.35 for Anthropic's and OpenAI's) is a vendor grading itself with a model judge, directional at best. And the cheaper instrument for Carl's hand-back friction already exists and has never run: the lessons triage over 25 hand-labelled corrections.
   - **What the research says.** Anthropic's multi-agent work fixed delegation failures by watching runs and tightening brief requirements, not by scoring briefs; Amp replaced compaction with handoff on product reasoning with no eval published.
   - **If pursued anyway.** A day to build, a few dollars of judge calls a run, and the confounding that a hard task gets both a long brief and more rework.
 </Card>
@@ -585,7 +585,7 @@ Nothing above is new in kind. Each extends or revives something Loom or pi-craft
     [
       "Review-process study (October)",
       "Mined 262 gates once for brief restating and verdict causes",
-      "Eval 5 (verdict disposition), Eval 8 dropped",
+      "Eval 5 (verdict disposition), Eval 8 parked",
       "Its \"persist the contested list\" follow-up is already in the schema but unused; Eval 2's finding-disposition field supersedes it",
     ],
     [
@@ -700,7 +700,7 @@ The builders whose evals changed a real decision all used small private suites b
       "Factory, Amp",
       "Compression and handoff quality by model-judged recall probes",
       "Factory's own summaries scored best in its own comparison; Amp switched to handoff on product reasoning, no eval",
-      { badge: { label: "weak", tone: "neutral" }, md: "the basis for dropping Eval 8" },
+      { badge: { label: "weak", tone: "neutral" }, md: "the basis for recommending Eval 8 be dropped; parked instead" },
     ],
   ]}
 />
