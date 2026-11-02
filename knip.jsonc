@@ -161,6 +161,11 @@
       // loom: the fork's driver registry is Pi-only, so nothing registers this driver.
       "ignoreIssues": { "src/server.ts": ["exports"], "src/server/driver.ts": ["exports"] },
     },
+    "packages/provider-fx": {
+      "includeEntryExports": true,
+      // loom: the fork's driver registry is Pi-only, so nothing registers this driver.
+      "ignoreIssues": { "src/server.ts": ["exports"], "src/server/driver.ts": ["exports"] },
+    },
     "packages/effect-acp": {
       "includeEntryExports": true,
       "entry": ["test/fixtures/*.ts"],
