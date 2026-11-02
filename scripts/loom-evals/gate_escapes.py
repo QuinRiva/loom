@@ -8,7 +8,8 @@ kept per file; checkpoints are not a source, since siblings share a worktree and
 edits. Repositories are walked with `git log --branches --remotes` (never --all: refs/t3 holds thousands of
 checkpoint commits) and nothing is fetched. Candidates: kind 1, a later fix/revert commit by another thread that
 changes lines `git blame` at its parent attributes to a commit carrying the gated coder's Loom-Thread; kind 2, a
-later gate whose first verdict was needs_rework with must-fix findings over an overlapping file set; kind 3, a
+later gate whose first verdict was needs_rework with must-fix findings, attributed per file to the latest earlier
+gate that passed that file (not to every earlier gate on it; a hot file would fan one rework out to many); kind 3, a
 later fix/retry sibling (reading material, in no rate). A candidate is tagged same-tree, other-tree, or unknown
 when its commit has no trailer. Writes ~/loom-evals/readings/<week>/escapes.json (fragment shape of
 plans/loom-evals/plan.mdx §5, plus `narrowed`, the date of the last narrowing) and hits/escapes.jsonl, newest first.
@@ -27,7 +28,7 @@ HORIZON = timedelta(days=14)
 FIX = re.compile(r"\b(?:fix|revert|hotfix|regression)\b", re.I)
 RETRY = re.compile(r"\b(?:fix|retry|regression|fresh)\b", re.I)
 TRAILER = re.compile(r"^Loom-Thread:\s*(\S+)", re.M)
-NARROWED = "2026-11-02"  # line provenance, no checkpoint files, `unknown` tag: after the first-20 review found 0 of 20
+NARROWED = "2026-11-02"  # first review 0 of 20: line provenance, no checkpoint files, `unknown` tag; second 1 of 20: kind 2 to the latest gate per file
 ABS_PATH = re.compile(r"(?<![\w.~])/(?:home|tmp)/[^\s`'\"()<>\[\]{},;*|]+")
 
 
@@ -146,6 +147,14 @@ def main():
         return out
 
     tag_of = lambda gate, other: "unknown" if not other else "same-tree" if (ws.get(other) or {}).get("root") == gate["root"] else "other-tree"
+    # Kind 2: each file of a later must-fix rework goes to the latest gate before it that passed that file, if another coder's.
+    blamed = defaultdict(lambda: defaultdict(list))
+    for rat, rid, rcoder in reworks:
+        pid = ws[rid]["project"]
+        for key in files_of(rcoder, pid) if rcoder else ():
+            last = next((g for g in reversed(gates) if g[0]["project"] == pid and g[2] < rat <= min(g[2] + HORIZON, to) and key in files_of(g[1], pid)), None)
+            if last and last[1] != rcoder:
+                blamed[last[0]["id"]][rat, rid, rcoder].append(key)
     hits, per_gate = [], []
     for g, coder, at in gates:
         pid, end = g["project"], min(at + HORIZON, to)
@@ -161,12 +170,9 @@ def main():
                 if common:
                     found.append(dict(kind=1, tag=tag_of(g, c["thread"]), at=c["at"], commit=c["sha"], repo=d, subject=c["subject"], loom_thread=c["thread"],
                                       files=[dict(path=f, source=F[d, f]) for f in common]))
-        for rat, rid, rcoder in reworks[bisect.bisect_right(reworks, (at, "\uffff")):]:
-            if rat > end:
-                break
-            if rcoder and rcoder != coder and ws[rid]["project"] == pid and (common := sorted(set(F) & set(files_of(rcoder, pid)))):
-                found.append(dict(kind=2, tag=tag_of(g, rid), at=rat, child=rid, coder=rcoder, subject=threads.get(rid, {}).get("title"),
-                                  files=[dict(path=f, repo=d, source=F[d, f]) for d, f in common]))
+        for (rat, rid, rcoder), common in blamed[g["id"]].items():
+            found.append(dict(kind=2, tag=tag_of(g, rid), at=rat, child=rid, coder=rcoder, subject=threads.get(rid, {}).get("title"),
+                              files=[dict(path=f, repo=d, source=F[d, f]) for d, f in sorted(common)]))
         for s in ws.values():
             if s["parent"] == g["parent"] and s["id"] not in (coder, g["id"]) and s["created_at"] and at < ts(s["created_at"]) <= end:
                 brief = Path(s["brief"]).read_text(errors="replace") if s["brief"] and Path(s["brief"]).exists() else ""

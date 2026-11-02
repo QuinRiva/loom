@@ -235,13 +235,18 @@ def _runs(cmd, rx):
 
 
 def _steps_in(cmd, cwd):
-    """(directory, step) per command step, following cd; a target it cannot resolve ($VAR, cd -) leaves None."""
-    d = cwd
+    """(directory, step) per command step, following cd; a target it cannot resolve ($VAR, cd -) leaves None, and
+    a cd inside a ( … ) subshell ends with it."""
+    d, depth, outer = cwd, 0, []
     for g in _steps(cmd):
+        outer += [(depth, d)] if g.startswith("(") else []
+        depth += g.count("(") - g.count(")")
         if m := re.match(r"[({]?\s*cd(?:\s+(\S+))?$", g):
             t = os.path.expanduser((m.group(1) or "~").strip("'\""))
             d = None if "$" in t or t == "-" or not (d or t.startswith("/")) else os.path.normpath(os.path.join(d or "/", t))
         yield d, g
+        while outer and depth <= outer[-1][0]:
+            d = outer.pop()[1]
 
 
 def _git(seg):
@@ -376,11 +381,17 @@ INSTRUCTION_PROTOCOL_SINCE = "2026-10-12T09:55"  # the llm-instruction-change sk
 
 
 def check_instruction_edit_ungated(s, ctx):
-    calls = _calls(s)
-    if ctx.get("gated") or any(re.search(r"llm-instruction-change[^/]*/SKILL\.md", str(a.get("path"))) for _, n, a, _ in calls if n in ("read", "read_full")):
+    """Not counted: a session that loaded the protocol (read tool, or cat/sed/head in bash), a thread a reviewer gate
+    loops back to, and an edit followed by a spawn or scaffold of a reviewer whose arguments name the edited file."""
+    calls, protocol = _calls(s), r"llm-instruction-change[^/\s]*/SKILL\.md"
+    if ctx.get("gated") or any(re.search(protocol, str(a.get("path"))) for _, n, a, _ in calls if n in ("read", "read_full")) or \
+            any(re.search(r"\b(?:cat|sed|head)\b[^|;&\n]*" + protocol, c) for _, c, _ in _cmds(s)):
         return []
+    reviewed = lambda ts, p: any(n in ("workstream_spawn", "workstream_scaffold") and t > ts and '"reviewer"' in (j := json.dumps(a)) and p in j
+                                 for t, n, a, _ in calls)
     return _hits([(ts, n, a.get("path"), None) for ts, n, a, _ in calls
-                  if n in ("edit", "write") and (ts or "") >= INSTRUCTION_PROTOCOL_SINCE and INSTRUCTION.search(str(a.get("path") or ""))])
+                  if n in ("edit", "write") and (ts or "") >= INSTRUCTION_PROTOCOL_SINCE and (m := INSTRUCTION.search(str(a.get("path") or "")))
+                  and not reviewed(ts or "", m.group(0).lstrip("/"))])
 
 
 VISUAL = re.compile(r"apps/web/.*\.tsx$|\.css$|\.html$")
@@ -391,6 +402,9 @@ def _new_text(n, a):
 
 
 def check_visual_unseen(s, ctx):
+    """Roots and planners only: a child coder's unrendered edit follows its brief and the subagent rule in AGENTS.md."""
+    if ctx.get("role") not in ("root", "planner"):
+        return []
     found, pending = [], None
     for ts, n, a, _ in _calls(s):
         p = str(a.get("path") or "")
@@ -423,26 +437,28 @@ def check_kill_by_pattern(s, ctx):
         steps = [g for g in _steps(c) if "--help" not in g]
         found += [(ts, "bash", f"{a} | {b}", "pgrep | xargs kill") for a, b in zip(steps, steps[1:])
                   if re.match(r"(?:sudo\s+)?pgrep\b", a) and re.match(r"xargs\b.*\bkill\b", b)]
-        found += [(ts, "bash", g, "pkill") for g in steps if re.match(r"(?:sudo\s+)?pkill(?:\s+-\S+)*\s+[^-\s]", g)]
+        found += [(ts, "bash", g, "pkill") for g in steps if re.match(r"(?:sudo\s+)?pkill(?:\s+-(?!P\b)\S+|\s+-P\s+\S+)*\s+(?!\d*[<>])[^-\s]", g)]
         found += [(ts, "bash", g, "kill $(pgrep|pidof|ps)") for g in steps
-                  if re.match(r"(?:sudo\s+)?kill\b[^$]*\$\(\s*(?:pgrep|pidof|ps)\b", g) and not re.search(r"\$\(\s*ps\b[^)]*\s-p\s", g)]
+                  if re.match(r"(?:sudo\s+)?kill\b[^$]*\$\(\s*(?:pgrep|pidof|ps)\b", g)
+                  and not re.search(r"\$\(\s*ps\b[^)]*\s-p\s|\$\(\s*ps\s+-eo\s+pid=,(?:pgid|sid)=\s*\|\s*awk\b", g)]
     return _hits(found)
 
 
-BACKGROUNDS = re.compile(r"(?<![&>|])&(?![&>])|\bsetsid\b|\bnohup\b")
+SETTLING = re.compile(r"(?<![&>|])&(?![&>])|\bsetsid\b|\bnohup\b|\bp?kill\b")
+SLEEP = re.compile(r"\bsleep\s+(?:[5-9]|\d{2,})")
+PROBES = {"gh pr or gh run": r"\bgh\s+(?:pr|run)\b", "bg_start job log": r"/jobs/\S*\.log\b", "ps -p or wc": r"\bps\b[^|;&\n]*\s-p\b|\bwc\b"}
 
 
 def check_sleep_poll(s, ctx):
-    """Three or more foreground sleeps of 5 s or more in a session that had bg_start; a sleep in a command that
-    backgrounds a process is a dev server settling, not a poll."""
+    """Two or more foreground bash calls, in a session that had bg_start, that sleep 5 s or more and then, in the same
+    command, probe what they wait on: gh pr/run, a bg_start job log, ps -p or wc. A command that backgrounds or kills a
+    process is settling, not polling; a bare sleep is a wait between UI actions that bg_wait cannot replace."""
     if "bg_start" not in {short_tool(t) for t in s["tools"]}:
         return []
-    sleeps = [(ts, c) for ts, n, a, _ in _calls(s) if n == "bash" for c in [str(a.get("command") or "")]
-              if re.search(r"\bsleep\s+(?:[5-9]|\d{2,})", c) and not BACKGROUNDS.search(c)]
-    if len(sleeps) < 3:
-        return []
-    var = "watching gh pr, gh run or checks" if any(re.search(r"gh pr|gh run|checks", c) for _, c in sleeps) else "other"
-    return [(sleeps[0][0], "bash", one_line(sleeps[0][1], 300), var, len(sleeps))]
+    probe = lambda c, m: next((v for v, rx in PROBES.items() if re.search(rx, c[m.end():])), None)
+    polls = [(ts, c, v) for ts, n, a, _ in _calls(s) if n == "bash" for c in [str(a.get("command") or "")]
+             if (m := SLEEP.search(c)) and not SETTLING.search(c) and (v := probe(c, m))]
+    return [(polls[0][0], "bash", one_line(polls[0][1], 300), Counter(v for *_, v in polls).most_common(1)[0][0], len(polls))] if len(polls) >= 2 else []
 
 
 MAIN_BRANCH = re.compile(r"(?:main|master)$")
