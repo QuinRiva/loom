@@ -292,7 +292,8 @@ export const readPiSessionContext = async (path: string): Promise<PiSessionConte
   let pending: Pending[] = [];
   let compaction: { id: string; at: string; chars: number } | null = null;
   let prev: Call | null = null;
-  // A later system entry replaces sections and adds or removes tools: what it retires leaves the window.
+  // A later system entry replaces sections and adds or removes tools; what it retires leaves the
+  // window only when the measured gap shows a rewritten head (see onCall).
   const live = new Map<string, string>();
   const tokensById = new Map<string, number>();
   const lastCall = new Map<string, number>();
