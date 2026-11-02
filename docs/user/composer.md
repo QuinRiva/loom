@@ -244,9 +244,9 @@ Provider commands must start the message to run. T3 Code commands such as
 Send `/compact` in an existing conversation to reduce context usage when the
 provider supports it, even with the context meter turned off.
 
-On web and desktop, turn on **Settings → Labs → Legacy → Context
-window indicator (legacy)** to see context usage. The meter is off by default
-and appears once the provider reports usage. Open it for usage details and
+On web and desktop, the context meter shows context usage. <!-- loom: meter on by default --> It
+is on by default (turn it off under **Settings → Labs → Legacy → Context window indicator
+(legacy)**) and appears once the provider reports usage. Open it for usage details and
 **Compact context** when the provider supports compaction.
 
 Claude instances can also compact idle threads for you. See

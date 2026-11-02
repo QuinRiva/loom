@@ -100,8 +100,8 @@ including when another client performs the import.
 
 The thread keeps the native session's title and last-update value as provider metadata without
 overwriting a title you set in T3 Code. Agents that report ACP context usage drive the composer's
-context meter and cumulative cost metadata. The meter is off by default; see
-[commands and skills](./composer.md#commands-and-skills) to enable it on web and desktop.
+context meter and cumulative cost metadata. <!-- loom: meter on by default --> The meter is on by
+default; see [commands and skills](./composer.md#commands-and-skills) to turn it off on web and desktop.
 Text resources and links render as assistant output;
 binary resources, images, and audio that T3 Code cannot render yet appear as explicit placeholders
 instead of disappearing.
