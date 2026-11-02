@@ -13,7 +13,7 @@ The manifest is the JSON the /retro launcher writes into the run directory. The 
 catalogue is ../signals.yaml (PyYAML: the catalogue is edited by people and agents and
 holds regexes, so a real YAML parser is worth the one dependency).
 """
-import argparse, json, re, statistics
+import argparse, json, os, re, sqlite3, statistics
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,12 +82,17 @@ def notice_kind(text):
 
 
 def parse_session(path, root):
-    """One pass over a pi session jsonl; everything later sections need, nothing kept from tool results but errors."""
+    """One pass over a pi session jsonl; everything later sections need. Of tool results it keeps errors in full and,
+    per call, a short record (exit code, first 300 characters, which guard fired) for the trace checks."""
     s = dict(turns=0, calls=0, cost=0.0, ctx=0, image=0, tools=set(), errors=[], users=[], texts=[], events=[],
-             spawned={}, first=None, last=None)
+             spawned={}, results={}, first=None, last=None, cwd=None, model=None)
     seen = Counter()
     for line in open(path, encoding="utf-8"):
         e = json.loads(line)
+        if e.get("type") in ("session", "model_change"):
+            s["cwd"] = e.get("cwd") or s["cwd"]
+            s["model"] = e.get("modelId") or s["model"]
+            continue
         if e.get("type") == "usage":
             s["cost"] += ((e.get("usage") or {}).get("cost") or {}).get("total", 0)
             continue
@@ -121,15 +126,21 @@ def parse_session(path, root):
                     s["calls"] += 1
                     seen[(b.get("name"), json.dumps(b.get("arguments"), sort_keys=True))] += 1
                     s["events"].append(("call", ts, (b.get("name") or "", b.get("arguments"), b.get("id"))))
-        elif role == "toolResult" and m.get("isError"):
+        elif role == "toolResult":
             text = text_of(blocks)
-            s["errors"].append((m.get("toolName") or "?", ts, text))
-            s["texts"].append(("tool_error", ts, text))
-            s["events"].append(("error", ts, (m.get("toolName") or "?", text)))
-        elif role == "toolResult" and (m.get("toolName") or "").endswith(("workstream_scaffold", "workstream_spawn")):
-            # "key → thread:…" pairs (scaffold) or the spawned id: what each later brief call targets
-            s["spawned"][m.get("toolCallId")] = dict(re.findall(r"(\S+) \u2192 (thread:[\w-]+(?::[\w-]+)*)", text_of(blocks))) or \
-                {"*": next(iter(re.findall(r"sub-thread (thread:[\w-]+(?::[\w-]+)*)", text_of(blocks))), None)}
+            code = re.findall(r"Command exited with code (\d+)", text)
+            r = dict(id=m.get("toolCallId"), tool=short_tool(m.get("toolName")), isError=bool(m.get("isError")),
+                     code=int(code[-1]) if code else None, head=text[:300], guard=guard_of(text))
+            s["results"][r["id"]] = r
+            s["events"].append(("result", ts, r))
+            if m.get("isError"):
+                s["errors"].append((m.get("toolName") or "?", ts, text))
+                s["texts"].append(("tool_error", ts, text))
+                s["events"].append(("error", ts, (m.get("toolName") or "?", text)))
+            elif (m.get("toolName") or "").endswith(("workstream_scaffold", "workstream_spawn")):
+                # "key → thread:…" pairs (scaffold) or the spawned id: what each later brief call targets
+                s["spawned"][m.get("toolCallId")] = dict(re.findall(r"(\S+) \u2192 (thread:[\w-]+(?::[\w-]+)*)", text)) or \
+                    {"*": next(iter(re.findall(r"sub-thread (thread:[\w-]+(?::[\w-]+)*)", text)), None)}
     s["repeated"] = sum(n - 1 for n in seen.values())
     return s
 
@@ -153,6 +164,268 @@ def error_signature(tool, text):
     line = re.sub(r"'[^']{0,80}'|\"[^\"]{0,80}\"", "'…'", line)
     line = re.sub(r"\b[0-9a-f]{8,}\b|\b\d+\b", "N", line)
     return line[:140]
+
+
+# ── Trace checks: signals.yaml kind structural, scope session, origin loom-evals plan (2026-11) ──────────
+# Each matches a toolCall's name and arguments or the control plane's own result text, never the model's
+# prose; the report is read only as a claim paired with the absence of a command (tests-claimed-not-run,
+# moved-text-unwritten). A check takes the parsed session and a context (role, report, gated, project_root)
+# and returns hits (timestamp, tool, excerpt, variant, count), the first of each variant per session, so the
+# first 20 hits of a check are 20 sessions.
+
+def short_tool(name):
+    return re.sub(r"^mcp__[\w-]+?__", "", name or "?")
+
+
+def guard_of(text):
+    """Which Loom guard spoke in a tool result, from the guard's own text: a block, a refusal, or a note it appended."""
+    if m := re.match(r"Blocked by the t3 ([\w-]+) guard", text):
+        return f"blocked: {m.group(1)} guard"
+    if text.startswith("Refused:"):
+        return "refused"
+    m = re.search(r"\[t3 ([\w-]+) guard\] (\w+)", text)
+    return m and f"{'rewrite' if m.group(2).startswith('Rewr') else 'note'}: {m.group(1)} guard"
+
+
+def _calls(s):
+    return [(ts, short_tool(x[0]), x[1] if isinstance(x[1], dict) else {}, x[2]) for k, ts, x in s["events"] if k == "call"]
+
+
+def _cmds(s):
+    return [(ts, str(a.get("command") or ""), cid) for ts, n, a, cid in _calls(s) if n in ("bash", "bg_start")]
+
+
+def _segments(cmd):
+    return [x.strip() for x in re.split(r"\s*(?:;|&&|\|\||\||\n)\s*", cmd) if x.strip()]
+
+
+def _git(seg):
+    """(subcommand, args) when a command segment runs git, else None."""
+    m = re.match(r"(?:sudo\s+|\w+=\S*\s+)*git((?:\s+-[Cc]\s+\S+)*)\s+(\S+)(.*)", seg, re.S)
+    return m and (m.group(2), m.group(3).split())
+
+
+def _hits(found):
+    first, n = {}, Counter()
+    for ts, tool, ex, var in found:
+        n[var] += 1
+        first.setdefault(var, (ts, tool, one_line(str(ex), 300), var))
+    return [(*h, n[h[3]]) for h in first.values()]
+
+
+KILLED_JOB = re.compile(r"Background job \S+ (?:ended by SIG\w+|finished \(exit (?:137|143)\))")
+
+
+def check_killed_then_silent(s, ctx):
+    cmd = {cid: c for _, c, cid in _cmds(s)}
+    ev, found = s["events"], []
+    for i, (k, ts, r) in enumerate(ev):
+        if k != "result":
+            continue
+        var = ("timed out" if r["head"].startswith("Command timed out after") else f"exit {r['code']}" if r["code"] in (137, 143) else None) \
+            if r["tool"] == "bash" else "bg job killed" if r["tool"] == "bg_wait" and KILLED_JOB.match(r["head"]) else None
+        if var and next((k2 for k2, *_ in ev[i + 1:] if k2 in ("call", "user")), "user") == "user":
+            found.append((ts, r["tool"], cmd.get(r["id"]) or r["head"], var))
+    return _hits(found)
+
+
+def _ships(d):
+    """The repository at d has the guarded ship procedure: a .t3code/ship.json policy and a `ship` package script."""
+    try:
+        return Path(d, ".t3code/ship.json").exists() and "ship" in json.loads(Path(d, "package.json").read_text()).get("scripts", {})
+    except (OSError, ValueError):
+        return False
+
+
+def check_merge_bypass(s, ctx):
+    cmds = _cmds(s)
+    if any("pnpm ship" in c for _, c, _ in cmds) or not any(_ships(d) for d in (s["cwd"], ctx.get("project_root")) if d):
+        return []
+    return _hits([(ts, "bash", c, None) for ts, c, _ in cmds if re.search(r"\bgh pr merge\b", c)])
+
+
+def check_failed_then_publish(s, ctx):
+    cmd = {cid: c for _, c, cid in _cmds(s)}
+    found, failed = [], None
+    for k, ts, x in s["events"]:
+        if k == "user":
+            failed = None
+        elif k == "result" and x["tool"] == "bash" and x["code"] and any(re.match(r"(?:sudo\s+)?(?:mv|cp|git)\b", g) for g in _segments(cmd.get(x["id"], ""))):
+            failed = cmd[x["id"]]
+        elif k == "call" and short_tool(x[0]) in ("bash", "bg_start") and isinstance(x[1], dict):
+            c = str(x[1].get("command") or "")
+            if "git status" in c:
+                failed = None
+            elif failed and any(re.match(r"(?:pnpm ship|gh pr create)\b", g) for g in _segments(c)):
+                found.append((ts, short_tool(x[0]), f"failed: {one_line(failed, 120)} | then: {c}", None))
+                failed = None
+    return _hits(found)
+
+
+def check_write_outside_worktree(s, ctx):
+    if not s["cwd"]:
+        return []
+    home = str(Path.home())
+    allowed = (s["cwd"].rstrip("/") + "/", "/tmp/", f"{home}/loom-retro/", f"{home}/loom-evals/")
+    paths = [(ts, n, str(Path(str(a.get("path") or "")).expanduser())) for ts, n, a, _ in _calls(s) if n in ("edit", "write")]
+    return _hits([(ts, n, p, None) for ts, n, p in paths if p.startswith("/") and not p.startswith(allowed) and "/.artifacts/" not in p])
+
+
+INSTRUCTION = re.compile(r"(?:^|/)(?:\.t3code/)?roles/[^/]+\.md$|(?:^|/)skills/[^/]+/SKILL\.md$|(?:^|/)AGENTS\.md$")
+
+
+def check_instruction_edit_ungated(s, ctx):
+    calls = _calls(s)
+    if ctx.get("gated") or any("llm-instruction-change/SKILL.md" in str(a.get("path")) for _, n, a, _ in calls if n in ("read", "read_full")):
+        return []
+    return _hits([(ts, n, a.get("path"), None) for ts, n, a, _ in calls if n in ("edit", "write") and INSTRUCTION.search(str(a.get("path") or ""))])
+
+
+VISUAL = re.compile(r"apps/web/.*\.tsx$|\.css$|\.html$|(?:^|/)README\.md$")
+
+
+def _new_text(n, a):
+    return str(a.get("content") or "") if n == "write" else "\n".join(str(e.get("newText") or "") for e in a.get("edits") or [a] if isinstance(e, dict))
+
+
+def check_visual_unseen(s, ctx):
+    found, pending = [], None
+    for ts, n, a, _ in _calls(s):
+        p = str(a.get("path") or "")
+        if n in ("edit", "write") and VISUAL.search(p) and (not p.endswith(".tsx") or re.search(r"className|style|<div|<span", _new_text(n, a))):
+            pending = pending or (ts, n, p, None)
+        elif re.match(r"(?:html_preview|preview_\w+|browser_\w+|device_\w+)$", n) or (n in ("read", "read_full") and p.lower().endswith(".png")):
+            pending = None
+        elif n == "workstream_submit" and pending:
+            found, pending = found + [pending], None
+    return _hits(found + [pending] * bool(pending))
+
+
+CLAIMS = [("tests", re.compile(r"\b(?<!not )(?:verified|tests? pass(?:ed)?|typecheck passes|vp check passes)\b", re.I),
+           re.compile(r"vp (?:check|test|run (?:typecheck|test|check:changed))|vpr test|pnpm (?:test|check)|vitest|pytest|npm test|cargo test|go test|lint-doc\.sh|lint-plan\.mjs")),
+          ("shipped", re.compile(r"\b(?:shipped|merged)(?: (?:as|in|via))? (?:PR )?#\d+|\b(?:shipped|merged) (?:it|this|the (?:PR|branch|change)|(?:in)?to main)\b", re.I), re.compile(r"pnpm ship|gh pr merge|git push"))]
+
+
+def _line_of(text, m):
+    return text[text.rfind("\n", 0, m.start()) + 1:].split("\n", 1)[0]
+
+
+def check_tests_claimed_not_run(s, ctx):
+    report = ctx.get("report") or ""
+    if ctx.get("role") not in ("coder", "reviewer") or not report:
+        return []
+    found = []
+    for label, claim, command in CLAIMS:
+        if m := claim.search(report):
+            ran = [(ts, c, cid) for ts, c, cid in _cmds(s) if command.search(c)]
+            # a bg_start result is the launch, not the job's exit, so only bash results can show a failure
+            failed = ran and all(s["results"].get(cid, {}).get("tool") == "bash" and (s["results"][cid]["isError"] or s["results"][cid]["code"]) for *_, cid in ran)
+            if not ran or failed:
+                label = "verified" if all(x.group(0).lower() == "verified" for x in claim.finditer(report)) else label
+                found.append((s["last"], "report", _line_of(report, m), f"{label} claimed, {'command failed' if ran else 'no command'}"))
+    return _hits(found)
+
+
+def check_moved_text_unwritten(s, ctx):
+    report = ctx.get("report") or ""
+    written = [str(a.get("path") or "") for _, n, a, _ in _calls(s) if n in ("edit", "write")]
+    if not written:  # a session that wrote nothing is describing the work under review, not claiming its own write
+        return []
+    cmds = "\n".join(c for _, c, _ in _cmds(s))
+    found = []
+    for m in re.finditer(r"\b(?:moved|added|written)\b[^\n`]{0,80}?\bto\b[^\n`]{0,20}?`([^`\s]+)`", report, re.I):
+        p = m.group(1).rstrip(".,:;")
+        tail = re.sub(r"^(?:~|\.)?/+", "", re.sub(r":\d+(?:-\d+)?$", "", p))
+        if ("/" in tail or re.search(r"\.\w{1,5}$", tail)) and Path(tail).name not in cmds and \
+                not any(w == p or w.endswith("/" + tail) or w.lstrip("./") == tail for w in written):
+            found.append((s["last"], "report", _line_of(report, m), None))
+    return _hits(found)
+
+
+def check_forbidden_git(s, ctx):
+    found = []
+    for ts, c, _ in _cmds(s):
+        for seg in _segments(c):
+            sub, args = _git(seg) or ("", [])
+            paths = [a for a in args if not a.startswith("-")]  # `git add -A <path>` stages only that path
+            var = ("git add -A" if sub == "add" and ({"-A", "--all"} & set(args) and not paths or "." in paths) else
+                   "git stash" if sub == "stash" and args[:1] not in (["list"], ["show"]) else
+                   "git push to main" if sub == "push" and any(a in ("main", "master") or a.endswith((":main", ":master")) for a in args) else None)
+            if var:
+                found.append((ts, "bash", seg, var))
+    return _hits(found)
+
+
+def check_kill_by_pattern(s, ctx):
+    found = []
+    for ts, c, _ in _cmds(s):
+        if re.search(r"\bpgrep\b[^;&\n]*\|\s*xargs\b[^;&|\n]*\bkill\b", c):
+            found.append((ts, "bash", c, "pgrep | xargs kill"))
+        found += [(ts, "bash", g, "pkill") for g in _segments(c) if re.match(r"(?:sudo\s+)?pkill\b", g)]
+        found += [(ts, "bash", g, "kill $(pgrep|pidof|ps)") for g in _segments(c) if re.match(r"(?:sudo\s+)?kill\b[^$]*\$\(\s*(?:pgrep|pidof|ps)\b", g)]
+    return _hits(found)
+
+
+def check_sleep_poll(s, ctx):
+    sleeps = [(ts, c) for ts, n, a, _ in _calls(s) if n == "bash" for c in [str(a.get("command") or "")] if re.search(r"\bsleep\s+(?:[5-9]|\d{2,})", c)]  # under 5 s is settle time, not a poll
+    if len(sleeps) < 3:
+        return []
+    var = "watching gh pr, gh run or checks" if any(re.search(r"gh pr|gh run|checks", c) for _, c in sleeps) else "other"
+    return [(sleeps[0][0], "bash", one_line(sleeps[0][1], 300), var, len(sleeps))]
+
+
+def check_file_reread(s, ctx):
+    # an image is re-read after each re-render, so only text files count
+    reads = [(ts, (a.get("path"), a.get("offset"), a.get("limit"))) for ts, n, a, _ in _calls(s)
+             if n in ("read", "read_full") and not re.search(r"\.(?:png|jpe?g|gif|webp)$", str(a.get("path")), re.I)]
+    if not reads:
+        return []
+    key, k = Counter(r for _, r in reads).most_common(1)[0]
+    return [(next(ts for ts, r in reads if r == key), "read", f"{key[0]} offset={key[1]} limit={key[2]}", None, k)] if k >= 4 else []
+
+
+def check_unasked_commit(s, ctx):
+    kickoff = next((x for k, _, x in s["events"] if k == "user"), "")
+    if ctx.get("role") not in ("reviewer", "researcher", "planner", "assessor", "root") or "commit" in kickoff.lower():
+        return []
+    return _hits([(ts, "bash", g, None) for ts, c, _ in _cmds(s) for g in _segments(c) if (_git(g) or ("",))[0] == "commit"])
+
+
+def check_guard_fired(s, ctx):
+    cmd = {cid: str(a.get("command") or a.get("path") or a) for _, _, a, cid in _calls(s)}
+    return _hits([(ts, r["tool"], r["head"] if r["guard"].startswith(("blocked", "refused")) else cmd.get(r["id"], ""), r["guard"])
+                  for k, ts, r in s["events"] if k == "result" and r["guard"]])
+
+
+TRACE_CHECKS = {f.__name__.removeprefix("check_"): f for f in (
+    check_killed_then_silent, check_merge_bypass, check_failed_then_publish, check_write_outside_worktree,
+    check_instruction_edit_ungated, check_visual_unseen, check_tests_claimed_not_run, check_moved_text_unwritten,
+    check_forbidden_git, check_kill_by_pattern, check_sleep_poll, check_file_reread, check_unasked_commit, check_guard_fired)}
+
+
+def trace_checks():
+    """The trace checks signals.yaml declares and has not retired: {signal id: check function}."""
+    return {s["id"]: TRACE_CHECKS[s["check"]] for s in yaml.safe_load(CATALOGUE.read_text())["signals"]
+            if s["status"] != "retired" and s.get("check") in TRACE_CHECKS}
+
+
+def read_report(path):
+    """A thread's report plus its per-round reports (<stem>.round-<n>.md), or '' when none exists."""
+    p = Path(path) if path else None
+    return "\n".join(x.read_text(errors="replace") for x in ([p] if p.exists() else []) + sorted(p.parent.glob(p.stem + ".round-*.md"))) if p else ""
+
+
+def loop_targets(db=None):
+    """Thread ids a reviewer gate loops back to (a `loop` route in loom_thread_workstream.routes), read-only from the live database."""
+    db = Path(db or Path(os.environ.get("T3CODE_HOME") or Path.home() / ".t3/cockpit", "userdata/statev2.sqlite"))
+    if not db.exists():
+        return set()
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        return {r[0] for r in con.execute("select json_extract(r.value, '$.to') from loom_thread_workstream w, json_each(w.routes) r "
+                                          "where json_extract(r.value, '$.kind') = 'loop'")}
+    finally:
+        con.close()
 
 
 def fmt_dur(a, b):
@@ -236,6 +509,16 @@ def scan(manifest, out):
             if why:
                 hits["control-decision"][t["id"]] = len(why)
                 flags[t["id"]] += why
+
+    # Trace checks: per session, with the thread's role, report and whether a reviewer gates it.
+    trace, gated = defaultdict(list), loop_targets()
+    for t in scanned:
+        ctx = dict(role="root" if t.get("parentId") is None else t["role"], report=read_report(t.get("reportPath")),
+                   gated=t["id"] in gated or bool(t.get("gateRounds")))
+        for sid, fn in trace_checks().items():
+            for h in fn(t["s"], ctx):
+                hits[sid][t["id"]] += h[4]
+                trace[sid].append((t["id"], h))
 
     # Phrase signals over thinking / assistant / tool_error text and report files.
     excerpts = defaultdict(list)
@@ -324,6 +607,10 @@ def scan(manifest, out):
 
     L += ["", "## Tool-set gaps", ""]
     L += [f"- **{label[tid]}**: " + next(f for f in flags[tid] if f.startswith("launched without")) for tid in hits["missing-tool"]] or ["- none"]
+
+    L += ["", "## Trace checks", ""]
+    L += [f"- **{sid}** ({len(hits[sid])} thread(s)): " + ", ".join(f"{label[tid]} ×{h[4]}" + (f" [{h[3]}]" if h[3] else "") for tid, h in rows) +
+          f" — e.g. {rows[0][1][1]} “{one_line(rows[0][1][2], 160)}”" for sid, rows in trace.items()] or ["- none"]
     digest = "\n".join(L) + "\n"
     (out / "digest.md").write_text(digest)
 
@@ -396,6 +683,8 @@ def extract(manifest, tid, out, briefs=""):
         return [next((i for i in num if i == ref or i.endswith(ref)), None)]
 
     for kind, ts, x in s["events"]:
+        if kind == "result":
+            continue
         if kind == "call" and not x[0].endswith(BRIEF_TOOLS):
             pending[x[0].removeprefix("mcp__t3-code__")] += 1
             continue
