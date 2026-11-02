@@ -149,15 +149,27 @@ function ItemCard({
     const runId = figures.runOfItem.get(item.id);
     return runId === undefined ? undefined : figures.join.runs.get(runId);
   });
+  const args = useFigures(figureKey, (figures) =>
+    item.kind === "tool_result" ? figures.join.argsOfTool.get(item.id) : undefined,
+  );
   const cost = formatCostUsd(item.costToKeepUsd);
   return (
     <FigureCard title={item.label}>
       <CardLine label={CATEGORY_LABEL[CATEGORY_OF[item.kind]]}>
         {item.tokens.toLocaleString()} tokens{" "}
         <span className="text-muted-foreground">
-          {item.measured ? "exact" : "estimate, split by characters"}
+          {item.measured
+            ? "exact"
+            : item.message
+              ? "estimate: its call's output split by characters"
+              : "estimate: what entered before its call, split by characters"}
         </span>
       </CardLine>
+      {args ? (
+        <CardLine label="Its arguments">
+          +{formatItemTokens(args)} written by the agent, counted in the turn, not here
+        </CardLine>
+      ) : null}
       <CardLine label="Size">
         {item.chars.toLocaleString()} characters
         {item.tokens > 0 && item.chars > 0

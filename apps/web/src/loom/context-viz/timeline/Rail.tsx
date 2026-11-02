@@ -68,11 +68,7 @@ function railLayout(report: LoomContextReport, amber: ReadonlySet<string>): Rail
     segments: segments.map((segment) => ({
       ...segment,
       start: span.get(segment.items[0]!.id)![0],
-      className: segment.amber
-        ? AMBER_BAR
-        : CATEGORY_BAR[
-            byCategory(segment.items).toSorted((a, b) => b[1].tokens - a[1].tokens)[0]![0]
-          ],
+      className: segment.amber ? AMBER_BAR : CATEGORY_BAR[byCategory(segment.items)[0]![0]],
     })),
   };
   layouts.set(amber, layout);
@@ -143,38 +139,49 @@ export function Rail({
   const top = Math.min(...spans.map(([start]) => start));
   const bottom = Math.max(...spans.map(([, end]) => end));
   return (
-    <div className="pointer-events-none absolute inset-0 z-30 @container/context-rail">
+    <div className="pointer-events-none absolute inset-0 @container/context-rail">
+      {/* The timeline's own lane, padded as `.messages-timeline-scroll` pads it: the rail sits in
+          the gutter beyond the lane's end, clear of the details card and the right panel. */}
       <div
-        className="pointer-events-auto absolute top-6 bottom-6 hidden w-5 flex-col overflow-hidden rounded-sm bg-muted/40 @min-[1100px]/context-rail:flex"
-        style={{ insetInlineEnd: "calc(var(--chat-lane-inset-end, 0px) + 1.25rem)" }}
-        role="group"
-        aria-label={`Context window, ${formatContextTokens(layout.total)} in session order`}
-        onPointerLeave={() => setHovered(null)}
+        className="absolute inset-0"
+        style={{
+          paddingInlineStart: "calc(3rem + var(--chat-lane-inset-start, 0px))",
+          paddingInlineEnd: "calc(3rem + var(--chat-lane-inset-end, 0px))",
+        }}
       >
-        <RailBars figureKey={figureKey} layout={layout} onHover={setHovered} />
-        {spans.length > 0 ? (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 rounded-xs ring-1 ring-foreground/70"
-            style={{
-              top: `${(top / layout.total) * 100}%`,
-              height: `max(2px, ${((bottom - top) / layout.total) * 100}%)`,
-            }}
-          />
-        ) : null}
+        <div className="chat-content-lane relative h-full">
+          <div
+            className="pointer-events-auto absolute top-6 bottom-6 hidden w-2 flex-col overflow-hidden rounded-full bg-muted/40 opacity-60 transition-opacity hover:opacity-100 @min-[1100px]/context-rail:flex"
+            style={{ insetInlineStart: "calc(100% + 0.5rem)" }}
+            role="group"
+            aria-label={`Context window, ${formatContextTokens(layout.total)} in session order`}
+            onPointerLeave={() => setHovered(null)}
+          >
+            <RailBars figureKey={figureKey} layout={layout} onHover={setHovered} />
+            {spans.length > 0 ? (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-x-0 rounded-xs ring-1 ring-foreground/70 ring-inset"
+                style={{
+                  top: `${(top / layout.total) * 100}%`,
+                  height: `max(2px, ${((bottom - top) / layout.total) * 100}%)`,
+                }}
+              />
+            ) : null}
+          </div>
+          {hovered && layout.segments.includes(hovered) ? (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute end-0 max-w-72 -translate-y-1/2 truncate rounded-md border bg-popover px-1.5 py-0.5 text-xs text-popover-foreground shadow-md/5"
+              style={{
+                top: `calc(1.5rem + (100% - 3rem) * ${(hovered.start + hovered.tokens / 2) / layout.total})`,
+              }}
+            >
+              {segmentTitle(hovered)}
+            </span>
+          ) : null}
+        </div>
       </div>
-      {hovered && layout.segments.includes(hovered) ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute z-10 max-w-72 -translate-y-1/2 truncate rounded-md border bg-popover px-1.5 py-0.5 text-xs text-popover-foreground shadow-md/5"
-          style={{
-            insetInlineEnd: "calc(var(--chat-lane-inset-end, 0px) + 2.75rem)",
-            top: `calc(1.5rem + (100% - 3rem) * ${(hovered.start + hovered.tokens / 2) / layout.total})`,
-          }}
-        >
-          {segmentTitle(hovered)}
-        </span>
-      ) : null}
     </div>
   );
 }

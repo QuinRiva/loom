@@ -21,7 +21,10 @@ export interface RunContextFigure {
   readonly endCtx: number;
   readonly addedTokens: number;
   readonly costUsd: number;
-  /** The items behind the run's rows (its message, tool results, joined prose), heaviest first. */
+  /**
+   * Everything its calls brought in, heaviest first: what entered before each call and each call's
+   * own output. They sum to `addedTokens` but for the latest call's output, which the next measures.
+   */
   readonly items: ReadonlyArray<LoomContextItem>;
 }
 
@@ -30,6 +33,8 @@ export interface ContextJoin {
   readonly byNativeId: ReadonlyMap<string, LoomContextItem>;
   /** The message that opens a run, by the run's `userMessageId`. */
   readonly byUserMessageId: ReadonlyMap<string, LoomContextItem>;
+  /** A tool call's own arguments, which its row's figure leaves out, by toolCallId. */
+  readonly argsOfTool: ReadonlyMap<string, LoomContextItem>;
   readonly runs: ReadonlyMap<RunId, RunContextFigure>;
   /** Prose and thinking rows left without a figure because their turn's order did not line up. */
   readonly withheldProse: number;
@@ -135,7 +140,6 @@ export function buildContextJoin(
   for (const [id, item] of toolResults) byNativeId.set(id, item);
   let withheldProse = 0;
   const callsByRun = new Map<RunId, number[]>();
-  const proseByRun = new Map<RunId, LoomContextItem[]>();
   for (const rows of turns.values()) {
     const calls = [...rows.calls].toSorted((a, b) => a - b);
     callsByRun.set(rows.runId, [...(callsByRun.get(rows.runId) ?? []), ...calls]);
@@ -160,10 +164,27 @@ export function buildContextJoin(
     for (const { prose, item } of lined) {
       if (!item) continue;
       byNativeId.set(prose.nativeId, item);
-      proseByRun.set(rows.runId, [...(proseByRun.get(rows.runId) ?? []), item]);
     }
   }
 
+  // An output item is its call's; any other entered in the gap before the call that first saw it.
+  const itemsOfCall = new Map<number, LoomContextItem[]>();
+  for (const item of report.items) {
+    const call = item.message?.callIndex ?? item.firstSeenCall;
+    const items = itemsOfCall.get(call);
+    if (items) items.push(item);
+    else itemsOfCall.set(call, [item]);
+  }
+  const argsOfTool = new Map(
+    report.calls.flatMap((call) => {
+      const args = (itemsOfCall.get(call.index) ?? []).filter(
+        (item) => item.kind === "tool_call_args",
+      );
+      return call.toolCallIds.flatMap((id, index) =>
+        args[index] ? [[id, args[index]] as const] : [],
+      );
+    }),
+  );
   const byUserMessageId = new Map<string, LoomContextItem>();
   const runs = new Map<RunId, RunContextFigure>();
   for (const run of thread.runs) {
@@ -183,24 +204,22 @@ export function buildContextJoin(
     const last = valid.at(-1);
     const startCtx = before ? before.ctx + before.output : 0;
     const endCtx = last ? last.ctx + last.output : startCtx;
-    const toolIds = new Set(calls.flatMap((index) => report.calls[index]!.toolCallIds));
     runs.set(run.id, {
       calls,
       startCtx,
       endCtx,
       addedTokens: endCtx - startCtx,
       costUsd: calls.reduce((sum, index) => sum + report.calls[index]!.costUsd, 0),
-      items: [
-        ...(opening ? [opening] : []),
-        ...[...toolIds].flatMap((id) => toolResults.get(id) ?? []),
-        ...(proseByRun.get(run.id) ?? []),
-      ].toSorted((a, b) => b.tokens - a.tokens),
+      items: calls
+        .flatMap((index) => itemsOfCall.get(index) ?? [])
+        .toSorted((a, b) => b.tokens - a.tokens),
     });
   }
 
   return {
     byNativeId,
     byUserMessageId,
+    argsOfTool,
     runs,
     withheldProse,
     maxItemTokens: Math.max(0, ...report.items.map((item) => item.tokens)),

@@ -42,7 +42,7 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
         <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
         <RowFigure
           nativeId={row.projectedItem?.item.nativeItemRef?.nativeId}
-          className="float-right ms-3 mt-1 me-6.5" // loom: context-viz
+          className="absolute end-7.5 top-1.5 [&+*]:pe-40" // loom: context-viz, a margin the text below keeps clear
         />
         <div data-thread-find-text="true">
           <AssistantCitationSource

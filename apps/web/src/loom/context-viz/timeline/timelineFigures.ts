@@ -12,13 +12,13 @@ import type { ContextJoin, RunContextFigure } from "../join";
 const AMBER_TOKENS = 5_000;
 const AMBER_SHARE_OF_RUN = 0.03;
 
-export type FigureCategory = "tool" | "thinking" | "written" | "message" | "fixed";
+export type FigureCategory = "tool" | "written" | "thinking" | "text" | "message" | "fixed";
 
 export const CATEGORY_OF: Record<LoomContextItem["kind"], FigureCategory> = {
   tool_result: "tool",
-  assistant_thinking: "thinking",
-  assistant_text: "written",
   tool_call_args: "written",
+  assistant_thinking: "thinking",
+  assistant_text: "text",
   user_message: "message",
   system_section: "fixed",
   tool_schema: "fixed",
@@ -26,24 +26,26 @@ export const CATEGORY_OF: Record<LoomContextItem["kind"], FigureCategory> = {
 };
 
 export const CATEGORY_LABEL: Record<FigureCategory, string> = {
-  tool: "Tool output",
+  tool: "Tool results",
+  written: "Written into tool calls",
   thinking: "Thinking",
-  written: "Written by the agent",
-  message: "Message in",
-  fixed: "Fixed overhead",
+  text: "Assistant text",
+  message: "Incoming messages",
+  fixed: "System prompt and tools",
 };
 
 export const CATEGORY_BAR: Record<FigureCategory, string> = {
   tool: "bg-muted-foreground/50",
+  written: "bg-violet-400/70",
   thinking: "bg-indigo-400/70",
-  written: "bg-teal-500/70",
+  text: "bg-teal-500/70",
   message: "bg-sky-500/70",
   fixed: "bg-muted-foreground/25",
 };
 
 export const AMBER_BAR = "bg-warning";
 
-/** Tokens and count per category, in first-seen order. */
+/** Tokens and count per category, heaviest first. */
 export function byCategory(
   items: ReadonlyArray<LoomContextItem>,
 ): Array<readonly [FigureCategory, { tokens: number; count: number }]> {
@@ -52,8 +54,16 @@ export function byCategory(
     const sum = sums.get(CATEGORY_OF[item.kind]) ?? { tokens: 0, count: 0 };
     sums.set(CATEGORY_OF[item.kind], { tokens: sum.tokens + item.tokens, count: sum.count + 1 });
   }
-  return [...sums];
+  return [...sums].toSorted((a, b) => b[1].tokens - a[1].tokens);
 }
+
+/** An item's name in a list: its tool call's label, or what kind of system text it is. */
+export const itemTitle = (item: LoomContextItem) =>
+  item.kind === "system_section"
+    ? `System prompt section: ${item.label}`
+    : item.kind === "tool_schema"
+      ? `Tool definition: ${item.label.replace(/^mcp__.+?__/, "")}`
+      : item.label;
 
 export interface TimelineFigures {
   readonly join: ContextJoin;
@@ -89,6 +99,7 @@ export function deriveTimelineFigures(
     rowKeyOfItem: new Map([
       ...[...join.byNativeId].map(([nativeId, item]) => [item.id, nativeId] as const),
       ...[...join.byUserMessageId].map(([id, item]) => [item.id, `user:${id}`] as const),
+      ...[...join.argsOfTool].map(([toolCallId, item]) => [item.id, toolCallId] as const),
     ]),
   };
   derived.set(join, figures);
