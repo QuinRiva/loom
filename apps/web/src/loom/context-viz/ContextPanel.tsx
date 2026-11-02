@@ -37,16 +37,20 @@ export interface ContextPanelViewProps {
 }
 
 export default function ContextPanel({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
-  useContextUsageLoader(threadRef);
-  const thread = useQuietThreadProjection(threadRef);
+  const composition = useClientSettings((settings) => settings.contextVizComposition);
+  const growth = useClientSettings((settings) => settings.contextVizGrowth);
+  // Switched off, the tab is on its way out: no request, no projection read.
+  const liveRef = composition || growth ? threadRef : null;
+  useContextUsageLoader(liveRef);
+  const thread = useQuietThreadProjection(liveRef);
   const projection = thread?.projection;
   return (
     <ContextPanelView
       threadRef={threadRef}
-      entry={useContextUsage(threadRef)}
+      entry={useContextUsage(liveRef)}
       piThread={isPiThread(thread)}
-      composition={useClientSettings((settings) => settings.contextVizComposition)}
-      growth={useClientSettings((settings) => settings.contextVizGrowth)}
+      composition={composition}
+      growth={growth}
       turns={projection?.runs.length ?? 0}
       contextWindow={
         projection?.providerThreads.find(

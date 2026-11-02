@@ -47,8 +47,9 @@ reopens per thread exactly as the user left it):
 - The seed is **one atomic store transition** — one small `set`-based store action (marked
   `// loom:`), not a composition of public store calls — so it is a single persisted write. The
   same action seeds both surfaces and, on a first visit, activates Workstream before Context by
-  explicit priority, never by which effect ran first; with both panel switches off it also takes
-  the Context tab away, still as an automatic transition, and clears its flag.
+  explicit priority among the surfaces eligible at that moment, never by which effect ran first (a
+  surface whose eligibility arrives later is added without focus); with both panel switches off
+  it also takes the Context tab away, still as an automatic transition, and clears its flag.
 - Consequence: closing a tab or closing all surfaces permanently suppresses reseeding for that
   thread. That is intended — the explicit way back is the tab strip, not an effect re-firing.
 

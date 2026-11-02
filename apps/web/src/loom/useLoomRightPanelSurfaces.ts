@@ -6,7 +6,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { Layers, type LucideIcon, Network } from "lucide-react";
 import { useEffect } from "react";
 
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useClientSettingsHydrationStatus } from "../hooks/useSettings";
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
 import { useQuietThreadProjection, useThreadShell } from "../state/entities";
 import { isPiThread } from "./context-viz/contextUsageStore";
@@ -71,20 +71,24 @@ export function useLoomRightPanelSurfaces(
     (settings) => settings.contextVizComposition || settings.contextVizGrowth,
   );
   const shell = useThreadShell(threadRef);
-  // A draft has no shell, and must not open a detail subscription for a thread the server lacks.
-  const piThread = isPiThread(useQuietThreadProjection(shell ? threadRef : null));
+  // A draft has no shell, so no detail subscription for a thread the server lacks; nor with the
+  // switches off, whose removal path never reads `piThread`.
+  const piThread = isPiThread(useQuietThreadProjection(contextPanels && shell ? threadRef : null));
   const workstreamThread = shell?.source.workstream !== undefined;
   const workstreamRoot = useHasLoomChildren(threadRef);
+  // Seeding on the all-on defaults before stored settings load would add a tab a user switched off.
+  const hydration = useClientSettingsHydrationStatus();
+  const settingsKnown = hydration === "ready" || hydration === "failed";
 
   useEffect(() => {
-    if (threadRef)
+    if (threadRef && settingsKnown)
       autoOpenLoomSurfaces(threadRef, {
         workstreamRoot,
         autoOpenWorkstreamPanel,
         piThread,
         contextPanels,
       });
-  }, [threadRef, workstreamRoot, autoOpenWorkstreamPanel, piThread, contextPanels]);
+  }, [threadRef, settingsKnown, workstreamRoot, autoOpenWorkstreamPanel, piThread, contextPanels]);
 
   return [
     {
