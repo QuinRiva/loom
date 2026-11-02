@@ -117,11 +117,18 @@ export const LoomClientSettingsFields = {
   // manual + → tab per thread, and the per-thread one-shot flags make the cost
   // a single non-overriding seed per thread. Goal tasks never auto-opens (G3).
   autoOpenWorkstreamPanel: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // The context-usage experiment (plans/context-viz-experiment): one switch per view, per device.
+  contextVizTimeline: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  contextVizComposition: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  contextVizGrowth: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 } as const;
 
 // Spread into `ClientSettingsPatch`.
 export const LoomClientSettingsPatchFields = {
   autoOpenWorkstreamPanel: Schema.optionalKey(Schema.Boolean),
+  contextVizTimeline: Schema.optionalKey(Schema.Boolean),
+  contextVizComposition: Schema.optionalKey(Schema.Boolean),
+  contextVizGrowth: Schema.optionalKey(Schema.Boolean),
 } as const;
 
 // Spread into `ServerSettings`.
