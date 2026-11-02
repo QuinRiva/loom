@@ -80,6 +80,7 @@ export function useLoomRightPanelSurfaces(
   const hydration = useClientSettingsHydrationStatus();
   const settingsKnown = hydration === "ready" || hydration === "failed";
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- auto-opens the workstream panel in the right-panel store, seeding without overriding the user's choice
   useEffect(() => {
     if (threadRef && settingsKnown)
       autoOpenLoomSurfaces(threadRef, {

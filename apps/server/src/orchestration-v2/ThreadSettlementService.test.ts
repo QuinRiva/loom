@@ -42,6 +42,7 @@ import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ThreadSettlementService from "./ThreadSettlementService.ts";
 import * as LoomStore from "../loom/projection/LoomStore.ts"; // loom:
+import { IsoDateTime, type LoomThreadWorkstream } from "@t3tools/contracts"; // loom:
 
 const NOW_MS = Date.parse("2026-06-10T12:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -563,6 +564,7 @@ interface HarnessOptions {
   ) => Effect.Effect<void>;
   readonly onCloseIdle?: () => Effect.Effect<void>;
   readonly currentThreads?: ReadonlyArray<OrchestrationV2AppThread>;
+  readonly loomWorkstreams?: ReadonlyArray<LoomThreadWorkstream>; // loom:
 }
 
 const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options: HarnessOptions) {
@@ -572,6 +574,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const snapshotReads = yield* Queue.unbounded<number>();
   const candidateReads = yield* Ref.make<ReadonlyArray<string | undefined>>([]);
   const settings = yield* Ref.make(options.settings ?? DEFAULT_SERVER_SETTINGS);
+  const settingsReadCount = yield* Ref.make(0);
   const settingsChanges = yield* PubSub.unbounded<ContractServerSettings>();
   const mergedPullRequests = yield* PubSub.unbounded<PullRequestService.PullRequestMergeEvent>();
   const commands = yield* Ref.make<ReadonlyArray<AutoSettleCommand>>([]);
@@ -641,7 +644,9 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const serverSettings = ServerSettings.ServerSettingsService.of({
     start: Effect.void,
     ready: Effect.void,
-    getSettings: Ref.get(settings),
+    getSettings: Ref.update(settingsReadCount, (count) => count + 1).pipe(
+      Effect.andThen(Ref.get(settings)),
+    ),
     updateSettings,
     updateProviderInstance: () => Effect.die("Unexpected provider mutation"),
     withSettingsSnapshot: (use) => Ref.get(settings).pipe(Effect.flatMap(use)),
@@ -702,8 +707,15 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     Layer.succeed(ServerSettings.ServerSettingsService, serverSettings),
     Layer.succeed(ServerActivation.ServerActivation, Deferred.await(activation)),
     Layer.succeed(Crypto.Crypto, testCrypto),
-    // loom: no Loom rows (the mock's nested stores are never read)
-    Layer.mock(LoomStore.LoomStoreV2)({ getWorkstream: () => Effect.succeed(null) } as never),
+    // loom: the given Loom rows, else none (the mock's nested stores are never read)
+    Layer.mock(LoomStore.LoomStoreV2)({
+      getWorkstream: (threadId: string) =>
+        Effect.succeed(options.loomWorkstreams?.find((row) => row.threadId === threadId) ?? null),
+      listWorkstreamTree: (rootThreadId: string) =>
+        Effect.succeed(
+          options.loomWorkstreams?.filter((row) => row.rootThreadId === rootThreadId) ?? [],
+        ),
+    } as never),
     FileSystem.layerNoop({
       exists: (path) => Effect.succeed(options.existingWorktreePaths?.includes(path) ?? false),
     }),
@@ -713,6 +725,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     activation,
     snapshots,
     snapshotReadCount,
+    settingsReadCount,
     snapshotReads,
     candidateReads,
     commands,
@@ -730,7 +743,10 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       number: 42,
       mergedAt: NOW,
     }),
-    layer: ThreadSettlementService.layer.pipe(Layer.provide(layerDependencies)),
+    layer: Layer.effect(
+      ThreadSettlementService.ThreadSettlementServiceV2,
+      ThreadSettlementService.make,
+    ).pipe(Layer.provide(layerDependencies)),
   };
 });
 
@@ -746,6 +762,37 @@ const startHarness = Effect.fn("startThreadSettlementHarness")(function* (
 });
 
 describe("ThreadSettlementServiceV2 worker", () => {
+  it.effect("skips settings and PR decisions for recent branchless threads", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const threads = Array.from({ length: 32 }, (_, index) =>
+          makeThread(`recent-${index}`, {
+            updatedAt: DateTime.makeUnsafe(NOW),
+            latestUserMessageAt: DateTime.makeUnsafe(Date.parse(NOW) - 2 * DAY_MS),
+          }),
+        );
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot(threads),
+          settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleAfterDays: 3 },
+        });
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          assert.deepEqual(yield* Ref.get(fixture.commands), []);
+          assert.deepEqual(yield* Ref.get(fixture.branchCalls), []);
+          assert.equal(yield* Ref.get(fixture.settingsReadCount), 2);
+          yield* fixture.updateSettings({ sidebarAutoSettleAfterDays: 1 });
+          yield* Queue.take(fixture.snapshotReads);
+          yield* service.drain;
+          assert.deepEqual(
+            new Set((yield* Ref.get(fixture.commands)).map((command) => command.threadId)),
+            new Set(threads.map((thread) => thread.id)),
+          );
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
   it.effect("settles a merged pull request stored only in the thread links", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -815,6 +862,46 @@ describe("ThreadSettlementServiceV2 worker", () => {
     ),
   );
 
+  // loom: a finished root settles at its outcome through the sweep's pre-check, with no PR lookup
+  it.effect("settles a finished Loom root at its outcome despite recent activity", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const thread = makeThread("loom-root", {
+          updatedAt: DateTime.makeUnsafe(NOW),
+          latestUserMessageAt: DateTime.makeUnsafe(Date.parse(NOW) - DAY_MS),
+        });
+        const outcomeAt = IsoDateTime.make("2026-08-28T06:00:00.000Z");
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([thread]),
+          settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleAfterDays: 5 },
+          loomWorkstreams: [
+            {
+              ...LoomStore.emptyWorkstream({
+                threadId: thread.id,
+                projectId: PROJECT_ID,
+                parentThreadId: null,
+                rootThreadId: thread.id,
+                at: outcomeAt,
+              }),
+              outcome: "done",
+              outcomeAt,
+            },
+          ],
+        });
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          const commands = yield* Ref.get(fixture.commands);
+          expect(commands.map(({ threadId, settledAt }) => [threadId, settledAt])).toEqual([
+            [thread.id, DateTime.makeUnsafe(outcomeAt)],
+          ]);
+          assert.deepEqual(yield* Ref.get(fixture.branchCalls), []);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
   it.effect("settles only the project opted in while environment settlement is disabled", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -837,6 +924,29 @@ describe("ThreadSettlementServiceV2 worker", () => {
           yield* startHarness(service, fixture.activation, fixture.snapshotReads);
           const commands = yield* Ref.get(fixture.commands);
           expect(commands.map((command) => command.threadId)).toEqual([thread.id]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("stops settling the rest of a sweep once auto-settlement is turned off", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        // Sweeps settle 8 threads at a time, so the ninth starts after a dispatch turned it off.
+        const threads = Array.from({ length: 9 }, (_, index) => makeThread(`idle-${index}`));
+        let disable: Effect.Effect<unknown> = Effect.void;
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot(threads),
+          settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleAfterDays: 3 },
+          onDispatch: () => disable,
+        });
+        disable = fixture.updateSettings({ sidebarAutoSettleAfterDays: null });
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          const settled = (yield* Ref.get(fixture.commands)).map((command) => command.threadId);
+          expect(settled).not.toContain(threads[8]!.id);
         }).pipe(Effect.provide(fixture.layer));
       }),
     ),

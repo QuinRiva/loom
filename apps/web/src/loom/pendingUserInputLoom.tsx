@@ -60,6 +60,7 @@ const withoutHost = (hosts: Readonly<Record<string, LoomPendingInputHost>>, requ
 /** ChatView: host the active request. The reply callback keeps one identity. */
 export function useHostLoomPendingInput(requestId: string | null, host: LoomPendingInputHost) {
   const onReplyInChat = useStableCallback(host.onReplyInChat);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this request's host in the shared host store until unmount
   useEffect(() => {
     if (requestId === null) return;
     const entry: LoomPendingInputHost = { onReplyInChat };

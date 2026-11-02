@@ -60,6 +60,7 @@ async function compile(
       else reject(new Error(response.error));
     });
     const request: CompileRequest = { id, source, section, referenceLinks };
+    // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a dedicated worker takes no target origin
     worker.postMessage(request);
   });
 }

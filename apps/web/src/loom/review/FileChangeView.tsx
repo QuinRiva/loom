@@ -127,6 +127,7 @@ export function FileChangeView({
   const mode = oversize && wholeRequestedFor !== file.path ? "patch" : "whole";
   const [whole, setWhole] = useState<WholeFileState | null>(null);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the whole file pair through the diff loader for the current file and revision
   useEffect(() => {
     if (mode !== "whole") return;
     let cancelled = false;
@@ -181,6 +182,7 @@ export function FileChangeView({
   const [codeView, setCodeView] = useState<AnnotatableCodeViewHandle | null>(null);
   const changes = fileDiff ? rulerChanges(fileDiff, layout) : [];
   const openedRef = useRef<{ readonly key: string; readonly mode: typeof mode } | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this file's change navigation with the shared store and restores and remembers the code view's scroll
   useEffect(() => {
     const instance = codeView?.getInstance();
     const root = instance?.getContainerElement();

@@ -192,9 +192,10 @@ it.layer(LoomOrchestratorTestLayer)("Loom quiescence", (it) => {
         commandId: CommandId.make("quiet-held-wake"),
         threadId: held,
         messageId: MessageId.make("message:quiet-held-wake"),
-        text: "A wake queued behind the turn",
+        text: "A message queued behind the turn",
         attachments: [],
-        createdBy: "agent",
+        // A person's queued message: upstream releases a held agent or server message once a run completes.
+        createdBy: "user",
         creationSource: "server",
         dispatchMode: { type: "queue_after_active" },
       });

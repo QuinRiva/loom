@@ -39,12 +39,12 @@ import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as ServerConfig from "../config.ts";
 import {
   dispatchServerCommand,
   readPassInput,
   runReDrivePass,
-  type GateLegComposer,
 } from "../loom/orchestration/redrive.ts";
 import { wakeNotification } from "../loom/orchestration/dispatcher/controlMessage.ts";
 import { makeGateLegComposer } from "../loom/orchestration/dispatcher/gateLegs.ts";
@@ -785,7 +785,7 @@ const main = Effect.gen(function* () {
     Layer.provide(
       Layer.mergeAll(
         ServerSettings.layer.pipe(
-          Layer.provide(ServerSecretStore.layer),
+          Layer.provide(Layer.merge(ServerSecretStore.layer, ManagedPolicy.layer)),
           Layer.provide(ServerConfig.layer(config)),
         ),
         Layer.mock(WorkspacePaths.WorkspacePaths)({

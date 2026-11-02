@@ -28,6 +28,7 @@ export * from "./model.ts";
 export * from "./keybindings.ts";
 export * from "./server.ts";
 export * from "./settings.ts";
+export * from "./managedPolicy.ts";
 export * from "./git.ts";
 export * from "./vcs.ts";
 export * from "./sourceControl.ts";
@@ -42,6 +43,7 @@ export * from "./guestStream.ts";
 export * from "./orchestrationV2.loom.ts"; // loom: sidecar contract
 export * from "./applicationEvent.ts";
 export * from "./orchestratorMcp.ts";
+export * from "./peerLink.ts";
 export * from "./threadMetadataMcp.ts";
 export * from "./threadPullRequest.ts";
 export * from "./threadSearch.ts";
@@ -61,7 +63,6 @@ export * from "./device.ts";
 export * from "./preview.ts";
 export * from "./previewAutomation.ts";
 export * from "./previewCapture.ts";
-export * from "./resourceTelemetry.ts";
 export * from "./usage.ts";
 export * from "./scheduledTask.ts";
 export * from "./worktreeMcp.ts";
@@ -71,4 +72,6 @@ export * from "./rpc.loom.ts"; // loom: seam 21 ws methods
 export * from "./contextUsage.loom.ts"; // loom: context-viz experiment
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
+export * from "./secretReference.ts";
+export * from "./settingsSecretValue.ts";
 export * from "./clientRpcPermissions.ts";

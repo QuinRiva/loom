@@ -110,6 +110,7 @@ export function refreshContextUsage(threadRef: ScopedThreadRef): void {
 export function useContextUsageLoader(threadRef: ScopedThreadRef | null): void {
   const thread = useQuietThreadProjection(threadRef);
   const refreshKey = thread && isPiThread(thread) ? contextRefreshKey(thread) : null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- fetches the thread's context report from the server on open and at each turn end
   useEffect(() => {
     if (threadRef && refreshKey !== null) void loadContextUsage(threadRef, refreshKey);
   }, [threadRef, refreshKey]);

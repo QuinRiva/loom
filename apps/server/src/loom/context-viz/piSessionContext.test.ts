@@ -16,7 +16,7 @@ const byId = async (name: string) => {
 
 describe("readPiSessionContext", () => {
   it("gives a gap with one item the whole measured budget", async () => {
-    const { session, item } = await byId("identity.jsonl");
+    const { item } = await byId("identity.jsonl");
     expect(item("t1")).toMatchObject({ tokens: 1000, measured: true, firstSeenCall: 1 });
   });
 

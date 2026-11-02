@@ -34,6 +34,7 @@ export function PromptCaptureMenu({
     readonly threadId: ThreadId;
     readonly capture: LoomPromptCaptureResult;
   } | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- fetches the thread's prompt capture over RPC, again on each refresh key
   useEffect(() => {
     if (environmentId === null) return;
     let cancelled = false;

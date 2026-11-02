@@ -9,11 +9,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
-import * as ProcessDiagnostics from "./ProcessDiagnostics.ts";
-
 const SAMPLE_INTERVAL_MS = 5_000;
-const RETENTION_MS = 60 * 60_000;
-const MAX_RETAINED_SAMPLES = 20_000;
 
 /** Trailing window the slow-tool health read summarises (≆ 6 samples). */
 const PROCESS_TREE_ACTIVITY_WINDOW_MS = 30_000;

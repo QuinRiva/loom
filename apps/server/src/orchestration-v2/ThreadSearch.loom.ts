@@ -173,7 +173,8 @@ export const makeThreadSearch = Effect.gen(function* () {
   /** Out-of-scope roots leave the candidate set before the top-k cut, not after it. */
   const semantic = (query: string, scope: SearchScope) =>
     Option.isNone(embedder)
-      ? Effect.succeed(undefined)
+      ? // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
+        Effect.succeed(undefined)
       : scope.includeArchived !== false && scope.projectId === undefined
         ? embedder.value.nearest(query, CANDIDATES)
         : read(sql<{ readonly threadId: string }>`
@@ -324,19 +325,19 @@ export const layer = Layer.effect(
         .pipe(Effect.mapError((cause) => new ThreadSearchError({ operation: "query", cause })));
     return ThreadSearch.of({
       search,
-      searchThreads: (input) =>
-        search({ ...input, scope: "roots" }).pipe(
-          Effect.map(({ matches }) => ({
-            matches: matches.map((match) => ({
-              threadId: match.threadId,
-              projectId: match.projectId,
-              title: match.title,
-              source: match.source,
-              snippet: match.snippet,
-              messageCreatedAt: match.messageCreatedAt,
-            })),
+      searchThreads: Effect.fn("ThreadSearch.searchThreads")(function* (input) {
+        const { matches } = yield* search({ ...input, scope: "roots" });
+        return {
+          matches: matches.map((match) => ({
+            threadId: match.threadId,
+            projectId: match.projectId,
+            title: match.title,
+            source: match.source,
+            snippet: match.snippet,
+            messageCreatedAt: match.messageCreatedAt,
           })),
-        ),
+        };
+      }),
       searchOlderSettled: upstream.searchOlderSettled,
     });
   }),

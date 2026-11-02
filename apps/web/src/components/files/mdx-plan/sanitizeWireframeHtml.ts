@@ -162,7 +162,6 @@ function fallbackStrip(html: string, options?: SanitizeElementOptions): string {
   const stripScheme = (m: string, dq?: string, sq?: string, uq?: string) => {
     // Control chars are stripped deliberately so obfuscated schemes (e.g. an
     // embedded NUL/tab in "java\tscript:") can't hide from the scheme test.
-    // eslint-disable-next-line no-control-regex
     const v = (dq ?? sq ?? uq ?? "").replace(/[\s\u0000-\u001f]+/g, "");
     return /^(?:javascript|vbscript):|^data:text\/html/i.test(v) ? "" : m;
   };

@@ -7,6 +7,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Struct from "effect/Struct";
 import { describe, expect, it } from "vite-plus/test";
 
 import { formatWakeTimestamp } from "../../../loom/orchestration/dispatcher/wakes.ts";
@@ -28,21 +29,23 @@ const node = (
   fields: Partial<LoomThreadShellFields> = {},
   shell: Partial<WorkstreamListThread> = {},
 ): WorkstreamListThread => {
-  const {
-    notifySendLog,
-    lastRoutes,
-    outcomeEventId,
-    unarchivedEventId,
-    unarchivedAt,
-    attentionEpisodes,
-    ...base
-  } = emptyWorkstream({
-    threadId: id(threadId),
-    projectId: ProjectId.make("p"),
-    parentThreadId: null,
-    rootThreadId: id("root"),
-    at: AT,
-  });
+  const base = Struct.omit(
+    emptyWorkstream({
+      threadId: id(threadId),
+      projectId: ProjectId.make("p"),
+      parentThreadId: null,
+      rootThreadId: id("root"),
+      at: AT,
+    }),
+    [
+      "notifySendLog",
+      "lastRoutes",
+      "outcomeEventId",
+      "unarchivedEventId",
+      "unarchivedAt",
+      "attentionEpisodes",
+    ],
+  );
   return {
     id: id(threadId),
     title,

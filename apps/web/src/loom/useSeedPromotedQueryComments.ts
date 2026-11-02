@@ -98,6 +98,7 @@ export function useSeedPromotedQueryComments(authorRef: ScopedThreadRef | null) 
       ? NONE_ATOM
       : promotedChipsAtom(JSON.stringify([authorRef.environmentId, authorRef.threadId])),
   );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- seeds promoted query comments into the composer draft store as they arrive
   useEffect(() => {
     if (authorRef !== null && promoted.length > 0) seedPromotedQueryComments(authorRef, promoted);
   }, [authorRef, promoted]);

@@ -16,11 +16,11 @@ import { useEffect, useState } from "react";
 import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
 import { hostLoomPendingInputForPreview } from "../loom/pendingUserInputLoom";
 import {
-  derivePendingUserInputProgress,
   type PendingUserInputDraftAnswer,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
-} from "../pendingUserInput";
+} from "@t3tools/client-runtime/state/pending-user-input";
+import { derivePendingUserInputProgress } from "../pendingUserInput";
 
 import { GoalPanelView } from "../components/GoalTasksPanel";
 import { ControlDigestCardView } from "../loom/ControlDigestCard";
@@ -103,6 +103,7 @@ function LoomPendingUserInputPreview() {
   const [sent, setSent] = useState<string | null>(null);
   const progress = derivePendingUserInputProgress(LOOM_QUESTIONS, answers, 0);
   const customAnswer = progress.customAnswer;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the preview's request host in the shared host store
   useEffect(() => {
     hostLoomPendingInputForPreview(requestId, {
       onReplyInChat: () => setSent(customAnswer.trim()),
@@ -153,7 +154,11 @@ function LoomPendingUserInputPreview() {
           const value = event.target.value;
           setAnswers((current) => ({
             ...current,
-            "loom-q-1": setPendingUserInputCustomAnswer(current["loom-q-1"], value),
+            "loom-q-1": setPendingUserInputCustomAnswer(
+              LOOM_QUESTIONS[0]!,
+              current["loom-q-1"],
+              value,
+            ),
           }));
         }}
       />

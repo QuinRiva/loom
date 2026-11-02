@@ -72,7 +72,10 @@ export const layer = Layer.effect(
     return {
       update,
       coalesced: Stream.fromQueue(coalesced),
-      publish: (item) => PubSub.publish(pubsub, item).pipe(Effect.asVoid),
+      // Untraced: one publish per cache patch.
+      publish: Effect.fnUntraced(function* (item) {
+        yield* PubSub.publish(pubsub, item);
+      }),
       subscribe: PubSub.subscribe(pubsub),
     };
   }),

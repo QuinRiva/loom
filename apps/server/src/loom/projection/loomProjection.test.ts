@@ -288,8 +288,8 @@ it.layer(TestLayer)("Loom projector", (it) => {
           createdAt: now,
         });
       yield* writeEvents([
-        ...(yield* Effect.all(
-          [orchestrator, source, agentRoot, handoffRoot].map((id) => created(id, null)),
+        ...(yield* Effect.forEach([orchestrator, source, agentRoot, handoffRoot], (id) =>
+          created(id, null),
         )),
         yield* loomEvent("thread.workstream-created", drafter, {
           parentThreadId: null,

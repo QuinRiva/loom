@@ -135,6 +135,17 @@ export class ProjectService extends Context.Service<
       options?: { readonly includeDeleted?: boolean },
     ) => Effect.Effect<Option.Option<Project>, ProjectOperationError>;
     readonly snapshot: Effect.Effect<ProjectSnapshot, ProjectOperationError>;
+    /**
+     * A page of active projects in creation order, each with its repository
+     * identity resolved, so a caller can match projects by repository.
+     */
+    readonly listPage: (input: {
+      readonly cursor: number;
+      readonly limit: number;
+    }) => Effect.Effect<
+      { readonly projects: ReadonlyArray<Project>; readonly nextCursor: number | null },
+      ProjectOperationError
+    >;
     readonly getShell: (
       projectId: ProjectId,
     ) => Effect.Effect<Option.Option<OrchestrationProjectShell>, ProjectOperationError>;
@@ -173,6 +184,8 @@ export const make = Effect.gen(function* () {
     autoPull, // loom: autoPull via project settings
     projectIcon: row.projectIcon,
     scripts: row.scripts,
+    pinnedAt: row.pinnedAt,
+    archivedAt: row.archivedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,
@@ -392,6 +405,8 @@ export const make = Effect.gen(function* () {
           ? {}
           : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+        ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
+        ...(input.archived === undefined ? {} : { archived: input.archived }),
       });
       // loom: auto-pull reads only the project's settings override, so write it there (the per-key
       // map merges atomically). An explicit false must override an environment default.
@@ -479,15 +494,13 @@ export const make = Effect.gen(function* () {
   ) {
     const { projectId } = input;
     const snapshot = yield* threadProjections
-      .getShellSnapshot()
+      .getShellSnapshot({ projectId })
       .pipe(
         Effect.mapError(
           (cause) => new ProjectOperationError({ operation: "list-threads", projectId, cause }),
         ),
       );
-    const projectThreads = [...snapshot.threads, ...snapshot.archivedThreads].filter(
-      (thread) => thread.projectId === projectId,
-    );
+    const projectThreads = [...snapshot.threads, ...snapshot.archivedThreads];
     if (projectThreads.length > 0 && input.force !== true) {
       return yield* new ProjectNotEmptyError({ projectId });
     }
@@ -584,20 +597,41 @@ export const make = Effect.gen(function* () {
     return yield* Effect.forEach(shells, enrichShell, { concurrency: 16 });
   });
 
+  const listRows = projects
+    .list()
+    .pipe(
+      Effect.mapError((cause) => new ProjectOperationError({ operation: "list-projects", cause })),
+    );
+
   const snapshot = Effect.gen(function* () {
-    const rows = yield* projects
-      .list()
-      .pipe(
-        Effect.mapError(
-          (cause) => new ProjectOperationError({ operation: "list-projects", cause }),
-        ),
-      );
+    const rows = yield* listRows;
     const hydrated = yield* Effect.forEach(rows, hydrate, { concurrency: 8 });
     return {
       projects: hydrated,
       updatedAt: DateTime.formatIso(yield* DateTime.now),
     } satisfies ProjectSnapshot;
   });
+
+  const listPage: ProjectService["Service"]["listPage"] = Effect.fn("ProjectService.listPage")(
+    function* ({ cursor, limit }) {
+      const rows = (yield* listRows).filter((project) => project.deletedAt === null);
+      const projects = yield* Effect.forEach(
+        rows.slice(cursor, cursor + limit),
+        (row) =>
+          hydrate(row).pipe(
+            Effect.filterOrElse(
+              (project) => project.repositoryIdentity !== null,
+              (project) =>
+                projectEnrichment
+                  .readRepositoryIdentity(project.workspaceRoot)
+                  .pipe(Effect.map((repositoryIdentity) => ({ ...project, repositoryIdentity }))),
+            ),
+          ),
+        { concurrency: 8 },
+      );
+      return { projects, nextCursor: cursor + limit < rows.length ? cursor + limit : null };
+    },
+  );
 
   return ProjectService.of({
     create,
@@ -607,6 +641,7 @@ export const make = Effect.gen(function* () {
     getById,
     getByWorkspaceRoot,
     snapshot,
+    listPage,
     getShell,
     listShells,
   });

@@ -95,12 +95,6 @@ export function supportsDesktopAppUpdate(
   return serverConfig?.environment.capabilities.desktopAppUpdate === true;
 }
 
-export function supportsServerUpdateThreadContinuation(
-  serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
-): boolean {
-  return serverConfig?.environment.capabilities.serverUpdateThreadContinuation === true;
-}
-
 export function manualServerUpdateCommand(
   targetVersion: string,
   installation?: ServerInstallation,
@@ -112,22 +106,6 @@ export function manualServerUpdateCommand(
   const runner =
     installation?.kind === "pnpm-dlx" ? "pnpm dlx" : installation?.kind === "bunx" ? "bunx" : "npx";
   return `${runner} t3@${targetVersion}`;
-}
-
-// loom: guidance names the server and covers every self-update capability.
-export function serverUpdateGuidance(
-  capability: ServerSelfUpdateCapability | null,
-  serverLabel: string,
-): string {
-  switch (capability) {
-    case "boot-service":
-    case "respawn":
-      return `Update the ${serverLabel} so they stay in sync.`;
-    case "desktop-managed":
-      return `Update the desktop app that runs the ${serverLabel}.`;
-    default:
-      return `Relaunch the ${serverLabel} with the copied command to sync them.`;
-  }
 }
 
 export function buildVersionMismatchDismissalKey(

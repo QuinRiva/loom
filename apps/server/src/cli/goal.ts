@@ -25,6 +25,7 @@ import { renderTasks } from "../loom/goals/goalTaskRender.ts";
 import { findGoalTask, flattenGoalTasks } from "../loom/goals/goalTaskTree.ts";
 import * as LoomStore from "../loom/projection/LoomStore.ts";
 import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts"; // loom: autoPull project settings
 import * as ServerSettings from "../serverSettings.ts"; // loom: autoPull project settings
@@ -70,7 +71,11 @@ const runGoalCommand = Effect.fn("runGoalCommand")(function* <E>(
     ),
     Layer.provideMerge(WorkspacePaths.layer),
     // loom: ProjectService routes autoPull into project settings.
-    Layer.provideMerge(ServerSettings.layer.pipe(Layer.provide(ServerSecretStore.layer))),
+    Layer.provideMerge(
+      ServerSettings.layer.pipe(
+        Layer.provide(Layer.merge(ServerSecretStore.layer, ManagedPolicy.layer)),
+      ),
+    ),
     Layer.provideMerge(SqlitePersistence.layerConfig),
     Layer.provide(ServerConfig.layer(config)),
     Layer.provide(Layer.succeed(References.MinimumLogLevel, config.logLevel)),

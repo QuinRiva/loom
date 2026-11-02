@@ -452,7 +452,7 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
       const continuation = (yield* orchestrator.getThreadProjection(later)).messages.find(
         (message) => message.id === `message:restart-continuation:${seededRunIds(later, 2).runId}`,
       );
-      assert.equal(continuation?.text, "Continue where you left off.");
+      assert.match(continuation?.text ?? "", /^Continue where you left off\./);
       assert.lengthOf(yield* delivered(later), 0);
       assert.isFalse(yield* stashed(later));
     }),

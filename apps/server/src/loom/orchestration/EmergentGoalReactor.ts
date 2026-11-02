@@ -175,13 +175,14 @@ export const EmergentGoalsLive = Layer.effect(
     >();
     const threadLocks = yield* KeyedLock.make<ThreadId>();
     return {
-      derive: (input) =>
-        threadLocks.withLock(input.threadId, deriveEmergentGoal(input)).pipe(
+      derive: Effect.fn("EmergentGoals.derive")(function (input) {
+        return threadLocks.withLock(input.threadId, deriveEmergentGoal(input)).pipe(
           Effect.catchCause((cause) =>
             Effect.logWarning("loom.emergent-goal.failed", { threadId: input.threadId, cause }),
           ),
           Effect.provideContext(services),
-        ),
+        );
+      }),
     };
   }),
 );

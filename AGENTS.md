@@ -126,7 +126,7 @@ The most common defect in this repo is a change that works on the path you teste
 An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:
 
 - The first `vp run dev` in a worktree does this for you when its database is missing. `--no-seed` or `T3CODE_DEV_SEED=0` skips it.
-- Run `vp run migrate-dev-db --base-dir <baseDir>` with your dev server stopped, where `<baseDir>` is the port-scoped home the `[dev-runner]` line prints (`<worktree>/.t3/dev-instances/<port>`); without `--base-dir` it rebuilds `<worktree>/.t3`, which `vp run dev` does not read. <!-- loom: dev-instance home --> It rebuilds that home's `userdata/statev2.sqlite` from a read-only slice of `$T3CODE_HOME/userdata/statev2.sqlite`, the developer's real data, with no `--source` needed (it falls back to `~/.t3` when `T3CODE_HOME` is unset). <!-- loom: $T3CODE_HOME source --> It keeps recent projects and their stopped threads, and drops scheduled tasks, pending work, and auth sessions, so your dev server never runs the developer's agents. Raise `--projects` and `--threads-per-project` for more data.
+- Run `vp run migrate-dev-db --base-dir <baseDir>` with your dev server stopped, where `<baseDir>` is the port-scoped home the `[dev-runner]` line prints (`<worktree>/.t3/dev-instances/<port>`); without `--base-dir` it rebuilds `<worktree>/.t3`, which `vp run dev` does not read. <!-- loom: dev-instance home --> It rebuilds that home's `userdata/statev2.sqlite` from a read-only slice of `$T3CODE_HOME/userdata/statev2.sqlite`, the developer's real data, with no `--source` needed (it falls back to `~/.t3` when `T3CODE_HOME` is unset). <!-- loom: $T3CODE_HOME source --> It keeps recent projects and their stopped threads, and drops scheduled tasks, pending work, auth sessions, and links to other environments, so your dev server never runs the developer's agents or reaches their other machines. Raise `--projects` and `--threads-per-project` for more data.
 - Refresh `statev2.sqlite`, not `state.sqlite`. The server copies the V1 `state.sqlite` only when `statev2.sqlite` is missing.
 - Bring `secrets` and `settings.json` only if the flow under test needs them.
 - Copy in, never symlink. Data flows one way: into your sandbox, never back out.
@@ -134,7 +134,9 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 ## Verifying
 
 - Before you push, run `vp run check:changed`. It runs CI's fast checks for changed files: format, lint, knip, typecheck of affected packages and dependents, and tests beside changes. CI still runs the full test suites.
-- Smallest proof that the change works: `vp test run <files>` for the tests you touched, targeted lint and typecheck for the scope you changed, then the completion gates above.
+- Smallest proof that the change works: `vp test run <files>` for the tests you touched (add `-t "<name>"` for big files), targeted lint and typecheck for the scope you changed, then the completion gates above.
+- Use `vp run typecheck`, not `npx tsc`; it caches per package. Both run tsc-rs (`typescript` is the `@tsc-rs/typescript` drop-in).
+- Run `node -e` snippets from `apps/server` or the owning package. `effect` does not resolve from the repo root.
 - Test meaningful logic or observable behaviour. Do not render components to static markup to assert props or attributes, or add tests that merely assert callback wiring or mirror the implementation.
 - Backend behaviour changes ship with focused tests for that behaviour.
 - The server is event-sourced, and side effects run after the command commits. In tests, drain the effect worker (`OrchestrationEffectWorkerV2.drain`) or await the specific persisted event or `Deferred` that marks the milestone. Never wait on sleeps or polling. A test that needs a timeout to pass is wrong.
@@ -165,7 +167,13 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 
 - User-visible frontend changes get one live pass: web via the dev-verify recipe or the preview harness (Live frontend verification, above), mobile via `test-t3-mobile`. Subagents do not launch their own dev servers unless their brief says to.
 
-For authorized mobile verification, a missing or outdated native client is an install step, not a blocker. Run `vp run mobile:install <ios|android> [device-id]` on the device host before starting Metro; it targets the only booted simulator or connected Android device when the id is omitted. It installs the dev client for this checkout's native fingerprint from the shared cache in seconds and builds only when no machine has built it yet, so prefer it over `expo run:*`, `xcodebuild`, or `gradlew`, which rebuild from scratch. Its stdout is one JSON line; build output goes to the log it names. See `test-t3-mobile` for the full workflow.
+- Real agent turns cost money. To watch a turn stream through the pipeline and UI, use the free `Replay (dev)` provider that `vp run dev` registers; [test-t3-app](.agents/skills/test-t3-app/SKILL.md) shows how to start one. Use a real provider only when the change depends on that provider's behavior, and then pick its cheapest model, such as Haiku for Claude or Luna for Codex.
+
+For mobile verification, a missing or outdated native client is an install step, not a blocker. Run `vp run mobile:install <ios|android> [device-id]` on the device host before starting Metro; it targets the only booted simulator or connected Android device when the id is omitted. It installs the dev client for this checkout's native fingerprint from the shared cache in seconds and builds only when no machine has built it yet, so prefer it over `expo run:*`, `xcodebuild`, or `gradlew`, which rebuild from scratch. Its stdout is one JSON line; build output goes to the log it names. See `test-t3-mobile` for the full workflow.
+
+## Evals
+
+`evals/` checks how real models behave with T3 Code's model-facing text: agent instructions, MCP tool descriptions and schemas, and generated titles. Before you change that text, read [evals/README.md](evals/README.md) and run the evals it names. When you fix a model behavior bug, add a case that fails before the fix.
 
 ## Pull requests
 
@@ -222,7 +230,7 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
   options, and pass combinators as additional function-builder arguments.
 - Inferred types over annotations. `any` is the enemy.
 - Default to no comment. Write one only for a constraint, an external quirk, or an invariant the code can't show, in one line where you can and four at most. Don't restate names or signatures, narrate steps, record history, or explain the fix you just made; the PR carries that. `t3code/no-low-value-comments` enforces the length cap and the mechanical cases.
-- React effects are a last resort: derive in render, act in handlers, reset with `key`, or use a ref callback or store. The `t3code/react-effect-budget` lint rule holds each file to its entry in `scripts/effect-budget.json`; raise an entry only in the PR that needs the effect, and lower it when you remove one.
+- React effects are for synchronizing with something outside React. Derive in render and act in handlers instead of syncing state, but don't hide real lifecycle work in refs or stores to dodge one. The `t3code/no-unreasoned-state-sync` lint rule reports every effect; one that stays states its reason with `// oxlint-disable-next-line t3code/no-unreasoned-state-sync -- <why>`.
 - Our users drive agents all day and notice a dropped frame, a lying spinner, and a stale label. No continuously repainting animations; they peg the GPU on high-refresh displays.
 - If a rule here fights the task in front of you, say so loudly and get a human sign-off before breaking it.
 

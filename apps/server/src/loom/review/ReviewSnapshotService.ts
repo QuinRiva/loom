@@ -856,7 +856,9 @@ const make = Effect.gen(function* () {
 
   return ReviewSnapshotService.of({
     captureForMessage,
-    captureLive: (threadId) => Cache.get(liveCaptures, threadId),
+    captureLive: Effect.fn("ReviewSnapshotService.captureLive")(function (threadId) {
+      return Cache.get(liveCaptures, threadId);
+    }),
     listForThread,
     deleteForThread,
     sweepQuiet,

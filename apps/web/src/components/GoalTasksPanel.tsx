@@ -46,6 +46,7 @@ function useEditDraft(serverValue: string, emptyReverts: boolean, commit: (value
   const [draft, setDraft] = useState(serverValue);
   const focused = useRef(false);
   const dirty = useRef(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- takes the server's value only while the input lacks DOM focus, so an edit in progress is not overwritten
   useEffect(() => {
     if (!focused.current) setDraft(serverValue);
   }, [serverValue]);

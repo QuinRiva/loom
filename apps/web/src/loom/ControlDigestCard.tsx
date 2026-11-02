@@ -51,7 +51,7 @@ export function ControlDigestCardView({
   senderLabels: ReadonlyMap<ThreadId, string>;
   cwd: string | undefined;
   threadRef: ScopedThreadRef | null;
-  skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
+  skills: ReadonlyArray<ServerProviderSkill>;
   onOpenThread: ((threadId: ThreadId) => void) | null;
   defaultExpanded?: boolean;
 }) {

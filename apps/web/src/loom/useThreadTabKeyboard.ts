@@ -22,6 +22,7 @@ export function useThreadTabKeyboard(activeRouteRef: ScopedThreadRef | null): vo
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const actions = useThreadTabActions(activeRouteRef);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a window keydown listener runs the tab shortcuts
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat) return;

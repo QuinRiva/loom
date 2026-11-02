@@ -68,15 +68,16 @@ const dispatcherWouldSend = Effect.fn("verifySeed.dispatcherWouldSend")(function
   const attempted: string[] = [];
   const recording = Orchestrator.OrchestratorV2.of({
     ...real,
-    dispatch: (command) =>
-      Effect.fail(
+    dispatch: Effect.fn("verifySeed.recordingDispatch")(function (command) {
+      return Effect.fail(
         new LoomDispatchDeferredError({
           commandId: command.commandId,
           commandType: command.type,
           threadId: (command as { readonly threadId: ThreadId }).threadId,
           reason: (attempted.push(`${command.type} ${command.commandId}`), "verify: read-only"),
         }),
-      ),
+      );
+    }),
   });
   const clock = yield* Clock.Clock;
   yield* Effect.flatMap(WorkstreamDispatcher, (dispatcher) => dispatcher.runPass).pipe(

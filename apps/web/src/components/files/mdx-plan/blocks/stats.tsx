@@ -38,6 +38,7 @@ function StatsRead({ data, blockId }: PlanBlockReadProps<StatsData>) {
   return (
     <div data-plan-block-id={blockId} data-plan-block-type="stats" className="plan-stats">
       {data.items.map(({ value, label, detail, tone = "neutral", badge }, index) => (
+        // oxlint-disable-next-line react/no-array-index-key -- a document's stats are a fixed list that labels can repeat in
         <div key={index} className="plan-stat">
           <div
             className="plan-stat-value"

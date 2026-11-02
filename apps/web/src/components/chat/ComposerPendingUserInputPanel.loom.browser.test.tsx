@@ -60,14 +60,14 @@ it("auto-advances a non-final question but leaves the last one for an explicit S
 
   await act(async () => {
     chooseOption();
-    vi.runAllTimers();
+    vi.runOnlyPendingTimers();
   });
   expect(onAdvance).toHaveBeenCalledTimes(1);
 
   await screen.rerender(panel(1, onAdvance));
   await act(async () => {
     chooseOption();
-    vi.runAllTimers();
+    vi.runOnlyPendingTimers();
   });
   expect(onAdvance).toHaveBeenCalledTimes(1);
 });

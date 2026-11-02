@@ -31,7 +31,6 @@ import * as Schema from "effect/Schema"; // loom
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../config.ts"; // loom
 import * as Settings from "../serverSettings.ts";
 import {
@@ -172,7 +171,6 @@ export const make = Effect.gen(function* () {
     return next;
   });
   const settingsService = yield* Settings.ServerSettingsService;
-  const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
   const stateRef = yield* Ref.make<ReadonlyArray<UsageLimitSourceSnapshot>>([]);
   const changes = yield* Effect.acquireRelease(
     PubSub.unbounded<ReadonlyArray<UsageLimitSourceSnapshot>>(),
@@ -314,8 +312,9 @@ export const make = Effect.gen(function* () {
     yield* api.oauthCallback(config, body);
     // The exchange runs on the hub after the callback is accepted.
     const status = yield* api.authStatus(config, input.state).pipe(
-      Effect.flatMap((reply) =>
-        reply.status === "wait" ? Effect.fail("wait" as const) : Effect.succeed(reply),
+      Effect.filterOrFail(
+        (reply) => reply.status !== "wait",
+        () => "wait" as const,
       ),
       Effect.retry({
         while: (error) => error === "wait",

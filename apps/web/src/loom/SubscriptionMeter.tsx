@@ -60,6 +60,7 @@ const weekdayClock = (at: number) => `${WEEKDAYS[new Date(at).getDay()]} ${clock
 function useMeterReading(): { readonly view: MeterView; readonly now: number } {
   const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
   const [now, setNow] = useState(() => Date.now());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a 30-second timer moves the reset countdown; the shared clocks tick each second or minute
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), METER_TICK_MS);
     return () => window.clearInterval(id);

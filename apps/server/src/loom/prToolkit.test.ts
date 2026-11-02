@@ -44,7 +44,10 @@ import {
 } from "./testkit/loomOrchestratorLayer.ts";
 
 const TestLayer = Layer.mergeAll(
-  ThreadSettlementService.layer.pipe(
+  Layer.effect(
+    ThreadSettlementService.ThreadSettlementServiceV2,
+    ThreadSettlementService.make,
+  ).pipe(
     Layer.provide(
       Layer.mergeAll(
         ServerSettings.layerTest({ sidebarAutoSettleOnMerge: true }),

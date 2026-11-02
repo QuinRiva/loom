@@ -33,6 +33,9 @@ const layerSetup = Layer.effectDiscard(
     // loom: 128MB page cache (negative = KiB). The DB grew past 2GB; a real cache keeps
     // hot pages resident so synchronous reads on the event loop avoid disk.
     yield* sql`PRAGMA cache_size = -131072;`;
+    // Keep statement journals and sort spills off the main thread's disk path.
+    // Large statements and open savepoints can increase peak memory use.
+    yield* sql`PRAGMA temp_store = MEMORY;`;
     // PASSIVE checkpoints retain peak WAL size until the last connection closes.
     yield* sql.unsafe(`PRAGMA journal_size_limit = ${WAL_SIZE_LIMIT_BYTES};`);
     // loom: both ledgers; the fork ledger's refusal surfaces as upstream's MigrationError so
@@ -50,7 +53,7 @@ const layerSetup = Layer.effectDiscard(
       yield* sql`DELETE FROM sqlite_stat1;`;
       yield* sql`ANALYZE sqlite_schema;`;
     }
-  }),
+  }).pipe(Effect.withSpan("Sqlite.setup")),
 );
 
 export const layerFromPath = Effect.fn("makeSqlitePersistenceLive")(function* (dbPath: string) {

@@ -44,6 +44,7 @@ export function useTimelineAvailableWidthVar(
   element: HTMLElement | null,
   onMeasure?: (viewportWidth: number) => void,
 ): void {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- observes the timeline element's width and publishes it as a CSS variable
   useEffect(() => {
     if (!element) {
       return;

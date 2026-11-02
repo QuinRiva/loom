@@ -72,24 +72,28 @@ export const workstreamScaffold = Effect.fn("LoomToolkit.workstreamScaffold")(fu
     ...nodes.map((node) => [node.key, node.threadId] as const),
   ]);
   const liveIds = new Set(live.map((child) => child.threadId));
-  const resolveRef = (key: string, field: string, ref: string) => {
+  const resolveRef = Effect.fn("workstreamScaffold.resolveRef")(function* (
+    key: string,
+    field: string,
+    ref: string,
+  ) {
     const text = ref.trim();
     const existing = threadIdAliases(text).find((id) => liveIds.has(id));
-    if (existing !== undefined) return Effect.succeed(existing);
+    if (existing !== undefined) return existing;
     // A thread reference, in either form: the prefix is optional, so no prefix advice.
     if (text.startsWith(THREAD_REF_PREFIX) || UUID_SHAPED.test(text))
-      return reject(
+      return yield* reject(
         key,
         `${field} "${ref}" does not name an active existing child of this parent. ${NOTHING}`,
       );
     const id = keyToId.get(text);
-    return id === undefined
-      ? reject(
-          key,
-          `${field} "${ref}" is neither a node key in this scaffold nor an existing child's key. ${NOTHING}`,
-        )
-      : Effect.succeed(id);
-  };
+    if (id === undefined)
+      return yield* reject(
+        key,
+        `${field} "${ref}" is neither a node key in this scaffold nor an existing child's key. ${NOTHING}`,
+      );
+    return id;
+  });
 
   const resolved = yield* Effect.forEach(nodes, (node) =>
     Effect.gen(function* () {

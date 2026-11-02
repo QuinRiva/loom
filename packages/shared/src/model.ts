@@ -128,7 +128,12 @@ export function draftModelPickMatchesThread(pick: ModelSelection, thread: ModelS
       selection.model,
       selection.options?.filter((option) => option.id !== "fastMode" || option.value !== false),
     );
-  return modelSelectionsEqual(withoutFastModeOff(pick), withoutFastModeOff(thread));
+  const normalizedPick = withoutFastModeOff(pick);
+  // loom: a pick without options sends the thread's or default's options, so the model alone matches (DL-1720).
+  if (!normalizedPick.options?.length) {
+    return pick.instanceId === thread.instanceId && pick.model === thread.model;
+  }
+  return modelSelectionsEqual(normalizedPick, withoutFastModeOff(thread));
 }
 
 function resolveDescriptorChoiceValue(

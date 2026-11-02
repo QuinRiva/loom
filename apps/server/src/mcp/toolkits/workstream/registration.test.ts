@@ -1,7 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import { HttpServerRequest } from "effect/http";
 
@@ -324,7 +323,7 @@ it.effect("a Loom credential reaches the scheduled-task tools and no other orche
           getThreadShell: () => Effect.succeed(shell),
           getThreadRecords: () => Effect.succeed(idleThreadProjection(shell)),
         },
-        projects: { getById: () => Effect.succeed(Option.none()) },
+        projects: { getById: () => Effect.succeedNone },
         scheduledTasks: { list: () => Effect.succeed({ tasks: [] }) },
       },
       { threadId: LOOM_TEST_THREAD, capabilities: ["workstream", "pull-requests"] },
@@ -342,7 +341,7 @@ it.effect("a Loom credential reaches the scheduled-task tools and no other orche
     });
     expect(text(scheduled)).toContain("was not found");
     for (const [name, args] of [
-      ["update_scheduled_task", { scheduledTaskId: "scheduled-task:gone", enabled: false }],
+      ["schedule_task", { scheduledTaskId: "scheduled-task:gone", enabled: false }],
       ["delete_scheduled_task", { scheduledTaskId: "scheduled-task:gone" }],
     ] as const)
       expect(text(yield* mcp.callTool(name, args)), name).toContain('"code":"task_not_found"');

@@ -262,6 +262,7 @@ export function MdxPlanRenderer({ source, className, stickyEnd }: MdxPlanRendere
     components: PLAN_BLOCK_COMPONENTS,
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- compiles the MDX source asynchronously in the compile worker
   useEffect(() => {
     let active = true;
     // oxlint-disable-next-line react/set-state-in-effect -- A new source starts a compile, which shows as compiling until it settles.
@@ -286,6 +287,7 @@ export function MdxPlanRenderer({ source, className, stickyEnd }: MdxPlanRendere
     };
   }, [source, referenceLinks]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- stamps block ids and bleed classes onto the rendered plan DOM
   useEffect(() => {
     if (!containerRef.current) return;
     assignBlockIds(containerRef.current);
@@ -294,6 +296,7 @@ export function MdxPlanRenderer({ source, className, stickyEnd }: MdxPlanRendere
   }, [content]);
 
   // Before paint, so the outline row never pops in above an already-painted page.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the outline from the rendered plan DOM before paint
   useLayoutEffect(() => {
     if (containerRef.current) setOutline(readOutline(containerRef.current));
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- The outline is read from the DOM the new content rendered.

@@ -9,6 +9,7 @@ import type {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
+import type { ActiveShellIndexEntry } from "../../orchestration-v2/ProjectionStore.ts";
 import type { LoomStoreV2Shape } from "./LoomStore.ts";
 
 const joinShells =
@@ -62,10 +63,9 @@ export const keepsLoomChildInColdShell = (
   );
 };
 
-type GoalRootFields = Pick<
-  OrchestrationV2ThreadShell,
-  "workstream" | "lineage" | "settledOverride"
->;
+type GoalRootFields = Pick<OrchestrationV2ThreadShell, "lineage" | "settledOverride"> & {
+  readonly workstream?: { readonly goalId: string | null } | undefined;
+};
 
 /**
  * Whether a thread belongs to a goal with an unsettled top-level thread: such a goal keeps its older
@@ -82,4 +82,22 @@ export const inLiveLoomGoal = (threads: ReadonlyArray<GoalRootFields>) => {
   );
   live.delete(null);
   return (thread: GoalRootFields) => live.has(thread.workstream?.goalId ?? null);
+};
+
+/**
+ * The cold shell's index step keeps every entry the two keeps above could: a Loom entry whose row
+ * holds a flag or no outcome (the SQL's coarse superset), a Loom child under an unsettled root, or
+ * a Loom root of a live goal. Over-keeping costs a decoded shell; the trims then decide exactly.
+ */
+export const keepsLoomEntryInColdShell = (index: ReadonlyArray<ActiveShellIndexEntry>) => {
+  const unsettledIds = new Set(
+    index.flatMap((entry) => (entry.settledOverride === "settled" ? [] : [entry.id])),
+  );
+  const inLiveGoal = inLiveLoomGoal(index);
+  return (entry: ActiveShellIndexEntry) =>
+    entry.workstream !== undefined &&
+    (entry.workstream.keep ||
+      (entry.lineage.relationshipToParent === "subagent"
+        ? unsettledIds.has(entry.lineage.rootThreadId)
+        : inLiveGoal(entry)));
 };

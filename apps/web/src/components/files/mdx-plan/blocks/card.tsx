@@ -79,6 +79,7 @@ function CardRead({ data, blockId, children }: PlanBlockReadProps<CardData>) {
         {badges.length > 0 && (
           <span className="plan-card-badges">
             {badges.map((spec, index) => (
+              // oxlint-disable-next-line react/no-array-index-key -- a card's badges are a fixed list that can repeat
               <PlanBadge key={index} spec={spec} hostTone={tone} />
             ))}
           </span>

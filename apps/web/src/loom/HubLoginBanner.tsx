@@ -7,17 +7,15 @@
 import { useAtomValue } from "@effect/atom-react";
 import { type LoginAlert, loginAlerts } from "@t3tools/shared/usageLimits";
 import { KeyRoundIcon } from "lucide-react";
-import { useEffect, useState } from "react";
 
 import { ComposerBanner } from "~/components/chat/ComposerBanner";
 import type { ComposerBannerStackItem } from "~/components/chat/ComposerBannerStack";
 import { Button } from "~/components/ui/button";
+import { useNowMinute } from "~/hooks/useNowMinute";
 import { environmentPresentations } from "~/state/presentation";
 
 import { nextMorning, useHubLoginStore } from "./hubLoginStore";
 import { loomCommands } from "./loomGoalState";
-
-const MINUTE = 60_000;
 
 const urgent = (alert: LoginAlert) => alert.attention === "dead" || alert.attention === "overdue";
 
@@ -25,11 +23,7 @@ const urgent = (alert: LoginAlert) => alert.attention === "dead" || alert.attent
 export function useHubLoginBannerItems(): ComposerBannerStackItem[] {
   const presentations = useAtomValue(environmentPresentations.presentationsAtom);
   const snoozedUntil = useHubLoginStore((state) => state.snoozedUntil);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), MINUTE);
-    return () => window.clearInterval(id);
-  }, []);
+  const now = Date.parse(`${useNowMinute()}:00Z`);
   return loginAlerts(presentations, now)
     .filter((alert) => urgent(alert) || (snoozedUntil[alert.email] ?? 0) <= now)
     .map((alert) => {
@@ -41,7 +35,7 @@ export function useHubLoginBannerItems(): ComposerBannerStackItem[] {
       return {
         id: `hub-login:${alert.email}`,
         variant: urgent(alert) ? "error" : "warning",
-        priority: "urgent",
+        group: "environment", // the hub login is the machine's, so it leads the stack
         icon: <KeyRoundIcon />,
         title: split === -1 ? alert.text : alert.text.slice(0, split),
         ...(split === -1

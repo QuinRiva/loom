@@ -164,6 +164,7 @@ function SandboxedHtmlFrame({
   // frame's viewport (a panel-width change) or its content (a <details> toggle).
   const [autoHeight, setAutoHeight] = useState<number>();
   const unwatch = useRef<(() => void) | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- disconnects the iframe content's resize watchers on unmount
   useEffect(() => () => unwatch.current?.(), []);
   return (
     <figure

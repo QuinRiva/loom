@@ -25,17 +25,17 @@ import { useLoomMessageFields } from "./loomMessageFields";
 export const ControlDigestRow = memo(function ControlDigestRow({
   messageId,
   text,
-  fallback,
+  renderFallback,
 }: {
   messageId: MessageId;
   text: string;
-  fallback: (bubble: ControlBubble | null) => ReactNode;
+  renderFallback: (bubble: ControlBubble | null) => ReactNode;
 }) {
   const ctx = use(TimelineRowCtx);
   const loom = useLoomMessageFields(ctx.displayThreadKey ?? ctx.routeThreadKey, messageId);
   const model = controlCardModel(loom, text);
   return model === null ? (
-    fallback(controlBubble(loom))
+    renderFallback(controlBubble(loom))
   ) : (
     <ConnectedCard model={model} text={text} />
   );

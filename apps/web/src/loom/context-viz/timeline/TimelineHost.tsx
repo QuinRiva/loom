@@ -69,6 +69,7 @@ export function TimelineFiguresHost({
   readonly contextWindow: number | null;
 }) {
   const figures = deriveTimelineFigures(contextJoin(report, thread), contextWindow);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes this timeline's figures and navigation to the store the Context tab and Heaviest menu read
   useEffect(() => {
     publishTimelineFigures(figureKey, figures, { rows, shared });
   }, [figureKey, figures, rows, shared]);

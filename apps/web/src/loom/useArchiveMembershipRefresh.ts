@@ -47,6 +47,7 @@ export function useArchiveMembershipRefresh(
     );
     if (left || unarchived) refresh();
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refetches the archived page when live shell membership changes
   useEffect(() => {
     if (live !== null) onLiveChange(new Set(live.split("\n")));
   }, [live]);

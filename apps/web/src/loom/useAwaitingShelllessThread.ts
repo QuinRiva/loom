@@ -24,6 +24,7 @@ export function useAwaitingShelllessThread(
   const result = useAtomValue(wanted === null ? NO_SHELL_ATOM : shelllessThreads.shellAtom(wanted));
   const environmentId = wanted?.environmentId ?? null;
   const threadId = wanted?.threadId ?? null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- records the opened shell-less thread in the atom registry so its subscription starts
   useEffect(() => {
     if (environmentId === null || threadId === null) return;
     appAtomRegistry.update(shelllessThreads.openedAtom(environmentId), (opened) =>

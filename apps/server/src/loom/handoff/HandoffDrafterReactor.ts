@@ -183,15 +183,15 @@ const make = Effect.gen(function* () {
         });
       }
     },
-    (effect, row, nowMs) =>
+    (effect, row) =>
       effect.pipe(
-        Effect.catchCause((cause) =>
-          Cause.hasInterruptsOnly(cause)
-            ? Effect.failCause(cause)
-            : Effect.logWarning("loom.handoff-drafter.settle-failed", {
-                threadId: row.threadId,
-                cause: Cause.pretty(cause),
-              }),
+        Effect.catchCauseIf(
+          (cause) => !Cause.hasInterruptsOnly(cause),
+          (cause) =>
+            Effect.logWarning("loom.handoff-drafter.settle-failed", {
+              threadId: row.threadId,
+              cause: Cause.pretty(cause),
+            }),
         ),
       ),
   );
@@ -205,10 +205,10 @@ const make = Effect.gen(function* () {
       if (row.role === HANDOFF_DRAFTER_ROLE || row.kickoffAt === null) yield* settle(row, nowMs);
   }).pipe(
     Effect.provideContext(services),
-    Effect.catchCause((cause) =>
-      Cause.hasInterruptsOnly(cause)
-        ? Effect.failCause(cause)
-        : Effect.logWarning("loom.handoff-drafter.pass-failed", { cause: Cause.pretty(cause) }),
+    Effect.catchCauseIf(
+      (cause) => !Cause.hasInterruptsOnly(cause),
+      (cause) =>
+        Effect.logWarning("loom.handoff-drafter.pass-failed", { cause: Cause.pretty(cause) }),
     ),
     Effect.withSpan("loom.handoff-drafter.pass"),
   );

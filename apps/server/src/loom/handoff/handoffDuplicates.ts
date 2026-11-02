@@ -29,6 +29,7 @@ const CHECK_TIMEOUT = "30 seconds";
 /** The most recently updated open threads the model sees. */
 const MAX_CANDIDATES = 60;
 const MAX_MATCHES = 3;
+const isTextGenerationError = Schema.is(TextGenerationError);
 
 const clip = (text: string, max: number) =>
   text.length > max ? `${text.slice(0, max - 1)}…` : text;
@@ -57,7 +58,7 @@ export const HandoffDuplicateJudgePiLive = Layer.effect(
       run({ operation: "checkHandoffDuplicate", model: DUPLICATE_CHECK_MODEL, ...input }).pipe(
         Effect.flatMap((text) => decodeJudgeOutput(extractJsonObject(text))),
         Effect.mapError((cause) =>
-          Schema.is(TextGenerationError)(cause)
+          isTextGenerationError(cause)
             ? cause
             : new TextGenerationError({
                 operation: "checkHandoffDuplicate",

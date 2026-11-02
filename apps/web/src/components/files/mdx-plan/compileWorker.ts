@@ -32,6 +32,7 @@ self.addEventListener("message", (event: MessageEvent<CompileRequest>) => {
   void compiled.then(
     ({ code, sections }) => {
       const response: CompileResponse = { id, ok: true, code, sections };
+      // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a dedicated worker takes no target origin
       self.postMessage(response);
     },
     (cause: unknown) => {
@@ -40,6 +41,7 @@ self.addEventListener("message", (event: MessageEvent<CompileRequest>) => {
         ok: false,
         error: cause instanceof Error ? cause.message : String(cause),
       };
+      // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a dedicated worker takes no target origin
       self.postMessage(response);
     },
   );

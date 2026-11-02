@@ -21,6 +21,7 @@ export function useLoomTreeExpansion(
   directoryPaths: readonly string[],
   seedExpanded: boolean,
 ): void {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- applies and records directory expansion on the imperative file tree model
   useEffect(() => {
     if (key === null) return;
     const choices = choicesByTree.get(key) ?? new Map<string, boolean>();

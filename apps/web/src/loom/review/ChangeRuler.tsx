@@ -29,6 +29,7 @@ export function ChangeRuler({
   totalRows: number;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to the code view's scroll and writes the viewport mark to the DOM
   useEffect(() => {
     const viewer = codeView?.getInstance();
     const root = viewer?.getContainerElement();

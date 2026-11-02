@@ -240,6 +240,7 @@ export function createBatchedLookupStore<V>(options: {
     const snapshot = useSyncExternalStore(subscribe, getValues, getValues);
     // Stable dependency across renders that produce an equivalent key set.
     const keysKey = [...new Set(keys)].toSorted().join("\u0000");
+    // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the key set with the batched lookup scheduler until unmount
     useEffect(() => {
       if (!environmentId || keysKey.length === 0) return;
       // Register once per (env, key-set); the scheduler — not this effect — owns

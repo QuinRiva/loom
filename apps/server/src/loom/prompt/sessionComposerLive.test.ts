@@ -63,6 +63,10 @@ import type { LoomOpenSessionFields } from "@t3tools/contracts";
 import type { LoomSessionComposerShape } from "./sessionComposer.ts";
 import { loomHiddenToolsEnv, makeLoomSessionComposer } from "./sessionComposerLive.ts";
 
+const decodeSidecar = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+);
+
 /** A replayed record as `threadId` launches it: the identity verbatim, the git identity its own. */
 const asThread = (fields: LoomOpenSessionFields, threadId: ThreadId) => ({
   ...fields,
@@ -170,9 +174,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
           assert.deepEqual(second, first);
           assert.include(first.appendSystemPrompt, "PROJECT RULE ONE");
           assert.notInclude(second.appendSystemPrompt, "PROJECT RULE TWO");
-          const sidecar = yield* Schema.decodeUnknownEffect(
-            Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
-          )(
+          const sidecar = yield* decodeSidecar(
             yield* (yield* FileSystem.FileSystem).readFileString(
               identityFile(identityDir, threadId),
             ),

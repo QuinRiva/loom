@@ -63,8 +63,9 @@ export const requireShell = (threadId: ThreadId) =>
   Orchestrator.OrchestratorV2.pipe(
     Effect.flatMap((orchestrator) => orchestrator.getThreadShell(threadId)),
     asToolError,
-    Effect.flatMap((shell) =>
-      shell === null ? fail(`Thread ${threadId} was not found.`) : Effect.succeed(shell),
+    Effect.filterOrElse(
+      (shell) => shell !== null,
+      () => fail(`Thread ${threadId} was not found.`),
     ),
   );
 

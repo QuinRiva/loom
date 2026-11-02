@@ -215,9 +215,10 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
             replayedFrom: sourceThreadId,
           }));
     if (forkFrom !== null && Option.isNone(source) && workstream?.role !== HANDOFF_DRAFTER_ROLE)
-      return yield* Effect.fail(
-        new LoomForkSourceIdentityMissing({ threadId: thread.id, sourceThreadId: forkFrom }),
-      );
+      return yield* new LoomForkSourceIdentityMissing({
+        threadId: thread.id,
+        sourceThreadId: forkFrom,
+      });
     const record = Option.isSome(source)
       ? source.value
       : yield* composeIdentity(thread, workstream, projectRoot, longShare);
