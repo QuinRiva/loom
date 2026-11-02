@@ -12,7 +12,7 @@ branch tip, not at the merge commit `5d2d0d25af`. Method per file (doc 29): read
 change (`07d38b8d17..b76a110aa4`), Loom's hunks (`07d38b8d17..7935f6a1ec`) and what Loom
 carries on top of upstream at the branch tip (`b76a110aa4..HEAD`); disposition **n/a /
 kept-compatible / adapted / DEFECT / loom behaviour changed**. Tables go in
-`38-clean-overlap-review.md`.
+`clean-overlap-review.md`.
 
 The server-provider/mcp zone (8) goes to 2a rather than 2b (pull 12 put it in 2b): §6.1's MCP
 seams (`McpHttpServer.ts`, the hosted gate, `OrchestratorMcpService.ts`) are orchestration

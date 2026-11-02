@@ -1,7 +1,7 @@
 # 38: Pull 13 clean-overlap semantic review (Gate 2)
 
 The 144 files both sides changed since the merge-base `07d38b8d17` that git merged **without** a
-conflict marker (runbook doc 38 §3.2, Appendix C; zone lists in `38-clean-overlap-zones.md`). Each
+conflict marker (runbook doc 38 §3.2, Appendix C; zone lists in `clean-overlap-zones.md`). Each
 was read three ways: upstream's change (`07d38b8d17..b76a110aa4`), Loom's hunks
 (`07d38b8d17..7935f6a1ec`, plus `..7f9d2834c7` for the catch-up PRs) and what Loom carries on top
 of upstream at the branch tip (`b76a110aa4..HEAD`), and dispositioned **n/a / kept-compatible /

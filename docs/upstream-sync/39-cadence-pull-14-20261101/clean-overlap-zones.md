@@ -3,7 +3,7 @@
 Written by S3 (thread `thread:mcp:54c7fda3-ec09-4f4e-a6f2-14730a0be3b8:workstream-scaffold:625806ab-e8b8-4c53-89f7-549063802672:4`).
 The 180 files both sides changed that merged without a marker (runbook Appendix C, re-verified by S3 with `git merge-tree` of `7761af6555` × `fa31b66bbb`: the same 123 conflicted paths and exactly these 180 silent ones), partitioned for the four Gate 2 reviewers by §9's Gate 2 row, plus the extra reads that row names.
 
-Columns: **`loom:`** is the count of `loom:` markers in the merged file (Appendix C's `L` counts any line mentioning `loom`, a superset); **DL rows** are the S1/S2 decision-log rows (DL-1600–1689) that name the file. A Loom-only file shows 0 markers because the whole file is Loom's. Dispositions go in `39-clean-overlap-review.md` (doc 29 method).
+Columns: **`loom:`** is the count of `loom:` markers in the merged file (Appendix C's `L` counts any line mentioning `loom`, a superset); **DL rows** are the S1/S2 decision-log rows (DL-1600–1689) that name the file. A Loom-only file shows 0 markers because the whole file is Loom's. Dispositions go in `clean-overlap-review.md` (doc 29 method).
 
 ## 2a: server core and MCP seams (37 files, 136 `loom:` markers)
 
