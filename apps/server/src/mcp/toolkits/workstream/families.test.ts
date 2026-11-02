@@ -102,6 +102,18 @@ describe("Loom tool families", () => {
     expect(UPSTREAM_WITHHELD_TOOLS.toSorted()).toEqual(expected.toSorted());
     expect(UPSTREAM_WITHHELD_TOOLS).toContain("mcp__t3-code__delegate_task");
     expect(UPSTREAM_WITHHELD_TOOLS).toContain("mcp__t3-code__t3_background_wait");
+    // Pull 14's new tools land where their toolkit puts them (doc 39 §5.1).
+    for (const name of [
+      "t3_environment_links",
+      "t3_environment_link",
+      "t3_environment_unlink",
+      "t3_queue",
+      "t3_pending_request",
+      "t3_thread_transfer",
+    ])
+      expect(UPSTREAM_WITHHELD_TOOLS).toContain(`mcp__t3-code__${name}`);
+    expect(UPSTREAM_WITHHELD_TOOLS).not.toContain("mcp__t3-code__preview_act");
+    expect(PULL_REQUESTS).toContain("mcp__t3-code__link_pull_requests");
     const kept = new Set(
       [PullRequestsToolkit, PreviewStandardToolkit, DeviceStandardToolkit].flatMap(namesOf),
     );

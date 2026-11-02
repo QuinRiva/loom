@@ -38,7 +38,7 @@ const thread = v2PullRequestThread({
 });
 
 it.effect(
-  "a Loom credential is denied delegate_task, t3_thread_send and t3_background_wait, and links a PR",
+  "a Loom credential is denied delegate_task, t3_thread_send, t3_background_wait and t3_environment_link, and links a PR",
   () =>
     Effect.gen(function* () {
       const dispatched: Array<OrchestrationV2ServerCommand> = [];
@@ -60,6 +60,8 @@ it.effect(
               ),
           },
           loomStore: { getWorkstream: () => Effect.succeed(null) },
+          // Linking tools are hidden while the beta is off; on, the credential still refuses them.
+          settings: { linkedEnvironmentsEnabled: true },
           projects: {
             getShell: () =>
               Effect.succeedSome({
@@ -81,6 +83,7 @@ it.effect(
         ["delegate_task", { task: "do it" }],
         ["t3_thread_send", { threadId: "other", message: "hi" }],
         ["t3_background_wait", { taskIds: ["task-1"] }],
+        ["t3_environment_link", { hint: "the other machine" }],
       ] as const) {
         const denied = yield* mcp.callTool(name, args);
         expect(denied.content.map((block) => block.text).join("\n"), name).toContain(

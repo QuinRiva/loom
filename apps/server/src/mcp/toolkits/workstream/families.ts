@@ -75,7 +75,6 @@ export const PULL_REQUESTS = namesOf(PullRequestsToolkit);
 export const SCHEDULING = prefixed([
   "schedule_task",
   "list_scheduled_tasks",
-  "update_scheduled_task",
   "delete_scheduled_task",
 ] as const);
 
