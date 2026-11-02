@@ -109,7 +109,7 @@ signals:
     kind: structural
     scope: session
     check: visual_unseen
-    why: "An edit or write to apps/web/**/*.tsx (only when the new text carries className, style, <div or <span), *.css or *.html, then a workstream_submit (or the session's end) with no html_preview, preview_*, browser_* or device_* call and no read of a .png in between, in a root or planner session only. Census category 9. A child coder's or reviewer's unrendered edit follows its brief and AGENTS.md (subagents do not launch dev servers unless their brief says to), so children are not counted."
+    why: "An edit or write to apps/web/**/*.tsx (only when the new text carries className, style, <div or <span), *.css or *.html, then a workstream_submit (or the session's end) with no html_preview, preview_*, browser_* or device_* call and no read of a .png in between, in a root or planner session only. Census category 9. A child coder's or reviewer's unrendered edit follows its brief and AGENTS.md (subagents do not launch dev servers unless their brief says to), so other roles are not counted."
     origin: loom-evals plan (2026-11)
     narrowed: "2026-11-02: first-20 review 0 of 20, all README.md edits (98 of the 122 hits). README.md dropped: it is no rendered UI surface. 2026-11-02 second review 5 of 20: 10 of the 15 false positives were child coders whose brief gave the live check to another thread, forbade a browser or did not ask for one; now roots and planners only (5 of 6 on that sample)."
     status: seed
