@@ -5,7 +5,7 @@
 
 import type { WorkstreamRollup } from "@t3tools/client-runtime/state/loom/rollup";
 import type { ThreadId } from "@t3tools/contracts";
-import { gateLoopTargetOf } from "@t3tools/shared/workstreamGraph";
+import { gateLoopTargetsOf } from "@t3tools/shared/workstreamGraph";
 import { GitForkIcon, MaximizeIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -550,8 +550,8 @@ function GraphEdge({
     const rounds = source?.gateRounds ?? 0;
     const cap = source ? getGateLoopCap(source) : rounds;
     const stroke = loopStrokeOf(source);
-    const loopTo = source ? gateLoopTargetOf(source) : null;
-    const target = loopTo === null ? undefined : byId.get(loopTo);
+    const loopTo = source ? gateLoopTargetsOf(source)[0] : undefined;
+    const target = loopTo === undefined ? undefined : byId.get(loopTo);
     const badge = edge.badge ?? { x: midX, y: (edge.y1 + edge.y2) / 2 };
     const verdict = source?.lastOutcome?.outcome;
     return (

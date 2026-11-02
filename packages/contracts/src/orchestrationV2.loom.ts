@@ -191,7 +191,7 @@ export type WorkOutcomeRecord = typeof WorkOutcomeRecord.Type;
 export const LoomRouteKind = Schema.Literals(["loop", "loop-back", "resolve"]);
 export type LoomRouteKind = typeof LoomRouteKind.Type;
 
-/** The sidecar's latest route traversal — the episode key for gate re-drives. */
+/** One route traversal; the sidecar keeps the current round's set as the gate re-drives' episode key. */
 export const LoomRouteRecord = Schema.Struct({
   to: ThreadId,
   round: NonNegativeInt,
@@ -451,8 +451,8 @@ export const LoomThreadWorkstream = Schema.Struct({
   gateRounds: NonNegativeInt,
   pendingRework: Schema.Boolean,
   lastOutcome: Schema.NullOr(WorkOutcomeRecord),
-  /** Episode key for gate re-drives (null on imported rows). */
-  lastRoute: Schema.NullOr(LoomRouteRecord),
+  /** The current round's traversals, one per sibling of a fan-out verdict: the gate re-drives' episode key. */
+  lastRoutes: Schema.Array(LoomRouteRecord),
   reportPath: Schema.NullOr(TrimmedNonEmptyString),
   handoffDestinations: Schema.Array(HandoffDestination),
   /** On a `goal_handoff` destination: the thread that started it. */
@@ -672,7 +672,7 @@ export const consultQuestionKey = (question: string): string => {
 export const LoomThreadShellFields = LoomThreadWorkstream.mapFields((fields) => ({
   ...Struct.omit(fields, [
     "notifySendLog",
-    "lastRoute",
+    "lastRoutes",
     "outcomeEventId",
     "unarchivedEventId",
     "unarchivedAt",
@@ -837,8 +837,10 @@ export const makeLoomInternalCommandMembers = <
       outcome: Schema.optional(TrimmedNonEmptyString),
       contested: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
       counts: Schema.optional(WorkOutcomeCounts),
+      /** The caller's gate loop targets to reopen on a loop verdict; required when it has several. */
+      rework: Schema.optional(Schema.Array(ThreadId)),
     }),
-    /** Gate leg on the coder (`threadId`); `routeEventId` must match the source's lastRoute. */
+    /** Gate leg on the coder (`threadId`); `routeEventId` must be in the source's lastRoutes. */
     Schema.Struct({
       type: Schema.Literal("thread.gate.rework"),
       ...LoomCommandFields,
@@ -847,13 +849,12 @@ export const makeLoomInternalCommandMembers = <
       routeEventId: EventId,
       message: LoomGateLegMessage,
     }),
-    /** Gate leg on the reviewer (`threadId`). */
+    /** Gate leg on the reviewer (`threadId`), once every reopened sibling has routed back. */
     Schema.Struct({
       type: Schema.Literal("thread.gate.reverify"),
       ...LoomCommandFields,
-      sourceThreadId: ThreadId,
+      sources: Schema.Array(Schema.Struct({ threadId: ThreadId, routeEventId: EventId })),
       round: NonNegativeInt,
-      routeEventId: EventId,
       message: LoomGateLegMessage,
     }),
     /** Gate resolution on the counterpart (`threadId`). */

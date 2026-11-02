@@ -208,15 +208,14 @@ export const terminalDeltas: PassStep = {
             });
             return;
           }
-          const resolvedRoute =
-            lastOutcome.decision === "resolve" && child.lastRoute?.kind === "resolve"
-              ? child.lastRoute
-              : null;
-          // A resolved gate reports once both members are done, as one pair.
-          if (resolvedRoute !== null && ctx.nodesById.get(resolvedRoute.to)?.outcome === null)
-            return;
+          const resolvedRoutes =
+            lastOutcome.decision === "resolve" && child.lastRoutes[0]?.kind === "resolve"
+              ? child.lastRoutes
+              : [];
+          // A resolved gate reports once every member is done, as one item.
+          if (resolvedRoutes.some((route) => ctx.nodesById.get(route.to)?.outcome === null)) return;
           stash(ctx, parentId, {
-            key: resolvedRoute?.eventId ?? terminalEpisodeKey(child),
+            key: resolvedRoutes[0]?.eventId ?? terminalEpisodeKey(child),
             eventAtMs: sinceMs,
             member: {
               id: child.threadId,

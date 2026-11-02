@@ -22,6 +22,7 @@ import {
   routeWorkSubmit,
   subtreeCostOf,
   subtreeOf,
+  workSubmitRefusal,
 } from "./workstreamGraph.ts";
 
 const tid = (id: string) => id as ThreadId;
@@ -220,8 +221,8 @@ describe("routeWorkSubmit", () => {
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "needs_rework")).toEqual({
       decision: "loop",
       round: 1,
-      routeTo: tid("coder"),
-      resolveWith: null,
+      routeTo: [tid("coder")],
+      resolveWith: [],
     });
   });
 
@@ -231,7 +232,7 @@ describe("routeWorkSubmit", () => {
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "needs_rework")).toMatchObject({
       decision: "cap-breach",
       round: 2,
-      routeTo: null,
+      routeTo: [],
     });
   });
 
@@ -251,11 +252,11 @@ describe("routeWorkSubmit", () => {
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "clean")).toMatchObject({
       decision: "resolve",
-      resolveWith: tid("coder"),
+      resolveWith: [tid("coder")],
     });
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "fixed_inline")).toMatchObject({
       decision: "resolve",
-      resolveWith: tid("coder"),
+      resolveWith: [tid("coder")],
     });
   });
 
@@ -264,7 +265,7 @@ describe("routeWorkSubmit", () => {
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "clean")).toMatchObject({
       decision: "resolve",
-      resolveWith: null,
+      resolveWith: [],
     });
   });
 
@@ -275,8 +276,8 @@ describe("routeWorkSubmit", () => {
       expect(routeWorkSubmit(coder, [reviewer, coder], outcome)).toEqual({
         decision: "loop",
         round: 1,
-        routeTo: tid("reviewer"),
-        resolveWith: null,
+        routeTo: [tid("reviewer")],
+        resolveWith: [],
       });
     }
   });
@@ -295,8 +296,8 @@ describe("routeWorkSubmit", () => {
     expect(routeWorkSubmit(coder, [reviewer, coder], "quiescent")).toEqual({
       decision: "yield",
       round: 0,
-      routeTo: null,
-      resolveWith: null,
+      routeTo: [],
+      resolveWith: [],
     });
     // A quiet gate source never loops or resolves its gate either.
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "quiescent")).toMatchObject({
@@ -313,7 +314,130 @@ describe("routeWorkSubmit", () => {
   });
 });
 
+/** A reviewer gating several siblings: one loop route each, as `gateRoutes` writes them. */
+const gateOver = (targets: ReadonlyArray<string>, maxRounds?: number): GateNode["routes"] => [
+  ...targets.map((to) => ({
+    on: ["needs_rework"],
+    kind: "loop" as const,
+    to: tid(to),
+    ...(maxRounds !== undefined ? { maxRounds } : {}),
+  })),
+  { on: ["clean", "fixed_inline"], kind: "resolve" },
+];
+
+describe("routeWorkSubmit over several siblings", () => {
+  const trio = () => {
+    const reviewer = gnode({ id: "reviewer", routes: gateOver(["a", "b", "c"]) });
+    const siblings = ["a", "b", "c"].map((id) => gnode({ id, outcome: "done" }));
+    return { reviewer, threads: [reviewer, ...siblings] };
+  };
+
+  it("loops to exactly the named siblings, one round, in gate order", () => {
+    const { reviewer, threads } = trio();
+    expect(
+      routeWorkSubmit(reviewer, threads, "needs_rework", [tid("b"), tid("a"), tid("a")]),
+    ).toEqual({ decision: "loop", round: 1, routeTo: [tid("a"), tid("b")], resolveWith: [] });
+  });
+
+  it("naming none on a multi-sibling gate leaves no live targets (the refusal names them)", () => {
+    const { reviewer, threads } = trio();
+    expect(routeWorkSubmit(reviewer, threads, "needs_rework")).toMatchObject({
+      decision: "yield",
+      routeTo: [],
+    });
+  });
+
+  it("drops a named cancelled sibling; all named cancelled yields", () => {
+    const reviewer = gnode({ id: "reviewer", routes: gateOver(["a", "b"]) });
+    const a = gnode({ id: "a", outcome: "cancelled" });
+    const b = gnode({ id: "b", outcome: "done" });
+    expect(routeWorkSubmit(reviewer, [reviewer, a, b], "needs_rework", [a.id, b.id])).toMatchObject(
+      { decision: "loop", routeTo: [b.id] },
+    );
+    expect(routeWorkSubmit(reviewer, [reviewer, a, b], "needs_rework", [a.id])).toMatchObject({
+      decision: "yield",
+    });
+  });
+
+  it("reads one cap for the gate", () => {
+    const reviewer = gnode({ id: "reviewer", routes: gateOver(["a", "b"], 2), gateRounds: 2 });
+    const threads = [reviewer, gnode({ id: "a" }), gnode({ id: "b" })];
+    expect(routeWorkSubmit(reviewer, threads, "needs_rework", [tid("a")])).toMatchObject({
+      decision: "cap-breach",
+    });
+  });
+
+  it("clean resolves with every non-terminal sibling", () => {
+    const reviewer = gnode({ id: "reviewer", routes: gateOver(["a", "b", "c"]), gateRounds: 1 });
+    const threads = [
+      reviewer,
+      gnode({ id: "a", lastOutcome: { decision: "loop", round: 1 } }),
+      gnode({ id: "b", outcome: "done" }),
+      gnode({ id: "c", lastOutcome: { decision: "loop", round: 1 } }),
+    ];
+    expect(routeWorkSubmit(reviewer, threads, "clean")).toMatchObject({
+      decision: "resolve",
+      resolveWith: [tid("a"), tid("c")],
+    });
+  });
+});
+
+describe("workSubmitRefusal for rework", () => {
+  const reviewer = gnode({ id: "reviewer", routes: gateOver(["a", "b"]) });
+  const single = gnode({ id: "single", routes: loopRoutes("a") });
+
+  it("refuses rework on an outcome the gate does not loop on", () => {
+    expect(workSubmitRefusal(reviewer, "clean", "resolve", false, [tid("a")])).toContain(
+      "only accompanies",
+    );
+  });
+
+  it("refuses a name that is not one of the gate's siblings, listing them", () => {
+    expect(workSubmitRefusal(reviewer, "needs_rework", "loop", false, [tid("x")])).toContain(
+      "a, b",
+    );
+  });
+
+  it("refuses a multi-sibling loop verdict that names none, listing the targets", () => {
+    expect(workSubmitRefusal(reviewer, "needs_rework", "yield", false)).toContain("a, b");
+    expect(workSubmitRefusal(reviewer, "needs_rework", "loop", false, [tid("b")])).toBeNull();
+  });
+
+  it("a one-sibling gate needs no rework, as before", () => {
+    expect(workSubmitRefusal(single, "needs_rework", "loop", false)).toBeNull();
+  });
+});
+
 describe("isWaitingInGate", () => {
+  it("suppresses a multi-sibling source while any sibling of this round reworks or routed back", () => {
+    const reviewer = gnode({
+      id: "reviewer",
+      routes: gateOver(["a", "b", "c"]),
+      gateRounds: 1,
+      lastOutcome: { decision: "loop", round: 1 },
+    });
+    const a = gnode({ id: "a", lastOutcome: { decision: "loop", round: 1 } });
+    const b = gnode({ id: "b", pendingRework: true });
+    const c = gnode({ id: "c", outcome: "done" });
+    expect(isWaitingInGate(reviewer, byId([reviewer, a, b, c]))).toBe(true);
+    expect(isWaitingInGate(reviewer, byId([reviewer, a, { ...b, outcome: "cancelled" }, c]))).toBe(
+      true,
+    );
+  });
+
+  it("is not held by a sibling parked from an earlier round once this round's are all cancelled", () => {
+    // Round 2 reopened only a, which was then cancelled; b still holds its round-1 loop-back.
+    const reviewer = gnode({
+      id: "reviewer",
+      routes: gateOver(["a", "b"]),
+      gateRounds: 2,
+      lastOutcome: { decision: "loop", round: 2 },
+    });
+    const a = gnode({ id: "a", outcome: "cancelled", pendingRework: true });
+    const b = gnode({ id: "b", lastOutcome: { decision: "loop", round: 1 } });
+    expect(isWaitingInGate(reviewer, byId([reviewer, a, b]))).toBe(false);
+  });
+
   it("suppresses the source while its target holds an open rework round", () => {
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder"), gateRounds: 1 });
     const coder = gnode({ id: "coder", pendingRework: true });
@@ -325,7 +449,7 @@ describe("isWaitingInGate", () => {
     const coder = gnode({
       id: "coder",
       pendingRework: false,
-      lastOutcome: { decision: "loop" },
+      lastOutcome: { decision: "loop", round: 1 },
     });
     expect(isWaitingInGate(coder, byId([reviewer, coder]))).toBe(true);
   });
@@ -335,7 +459,7 @@ describe("isWaitingInGate", () => {
       id: "reviewer",
       routes: loopRoutes("coder"),
       gateRounds: 1,
-      lastOutcome: { decision: "loop" },
+      lastOutcome: { decision: "loop", round: 1 },
     });
     const coder = gnode({ id: "coder", pendingRework: false });
     expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(true);
@@ -346,7 +470,7 @@ describe("isWaitingInGate", () => {
       id: "reviewer",
       routes: loopRoutes("coder"),
       gateRounds: 1,
-      lastOutcome: { decision: "loop" },
+      lastOutcome: { decision: "loop", round: 1 },
     });
     const coder = gnode({ id: "coder", outcome: "done", pendingRework: false });
     expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(false);
@@ -357,13 +481,13 @@ describe("isWaitingInGate", () => {
       id: "reviewer",
       routes: loopRoutes("coder"),
       gateRounds: 1,
-      lastOutcome: { decision: "loop" },
+      lastOutcome: { decision: "loop", round: 1 },
     });
     const coder = gnode({
       id: "coder",
       outcome: "done",
       pendingRework: false,
-      lastOutcome: { decision: "loop" },
+      lastOutcome: { decision: "loop", round: 1 },
     });
     expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(true);
   });
@@ -373,7 +497,7 @@ describe("isWaitingInGate", () => {
       id: "reviewer",
       routes: loopRoutes("coder"),
       gateRounds: 1,
-      lastOutcome: { decision: "loop" },
+      lastOutcome: { decision: "loop", round: 1 },
     });
     const coder = gnode({ id: "coder", outcome: "done", pendingRework: true });
     expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(false);
@@ -384,7 +508,7 @@ describe("isWaitingInGate", () => {
       id: "reviewer",
       routes: loopRoutes("coder"),
       gateRounds: 1,
-      lastOutcome: { decision: "loop" },
+      lastOutcome: { decision: "loop", round: 1 },
     });
     const coder = gnode({ id: "coder", outcome: "cancelled", pendingRework: true });
     expect(isWaitingInGate(reviewer, byId([reviewer, coder]))).toBe(false);
@@ -403,7 +527,7 @@ describe("isWaitingInGate", () => {
       outcome: "done",
       gateRounds: 1,
     });
-    const coder = gnode({ id: "coder", lastOutcome: { decision: "loop" } });
+    const coder = gnode({ id: "coder", lastOutcome: { decision: "loop", round: 1 } });
     expect(isWaitingInGate(coder, byId([reviewer, coder]))).toBe(false);
   });
 });
@@ -425,7 +549,7 @@ describe("gateKeepAliveCounterpart", () => {
     id: tid(overrides.id),
     blockedBy: (overrides.blockedBy ?? []).map(tid),
   });
-  const looped = { decision: "loop" } as const;
+  const looped = { decision: "loop", round: 1 } as const;
   const reviewing = { id: "reviewer", routes: loopRoutes("coder"), blockedBy: ["coder"] };
   const cases: ReadonlyArray<
     readonly [string, "coder" | "reviewer", ReadonlyArray<KeepAliveNode>, string | null]

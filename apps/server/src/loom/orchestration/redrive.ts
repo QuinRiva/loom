@@ -36,14 +36,22 @@ export type ThreadServerCommand = Extract<
   { readonly threadId: ThreadId }
 >;
 
-/** A gate leg that carries a control message (resolve carries none). */
-export interface GateLeg {
-  readonly kind: "rework" | "reverify";
-  /** The thread whose route was taken (reviewer for rework, coder for reverify); its report is the leg's subject. */
-  readonly source: LoomThreadWorkstream;
-  readonly targetThreadId: ThreadId;
-  readonly round: number;
-}
+/** A gate leg that carries a control message (resolve carries none); its sources' reports are its subject. */
+export type GateLeg =
+  | {
+      readonly kind: "rework";
+      /** The reviewer; its `lastRoutes` name every sibling reopened alongside the target. */
+      readonly source: LoomThreadWorkstream;
+      readonly targetThreadId: ThreadId;
+      readonly round: number;
+    }
+  | {
+      readonly kind: "reverify";
+      /** Every sibling of the round that routed back, in the reviewer's traversal order. */
+      readonly sources: ReadonlyArray<LoomThreadWorkstream>;
+      readonly targetThreadId: ThreadId;
+      readonly round: number;
+    };
 
 /** Composes a gate leg's control message; the dispatcher's is `makeGateLegComposer`. */
 export type GateLegComposer = (leg: GateLeg) => {
@@ -86,41 +94,84 @@ const goalSet = (threadId: ThreadId, goalId: GoalId, now: IsoDateTime, id: strin
     goalId,
   }) satisfies OrchestrationV2ServerCommand;
 
+const gateCommandId = (reviewerId: ThreadId, round: number, leg: string) =>
+  CommandId.make(`server:workstream-gate:${reviewerId}:${round}:${leg}`);
+
 /**
- * The leg a source's latest route implies: loop → rework on the target;
- * loop-back → reverify on the reviewer; resolve → resolve on the counterpart.
- * Id: the strategy's `server:workstream-gate:<reviewerId>:<round>:<leg>`.
+ * The legs a reviewer's current-round traversals imply: loop → rework on each reopened sibling;
+ * resolve → resolve on each; and, once every live sibling of a loop round has routed back to it, the
+ * one reverify on the reviewer. Ids: `server:workstream-gate:<reviewerId>:<round>:<leg>`, with
+ * `:<sibling>` on rework and resolve (migration 1067 re-keyed the receipts to that shape).
  */
-const gateLegCommand = (
-  source: LoomThreadWorkstream,
+const gateLegCommands = (
+  reviewer: LoomThreadWorkstream,
+  byId: ReadonlyMap<ThreadId, LoomThreadWorkstream>,
   now: IsoDateTime,
   compose: GateLegComposer,
-): ThreadServerCommand => {
-  const route = source.lastRoute!;
-  const leg =
-    route.kind === "loop" ? "rework" : route.kind === "loop-back" ? "reverify" : "resolve";
-  const reviewerId = route.kind === "loop-back" ? route.to : source.threadId;
-  const commandId = CommandId.make(`server:workstream-gate:${reviewerId}:${route.round}:${leg}`);
-  const base = {
-    commandId,
-    threadId: route.to,
-    createdAt: now,
-    sourceThreadId: source.threadId,
-    routeEventId: route.eventId,
-  };
-  if (leg === "resolve") return { type: "thread.gate.resolve", ...base };
-  const message = compose({
-    kind: leg,
-    source,
-    targetThreadId: route.to,
-    round: route.round,
+): ReadonlyArray<ThreadServerCommand> => {
+  const traversals = reviewer.lastRoutes.filter((route) => route.kind !== "loop-back");
+  const legs: ThreadServerCommand[] = traversals.map((route) => {
+    const leg = route.kind === "loop" ? "rework" : "resolve";
+    const commandId = gateCommandId(reviewer.threadId, route.round, `${leg}:${route.to}`);
+    const base = {
+      commandId,
+      threadId: route.to,
+      createdAt: now,
+      sourceThreadId: reviewer.threadId,
+      routeEventId: route.eventId,
+    };
+    if (leg === "resolve") return { type: "thread.gate.resolve", ...base };
+    const message = compose({
+      kind: "rework",
+      source: reviewer,
+      targetThreadId: route.to,
+      round: route.round,
+    });
+    return {
+      type: "thread.gate.rework",
+      ...base,
+      round: route.round,
+      message: { messageId: MessageId.make(`message:${commandId}`), ...message },
+    };
   });
-  return {
-    type: leg === "rework" ? "thread.gate.rework" : "thread.gate.reverify",
-    ...base,
-    round: route.round,
-    message: { messageId: MessageId.make(`message:${commandId}`), ...message },
-  };
+  const round = traversals[0]?.round;
+  if (round === undefined || traversals[0]!.kind !== "loop" || reviewer.outcome !== null)
+    return legs;
+  // The barrier: a cancelled or missing sibling drops out of the wait.
+  const members = traversals.flatMap((route) => {
+    const member = byId.get(route.to);
+    return member === undefined || member.outcome === "cancelled" ? [] : [member];
+  });
+  const back = members.flatMap((member) => {
+    const loopBack = member.lastRoutes.find(
+      (route) =>
+        route.kind === "loop-back" && route.round === round && route.to === reviewer.threadId,
+    );
+    return loopBack === undefined ? [] : [{ member, routeEventId: loopBack.eventId }];
+  });
+  if (back.length === 0 || back.length < members.length) return legs;
+  const commandId = gateCommandId(reviewer.threadId, round, "reverify");
+  const message = compose({
+    kind: "reverify",
+    sources: back.map((entry) => entry.member),
+    targetThreadId: reviewer.threadId,
+    round,
+  });
+  return [
+    ...legs,
+    {
+      type: "thread.gate.reverify",
+      commandId,
+      threadId: reviewer.threadId,
+      createdAt: now,
+      sources: back.map((entry) => ({
+        threadId: entry.member.threadId,
+        routeEventId: entry.routeEventId,
+      })),
+      round,
+      message: { messageId: MessageId.make(`message:${commandId}`), ...message },
+    },
+  ];
 };
 
 /** One episode-keyed command per affected thread. Pure: the graph snapshot, the clock and the gate-leg text come in; commands come out. */
@@ -228,10 +279,10 @@ export const planReDrive = (input: {
         ? [goalSet(r.threadId, goalId, now, `server:loom:goal-attach:${r.threadId}:${goalId}`)]
         : [];
     }),
-    // gate legs from the latest route on a source
+    // gate legs from each reviewer's current-round traversals
     ...rows
-      .filter((r) => r.lastRoute !== null && r.outcome !== "cancelled")
-      .map((r) => gateLegCommand(r, now, input.gateLeg)),
+      .filter((r) => r.outcome !== "cancelled")
+      .flatMap((r) => gateLegCommands(r, byId, now, input.gateLeg)),
   ];
 };
 

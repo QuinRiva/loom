@@ -174,8 +174,8 @@ export const isTerminalForJoin = (node: TerminalForJoinNode): boolean => isTermi
 // (response echo + per-round report naming), and the web graph (waiting badges).
 
 /**
- * The minimal gate-party shape. A GATE is not stored: it is the derived pair
- * (source = the thread carrying a loop route, target = that route's `to`),
+ * The minimal gate-party shape. A GATE is not stored: it is the derived set
+ * (source = the thread carrying loop routes, targets = those routes' `to`),
  * unresolved while the source is non-terminal.
  */
 export interface GateNode {
@@ -184,14 +184,16 @@ export interface GateNode {
   readonly routes: ReadonlyArray<WorkstreamRoute>;
   readonly gateRounds: number;
   readonly pendingRework: boolean;
-  readonly lastOutcome: { readonly decision: WorkOutcomeDecision } | null;
+  readonly lastOutcome: { readonly decision: WorkOutcomeDecision; readonly round: number } | null;
 }
 
-/** The loop-edge target a gate source routes rework to, or null when none. */
-export const gateLoopTargetOf = (thread: {
+/** The loop-edge targets a gate source routes rework to (empty when it gates nothing). */
+export const gateLoopTargetsOf = (thread: {
   readonly routes: ReadonlyArray<WorkstreamRoute>;
-}): ThreadId | null =>
-  thread.routes.find((route) => route.kind === "loop" && route.to !== undefined)?.to ?? null;
+}): ReadonlyArray<ThreadId> =>
+  thread.routes.flatMap((route) =>
+    route.kind === "loop" && route.to !== undefined ? [route.to] : [],
+  );
 
 /** The non-terminal gate source whose loop route names `threadId`, or null. */
 export const gateSourceFor = <T extends GateNode>(
@@ -206,31 +208,36 @@ export const gateSourceFor = <T extends GateNode>(
 
 /**
  * True when the protocol has parked the thread in an unresolved gate: the source after looping
- * findings (even while the target holds the rework round), or a target that routed back to await
- * re-verify, even if terminal (that leg is owed). False when the counterpart is cancelled or a
- * terminal target holding an open rework round: nothing re-drives that, so the idle wake surfaces it.
+ * findings (while a target holds the rework round or has routed back in the current round), or a
+ * target that routed back to await re-verify, even if terminal (that leg is owed). False when every
+ * counterpart is cancelled, parked from an earlier round, or terminal holding an open rework round:
+ * nothing re-drives that, so the idle wake surfaces it.
  */
 export const isWaitingInGate = (
   thread: GateNode,
   threadsById: ReadonlyMap<ThreadId, GateNode>,
 ): boolean => {
   if (isTerminal(thread.outcome)) return false;
-  // Source waiting: the target holds the open rework round, or the source has
-  // looped and the target is either still active/yielded or has routed back for
-  // re-verify. A plain terminal target with no routed-back outcome is a dead
-  // gate, not a parked one. A cancelled target deliberately un-suppresses.
-  const loopTo = gateLoopTargetOf(thread);
-  if (loopTo !== null) {
-    const target = threadsById.get(loopTo);
-    if (
-      target !== undefined &&
-      target.outcome !== "cancelled" &&
-      ((target.pendingRework && !isTerminal(target.outcome)) ||
-        (thread.lastOutcome?.decision === "loop" &&
-          (target.lastOutcome?.decision === "loop" || !isTerminal(target.outcome))))
-    ) {
-      return true;
-    }
+  // Source waiting: a target holds the open rework round, or the source has looped and a target
+  // of this round is still active/yielded or has routed back for re-verify. A plain terminal
+  // target is a dead gate, not a parked one; a cancelled target deliberately un-suppresses; a
+  // sibling that routed back in an earlier round and was not reopened is not this round's (a
+  // lone target always is, so a one-sibling gate reads exactly as before).
+  const targets = gateLoopTargetsOf(thread);
+  if (
+    targets.some((loopTo) => {
+      const target = threadsById.get(loopTo);
+      if (target === undefined || target.outcome === "cancelled") return false;
+      if (target.pendingRework && !isTerminal(target.outcome)) return true;
+      const routedBack = target.lastOutcome?.decision === "loop";
+      return (
+        thread.lastOutcome?.decision === "loop" &&
+        (routedBack || !isTerminal(target.outcome)) &&
+        (targets.length === 1 || !routedBack || target.lastOutcome!.round === thread.gateRounds)
+      );
+    })
+  ) {
+    return true;
   }
   // Target waiting: it routed its rework back (its last outcome was the
   // intercepted `loop`) and the non-terminal source owes the re-verify.
@@ -267,12 +274,13 @@ export const gateKeepAliveCounterpart = <T extends KeepAliveNode>(
 ): T | null => {
   if (thread.attention.length > 0) return null;
   const byId = new Map(siblings.map((sibling) => [sibling.id, sibling]));
-  const loopTarget = gateLoopTargetOf(thread);
+  const targets = gateLoopTargetsOf(thread).flatMap((id) => byId.get(id) ?? []);
   const counterpart =
     thread.outcome === "done"
       ? gateSourceFor(thread.id, siblings)
       : isWaitingInGate(thread, byId)
-        ? ((loopTarget === null ? undefined : byId.get(loopTarget)) ??
+        ? (targets.find((target) => target.pendingRework) ??
+          targets[0] ??
           gateSourceFor(thread.id, siblings))
         : null;
   if (
@@ -298,7 +306,7 @@ export const isMemberOfUnresolvedGate = (
   thread: Pick<GateNode, "id" | "outcome" | "routes">,
   threads: ReadonlyArray<Pick<GateNode, "id" | "outcome" | "routes">>,
 ): boolean =>
-  (!isTerminal(thread.outcome) && gateLoopTargetOf(thread) !== null) ||
+  (!isTerminal(thread.outcome) && gateLoopTargetsOf(thread).length > 0) ||
   unresolvedGateSourcesOf(thread.id, threads).length > 0;
 
 /**
@@ -323,60 +331,73 @@ export const unresolvedGateSourcesOf = <T extends Pick<GateNode, "id" | "outcome
 export const requiresSubmitToComplete = (
   thread: Pick<GateNode, "outcome" | "routes" | "pendingRework">,
 ): boolean =>
-  !isTerminal(thread.outcome) && (thread.pendingRework || gateLoopTargetOf(thread) !== null);
+  !isTerminal(thread.outcome) && (thread.pendingRework || gateLoopTargetsOf(thread).length > 0);
 
 /** The routing verdict for one `thread.work.submit`, decided purely (§4.3). */
 export interface WorkSubmitRouting {
   readonly decision: WorkOutcomeDecision;
   /** Round recorded on the outcome; advances only on a source loop traversal. */
   readonly round: number;
-  /** Recipient of the `thread.route-taken` traversal (loop decisions only). */
-  readonly routeTo: ThreadId | null;
-  /** Gate counterpart to complete alongside (resolve only; null when none or already terminal). */
-  readonly resolveWith: ThreadId | null;
+  /** Recipients of the `thread.route-taken` traversals, one each (loop decisions only). */
+  readonly routeTo: ReadonlyArray<ThreadId>;
+  /** Gate counterparts to complete alongside (resolve only; those not already terminal). */
+  readonly resolveWith: ReadonlyArray<ThreadId>;
 }
+
+/** The caller's loop targets whose route loops on `outcome`: the gate siblings a verdict may reopen. */
+const loopTargetsOn = (routes: ReadonlyArray<WorkstreamRoute>, outcome: string) =>
+  routes.flatMap((route) =>
+    route.kind === "loop" && route.to !== undefined && route.on.includes(outcome) ? [route.to] : [],
+  );
 
 /**
  * The single routing decision for a submitted outcome: the decider follows it, the submit endpoint
  * mirrors it. `quiescent` yields before the rework interception, so a coder gone quiet mid-rework
- * is never read as handing back; a dead loop target yields; a target with an open rework round
- * loops back; otherwise only `done` is terminal and anything else yields (escalation is safe).
+ * is never read as handing back; a loop verdict reopens the `rework` it names (a one-sibling gate's
+ * sibling when none), and yields when every one is cancelled or gone; a target with an open rework
+ * round loops back; otherwise only `done` is terminal and anything else yields (escalation is safe).
  */
 export const routeWorkSubmit = <T extends GateNode>(
   thread: T,
   threads: ReadonlyArray<T>,
   outcome: string,
+  rework?: ReadonlyArray<ThreadId>,
 ): WorkSubmitRouting => {
-  const base = { round: thread.gateRounds, routeTo: null, resolveWith: null };
+  const base = { round: thread.gateRounds, routeTo: [], resolveWith: [] };
   if (outcome === "quiescent") return { ...base, decision: "yield" };
   if (outcome === "needs_human") return { ...base, decision: "attention" };
+  const live = (id: ThreadId, alive: (outcome: LoomOutcome | null) => boolean) => {
+    const target = threads.find((entry) => entry.id === id);
+    return target !== undefined && alive(target.outcome);
+  };
   if (outcome !== "done") {
-    const route = thread.routes.find((entry) => entry.on.includes(outcome));
-    if (route?.kind === "loop" && route.to !== undefined) {
-      const target = threads.find((entry) => entry.id === route.to);
-      if (target === undefined || target.outcome === "cancelled") {
-        return { ...base, decision: "yield" };
-      }
-      return thread.gateRounds < (route.maxRounds ?? DEFAULT_GATE_MAX_ROUNDS)
-        ? { ...base, decision: "loop", round: thread.gateRounds + 1, routeTo: route.to }
+    const targets = loopTargetsOn(thread.routes, outcome);
+    if (targets.length > 0) {
+      const named = rework?.length ? rework : targets.length === 1 ? targets : [];
+      const routeTo = targets.filter(
+        (id) => named.includes(id) && live(id, (state) => state !== "cancelled"),
+      );
+      if (routeTo.length === 0) return { ...base, decision: "yield" };
+      // One cap per gate: every loop route of a gate carries the same maxRounds.
+      const cap =
+        thread.routes.find((route) => route.kind === "loop" && route.on.includes(outcome))
+          ?.maxRounds ?? DEFAULT_GATE_MAX_ROUNDS;
+      return thread.gateRounds < cap
+        ? { ...base, decision: "loop", round: thread.gateRounds + 1, routeTo }
         : { ...base, decision: "cap-breach" };
     }
-    if (route?.kind === "resolve") {
-      const loopTo = gateLoopTargetOf(thread);
-      const counterpart =
-        loopTo === null ? undefined : threads.find((entry) => entry.id === loopTo);
+    if (thread.routes.some((route) => route.kind === "resolve" && route.on.includes(outcome))) {
       return {
         ...base,
         decision: "resolve",
-        resolveWith:
-          counterpart !== undefined && !isTerminal(counterpart.outcome) ? counterpart.id : null,
+        resolveWith: gateLoopTargetsOf(thread).filter((id) => live(id, (state) => !isTerminal(state))),
       };
     }
   }
   if (thread.pendingRework) {
     const source = gateSourceFor(thread.id, threads);
     if (source !== null) {
-      return { ...base, decision: "loop", round: source.gateRounds, routeTo: source.id };
+      return { ...base, decision: "loop", round: source.gateRounds, routeTo: [source.id] };
     }
   }
   return { ...base, decision: outcome === "done" ? "terminal" : "yield" };
@@ -408,18 +429,33 @@ export const holdErasedByCompletion = (input: {
 
 /**
  * Why the arm refuses a `thread.work.submit` outright, or null: an agent claiming a reserved
- * outcome, or a thread whose outcome is set, unless a gate rework reopens a `done` target. The
- * submit tool checks it before writing the report, so a refused submit never replaces the record.
+ * outcome, a thread whose outcome is set (unless a gate rework reopens a `done` target), or a
+ * `rework` that does not fit the caller's gate. The submit tool checks it before writing the
+ * report, so a refused submit never replaces the record.
  */
 export const workSubmitRefusal = (
-  thread: Pick<GateNode, "id" | "outcome" | "pendingRework">,
+  thread: Pick<GateNode, "id" | "outcome" | "pendingRework" | "routes">,
   outcome: string,
   decision: WorkOutcomeDecision,
   fromServer: boolean,
-): string | null =>
-  (RESERVED_OUTCOMES as ReadonlyArray<string>).includes(outcome) && !fromServer
-    ? `Outcome '${outcome}' is reserved for the server.`
-    : thread.outcome !== null &&
-        !(thread.outcome === "done" && thread.pendingRework && decision === "loop")
-      ? `Thread ${thread.id} is ${thread.outcome}; mcp__t3-code__workstream_submit cannot act on a terminal thread.`
-      : null;
+  rework?: ReadonlyArray<ThreadId>,
+): string | null => {
+  if ((RESERVED_OUTCOMES as ReadonlyArray<string>).includes(outcome) && !fromServer)
+    return `Outcome '${outcome}' is reserved for the server.`;
+  if (
+    thread.outcome !== null &&
+    !(thread.outcome === "done" && thread.pendingRework && decision === "loop")
+  )
+    return `Thread ${thread.id} is ${thread.outcome}; mcp__t3-code__workstream_submit cannot act on a terminal thread.`;
+  const targets = loopTargetsOn(thread.routes, outcome);
+  const listed = targets.join(", ");
+  // loom: wording owned by step 8
+  if (rework?.length && targets.length === 0)
+    return `rework only accompanies an outcome your review gate loops on; '${outcome}' loops nothing.`;
+  const stray = rework?.find((id) => !targets.includes(id));
+  if (stray !== undefined)
+    return `rework names ${stray}, which is not a sibling your gate loops on '${outcome}'; its siblings are: ${listed}.`;
+  if (!rework?.length && targets.length > 1)
+    return `Your review gate covers several siblings; '${outcome}' must name the ones to reopen in rework (any of: ${listed}).`;
+  return null;
+};

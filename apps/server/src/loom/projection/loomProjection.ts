@@ -115,8 +115,13 @@ const foldWorkstream = (
       return next({ lastOutcome: { ...event.payload, eventId: event.id, at } });
     case "thread.route-taken": {
       const { to, round, kind } = event.payload;
+      if (row.lastRoutes.some((route) => route.eventId === event.id)) return undefined; // replay
+      const head = row.lastRoutes[0];
+      const record = { to, round, kind, eventId: event.id };
       return next({
-        lastRoute: { to, round, kind, eventId: event.id },
+        // One verdict's traversals share a round and kind: append within it, replace on the next.
+        lastRoutes:
+          head?.round === round && head.kind === kind ? [...row.lastRoutes, record] : [record],
         // A loop's round is the source's gateRounds + 1: assigning it is the increment, replay-safe.
         ...(kind === "loop" ? { gateRounds: round } : {}),
         ...(kind === "loop-back" ? { pendingRework: false } : {}),

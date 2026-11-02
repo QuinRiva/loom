@@ -3,7 +3,7 @@
  * a `forkFrom` child by the copied-history clause. The dispatcher's kickoff is its only sender.
  */
 import type { LoomThreadWorkstream, ThreadId } from "@t3tools/contracts";
-import { gateLoopTargetOf } from "@t3tools/shared/workstreamGraph";
+import { gateLoopTargetsOf } from "@t3tools/shared/workstreamGraph";
 import * as Effect from "effect/Effect";
 
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
@@ -36,7 +36,7 @@ export const kickoffContext = Effect.fn("loom.kickoffContext")(function* (
     role: nodesById.get(id)?.role ?? null,
     reportPath: nodesById.get(id)?.reportPath ?? null,
   });
-  const targetId = gateLoopTargetOf(row);
+  const targetId = gateLoopTargetsOf(row)[0] ?? null;
   return {
     gateTarget:
       targetId === null
