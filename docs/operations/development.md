@@ -67,13 +67,16 @@ Add `--browser` to open a browser automatically.
 
 ### State and ports
 
-Linked worktrees default to their own `.t3/userdata`, even when `T3CODE_HOME` is set.
-The main checkout defaults to `~/.t3/dev`. An explicit `--home-dir` wins in both cases.
-The first start in a worktree seeds its empty database from a read-only copy of
-`~/.t3/userdata/statev2.sqlite` if the source is at most 500 MiB. Larger sources warn
-and dev starts with an empty database. `--no-seed` or `T3CODE_DEV_SEED=0` skips seeding.
-To copy a larger source, run `vp run migrate-dev-db` with dev stopped. It may use
-substantial disk space before pruning.
+<!-- loom: port-scoped dev home and unguarded seed (DL-1500, DL-1608) -->
+
+`vp run dev` keeps its state in a per-port home, `<base>/dev-instances/<port>`. In a linked
+worktree the base is the worktree's own `.t3`, even when `T3CODE_HOME` is set; in the main
+checkout it is `T3CODE_HOME`, else `~/.t3`. An explicit `--home-dir` replaces the base in both
+cases. `vp run dev:desktop` uses the base itself.
+The first start in a worktree seeds its empty database through `migrate-dev-db` from a read-only
+slice of `$T3CODE_HOME/userdata/statev2.sqlite` (else `~/.t3`), with no size limit: it copies
+recent projects and their stopped threads, not the whole file. `--no-seed` or
+`T3CODE_DEV_SEED=0` skips seeding.
 Never run a development server against the live `~/.t3/userdata`.
 See [test data](../../AGENTS.md#test-data) for copying a consistent database snapshot.
 
