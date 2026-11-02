@@ -208,21 +208,17 @@ export const gateSourceFor = <T extends GateNode>(
 
 /**
  * True when the protocol has parked the thread in an unresolved gate: the source after looping
- * findings (while a target holds the rework round or has routed back in the current round), or a
- * target that routed back to await re-verify, even if terminal (that leg is owed). False when every
- * counterpart is cancelled, parked from an earlier round, or terminal holding an open rework round:
- * nothing re-drives that, so the idle wake surfaces it.
+ * findings to a target still in this round, or a target routed back awaiting re-verify (even if
+ * terminal). False when no counterpart is left that anything re-drives, so the idle wake surfaces it.
  */
 export const isWaitingInGate = (
   thread: GateNode,
   threadsById: ReadonlyMap<ThreadId, GateNode>,
 ): boolean => {
   if (isTerminal(thread.outcome)) return false;
-  // Source waiting: a target holds the open rework round, or the source has looped and a target
-  // of this round is still active/yielded or has routed back for re-verify. A plain terminal
-  // target is a dead gate, not a parked one; a cancelled target deliberately un-suppresses; a
-  // sibling that routed back in an earlier round and was not reopened is not this round's (a
-  // lone target always is, so a one-sibling gate reads exactly as before).
+  // A plain terminal or cancelled target is a dead gate, not a parked one. A sibling that routed
+  // back in an earlier round and was not reopened is not this round's; a lone target always is,
+  // so a one-sibling gate reads exactly as before.
   const targets = gateLoopTargetsOf(thread);
   if (
     targets.some((loopTo) => {
@@ -351,11 +347,10 @@ const loopTargetsOn = (routes: ReadonlyArray<WorkstreamRoute>, outcome: string) 
   );
 
 /**
- * The single routing decision for a submitted outcome: the decider follows it, the submit endpoint
- * mirrors it. `quiescent` yields before the rework interception, so a coder gone quiet mid-rework
- * is never read as handing back; a loop verdict reopens the `rework` it names (a one-sibling gate's
- * sibling when none), and yields when every one is cancelled or gone; a target with an open rework
- * round loops back; otherwise only `done` is terminal and anything else yields (escalation is safe).
+ * The single routing decision for a submitted outcome, followed by the decider and mirrored by the
+ * submit endpoint. `quiescent` yields before the rework interception (a coder gone quiet is never
+ * handing back); a loop verdict reopens the live siblings `rework` names (a one-sibling gate's when
+ * none), else yields; only `done` is terminal and anything else yields (escalation is safe).
  */
 export const routeWorkSubmit = <T extends GateNode>(
   thread: T,
@@ -390,7 +385,9 @@ export const routeWorkSubmit = <T extends GateNode>(
       return {
         ...base,
         decision: "resolve",
-        resolveWith: gateLoopTargetsOf(thread).filter((id) => live(id, (state) => !isTerminal(state))),
+        resolveWith: gateLoopTargetsOf(thread).filter((id) =>
+          live(id, (state) => !isTerminal(state)),
+        ),
       };
     }
   }

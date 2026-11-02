@@ -171,28 +171,30 @@ it.layer(TestLayer)("Loom projector", (it) => {
     }),
   );
 
-  it.effect("route-taken appends within a round, replaces on a new round or kind, skips a replay", () =>
-    Effect.gen(function* () {
-      const store = yield* LoomStoreV2;
-      const threadId = ThreadId.make("fold-routes");
-      yield* seedThread({ threadId });
-      yield* writeEvents([yield* created(threadId, ThreadId.make("fold-parent"))]);
-      const taken = (to: string, round: number, kind: "loop" | "resolve") =>
-        loomEvent("thread.route-taken", threadId, { to: ThreadId.make(to), round, kind });
-      const routesOf = Effect.map(store.getWorkstream(threadId), (row) =>
-        row!.lastRoutes.map((route) => `${route.kind}:${route.round}:${route.to}`),
-      );
-      const a1 = yield* taken("a", 1, "loop");
-      yield* writeEvents([a1, yield* taken("b", 1, "loop")]);
-      assert.deepEqual(yield* routesOf, ["loop:1:a", "loop:1:b"]);
-      assert.equal((yield* store.getWorkstream(threadId))!.gateRounds, 1);
-      yield* applyLoomProjectionEvent(yield* SqlClient.SqlClient, a1); // a rebuild re-applying it
-      assert.deepEqual(yield* routesOf, ["loop:1:a", "loop:1:b"]);
-      yield* writeEvents([yield* taken("a", 2, "loop")]);
-      assert.deepEqual(yield* routesOf, ["loop:2:a"]);
-      yield* writeEvents([yield* taken("a", 2, "resolve"), yield* taken("b", 2, "resolve")]);
-      assert.deepEqual(yield* routesOf, ["resolve:2:a", "resolve:2:b"]);
-    }),
+  it.effect(
+    "route-taken appends within a round, replaces on a new round or kind, skips a replay",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* LoomStoreV2;
+        const threadId = ThreadId.make("fold-routes");
+        yield* seedThread({ threadId });
+        yield* writeEvents([yield* created(threadId, ThreadId.make("fold-parent"))]);
+        const taken = (to: string, round: number, kind: "loop" | "resolve") =>
+          loomEvent("thread.route-taken", threadId, { to: ThreadId.make(to), round, kind });
+        const routesOf = Effect.map(store.getWorkstream(threadId), (row) =>
+          row!.lastRoutes.map((route) => `${route.kind}:${route.round}:${route.to}`),
+        );
+        const a1 = yield* taken("a", 1, "loop");
+        yield* writeEvents([a1, yield* taken("b", 1, "loop")]);
+        assert.deepEqual(yield* routesOf, ["loop:1:a", "loop:1:b"]);
+        assert.equal((yield* store.getWorkstream(threadId))!.gateRounds, 1);
+        yield* applyLoomProjectionEvent(yield* SqlClient.SqlClient, a1); // a rebuild re-applying it
+        assert.deepEqual(yield* routesOf, ["loop:1:a", "loop:1:b"]);
+        yield* writeEvents([yield* taken("a", 2, "loop")]);
+        assert.deepEqual(yield* routesOf, ["loop:2:a"]);
+        yield* writeEvents([yield* taken("a", 2, "resolve"), yield* taken("b", 2, "resolve")]);
+        assert.deepEqual(yield* routesOf, ["resolve:2:a", "resolve:2:b"]);
+      }),
   );
 
   it.effect("records consult and peer-message edges and appends the send log once", () =>

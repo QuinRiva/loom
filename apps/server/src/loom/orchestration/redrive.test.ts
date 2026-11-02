@@ -274,7 +274,9 @@ describe("planReDrive episode rules", () => {
     });
     const back = (id: string) =>
       row(id, "root", {
-        lastRoutes: [{ ...route("reviewer", 1, "loop-back"), eventId: EventId.make(`event:${id}`) }],
+        lastRoutes: [
+          { ...route("reviewer", 1, "loop-back"), eventId: EventId.make(`event:${id}`) },
+        ],
       });
     const reworking = (id: string) => row(id, "root", { pendingRework: true });
     const c = row("c", "root", { outcome: "done" });
