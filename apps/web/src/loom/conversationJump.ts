@@ -55,7 +55,7 @@ export function useConversationJump({
   readonly routeThreadKey: string;
   readonly history: MessagesTimelineHistoryControls | undefined;
   readonly onExpandRun: (runId: RunId) => void;
-  readonly onExpandWorkGroup: (groupId: string, rowId: string) => void;
+  readonly onExpandWorkGroup: (groupId: string) => void;
   readonly onManualNavigation: () => void;
 }): boolean {
   const request = useConversationJumpStore((store) => store.request);
@@ -107,7 +107,7 @@ export function useConversationJump({
     // A collapsed tool group opens, so the very call shows.
     if (row.kind === "work-toggle" && !row.expanded && !tried.current.opened.has(row.groupId)) {
       tried.current.opened.add(row.groupId);
-      onExpandWorkGroup(row.groupId, row.id);
+      onExpandWorkGroup(row.groupId);
       return;
     }
     // Stop live-follow first, then scroll two frames later: the timeline must
