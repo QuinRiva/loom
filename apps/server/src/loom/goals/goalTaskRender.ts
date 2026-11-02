@@ -4,14 +4,15 @@
  * `goal_tasks_rewrite` scope is a no-op, or unusable as a submission: elided views carry
  * bullet-less marker lines that `parseGoalTaskMarkdown` rejects.
  */
-import type { GoalTaskId, LoomGoalTask } from "@t3tools/contracts";
+import type { GoalTaskId, IsoDateTime, LoomGoalTask } from "@t3tools/contracts";
 
-import { agentToolName } from "../../mcp/toolkits/workstream/families.ts";
 import {
   findGoalTask,
+  flattenGoalTasks,
   goalTaskSpine,
   isWithinGoalTaskBranch,
   resolveThreadAnchor,
+  type FlatGoalTask,
 } from "./goalTaskTree.ts";
 
 const taskLine = (task: LoomGoalTask, depth: number): string =>
@@ -68,9 +69,11 @@ export const renderGoalTaskOverview = (tasks: ReadonlyArray<LoomGoalTask>): stri
     })
     .join("\n");
 
+const indent = (depth: number) => "  ".repeat(depth + 1);
+
 /** Ancestor lines, outermost first, as read-only context (never rewrite input). */
 const renderSpine = (spine: ReadonlyArray<LoomGoalTask>): string =>
-  spine.map((task, depth) => `${"  ".repeat(depth + 1)}${task.text} (${task.id})`).join("\n");
+  spine.map((task, depth) => `${indent(depth)}${task.text} (${task.id})`).join("\n");
 
 /**
  * What a bound thread sees of the tree: where its branch hangs (bullet-less
@@ -88,7 +91,7 @@ export const renderGoalTaskBranch = (
 
 /** Where an out-of-branch add landed: its ancestor spine, then the added line. */
 const renderGoalTaskPlacement = (spine: ReadonlyArray<LoomGoalTask>, added: LoomGoalTask): string =>
-  `Recorded outside your branch, under:\n${renderSpine(spine)}\n${"  ".repeat(spine.length + 1)}+ ${added.text} (${added.id})`;
+  `Recorded outside your branch, under:\n${renderSpine(spine)}\n${indent(spine.length)}+ ${added.text} (${added.id})`;
 
 /** One line of goal-level numbers, so a branch-scoped thread still sees the whole. */
 export const renderGoalPulse = (
@@ -117,36 +120,128 @@ export const renderGoalPulse = (
 export const renderTasks = (tasks: ReadonlyArray<LoomGoalTask>): string =>
   tasks.length === 0 ? "(no tasks yet)" : renderGoalTaskTree(tasks).trimEnd();
 
+/** What one write did, as its reply reports it. */
+export type GoalTaskWrite =
+  | { readonly kind: "add" | "update"; readonly taskId: GoalTaskId }
+  | {
+      readonly kind: "rewrite";
+      /** Tasks the rewrite created, whose ids only this reply carries. */
+      readonly minted: ReadonlySet<string>;
+      /** Every task whose stored state the rewrite changed, minted and removed included. */
+      readonly touched: ReadonlySet<string>;
+    };
+
+/** The tasks in `marked` under their ancestor paths, bullet-less; marked lines carry `+`. */
+const renderMarkedPaths = (
+  tasks: ReadonlyArray<LoomGoalTask>,
+  marked: ReadonlySet<string>,
+  depth = 0,
+): string =>
+  tasks
+    .map((task) => {
+      const below = renderMarkedPaths(task.children, marked, depth + 1);
+      return marked.has(task.id) || below.length > 0
+        ? `${indent(depth)}${marked.has(task.id) ? "+ " : ""}${task.text} (${task.id})\n${below}`
+        : "";
+    })
+    .join("");
+
 /**
- * A goal_task_* mutation's answer, never a bare confirmation: a bound thread gets its whole branch
- * and the goal's numbers (plus, for a task placed outside its branch, that line with its spine); an
- * unbound child the open plan; the root the open plan plus a footer saying it is not rewrite input.
+ * Tasks another writer added, ticked, edited or removed after `readAt`, outside `touched`. A removed
+ * subtree is its root line with a count; "ticked" and "edited" read the current state, since a row
+ * keeps no history.
+ */
+const renderOthersChanged = (
+  tasks: ReadonlyArray<LoomGoalTask>,
+  deleted: ReadonlyArray<FlatGoalTask>,
+  readAt: IsoDateTime | null,
+  touched: ReadonlySet<string>,
+): string => {
+  if (readAt === null) return "";
+  const live = flattenGoalTasks(tasks);
+  const textOf = new Map<string, string>([...deleted, ...live].map((task) => [task.id, task.text]));
+  const since = (task: FlatGoalTask) => task.updatedAt > readAt && !touched.has(task.id);
+  const removed = deleted.filter(since);
+  const removedIds = new Set<string>(removed.map((task) => task.id));
+  const beneath = (task: FlatGoalTask): number =>
+    removed
+      .filter((child) => child.parentTaskId === task.id)
+      .reduce((count, child) => count + 1 + beneath(child), 0);
+  const line = (verb: string, task: FlatGoalTask, suffix = "") => {
+    const parent = task.parentTaskId === null ? undefined : textOf.get(task.parentTaskId);
+    return `  ${verb.padEnd(9)}${task.text} (${task.id})${parent === undefined ? "" : `, under ${parent}`}${suffix}`;
+  };
+  const lines = [
+    ...live
+      .filter(since)
+      .map((task) =>
+        line(task.createdAt > readAt ? "added" : task.done ? "ticked" : "edited", task),
+      ),
+    ...removed
+      .filter((task) => task.parentTaskId === null || !removedIds.has(task.parentTaskId))
+      .map((task) => {
+        const count = beneath(task);
+        return line(
+          "removed",
+          task,
+          count === 0 ? "" : `, with ${plural(count, "task")} beneath it`,
+        );
+      }),
+  ];
+  return lines.length === 0
+    ? ""
+    : `Changed by other threads since you last read the tree:\n${lines.join("\n")}`;
+};
+
+/**
+ * A goal_task_* mutation's answer. A bound thread gets its whole branch and the pulse (plus where an
+ * add outside it landed); an unscoped thread the write under its ancestors (a rewrite: the tasks it
+ * created), others' changes since `readAt`, and the pulse, all bullet-less so none is rewrite input.
  */
 export const renderGoalTaskEcho = (input: {
   readonly summary: string;
   readonly tasks: ReadonlyArray<LoomGoalTask>;
+  readonly deleted: ReadonlyArray<FlatGoalTask>;
   readonly anchorTaskId: GoalTaskId | null;
-  readonly isChild: boolean;
-  readonly placedTaskId?: GoalTaskId;
+  /** When the thread last saw the tree; null = never recorded, so nothing reads as changed. */
+  readonly readAt: IsoDateTime | null;
+  readonly write: GoalTaskWrite;
 }): string => {
-  const anchor = resolveThreadAnchor(input.tasks, input.anchorTaskId);
-  const open =
-    input.tasks.length === 0 ? "(no tasks yet)" : renderOpenGoalTaskTree(input.tasks).trimEnd();
-  if (anchor === null) {
-    return input.isChild
-      ? `${input.summary}\n\n${open}`
-      : `${input.summary}\n\n${open}\n\nDone subtrees are elided above, so this echo is NOT rewrite input. Rewrite from a fresh ${agentToolName("goal_task_list")} (scope "tree"), which returns the complete tree.`;
+  const { tasks, write } = input;
+  const anchor = resolveThreadAnchor(tasks, input.anchorTaskId);
+  if (anchor !== null) {
+    const placed =
+      write.kind !== "rewrite" && !isWithinGoalTaskBranch(anchor, write.taskId)
+        ? findGoalTask(tasks, write.taskId)
+        : null;
+    return [
+      input.summary,
+      ...(placed === null
+        ? []
+        : [renderGoalTaskPlacement(goalTaskSpine(tasks, placed.id), placed)]),
+      renderGoalTaskBranch(anchor, goalTaskSpine(tasks, anchor.id)),
+      renderGoalPulse(tasks, anchor),
+    ].join("\n\n");
   }
-  const placed =
-    input.placedTaskId !== undefined && !isWithinGoalTaskBranch(anchor, input.placedTaskId)
-      ? findGoalTask(input.tasks, input.placedTaskId)
-      : null;
+  const written = write.kind === "rewrite" ? null : findGoalTask(tasks, write.taskId);
+  const spine = written === null ? [] : goalTaskSpine(tasks, written.id);
+  const added = write.kind === "rewrite" ? renderMarkedPaths(tasks, write.minted).trimEnd() : "";
   return [
     input.summary,
-    ...(placed === null
-      ? []
-      : [renderGoalTaskPlacement(goalTaskSpine(input.tasks, placed.id), placed)]),
-    renderGoalTaskBranch(anchor, goalTaskSpine(input.tasks, anchor.id)),
-    renderGoalPulse(input.tasks, anchor),
-  ].join("\n\n");
+    written === null
+      ? ""
+      : `Where it sits:\n${spine.length === 0 ? "" : `${renderSpine(spine)}\n`}${indent(spine.length)}${
+          write.kind === "add" ? "+ " : `[${written.done ? "x" : " "}] `
+        }${written.text} (${written.id})`,
+    added.length === 0 ? "" : `Added, with the ids the server assigned:\n${added}`,
+    renderOthersChanged(
+      tasks,
+      input.deleted,
+      input.readAt,
+      write.kind === "rewrite" ? write.touched : new Set([write.taskId]),
+    ),
+    renderGoalPulse(tasks, null),
+  ]
+    .filter((part) => part.length > 0)
+    .join("\n\n");
 };

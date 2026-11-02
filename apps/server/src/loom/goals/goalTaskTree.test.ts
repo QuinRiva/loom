@@ -1,7 +1,8 @@
 /**
  * Task-tree branch scoping: round-trip identity holds per scope, a branch rewrite reaches only
- * inside its branch, the anchor is undeletable and unmovable, and the elided open-plan view is
- * rejected as a rewrite submission rather than silently destructive.
+ * inside its branch, the anchor is undeletable and unmovable, the elided open-plan view is
+ * rejected as a rewrite submission rather than silently destructive, and a finished subtree
+ * collapsed to its own line survives a whole-tree rewrite.
  */
 import { GoalId, GoalTaskId, type LoomGoalTask } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
@@ -246,5 +247,52 @@ describe("whole-tree rewrite is unchanged for the tree's owner", () => {
     expect(result.tasks.map((task) => task.id)).toEqual(
       flattenGoalTasks(tree).map((task) => task.id),
     );
+  });
+});
+
+describe("finished subtree under a retained finished line", () => {
+  const wholeTree = (markdown: string) => {
+    let next = 0;
+    return resolveGoalTaskRewrite({
+      lines: parseOrThrow(markdown),
+      current: currentFlat,
+      mintTaskId: () => id(`minted-${next++}`),
+    });
+  };
+  const rest = renderGoalTaskTree(tree.slice(1)).trimEnd();
+
+  it("keeps the children the submission omits, so the collapsed line round-trips", () => {
+    const result = wholeTree(`- [x] Audit the usage pipeline (phase-1)\n${rest}`);
+    expect(result.changed).toBe(false);
+    expect(result.tasks.map((task) => task.id).toSorted()).toEqual(
+      currentFlat.map((task) => task.id).toSorted(),
+    );
+  });
+
+  it("keeps them beside a child added under the collapsed line", () => {
+    const result = wholeTree(
+      `- [x] Audit the usage pipeline (phase-1)\n  - [ ] Re-measure after the fix\n${rest}`,
+    );
+    expect(result.summary).toBe("Rewrote the task tree: 1 added.");
+    expect(
+      result.tasks.filter((task) => task.parentTaskId === "phase-1").map((task) => task.id),
+    ).toEqual(["minted-0", "audit-a", "audit-b"]);
+    expect([...result.minted]).toEqual(["minted-0"]);
+  });
+
+  it("prunes them only with the line itself, and the Removed block restores them", () => {
+    const result = wholeTree(rest);
+    expect(result.summary).toContain("3 removed");
+    expect(result.summary).toContain(
+      "- [x] Audit the usage pipeline (phase-1)\n  - [x] Measure drift (audit-a)",
+    );
+  });
+
+  it("does not apply under an open line, whose children the reader saw", () => {
+    const result = wholeTree(
+      renderGoalTaskTree(tree).replace("  - [x] Decide the shape (shape)\n", ""),
+    );
+    expect(result.summary).toContain("1 removed");
+    expect(result.tasks.map((task) => task.id)).not.toContain("shape");
   });
 });
