@@ -80,6 +80,9 @@ export function sanitizeDiagramSvg(svg: string): Node {
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "Failed to render diagram";
 
+// Outside the component: React Compiler cannot lower a dynamic `import()`.
+const loadPele = () => import("pele/lazy");
+
 function MermaidRead({ data, blockId }: PlanBlockReadProps<MermaidData>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const source = data.source.trim();
@@ -99,7 +102,7 @@ function MermaidRead({ data, blockId }: PlanBlockReadProps<MermaidData>) {
     const text = markStatusNodes(source);
     // Load first and mount synchronously only while still current, so a superseded
     // render (StrictMode, a source edit) never draws into or clears the container.
-    import("pele/lazy")
+    loadPele()
       .then(async (pele) => {
         await pele.load(pele.detectType(text));
         if (!active) return;

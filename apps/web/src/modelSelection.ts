@@ -349,17 +349,23 @@ export function defaultModelSelectionsAreMixed(
       stored === null
         ? resolveProjectDefaultProviderModelSelection(providers, settings, projectId)
         : resolveDefaultProviderModelSelection(providers, stored);
+    const merged = {
+      ...clientSettings,
+      ...settings,
+      ...resolveModelPreferences(settings, clientSettings),
+    };
+    // loom: an automatic default skips hidden models (DL-913), where an explicit one keeps them.
+    const automatic =
+      stored === null && selection
+        ? resolveAppModelSelectionForInstance(selection.instanceId, merged, providers, null)
+        : null;
     return {
       stored,
       effective: selection
         ? resolveEffectiveDefaultModelSelection(
-            {
-              ...clientSettings,
-              ...settings,
-              ...resolveModelPreferences(settings, clientSettings),
-            },
+            merged,
             providers,
-            selection,
+            automatic === null ? selection : { ...selection, model: automatic },
           )
         : null,
     };
