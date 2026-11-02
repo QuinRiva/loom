@@ -102,6 +102,7 @@ function LoomPendingUserInputPreview() {
   const [sent, setSent] = useState<string | null>(null);
   const progress = derivePendingUserInputProgress(LOOM_QUESTIONS, answers, 0);
   const customAnswer = progress.customAnswer;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the preview's request host in the shared host store
   useEffect(() => {
     hostLoomPendingInputForPreview(requestId, {
       onReplyInChat: () => setSent(customAnswer.trim()),

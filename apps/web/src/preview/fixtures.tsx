@@ -999,6 +999,7 @@ const QUERY_PINS_BINDING: PlanQueryBinding = {
 
 function PlanQueryPinsPreview() {
   // One pending comment, seeded once into the scratch draft the layer reads.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- seeds the preview's pending comment into the draft store once on mount
   useEffect(() => {
     const quote = "Every read that used to block the event loop now crosses one message port";
     useComposerDraftStore.getState().addReviewComment(QUERY_PINS_TARGET, {

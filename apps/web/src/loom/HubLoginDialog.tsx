@@ -83,6 +83,7 @@ function HubLoginFlow({
   const wrongAccount = loggedIn !== undefined && loggedIn !== null && loggedIn !== alert.email;
 
   // The dialog exists to sign in: mint the link as it opens rather than ask for one more click.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mints the hub's sign-in link over RPC as the dialog opens
   useEffect(() => {
     let live = true;
     void start({ environmentId: alert.environmentId, input: { sourceId: alert.sourceId } }).then(

@@ -64,6 +64,7 @@ export function useConversationJump({
   const tried = useRef({ request, pages: new Set<string>(), opened: new Set<string>() });
   const pending = request !== null && request.threadId === threadId;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- drives the jump through history paging, run expansion and scrolling until the anchor's row is on screen
   useEffect(() => {
     // Wait for the thread's own entries: the handoff receipts splice in from the
     // shell before its history arrives, and would otherwise take the jump.

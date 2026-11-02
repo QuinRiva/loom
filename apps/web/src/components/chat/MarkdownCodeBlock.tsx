@@ -278,6 +278,7 @@ function useCodePathDecoration(
   isStreaming: boolean,
 ) {
   const ref = useRef<HTMLDivElement>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loom: links file paths in the highlighted code DOM once the block stops streaming
   useEffect(() => {
     if (ref.current && decorateCodeBlock && !isStreaming) decorateCodeBlock(ref.current);
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- loom: new content is a re-highlighted block whose paths need decorating again.

@@ -60,6 +60,7 @@ export function useLoomReviewSelection({
   const sources = useReviewBaselineStore((state) => state.sources);
   const intervals = useLoomReviewIntervals(enabled ? threadRef : null);
   const hasIntervals = (intervals.data?.intervals.length ?? 0) > 0;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- seeds the live interval into the review store once intervals load, never over a user's choice
   useEffect(() => {
     if (threadRef && intervalId === undefined && hasIntervals)
       useReviewBaselineStore.getState().seedLive(threadRef);

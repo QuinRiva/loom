@@ -458,6 +458,7 @@ export default function FileBrowserPanel({
   // scroll to and select it. Runs when the request id changes or once the tree
   // paths that contain the target have loaded.
   const handledDirectoryRevealRef = useRef<number>(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loom: drives the file tree model (expand, scroll, select) to reveal a chip's directory once its paths load
   useEffect(() => {
     if (!revealPath || revealRequestId === 0) return;
     const normalized = revealPath.replaceAll("\\", "/").replace(/\/+$/, "");

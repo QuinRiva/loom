@@ -87,6 +87,7 @@ function MermaidRead({ data, blockId }: PlanBlockReadProps<MermaidData>) {
   const [outcome, setOutcome] = useState<{ source: string; error: string | null } | null>(null);
   const settled = outcome?.source === source ? outcome : null;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- lazy-loads the Mermaid renderer and mounts its SVG into the container
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !source) return;

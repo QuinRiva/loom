@@ -43,6 +43,7 @@ export function useThreadTabsSync(
 
   // Runs before the seed, so a mixed bucket splits in its own order. Re-runs
   // only when the lineage index changes or the route thread does.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- regroups and prunes the persisted tab store when the lineage index changes
   useEffect(() => {
     regroupTabs((ref) => resolveThreadGroupKey(lineage, ref));
     const { groups, recentlyClosed, removeThread } = useThreadTabsStore.getState();
@@ -54,6 +55,7 @@ export function useThreadTabsSync(
     }
   }, [lineage, key, regroupTabs]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- seeds the route's thread into the persisted tab store once per navigation
   useEffect(() => {
     if (key && bootstrapComplete && routeThreadExists) seed();
   }, [key, bootstrapComplete, routeThreadExists, seed]);

@@ -56,6 +56,7 @@ export function LoomScopeMenuEntries({
   const intervalsQuery = useLoomReviewIntervals(threadRef);
   const { refresh } = intervalsQuery;
   // The menu opening is a refresh: a message sent since the panel opened has its own interval.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refetches the review intervals each time the scope menu opens (mounts)
   useEffect(() => refresh(), [refresh]);
   const selectedId = useReviewBaselineStore(
     (state) => state.intervalIdByThreadKey[scopedThreadKey(threadRef)] ?? null,

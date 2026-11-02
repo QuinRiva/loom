@@ -95,6 +95,7 @@ export function DesignBoardRead({ data, blockId, children }: PlanBlockReadProps<
 
   // Absolutely-positioned children don't contribute to the surface's scroll size,
   // so measure them and grow the surface to contain every artboard/frame/note.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the absolutely positioned artboards in the DOM to size the scroll surface
   useLayoutEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
@@ -322,6 +323,7 @@ function AnnotationRead({ data, blockId, children }: PlanBlockReadProps<Annotati
   const free = freePt ? { left: freePt.x, top: freePt.y } : null;
   const [pos, setPos] = useState<{ left: number; top: number } | null>(free);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- places a note against its target's measured DOM rect, re-placing on resize
   useLayoutEffect(() => {
     const self = selfRef.current;
     const surface = self?.closest<HTMLElement>(`.${SURFACE_CLASS}`);
@@ -415,6 +417,7 @@ function ConnectorRead({ data }: PlanBlockReadProps<ConnectorData>) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [line, setLine] = useState<ConnectorLine | null>(null);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- draws a connector between two items' measured DOM rects, redrawn on resize
   useEffect(() => {
     const surface = rootRef.current?.closest<HTMLElement>(`.${SURFACE_CLASS}`);
     if (!surface) return;

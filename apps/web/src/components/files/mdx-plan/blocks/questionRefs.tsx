@@ -90,6 +90,7 @@ function PeekSection({
     null,
   );
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- compiles the anchored section asynchronously in the MDX worker
   useEffect(() => {
     let active = true;
     // oxlint-disable-next-line react/set-state-in-effect -- A new anchor starts loading its section, so the previous one clears first.
@@ -186,6 +187,7 @@ export function QuestionRefChips({ refs }: { refs: QuestionRef[] }) {
     setOpen(null);
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- focuses the open peek and holds document dismiss listeners while it is open
   useEffect(() => {
     if (open === null) return;
     popoverRef.current?.focus();

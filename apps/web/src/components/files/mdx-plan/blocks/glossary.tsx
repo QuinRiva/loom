@@ -91,6 +91,7 @@ function TermRead({ data, children }: PlanBlockReadProps<TermData>) {
   const store = useContext(GlossaryContext);
   // The glossary renders after the prose linking to it, so definitions cannot
   // flow down as context; a card reads this map only when it opens.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this term in the glossary's shared definitions map until unmount
   useEffect(() => {
     if (!store) return;
     const key = glossaryKey(data.name);

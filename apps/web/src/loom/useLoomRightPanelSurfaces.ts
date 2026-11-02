@@ -48,6 +48,7 @@ export function useLoomRightPanelSurfaces(
   const workstreamThread = useThreadShell(threadRef)?.source.workstream !== undefined;
   const workstreamRoot = useHasLoomChildren(threadRef);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- auto-opens the workstream panel in the right-panel store, seeding without overriding the user's choice
   useEffect(() => {
     if (threadRef) autoOpenLoomSurfaces(threadRef, { workstreamRoot, autoOpenWorkstreamPanel });
   }, [threadRef, workstreamRoot, autoOpenWorkstreamPanel]);

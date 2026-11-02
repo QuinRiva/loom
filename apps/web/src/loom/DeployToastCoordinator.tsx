@@ -45,6 +45,7 @@ function EnvironmentDeployToasts({ environmentId }: { environmentId: Environment
   );
   const navigate = useNavigate();
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- shows each deploy event from the server stream as an imperative toast
   useEffect(() => {
     if (event === null) return;
     if (event.type === "restarting") {

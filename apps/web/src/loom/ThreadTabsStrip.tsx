@@ -125,6 +125,7 @@ export function ThreadTabsStrip({ activeRouteRef }: { activeRouteRef: ScopedThre
     }
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the newly active tab into view in the DOM
   useEffect(() => {
     const activeTab = tabListRef.current?.querySelector<HTMLElement>("[data-active-tab='true']");
     activeTab?.scrollIntoView({ block: "nearest", inline: "nearest" });

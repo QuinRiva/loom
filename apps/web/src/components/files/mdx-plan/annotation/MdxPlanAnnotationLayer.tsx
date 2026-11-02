@@ -386,6 +386,7 @@ export function MdxPlanAnnotationLayer({
 
   // Track the rendered plan root (a direct child of the wrapper) as it appears
   // after the async MDX compile / on re-render.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a MutationObserver finds the plan root the async MDX compile renders into the wrapper
   useEffect(() => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
@@ -568,6 +569,7 @@ export function MdxPlanAnnotationLayer({
   };
 
   // Recompute overlays on any layout-affecting change to the plan DOM.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- resize, mutation and scroll observers on the plan DOM re-measure the overlay boxes
   useLayoutEffect(() => {
     const wrapper = wrapperRef.current;
     if (!wrapper || !root) {
@@ -616,6 +618,7 @@ export function MdxPlanAnnotationLayer({
   }, [root, recompute]);
 
   // Hide the selection affordance when the selection collapses.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a document selectionchange listener hides the affordance when the selection collapses
   useEffect(() => {
     const onSelectionChange = () => {
       // A selection inside an HtmlBlock frame is tracked by that frame's own
@@ -689,6 +692,7 @@ export function MdxPlanAnnotationLayer({
   // HtmlBlock frames are separate same-origin documents whose events never reach
   // the wrapper, so listen in each frame once its srcdoc loads (a srcdoc
   // re-render loads a fresh document, which is wired again).
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens inside each HtmlBlock iframe document, which the wrapper's events never reach
   useEffect(() => {
     if (!root) return;
     const controller = new AbortController();
@@ -1298,14 +1302,9 @@ function AnnotationComposer({
     });
   };
 
-  // Persist the in-progress draft as it changes so dismiss→reopen and reloads
-  // both restore it (issue 6). Submit/discard clear it via the parent.
-  useEffect(() => {
-    onCacheDraft(draftKey, text);
-  }, [draftKey, text, onCacheDraft]);
-
   // Dismiss on click-away / Esc — no longer Cancel-only (issue 5). Pointerdown
   // inside the composer is stopped below, so this only fires for outside clicks.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- document pointerdown and Escape listeners dismiss the composer while it is open
   useEffect(() => {
     const onPointerDown = () => onDismiss();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1378,7 +1377,11 @@ function AnnotationComposer({
         value={text}
         placeholder={querying ? "Ask about this passage" : "Request change"}
         aria-label={querying ? "Question for the author's fork" : "Comment on plan"}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => {
+          setText(event.target.value);
+          // Cached per keystroke so dismiss→reopen and reloads restore it; submit/discard clear it.
+          onCacheDraft(draftKey, event.target.value);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();

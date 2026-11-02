@@ -40,6 +40,7 @@ export function useShikiHtml(code: string, language: string): string | null {
   const themeName = resolveDiffThemeName(resolvedTheme);
   const [html, setHtml] = useState<string | null>(null);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- highlights with the lazily loaded Shiki highlighter
   useEffect(() => {
     let active = true;
     void highlighterFor(language).then((highlighter) => {

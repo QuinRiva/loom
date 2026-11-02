@@ -31,6 +31,7 @@ export function StepElapsed({
 }) {
   const ref = useRef<HTMLSpanElement>(null);
   // Filled before paint, then by DOM write, so the clock is never read during render.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a one-second timer writes the elapsed time to the DOM without re-rendering
   useLayoutEffect(() => {
     const update = () => {
       const ms = (until === null ? Date.now() : Date.parse(until)) - Date.parse(since);

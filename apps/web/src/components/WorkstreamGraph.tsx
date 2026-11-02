@@ -202,11 +202,13 @@ export default function WorkstreamGraph({
   const [hoveredId, setHoveredId] = useState<ThreadId | null>(null);
   const hovered = hoveredId === null ? undefined : byId.get(hoveredId);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- re-fits a view the user has not zoomed or panned to the new geometry
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- A structural change re-fits a view the user has not zoomed or panned; once they have, viewBox is theirs.
     if (!adjusted) setViewBox(base);
   }, [base, adjusted]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- persists the view to the session store so returning to this orchestration restores it
   useEffect(() => {
     setGraphView(viewKey, { viewBox, adjusted });
   }, [setGraphView, viewKey, viewBox, adjusted]);
@@ -266,12 +268,14 @@ export default function WorkstreamGraph({
     card.style.top = `${y}px`;
   });
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the pending hover timer on unmount
   useEffect(
     () => () => {
       if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
     },
     [],
   );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- positions the facts card in the DOM from the pointer or focus position before paint
   useLayoutEffect(() => {
     if (hoveredId === null) return;
     const at = focusPosRef.current ?? pointerPosRef.current;
@@ -303,6 +307,7 @@ export default function WorkstreamGraph({
     setViewBox(base);
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a non-passive wheel listener, which React's onWheel cannot register, zooms the SVG
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;

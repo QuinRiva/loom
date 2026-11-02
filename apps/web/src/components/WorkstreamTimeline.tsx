@@ -35,6 +35,7 @@ export function useThreadHistory(
   } | null>(null);
   const threadId = node?.id;
   const updatedAt = node?.updatedAt ?? null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- fetches the thread's history over RPC, again whenever the thread updates
   useEffect(() => {
     if (threadId === undefined) return;
     let cancelled = false;
@@ -77,6 +78,7 @@ export function WorkstreamTimelineDrawer({
 
   // Modal focus: remember the trigger, focus the close button, keep Tab inside,
   // Esc dismisses, and focus returns to the trigger on close.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- modal focus: focuses the close button, traps Tab, handles Escape, and restores focus on close
   useEffect(() => {
     if (!open) return;
     const restore = document.activeElement;

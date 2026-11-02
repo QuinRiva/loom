@@ -29,6 +29,7 @@ function EnvironmentHandoffToasts({ environmentId }: { environmentId: Environmen
   const navigate = useNavigate();
   const previous = useRef<ReadonlyMap<string, LoomTimelineRow> | null>(null);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- shows each newly settled handoff from the snapshot as an imperative toast
   useEffect(() => {
     if (!threads) return;
     const prior = previous.current ?? new Map<string, LoomTimelineRow>();
