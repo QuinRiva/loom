@@ -19,7 +19,7 @@ export function PromotedFromQuery(props: {
       Promoted from{" "}
       <MarkdownThreadLink
         environmentId={props.environmentId}
-        threadId={props.queryThreadId}
+        link={{ environmentId: props.environmentId, threadId: props.queryThreadId }}
         label={`Query: ${props.filePath.split("/").pop() ?? props.filePath}`}
         fromThreadRef={props.fromThreadRef}
       />

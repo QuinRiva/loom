@@ -14,7 +14,7 @@ import { AsyncResult } from "effect/reactivity";
 import { useEffect, useState } from "react";
 
 import { type ThreadToastData, toastManager } from "~/components/ui/toast";
-import { useEnvironmentIds } from "~/state/environments";
+import { environmentSummaries } from "~/state/presentation";
 import { buildThreadRouteParams } from "~/threadRoutes";
 
 import { claimDeployNotice, deployListView, deployNoticeIsQuiet } from "./deployToast";
@@ -34,7 +34,7 @@ const RESTART_REASON = {
  * posts before it stops Loom, and the notice the restarted server sends each browser once.
  */
 export function DeployToastCoordinator() {
-  return useEnvironmentIds().map((environmentId) => (
+  return useAtomValue(environmentSummaries.environmentIdsAtom).map((environmentId) => (
     <EnvironmentDeployToasts key={environmentId} environmentId={environmentId} />
   ));
 }

@@ -615,8 +615,6 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "pull-requests":
       return "Pull requests";
-    case "tasks": // loom: 3d-2 seam 18
-      return "Goal tasks";
     case "workstream": // loom: 3d-2 seam 18
       return "Workstream";
     case "device":

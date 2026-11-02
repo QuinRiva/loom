@@ -41,7 +41,7 @@ export function useHubLoginBannerItems(): ComposerBannerStackItem[] {
       return {
         id: `hub-login:${alert.email}`,
         variant: urgent(alert) ? "error" : "warning",
-        priority: "urgent",
+        group: "environment", // the hub login is the machine's, so it leads the stack
         icon: <KeyRoundIcon />,
         title: split === -1 ? alert.text : alert.text.slice(0, split),
         ...(split === -1

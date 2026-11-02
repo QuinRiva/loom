@@ -157,7 +157,10 @@ export function ThreadMentionView(props: {
     <Link
       to="/$environmentId/$threadId"
       params={{ environmentId: props.environmentId, threadId: props.threadId }}
-      data-markdown-copy={formatThreadLink(props.threadId, props.title)}
+      data-markdown-copy={formatThreadLink(
+        { environmentId: null, threadId: props.threadId },
+        props.title,
+      )}
       className={cn(
         !props.resolved &&
           "cursor-help border-muted-foreground/60 border-b border-dashed text-muted-foreground!",

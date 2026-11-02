@@ -113,7 +113,6 @@ import SourceFilePreview from "./ReadOnlySourcePreview";
 import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
 import { projectFileCacheKey } from "./fileContentRevision";
-import { fileBreadcrumbs } from "./filePath"; // loom:
 import {
   filePreviewReadErrorMessage,
   isMarkdownPreviewFile,
@@ -152,7 +151,6 @@ import {
   getProjectFileContents,
   getProjectFileQueryAtom,
   setProjectFileQueryData,
-  useProjectAbsoluteFileQuery, // loom: out-of-workspace file chips
   useProjectFileQuery,
 } from "./projectFilesQueryState";
 

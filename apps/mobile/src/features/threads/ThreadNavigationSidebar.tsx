@@ -84,7 +84,6 @@ import {
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
-  threadListV2SearchArchivedItems, // loom
 } from "./threadListV2";
 import { useSelectWorkspaceDetail } from "../workspace/useSelectWorkspaceDetail";
 import { ArchivedSearchResultRow } from "./ArchivedSearchResultRow.loom"; // loom

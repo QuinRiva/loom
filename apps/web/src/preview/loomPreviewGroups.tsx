@@ -16,11 +16,11 @@ import { useEffect, useState } from "react";
 import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
 import { hostLoomPendingInputForPreview } from "../loom/pendingUserInputLoom";
 import {
-  derivePendingUserInputProgress,
   type PendingUserInputDraftAnswer,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
-} from "../pendingUserInput";
+} from "@t3tools/client-runtime/state/pending-user-input";
+import { derivePendingUserInputProgress } from "../pendingUserInput";
 
 import { GoalPanelView } from "../components/GoalTasksPanel";
 import { ControlDigestCardView } from "../loom/ControlDigestCard";
@@ -152,7 +152,11 @@ function LoomPendingUserInputPreview() {
           const value = event.target.value;
           setAnswers((current) => ({
             ...current,
-            "loom-q-1": setPendingUserInputCustomAnswer(current["loom-q-1"], value),
+            "loom-q-1": setPendingUserInputCustomAnswer(
+              LOOM_QUESTIONS[0]!,
+              current["loom-q-1"],
+              value,
+            ),
           }));
         }}
       />

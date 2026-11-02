@@ -150,6 +150,8 @@ describe("scoped default model selections", () => {
           [ProviderInstanceId.make("codex")]: {
             hiddenModels: ["gpt-6-astra"],
             modelOrder: [],
+            selectedModels: [], // loom: allow-list fields (DL-913)
+            showOnlySelectedModels: false, // loom
           },
         },
       },

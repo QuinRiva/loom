@@ -74,7 +74,6 @@ import {
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
-  threadListV2SearchArchivedItems, // loom
 } from "../threads/threadListV2";
 import { ArchivedSearchResultRow } from "../threads/ArchivedSearchResultRow.loom"; // loom
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";

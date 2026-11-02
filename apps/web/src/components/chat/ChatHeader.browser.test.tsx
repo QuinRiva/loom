@@ -36,6 +36,7 @@ function header(title: string) {
         onOpenThread={() => {}}
         rightPanelOpen={false}
         onNewThreadInProject={() => {}}
+        readRouteThread={() => null} // loom
       />
       <div tabIndex={0}>Outside rename</div>
     </>

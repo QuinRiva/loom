@@ -95,7 +95,6 @@ import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
-import { type HandoffTimelineRun } from "./V2LifecycleRow";
 // loom: wide-block bleed — the timeline publishes its true content width, and
 // its rows use the shared prose-measure class the bleed CSS assumes.
 import {
@@ -1559,7 +1558,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         <ControlDigestRow
           messageId={row.message.id}
           text={row.message.text}
-          fallback={(bubble) => {
+          renderFallback={(bubble) => {
             // loom: a query thread's first message is its overlay and first question in one
             // turn; the overlay renders as the kickoff bubble, the question as the human's.
             const kickoff = splitDocumentQueryKickoff(row.message.id, row.message.text);

@@ -42,7 +42,6 @@ import {
 } from "@t3tools/shared/composerContextReferences";
 import { imageMimeType } from "@t3tools/shared/image";
 import { videoMimeType } from "@t3tools/shared/video";
-import { modelSelectionsEqual } from "@t3tools/shared/model"; // loom:
 import { DraftComposerAttachmentSchema } from "../lib/composer-image-schema";
 import {
   composerAttachmentFileReferenceKey,

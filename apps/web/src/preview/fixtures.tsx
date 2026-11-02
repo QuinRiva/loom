@@ -3,11 +3,11 @@ import { type ReactNode, useEffect, useState } from "react";
 import { EnvironmentId, ThreadId, type FilesystemEntryMetadata } from "@t3tools/contracts";
 import type { RuntimeRequestId, UserInputQuestion } from "@t3tools/contracts";
 import {
-  derivePendingUserInputProgress,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
-} from "../pendingUserInput";
+} from "@t3tools/client-runtime/state/pending-user-input";
+import { derivePendingUserInputProgress } from "../pendingUserInput";
 
 import { cn } from "~/lib/utils";
 
@@ -670,7 +670,6 @@ function PendingUserInputPreview({
   const [answers, setAnswers] = useState<Record<string, PendingUserInputDraftAnswer>>({});
   const [questionIndex, setQuestionIndex] = useState(0);
   const progress = derivePendingUserInputProgress(questions, answers, questionIndex);
-  const activeQuestionId = progress.activeQuestion?.id;
 
   return (
     <div className="mx-auto flex h-[85vh] w-full min-w-0 max-w-3xl flex-col justify-end p-6">
@@ -719,11 +718,12 @@ function PendingUserInputPreview({
         className="mt-2 rounded-md border border-border bg-transparent p-2 text-sm"
         value={progress.customAnswer}
         onChange={(event) => {
-          if (!activeQuestionId) return;
+          const question = progress.activeQuestion;
+          if (!question) return;
           const value = event.target.value;
           setAnswers((current) => ({
             ...current,
-            [activeQuestionId]: setPendingUserInputCustomAnswer(current[activeQuestionId], value),
+            [question.id]: setPendingUserInputCustomAnswer(question, current[question.id], value),
           }));
         }}
       />
@@ -1542,8 +1542,13 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
               text={SKILL_TOKEN_MARKDOWN}
               cwd={undefined}
               skills={[
-                { name: "probe", displayName: "Probe" },
-                { name: "librarian", displayName: "Librarian" },
+                { name: "probe", displayName: "Probe", path: "/skills/probe", enabled: true },
+                {
+                  name: "librarian",
+                  displayName: "Librarian",
+                  path: "/skills/librarian",
+                  enabled: true,
+                },
               ]}
             />
           </TimelineLayoutFrame>

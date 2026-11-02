@@ -603,7 +603,8 @@ export function ThreadWorktreeIndicator({
   );
 }
 
-function ThreadStatusLabel({
+// loom: exported for ThreadTabsStrip.
+export function ThreadStatusLabel({
   status,
   compact = false,
 }: {

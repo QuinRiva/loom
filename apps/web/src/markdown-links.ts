@@ -88,19 +88,6 @@ function basenameOfPath(path: string): string {
   return separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1) : trimmed;
 }
 
-function workspaceRelativePath(path: string, workspaceRoot: string | undefined): string | null {
-  if (!workspaceRoot) return null;
-  const normalizedPath = normalizeWindowsDrivePath(path.replaceAll("\\", "/"));
-  const normalizedRoot = normalizeWindowsDrivePath(workspaceRoot.replaceAll("\\", "/")).replace(
-    /\/+$/,
-    "",
-  );
-  const pathForCompare = normalizedPath.toLowerCase();
-  const rootForCompare = normalizedRoot.toLowerCase();
-  if (!pathForCompare.startsWith(`${rootForCompare}/`)) return null;
-  return normalizedPath.slice(normalizedRoot.length + 1);
-}
-
 /**
  * loom: extensions that denote a real file in a *bare* code span, so `this.state` or `os.path`
  * stay code while `package.json` and `README.md` link.
@@ -342,10 +329,6 @@ const EXTENSIONLESS_FILE_NAMES = new Set([
 ]);
 
 const POSITION_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
-
-function normalizeWindowsDrivePath(path: string): string {
-  return /^\/[A-Za-z]:[\\/]/.test(path) ? path.slice(1) : path;
-}
 
 /** `127.0.0.1`, `localhost`, `example.com`, `1.2.3` — hosts and versions, not files. */
 function looksLikeHostname(segment: string, hasPosition: boolean): boolean {

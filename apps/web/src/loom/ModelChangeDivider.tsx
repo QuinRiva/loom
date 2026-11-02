@@ -22,13 +22,12 @@ export const ModelChangeDivider = memo(function ModelChangeDivider({
   const detail = useAtomValue(
     serverEnvironment.providersValueAtom(activeThreadEnvironmentId),
     (providers) => {
-      const models =
-        deriveProviderInstanceEntries(providers ?? EMPTY_SERVER_PROVIDERS).find(
-          (entry) => entry.instanceId === row.instanceId,
-        )?.models ?? [];
+      const entry = deriveProviderInstanceEntries(providers ?? EMPTY_SERVER_PROVIDERS).find(
+        (candidate) => candidate.instanceId === row.instanceId,
+      );
       const name = (slug: string) => {
-        const model = models.find((candidate) => candidate.slug === slug);
-        return model === undefined ? slug : getTriggerDisplayModelName(model);
+        const model = entry?.models.find((candidate) => candidate.slug === slug);
+        return model === undefined ? slug : getTriggerDisplayModelName(model, entry?.driverKind);
       };
       return `${name(row.fromModel)} → ${name(row.toModel)}`;
     },

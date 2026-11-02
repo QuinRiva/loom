@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { PREVIEW_FIXTURES, PREVIEW_GROUPS } from "./fixtures";
 
 // Pierre's worker bundle touches `self` at module load; these tests never open a diff.
-vi.mock("@pierre/diffs/worker/worker.js?worker", () => ({ default: class {} }));
+vi.mock("@pierre/diffs/worker/worker.js?worker", () => ({ default: vi.fn() }));
 
 describe("preview fixtures", () => {
   it("registers at least one group with fixtures", () => {

@@ -59,7 +59,8 @@ describe("client settings hydration", () => {
       ...savedSettings,
       providerModelPreferences: {
         [provider]: {
-          ...{ selectedModels: [], showOnlySelectedModels: false }, // loom: allow-list fields
+          selectedModels: [], // loom: allow-list fields
+          showOnlySelectedModels: false, // loom
           hiddenModels: ["saved-hidden"],
           modelOrder: ["saved-order"],
         },
@@ -68,7 +69,8 @@ describe("client settings hydration", () => {
     const edited = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, await patch);
     expect(edited.favorites).toEqual([...savedSettings.favorites, { provider, model: "new" }]);
     expect(edited.providerModelPreferences?.[provider]).toEqual({
-      ...{ selectedModels: [], showOnlySelectedModels: false }, // loom: allow-list fields
+      selectedModels: [], // loom: allow-list fields
+      showOnlySelectedModels: false, // loom
       hiddenModels: ["saved-hidden", "new"],
       modelOrder: ["saved-order"],
     });

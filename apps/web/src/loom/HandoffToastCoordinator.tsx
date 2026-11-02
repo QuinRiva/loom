@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
-import { useEnvironmentIds } from "~/state/environments";
+import { environmentSummaries } from "~/state/presentation";
 import { loomEnvironmentSnapshotAtom } from "~/state/threads";
 import { buildThreadRouteParams } from "~/threadRoutes";
 
@@ -18,7 +18,7 @@ import { HANDOFF_FAILURE_REASON } from "./LoomTimelineRowView";
  * source thread is off screen. The first snapshot only seeds, so a reload never replays old handoffs.
  */
 export function HandoffToastCoordinator() {
-  return useEnvironmentIds().map((environmentId) => (
+  return useAtomValue(environmentSummaries.environmentIdsAtom).map((environmentId) => (
     <EnvironmentHandoffToasts key={environmentId} environmentId={environmentId} />
   ));
 }
