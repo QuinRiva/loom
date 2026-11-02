@@ -3,8 +3,8 @@ reader:
   who: the reviewer gating this plan against the intent brief and the codebase, then the coder threads that build it; none were in the planning conversation
   knows: the loom control plane's vocabulary (gate, round, leg, re-drive, receipt), the files named here by path; not the live database's contents or why the leg ids matter
   after_first_screen: can say what a gate over several siblings is made of, what one needs_rework does to it, and the two bets that make the change small and safe
-kicker: "Implementation plan · under plans/multi-sibling-gate/intent.mdx · 30 Oct 2026"
-status: draft
+kicker: "Implementation plan · built and reviewed · 2 Nov 2026"
+status: done
 intent: plans/multi-sibling-gate/intent.mdx
 manager_sessions:
   - id: 01a18b50-3aa7-7703-9216-5d072654ce4c
@@ -321,3 +321,18 @@ Not added, because they would only restate the code they sit on: a two-coder rev
     },
   ]}
 />
+
+## As built
+
+Built on `t3/multi-sibling-gate-rework` as steps 1 to 4 and 9 (one coder, one gate, clean first round) then steps 5 to 8 (one coder on the planner tier for the model-read text, one gate with the text veto, one rework round that cut seven derivable clauses). Two coders in sequence rather than the suggested parallel split, because they share one worktree and the contract change breaks every reader until updated. Departures:
+
+- **`isWaitingInGate` keeps the old predicate for a one-sibling gate** and uses the round-scoped test only for several (§2.3 asked for the scoped test everywhere). The coder kept the single-sibling path byte-for-byte per the brief's must-not; the reviewer accepted the reasoning.
+- **The round cap is checked before the "name `rework`" refusal** (§2.2 order), so a capped multi-sibling `needs_rework` naming nobody yields to the orchestrator as a cap-breach instead of being refused. Found by the core reviewer, fixed in the surface step.
+- **Toolkit `prose.ts` gate sentences were not changed**: the `gate: { rework: coderId }` example the plan names no longer exists on this base, so the tool-description changes live in `defs.ts` alone.
+- **The step 7 fixture needed a harness entry** in `apps/web/src/preview/workstreamFixtures.tsx` to be visible; added.
+- **`gate.rework` accepts a bare string or a list** (the plan's open question, decided by the orchestrator for the recommended "both"): a `Schema.Union` normalised to one deduped list at the handler boundary, so `x` and `thread:x` make one loop edge.
+- **No `forkJoinLayout.ts` port offset.** The brief's one unknown is settled in the preview harness and the seeded dev instance: three arrows from one reviewer read as three loops, dots only on the reopened siblings; the two open badges sit close at narrow widths but overlap nothing.
+- **Projection appends within a round**, so a resolved reviewer reopened and resolving again in the same round gains duplicate `resolve` traversals; they plan the same receipted ids, so harmless, noted by the core reviewer.
+
+Migration 1067 was run on a `VACUUM INTO` copy of the live database (173 traversal rows, 178 rework/resolve receipts re-keyed, 89 reverify receipts untouched); the re-drive planner then planned only legs that already held receipts, including after reopening the siblings of every finished reviewer by hand.
+
