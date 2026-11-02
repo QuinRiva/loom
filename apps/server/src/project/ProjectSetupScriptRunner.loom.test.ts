@@ -81,6 +81,7 @@ const runWith = <A, E, R>(
             Layer.mock(TerminalManager.TerminalManager)({
               subscribe: () => Effect.succeed(() => undefined),
               closeIdle: () => Effect.void,
+              getShell: () => Effect.succeed("/bin/bash"),
               ...terminal,
             }),
             Layer.mock(ProjectionStore.ProjectionStoreV2)({
