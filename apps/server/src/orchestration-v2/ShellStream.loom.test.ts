@@ -1,9 +1,24 @@
 import { describe, expect, it } from "@effect/vitest";
 import type { LoomThreadShellFields, OrchestrationV2ThreadShell } from "@t3tools/contracts";
-import { ThreadId } from "@t3tools/contracts";
+import { CommandId, ThreadId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
+import * as SqlClient from "effect/sql/SqlClient";
 
-import { omitIdleSubagentShells, omitOlderSettledShells } from "./ShellStream.ts";
+import {
+  dispatch,
+  LoomOrchestratorTestLayer,
+  loomEvent,
+  seedThread,
+  spawnChild,
+  writeEvents,
+} from "../loom/testkit/loomOrchestratorLayer.ts";
+import * as Orchestrator from "./Orchestrator.ts";
+import {
+  loadSubscriberShellSnapshot,
+  omitIdleSubagentShells,
+  omitOlderSettledShells,
+} from "./ShellStream.ts";
 
 // Doc 38 §6.2 / DL-1404: Loom's rollup reads descendants a cold shell would otherwise omit.
 const DAY = 24 * 60 * 60 * 1000;
@@ -129,4 +144,72 @@ describe("cold shell keeps what Loom's rollup reads", () => {
       "old-live-goal",
     ]);
   });
+});
+
+// Doc 39 §4 / DL-1650: the trimmed cold shell reads only the ids the store's index picks, so the
+// index carries Loom's sidecar keep or the trims never see the children they would keep.
+it.layer(LoomOrchestratorTestLayer)("cold shell from the index", (it) => {
+  it.effect("keeps flagged and active-root Loom children an idle-child opt-out would drop", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const id = ThreadId.make;
+      const [activeRoot, settledRoot] = [id("index-active-root"), id("index-settled-root")];
+      yield* seedThread({ threadId: activeRoot });
+      yield* seedThread({ threadId: settledRoot });
+      const children = {
+        activeDone: [activeRoot, id("index-active-done")],
+        activeGuidance: [activeRoot, id("index-active-guidance")],
+        settledAcceptance: [settledRoot, id("index-settled-acceptance")],
+        settledDone: [settledRoot, id("index-settled-done")],
+      } as const;
+      for (const [parentThreadId, threadId] of Object.values(children))
+        yield* spawnChild({ parentThreadId, threadId });
+      // Every child finished its turn; two hold a flag the rollup reads.
+      yield* writeEvents([
+        ...(yield* Effect.forEach(Object.values(children), ([, threadId]) =>
+          loomEvent("thread.outcome-set", threadId, { outcome: "done", cause: "submit" }),
+        )),
+        yield* loomEvent("thread.attention-raised", children.activeGuidance[1], {
+          reason: "needs_guidance",
+        }),
+        yield* loomEvent("thread.attention-raised", children.settledAcceptance[1], {
+          reason: "awaiting_acceptance",
+        }),
+      ]);
+      yield* dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("index-settle-root"),
+        threadId: settledRoot,
+      });
+
+      const index = yield* orchestrator.listActiveShellIndex();
+      const entry = (threadId: ThreadId) => index.find((candidate) => candidate.id === threadId);
+      for (const [, threadId] of Object.values(children))
+        expect(entry(threadId)?.mayBeLive).toBe(false);
+      expect(entry(children.activeDone[1])?.workstream).toEqual({ keep: false, goalId: null });
+      expect(entry(children.settledAcceptance[1])?.workstream?.keep).toBe(true);
+
+      const { snapshot } = yield* loadSubscriberShellSnapshot({
+        sql: yield* SqlClient.SqlClient,
+        listShellIndex: orchestrator.listActiveShellIndex(),
+        readThreads: (threadIds) =>
+          orchestrator.readShellSnapshot({
+            location: "active",
+            ...(threadIds === undefined ? {} : { threadIds }),
+          }),
+        listProjects: Effect.succeed([]),
+        latestSequence: Effect.succeed(0),
+        options: { omitIdleSubagents: true, omitOlderSettled: true },
+      });
+      expect(snapshot.threads.map((thread) => thread.id).toSorted()).toEqual(
+        [
+          activeRoot,
+          children.activeDone[1],
+          children.activeGuidance[1],
+          settledRoot,
+          children.settledAcceptance[1],
+        ].toSorted(),
+      );
+    }),
+  );
 });

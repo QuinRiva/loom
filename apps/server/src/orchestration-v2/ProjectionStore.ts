@@ -414,6 +414,8 @@ export interface ActiveShellIndexEntry extends Pick<
 > {
   /** False only when no run, request, work item, or watch can make the shell live. */
   readonly mayBeLive: boolean;
+  /** loom: present with a sidecar row; `keep` is a coarse superset of Loom's cold-shell keep (DL-1650). */
+  readonly workstream?: { readonly keep: boolean; readonly goalId: string | null };
 }
 
 export interface OlderSettledThreadsQuery {
@@ -6904,6 +6906,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         readonly pinned_at: string | null;
         readonly snoozed_until: string | null;
         readonly may_be_live: number;
+        readonly loom_row: number; // loom: DL-1650
+        readonly loom_keep: number | null; // loom:
+        readonly loom_goal_id: string | null; // loom:
       }>`
         SELECT
           t.thread_id,
@@ -6949,8 +6954,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               SELECT 1 FROM json_each(t.payload_json, '$.pullRequests') link
               WHERE json_type(link.value, '$.watch') IS NOT NULL
             )
-          ) AS may_be_live
+          ) AS may_be_live,
+          -- loom: a stored flag or no outcome yet; keepsLoomChildInColdShell decides on the shell.
+          w.thread_id IS NOT NULL AS loom_row,
+          (json_array_length(w.attention) > 0 OR w.outcome IS NULL) AS loom_keep,
+          w.goal_id AS loom_goal_id
         FROM orchestration_v2_projection_threads t
+        LEFT JOIN loom_thread_workstream w ON w.thread_id = t.thread_id -- loom: DL-1650
         WHERE t.deleted_at IS NULL
           AND json_extract(t.payload_json, '$.archivedAt') IS NULL
         ORDER BY t.updated_at ASC, t.thread_id ASC
@@ -6976,6 +6986,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         pinnedAt: row.pinned_at === null ? null : DateTime.makeUnsafe(row.pinned_at),
         snoozedUntil: row.snoozed_until === null ? null : DateTime.makeUnsafe(row.snoozed_until),
         mayBeLive: row.may_be_live === 1,
+        ...(row.loom_row === 1 // loom: DL-1650
+          ? { workstream: { keep: row.loom_keep === 1, goalId: row.loom_goal_id } }
+          : {}),
       }));
     }, Effect.mapError(shellSnapshotReadError));
 

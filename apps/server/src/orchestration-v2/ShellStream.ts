@@ -31,7 +31,11 @@ import * as Schema from "effect/Schema";
 import type * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
-import { inLiveLoomGoal, keepsLoomChildInColdShell } from "../loom/projection/loomShellJoin.ts"; // loom: DL-1404
+import {
+  inLiveLoomGoal,
+  keepsLoomChildInColdShell,
+  keepsLoomEntryInColdShell,
+} from "../loom/projection/loomShellJoin.ts"; // loom: DL-1404, DL-1650
 import { bufferLatestLiveStream } from "./LiveStreamBudget.ts";
 import type { ActiveShellIndexEntry } from "./ProjectionStore.ts";
 
@@ -264,10 +268,14 @@ function shellSubscriberThreadIds(
   options: ShellSubscriberOptions,
 ): ReadonlyArray<ThreadId> {
   const facts = shellTrimFacts(index);
+  const keepsLoomEntry = keepsLoomEntryInColdShell(index); // loom: DL-1650
   const subagents = index.filter(
     (entry) =>
       entry.lineage.relationshipToParent === "subagent" &&
-      (!options.omitIdleSubagents || entry.mayBeLive || facts.subagentParentIds.has(entry.id)),
+      (!options.omitIdleSubagents ||
+        entry.mayBeLive ||
+        keepsLoomEntry(entry) || // loom: DL-1650
+        facts.subagentParentIds.has(entry.id)),
   );
   const ancestorIds = hiddenChildAncestorIds([
     ...subagents,
@@ -286,6 +294,7 @@ function shellSubscriberThreadIds(
           entry.pinnedAt != null ||
           entry.snoozedUntil != null ||
           entry.mayBeLive ||
+          keepsLoomEntry(entry) || // loom: DL-1650
           ancestorIds.has(entry.id)
         ? [entry.id]
         : [],
