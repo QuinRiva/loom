@@ -67,7 +67,6 @@ it.effect(
         const loomLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM ${sql(loomMigrationsTable)} ORDER BY migration_id`;
         assert.deepEqual(loomLedger.slice(-10), [
-          { id: 1057, name: "LoomThreadCacheWarming" },
           { id: 1058, name: "LoomKickoffOrigin" },
           { id: 1059, name: "LoomThreadSnoozeRequests" },
           { id: 1060, name: "DropThreadSearchMessageTriggers" },
@@ -77,6 +76,7 @@ it.effect(
           { id: 1064, name: "ThreadSearchTextGuard" },
           { id: 1065, name: "DropUpstreamMessageSearch" },
           { id: 1066, name: "DropHumanMessageDigestItems" },
+          { id: 1067, name: "LoomMultiSiblingGate" },
         ]);
         const upstreamLedger = yield* sql<{ readonly id: number; readonly name: string }>`
         SELECT migration_id AS id, name FROM effect_sql_migrations ORDER BY migration_id`;

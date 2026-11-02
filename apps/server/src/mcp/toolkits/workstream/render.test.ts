@@ -30,7 +30,7 @@ const node = (
 ): WorkstreamListThread => {
   const {
     notifySendLog,
-    lastRoute,
+    lastRoutes,
     outcomeEventId,
     unarchivedEventId,
     unarchivedAt,

@@ -32,7 +32,12 @@ const createdAt = "2026-01-01T00:00:00.000Z";
 const parent = ThreadId.make("submit-parent");
 let counter = 0;
 
-const submit = (threadId: ThreadId, outcome?: string, commandId = `submit:${++counter}`) =>
+const submit = (
+  threadId: ThreadId,
+  outcome?: string,
+  commandId = `submit:${++counter}`,
+  rework?: ReadonlyArray<ThreadId>,
+) =>
   dispatch({
     type: "thread.work.submit",
     commandId: CommandId.make(commandId),
@@ -40,6 +45,7 @@ const submit = (threadId: ThreadId, outcome?: string, commandId = `submit:${++co
     createdAt,
     reportPath: `/reports/${threadId}.md`,
     ...(outcome === undefined ? {} : { outcome }),
+    ...(rework === undefined ? {} : { rework }),
   });
 const raise = (threadId: ThreadId, reason: LoomAttentionReason) =>
   dispatch({
@@ -167,6 +173,127 @@ it.layer(LoomOrchestratorTestLayer)("Loom work.submit routing", (it) => {
     }),
   );
 
+  it.effect(
+    "a gate over several siblings: named rework, fan-in re-verify, resolve of the set",
+    () =>
+      Effect.gen(function* () {
+        const [a, b, c] = ["a", "b", "c"].map((key) => ThreadId.make(`multi-gate-${key}`));
+        const reviewer = ThreadId.make("multi-gate-reviewer");
+        for (const coder of [a!, b!, c!]) {
+          yield* spawnChild({ parentThreadId: parent, threadId: coder, graphKey: coder });
+        }
+        yield* spawnChild({
+          parentThreadId: parent,
+          threadId: reviewer,
+          graphKey: "multi-gate-reviewer",
+          role: "reviewer",
+          blockedBy: [a!, b!, c!],
+          routes: [
+            ...[a!, b!, c!].map((to) => ({ on: ["needs_rework"], kind: "loop" as const, to })),
+            { on: ["clean"], kind: "resolve" },
+          ],
+        });
+        yield* writeEvents([
+          yield* loomEvent("thread.kickoff-recorded", reviewer, {
+            kickoffAt: createdAt,
+            messageId: MessageId.make(`message:kickoff:${reviewer}`),
+            origin: "kickoff",
+          }),
+        ]);
+        const store = yield* LoomStoreV2;
+
+        // A loop verdict on a multi-sibling gate must name the siblings to reopen.
+        const unnamed = causeOf(yield* Effect.flip(submit(reviewer, "needs_rework")));
+        assert.include(unnamed, `${a}, ${b}, ${c}`);
+        assert.include(
+          causeOf(yield* Effect.flip(submit(reviewer, "clean", undefined, [a!]))),
+          "only accompanies",
+        );
+        assert.deepEqual(
+          summary(
+            reviewer,
+            (yield* submit(reviewer, "needs_rework", undefined, [b!, a!])).storedEvents,
+          ),
+          [
+            ["thread.report-set"],
+            ["thread.outcome-recorded", "loop"],
+            ["thread.route-taken", "loop", a, 1],
+            ["thread.route-taken", "loop", b, 1],
+          ],
+        );
+        const looped = (yield* store.getWorkstream(reviewer))!;
+        assert.equal(looped.gateRounds, 1);
+        assert.deepEqual(
+          looped.lastRoutes.map((route) => route.to),
+          [a, b],
+        );
+
+        // The rework legs (re-drive output) open the round on a and b; each routes back.
+        const loopBacks = new Map<ThreadId, EventId>();
+        for (const coder of [a!, b!]) {
+          yield* writeEvents([
+            yield* loomEvent("thread.gate-rework-accepted", coder, {
+              sourceThreadId: reviewer,
+              round: 1,
+            }),
+          ]);
+          const { storedEvents } = yield* submit(coder);
+          assert.deepEqual(summary(coder, storedEvents).at(-1), [
+            "thread.route-taken",
+            "loop-back",
+            reviewer,
+            1,
+          ]);
+          loopBacks.set(coder, storedEvents.at(-1)!.event.id);
+        }
+
+        const reverify = (sources: ReadonlyArray<readonly [ThreadId, EventId]>, key: string) =>
+          dispatch({
+            type: "thread.gate.reverify",
+            commandId: CommandId.make(`server:workstream-gate:${reviewer}:1:reverify${key}`),
+            threadId: reviewer,
+            createdAt,
+            sources: sources.map(([threadId, routeEventId]) => ({ threadId, routeEventId })),
+            round: 1,
+            message: {
+              messageId: MessageId.make(`message:gate-reverify${key}`),
+              text: "Both returned their rework.",
+              controlPayload: { kind: "notice", heading: "Re-verify", items: [] },
+            },
+          });
+        assert.include(
+          causeOf(
+            yield* Effect.flip(
+              reverify(
+                [
+                  [a!, loopBacks.get(a!)!],
+                  [b!, EventId.make("event:stale")],
+                ],
+                ":stale",
+              ),
+            ),
+          ),
+          "is stale",
+        );
+        yield* reverify(
+          [
+            [a!, loopBacks.get(a!)!],
+            [b!, loopBacks.get(b!)!],
+          ],
+          "",
+        );
+
+        assert.deepEqual(summary(reviewer, (yield* submit(reviewer, "clean")).storedEvents), [
+          ["thread.report-set"],
+          ["thread.outcome-recorded", "resolve"],
+          ["thread.outcome-set", "done"],
+          ["thread.route-taken", "resolve", a, 1],
+          ["thread.route-taken", "resolve", b, 1],
+          ["thread.route-taken", "resolve", c, 1],
+        ]);
+      }),
+  );
+
   it.effect("a rework reopening a done coder warns of started dependents, not its reviewer", () =>
     Effect.gen(function* () {
       const reopen = Effect.fn("test.reopen")(function* (key: string, downstreamStarted: boolean) {
@@ -209,7 +336,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom work.submit routing", (it) => {
         ]);
         const result = yield* dispatch({
           type: "thread.gate.rework",
-          commandId: CommandId.make(`server:workstream-gate:${reviewer}:1:rework`),
+          commandId: CommandId.make(`server:workstream-gate:${reviewer}:1:rework:${coder}`),
           threadId: coder,
           createdAt,
           sourceThreadId: reviewer,

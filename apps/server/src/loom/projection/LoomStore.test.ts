@@ -47,12 +47,9 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
         attentionEpisodes: { needs_guidance: EventId.make("event:raise") },
         held: true,
         routes: [{ on: ["needs_rework"], kind: "loop", to: ThreadId.make("tree-a") }],
-        lastRoute: {
-          to: ThreadId.make("tree-a"),
-          round: 1,
-          kind: "loop",
-          eventId: EventId.make("e"),
-        },
+        lastRoutes: [
+          { to: ThreadId.make("tree-a"), round: 1, kind: "loop", eventId: EventId.make("e") },
+        ],
       });
       yield* row("tree-a", { parent: "tree-root" });
       yield* row("tree-b", { parent: "tree-root", archivedAt: T(1) });
@@ -62,7 +59,7 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
       assert.deepEqual(root?.attention, ["needs_guidance"]);
       assert.equal(root?.attentionEpisodes.needs_guidance, "event:raise");
       assert.isTrue(root?.held);
-      assert.equal(root?.lastRoute?.round, 1);
+      assert.equal(root?.lastRoutes[0]?.round, 1);
       assert.isNull(yield* store.getWorkstream(ThreadId.make("tree-missing")));
 
       const ids = (rows: ReadonlyArray<LoomThreadWorkstream>) =>

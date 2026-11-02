@@ -31,9 +31,9 @@ describe("gate resume messages", () => {
 
   it("reverify carries the delta-review discipline and the verdict routing", () => {
     const text = buildGateReverifyMessage(
-      { id: ThreadId.make("coder-1"), role: "coder", reportPath: "/reports/coder-1.round-1.md" },
+      [{ id: ThreadId.make("coder-1"), role: "coder", reportPath: "/reports/coder-1.round-1.md" }],
       1,
-      "## Round report\nImplemented finding 1; rejected finding 2 (reasons).",
+      ["## Round report\nImplemented finding 1; rejected finding 2 (reasons)."],
     );
     for (const fragment of [
       "re-verification",
@@ -74,7 +74,7 @@ describe("gate resume messages", () => {
     });
     const reverify = compose({
       kind: "reverify",
-      source,
+      sources: [source],
       targetThreadId: ThreadId.make("c"),
       round: 2,
     });

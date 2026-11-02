@@ -251,8 +251,8 @@ const reDrive: PassStep = {
     for (const row of ctx.rows) {
       if (
         row.reportPath === null ||
-        row.lastRoute === null ||
-        row.lastRoute.kind === "resolve" ||
+        row.lastRoutes.length === 0 ||
+        row.lastRoutes[0]!.kind === "resolve" ||
         (row.outcome !== null && !row.pendingRework)
       )
         continue;

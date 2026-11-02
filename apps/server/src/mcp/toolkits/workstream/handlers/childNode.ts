@@ -33,6 +33,10 @@ export const trimmed = (value: string | undefined) => {
   return text.length === 0 ? undefined : text;
 };
 
+/** `gate.rework` as the list of references it names, one sibling or several. */
+export const gateReworkRefs = (gate: NodeInput["gate"]): ReadonlyArray<string> =>
+  gate === undefined ? [] : typeof gate.rework === "string" ? [gate.rework] : gate.rework;
+
 /**
  * The shape errors of one node before anything is read: role/title/purpose
  * present, the fork identity rule (D2: a fork inherits its source's role and
@@ -58,20 +62,25 @@ export const nodeShapeError = (node: NodeInput, nothing: string): string | undef
   const maxRounds = node.gate?.maxRounds;
   if (maxRounds !== undefined && (maxRounds < 1 || maxRounds > MAX_GATE_MAX_ROUNDS))
     return `gate.maxRounds must be an integer between 1 and ${MAX_GATE_MAX_ROUNDS}. Each round is a full rework + re-review cycle; if you expect to need more than a few, the work should be re-scoped instead of looped. ${nothing}`;
+  const rework = gateReworkRefs(node.gate).map((ref) => ref.trim());
+  if (node.gate !== undefined && rework.length === 0)
+    return `gate.rework names no sibling. ${nothing}`;
+  if (new Set(rework).size !== rework.length)
+    return `gate.rework names a sibling twice (${rework.join(", ")}): each sibling is one loop edge. ${nothing}`;
   return undefined;
 };
 
-/** A gate on the reviewer: `needs_rework` loops the target, `clean`/`fixed_inline` resolve. */
+/** A gate on the reviewer: `needs_rework` loops to each target, `clean`/`fixed_inline` resolve. */
 export const gateRoutes = (
-  rework: ThreadId,
+  rework: ReadonlyArray<ThreadId>,
   maxRounds: number | undefined,
 ): ReadonlyArray<WorkstreamRoute> => [
-  {
+  ...rework.map((to) => ({
     on: ["needs_rework"],
-    kind: "loop",
-    to: rework,
+    kind: "loop" as const,
+    to,
     maxRounds: maxRounds ?? DEFAULT_GATE_MAX_ROUNDS,
-  },
+  })),
   { on: ["clean", "fixed_inline"], kind: "resolve" },
 ];
 
@@ -81,15 +90,18 @@ export const gateRoutes = (
  */
 export const withImpliedEdges = (input: {
   readonly blockedBy: ReadonlyArray<ThreadId>;
-  readonly gateRework: ThreadId | undefined;
+  readonly gateRework: ReadonlyArray<ThreadId>;
   readonly forkFrom: ThreadId | undefined;
 }) => {
   const blockedBy = [...new Set(input.blockedBy)];
   const warnings: Array<string> = [];
-  if (input.gateRework !== undefined && !blockedBy.includes(input.gateRework)) {
-    blockedBy.push(input.gateRework);
+  const implied = input.gateRework.filter((id) => !blockedBy.includes(id));
+  if (implied.length > 0) {
+    blockedBy.push(...implied);
     warnings.push(
-      `gate.rework ${input.gateRework} was added to blockedBy automatically: a gated reviewer always waits for the thread it reviews.`,
+      implied.length === 1
+        ? `gate.rework ${implied[0]} was added to blockedBy automatically: a gated reviewer always waits for the thread it reviews.`
+        : `gate.rework ${implied.join(", ")} were added to blockedBy automatically: a gated reviewer always waits for the threads it reviews.`,
     );
   }
   if (input.forkFrom !== undefined && !blockedBy.includes(input.forkFrom)) {

@@ -1,0 +1,44 @@
+---
+reader:
+  who: the owner of loom, who built the review gate and wants the one-sibling limit lifted; approves this brief before anything is built
+  knows: what a gate, a round, a yield and a rework leg are; the orchestrator role's "one reviewer per change-set" advice; nothing of the plan
+  after_first_screen: can restate the two decisions he made (the reviewer names the reopened set; re-verification waits for the whole set) and check any line against the build
+kicker: "Intent brief · approved 30 Oct 2026"
+status: approved
+plan: plans/multi-sibling-gate/plan.mdx
+manager_sessions:
+  - id: 01a18b50-3aa7-7703-9216-5d072654ce4c
+    name: Multi-sibling gate intent and plan
+    role: intent
+    authored_at: 2026-10-30T05:58:25.436Z
+---
+
+# A review gate over several siblings, with the reviewer sending back only the ones that need it
+
+**Goal.** "Seems like a bug that should be resolved" (your words, relayed). A gate names exactly one sibling as `rework`, so an orchestrator that follows the role's own advice and puts one reviewer over three parallel workers can loop only one of them; must-fix findings on the other two are routed by hand (`workstream_set_outcome` none, then a prompt), outside the loop and the round cap. The three context-viz mockup designers were the last instance: the reviewer's brief had to say "the gate reopens only the timeline thread; for the other two, say so and I will route them." Lift the limit: a gate takes one sibling or several, and the loop handles the set.
+
+**You'll know it works when.**
+
+- A scaffold node with `gate: { rework: ["mock-timeline", "mock-graph", "mock-cards"] }` is accepted, and the graph shows one return arrow from the reviewer to each of the three.
+- The reviewer submits `needs_rework` naming two of the three; exactly those two are reopened and get the rework resume, and the third is not touched.
+- The reviewer is resumed once, after both have resubmitted, with both round reports in one message; the loop badge reads one round used.
+- `clean` completes the reviewer and all three siblings together, and the orchestrator hears about it once.
+- **Must not:** change anything a single-sibling gate does today (same messages, same round cap; the seven hundred-odd stored gates keep working untouched); wake the orchestrator for anything the loop handles itself; add a verdict token.
+
+**Approaches in play.**
+
+- One reviewer, one loop edge per sibling; the reviewer names the reopened set on each verdict; re-verification waits until the whole set has come back. _The pick._ Wins if a reviewer can judge a set in one sitting, which is what the role already asks of it.
+- Same, but re-verify as each sibling comes back. Wins if reviewers would rather see rework early than together; loses the one-verdict-one-round accounting.
+- Dropped: one reviewer per sibling plus an integration reviewer. It is what the role says not to do, and it triples the context spent on one change-set.
+
+**Decided.** "Seems like a bug that should be resolved": the limitation is lifted, not documented around. Who picks the reopened set: "The reviewer names them on submit; a gate over several siblings refuses a needs_rework that names none". When the reviewer is resumed to re-verify: "Once, when every reopened sibling has resubmitted (a cancelled one drops out of the wait)". Both chosen in-app on 30 Oct 2026.
+
+- _Assumed:_ one `needs_rework` is one round however many siblings it reopens, and the counter stays on the reviewer; redirect if wrong.
+- _Assumed:_ a gate over several siblings is stored as several loop edges on the reviewer, the shape the store already holds, so no stored gate is rewritten; the only stored change is the reviewer's current-round record becoming a list (a one-line rewrite over the hundred-odd live rows, no dual shape).
+- _Assumed:_ the graph gets no new drawing: one return arrow per sibling, the open-round dot on the arrow whose sibling holds it, and the reviewer's timeline lists each loop.
+
+**Not doing.** Shipping or human-policy changes. The mobile graph beyond not breaking it. New verdict tokens. Several reviewers over one sibling.
+
+**Still unknown.**
+
+- Whether three return arrows leaving one reviewer read cleanly at the real panel width. A preview-harness fixture with a three-sibling gate settles it before the dev-verify pass.

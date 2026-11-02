@@ -15,7 +15,14 @@ import type { LoomToolInput } from "../defs.ts";
 import { requestKey, stableCommandId, stableThreadId } from "../idempotency.ts";
 import { resolveChildModel, withUpstreamOptionIds } from "../modelSelection.ts";
 import { appendWarnings } from "../render.ts";
-import { anchorError, gateRoutes, nodeShapeError, trimmed, withImpliedEdges } from "./childNode.ts";
+import {
+  anchorError,
+  gateReworkRefs,
+  gateRoutes,
+  nodeShapeError,
+  trimmed,
+  withImpliedEdges,
+} from "./childNode.ts";
 import { asToolError, childrenOf, dispatch, fail, nowIso, requireShell } from "./shared.ts";
 
 const NOTHING = "Nothing was spawned.";
@@ -61,7 +68,8 @@ export const workstreamSpawn = Effect.fn("LoomToolkit.workstreamSpawn")(function
           selection: withUpstreamOptionIds((yield* requireShell(source.threadId)).modelSelection),
           warnings: [],
         };
-  const gateRework = input.gate === undefined ? undefined : childRef(input.gate.rework);
+  // Deduped after resolution: `x` and `thread:x` pass the shape check as two references.
+  const gateRework = [...new Set(gateReworkRefs(input.gate).map(childRef))];
   const edges = withImpliedEdges({
     blockedBy: (input.blockedBy ?? []).map(childRef),
     gateRework,
@@ -99,7 +107,7 @@ export const workstreamSpawn = Effect.fn("LoomToolkit.workstreamSpawn")(function
         : GoalTaskId.make(input.anchorTaskId),
     kickoffBriefPath,
     blockedBy: edges.blockedBy,
-    ...(gateRework === undefined ? {} : { routes: gateRoutes(gateRework, input.gate?.maxRounds) }),
+    ...(input.gate === undefined ? {} : { routes: gateRoutes(gateRework, input.gate.maxRounds) }),
     // Siblings spawned in one parent turn share a generation (the join barrier key).
     spawnGeneration: parent.activeRunId ?? threadId,
     ...(forkFrom === undefined ? {} : { forkFromThreadId: forkFrom }),

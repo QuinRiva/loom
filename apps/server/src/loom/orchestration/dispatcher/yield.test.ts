@@ -8,12 +8,14 @@ const child = { id: ThreadId.make("child-1"), role: "reviewer", reportPath: "chi
 const gate = {
   rounds: 2,
   maxRounds: 2,
-  counterpart: {
-    id: ThreadId.make("coder-1"),
-    role: "coder",
-    reportPath: "/reports/coder-1.round-2.md",
-    report: "Round 2: contested finding 3 again.",
-  },
+  counterparts: [
+    {
+      id: ThreadId.make("coder-1"),
+      role: "coder",
+      reportPath: "/reports/coder-1.round-2.md",
+      report: "Round 2: contested finding 3 again.",
+    },
+  ],
 };
 
 describe("buildYieldWakeMessage", () => {

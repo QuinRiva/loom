@@ -19,6 +19,7 @@ export const LOOM_SEED = {
     root: ThreadId.make("seed-thread-orchestrator"),
     coderDone: ThreadId.make("seed-thread-coder-done"),
     gateCoder: ThreadId.make("seed-thread-gate-coder"),
+    gateSibling: ThreadId.make("seed-thread-gate-sibling"),
     gateReviewer: ThreadId.make("seed-thread-gate-reviewer"),
     quiescent: ThreadId.make("seed-thread-quiescent"),
     blocked: ThreadId.make("seed-thread-blocked"),

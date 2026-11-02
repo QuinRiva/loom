@@ -145,22 +145,34 @@ export interface SubmitOutcomeView {
   readonly round?: number;
   /** For a `loop`: rework (a reviewer's verdict to the coder) or reverify (the coder back). */
   readonly leg?: "rework" | "reverify";
+  /** The gate's loop targets, in gate order, and the ones a rework verdict reopened. */
+  readonly siblings?: ReadonlyArray<ThreadId>;
+  readonly reopened?: ReadonlyArray<ThreadId>;
 }
+
+const list = (ids: ReadonlyArray<ThreadId>) => ids.map((id) => `\`${id}\``).join(", ");
 
 /** The routing echo: what the submit did and whether the caller is done. */
 export const renderSubmitOutcome = (view: SubmitOutcomeView): string => {
   const withOutcome = `Work submitted with outcome '${view.outcome}'`;
+  const siblings = view.siblings ?? [];
+  const reopened = view.reopened ?? [];
+  const untouched = siblings.filter((id) => !reopened.includes(id));
   switch (view.decision) {
     case "terminal":
       return "Work submitted: report recorded, outcome done (dependents released).";
     case "attention":
       return "Work submitted: report recorded and needs_guidance raised: a human has been flagged; you are not done.";
     case "resolve":
-      return `${withOutcome}: the review gate RESOLVED: you and your gate counterpart are both done (dependents released).`;
+      return siblings.length > 1
+        ? `${withOutcome}: the review gate RESOLVED: you and every sibling it covers that was still open are done (dependents released).`
+        : `${withOutcome}: the review gate RESOLVED: you and your gate counterpart are both done (dependents released).`;
     case "loop":
       return view.leg === "reverify"
         ? `Work submitted: routed to the reviewer for re-verification (round ${view.round}): you are NOT done yet; the control plane resumes you if further rework is needed.`
-        : `${withOutcome}: findings routed to the coder for rework (round ${view.round}): you are NOT done; you will be resumed to re-verify the rework.`;
+        : siblings.length > 1
+          ? `${withOutcome}: findings routed to ${list(reopened)} for rework (round ${view.round})${untouched.length > 0 ? `; not reopened: ${list(untouched)}` : ""}: you are NOT done; you will be resumed to re-verify once ${reopened.length === 1 ? "it has" : "all of them have"} resubmitted.`
+          : `${withOutcome}: findings routed to the coder for rework (round ${view.round}): you are NOT done; you will be resumed to re-verify the rework.`;
     case "cap-breach":
       return `${withOutcome}: the review gate's round cap is exhausted, so you YIELDED to your parent orchestrator: you are NOT done; it decides what happens next.`;
     case "yield":

@@ -79,6 +79,7 @@ import Migration1063 from "./Migrations/1063_LoomThreadDocumentQuery.ts";
 import Migration1064 from "./Migrations/1064_ThreadSearchTextGuard.ts";
 import Migration1065 from "./Migrations/1065_DropUpstreamMessageSearch.ts";
 import Migration1066 from "./Migrations/1066_DropHumanMessageDigestItems.ts";
+import Migration1067 from "./Migrations/1067_LoomMultiSiblingGate.ts";
 
 /** Ledger table for the fork lane. Its existence is also the reconciliation marker. */
 export const loomMigrationsTable = "loom_sql_migrations";
@@ -150,6 +151,7 @@ export const loomMigrationEntries = [
   [1064, "ThreadSearchTextGuard", Migration1064],
   [1065, "DropUpstreamMessageSearch", Migration1065],
   [1066, "DropHumanMessageDigestItems", Migration1066],
+  [1067, "LoomMultiSiblingGate", Migration1067],
 ] as const;
 
 const makeLoomMigrationLoader = (throughId?: number) =>

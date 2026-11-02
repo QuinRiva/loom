@@ -27,7 +27,14 @@ import { WorkstreamTimelineDrawer } from "../components/WorkstreamTimeline";
 import { buildWorkstreamNodes, liveNodes } from "../lib/workstreamPresentation";
 import { LoomRollupPill } from "../loom/LoomRollupBadge";
 import type { PreviewGroup } from "./fixtures";
-import { loomPreviewThreads, shell, workstream } from "./loomFixtures";
+import {
+  loomPreviewThreads,
+  loomPreviewTrioIds,
+  loomPreviewTrioRootId,
+  loomPreviewTrioThreads,
+  shell,
+  workstream,
+} from "./loomFixtures";
 
 const T = LOOM_SEED.threads;
 
@@ -138,6 +145,34 @@ function GraphFixture() {
           byId={nodes}
           rollupOf={rollupOf}
           titleOf={titleOf}
+          onOpenThread={noop}
+          onJump={noop}
+          onOpenTimeline={noop}
+          onNodeContextMenu={noop}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
+const trioNodes = buildWorkstreamNodes(loomPreviewTrioThreads);
+const trioIndex = workstreamIndexOf(loomPreviewTrioThreads);
+
+/** One reviewer over three siblings, two reopened this round: three return arrows, two dots. */
+function TrioGraphFixture() {
+  const subtree = subtreeOf(loomPreviewTrioRootId, liveNodes(trioNodes.values()));
+  const rollupOf = (threadId: ThreadId) =>
+    workstreamRollupOf(threadId, loomPreviewTrioThreads, trioIndex);
+  return (
+    <div className="mx-auto w-[720px] p-3">
+      <Suspense fallback={null}>
+        <WorkstreamGraph
+          viewKey="preview:workstream-graph-trio"
+          nodes={subtree}
+          satellites={[]}
+          byId={trioNodes}
+          rollupOf={rollupOf}
+          titleOf={(threadId) => trioNodes.get(threadId)?.title ?? threadId}
           onOpenThread={noop}
           onJump={noop}
           onOpenTimeline={noop}
@@ -393,6 +428,30 @@ export const WORKSTREAM_PREVIEW_GROUP: PreviewGroup = {
       description:
         "The whole orchestration with the active strip: the reviewer→coder loop edge carries ⟲ rounds/cap and the open-rework dot; the forkFrom child carries the fork badge. Steps: a 17-minute bash (amber) under a 48-character model slug, a 20-second read (name only), and a reviewer with a four-digit tool count beside waiting ⟲1.",
       render: () => <GraphFixture />,
+    },
+    {
+      id: "workstream-graph-trio",
+      title: "Graph: one reviewer gating three siblings",
+      description:
+        "A gate over three siblings mid-round: three return arrows leave the reviewer; round 1 reopened two of them, so the open-rework dot sits on those two arrows only and the third sibling stays done.",
+      render: () => <TrioGraphFixture />,
+    },
+    {
+      id: "workstream-timeline-trio",
+      title: "Timeline: reviewer gating three siblings",
+      render: () => (
+        <div className="relative mx-auto h-[420px] w-[400px] overflow-hidden rounded-lg border border-border">
+          <WorkstreamTimelineDrawer
+            node={trioNodes.get(loomPreviewTrioIds.reviewer)}
+            history={null}
+            titleOf={(threadId) => trioNodes.get(threadId)?.title ?? threadId}
+            onClose={noop}
+            onOpenThread={noop}
+            onOpenReport={noop}
+            onJump={noop}
+          />
+        </div>
+      ),
     },
     {
       id: "workstream-quick-facts-root",
