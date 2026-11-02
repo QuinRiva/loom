@@ -89,6 +89,7 @@ const serverConfig: ServerConfig = {
       },
     ],
     availableEditors: [],
+    remoteEditorSshHost: null, // loom: client-launched editor SSH host
     observability: {
       logsDirectoryPath: "/workspace/.t3/logs",
       localTracingEnabled: false,
