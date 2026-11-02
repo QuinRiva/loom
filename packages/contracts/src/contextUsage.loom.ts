@@ -8,22 +8,16 @@ import { IsoDateTime, NonNegativeInt, ThreadId } from "./baseSchemas.ts";
 /** One LLM call (a jsonl assistant entry); `index` is its position among all calls. */
 export const LoomContextCall = Schema.Struct({
   index: NonNegativeInt,
-  entryId: Schema.String,
   at: IsoDateTime,
   /** input + cacheRead + cacheWrite: the whole prompt at this call. */
   ctx: Schema.Int,
-  /** ctx(N) − ctx(N−1) − output(N−1) over valid calls; a series' first call takes its whole ctx; 0 when invalid. */
-  appendedTokens: Schema.Int,
   output: Schema.Int,
-  reasoning: Schema.Int,
   input: Schema.Int,
   cacheRead: Schema.Int,
   cacheWrite: Schema.Int,
   costUsd: Schema.Number,
-  /** cost.cacheRead ÷ usage.cacheRead and cost.cacheWrite ÷ usage.cacheWrite; null when the divisor is 0. */
-  readUnitUsd: Schema.NullOr(Schema.Number),
+  /** cost.cacheWrite ÷ usage.cacheWrite; null when the divisor is 0. */
   writeUnitUsd: Schema.NullOr(Schema.Number),
-  stop: Schema.NullOr(Schema.String),
   /** False when ctx is 0 or the call stopped on error or abort; its pending items roll forward. */
   valid: Schema.Boolean,
   toolCallIds: Schema.Array(Schema.String),

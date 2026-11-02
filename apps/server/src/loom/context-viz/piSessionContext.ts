@@ -18,6 +18,8 @@ import type {
 } from "@t3tools/contracts";
 
 export const IMAGE_TOKENS = 1543;
+// Labels cross the wire once per item on every thread open; 60 characters names a call.
+const LABEL_CHARS = 60;
 const IDLE_GAP_MINUTES = 60;
 const KEPT_TYPES = ["message", "compaction", "usage", "session", "custom_message"].map(
   (type) => `"type":"${type}"`,
@@ -91,7 +93,11 @@ type Pending = Pick<
   "id" | "kind" | "tool" | "label" | "at" | "chars" | "images" | "isError" | "userKind" | "message"
 >;
 
+/** The wire call plus what the reader needs and no view reads; stripped before the report leaves. */
 interface Call extends LoomContextCall {
+  readonly entryId: string;
+  readonly reasoning: number;
+  readonly readUnitUsd: number | null;
   readonly model: string | null;
   readonly blocks: ReadonlyArray<Block>;
 }
@@ -140,19 +146,19 @@ const userKindOf = (text: string): LoomContextUserKind =>
           : "human";
 
 const labelFor = (name: string, args: unknown, cwd: string | null): string => {
-  if (!isRecord(args)) return String(args).slice(0, 80);
+  if (!isRecord(args)) return String(args).slice(0, LABEL_CHARS);
   if (name === "bash") {
     const command = squash(String(args.command ?? ""));
     return (cwd === null ? command : command.replaceAll(cwd, "."))
       .replace(/^cd \.?(\/\S*)?\s*(&&|;)\s*/, (_, dir?: string) =>
         dir ? `${dir.replace(/^\/+/, "")}: ` : "",
       )
-      .slice(0, 80);
+      .slice(0, LABEL_CHARS);
   }
   const key = LABEL_KEYS.find((candidate) => args[candidate]);
-  if (key === undefined) return JSON.stringify(args.queries ?? args).slice(0, 80);
+  if (key === undefined) return JSON.stringify(args.queries ?? args).slice(0, LABEL_CHARS);
   const value = squash(String(args[key]));
-  return (cwd === null ? value : value.replaceAll(`${cwd}/`, "")).slice(0, 80);
+  return (cwd === null ? value : value.replaceAll(`${cwd}/`, "")).slice(0, LABEL_CHARS);
 };
 
 // Dollars to the micro-dollar and unit prices to six figures: float noise doubles the payload.
@@ -226,7 +232,7 @@ const assistantItems = (
   return blocks.map(({ contentIndex, label, ...block }) => ({
     ...block,
     id: `${call.entryId}:c${contentIndex}`,
-    label: label.slice(0, 80),
+    label: label.slice(0, LABEL_CHARS),
     at: next.at,
     tokens: tokens.get(contentIndex)!,
     measured: block.kind === "assistant_thinking" && thinking.length === 1 && call.reasoning > 0,
@@ -310,7 +316,6 @@ export const readPiSessionContext = async (path: string): Promise<PiSessionConte
       entryId: entry.id,
       at: entry.timestamp,
       ctx,
-      appendedTokens: 0,
       output: usage.output,
       reasoning: usage.reasoning ?? 0,
       input: usage.input,
@@ -319,7 +324,6 @@ export const readPiSessionContext = async (path: string): Promise<PiSessionConte
       costUsd: usd(usage.cost.total),
       readUnitUsd: unitPrice(usage.cost.cacheRead, usage.cacheRead),
       writeUnitUsd: unitPrice(usage.cost.cacheWrite, usage.cacheWrite),
-      stop: message.stopReason ?? null,
       valid: ctx > 0 && message.stopReason !== "error" && message.stopReason !== "aborted",
       toolCallIds: toolCalls.map((block) => block.id),
       series,
@@ -332,7 +336,7 @@ export const readPiSessionContext = async (path: string): Promise<PiSessionConte
     }
     if (compaction !== null) {
       // The summary and the kept messages are one block whose size only this call measures.
-      calls.push({ ...call, appendedTokens: ctx });
+      calls.push(call);
       items.push({
         id: compaction.id,
         kind: "compaction_base",
@@ -356,7 +360,7 @@ export const readPiSessionContext = async (path: string): Promise<PiSessionConte
       live.clear();
     } else {
       const budget = prev === null ? ctx : ctx - prev.ctx - prev.output;
-      calls.push({ ...call, appendedTokens: budget });
+      calls.push(call);
       if (prev !== null) items.push(...assistantItems(prev, call, labels));
       for (const id of retired) lastCall.set(id, prev!.index);
       const freed = sum(retired.map((id) => tokensById.get(id) ?? 0));
@@ -375,7 +379,7 @@ export const readPiSessionContext = async (path: string): Promise<PiSessionConte
     const item = { id: entry.id, at: entry.timestamp, tool: null, isError: false, images: 0 };
     const userItem = (content: Content, userKind: (text: string) => LoomContextUserKind) => {
       const { text, images } = contentOf(content);
-      const label = squash(text.slice(0, 400)).slice(0, 80);
+      const label = squash(text.slice(0, 400)).slice(0, LABEL_CHARS);
       const kind = "user_message";
       pending.push({
         ...item,
@@ -491,7 +495,9 @@ export const readPiSessionContext = async (path: string): Promise<PiSessionConte
   return {
     sessionPath: path,
     model: last?.model ?? null,
-    calls: calls.map(({ model: _model, blocks: _blocks, ...call }) => call),
+    calls: calls.map(
+      ({ model: _m, blocks: _b, entryId: _e, reasoning: _r, readUnitUsd: _u, ...call }) => call,
+    ),
     items: items.map((item) => {
       const first = calls[item.firstSeenCall]!;
       const from = position.get(first.index)!;

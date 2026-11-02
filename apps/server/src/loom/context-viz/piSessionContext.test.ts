@@ -17,7 +17,6 @@ const byId = async (name: string) => {
 describe("readPiSessionContext", () => {
   it("gives a gap with one item the whole measured budget", async () => {
     const { session, item } = await byId("identity.jsonl");
-    expect(session.calls[1]!.appendedTokens).toBe(11300 - 10000 - 300);
     expect(item("t1")).toMatchObject({ tokens: 1000, measured: true, firstSeenCall: 1 });
   });
 
@@ -29,8 +28,9 @@ describe("readPiSessionContext", () => {
 
   it("reserves image tokens before the character split", async () => {
     const { session, item } = await byId("identity.jsonl");
+    const [prev, call] = [session.calls[2]!, session.calls[3]!];
     expect(item("t4").tokens).toBe(IMAGE_TOKENS + 100);
-    expect(item("t4").tokens + item("t5").tokens).toBe(session.calls[3]!.appendedTokens);
+    expect(item("t4").tokens + item("t5").tokens).toBe(call.ctx - prev.ctx - prev.output);
   });
 
   it("rolls an aborted call's items into the next valid gap", async () => {

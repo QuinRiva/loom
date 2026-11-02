@@ -58,7 +58,7 @@ describe("buildContextJoin on the fixture thread", () => {
     // against a measured number, not only a consistent one.
     expect(join.byNativeId.get("turn-1:m1:c0")).toMatchObject({
       kind: "assistant_thinking",
-      tokens: report.calls[0]!.reasoning,
+      tokens: 874,
       measured: true,
     });
   });
