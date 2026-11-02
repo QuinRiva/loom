@@ -565,6 +565,7 @@ type MessagesTimelineRowContent =
       toolIcon?: WorkLogEntry["toolIcon"];
       summaryToolIcon?: "browser" | "device" | "t3-code" | "pull-request";
       hasFailure: boolean;
+      nativeIds: string[]; // loom: context-viz, the group's figures while collapsed
     }
   | {
       kind: "turn-fold";
@@ -1891,6 +1892,9 @@ export function deriveMessagesTimelineRows(input: {
             hasFailure:
               latestToolEntry !== undefined &&
               workEntryDisplayIndicatesToolFailure(latestToolEntry),
+            nativeIds: visibleGroupedEntries.flatMap(
+              (e) => e.projectedItem?.item.nativeItemRef?.nativeId ?? [],
+            ), // loom: context-viz
           });
           if (expanded) {
             nextRows.push(

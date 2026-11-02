@@ -14,6 +14,7 @@ import { ContextVizSettingsRows } from "../loom/context-viz/ContextVizSettingsRo
 import { GROWTH_PREVIEW_FIXTURES } from "../loom/context-viz/growth/growth.preview";
 import { CompositionView } from "../loom/context-viz/composition/CompositionView";
 import reportJson from "../loom/context-viz/preview/report.fixture.json";
+import { TIMELINE_PREVIEW_FIXTURES } from "../loom/context-viz/timeline/timeline.preview";
 import type { PreviewGroup } from "./fixtures";
 
 const contextVizPreviewReport = Schema.decodeUnknownSync(LoomContextReport)(reportJson);
@@ -165,5 +166,6 @@ export const CONTEXT_VIZ_PREVIEW_GROUP: PreviewGroup = {
       render: () => <Composition initialLens="cost" initialGrouped={false} />,
     },
     ...GROWTH_PREVIEW_FIXTURES,
+    ...TIMELINE_PREVIEW_FIXTURES,
   ],
 };

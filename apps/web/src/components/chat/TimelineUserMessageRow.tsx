@@ -76,6 +76,7 @@ import { UserMessageContextReferenceChip } from "./UserMessageContextChips";
 import { resolvePreviewAnnotationImage } from "./TimelineUserMessageRow.logic";
 import { CHANNEL_CLASSES } from "../../loom/controlMessages"; // loom: 3d-3
 import type { ControlBubble } from "@t3tools/client-runtime/state/loom/controlBubble"; // loom: 3d-3
+import { RowFigure } from "../../loom/context-viz/timeline/RowFigure"; // loom: context-viz
 
 function UserVideoAttachment({ file }: { readonly file: ChatFileAttachment }) {
   const ctx = use(TimelineRowCtx);
@@ -658,6 +659,9 @@ function UserTimelineRow({
                 Open thread
               </InlineButton>
             ) : null}
+            <RowFigure
+              userMessageId={row.message.id} // loom: context-viz
+            />
             <Tooltip>
               <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
                 {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}

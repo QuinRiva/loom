@@ -445,6 +445,7 @@
   "apps/web/src/loom/ThreadTabsStrip.tsx": 1,
   "apps/web/src/loom/batchedLookupStore.ts": 1,
   "apps/web/src/loom/context-viz/contextUsageStore.ts": 1,
+  "apps/web/src/loom/context-viz/timeline/TimelineHost.tsx": 1,
   "apps/web/src/loom/conversationJump.ts": 1,
   "apps/web/src/loom/pendingUserInputLoom.tsx": 1,
   "apps/web/src/loom/review/ChangeRuler.tsx": 1,
