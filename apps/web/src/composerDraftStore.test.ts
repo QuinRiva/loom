@@ -1658,6 +1658,22 @@ describe("composerDraftStore modelSelection", () => {
     expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
   });
 
+  // loom: DL-1720: the send fills an option-less pick from the thread's or default's options.
+  it("releases an option-less pick once the thread runs its model with inherited options", () => {
+    const pick = modelSelection(CODEX_DRIVER, "gpt-5.5");
+    useComposerDraftStore.getState().setModelSelection(threadRef, pick, { explicit: true });
+    const before = draftFor(threadId, TEST_ENVIRONMENT_ID);
+    const h = modelReconciliationHarness(TEST_ENVIRONMENT_ID, threadId);
+    h.update({
+      modelSelection: modelSelection(CODEX_DRIVER, "gpt-5.4", { reasoningEffort: "high" }),
+    });
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toEqual(before);
+    h.update({
+      modelSelection: modelSelection(CODEX_DRIVER, "gpt-5.5", { reasoningEffort: "high" }),
+    });
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
+  });
+
   it("marks picker writes explicit and seeding writes non-explicit", () => {
     const store = useComposerDraftStore.getState();
     store.setModelSelection(threadRef, modelSelection(CODEX_DRIVER, "gpt-5.4"));
