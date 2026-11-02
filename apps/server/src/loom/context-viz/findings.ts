@@ -4,15 +4,7 @@
  */
 import type { LoomContextFinding, LoomContextItem } from "@t3tools/contracts";
 
-export const WRITE_TOOL_SUFFIXES = new Set([
-  "add",
-  "update",
-  "rewrite",
-  "set",
-  "submit",
-  "edit",
-  "write",
-]);
+const WRITE_TOOL_SUFFIXES = new Set(["add", "update", "rewrite", "set", "submit", "edit", "write"]);
 const READ_TOOLS = new Set(["read", "read_full", "Read"]);
 const ECHO_MIN_TOKENS = 2000;
 const WHOLE_FILE_MIN_TOKENS = 3000;
@@ -52,7 +44,7 @@ export const contextFindings = (
   }
 
   const called = new Set(results.map((item) => item.tool));
-  const schemas = items.filter((item) => item.kind === "tool_schema");
+  const schemas = items.filter((item) => item.kind === "tool_schema" && item.inWindow);
   const unused = schemas.filter((item) => !called.has(item.tool));
   if (unused.length > 0) {
     const tokens = sum(unused);

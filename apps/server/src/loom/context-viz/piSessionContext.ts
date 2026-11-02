@@ -462,8 +462,8 @@ export const readPiSessionContext = async (path: string): Promise<PiSessionConte
     crlfDelay: Infinity,
   });
   for await (const line of lines) {
-    const head = new Set(line.slice(0, 40));
-    if (!KEPT_TYPES.some((type) => head.has(type))) continue;
+    // pi writes `type` first, so `{"type":"…"` at offset 1 picks the entries without parsing the rest.
+    if (!KEPT_TYPES.some((type) => line.startsWith(type, 1))) continue;
     try {
       onEntry(JSON.parse(line) as Entry);
     } catch {
