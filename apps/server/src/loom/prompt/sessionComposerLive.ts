@@ -50,6 +50,7 @@ import {
   writeLaunchIdentity,
 } from "../workstream/launchIdentity.ts";
 import { goalContextInstruction } from "./goalContext.ts";
+import { launchStamp } from "./launchStamp.ts";
 import {
   CHILD_READERSHIP_CLAUSE,
   deferredCapabilitiesClause,
@@ -223,6 +224,19 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
       ? source.value
       : yield* composeIdentity(thread, workstream, projectRoot, longShare);
     yield* writeLaunchIdentity(identityDir, thread.id, record);
+    // loom: a composed (not replayed) identity's provenance; never worth failing a launch over.
+    if (Option.isNone(source)) {
+      const launchedAt = DateTime.formatIso(yield* DateTime.now);
+      yield* Effect.try(() =>
+        launchStamp({
+          threadId: thread.id,
+          launchedAt,
+          role: workstream?.role ?? null,
+          projectRoot,
+          identity: record,
+        }),
+      ).pipe(Effect.flatMap(loomStore.launchStamps.record), Effect.ignore({ log: true }));
+    }
     return record;
   });
 

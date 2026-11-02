@@ -657,7 +657,12 @@ function historyRowBody(
         ? { label: "Reopened", detail: null, tone: "info" }
         : entry.outcome === "done"
           ? { label: "Done", detail: null, tone: "success" }
-          : { label: "Cancelled", detail: null, tone: "neutral" };
+          : // loom: cancel reason
+            {
+              label: "Cancelled",
+              detail: entry.reason ? humanize(entry.reason) : null,
+              tone: "neutral",
+            };
   }
 }
 

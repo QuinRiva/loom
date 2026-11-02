@@ -53,6 +53,7 @@ export const workstreamSetOutcome = Effect.fn("LoomToolkit.workstreamSetOutcome"
     threadId,
     createdAt: yield* nowIso,
     outcome: input.outcome === "none" ? null : input.outcome,
+    ...(input.reason && { reason: input.reason }), // loom: the arm drops it unless cancelling
   });
   const warnings = committed(result, "thread.gate-warning").map(
     ({ payload }) => `${payload.detail}${WARNING_ADVICE[payload.kind]}`,

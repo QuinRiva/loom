@@ -268,6 +268,22 @@ export interface LoomSnoozeRequest {
   readonly requestedAt: IsoDateTime;
 }
 
+// loom: a `loom_thread_launch_stamps` row, keyed by its column names; each `*_sha` is a sha256.
+export type LoomLaunchStamp = {
+  readonly thread_id: ThreadId;
+  readonly launched_at: IsoDateTime;
+  readonly loom_commit: string;
+  readonly role: string | null;
+  readonly role_sha: string | null;
+  readonly project_role_sha: string | null;
+  readonly skills_sha: string | null;
+  readonly agents_global_sha: string | null;
+  readonly agents_project_sha: string | null;
+  readonly prompt_sha: string;
+  /** JSON array of the launch's skill file paths. */
+  readonly skill_paths: string | null;
+};
+
 /** A still-undelivered mcp__t3-code__notify_thread message, oldest first. */
 export interface LoomPendingPeerMessage {
   readonly recordId: string;
@@ -381,6 +397,12 @@ export interface LoomStoreV2Shape {
     ) => Op<LoomThreadCache | null>;
     /** Every plan `stopped`: at boot, when no pi process (and so no warmer) is alive. */
     readonly stopAll: Op<void>;
+  };
+  // loom: launch provenance (plans/loom-evals §2.2), a ledger like the usage ledger, not an event fold.
+  /** `loom_thread_launch_stamps`: which commit and instruction files composed a thread's prompt. */
+  readonly launchStamps: {
+    /** The thread's first composed launch; a later record for the same thread is ignored. */
+    readonly record: (stamp: LoomLaunchStamp) => Op<void>;
   };
   /** `loom_thread_snooze_requests`: at most one deferred self-snooze per thread (the snooze rail applies it). */
   readonly snoozeRequests: {
@@ -963,7 +985,8 @@ const make = Effect.gen(function* () {
               case "thread.gate-rework-accepted":
                 return [{ type: "rework-accepted", ...event, ...row.payload }];
               case "thread.outcome-set":
-                return [{ type: "outcome-set", ...event, outcome: row.payload.outcome }];
+                // loom: cancel reason
+                return [{ type: "outcome-set", ...event, ...row.payload }];
               case "thread.plan-lane-set": {
                 const previous = lane;
                 lane = row.payload.planLane;
@@ -1024,6 +1047,11 @@ const make = Effect.gen(function* () {
       },
       stopAll: sql`UPDATE loom_thread_cache SET warming = 'stopped'
           WHERE warming IS NOT 'stopped'`.pipe(Effect.asVoid, run("cache.stopAll")),
+    },
+    launchStamps: {
+      record: (stamp) =>
+        sql`INSERT INTO loom_thread_launch_stamps ${sql.insert(stamp)}
+          ON CONFLICT (thread_id) DO NOTHING`.pipe(Effect.asVoid, run("launchStamps.record")),
     },
     snoozeRequests: {
       set: ({ threadId, snoozedUntil, requestedAt }) =>

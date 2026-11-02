@@ -51,6 +51,16 @@ export type LoomAttentionReason = typeof LoomAttentionReason.Type;
 export const LoomOutcome = Schema.Literals(["done", "cancelled"]);
 export type LoomOutcome = typeof LoomOutcome.Type;
 
+// loom: why a parent cancelled a thread (plans/loom-evals); carried on `set` cancels only.
+export const LoomCancelReason = Schema.Literals([
+  "superseded",
+  "scope_dropped",
+  "stuck",
+  "mistake",
+  "other",
+]);
+export type LoomCancelReason = typeof LoomCancelReason.Type;
+
 /** Who composed a Loom-originated message. Absent = not Loom-originated. */
 export const LoomMessageOrigin = Schema.Literals([
   "kickoff",
@@ -749,6 +759,7 @@ export const LoomClientCommandMembers = [
     type: Schema.Literal("thread.outcome.set"),
     ...LoomCommandFields,
     outcome: Schema.NullOr(LoomOutcome),
+    reason: Schema.optional(LoomCancelReason), // loom: cancel reason
   }),
   Schema.Struct({
     type: Schema.Literal("thread.attention.raise"),
@@ -1003,7 +1014,11 @@ export const makeLoomDomainEventMembers = <const Base extends Schema.Struct.Fiel
     Schema.Struct({
       ...base,
       type: Schema.Literal("thread.outcome-set"),
-      payload: Schema.Struct({ outcome: Schema.NullOr(LoomOutcome), cause: LoomOutcomeSetCause }),
+      payload: Schema.Struct({
+        outcome: Schema.NullOr(LoomOutcome),
+        cause: LoomOutcomeSetCause,
+        reason: Schema.optional(LoomCancelReason), // loom: cancel reason
+      }),
     }),
     Schema.Struct({
       ...base,

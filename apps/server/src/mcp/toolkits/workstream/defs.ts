@@ -3,6 +3,7 @@
  * is the single source, so handler input types and the served JSON `parameters` cannot drift.
  * `ask_user_question` is registered by Loom's pi extension, not here.
  */
+import { LoomCancelReason } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import type * as JsonSchema from "effect/JsonSchema";
 import * as Schema from "effect/Schema";
@@ -238,6 +239,8 @@ const LOOM_TOOL_SPECS = {
         Schema.Literals(["done", "cancelled", "none"]),
         "'done' releases dependents. 'cancelled' abandons the work without releasing dependents and cascades: every unfinished descendant is cancelled and its in-flight turn interrupted. 'none' clears a done or cancelled outcome.",
       ),
+      // loom: cancel reason (plans/loom-evals §2.1)
+      reason: Schema.optionalKey(described(LoomCancelReason, "Why, when cancelling.")),
     }),
     "throw",
     { idempotent: true },
