@@ -16,3 +16,6 @@ export const formatItemTokens = (item: { readonly tokens: number; readonly measu
 /** `35.6%` of a whole; null when the whole is unknown. */
 export const formatShare = (part: number, whole: number | null) =>
   whole ? `${((part / whole) * 100).toFixed(1)}%` : null;
+
+/** `1 call`, `241 calls`. */
+export const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;

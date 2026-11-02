@@ -16,7 +16,7 @@ import {
   useContextUsage,
   useContextUsageLoader,
 } from "./contextUsageStore";
-import { formatContextTokens, formatShare } from "./format";
+import { formatContextTokens, formatShare, plural } from "./format";
 import { GrowthView } from "./growth/GrowthView";
 
 // The header re-renders with the projection; the sub-views only when their props change.
@@ -51,7 +51,8 @@ export default function ContextPanel({ threadRef }: { readonly threadRef: Scoped
       piThread={isPiThread(thread)}
       composition={composition}
       growth={growth}
-      turns={projection?.runs.length ?? 0}
+      // The projection pages old runs out, so the newest ordinal is the count, as the views number turns.
+      turns={Math.max(0, ...(projection?.runs ?? []).map((run) => run.ordinal))}
       contextWindow={
         projection?.providerThreads.find(
           (providerThread) => providerThread.id === projection.thread.activeProviderThreadId,
@@ -120,8 +121,9 @@ export function ContextPanelView(props: ContextPanelViewProps) {
           <p className="w-full text-xs text-muted-foreground">
             As of the latest call: {formatContextTokens(latestCtx)}
             {contextWindow ? ` of ${formatContextTokens(contextWindow)}` : ""}
-            {share ? ` (${share})` : ""} · {report.calls.filter((call) => call.valid).length} calls
-            · {props.turns} {props.turns === 1 ? "turn" : "turns"}
+            {share ? ` (${share})` : ""} ·{" "}
+            {plural(report.calls.filter((call) => call.valid).length, "call")} ·{" "}
+            {plural(props.turns, "turn")}
             {report.model ? ` · ${report.model}` : ""}
           </p>
         ) : null}

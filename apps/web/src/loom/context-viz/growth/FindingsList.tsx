@@ -2,7 +2,7 @@
 // size as plain sums by kind and the fixed overhead. Clicking a card lights its items on the chart.
 import type { LoomContextFinding, LoomContextReport } from "@t3tools/contracts";
 
-import { formatContextTokens, formatShare } from "../format";
+import { formatContextTokens, formatShare, plural } from "../format";
 import type { LitGroup } from "./BiggestStep";
 import {
   CLASS_META,
@@ -30,7 +30,6 @@ const RULE_NAMES: Record<LoomContextFinding["rule"], string> = {
 };
 const READS = new Set(["bash", "read", "read_full", "Read"]);
 
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const sum = (entries: ReadonlyArray<StepItem>) =>
   entries.reduce((total, entry) => total + entry.item.tokens, 0);
 /** `bash 36.6K, write 8.8K, edit 5.4K`: the three largest totals by `by`. */
