@@ -129,10 +129,10 @@ export const parseGoalTaskMarkdown = (
 };
 
 /**
- * Resolves parsed lines against the current tree into store entries, minting ids for new lines,
- * and summarises the diff, listing every removed task as a resubmittable line. `current` is in tree
- * order; positions are re-derived densely from document order, so "moved" compares a task's RANK
- * among its siblings, never the stored position.
+ * Resolves parsed lines into store entries, minting ids, and summarises the diff with every removed
+ * task as a resubmittable line. `current` is in tree order: "moved" compares sibling RANK, not position.
+ * A retained task whose current subtree is all done keeps the children the submission omits, so an
+ * elided view's collapsed line round-trips; pruning them means omitting that line too.
  */
 export const resolveGoalTaskRewrite = (input: {
   readonly lines: ReadonlyArray<GoalTaskLine & { readonly position: number }>;
@@ -143,16 +143,49 @@ export const resolveGoalTaskRewrite = (input: {
   readonly summary: string;
   /** False when the submission restates the current tree — nothing to write. */
   readonly changed: boolean;
+  /** The tasks this rewrite created. */
+  readonly minted: ReadonlySet<string>;
+  /** Every task whose stored state this rewrite changes, minted and removed included. */
+  readonly touched: ReadonlySet<string>;
 } => {
   const currentById = new Map<string, FlatGoalTask>(input.current.map((task) => [task.id, task]));
   const ids = input.lines.map((line) => line.taskId ?? input.mintTaskId());
-  const tasks = input.lines.map((line, index): LoomGoalTaskInput => ({
+  const submittedTasks = input.lines.map((line, index): LoomGoalTaskInput => ({
     id: ids[index]!,
     parentTaskId: line.parentIndex === null ? null : ids[line.parentIndex]!,
     text: line.text,
     done: line.done,
     position: line.position,
   }));
+  const submitted = new Set<string>(ids);
+
+  const childrenOf = Map.groupBy(input.current, (task): string => task.parentTaskId ?? "");
+  const allDone = (taskId: string): boolean =>
+    (childrenOf.get(taskId) ?? []).every((child) => child.done && allDone(child.id));
+  const survives = (task: FlatGoalTask): boolean => {
+    const parent = task.parentTaskId === null ? undefined : currentById.get(task.parentTaskId);
+    if (parent === undefined) return false;
+    return submitted.has(parent.id) ? parent.done && allDone(parent.id) : survives(parent);
+  };
+  const omitted = input.current.filter((task) => !submitted.has(task.id));
+  const nextPosition = new Map<string, number>();
+  for (const task of submittedTasks) {
+    const key = task.parentTaskId ?? "";
+    nextPosition.set(key, Math.max(nextPosition.get(key) ?? 0, task.position + 1));
+  }
+  const survivors = omitted.filter(survives).map((task): LoomGoalTaskInput => {
+    const key = task.parentTaskId ?? "";
+    const position = nextPosition.get(key) ?? 0;
+    nextPosition.set(key, position + 1);
+    return {
+      id: task.id,
+      parentTaskId: task.parentTaskId,
+      text: task.text,
+      done: task.done,
+      position,
+    };
+  });
+  const survivorIds = new Set<string>(survivors.map((task) => task.id));
 
   const siblingsSeen = new Map<string, number>();
   const currentRank = new Map<string, number>();
@@ -162,25 +195,29 @@ export const resolveGoalTaskRewrite = (input: {
     currentRank.set(task.id, rank);
   }
 
-  const submitted = new Set<string>(ids);
   const counts = { added: 0, restored: 0, edited: 0, moved: 0, removed: 0 };
-  tasks.forEach((task, index) => {
+  const touched = new Set<string>();
+  submittedTasks.forEach((task, index) => {
     const existing = currentById.get(task.id);
     // An id the live tree lacks was parsed as one of the goal's deleted tasks.
-    if (!existing) counts[input.lines[index]!.taskId === null ? "added" : "restored"] += 1;
-    else {
-      if (existing.text !== task.text || existing.done !== task.done) counts.edited += 1;
-      if (
-        existing.parentTaskId !== task.parentTaskId ||
-        currentRank.get(task.id) !== task.position
-      ) {
-        counts.moved += 1;
-      }
+    if (!existing) {
+      counts[input.lines[index]!.taskId === null ? "added" : "restored"] += 1;
+      touched.add(task.id);
+      return;
+    }
+    if (existing.text !== task.text || existing.done !== task.done) {
+      counts.edited += 1;
+      touched.add(task.id);
+    }
+    if (existing.parentTaskId !== task.parentTaskId || currentRank.get(task.id) !== task.position) {
+      counts.moved += 1;
+      touched.add(task.id);
     }
   });
-  const removed = input.current.filter((task) => !submitted.has(task.id));
+  const removed = omitted.filter((task) => !survivorIds.has(task.id));
   counts.removed = removed.length;
   const removedIds = new Set<string>(removed.map((task) => task.id));
+  for (const taskId of removedIds) touched.add(taskId);
   // Nested among themselves, so a removed subtree pastes back as a subtree.
   const removedLines = renderGoalTaskTree(
     buildGoalTaskTree(
@@ -196,15 +233,23 @@ export const resolveGoalTaskRewrite = (input: {
     .filter(([, count]) => count > 0)
     .map(([label, count]) => `${count} ${label}`);
   return {
-    tasks,
+    tasks: [...submittedTasks, ...survivors],
     changed: parts.length > 0,
+    minted: new Set(ids.filter((_, index) => input.lines[index]!.taskId === null)),
+    touched,
     summary:
-      parts.length === 0
-        ? "Rewrote the task tree: no changes (the submitted tree matches the current one)."
-        : `Rewrote the task tree: ${parts.join(", ")}.${
+      parts.length > 0
+        ? `Rewrote the task tree: ${parts.join(", ")}.${
             removed.length === 0
               ? ""
               : `\n\nRemoved:\n${removedLines}\nResubmit any of these lines, with its (id), in a rewrite to restore that task.`
-          }`,
+          }`
+        : survivors.length > 0
+          ? `Rewrote the task tree: no changes applied. ${
+              survivors.length === 1
+                ? "The finished task you omitted sits beneath a finished line you kept, so it was retained (omit that line too to prune it)."
+                : `The ${survivors.length} finished tasks you omitted sit beneath finished lines you kept, so they were retained (omit those lines too to prune them).`
+            }`
+          : "Rewrote the task tree: no changes (the submitted tree matches the current one).",
   };
 };

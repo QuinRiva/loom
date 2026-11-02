@@ -1,0 +1,266 @@
+---
+reader:
+  who: Carl, deciding whether to approve a change to what every thread gets back after it writes to its goal's task tree, or to pick a different candidate, or to send it back
+  knows: what the task tree is for, why the echo exists (July 2026) and that branch scoping shipped (September 2026); none of the evidence sheet or the child reports behind this brief
+  after_first_screen: what the echo costs today and how often it earns its keep; which reply shape is proposed and what a thread loses by it; whether it contradicts the September ruling; and a decision on the default
+kicker: "Intent brief · approved and built 2 Nov 2026: slim reply, hand-back and child-done lines, finished-subtree rewrite rule"
+status: done
+manager_sessions:
+  - id: 01a19a82-1052-73d6-bbc2-b36d931e6281
+    name: Slim goal-task echo intent brief
+    role: intent
+    authored_at: 2026-11-02T04:37:59.471Z
+---
+
+# What a thread needs back after it writes to the task tree
+
+**Recommendation.** Stop echoing the whole open tree to unscoped threads (roots, `goal_continue` roots and unanchored children) and reply instead with **what you changed, what other threads changed since you last read the tree, and the goal's counts**. Anchored children keep today's branch echo, which is already small and complete. Add the open-items reminder at the two moments where forgetting actually happens: an anchored child's hand-back, and the root's notice that a child is done. Against what current code renders, on the last 60 days of writes, this cuts echo cost **81%** (from $373 to about $71, or $145 to $29 counting cache reads only), takes **every thread under 10% of its context** (23 are above it today), and keeps **1,233 of the 1,262** times a thread acted on an id only the echo gave it. What a thread loses is line-level sight of open work elsewhere in the goal on every write, which the evidence says was used **29 times in 60 days**. The bet: a write-time reply is the wrong place for "don't forget", because the echo visibly prompted a tick 3.7% of the time while 28% of anchored children still handed back with open items unmentioned.
+
+<Stats
+  items={[
+    { value: "0.49%", label: "Median thread's echo share of context", tone: "success", detail: "896 echo tokens; the typical thread is fine as it is" },
+    { value: "23 of 1,501", label: "Threads above 10% of context, current rendering", tone: "risk", detail: "All but 5 of them roots; the 21 largest threads hold 68% of echo dollars" },
+    { value: "$373", label: "Echo cost, 60 days, current rendering (2% of spend)", tone: "warning", detail: "$145 counting cache reads only; about $185 a month. As shipped (September replies unpruned): $503" },
+    { value: "90%", label: "Echo-only uses that were a rewrite's new ids", tone: "info", detail: "1,139 of 1,262; a slim reply carries them too" },
+    { value: "28%", label: "Anchored children handing back with open items unmentioned", tone: "risk", detail: "253 of 902, with the echo in place" },
+  ]}
+/>
+
+<Callout tone="decision" title="What it means now" focus>
+  The tree itself, the human's panel, the spawn snapshot and `goal_task_list` do not change. Roots and unanchored children stop receiving the open plan on every write and get a short reply naming their change, others' changes since their last read, and the counts. A child's hand-back and the root's "child done" notice start naming what is still open in the child's branch. This **replaces September's open-tree echo for unscoped threads** (two of its rulings: the root's echo, and the unbound child's) and keeps every other ruling, including branch plus pulse for anchored children. It does not contradict "regressing to a blind confirmation line is off the table" as Carl clarified it: the reply is not blind, and awareness of open items moves to where the evidence says it is lost. Three questions at the end; a bare "go" takes every recommended answer.
+</Callout>
+
+**Goal.** Carl, on seeing the handoff: "I wouldn't have thought that this is *such* an issue, in general the whole task tree (particularly if limited to *just* the open tasks), is pretty small. There are a handful of threads that this can *really* grow quite large, so we do need to workout how to solve it - but I think we also need to consider the *value* of the task tree, and what purpose it serves both for the human and the agents." Fix the tail without taxing the typical case, and derive the reply from what each reader of the tree needs.
+
+**You'll know it works when.**
+
+- A root rewrites its tree and its next call spawns children anchored to the ids that rewrite created, without a `goal_task_list` in between (today's workflow, 639 anchors in 60 days).
+- A root ticks a task while a child has added work under another phase, and the reply names that child's addition with its id; when nobody else wrote, the reply has no such section.
+- The longest root sessions (the "Chain replay" explainer run, 686K context, 232K of it echoes) carry under 15K echo tokens on the same writes.
+- A child hands back with its anchor still open, and the root's notice names the anchor and what is open beneath it.
+- **Must not:** change what Carl sees in the Goal tasks tab; drop the ids a rewrite creates (a bare "Rewrote the task tree: 6 added" breaks the anchor-a-child workflow); make the reply a plausible rewrite source (every tree line in it stays bullet-less, so the rewrite parser rejects a paste); add an instruction where a fact serves.
+
+## 1. What the tree is for, and what each reader needs after a write
+
+The prior plans settle what the tree *is*. This section asks what each reader *gets* from it, because the reply after a write should carry only what the writer needs.
+
+<Table
+  columns={["Reader", "What the tree does for them", "What they need after a write", "Evidence"]}
+  rows={[
+    [
+      "**Carl**, in the Goal tasks tab",
+      "A glanceable record: what is done, what is planned, where each thread is up to. His words: \"a quick glanceable area for the human to understand where a thread is up to, what's been completed, and what's still outstanding (*particularly* the outstanding)\"",
+      "Nothing from the reply. The panel reads the store, which is published before the reply is composed. 64% of lines in a mature tree are done tasks and 18% of those carry outcome notes (\"shipped PR #426\"): the progress log is for him, and no agent re-reads it",
+      "12 of 1,613 human messages in root sessions mention the tree; how often the panel is opened is not recorded anywhere",
+    ],
+    [
+      "**A root**, planning and delegating",
+      "Orientation at spawn (95 of 466 root list calls are in the first five calls), the ids it anchors children to (936 anchors, 68% learnt from an echo), the shape it restructures (41% of root rewrites move or remove tasks)",
+      "The ids its rewrite just created, and what children changed since it last looked. Roots re-read the full tree routinely anyway (94% of roots list at least once)",
+      "Roots made 1,146 of the 1,262 echo-only id uses; across all kinds, 1,139 of the 1,262 were ids the thread's own rewrite had just minted",
+    ],
+    [
+      "**An anchored child**, owning a branch",
+      "Its branch is its checklist: tick as each lands, add discovered work, reshape its own interior",
+      "Its branch, complete, so a branch rewrite is a no-op resubmission. Already the case: median echo 346 tokens, 0.2% of context, none above 10%",
+      "792 threads, 8% of echo tokens, $15 of the $373",
+    ],
+    [
+      "**An unanchored child**, working from a brief",
+      "A place to record discovered work under the right phase; it may not restructure",
+      "Where its add landed. It has no branch to be reminded of, and the whole open plan it gets today is the largest reply of any kind (median 2,252 tokens; 43% of all echo tokens)",
+      "473 threads; 17 of the 36 threads above 10% of context as shipped, 5 of the 23 with current rendering",
+    ],
+  ]}
+/>
+
+What falls out: the only payload every reader needs is **the change itself with the ids it created**. The one thing beyond that which threads used was **what another thread added** (97 of the 119 uses that needed the wider tree). Nobody needs done work in a reply, and nobody needs the open plan on every write, because the moment a thread needs to be reminded of open work is not the moment it is writing to the tree.
+
+## 2. Who pays today, and how often the echo earns its keep
+
+**The typical thread is fine.** Median echo 735 tokens; median thread 896 echo tokens, 0.49% of its context. Anchored children are smaller still. Carl's instinct about the typical case is right.
+
+**The cost sits in a tail of long roots.** The figures in this section are as shipped, which includes September's replies before done subtrees were pruned; the sheet re-rendered every reply with current code too, and the tail survives that (below). As shipped, 36 of 1,501 threads carry echoes above 10% of context, 10 above 20%, all roots; with current rendering, 23 are above 10%. The 21 threads with 50K or more echo tokens resident hold a third of the tokens and **two thirds of the dollars**, because every echo token in a 300-turn root is re-read on every later call. Roots pay the money ($441 of the $503 as shipped; $325 of the $373 current); unanchored children carry the biggest single replies but are short-lived, so they cost $47 ($33 current).
+
+<Table
+  density="compact"
+  columns={["Thread (goal)", "Writes", "Median echo", "Echo resident, share of context", "Echo $ of session $"]}
+  rows={[
+    { tone: "risk", cells: ["Post-pull-7 stack: stage 5 review + test (upstream pull)", "29", "9,559", "269K · 33.5%", "$87 of $283"] },
+    { tone: "risk", cells: ["Chain replay: explainer, run, stability follow-up (doc-tree stability)", "30", "7,769", "232K · 33.9%", "$16 of $57"] },
+    ["Pull 9 QA bug fixes (next upstream merge)", "57", "3,964", "216K · 28.9%", "$14 of $67"],
+    ["Cadence pull 7 (upstream pull)", "27", "7,051", "179K · 20.4%", "$78 of $510"],
+    ["Haiku instability (doc-tree stability)", "9", "11,737", "106K · 37.8%", "$3 of $12"],
+    ["16 more, 53K to 153K each: 11 roots, 4 unanchored children, 1 anchored child", "5 to 66", "1,496 to 10,721", "6.6% to 33.5%", ""],
+  ]}
+/>
+
+**What made them large** is not long task text (129 characters a line against 101 elsewhere) but **finished work staying visible under phases that still have something open**: 54 visible lines against 8, and 65% of those lines are done tasks, because today's elision only folds a phase once all of it is done. Two goals supply 13 of the 21 (the upstream-pull cadence and doc-tree stability), and the tail's roots write 9 to 66 times each. October's pruning of fully-done subtrees did not reach them: re-rendered with current code, the tail's median echo falls only from 4,601 to 3,740 tokens and 16 of the 21 stay above 10%.
+
+**How often it earns its keep.** Threads act on the echo constantly, but almost always for one thing. Of 4,484 task ids a thread put in a tool call, 1,262 (28%) were seen only in an echo; **1,139 of those were ids the thread's own `goal_tasks_rewrite` had just created**, which the echo is the only place to get. The "Pull 9 strategy" root rewrote an empty tree ("7 added") and two calls later scaffolded its first children anchored to the ids that echo returned. Only **119 uses in 60 days** needed anything more than that, 97 of them tasks another thread had added (the Loom Codebase Audit root spawned six children anchored to tasks its children had added). A write is followed by a `goal_task_list` anyway only 3.9% of the time, so the echo does save a read; the question is what the read needed to contain.
+
+## 3. Forgetting, with the echo in place
+
+Carl's fixed requirement, in his words: "we want to ensure that the agent is aware of the items in the task tree, particularly the open items, so that it doesn't forget to do them. Echoing back, was a cheap way to ensure it was aware - but perhaps there are better approaches." The evidence measured forgetting with the echo in place.
+
+<Table
+  columns={["Moment", "What happens today", "Count", "Can a write-time reply reach it?"]}
+  rows={[
+    { tone: "risk", cells: ["**Hand-back.** An anchored child submits with open items in its own branch that it neither ticked nor named in its report", "The \"workstream_list fix plan\" child handed back with \"Find why only 28 of 110 child report paths reached the Knight Frank root…\" open and unmentioned", "**253 of 902 (28%)**; 83 of the 238 open sub-tasks are still open today", "No. The child is not writing at that moment"] },
+    { tone: "risk", cells: ["**Child done.** The root hears a child finished and must tick its task", "Children tick their own anchor 71% of the time; where the root had to, it ticked in the same turn 13 times in 100, and never in that session 65 times", "**350 notices**; 11 of the 65 still open today", "No. The notice arrives as a message, not as a write reply"] },
+    ["**Abandoned goals.** Tasks open and untouched for 7+ days", "All 546 are in goals with no task activity for 7 days", "546 of 3,180 (17%)", "No form can reach a goal nobody is working"],
+    ["**Stale items in view.** The echo listed finished items as open, turn after turn", "The \"Prompt trim\" root saw 22 echoes over 51 turns listing done work as open, until Carl wrote \"There's quite a few things that you've still got as unfinished tasks in your task tree, can you actually check what's still relevant…\"", "1 cited case", "It was reaching the thread; the thread did not act on it"],
+  ]}
+/>
+
+The echo's measurable reminder effect: **83 of 2,215 ticks (3.7%)** were of an id the thread had seen only in an echo's tree body (70 of them tasks another thread added). Children that wrote to the tree, and so saw echoes, left their anchor open 14% of the time; those that never wrote, 95%. That split is partly circular (ticking is itself a write), but it says the same thing as the table: **forgetting happens at hand-back and at child-done, and a reply form reaches neither.**
+
+## 4. The candidates, as mechanisms for staying aware
+
+Each candidate was re-rendered on the same 4,196 real writes and priced with each call's own cache multipliers. Behaviour is held constant: what a thread would have done on a cheaper reply is not observable until it ships. Every form keeps the ids a rewrite creates.
+
+<Table
+  density="compact"
+  columns={["Reply form", "Median tokens", "Cost, 60 days (cache-read only)", "Threads above 10%", "Echo-only id uses kept, of 1,262", "Others' additions reconciled, of 74"]}
+  rows={[
+    ["As shipped (September replies showed done subtrees in full)", "735", "$503 ($177)", "36", "1,262", "74"],
+    ["Current rendering (open tree, fully-done subtrees elided), every reply re-rendered", "713", "$373 ($145)", "23", "1,262", "74"],
+    ["Fold every fully-done subtree, even under open phases", "485", "$219 ($82)", "5", "1,261", "74"],
+    ["Full open tree only when another thread changed it since your last read, else the changed line", "206", "$170 ($61)", "2", "1,261", "73"],
+    ["Changed line plus its parent's other children", "329", "$109 ($43)", "0", "1,208", "39"],
+    { tone: "success", cells: ["**Changed line with its ancestors, plus others' changes since your last read, plus the goal pulse**", "**224**", "**$61 ($24)**", "**0**", "**1,233**", "**66**"] },
+    ["Changed line with its ancestors only", "184", "$47 ($19)", "0", "1,143", "0"],
+  ]}
+/>
+
+The table prices each form applied to every thread. The recommendation applies the slim reply to unscoped threads only and leaves anchored children on their branch echo ($15 as shipped and current, since their trees were never pruned), so its figure is roots $52 plus unanchored children $4 plus anchored children $15, **about $71 ($29 cache-read only)**; the runner-up applied the same way is roots $40 plus $3 plus $15, **about $58 ($24)**.
+
+<Columns>
+  <Card heading="What you changed, what others changed since you last read, the counts" tone="success" badge="RECOMMENDED" meta={["unscoped threads only", "one timestamp per thread", "$373 → $71, saves 81%"]}>
+    The reply carries the written line under its ancestor path (bullet-less), a rewrite's new lines with the ids the server assigned, the lines other threads added, ticked, renamed or removed since this thread last saw the tree, and the one-line goal pulse. When no other thread wrote, that section is absent. It keeps 1,233 of 1,262 echo-only uses and 66 of 74 reconciliations with others' additions, and the fixture session drops from 232K echo tokens to 13K. The cost over the cheaper runner-up is one nullable timestamp on the thread record, set at spawn, on every list and on every reply.
+  </Card>
+  <Card heading="What you changed only" tone="neutral" badge="RUNNER-UP" meta={["no new state", "$373 → $58, saves 84%"]}>
+    The same reply without the "others changed" section or the pulse. Cheaper by $13 in 60 days and simpler to build, but it drops all 74 echo-only reconciliations and 90 of the uses the recommended form keeps; a root that wants to know what its children added must list. Pick this if one timestamp of state is not worth about 90 saved reads in 60 days.
+  </Card>
+</Columns>
+
+<Columns>
+  <Card heading="Full open tree under a size, slim reply above it" tone="neutral" badge="NOT COSTED" meta={["tail only", "two reply shapes"]}>
+    Keeps today's behaviour for the 97% of threads whose echo is small and confines the behavioural bet to the tail. Not re-rendered by the evidence (the researcher costed six forms, none threshold-based), so its saving is bounded by the tail's share: about two thirds of the dollars. Against it: the typical thread's open tree earns nothing measurable either (the 29 extra uses are not known to come from small trees), the tool prose must describe two shapes, and the rewrite-deletion trap in §6 stays live for every tree under the threshold. Offered as a question below.
+  </Card>
+  <Card heading="Fold done work harder, or change what makes trees grow" tone="neutral" badge="INSUFFICIENT" meta={["5 tail threads still above 10%"]}>
+    Folding every fully-done subtree even under open phases saves 41% against current rendering ($373 to $219) and leaves five tail threads above 10%, because a busy root's open phases hold open tasks too (19 open lines a tree in the tail). Changing what grows is the wrong lever: done tasks under open phases are the human's progress log, and the sheet shows nobody but the human reads them.
+  </Card>
+</Columns>
+
+**The two moments a reply cannot reach.** The researcher's unmeasured suggestion, carried here as a candidate: name the open items in the child's branch when it hands back, and name the child's anchor task, with what is still open beneath it, in the root's "child done" notice. Both are facts the server already holds (the anchor and its subtree), rendered at the moment the evidence says forgetting happens. Cost, from the sheet's own counts: a hand-back carries 238 open sub-tasks across 253 children in 60 days, about one line each, read once by a thread that is finishing; the 350 child-done notices gain one line each plus those same open lines, which the root re-reads for the rest of its life, roughly 35K tokens across all roots in 60 days. Effect: not measurable before it ships; the baseline to beat is 28% at hand-back and 13 in 100 same-turn ticks. **It belongs in this change**, because it is what makes dropping the write-time tree safe to argue for, and because it is a dozen lines each on surfaces already composed by the server.
+
+## 5. The replies, as drafts
+
+LLM-read text, quoted for the reviewer; every line is a fact about the write, none is an instruction. Tree lines are bullet-less so a paste into `goal_tasks_rewrite` fails loudly, as the spine and placement lines do today. Ids are abbreviated on the page; real replies carry full uuids.
+
+<Code language="text" caption="Unscoped thread, goal_task_add: the line under its ancestors; the section on others' changes is absent when nobody else wrote" code={"Added task 8a2d40ff-…: Handle the zero-usage provider rows in the chip\n\nWhere it sits:\n  Phase 6: Surface usage on the thread screen (9c41f2aa-…)\n    Add the per-turn cost chip to the timeline (55ab8c22-…)\n      + Handle the zero-usage provider rows in the chip (8a2d40ff-…)\n\nChanged by other threads since you last read the tree:\n  ticked   Decide the usage projection shape (6d2a91b0-…), under Phase 6\n  added    Aggregate per-goal spend across threads (98bb17d0-…), under Phase 7: Goal-level rollups\n\nGoal pulse: 82/97 done · 15 open tasks"} />
+
+<Code language="text" caption="Unscoped thread, goal_tasks_rewrite: the new lines with their ids, under the parent each landed in; the existing Removed block (bulleted, so a paste restores) is unchanged" code={"Rewrote the task tree: 4 added, 1 edited, 1 moved.\n\nAdded, with the ids the server assigned:\n  Phase 7: Goal-level rollups (415d99c7-…)\n    + Design the rollup query (03aa48ce-…)\n    + Aggregate per-goal spend across threads (98bb17d0-…)\n  + Phase 9: Docs and retro (5b8e33da-…)\n    + Run the goal retro (be0433f7-…)\n\nGoal pulse: 82/101 done · 19 open tasks"} />
+
+<Code language="text" caption="Anchored child, any write: unchanged from today (branch + pulse)" code={"Updated task e01f6b3a-….\n\nWhere your branch sits in the goal (read-only context, not rewrite input):\n  Phase 6: Surface usage on the thread screen (9c41f2aa-…)\n\nYour branch: its root line is your anchor, and this block is the complete source a branch rewrite takes:\n- [ ] Add the per-turn cost chip to the timeline (55ab8c22-…)\n  - [x] Handle the zero-usage provider rows in the chip (8a2d40ff-…)\n  - [ ] Verify against a seeded workstream (e01f6b3a-…)\n\nGoal pulse: 83/97 done · 14 open tasks · 12 open outside your branch"} />
+
+<Code language="text" caption="Anchored child, workstream_submit reply: today's two lines, then a section appended only when something in its branch is open" code={"Work submitted: report recorded, outcome done (dependents released).\nReport: /home/Carl/.t3/cockpit/userdata/workstream-reports/thread_….md\n\nStill open in your branch; your parent's notice of your completion lists these lines:\n  Add the per-turn cost chip to the timeline (55ab8c22-…)   your anchor\n    Verify against a seeded workstream (e01f6b3a-…)"} />
+
+<Code language="text" caption="Root's child-done digest item, for an anchored child: the anchor's state under the header, then its open lines" code={"### ☑️ coder `thread:…:3`: done\nFinished 14:02 · dependents released\nTask: Add the per-turn cost chip to the timeline (55ab8c22-…) · still open, 1 open beneath it:\n    Verify against a seeded workstream (e01f6b3a-…)\nReport reference: `/home/Carl/.t3/cockpit/userdata/workstream-reports/thread_….md` (read the full report on demand)"} />
+
+When the child ticked its anchor and nothing is open beneath it, the task line reads `· ticked by the child` and no lines follow. The digest's closing already says "Update your task tree / scoreboard"; the lines give that sentence its object.
+
+**Tool descriptions and guidance: no change.** `goal_task_list`'s description ("read this before a rewrite or when a child may have changed it") stays true for every thread kind, and a sentence about the reply would be false for anchored threads, whose reply names no changes. The three write tools' descriptions say nothing about the reply today and need nothing added. The root's spawn guidance already says "every mutation echoes what you changed", which becomes exactly true. Nothing an LLM reads changes beyond the five drafts above; the reviewer should veto any build that adds a rule to them.
+
+## 6. Rewriting from an elided echo deletes what it hid
+
+Today's root echo hides finished subtrees ("… 12 done tasks elided") and ends with a footer saying it is not rewrite input. In 60 days, **80 root rewrites were made straight after an elided echo with no fresh `goal_task_list` between; 22 of them removed 212 tasks the echo had hidden**, and 109 of those were restored later from the Removed block. No rewrite ever pasted the footer or a marker line: the threads stripped them, or rebuilt the tree from memory of the echo. One lease-extraction root's rewrite reported "4 added, 1 edited, 1 moved, 115 removed"; 19 of the 115 were tasks the echo had elided, all restored afterwards.
+
+September's plan named this risk and its fallback: "If it bites, the fallback is making the root's echo complete again". It bit. The brief proposes a different remedy, because a complete root echo would restore the cost this change removes (the tail's trees are 54 lines, two thirds of them done), and because the recommended reply **removes the tree-shaped echo altogether**, so there is no elided tree in the conversation to rewrite from, which is better than today; it does not touch the elided spawn snapshot, which 33 root rewrites started from. The fix, already a task under the build phase, is for a whole-tree rewrite to **keep a finished subtree whose finished parent line is retained but whose children are omitted**: the elided rendering then round-trips as a no-op, which is the invariant the September plan asked of every scoped view. The cost is that pruning finished sub-tasks under a finished parent needs the parent removed too, which the Removed block makes reversible. This is Carl's call in the questions below, because it changes what "a task you omit is deleted" means.
+
+**Decided.** Carl's words, which the proposal keeps:
+
+- "we want to ensure that the agent is aware of the items in the task tree, particularly the open items, so that it doesn't forget to do them. Echoing back, was a cheap way to ensure it was aware - but perhaps there are better approaches."
+- "I thought we already resolved this? Didn't we make it so that by default, it only echo's back the *relevant* sections (so a sub-thread wouldn't see outside of it's branch)." It did, for anchored children; this brief reaches the unscoped threads that still see the whole open plan.
+- "The *original* reason to do the echo, was that threads would often not handle the task tree correctly, because they weren't aware of it's current state - but we may need to re-think the approoach."
+- September 2026 rulings kept: the anchor binding; **branch plus pulse as the bound child's echo** (the evidence gives no reason to reopen it: $15 of the $373, none above 10%, and it is the one reply that is a legal rewrite source); branch-scoped rewrite for bound children; `goal_task_add` legal anywhere with its placement echo; `goal_task_list` complete; the open-tree spawn snapshot for roots and the overview for unbound children. **Replaced:** the open-tree echo for the root (ruling 6) and for the unbound child (ruling 1's "open-tree rendering for unscoped cases", applied to echoes); both move to the slim reply.
+- July 2026: "No just-in-time nudge" in mutation replies. Kept: the hand-back and child-done lines are facts on other surfaces, not a nudge in a write reply.
+- The task-content contract (`plans/task-tree-content-contract/plan.mdx`) leaned on "the tree echo makes the accretion visible" to bound a ledger split across many short tasks. That guard goes with the echo; the 300-character cap, the register guidance and the root's routine full reads (94% of roots list) remain, and the sheet found no exact duplicate adds in 1,158.
+
+_Assumed:_ unanchored children get the same reply as roots, since both are unscoped; the "others changed" section for a thread that has never read the tree is everything changed since its spawn snapshot, which is the cautious reading. Redirect if wrong.
+
+**Not doing.** The spawn-time snapshot, `goal_task_list`, the per-turn injection and the human's panel are untouched. No short ids. No threshold on tree size unless chosen below.
+
+## Questions for you
+
+<QuestionForm
+  questions={[
+    {
+      id: "default-reply",
+      title: "What does a root or unanchored child get back after a write?",
+      subtitle: "Today: the whole open plan with done subtrees elided. The evidence says the extra content beyond the change and others' additions was used 29 times in 60 days.",
+      refs: [{ label: "4. The candidates, as mechanisms for staying aware", anchor: "4-the-candidates-as-mechanisms-for-staying-aware" }],
+      mode: "single",
+      options: [
+        { id: "diff", label: "The change with its ancestors, what other threads changed since the last read, and the goal pulse", recommended: true, detail: "$373 to about $71 (81%), every thread under 10%, keeps 1,233 of 1,262 echo-only uses; one timestamp per thread of new state." },
+        { id: "change-only", label: "The change with its ancestors only", detail: "$373 to about $58 (84%) with no new state; a root learns what its children added only by listing." },
+        { id: "threshold", label: "Today's open tree while it is under a size, the slim reply above it", detail: "Confines the behavioural bet to the tail; two reply shapes to describe; the rewrite-deletion trap stays for small trees; not costed by the evidence." },
+        { id: "keep", label: "Keep today's reply", detail: "The tail stays: 16 of 21 tail threads remain above 10% under current rendering." },
+      ],
+    },
+    {
+      id: "handback",
+      title: "Name the open items at hand-back and in the root's child-done notice, in this change?",
+      subtitle: "The two moments where 28% of children hand back with open items unmentioned and 65 in 100 root ticks never happen in that session; neither is reachable by a write reply.",
+      refs: [{ label: "3. Forgetting, with the echo in place", anchor: "3-forgetting-with-the-echo-in-place" }],
+      mode: "single",
+      options: [
+        { id: "inform", label: "Yes: a fact-only line in the submit reply and in the digest, no refusal", recommended: true, detail: "Some open items are legitimately the human's or the parent's; a refusal would invite ticking to make the error go away." },
+        { id: "challenge", label: "Yes, and refuse the first submit once when the anchor is open and the report does not name it", detail: "The strongest reminder; costs 28% of anchored children a second call, including the ones whose open items are legitimate." },
+        { id: "later", label: "Not now; ship the reply change alone and measure forgetting again first", detail: "Smaller change. Of the 83 ticks the echo visibly prompted, 70 were others' additions, which the slim reply still names; the roughly 13 that were not are dropped with nothing in their place." },
+      ],
+    },
+    {
+      id: "deletion-fix",
+      title: "Should a whole-tree rewrite keep a finished subtree whose finished parent line is kept but whose children are omitted?",
+      subtitle: "Makes the elided snapshot a safe rewrite source; changes what omitting a line means for finished work under a finished parent.",
+      refs: [{ label: "6. Rewriting from an elided echo deletes what it hid", anchor: "6-rewriting-from-an-elided-echo-deletes-what-it-hid" }],
+      mode: "single",
+      options: [
+        { id: "keep-done", label: "Yes: omitted finished children under a retained finished parent survive", recommended: true, detail: "22 rewrites deleted 212 hidden tasks in 60 days; pruning them deliberately then means removing the parent line too." },
+        { id: "as-is", label: "No: keep \"a task you omit is deleted\" and rely on the Removed block to restore", detail: "About half were restored this way; the other half were not." },
+      ],
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- Whether a root on the slim reply lists more often, or forgets more. Not observable until it ships; settled by re-running the evidence scripts (`.artifacts/goal-task-echo/run.sh`) after 30 days on the same proxies: writes followed by a list (3.9% today), hand-back with open items (28%), same-turn root ticks (13 in 100), ticks of an id seen only in a reply (83).
+- Whether the hand-back line changes what children write in their reports. Same re-run; the proxy is the share of reports naming the open items.
+- How often Carl opens the Goal tasks tab, and so what the human side of the tree is worth in use. Nothing records it; a client-side counter would, if the question matters.
+
+<Details summary="Mechanics, briefly: what the build touches">
+
+- `apps/server/src/loom/goals/goalTaskRender.ts`: `renderGoalTaskEcho` gains the unscoped shape (changed line under its ancestors, a rewrite's minted lines under their parents, the others-changed section, the pulse); the anchored branch is unchanged. The rewrite summary from `goalTaskMarkdown.ts` keeps its Removed block.
+- `apps/server/src/mcp/toolkits/workstream/handlers/goalTasks.ts`: each write passes the written or minted ids to the renderer; `goal_task_list` and every reply stamp the thread's last-read mark.
+- One nullable `IsoDateTime` on the thread workstream row (`packages/contracts`, `LoomStore`): the time this thread last saw the tree, set at spawn. "Changed by other threads since" is every task whose `updatedAt` or `deletedAt` is after it, excluding the ids this write touched; `LoomGoalTask` already carries both timestamps.
+- `apps/server/src/mcp/toolkits/workstream/handlers/submit.ts`: for an anchored caller, read the branch and append the open lines.
+- `apps/server/src/loom/orchestration/dispatcher/wakes.ts` and `digest.ts`: `WakeMember` carries the anchor task and its open lines (the list view already joins anchor text); the task line and its open lines under the single's header.
+- `goalTaskMarkdown.ts` `resolveGoalTaskRewrite`: the finished-subtree rule, if chosen.
+- Tests beside `goalTasks.test.ts` for the reply shapes and the stamp; the rendered replies compared before and after on one real write per kind.
+
+</Details>
+
+## As built
+
+Built on branch `t3/slim-goal-task-echo` in three commits (`fe3703c706`, `935154c84d`, `f168bd66ca`), each behind a reviewer gate that resolved clean. Where the build departed from the brief, and why:
+
+- **The last-read mark is a column on `loom_thread_workstream` but not a field of the `LoomThreadWorkstream` contract.** That table is written only by the projector through a full-row upsert, so a contract field would be overwritten and shipped to clients; kept outside the row codec, the projector never touches it and no client sees it.
+- **The mark is set at the thread's first launch, not at spawn.** That is when the goal context (the snapshot) is actually composed; a blocked child can be spawned long before it launches.
+- **A task's `updated_at` now moves only on a change to text, done state or parent, or a restore.** `replaceTree` used to refresh every row's stamp, which would have made any rewrite read as "everything changed" to every other thread. Nothing else read that column.
+- **The "changed by other threads" verbs are derived from current state** (`added`, `removed` with a count beneath, `ticked`, `edited`), since task rows keep no history; "renamed" cannot be told apart from "reopened" or "moved", and reorders are not listed. A thread with no mark (rows from before this change) sees nothing as changed on its first reply and is then marked, rather than receiving months of history.
+- **The hand-back section appears only on submit routes that end in the parent's completion notice** (`terminal`, `resolve`, `loop`), not on `yield`, `attention` or `cap-breach`, where the header's claim that the parent's notice lists these lines would be false. The task line is also rendered for resolved gate pairs, so a gated coder's completion carries it; it reads `ticked` rather than `ticked by the child`.
+- **The anchor is read with its own goal lookup in the dispatcher**, since the list view's anchor join lives in the MCP list handler the dispatcher does not use.
+- **One fact correction the brief did not foresee:** `goal_tasks_rewrite`'s "a task you omit is deleted" now carries the exception for finished tasks beneath a kept finished line, and a rewrite whose only omissions were such tasks says so instead of "no changes".

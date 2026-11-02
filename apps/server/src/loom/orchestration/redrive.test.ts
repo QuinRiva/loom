@@ -258,4 +258,86 @@ describe("planReDrive episode rules", () => {
       [CommandId.make("server:loom:cascade-unarchive:event:unarchive:cascaded")],
     );
   });
+
+  describe("a gate over several siblings", () => {
+    const route = (to: string, round: number, kind: "loop" | "loop-back" | "resolve") => ({
+      to: ThreadId.make(to),
+      round,
+      kind,
+      eventId: EventId.make(`event:${kind}:${round}:${to}`),
+    });
+    const gate = "server:workstream-gate:reviewer:1";
+    // Round 1 reopened a and b; c was not named.
+    const reviewer = row("reviewer", "root", {
+      lastRoutes: [route("a", 1, "loop"), route("b", 1, "loop")],
+      gateRounds: 1,
+    });
+    const back = (id: string) =>
+      row(id, "root", {
+        lastRoutes: [
+          { ...route("reviewer", 1, "loop-back"), eventId: EventId.make(`event:${id}`) },
+        ],
+      });
+    const reworking = (id: string) => row(id, "root", { pendingRework: true });
+    const c = row("c", "root", { outcome: "done" });
+    const reverify = (rows: ReadonlyArray<LoomThreadWorkstream>) =>
+      planReDrive({ rows, now: at(59), gateLeg: makeGateLegComposer(new Map()) }).flatMap(
+        (command) => (command.type === "thread.gate.reverify" ? [command] : []),
+      );
+
+    it("plans one rework leg per reopened sibling, keyed by it", () => {
+      assert.deepEqual(ids([reviewer, reworking("a"), reworking("b"), c]), [
+        CommandId.make(`${gate}:rework:a`),
+        CommandId.make(`${gate}:rework:b`),
+      ]);
+    });
+
+    it("plans no re-verify while one reopened sibling is still reworking", () => {
+      assert.deepEqual(reverify([reviewer, back("a"), reworking("b"), c]), []);
+    });
+
+    it("plans one re-verify with every sibling's loop-back once all are back", () => {
+      const [leg, ...rest] = reverify([reviewer, back("a"), back("b"), c]);
+      assert.deepEqual(rest, []);
+      assert.equal(leg?.commandId, `${gate}:reverify`);
+      assert.deepEqual(leg?.sources, [
+        { threadId: ThreadId.make("a"), routeEventId: EventId.make("event:a") },
+        { threadId: ThreadId.make("b"), routeEventId: EventId.make("event:b") },
+      ]);
+      assert.lengthOf(leg!.message.controlPayload.items, 2);
+    });
+
+    it("drops a cancelled sibling out of the wait", () => {
+      const legs = reverify([reviewer, back("a"), row("b", "root", { outcome: "cancelled" }), c]);
+      assert.deepEqual(
+        legs.map((leg) => leg.sources.map((source) => source.threadId)),
+        [[ThreadId.make("a")]],
+      );
+      assert.deepEqual(
+        reverify([
+          reviewer,
+          row("a", "root", { outcome: "cancelled" }),
+          row("b", "root", { outcome: "cancelled" }),
+        ]),
+        [],
+      );
+    });
+
+    it("plans no re-verify for a terminal reviewer or a loop-back of another round", () => {
+      assert.deepEqual(reverify([{ ...reviewer, outcome: "done" }, back("a"), back("b")]), []);
+      const stale = row("b", "root", { lastRoutes: [route("reviewer", 0, "loop-back")] });
+      assert.deepEqual(reverify([reviewer, back("a"), stale]), []);
+    });
+
+    it("plans one resolve leg per resolved sibling, keyed by it", () => {
+      const resolved = row("reviewer", "root", {
+        outcome: "done",
+        lastRoutes: [route("a", 1, "resolve"), route("b", 1, "resolve")],
+      });
+      assert.deepEqual(ids([resolved, back("a"), back("b"), c]), [
+        CommandId.make(`${gate}:resolve:a`),
+        CommandId.make(`${gate}:resolve:b`),
+      ]);
+    });
+  });
 });

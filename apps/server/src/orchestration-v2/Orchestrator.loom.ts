@@ -693,12 +693,13 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
     const outcome = submit.outcome ?? "done";
     const synthesised = (RESERVED_OUTCOMES as ReadonlyArray<string>).includes(outcome);
     const tree = (yield* read(loomStore.listWorkstreamTree(row.rootThreadId))).map(asNode);
-    const routing = routeWorkSubmit(asNode(row), tree, outcome);
+    const routing = routeWorkSubmit(asNode(row), tree, outcome, submit.rework);
     const refusal = workSubmitRefusal(
       asNode(row),
       outcome,
       routing.decision,
       isServerCommand(submit),
+      submit.rework,
     );
     if (refusal !== null) return yield* fail(refusal);
     const erased = holdErasedByCompletion({
@@ -724,9 +725,9 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
       case "resolve":
         yield* setOutcome(submit.threadId, "done", "submit");
         yield* clearAttention(row);
-        if (routing.resolveWith !== null) {
+        for (const to of routing.resolveWith) {
           yield* on("thread.route-taken", submit.threadId, {
-            to: routing.resolveWith,
+            to,
             round: routing.round,
             kind: "resolve",
           });
@@ -737,11 +738,13 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
         const ownLoop = row.routes.some(
           (route) => route.kind === "loop" && route.on.includes(outcome),
         );
-        yield* on("thread.route-taken", submit.threadId, {
-          to: routing.routeTo!,
-          round: routing.round,
-          kind: ownLoop ? "loop" : "loop-back",
-        });
+        for (const to of routing.routeTo) {
+          yield* on("thread.route-taken", submit.threadId, {
+            to,
+            round: routing.round,
+            kind: ownLoop ? "loop" : "loop-back",
+          });
+        }
         return;
       }
       case "attention":
@@ -760,7 +763,10 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
     }
   });
 
-  /** A gate leg's target: live, not cancelled, and named by the source's current route episode. */
+  /**
+   * A gate leg's target: live, not cancelled, and named by its sources' current route episode (the
+   * reviewer's traversal to it for rework and resolve, each coder's loop-back for re-verify).
+   */
   const gateTarget = Effect.fn("Orchestrator.gateTarget")(function* (
     leg: CommandOf<"thread.gate.rework" | "thread.gate.reverify" | "thread.gate.resolve">,
   ) {
@@ -771,11 +777,20 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
         `Thread ${leg.threadId} is ${row.deletedAt !== null ? "deleted" : "archived"}.`,
       );
     }
-    const route = (yield* workstreamOf(leg.sourceThreadId))?.lastRoute ?? null;
-    if (route?.eventId !== leg.routeEventId || route.to !== leg.threadId) {
-      return yield* fail(
-        `Gate leg ${leg.commandId} is stale: ${leg.sourceThreadId}'s current route is not ${leg.routeEventId}.`,
-      );
+    const sources =
+      leg.type === "thread.gate.reverify"
+        ? leg.sources
+        : [{ threadId: leg.sourceThreadId, routeEventId: leg.routeEventId }];
+    if (sources.length === 0) return yield* fail(`Gate leg ${leg.commandId} names no source.`);
+    for (const source of sources) {
+      const routes = (yield* workstreamOf(source.threadId))?.lastRoutes ?? [];
+      if (
+        !routes.some((route) => route.eventId === source.routeEventId && route.to === leg.threadId)
+      ) {
+        return yield* fail(
+          `Gate leg ${leg.commandId} is stale: ${source.threadId}'s current routes do not include ${source.routeEventId}.`,
+        );
+      }
     }
     return row;
   });

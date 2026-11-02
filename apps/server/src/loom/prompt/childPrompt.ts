@@ -3,7 +3,7 @@
  * a `forkFrom` child by the copied-history clause. The dispatcher's kickoff is its only sender.
  */
 import type { LoomThreadWorkstream, ThreadId } from "@t3tools/contracts";
-import { gateLoopTargetOf } from "@t3tools/shared/workstreamGraph";
+import { gateLoopTargetsOf } from "@t3tools/shared/workstreamGraph";
 import * as Effect from "effect/Effect";
 
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
@@ -24,7 +24,7 @@ type KickoffRow = Pick<LoomThreadWorkstream, "role" | "reportPath" | "kickoffBri
 
 /**
  * What a kickoff tells a child about the threads it waited on, from the rows
- * the caller holds: its gate target's report, brief and session, and each
+ * the caller holds: each gate target's report, brief and session, and each
  * other dependency's report.
  */
 export const kickoffContext = Effect.fn("loom.kickoffContext")(function* (
@@ -36,17 +36,16 @@ export const kickoffContext = Effect.fn("loom.kickoffContext")(function* (
     role: nodesById.get(id)?.role ?? null,
     reportPath: nodesById.get(id)?.reportPath ?? null,
   });
-  const targetId = gateLoopTargetOf(row);
+  const targetIds = gateLoopTargetsOf(row);
   return {
-    gateTarget:
-      targetId === null
-        ? null
-        : {
-            ...handback(targetId),
-            briefPath: nodesById.get(targetId)?.kickoffBriefPath ?? null,
-            sessionPath: yield* piSessionPathOf(targetId),
-          },
-    dependencies: row.blockedBy.filter((id) => id !== targetId).map(handback),
+    gateTargets: yield* Effect.forEach(targetIds, (targetId) =>
+      Effect.map(piSessionPathOf(targetId), (sessionPath) => ({
+        ...handback(targetId),
+        briefPath: nodesById.get(targetId)?.kickoffBriefPath ?? null,
+        sessionPath,
+      })),
+    ),
+    dependencies: row.blockedBy.filter((id) => !targetIds.includes(id)).map(handback),
     forkedFrom: row.forkFromThreadId,
   };
 });
@@ -54,7 +53,7 @@ export const kickoffContext = Effect.fn("loom.kickoffContext")(function* (
 type KickoffInput = {
   readonly role: string | null;
   readonly brief: string;
-  readonly gateTarget?: KickoffHandback | null;
+  readonly gateTargets?: ReadonlyArray<KickoffHandback>;
   readonly dependencies?: ReadonlyArray<KickoffHandback>;
   readonly forkedFrom?: string | null;
 };

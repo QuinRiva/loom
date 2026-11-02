@@ -31,7 +31,8 @@ it is tier 1 or 2 and belongs in a store — not in `useState` layered over the 
 **Automatic surface openers may _seed_ UI state, but must never _override_ a user's persisted
 choice, and effect ordering must never decide which surface is active.**
 
-Concretely, for the loom Workstream auto-open (Goal tasks never auto-opens: the right panel
+Concretely, for the loom Workstream auto-open and the context-viz experiment's Context tab, which
+its Composition and Growth switches seed on pi threads (Goal tasks never auto-opens: the right panel
 reopens per thread exactly as the user left it):
 
 - Whether an auto-open has already fired is itself **durable per-thread state** (tier 1), keyed
@@ -44,9 +45,11 @@ reopens per thread exactly as the user left it):
   - flag unset but panel state already exists → add the tab **without** touching the active
     surface or `isOpen` (a non-activating seed — no focus steal), set flag.
 - The seed is **one atomic store transition** — one small `set`-based store action (marked
-  `// loom:`), not a composition of public store calls — so it is a single persisted write. If a
-  second auto-opened surface is ever added, the same action seeds both and activates exactly one by
-  an explicit priority, never by which effect ran first.
+  `// loom:`), not a composition of public store calls — so it is a single persisted write. The
+  same action seeds both surfaces and, on a first visit, activates Workstream before Context by
+  explicit priority among the surfaces eligible at that moment, never by which effect ran first (a
+  surface whose eligibility arrives later is added without focus); with both panel switches off
+  it also takes the Context tab away, still as an automatic transition, and clears its flag.
 - Consequence: closing a tab or closing all surfaces permanently suppresses reseeding for that
   thread. That is intended — the explicit way back is the tab strip, not an effect re-firing.
 

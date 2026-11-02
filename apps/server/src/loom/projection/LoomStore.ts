@@ -1,8 +1,8 @@
 /**
  * LoomStoreV2: reads and plain-table writes over Loom's sidecar tables. `loom_thread_workstream` is
- * written ONLY by the projector (`loomProjection.ts`) inside V2's commit transaction, and once per
- * V1 thread by the importer at first boot; this module owns its row ↔ record codec, which the
- * projector shares. Reads see committed state only (no pending-event overlay).
+ * written ONLY by the projector (`loomProjection.ts`) and once per V1 thread by the importer, through
+ * the row codec here, save `goal_tree_read_at` (`goalTreeReads`), kept outside the codec so the
+ * projector's full-row upsert never touches it. Reads see committed state only.
  */
 import {
   GoalId,
@@ -15,7 +15,6 @@ import {
   type LoomCacheRetention,
   LoomContextUsage,
   LoomDocumentQuery,
-  LoomRouteRecord,
   LoomThreadCache,
   type LoomThreadCachePatch,
   LoomThreadConsultSummary,
@@ -61,7 +60,7 @@ export const LoomThreadWorkstreamRow = LoomThreadWorkstream.mapFields((fields) =
   blockedBy: Schema.fromJsonString(fields.blockedBy),
   routes: Schema.fromJsonString(fields.routes),
   lastOutcome: Schema.NullOr(Schema.fromJsonString(WorkOutcomeRecord)),
-  lastRoute: Schema.NullOr(Schema.fromJsonString(LoomRouteRecord)),
+  lastRoutes: Schema.fromJsonString(fields.lastRoutes),
   handoffDestinations: Schema.fromJsonString(fields.handoffDestinations),
   handoffOrigin: Schema.NullOr(Schema.fromJsonString(HandoffOrigin)),
   notifySendLog: Schema.fromJsonString(fields.notifySendLog),
@@ -97,7 +96,7 @@ const WORKSTREAM_COLUMNS = {
   gate_rounds: "gateRounds",
   pending_rework: "pendingRework",
   last_outcome: "lastOutcome",
-  last_route: "lastRoute",
+  last_routes: "lastRoutes",
   report_path: "reportPath",
   handoff_destinations: "handoffDestinations",
   handoff_origin: "handoffOrigin",
@@ -180,7 +179,7 @@ export const emptyWorkstream = (input: {
   gateRounds: 0,
   pendingRework: false,
   lastOutcome: null,
-  lastRoute: null,
+  lastRoutes: [],
   reportPath: null,
   handoffDestinations: [],
   handoffOrigin: null,
@@ -347,6 +346,12 @@ export interface LoomStoreV2Shape {
     /** Tombstones the task and its subtree. */
     readonly markDeleted: (goalId: GoalId, taskId: GoalTaskId) => Op<ReadonlyArray<LoomGoalTask>>;
   };
+  /** When each thread last saw its goal's task tree; null = never recorded. */
+  readonly goalTreeReads: {
+    readonly get: (threadId: ThreadId) => Op<IsoDateTime | null>;
+    /** Moves the mark forward to `at`, never back; a thread without a row is a no-op. */
+    readonly mark: (threadId: ThreadId, at: IsoDateTime) => Op<void>;
+  };
   /** One query per table for the whole batch; threads without a row are absent. */
   readonly shellFields: (
     threadIds: ReadonlyArray<ThreadId>,
@@ -468,7 +473,7 @@ const activeStepOf = (row: typeof ThreadStatsRow.Type | undefined): LoomActiveSt
 
 const SHELL_OMITTED = [
   "notifySendLog",
-  "lastRoute",
+  "lastRoutes",
   "outcomeEventId",
   "unarchivedEventId",
   "unarchivedAt",
@@ -557,8 +562,11 @@ const make = Effect.gen(function* () {
     })}
     ON CONFLICT (task_id) DO UPDATE SET goal_id = excluded.goal_id,
       parent_task_id = excluded.parent_task_id, position = excluded.position,
-      text = excluded.text, done = excluded.done, updated_at = excluded.updated_at,
-      deleted_at = NULL`;
+      text = excluded.text, done = excluded.done, deleted_at = NULL,
+      -- A change another thread would notice; a restated row or a sibling reorder keeps its stamp.
+      updated_at = CASE WHEN text IS NOT excluded.text OR done IS NOT excluded.done
+        OR parent_task_id IS NOT excluded.parent_task_id OR deleted_at IS NOT NULL
+        THEN excluded.updated_at ELSE updated_at END`;
 
   const consultSummaries = (askerThreadIds: ReadonlyArray<ThreadId>) =>
     sql`SELECT "askerThreadId", "targetThreadId", "targetTitle", count, "lastConsultAt", "lastQuestionPreview"
@@ -863,6 +871,21 @@ const make = Effect.gen(function* () {
         sql.withTransaction,
         run("tasks.markDeleted"),
       ),
+    },
+    goalTreeReads: {
+      get: (threadId) =>
+        sql<{ readonly at: IsoDateTime | null }>`SELECT goal_tree_read_at AS at
+          FROM loom_thread_workstream WHERE thread_id = ${threadId}`.pipe(
+          Effect.map((rows) => rows[0]?.at ?? null),
+          run("goalTreeReads.get"),
+        ),
+      mark: (threadId, at) =>
+        sql`UPDATE loom_thread_workstream SET goal_tree_read_at = ${at}
+          WHERE thread_id = ${threadId}
+            AND (goal_tree_read_at IS NULL OR goal_tree_read_at < ${at})`.pipe(
+          Effect.asVoid,
+          run("goalTreeReads.mark"),
+        ),
     },
     shellFields: Effect.fn("LoomStore.service.shellFields")(function* (threadIds) {
       if (threadIds.length === 0) return new Map<ThreadId, LoomThreadShellFields>();

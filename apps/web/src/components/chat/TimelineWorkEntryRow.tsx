@@ -54,6 +54,7 @@ import {
   type TimelineWorkEntry,
 } from "./timelineRowContext";
 import { MESSAGE_HEADING_LEVEL, TimelineRowTimestamp } from "./TimelineRowParts";
+import { RowFigure } from "../../loom/context-viz/timeline/RowFigure"; // loom: context-viz
 import {
   failedToolIconClassName,
   toolIconAcceptsTint,
@@ -489,6 +490,9 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
             <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
           ) : null}
           <TimelineRowTimestamp createdAt={workEntry.createdAt} timestampFormat={timestampFormat} />
+          <RowFigure
+            nativeId={workEntry.projectedItem?.item.nativeItemRef?.nativeId} // loom: context-viz
+          />
           <span
             className={cn(
               "flex size-4 shrink-0 items-center justify-center",

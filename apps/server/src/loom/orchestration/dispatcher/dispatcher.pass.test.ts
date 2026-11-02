@@ -255,8 +255,9 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
         "gate-reviewer",
         "gate-dependent",
       ].map((id) => ThreadId.make(id));
+      // Rework and resolve legs are keyed per sibling; the one re-verify is not.
       const leg = (round: number, kind: "rework" | "reverify" | "resolve") =>
-        `server:workstream-gate:${reviewer}:${round}:${kind}`;
+        `server:workstream-gate:${reviewer}:${round}:${kind}${kind === "reverify" ? "" : `:${coder}`}`;
       const controlNotices = (threadId: ThreadId) =>
         Effect.map(messages(threadId), (all) =>
           all.filter((message) => message.loom?.origin === "control_notice"),

@@ -91,6 +91,7 @@ import {
 } from "./TimelineUserMessageRow.logic";
 import { CHANNEL_CLASSES } from "../../loom/controlMessages"; // loom: 3d-3
 import type { ControlBubble } from "@t3tools/client-runtime/state/loom/controlBubble"; // loom: 3d-3
+import { RowFigure } from "../../loom/context-viz/timeline/RowFigure"; // loom: context-viz
 
 // Drawn inside the media so dark screenshots keep an edge on the dark background.
 const MEDIA_EDGE_CLASS_NAME =
@@ -785,6 +786,9 @@ function UserTimelineRow({
           Open thread
         </InlineButton>
       ) : null}
+      <RowFigure
+        userMessageId={row.message.id} // loom: context-viz
+      />
       <Tooltip>
         <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
           {formatDayAwareTimestamp(row.message.createdAt, ctx.timestampFormat)}

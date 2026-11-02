@@ -8,7 +8,7 @@ import { observeResize } from "~/lib/observeResize";
 import { tickTextContent } from "~/lib/tickTextContent";
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import { memo, use, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import { LegendList, useSyncLayout, type LegendListRef } from "@legendapp/list/react"; // loom: useSyncLayout
 import { workEntryDisplayIndicatesToolFailure } from "../../session-logic";
 import ChatMarkdown from "../ChatMarkdown";
 import { Minimize2Icon, XIcon } from "lucide-react";
@@ -34,6 +34,7 @@ import {
   type TimelineRow,
 } from "./timelineRowContext";
 import { TimelineRowTimestamp, ActivityShimmerOverlay } from "./TimelineRowParts";
+import { GroupFigure } from "../../loom/context-viz/timeline/GroupFigure"; // loom: context-viz
 import {
   failedToolIconClassName,
   toolIconAcceptsTint,
@@ -202,14 +203,21 @@ function ExpandedWorkGroupEntries({
     setRestoringPosition(false);
   };
 
+  // loom: when history pages in, the timeline remounts this row and measures it at ~4px before the
+  // list fills; filled within a frame, the row never resizes for the timeline's resize observer,
+  // so the 4px sticks and the next row overlaps. Re-measure the row whenever this list resizes.
+  const syncRowLayout = useSyncLayout();
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- observes the list scroller and its content with ResizeObserver to update scroll fades
   useLayoutEffect(() => {
     const element = listRef.current?.getScrollableNode();
     if (!element) return;
     updateScrollFades();
     const content = element.firstElementChild;
-    return observeResize(content ? [element, content] : element, updateScrollFades);
-  }, [updateScrollFades]);
+    return observeResize(content ? [element, content] : element, () => {
+      updateScrollFades();
+      syncRowLayout(); // loom
+    });
+  }, [updateScrollFades, syncRowLayout]);
 
   const renderEntry = ({ item }: { item: TimelineWorkEntry }) => (
     <SimpleWorkEntryRow key={item.id} workEntry={item} workspaceRoot={workspaceRoot} />
@@ -596,6 +604,7 @@ export function WorkGroupToggleTimelineRow({
       createdAt={row.createdAt}
       timestampFormat={ctx.timestampFormat}
       onToggle={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      figure={<GroupFigure nativeIds={row.nativeIds} />} // loom: context-viz
     />
   );
 }
@@ -609,6 +618,7 @@ function WorkGroupHeader(props: {
   createdAt: string;
   timestampFormat: TimestampFormat;
   onToggle: () => void;
+  figure: ReactNode; // loom: context-viz
 }) {
   return (
     <WorkLogButton
@@ -625,7 +635,13 @@ function WorkGroupHeader(props: {
       }
       label={<span className="block truncate">{props.label}</span>}
       trailing={
-        <TimelineRowTimestamp createdAt={props.createdAt} timestampFormat={props.timestampFormat} />
+        <>
+          <TimelineRowTimestamp
+            createdAt={props.createdAt}
+            timestampFormat={props.timestampFormat}
+          />
+          {props.figure /* loom: context-viz */}
+        </>
       }
     />
   );

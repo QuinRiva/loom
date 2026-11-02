@@ -12,7 +12,12 @@ import { selectAutoOpenedSurfaces, useWorkstreamUiStore } from "./workstreamUiSt
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
 const panel = () => selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
 const seed = (workstreamRoot: boolean, autoOpenWorkstreamPanel = true) =>
-  autoOpenLoomSurfaces(refA, { workstreamRoot, autoOpenWorkstreamPanel });
+  autoOpenLoomSurfaces(refA, {
+    workstreamRoot,
+    autoOpenWorkstreamPanel,
+    piThread: false,
+    contextPanels: false,
+  });
 
 beforeEach(() => {
   useRightPanelStore.setState({ byThreadKey: {}, userActionRevisionByThreadKey: {} });

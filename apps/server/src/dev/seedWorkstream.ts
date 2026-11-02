@@ -404,7 +404,10 @@ const seedProgram = Effect.gen(function* () {
     threadId: ThreadId,
     outcome: string,
     report: string,
-    extra: { readonly counts?: { mustFix: number; niceToHave: number } } = {},
+    extra: {
+      readonly counts?: { mustFix: number; niceToHave: number };
+      readonly rework?: ReadonlyArray<ThreadId>;
+    } = {},
   ) =>
     dispatch({
       type: "thread.work.submit",
@@ -456,7 +459,7 @@ const seedProgram = Effect.gen(function* () {
     slug: "workstream-fixture",
     title: "Render the workstream fixture",
     description:
-      "A realistic Loom workstream: an orchestrator, a gated pair mid-round, a quiescent child, a blocked dependent and a cancelled subtree.",
+      "A realistic Loom workstream: an orchestrator, a review gate mid-round, a quiescent child, a blocked dependent and a cancelled subtree.",
   });
   yield* loomStore.tasks.replaceTree(
     SEED.goalId,
@@ -481,7 +484,7 @@ const seedProgram = Effect.gen(function* () {
   yield* message(
     SEED.root,
     "seed:root:human",
-    "Seed the workstream fixture: a done coder, a gated pair, a quiet researcher with a dependent, and a cancelled subtree.",
+    "Seed the workstream fixture: a done coder, a review gate over two coders, a quiet researcher with a dependent, and a cancelled subtree.",
     undefined,
     true,
   );
@@ -507,7 +510,8 @@ const seedProgram = Effect.gen(function* () {
     "# Config loader\n\nImplemented the loader module and wired it into startup.\n",
   );
 
-  // gated pair, mid-round: reviewer looped findings, coder holds rework round 1
+  // gated trio, mid-round: the reviewer looped findings to the parser coder only, which holds
+  // rework round 1; the lexer coder it also gates stays done and untouched
   yield* spawn({
     threadId: SEED.gateCoder,
     parent: SEED.root,
@@ -517,26 +521,37 @@ const seedProgram = Effect.gen(function* () {
     spawnGeneration: "seed-wave-gate",
   });
   yield* spawn({
+    threadId: SEED.gateSibling,
+    parent: SEED.root,
+    title: "Lexer with review gate",
+    role: "coder",
+    purpose: "Implement the lexer; the same reviewer gates it with the parser.",
+    spawnGeneration: "seed-wave-gate",
+  });
+  yield* spawn({
     threadId: SEED.gateReviewer,
     parent: SEED.root,
     title: "Review the parser",
     role: "reviewer",
     purpose: "Review the parser; loop findings back until clean.",
-    blockedBy: [SEED.gateCoder],
+    blockedBy: [SEED.gateCoder, SEED.gateSibling],
     spawnGeneration: "seed-wave-gate",
     routes: [
       { on: ["needs_rework"], kind: "loop", to: SEED.gateCoder, maxRounds: 2 },
+      { on: ["needs_rework"], kind: "loop", to: SEED.gateSibling, maxRounds: 2 },
       { on: ["clean"], kind: "resolve" },
     ],
   });
   yield* kickoff(SEED.gateCoder);
   yield* submit(SEED.gateCoder, "done", "# Parser\n\nFirst cut: trims input.\n");
+  yield* kickoff(SEED.gateSibling);
+  yield* submit(SEED.gateSibling, "done", "# Lexer\n\nSplits on whitespace and punctuation.\n");
   yield* kickoff(SEED.gateReviewer);
   yield* submit(
     SEED.gateReviewer,
     "needs_rework",
-    "# Parser review, round 1\n\n- must fix: lower-case before tokenising\n- must fix: reject empty input\n- nice: name the regex\n",
-    { counts: { mustFix: 2, niceToHave: 1 } },
+    "# Parser and lexer review, round 1\n\n## Parser\n\n- must fix: lower-case before tokenising\n- must fix: reject empty input\n- nice: name the regex\n\n## Lexer\n\nClean.\n",
+    { counts: { mustFix: 2, niceToHave: 1 }, rework: [SEED.gateCoder] },
   );
   // The re-drive planner sends the rework leg under its own id, exactly as the server would.
   yield* reDrive;

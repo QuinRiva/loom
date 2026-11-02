@@ -89,13 +89,41 @@ describe("groupBatchForWake + pair rendering", () => {
       member({ id: "solo", role: "researcher" }),
     ]);
     assert.deepEqual(
-      pairs.map((p) => [p.source.id, p.target.id]),
+      pairs.map((p) => [p.source.id, ...p.targets.map((t) => t.id)]),
       [["rev", "cod"]],
     );
     assert.deepEqual(
       singles.map((s) => s.id),
       ["solo"],
     );
+  });
+
+  it("groups every in-batch loop target of a resolved gate into one section", () => {
+    const rev = member({
+      id: "rev",
+      role: "reviewer",
+      routes: [
+        { on: ["needs_rework"], kind: "loop", to: ThreadId.make("a"), maxRounds: 2 },
+        { on: ["needs_rework"], kind: "loop", to: ThreadId.make("b"), maxRounds: 2 },
+        { on: ["needs_rework"], kind: "loop", to: ThreadId.make("c"), maxRounds: 2 },
+        { on: ["clean", "fixed_inline"], kind: "resolve" },
+      ],
+      lastOutcome: outcomeRecord("clean"),
+    });
+    const { pairs, singles } = groupBatchForWake([
+      member({ id: "a", reportPath: "/r/a.md" }),
+      rev,
+      member({ id: "c" }),
+    ]);
+    assert.deepEqual(
+      pairs.map((p) => [p.source.id, ...p.targets.map((t) => t.id)]),
+      [["rev", "a", "c"]],
+    );
+    assert.lengthOf(singles, 0);
+    const text = renderWakePair(pairs[0]!);
+    assert.include(text, "reviewer `rev` + coder `a` + coder `c`");
+    assert.include(text, "coder round report: `/r/a.md`");
+    assert.include(text, "_No coder round report was filed._");
   });
 
   it("leaves a resolve-source as a single when its target is absent from the batch", () => {
@@ -150,11 +178,13 @@ describe("groupBatchForWake + pair rendering", () => {
         report: "Clean. Both findings resolved.",
         releasedDependents: [{ id: ThreadId.make("tail"), role: "integration" }],
       }),
-      target: member({
-        id: "cod",
-        reportPath: "/r/cod-r2.md",
-        report: "THIS_TARGET_EXCERPT_MUST_NOT_APPEAR",
-      }),
+      targets: [
+        member({
+          id: "cod",
+          reportPath: "/r/cod-r2.md",
+          report: "THIS_TARGET_EXCERPT_MUST_NOT_APPEAR",
+        }),
+      ],
     });
     for (const fragment of [
       "Gate resolved `clean`",

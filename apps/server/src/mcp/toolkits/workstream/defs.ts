@@ -45,10 +45,13 @@ const ModelSelectionInput = Schema.Struct({
   ),
 });
 
+/** One sibling or several; the handlers normalise either shape to a list. */
+const GateReworkInput = Schema.Union([Schema.String, Schema.Array(Schema.String)]);
+
 const GateInput = Schema.Struct({
   rework: described(
-    Schema.String,
-    "The sibling under review, whose rework this gate loops: a direct child's id (in a scaffold, a node key or `thread:<id>`).",
+    GateReworkInput,
+    "The siblings under review, whose rework this gate loops: one direct child's id or a list of them (in a scaffold, node keys or `thread:<id>`s). Each is added to blockedBy.",
   ),
   maxRounds: Schema.optionalKey(
     described(
@@ -83,7 +86,7 @@ const childFields = {
   gate: Schema.optionalKey(
     described(
       GateInput,
-      `A review gate on this child, typically a reviewer: its ${t("workstream_submit")} verdicts route in the control plane; 'needs_rework' loops the sibling named by rework, 'clean' or 'fixed_inline' resolve the gate and complete both. rework is added to blockedBy. Hang downstream work on this gated child, not on the rework sibling alone, since a rework round reopens that sibling's done.`,
+      `A review gate on this child, typically a reviewer: its ${t("workstream_submit")} verdicts route in the control plane; 'needs_rework' loops the siblings the verdict names, 'clean' or 'fixed_inline' resolve the gate and complete the child and every sibling. Hang downstream work on this gated child, not on a rework sibling alone, since a rework round reopens that sibling's done.`,
     ),
   ),
   forkFrom: optionalText(
@@ -126,8 +129,8 @@ const scaffoldNodeFields = {
   ),
   gate: Schema.optionalKey(
     described(
-      Schema.Struct({ rework: Schema.String, maxRounds: Schema.optionalKey(Schema.Int) }),
-      `A review gate on this node; \`rework\` names the sibling it loops, by key or \`thread:<id>\`. Semantics as ${t("workstream_spawn")}'s \`gate\`.`,
+      Schema.Struct({ rework: GateReworkInput, maxRounds: Schema.optionalKey(Schema.Int) }),
+      `A review gate on this node; \`rework\` names the sibling or siblings it loops, by key or \`thread:<id>\`. Semantics as ${t("workstream_spawn")}'s \`gate\`.`,
     ),
   ),
   forkFrom: optionalText(`${asSpawn("forkFrom")} By key or \`thread:<id>\`.`),
@@ -289,6 +292,12 @@ const LOOM_TOOL_SPECS = {
       outcome: optionalText(
         "Omitted means 'done'; otherwise 'needs_human', a gate verdict, or a short snake_case token such as 'rework_approach'.",
       ),
+      rework: Schema.optionalKey(
+        described(
+          Schema.Array(Schema.String),
+          "With a verdict your review gate loops on ('needs_rework'): the ids of the gate's siblings to reopen; the ones not named stay as they are. Required when the gate covers several siblings; omitted on a gate over one, which reopens that one.",
+        ),
+      ),
       contested: Schema.optionalKey(
         described(
           Schema.Array(Schema.String),
@@ -446,7 +455,7 @@ const LOOM_TOOL_SPECS = {
     Schema.Struct({
       markdown: described(
         Schema.String,
-        `The complete revised tree at your scope, in the \`- [ ] Open task\` / \`- [x] Finished task (task-id)\` form ${t("goal_task_list")} returns, two spaces of indent per level. A line keeping an existing \`(id)\` is that task, with the text, done-state, parent and order you submit; a line without one is a new task; a task you omit is deleted, and comes back with its id if you resubmit its line. Text is at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters, a plain-language work item naming the outcome, never a finding, verdict or status note, with concrete work hung under a handful of phase or theme parents. Your anchor line stays, renamed or ticked at most.`,
+        `The complete revised tree at your scope, in the \`- [ ] Open task\` / \`- [x] Finished task (task-id)\` form ${t("goal_task_list")} returns, two spaces of indent per level. A line keeping an existing \`(id)\` is that task, with the text, done-state, parent and order you submit; a line without one is a new task; a task you omit is deleted, unless it sits beneath a finished line you kept whose whole subtree is finished, and comes back with its id if you resubmit its line. Text is at most ${MAX_GOAL_TASK_TEXT_LENGTH} characters, a plain-language work item naming the outcome, never a finding, verdict or status note, with concrete work hung under a handful of phase or theme parents. Your anchor line stays, renamed or ticked at most.`,
       ),
     }),
     "soft",

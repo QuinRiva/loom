@@ -12,6 +12,7 @@ import {
   type HandoffDraftInput,
   LOOM_WS_METHODS,
   type LoomConsultCancelInput,
+  type LoomContextUsageInput,
   type LoomGoal,
   type LoomGoalTask,
   type LoomGoalTaskRewriteInput,
@@ -41,6 +42,7 @@ import { ServerConfig } from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import type { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
 import type { WorkspaceFileSystem } from "../workspace/WorkspaceFileSystem.ts";
+import { contextUsageReport } from "./context-viz/contextUsageReport.ts";
 import { LoomDeployNotices } from "./deploy/LoomDeployNotices.ts";
 import { lookupDocumentQueryAuthor } from "./query/documentAuthor.ts";
 import { askDocumentQuery, promoteDocumentQuery } from "./query/documentQuery.ts";
@@ -298,6 +300,15 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
       reviewRead(LOOM_WS_METHODS.reviewDiff)(reviewSnapshots.diff(input)),
     [LOOM_WS_METHODS.reviewFileContents]: (input: LoomReviewFileContentsInput) =>
       reviewRead(LOOM_WS_METHODS.reviewFileContents)(reviewSnapshots.fileContents(input)),
+    // Context-viz experiment: the thread's pi session file, attributed per call and item.
+    [LOOM_WS_METHODS.contextUsage]: (input: LoomContextUsageInput) =>
+      contextUsageReport(input.threadId).pipe(
+        Effect.provideService(OrchestratorV2, orchestrator),
+        Effect.map((report) => ({ report })),
+        Effect.mapError((cause) =>
+          fail(LOOM_WS_METHODS.contextUsage, `${LOOM_WS_METHODS.contextUsage} failed.`, cause),
+        ),
+      ),
     // Deploy toasts: the startup notice, then each restart warning deployctl posts.
     [LOOM_WS_METHODS.subscribeDeploy]: () => deployNotices.events,
   };

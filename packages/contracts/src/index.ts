@@ -69,6 +69,7 @@ export * from "./worktreeMcp.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
 export * from "./rpc.loom.ts"; // loom: seam 21 ws methods
+export * from "./contextUsage.loom.ts"; // loom: context-viz experiment
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
 export * from "./secretReference.ts";

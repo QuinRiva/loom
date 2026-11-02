@@ -13,13 +13,18 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { deadlockedNodes } from "@t3tools/shared/workstreamDependencies";
-import { isMemberOfUnresolvedGate, unresolvedGateSourcesOf } from "@t3tools/shared/workstreamGraph";
+import {
+  gateLoopTargetsOf,
+  isMemberOfUnresolvedGate,
+  unresolvedGateSourcesOf,
+} from "@t3tools/shared/workstreamGraph";
 import { isBriefNeeded, isEligibleToStart } from "@t3tools/shared/workstreamStart.loom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import { OrchestratorV2 } from "../../../orchestration-v2/Orchestrator.ts";
+import { resolveThreadAnchor } from "../../goals/goalTaskTree.ts";
 import { LoomStoreV2 } from "../../projection/LoomStore.ts";
 import { readWorkstreamReportAt } from "../../workstream/report.ts";
 import {
@@ -96,6 +101,12 @@ const fyiParent = (ctx: PassContext, parentId: ThreadId) =>
 const parentIdleOrPastGrace = (ctx: PassContext, parentId: ThreadId, onsetMs: number) =>
   ctx.shells.get(parentId)?.activityRunStatus == null ||
   nowMs(ctx) - onsetMs >= PARENT_BUSY_GRACE_MS;
+/** A child's live anchor task with its subtree, or null when it is unanchored or the task is gone. */
+const anchorOf = Effect.fn("loom.dispatcher.anchorOf")(function* (child: LoomThreadWorkstream) {
+  if (child.goalId === null || child.anchorTaskId === null) return null;
+  const goal = yield* (yield* LoomStoreV2).goals.get(child.goalId);
+  return goal === null ? null : resolveThreadAnchor(goal.tasks, child.anchorTaskId);
+});
 const readReport = (path: string | null) =>
   path === null ? Effect.succeed(null) : Effect.map(readWorkstreamReportAt(path), Option.getOrNull);
 
@@ -208,15 +219,14 @@ export const terminalDeltas: PassStep = {
             });
             return;
           }
-          const resolvedRoute =
-            lastOutcome.decision === "resolve" && child.lastRoute?.kind === "resolve"
-              ? child.lastRoute
-              : null;
-          // A resolved gate reports once both members are done, as one pair.
-          if (resolvedRoute !== null && ctx.nodesById.get(resolvedRoute.to)?.outcome === null)
-            return;
+          const resolvedRoutes =
+            lastOutcome.decision === "resolve" && child.lastRoutes[0]?.kind === "resolve"
+              ? child.lastRoutes
+              : [];
+          // A resolved gate reports once every member is done, as one item.
+          if (resolvedRoutes.some((route) => ctx.nodesById.get(route.to)?.outcome === null)) return;
           stash(ctx, parentId, {
-            key: resolvedRoute?.eventId ?? terminalEpisodeKey(child),
+            key: resolvedRoutes[0]?.eventId ?? terminalEpisodeKey(child),
             eventAtMs: sinceMs,
             member: {
               id: child.threadId,
@@ -235,6 +245,7 @@ export const terminalDeltas: PassStep = {
                       .filter((other) => other.blockedBy.includes(child.threadId))
                       .map((other) => ({ id: other.id, role: other.role }))
                   : [],
+              anchor: yield* anchorOf(child),
             },
           });
         }),
@@ -404,20 +415,19 @@ export const yieldRail: PassStep = {
       let gate: YieldGateContext | undefined;
       if (lastOutcome.decision === "cap-breach") {
         const loopRoute = child.routes.find((route) => route.kind === "loop" && route.to);
-        const counterpart =
-          loopRoute?.to === undefined ? undefined : ctx.nodesById.get(loopRoute.to);
         gate = {
           rounds: child.gateRounds,
           maxRounds: loopRoute?.maxRounds ?? DEFAULT_GATE_MAX_ROUNDS,
-          counterpart:
-            counterpart === undefined
-              ? null
-              : {
-                  id: counterpart.id,
-                  role: counterpart.role,
-                  reportPath: counterpart.reportPath,
-                  report: yield* readReport(counterpart.reportPath),
-                },
+          counterparts: yield* Effect.forEach(
+            gateLoopTargetsOf(child).flatMap((id) => ctx.nodesById.get(id) ?? []),
+            (counterpart) =>
+              Effect.map(readReport(counterpart.reportPath), (report) => ({
+                id: counterpart.id,
+                role: counterpart.role,
+                reportPath: counterpart.reportPath,
+                report,
+              })),
+          ),
         };
       }
       const siblings = siblingNodes(ctx, parentId);

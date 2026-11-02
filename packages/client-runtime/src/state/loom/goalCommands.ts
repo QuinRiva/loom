@@ -54,6 +54,13 @@ export function createLoomCommandAtoms<R, E>(
       staleTimeMs: 30_000,
       idleTtlMs: 5 * 60_000,
     }),
+    // Context-viz experiment: the web store owns freshness (refreshed at turn end), so no cache here.
+    contextUsage: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: `environment-data:${LOOM_WS_METHODS.contextUsage}`,
+      tag: LOOM_WS_METHODS.contextUsage,
+      staleTimeMs: 0,
+      idleTtlMs: 0,
+    }),
     // The Query card's pre-flight (which thread a Query forks), once per open document.
     documentQueryAuthor: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: `environment-data:${LOOM_WS_METHODS.documentQueryAuthor}`,

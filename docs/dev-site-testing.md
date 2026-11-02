@@ -46,8 +46,8 @@ server holds, and refuses one that already has a database — delete its
 This writes a Loom workstream through the real V2 orchestrator (upstream and
 Loom commands, never SQL): a goal with a nested task tree and, under one
 project, an orchestrator root anchored to it; a done coder with a report; a
-gated coder/reviewer pair mid-round (the reviewer looped findings, the coder
-holds rework round 1); a quiescent researcher (synthesised report, attention
+reviewer gating two coders mid-round (it looped findings to one, which holds
+rework round 1; the other stays done and untouched); a quiescent researcher (synthesised report, attention
 `awaiting_orchestrator`) with a blocked dependent; an unbriefed child; a
 cancelled lead with its own cancelled grandchild; a root holding a stored
 `needs_guidance`; and a staged (`held`) root with a kickoff brief. The done
@@ -155,7 +155,7 @@ T3CODE_HOME="$SEED_HOME" node apps/server/src/bin.ts auth pairing create
    thread's `workstream` is a quick check.
 4. On first visit the root opens the **Workstream** tab, the orchestration's
    graph (the one-shot auto-open; a child opens it from the panel launcher,
-   `W`). The graph shows the gated pair's loop edge with its `⟲ 1/2` badge;
+   `W`). The graph shows the gate's two loop edges with their `⟲ 1/2` badge;
    hover a node for its quick facts, right-click for its actions (outcome,
    timeline, report), middle-click for its timeline drawer.
 5. Quick facts, the strip and the timeline drawer show each thread's spend, and the

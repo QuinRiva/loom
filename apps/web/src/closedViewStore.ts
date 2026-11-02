@@ -65,6 +65,7 @@ const isClosedViewEntry = (entry: unknown): entry is ClosedViewEntry => {
     case "pull-requests":
     case "tasks": // loom: Loom's singleton tabs
     case "workstream": // loom:
+    case "context": // loom: context-viz experiment
       return surface.id === surface.kind;
     // loom: out-of-workspace directory tabs
     case "dir":

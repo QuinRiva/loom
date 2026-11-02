@@ -247,7 +247,7 @@ export function WorkstreamTimelineDrawer({
               </div>
               <ul className="mt-1 flex flex-col gap-0.5 text-2xs text-foreground/80">
                 {node.routes.map((route) => (
-                  <li key={`${route.kind}:${route.on.join(",")}`}>
+                  <li key={`${route.kind}:${route.on.join(",")}:${route.to ?? ""}`}>
                     {describeRoute(route, titleOf)}
                   </li>
                 ))}

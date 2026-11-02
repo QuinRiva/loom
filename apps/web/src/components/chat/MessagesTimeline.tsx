@@ -111,6 +111,8 @@ import { insertLoomTimelineRows, useLoomTimelineRows } from "../../loom/loomTime
 import { ModelChangeDivider } from "../../loom/ModelChangeDivider"; // loom: model-change divider
 import { insertModelChangeRows, type ModelChangeRun } from "../../loom/modelChangeRows"; // loom: model-change divider
 import { useConversationJump } from "../../loom/conversationJump"; // loom: W3
+import { TimelineHost } from "../../loom/context-viz/timeline/TimelineHost"; // loom: context-viz
+import { TurnHeaderFigure } from "../../loom/context-viz/timeline/TurnHeaderFigure"; // loom: context-viz
 import { TimelineSystemDivider } from "./TimelineSystemDivider";
 
 import { forwardWheelToTimeline } from "./timelineMinimapWheel";
@@ -763,7 +765,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
     routeThreadKey: listIdentityKey,
     history: historyControls,
     onExpandRun: expandCitedRun,
-    onExpandWorkGroup: onToggleWorkGroup,
+    // loom: a plain expand, not onToggleWorkGroup: from a list at its end, the disclosure settle
+    // re-pins the end on every size change and undoes the jump's scroll.
+    onExpandWorkGroup: (groupId) =>
+      setExpandedWorkGroupIds((current) =>
+        current.has(groupId) ? current : new Set([...current, groupId]),
+      ),
     onManualNavigation: navigateTimeline,
   });
   const restoreReady = restoringThreadPosition && rows.length > 0;
@@ -1428,6 +1435,15 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 });
               }}
             />
+            <TimelineHost
+              rows={rows} // loom: context-viz, the loader and the rail
+              shared={sharedState}
+              currentRow={
+                minimapCurrentIndex === null
+                  ? null
+                  : (minimapRowIndices[minimapCurrentIndex] ?? null)
+              }
+            />
           </TooltipScrollDismissArea>
         </TimelineRowActivityCtx>
       </MarkdownFindContext>
@@ -1752,6 +1768,9 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
           createdAt={row.createdAt}
           timestampFormat={ctx.timestampFormat}
           className="ms-auto"
+        />
+        <TurnHeaderFigure
+          runId={row.runId} // loom: context-viz
         />
       </div>
       {loading ? <WorkHistorySkeleton /> : null}

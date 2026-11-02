@@ -226,10 +226,15 @@ lastOutcome: Schema.NullOr(Schema.Struct({ outcome, decision, round, counts?, at
 `routes` live on the thread that _emits_ the outcomes (the reviewer). One
 declared loop edge defines the whole cycle — the control plane routes both
 directions on it (reviewer→coder on `needs_rework`, coder→reviewer on the
-coder's next submit). No reverse edge is stored.
+coder's next submit). No reverse edge is stored. A gate over several
+siblings is several loop edges on the same source with the same `on` and
+`maxRounds`; a `needs_rework` names the targets to reopen (`rework` on
+`thread.work.submit`), emits one `thread.route-taken` per named target, and
+re-verification waits until every reopened target has routed back
+(`plans/multi-sibling-gate/plan.mdx`).
 
-A **gate** is not a stored object; it is the derived pair
-`(source = the thread carrying a loop route, target = that route's to)`. A
+A **gate** is not a stored object; it is the derived set
+`(source = the thread carrying loop routes, targets = those routes' to)`. A
 gate is **unresolved** while its source is non-terminal
 (`planLane ∉ {done, cancelled}`). This derivation is deliberate: a parent that
 `workstream_set_lane`s the reviewer to `done` or `cancelled` (decision 9,

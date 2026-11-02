@@ -17,6 +17,7 @@ import {
   resolveMergeAuthority,
   shipPolicyPromptBlock,
 } from "@t3tools/shared/shipPolicy";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -117,7 +118,10 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
           }
         : loadRoleOverlay({ role: workstream?.role ?? null, projectRoot });
     const catalogue = overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
+    const readAt = DateTime.formatIso(yield* DateTime.now);
     const goal = workstream?.goalId == null ? null : yield* loomStore.goals.get(workstream.goalId);
+    // The goal context below is the thread's first read of the tree.
+    if (goal !== null) yield* loomStore.goalTreeReads.mark(thread.id, readAt);
     // The retro reviewer's profile is its whole job: nothing to announce behind tool_search.
     const resident = workstream?.role === RETRO_REVIEWER_ROLE ? undefined : new Set(overlay.tools);
     const { mergeAuthorityCeiling } = yield* settings.getSettings;

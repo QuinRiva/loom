@@ -35,6 +35,7 @@ const EXPECTED: Record<string, { readonly column: string; readonly attention?: s
   [SEED.root]: { column: "in_progress" },
   [SEED.coderDone]: { column: "done" },
   [SEED.gateCoder]: { column: "in_progress" },
+  [SEED.gateSibling]: { column: "done" },
   [SEED.gateReviewer]: { column: "in_progress" },
   [SEED.quiescent]: { column: "in_progress", attention: "awaiting_orchestrator" },
   [SEED.blocked]: { column: "blocked" },
@@ -83,8 +84,11 @@ const dispatcherWouldSend = Effect.fn("verifySeed.dispatcherWouldSend")(function
     Effect.provide(WorkstreamDispatcherLive),
     Effect.provideService(Orchestrator.OrchestratorV2, recording),
     Effect.provide(ServerSettings.layerTest()),
+    // A Clock is a class instance: its methods are not own properties, so delegate rather than spread.
     Effect.provideService(Clock.Clock, {
-      ...clock,
+      monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
+      monotonicTimeNanos: clock.monotonicTimeNanos,
+      sleep: (duration) => clock.sleep(duration),
       currentTimeMillisUnsafe: () => atMs,
       currentTimeMillis: Effect.succeed(atMs),
       currentTimeNanosUnsafe: () => BigInt(atMs) * 1_000_000n,
@@ -143,7 +147,13 @@ const verifyProgram = Effect.gen(function* () {
   check(rows.length === Object.keys(EXPECTED).length, `found ${rows.length} seeded threads`);
   const ws = (id: ThreadId) => threads.find((thread) => thread.id === id)?.workstream;
   check(ws(SEED.gateCoder)?.pendingRework === true, "gate coder holds no rework round");
+  check(ws(SEED.gateSibling)?.pendingRework === false, "untouched gate sibling was reopened");
   check(ws(SEED.gateReviewer)?.lastOutcome?.decision === "loop", "reviewer did not loop");
+  const reviewerRoutes = (yield* loomStore.getWorkstream(SEED.gateReviewer))?.lastRoutes ?? [];
+  check(
+    reviewerRoutes.length === 1 && reviewerRoutes[0]?.to === SEED.gateCoder,
+    `reviewer's round traversed ${reviewerRoutes.length} siblings, expected the parser coder only`,
+  );
   check(ws(SEED.quiescent)?.lastOutcome?.synthesised === true, "quiescent outcome not synthesised");
   check(ws(SEED.coderDone)?.reportPath != null, "done coder has no report");
   check(ws(SEED.stagedRoot)?.kickoffBriefPath != null, "staged root has no brief");

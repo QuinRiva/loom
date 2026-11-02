@@ -17,7 +17,7 @@ import {
   type OrchestrationV2ThreadShell,
   ProviderInstanceId,
   RuntimeRequestId,
-  type ThreadId,
+  ThreadId,
 } from "@t3tools/contracts";
 import { LOOM_SEED, loomSeedControlMessages } from "@t3tools/shared/loomSeedFixture.loom";
 import type { FilesystemEntryMetadata } from "@t3tools/contracts";
@@ -366,6 +366,74 @@ export const loomPreviewThreads = {
     },
   ),
 } satisfies Record<string, OrchestrationV2ThreadShell>;
+
+// A gate over three siblings, mid-round: the reviewer's round 1 reopened two, the third is
+// untouched. The graph must draw three return arrows with the open-round dot on the two only.
+
+const trioRoot = ThreadId.make("preview-trio-root");
+export const loomPreviewTrioIds = {
+  timeline: ThreadId.make("preview-trio-timeline"),
+  graph: ThreadId.make("preview-trio-graph"),
+  cards: ThreadId.make("preview-trio-cards"),
+  reviewer: ThreadId.make("preview-trio-reviewer"),
+};
+const trioChild = (threadId: ThreadId, fields: Partial<LoomThreadShellFields> = {}) =>
+  workstream(threadId, {
+    parentThreadId: trioRoot,
+    rootThreadId: trioRoot,
+    spawnGeneration: "wave-mockups",
+    ...started,
+    reportPath: `${REPORTS}/${threadId}.md`,
+    ...fields,
+  });
+const reopened = { pendingRework: true, lastOutcome: outcomeRecord("done", "terminal") };
+
+export const loomPreviewTrioRootId = trioRoot;
+export const loomPreviewTrioThreads: ReadonlyArray<OrchestrationV2ThreadShell> = [
+  shell(
+    "Three mockups, one reviewer",
+    workstream(trioRoot, {
+      parentThreadId: null,
+      rootThreadId: trioRoot,
+      role: null,
+      kickoffBriefPath: null,
+      ...started,
+    }),
+  ),
+  shell("Mock: timeline", trioChild(loomPreviewTrioIds.timeline, { ...reopened, toolCalls: 48 }), {
+    activityRunStatus: "running",
+    status: "running",
+  }),
+  shell("Mock: graph", trioChild(loomPreviewTrioIds.graph, { ...reopened, toolCalls: 31 })),
+  shell(
+    "Mock: cards",
+    trioChild(loomPreviewTrioIds.cards, {
+      outcome: "done",
+      outcomeAt: AT,
+      lastOutcome: outcomeRecord("done", "terminal"),
+      toolCalls: 27,
+    }),
+  ),
+  shell(
+    "Review the three mockups",
+    trioChild(loomPreviewTrioIds.reviewer, {
+      role: "reviewer",
+      blockedBy: [loomPreviewTrioIds.timeline, loomPreviewTrioIds.graph, loomPreviewTrioIds.cards],
+      routes: [
+        { on: ["needs_rework"], kind: "loop", to: loomPreviewTrioIds.timeline, maxRounds: 2 },
+        { on: ["needs_rework"], kind: "loop", to: loomPreviewTrioIds.graph, maxRounds: 2 },
+        { on: ["needs_rework"], kind: "loop", to: loomPreviewTrioIds.cards, maxRounds: 2 },
+        { on: ["clean", "fixed_inline"], kind: "resolve" },
+      ],
+      gateRounds: 1,
+      toolCalls: 96,
+      lastOutcome: {
+        ...outcomeRecord("needs_rework", "loop"),
+        counts: { mustFix: 3, niceToHave: 2 },
+      },
+    }),
+  ),
+];
 
 const loomPreviewShellSnapshot: OrchestrationV2ShellSnapshot = {
   schemaVersion: 1,

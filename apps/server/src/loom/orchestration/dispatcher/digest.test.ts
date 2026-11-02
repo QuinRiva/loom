@@ -2,7 +2,10 @@
 import { assert, describe, it } from "@effect/vitest";
 import {
   EventId,
+  GoalId,
+  GoalTaskId,
   IsoDateTime,
+  type LoomGoalTask,
   ThreadId,
   type WorkOutcomeRecord,
   type WorkstreamRoute,
@@ -152,6 +155,47 @@ describe("buildStandaloneDigest", () => {
     assert.include(text, "status notices");
     assert.notInclude(text, "the following items completed");
     assert.notInclude(text, "deserve the usual first look");
+  });
+});
+
+describe("a finished child's anchor task", () => {
+  const task = (id: string, done: boolean, children: ReadonlyArray<LoomGoalTask> = []) => ({
+    id: GoalTaskId.make(id),
+    goalId: GoalId.make("goal:g"),
+    parentTaskId: null,
+    text: `Task ${id}`,
+    done,
+    position: 0,
+    createdAt: at,
+    updatedAt: at,
+    deletedAt: null,
+    children,
+  });
+  const header = "### ☑️ coder `cod`: done\n";
+
+  it("names the anchor still open with the open lines beneath it, a ticked path kept", () => {
+    const anchor = task("a", false, [
+      task("b", true),
+      task("c", false),
+      task("d", true, [task("e", false)]),
+    ]);
+    assert.include(
+      buildStandaloneDigest([member({ id: "cod", anchor })]),
+      `${header}_${formatWakeTimestamp(at)}_\nTask: Task a (a) · still open, 2 open beneath it:\n    Task c (c)\n    [x] Task d (d)\n      Task e (e)\n_No report`,
+    );
+  });
+
+  it("states a fully ticked branch on one line", () => {
+    const text = buildStandaloneDigest([
+      member({ id: "cod", anchor: task("a", true, [task("b", true)]) }),
+    ]);
+    assert.include(text, "\nTask: Task a (a) · ticked\n_No report");
+  });
+
+  it("leaves an unanchored child's item unchanged", () => {
+    const text = buildStandaloneDigest([member({ id: "cod" })]);
+    assert.equal(text, buildStandaloneDigest([member({ id: "cod", anchor: null })]));
+    assert.notInclude(text, "Task:");
   });
 });
 

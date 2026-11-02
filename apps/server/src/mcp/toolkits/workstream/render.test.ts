@@ -39,7 +39,7 @@ const node = (
     }),
     [
       "notifySendLog",
-      "lastRoute",
+      "lastRoutes",
       "outcomeEventId",
       "unarchivedEventId",
       "unarchivedAt",

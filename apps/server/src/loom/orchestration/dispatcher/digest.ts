@@ -73,10 +73,10 @@ const wakeMemberToPayloadItem = (member: WakeMember): ControlPayloadItem => {
 };
 
 /**
- * A resolved pair's target as a reference-only `terminal` item: only what the
- * pair text states about it (no excerpt, status or timestamp it never
+ * A resolved gate's target as a reference-only `terminal` item: only what the
+ * gate text states about it (no excerpt, status or timestamp it never
  * received), plus its report's document chips. The gate's resolution is the
- * source's one `gate-resolved` item.
+ * source's one `gate-resolved` item, whatever the number of targets.
  */
 const pairTargetToPayloadItem = (target: WakeMember): ControlPayloadItem => {
   const { excerpt: _excerpt, ...fields } = reportItemFields(target.reportPath, target.report);
@@ -109,7 +109,7 @@ const digestBodyParts = (
   const sections = [
     ...pairs.map((pair) => ({
       text: renderWakePair(pair),
-      items: [wakeMemberToPayloadItem(pair.source), pairTargetToPayloadItem(pair.target)],
+      items: [wakeMemberToPayloadItem(pair.source), ...pair.targets.map(pairTargetToPayloadItem)],
     })),
     ...singles.map((single) => ({
       text: renderWakeSingle(single),
