@@ -19,8 +19,10 @@ It prints the dashboard path. The database is `${T3CODE_HOME:-~/.t3/cockpit}/use
 Under `~/loom-evals/`, outside the repository, as `/retro` keeps `~/loom-retro/`:
 
 - `dashboard.md`: rewritten each run.
-- `readings/<ISO week>/`: `metrics.json`, `trace.json`, `escapes.json` and a copy of that week's `dashboard.md`, kept.
-- `reviews/<check>.json`: the first-20 review of a trace check (`{reviewed: 20, true_positive: n, notes: [...]}`, plan §3.4), and `reviews/escapes.json` for the escape proxy. Until a check has one, the dashboard marks it `Unreviewed`.
+- `readings/<ISO week>/`: `metrics.json`, `trace.json`, `escapes.json`, a copy of that week's `dashboard.md`, and `hits/<check>.jsonl` (one line per hit, newest first, so a review's first 20 are current behaviour), kept.
+- `reviews/<check>.json`: the first-20 review of a trace check (`{reviewed: 20, true_positive: n, notes: [...]}`, plan §3.4), and `reviews/escapes.json` for the escape proxy. `render.py` reads `true_positive / reviewed` from it. With no file the check is marked `Unreviewed`. Under 50% it is marked `low precision n/20, narrowed <date>` (the date from `signals.yaml`, or from `escapes.json` for the proxy), its count moves from the value cell to a footnote, and its slices are hidden, until a new review of the narrowed check replaces the file. At 50% or more the number shows, with the precision in a footnote. A check with `status: retired` in `skills/retro/signals.yaml` is not run and does not appear.
+
+A forked session carries a copy of its source's history. The trace checks skip events stamped before the session file began, so a fork does not count its source's hits again.
 
 The dashboard prints the reading rule under its header: a week-to-week move under about 15 points in a rate is noise; read the four-week windows.
 
@@ -47,7 +49,7 @@ Each script writes `~/loom-evals/readings/<ISO week>/<name>.json`:
 }
 ```
 
-`window` on a row is one of `week`, `4w`, `prev4w`, `since-2026-10-07`. Weeks are ISO weeks in the machine's local time: `week` is Monday 00:00 to the next Monday 00:00; `4w` is the four weeks ending with that week; `prev4w` the four before those; `since-2026-10-07` runs from 7 October 00:00 to the week's end. Every query is bounded above by its window's end, so a re-run of a past week gives the same rows apart from `generated_at` (a thread renamed or switched model since is the exception). `by` is `all` or a slice (`role`, `model`, `root_model`, `reviewer_model`, `coder_model`, `reason`, `canceller`, `tool`, `commit`), `n` is the denominator or the population, and a non-empty `note` is printed as a footnote. `render.py` groups rows by `metric`. A metric outside its `METRICS` table (every `trace.json` and `escapes.json` metric) renders a float of 1 or less as a percentage and an integer as `value / n`, so such a fragment carries rates as floats and counts as integers. `dashboard.py` exports `week_windows()` and `default_week()` for the other two scripts.
+`window` on a row is one of `week`, `4w`, `prev4w`, `since-2026-10-07`. Weeks are ISO weeks in the machine's local time: `week` is Monday 00:00 to the next Monday 00:00; `4w` is the four weeks ending with that week; `prev4w` the four before those; `since-2026-10-07` runs from 7 October 00:00 to the week's end. Every query is bounded above by its window's end, so a re-run of a past week gives the same rows apart from `generated_at` (a thread renamed or switched model since is the exception). `by` is `all` or a slice (`role`, `model`, `root_model`, `reviewer_model`, `coder_model`, `reason`, `canceller`, `tool`, `commit`), `n` is the denominator or the population, and a non-empty `note` is printed as a footnote. `render.py` groups rows by `metric`. `trace.json` also carries `checks`, the active trace checks with the date each was last narrowed (`{"sleep-poll": {"narrowed": "2026-11-02"}}`), and `escapes.json` carries `narrowed`, the proxy's. A metric outside its `METRICS` table (every `trace.json` and `escapes.json` metric) renders a float of 1 or less as a percentage and an integer as `value / n`, so such a fragment carries rates as floats and counts as integers. `dashboard.py` exports `week_windows()` and `default_week()` for the other two scripts.
 
 ## Era caveats
 

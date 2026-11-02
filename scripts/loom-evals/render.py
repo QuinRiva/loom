@@ -106,6 +106,36 @@ def table(rows, metrics, label_of, kind_of, slices, totals=True):
     return "\n".join(out).rstrip() + "\n"
 
 
+def review_mark(name, narrowed):
+    """(mark for the row label, note for its cells, held) from reviews/<name>.json. Plan §3.4: a check whose
+    first-20 review scored under 50% shows no number until it is narrowed and reviewed again."""
+    f = EVALS_HOME / "reviews" / f"{name}.json"
+    if not f.exists():
+        return "Unreviewed", None, False
+    r = json.loads(f.read_text())
+    tp, n = r["true_positive"], r["reviewed"]
+    if tp * 2 < n:
+        return f"low precision {tp}/{n}, " + (f"narrowed {narrowed}" if narrowed else "to narrow or retire"), None, True
+    return None, f"precision {tp}/{n} in its review" + (f", narrowed {narrowed} since" if narrowed else ""), False
+
+
+def apply_review(rows, marks, check_of):
+    """A held check keeps one row per metric, its counts moved from the value cell to the note, and no slices;
+    any other check's review note joins its rows' notes."""
+    first_pass = defaultdict(list)
+    for r in rows:
+        if r["by"] == "all":
+            first_pass[r["metric"]].append(f"{WINDOW_LABELS.get(r['window'], r['window'])} {cell(dict(r, note=None), None, {})}")
+    out = []
+    for r in rows:
+        _, note, held = marks[check_of(r["metric"])]
+        if not held:
+            out.append(dict(r, note="; ".join(x for x in (note, r["note"]) if x) or None))
+        elif r["by"] == "all":
+            out.append(dict(r, value=None, note=f"{r['metric']}, held back, first pass: " + ", ".join(first_pass[r["metric"]])))
+    return out
+
+
 def missing(script):
     return f"**fragment missing: {script} failed**\n"
 
@@ -145,23 +175,33 @@ def main():
         out += ["## Outcome metrics", "", missing(FRAGMENTS["metrics.json"])]
 
     reviews = EVALS_HOME / "reviews"
+    rule = (f"A check marked Unreviewed has no `{reviews}/<check>.json`: its count is a first pass of unknown precision. "
+            "A check marked low precision scored under 50% in its first-20 review: its count is held back in a footnote, "
+            "not shown as a reading, until it is narrowed and reviewed again; its slices are not shown.")
     out += ["## Trace checks (Eval 3)", ""]
     if "trace.json" in frags:
-        rows = frags["trace.json"]["rows"]
-        checks = sorted({r["metric"] for r in rows})
-        unreviewed = [c for c in checks if not (reviews / f"{c}.json").exists()]
-        label = lambda c: f"{c} (Unreviewed)" if c in unreviewed else c
-        out.append(f"Sessions hit / sessions scanned. A check marked Unreviewed has no `{reviews}/<check>.json`: its count is a first pass of unknown precision.")
-        out += ["", table(rows, checks, label, lambda c: None, False), "### By slice", "", table(rows, checks, label, lambda c: None, True, False)]
+        checks_meta = frags["trace.json"]["checks"]  # active checks only: a retired one is not listed
+        marks = {c: review_mark(c, m["narrowed"]) for c, m in checks_meta.items()}
+        rows = apply_review([r for r in frags["trace.json"]["rows"] if r["metric"] in marks], marks, str)
+        checks = sorted(marks)
+        label = lambda c: f"{c} ({marks[c][0]})" if marks[c][0] else c
+        out.append(f"Sessions hit / sessions scanned. {rule}")
+        out += ["", table(rows, checks, label, lambda c: None, False)]
+        out += ["### By slice", "", table(rows, checks, label, lambda c: None, True, False)] if any(r["by"] != "all" for r in rows) else []
     else:
         out.append(missing(FRAGMENTS["trace.json"]))
     out += ["## Gate escapes (Eval 5 proxy)", ""]
     if "escapes.json" in frags:
-        rows = frags["escapes.json"]["rows"]
-        mark = "" if (reviews / "escapes.json").exists() else f" Unreviewed: no `{reviews}/escapes.json` yet, so this is a lower bound of unknown precision."
-        out.append(f"Escapes / gates resolved clean or fixed_inline.{mark}")
-        metrics = sorted({r["metric"] for r in rows})
-        out += ["", table(rows, metrics, str, lambda c: None, False), "### By slice", "", table(rows, metrics, str, lambda c: None, True, False)]
+        marks = {"escapes": review_mark("escapes", frags["escapes.json"]["narrowed"])}
+        rows = apply_review(frags["escapes.json"]["rows"], marks, lambda m: "escapes")
+        label = lambda m: f"{m} ({marks['escapes'][0]})" if marks["escapes"][0] else m
+        out.append("Gates whose files were fixed again within 14 days / gates resolved clean or fixed_inline. Kind 1 is a later fix commit "
+                   "changing lines the gated coder's commits wrote; kind 2 a later gate's must-fix rework over the same files. The headline is "
+                   "kinds 1 and 2 by another tree (`kind-union:other-tree`); `unknown` is a fix commit with no Loom-Thread trailer. " + rule)
+        order = lambda m: (["union", "1", "2"].index(m.split(":")[1].removeprefix("kind-")), ["other-tree", "unknown", "same-tree"].index(m.split(":")[2]))
+        metrics = sorted({r["metric"] for r in rows}, key=order)
+        out += ["", table(rows, metrics, label, lambda c: None, False)]
+        out += ["### By slice", "", table(rows, metrics, label, lambda c: None, True, False)] if any(r["by"] != "all" for r in rows) else []
     else:
         out.append(missing(FRAGMENTS["escapes.json"]))
 

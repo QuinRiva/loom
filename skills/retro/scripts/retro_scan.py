@@ -13,7 +13,7 @@ The manifest is the JSON the /retro launcher writes into the run directory. The 
 catalogue is ../signals.yaml (PyYAML: the catalogue is edited by people and agents and
 holds regexes, so a real YAML parser is worth the one dependency).
 """
-import argparse, json, os, re, sqlite3, statistics
+import argparse, functools, itertools, json, os, re, sqlite3, statistics, subprocess
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -85,11 +85,12 @@ def parse_session(path, root):
     """One pass over a pi session jsonl; everything later sections need. Of tool results it keeps errors in full and,
     per call, a short record (exit code, first 300 characters, which guard fired) for the trace checks."""
     s = dict(turns=0, calls=0, cost=0.0, ctx=0, image=0, tools=set(), errors=[], users=[], texts=[], events=[],
-             spawned={}, results={}, first=None, last=None, cwd=None, model=None)
+             spawned={}, results={}, first=None, last=None, start=None, cwd=None, model=None)
     seen = Counter()
     for line in open(path, encoding="utf-8"):
         e = json.loads(line)
         if e.get("type") in ("session", "model_change"):
+            s["start"] = s["start"] or (e.get("timestamp") if e.get("type") == "session" else None)
             s["cwd"] = e.get("cwd") or s["cwd"]
             s["model"] = e.get("modelId") or s["model"]
             continue
@@ -130,7 +131,8 @@ def parse_session(path, root):
             text = text_of(blocks)
             code = re.findall(r"Command exited with code (\d+)", text)
             r = dict(id=m.get("toolCallId"), tool=short_tool(m.get("toolName")), isError=bool(m.get("isError")),
-                     code=int(code[-1]) if code else None, head=text[:300], guard=guard_of(text))
+                     code=int(code[-1]) if code else None, head=text[:300], guard=guard_of(text, blocks),
+                     branches=re.findall(r"^\[([^\s\]]+)(?: \(root-commit\))? [0-9a-f]{7,}\] ", text, re.M))
             s["results"][r["id"]] = r
             s["events"].append(("result", ts, r))
             if m.get("isError"):
@@ -167,24 +169,30 @@ def error_signature(tool, text):
 
 
 # ── Trace checks: signals.yaml kind structural, scope session, origin loom-evals plan (2026-11) ──────────
-# Each matches a toolCall's name and arguments or the control plane's own result text, never the model's
-# prose; the report is read only as a claim paired with the absence of a command (tests-claimed-not-run,
-# moved-text-unwritten). A check takes the parsed session and a context (role, report, gated, project_root)
-# and returns hits (timestamp, tool, excerpt, variant, count), the first of each variant per session, so the
-# first 20 hits of a check are 20 sessions.
+# Each matches a toolCall's name and arguments or the control plane's own result text, never the model's prose.
+# A check takes the session's own history (own_history) and a context (role, gated, project_root)
+# and returns hits (timestamp, tool, excerpt, variant, count), the first of each variant per session, so
+# the first 20 hits of a check are 20 sessions. Narrowings after the first-20 review are in signals.yaml.
 
 def short_tool(name):
     return re.sub(r"^mcp__[\w-]+?__", "", name or "?")
 
 
-def guard_of(text):
-    """Which Loom guard spoke in a tool result, from the guard's own text: a block, a refusal, or a note it appended."""
+def guard_of(text, blocks):
+    """Which Loom guard spoke in a tool result: a block or a refusal opens the result; a note or rewrite is the
+    trailing text block the guard appends ("\\n\\n[t3 <name> guard] …"), so a file that quotes the marker is not one."""
     if m := re.match(r"Blocked by the t3 ([\w-]+) guard", text):
         return f"blocked: {m.group(1)} guard"
     if text.startswith("Refused:"):
         return "refused"
-    m = re.search(r"\[t3 ([\w-]+) guard\] (\w+)", text)
+    last = next((b.get("text") or "" for b in reversed(blocks) if b.get("type") == "text"), "")
+    m = re.match(r"\n\n\[t3 ([\w-]+) guard\] (\w+)", last)
     return m and f"{'rewrite' if m.group(2).startswith('Rewr') else 'note'}: {m.group(1)} guard"
+
+
+def own_history(s):
+    """The session without the history a fork copied in from its source: events stamped before this file began."""
+    return s | dict(events=[e for e in s["events"] if (e[1] or "") >= s["start"]]) if s["start"] else s
 
 
 def _calls(s):
@@ -195,14 +203,65 @@ def _cmds(s):
     return [(ts, str(a.get("command") or ""), cid) for ts, n, a, cid in _calls(s) if n in ("bash", "bg_start")]
 
 
-def _segments(cmd):
-    return [x.strip() for x in re.split(r"\s*(?:;|&&|\|\||\||\n)\s*", cmd) if x.strip()]
+SHELL_TOKEN = re.compile(r"""'[^']*'?|"(?:\\.|[^"\\])*"?|\$\((?:[^()]|\([^()]*\))*\)?|\\.|<<<|<<-?\s*(['"]?)(\w+)\1|&&|\|\||[;\n|]|[^'"\\;\n|&<$]+|.""", re.S)
+
+
+def _steps(cmd):
+    """Command steps, split on ; && || | and newlines outside quotes, $( ), escapes and heredoc bodies (a grep
+    pattern's \\| or a heredoc's script is not a step)."""
+    steps, cur, heredocs, pos = [], "", [], 0
+    while pos < len(cmd):
+        m = SHELL_TOKEN.match(cmd, pos)
+        tok, pos = m.group(0), m.end()
+        heredocs += [m.group(2)] if m.group(2) else []
+        if tok not in ("&&", "||", ";", "\n", "|"):
+            cur += tok
+            continue
+        steps, cur = steps + [cur], ""
+        if tok == "\n":
+            for d in heredocs:
+                end = re.compile(rf"^[ \t]*{re.escape(d)}[ \t]*$", re.M).search(cmd, pos)
+                pos = end.end() if end else len(cmd)
+            heredocs = []
+    return [x.strip() for x in steps + [cur] if x.strip()]
+
+
+PREFIX = r"(?:[({]\s*|(?:do|then|else|sudo|timeout \S+)\s+|\w+=\S*\s+)*"
+
+
+def _runs(cmd, rx):
+    """A command step starts by running rx."""
+    return any(re.match(PREFIX + "(?:" + rx + r")\b", g) for g in _steps(cmd))
+
+
+def _steps_in(cmd, cwd):
+    """(directory, step) per command step, following cd; a target it cannot resolve ($VAR, cd -) leaves None."""
+    d = cwd
+    for g in _steps(cmd):
+        if m := re.match(r"[({]?\s*cd(?:\s+(\S+))?$", g):
+            t = os.path.expanduser((m.group(1) or "~").strip("'\""))
+            d = None if "$" in t or t == "-" or not (d or t.startswith("/")) else os.path.normpath(os.path.join(d or "/", t))
+        yield d, g
 
 
 def _git(seg):
-    """(subcommand, args) when a command segment runs git, else None."""
-    m = re.match(r"(?:sudo\s+|\w+=\S*\s+)*git((?:\s+-[Cc]\s+\S+)*)\s+(\S+)(.*)", seg, re.S)
-    return m and (m.group(2), m.group(3).split())
+    """(subcommand, args, -C directory) when a command step runs git, else None."""
+    m = re.match(PREFIX + r"git((?:\s+(?:-[Cc]\s+\S+|--no-pager))*)\s+(\S+)(.*)", seg, re.S)
+    return m and (m.group(2), m.group(3).split(), (re.findall(r"-C\s+(\S+)", m.group(1)) or [None])[-1])
+
+
+@functools.lru_cache(maxsize=None)
+def _git_root(p):
+    """The working tree holding path p: its nearest ancestor with a .git entry (a main checkout has a .git directory)."""
+    return next((d for d in (Path(p), *Path(p).parents) if (d / ".git").exists()), None) if p else None
+
+
+def _repo(root):
+    """A working tree's repository: its common git directory, shared by every worktree of one repository."""
+    git_dir = root / ".git"
+    if git_dir.is_file() and (m := re.match(r"gitdir:\s*(\S+)", git_dir.read_text())):
+        return re.sub(r"/worktrees/[^/]+/?$", "", m.group(1))
+    return str(git_dir)
 
 
 def _hits(found):
@@ -217,6 +276,8 @@ KILLED_JOB = re.compile(r"Background job \S+ (?:ended by SIG\w+|finished \(exit 
 
 
 def check_killed_then_silent(s, ctx):
+    """The model saw the kill (an assistant message follows it) and ended its turn with no further call; a kill
+    followed straight by a user message is a turn that died with the server, not one that went quiet."""
     cmd = {cid: c for _, c, cid in _cmds(s)}
     ev, found = s["events"], []
     for i, (k, ts, r) in enumerate(ev):
@@ -224,7 +285,8 @@ def check_killed_then_silent(s, ctx):
             continue
         var = ("timed out" if r["head"].startswith("Command timed out after") else f"exit {r['code']}" if r["code"] in (137, 143) else None) \
             if r["tool"] == "bash" else "bg job killed" if r["tool"] == "bg_wait" and KILLED_JOB.match(r["head"]) else None
-        if var and next((k2 for k2, *_ in ev[i + 1:] if k2 in ("call", "user")), "user") == "user":
+        after = list(itertools.takewhile(lambda e: e[0] not in ("call", "user"), ev[i + 1:]))
+        if var and (ev[i + 1 + len(after):] or [("user",)])[0][0] == "user" and any(e[0] in ("assistant", "thinking") for e in after):
             found.append((ts, r["tool"], cmd.get(r["id"]) or r["head"], var))
     return _hits(found)
 
@@ -237,56 +299,91 @@ def _ships(d):
         return False
 
 
-def _runs(cmd, rx):
-    """A command step (split on ; && || and newlines, not pipes: a grep pattern's \\| is not a step) starts by running rx."""
-    return any(re.match(r"(?:(?:do|then|else|sudo|timeout \S+)\s+|\w+=\S*\s+)*(?:" + rx + r")\b", g) for g in re.split(r"\s*(?:;|&&|\|\||\n)\s*", cmd))
+@functools.lru_cache(maxsize=None)
+def _origin(d):
+    """owner/repo of d's origin remote, lower-cased, or None."""
+    try:
+        url = subprocess.run(["git", "-C", d, "remote", "get-url", "origin"], capture_output=True, text=True, check=True).stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    return re.sub(r"\.git$", "", "/".join(re.split(r"[/:]", url)[-2:])).lower()
 
 
 def check_merge_bypass(s, ctx):
+    """`gh pr merge` acting on a repository with the ship procedure: the -R/--repo one, else the cd target, else cwd."""
     cmds = _cmds(s)
-    if any(_runs(c, r"pnpm (?:run )?ship|vp run ship") for _, c, _ in cmds) or not any(_ships(d) for d in (s["cwd"], ctx.get("project_root")) if d):
+    if any(_runs(c, r"pnpm (?:run )?ship|vp run ship") for _, c, _ in cmds):
         return []
-    return _hits([(ts, "bash", c, None) for ts, c, _ in cmds if _runs(c, r"gh pr merge")])
+    found, homes = [], [d for d in (s["cwd"], ctx.get("project_root")) if d]
+    for ts, c, _ in cmds:
+        for d, g in _steps_in(c, s["cwd"]):
+            if not re.match(PREFIX + r"gh pr merge\b", g) or "--help" in g:
+                continue
+            repo = re.search(r"(?:-R|--repo)[=\s]+(\S+)", g)
+            where = [h for h in homes if _origin(h) == repo.group(1).strip("'\"").lower().removesuffix(".git")] if repo else \
+                [d] if d and d != s["cwd"] and Path(d).exists() else homes
+            found += [(ts, "bash", g, None)] if any(map(_ships, where)) else []
+    return _hits(found)
+
+
+MUTATING = r"(?:sudo\s+)?(?:mv|cp|git\s+(?:-C\s+\S+\s+)?(?:add|commit|mv|rm|rebase|merge|cherry-pick|checkout|switch|reset|push|stash|worktree))\b"
 
 
 def check_failed_then_publish(s, ctx):
+    """A command whose last step (the step its exit code belongs to) is a mutating git command, mv or cp exited
+    non-zero, then `pnpm ship` or `gh pr create` ran before a git status or a successful rerun of that step."""
     cmd = {cid: c for _, c, cid in _cmds(s)}
     found, failed = [], None
     for k, ts, x in s["events"]:
         if k == "user":
             failed = None
-        elif k == "result" and x["tool"] == "bash" and x["code"] and any(re.match(r"(?:sudo\s+)?(?:mv|cp|git)\b", g) for g in _segments(cmd.get(x["id"], ""))):
-            failed = cmd[x["id"]]
+        elif k == "result" and x["tool"] == "bash" and x["id"] in cmd:
+            last = (_steps(cmd[x["id"]]) or [""])[-1]
+            key = m.group(0) if (m := re.match(MUTATING, last)) else None
+            if key and x["code"]:
+                failed = (key, cmd[x["id"]])
+            elif failed and key == failed[0] and not x["isError"]:
+                failed = None
         elif k == "call" and short_tool(x[0]) in ("bash", "bg_start") and isinstance(x[1], dict):
             c = str(x[1].get("command") or "")
-            if "git status" in c:
+            if _runs(c, r"git status"):
                 failed = None
-            elif failed and any(re.match(r"(?:pnpm ship|gh pr create)\b", g) for g in _segments(c)):
-                found.append((ts, short_tool(x[0]), f"failed: {one_line(failed, 120)} | then: {c}", None))
+            elif failed and _runs(c, r"pnpm (?:run )?ship|gh pr create"):
+                found.append((ts, short_tool(x[0]), f"failed: {one_line(failed[1], 120)} | then: {c}", None))
                 failed = None
     return _hits(found)
 
 
+LIVE_INSTALL = (str(Path.home() / ".pi/agent") + "/", str(Path.home() / ".t3/cockpit/userdata") + "/")
+
+
 def check_write_outside_worktree(s, ctx):
+    """An edit or write landing in another git repository or a live install. Scratch folders that are no repository
+    pass, and so does another worktree of the session's own repository (a coder's `git worktree add` checkout)."""
     if not s["cwd"]:
         return []
-    home = str(Path.home())
+    home, own = str(Path.home()), _git_root(s["cwd"])
     allowed = (s["cwd"].rstrip("/") + "/", "/tmp/", f"{home}/loom-retro/", f"{home}/loom-evals/")
     paths = [(ts, n, str(Path(str(a.get("path") or "")).expanduser())) for ts, n, a, _ in _calls(s) if n in ("edit", "write")]
-    return _hits([(ts, n, p, None) for ts, n, p in paths if p.startswith("/") and not p.startswith(allowed) and "/.artifacts/" not in p])
+    other = lambda root: root and root != own and (not own or _repo(root) != _repo(own))
+    return _hits([(ts, n, p, "live install" if p.startswith(LIVE_INSTALL) else "another repository") for ts, n, p in paths
+                  if p.startswith("/") and not p.startswith(allowed) and "/.artifacts/" not in p
+                  and (p.startswith(LIVE_INSTALL) or other(_git_root(str(Path(p).parent))))])
 
 
 INSTRUCTION = re.compile(r"(?:^|/)(?:\.t3code/)?roles/[^/]+\.md$|(?:^|/)skills/[^/]+/SKILL\.md$|(?:^|/)AGENTS\.md$")
+INSTRUCTION_PROTOCOL_SINCE = "2026-10-12T09:55"  # the llm-instruction-change skill merged in pi-craft (803462b)
 
 
 def check_instruction_edit_ungated(s, ctx):
     calls = _calls(s)
-    if ctx.get("gated") or any("llm-instruction-change/SKILL.md" in str(a.get("path")) for _, n, a, _ in calls if n in ("read", "read_full")):
+    if ctx.get("gated") or any(re.search(r"llm-instruction-change[^/]*/SKILL\.md", str(a.get("path"))) for _, n, a, _ in calls if n in ("read", "read_full")):
         return []
-    return _hits([(ts, n, a.get("path"), None) for ts, n, a, _ in calls if n in ("edit", "write") and INSTRUCTION.search(str(a.get("path") or ""))])
+    return _hits([(ts, n, a.get("path"), None) for ts, n, a, _ in calls
+                  if n in ("edit", "write") and (ts or "") >= INSTRUCTION_PROTOCOL_SINCE and INSTRUCTION.search(str(a.get("path") or ""))])
 
 
-VISUAL = re.compile(r"apps/web/.*\.tsx$|\.css$|\.html$|(?:^|/)README\.md$")
+VISUAL = re.compile(r"apps/web/.*\.tsx$|\.css$|\.html$")
 
 
 def _new_text(n, a):
@@ -306,56 +403,15 @@ def check_visual_unseen(s, ctx):
     return _hits(found + [pending] * bool(pending))
 
 
-CLAIMS = [("tests", re.compile(r"\b(?<!not )(?:verified|tests? pass(?:ed)?|typecheck passes|vp check passes)\b", re.I),
-           re.compile(r"vp (?:check|test|run (?:typecheck|test|check:changed))|vpr test|pnpm (?:test|check)|vitest|pytest|npm test|cargo test|go test|lint-doc\.sh|lint-plan\.mjs")),
-          ("shipped", re.compile(r"\b(?:shipped|merged)(?: (?:as|in|via))? (?:PR )?#\d+|\b(?:shipped|merged) (?:it|this|the (?:PR|branch|change)|(?:in)?to main)\b", re.I), re.compile(r"pnpm ship|gh pr merge|git push"))]
-
-
-def _line_of(text, m):
-    return text[text.rfind("\n", 0, m.start()) + 1:].split("\n", 1)[0]
-
-
-def check_tests_claimed_not_run(s, ctx):
-    report = ctx.get("report") or ""
-    if ctx.get("role") not in ("coder", "reviewer") or not report:
-        return []
-    found = []
-    for label, claim, command in CLAIMS:
-        if m := claim.search(report):
-            ran = [(ts, c, cid) for ts, c, cid in _cmds(s) if command.search(c)]
-            # a bg_start result is the launch, not the job's exit, so only bash results can show a failure
-            failed = ran and all(s["results"].get(cid, {}).get("tool") == "bash" and (s["results"][cid]["isError"] or s["results"][cid]["code"]) for *_, cid in ran)
-            if not ran or failed:
-                label = "verified" if all(x.group(0).lower() == "verified" for x in claim.finditer(report)) else label
-                found.append((s["last"], "report", _line_of(report, m), f"{label} claimed, {'command failed' if ran else 'no command'}"))
-    return _hits(found)
-
-
-def check_moved_text_unwritten(s, ctx):
-    report = ctx.get("report") or ""
-    written = [str(a.get("path") or "") for _, n, a, _ in _calls(s) if n in ("edit", "write")]
-    if not written:  # a session that wrote nothing is describing the work under review, not claiming its own write
-        return []
-    cmds = "\n".join(c for _, c, _ in _cmds(s))
-    found = []
-    for m in re.finditer(r"\b(?:moved|added|written)\b[^\n`]{0,80}?\bto\b[^\n`]{0,20}?`([^`\s]+)`", report, re.I):
-        p = m.group(1).rstrip(".,:;")
-        tail = re.sub(r"^(?:~|\.)?/+", "", re.sub(r":\d+(?:-\d+)?$", "", p))
-        if ("/" in tail or re.search(r"\.\w{1,5}$", tail)) and Path(tail).name not in cmds and \
-                not any(w == p or w.endswith("/" + tail) or w.lstrip("./") == tail for w in written):
-            found.append((s["last"], "report", _line_of(report, m), None))
-    return _hits(found)
-
-
 def check_forbidden_git(s, ctx):
+    """git stash (not list or show), and git push naming main or master outside a scratch repository the command built."""
     found = []
     for ts, c, _ in _cmds(s):
-        for seg in _segments(c):
-            sub, args = _git(seg) or ("", [])
-            paths = [a for a in args if not a.startswith("-")]  # `git add -A <path>` stages only that path
-            var = ("git add -A" if sub == "add" and ({"-A", "--all"} & set(args) and not paths or "." in paths) else
-                   "git stash" if sub == "stash" and args[:1] not in (["list"], ["show"]) else
-                   "git push to main" if sub == "push" and any(a in ("main", "master") or a.endswith((":main", ":master")) for a in args) else None)
+        scratch = re.search(r"\bmktemp\b|\bgit\s+init\b", c)
+        for seg in _steps(c):
+            sub, args, _ = _git(seg) or ("", [], None)
+            var = ("git stash" if sub == "stash" and args[:1] not in (["list"], ["show"]) else
+                   "git push to main" if sub == "push" and not scratch and any(a in ("main", "master") or a.endswith((":main", ":master")) for a in args) else None)
             if var:
                 found.append((ts, "bash", seg, var))
     return _hits(found)
@@ -364,36 +420,51 @@ def check_forbidden_git(s, ctx):
 def check_kill_by_pattern(s, ctx):
     found = []
     for ts, c, _ in _cmds(s):
-        if re.search(r"\bpgrep\b[^;&\n]*\|\s*xargs\b[^;&|\n]*\bkill\b", c):
-            found.append((ts, "bash", c, "pgrep | xargs kill"))
-        found += [(ts, "bash", g, "pkill") for g in _segments(c) if re.match(r"(?:sudo\s+)?pkill\b", g)]
-        found += [(ts, "bash", g, "kill $(pgrep|pidof|ps)") for g in _segments(c) if re.match(r"(?:sudo\s+)?kill\b[^$]*\$\(\s*(?:pgrep|pidof|ps)\b", g)]
+        steps = [g for g in _steps(c) if "--help" not in g]
+        found += [(ts, "bash", f"{a} | {b}", "pgrep | xargs kill") for a, b in zip(steps, steps[1:])
+                  if re.match(r"(?:sudo\s+)?pgrep\b", a) and re.match(r"xargs\b.*\bkill\b", b)]
+        found += [(ts, "bash", g, "pkill") for g in steps if re.match(r"(?:sudo\s+)?pkill(?:\s+-\S+)*\s+[^-\s]", g)]
+        found += [(ts, "bash", g, "kill $(pgrep|pidof|ps)") for g in steps
+                  if re.match(r"(?:sudo\s+)?kill\b[^$]*\$\(\s*(?:pgrep|pidof|ps)\b", g) and not re.search(r"\$\(\s*ps\b[^)]*\s-p\s", g)]
     return _hits(found)
 
 
+BACKGROUNDS = re.compile(r"(?<![&>|])&(?![&>])|\bsetsid\b|\bnohup\b")
+
+
 def check_sleep_poll(s, ctx):
-    sleeps = [(ts, c) for ts, n, a, _ in _calls(s) if n == "bash" for c in [str(a.get("command") or "")] if re.search(r"\bsleep\s+(?:[5-9]|\d{2,})", c)]  # under 5 s is settle time, not a poll
+    """Three or more foreground sleeps of 5 s or more in a session that had bg_start; a sleep in a command that
+    backgrounds a process is a dev server settling, not a poll."""
+    if "bg_start" not in {short_tool(t) for t in s["tools"]}:
+        return []
+    sleeps = [(ts, c) for ts, n, a, _ in _calls(s) if n == "bash" for c in [str(a.get("command") or "")]
+              if re.search(r"\bsleep\s+(?:[5-9]|\d{2,})", c) and not BACKGROUNDS.search(c)]
     if len(sleeps) < 3:
         return []
     var = "watching gh pr, gh run or checks" if any(re.search(r"gh pr|gh run|checks", c) for _, c in sleeps) else "other"
     return [(sleeps[0][0], "bash", one_line(sleeps[0][1], 300), var, len(sleeps))]
 
 
-def check_file_reread(s, ctx):
-    # an image is re-read after each re-render, so only text files count
-    reads = [(ts, (a.get("path"), a.get("offset"), a.get("limit"))) for ts, n, a, _ in _calls(s)
-             if n in ("read", "read_full") and not re.search(r"\.(?:png|jpe?g|gif|webp)$", str(a.get("path")), re.I)]
-    if not reads:
-        return []
-    key, k = Counter(r for _, r in reads).most_common(1)[0]
-    return [(next(ts for ts, r in reads if r == key), "read", f"{key[0]} offset={key[1]} limit={key[2]}", None, k)] if k >= 4 else []
+MAIN_BRANCH = re.compile(r"(?:main|master)$")
 
 
 def check_unasked_commit(s, ctx):
-    kickoff = next((x for k, _, x in s["events"] if k == "user"), "")
-    if ctx.get("role") not in ("reviewer", "researcher", "planner", "assessor", "root") or "commit" in kickoff.lower():
+    """A reviewer, researcher, planner, assessor or root commit that lands in another repository (not another worktree
+    of the session's own, a scratch repository nested in its worktree, or one under /tmp or built by the command), or
+    on main/master of a main checkout (git's own `[main abc1234]` line in the result)."""
+    if ctx.get("role") not in ("reviewer", "researcher", "planner", "assessor", "root"):
         return []
-    return _hits([(ts, "bash", g, None) for ts, c, _ in _cmds(s) for g in _segments(c) if (_git(g) or ("",))[0] == "commit"])
+    own, found = _git_root(s["cwd"]), []
+    for ts, c, cid in _cmds(s):
+        if re.search(r"\bmktemp\b|\bgit\s+init\b", c):  # a scratch repository the command builds
+            continue
+        on_main = any(MAIN_BRANCH.match(b) for b in s["results"].get(cid, {}).get("branches", []))
+        for d, g in _steps_in(c, s["cwd"]):
+            if (git := _git(g)) and git[0] == "commit" and (root := _git_root(os.path.join(d or "/", os.path.expanduser(git[2] or ".")) if d or git[2] else None)):
+                var = ("main of a main checkout" if on_main and (root / ".git").is_dir() else None) if root == own else \
+                    None if own and (root.is_relative_to(own) or _repo(root) == _repo(own)) or root.is_relative_to("/tmp") else "another repository"
+                found += [(ts, "bash", g, var)] if var else []
+    return _hits(found)
 
 
 def check_guard_fired(s, ctx):
@@ -404,14 +475,18 @@ def check_guard_fired(s, ctx):
 
 TRACE_CHECKS = {f.__name__.removeprefix("check_"): f for f in (
     check_killed_then_silent, check_merge_bypass, check_failed_then_publish, check_write_outside_worktree,
-    check_instruction_edit_ungated, check_visual_unseen, check_tests_claimed_not_run, check_moved_text_unwritten,
-    check_forbidden_git, check_kill_by_pattern, check_sleep_poll, check_file_reread, check_unasked_commit, check_guard_fired)}
+    check_instruction_edit_ungated, check_visual_unseen,
+    check_forbidden_git, check_kill_by_pattern, check_sleep_poll, check_unasked_commit, check_guard_fired)}
+
+
+def trace_signals():
+    """The trace checks signals.yaml declares and has not retired: their catalogue entries, by signal id."""
+    return {s["id"]: s for s in yaml.safe_load(CATALOGUE.read_text())["signals"] if s["status"] != "retired" and s.get("check") in TRACE_CHECKS}
 
 
 def trace_checks():
-    """The trace checks signals.yaml declares and has not retired: {signal id: check function}."""
-    return {s["id"]: TRACE_CHECKS[s["check"]] for s in yaml.safe_load(CATALOGUE.read_text())["signals"]
-            if s["status"] != "retired" and s.get("check") in TRACE_CHECKS}
+    """{signal id: check function} for the active trace checks."""
+    return {sid: TRACE_CHECKS[s["check"]] for sid, s in trace_signals().items()}
 
 
 def read_report(path):
@@ -518,10 +593,10 @@ def scan(manifest, out):
     # Trace checks: per session, with the thread's role, report and whether a reviewer gates it.
     trace, gated = defaultdict(list), loop_targets()
     for t in scanned:
-        ctx = dict(role="root" if t.get("parentId") is None else t["role"], report=read_report(t.get("reportPath")),
-                   gated=t["id"] in gated or bool(t.get("gateRounds")))
+        ctx = dict(role="root" if t.get("parentId") is None else t["role"], gated=t["id"] in gated or bool(t.get("gateRounds")))
+        own = own_history(t["s"])
         for sid, fn in trace_checks().items():
-            for h in fn(t["s"], ctx):
+            for h in fn(own, ctx):
                 hits[sid][t["id"]] += h[4]
                 trace[sid].append((t["id"], h))
 
