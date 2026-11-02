@@ -248,6 +248,10 @@ const assistantItems = (
   }));
 };
 
+/** An item's tokens guessed from its characters, images apart. */
+const weightOf = (item: Pending) =>
+  item.chars / (item.kind === "tool_schema" ? 2.4 : item.kind === "tool_result" ? 2.6 : 2.8);
+
 /** The gap's budget over its items: exact for one; else images reserved, then chars by weight. */
 const attribute = (
   pending: ReadonlyArray<Pending>,
@@ -256,10 +260,7 @@ const attribute = (
 ): LoomContextItem[] => {
   const images = sum(pending.map((item) => item.images));
   const reserve = Math.min(images * IMAGE_TOKENS, Math.max(budget, 0));
-  const weights = pending.map(
-    (item) =>
-      item.chars / (item.kind === "tool_schema" ? 2.4 : item.kind === "tool_result" ? 2.6 : 2.8),
-  );
+  const weights = pending.map(weightOf);
   const weightSum = sum(weights);
   const tokens = share(
     budget,
@@ -291,7 +292,8 @@ export const readPiSessionContext = async (path: string): Promise<PiSessionConte
   let pending: Pending[] = [];
   let compaction: { id: string; at: string; chars: number } | null = null;
   let prev: Call | null = null;
-  // A later system entry replaces sections and adds or removes tools: what it retires leaves the window.
+  // A later system entry replaces sections and adds or removes tools; what it retires leaves the
+  // window only when the measured gap shows a rewritten head (see onCall).
   const live = new Map<string, string>();
   const tokensById = new Map<string, number>();
   const lastCall = new Map<string, number>();
@@ -362,10 +364,16 @@ export const readPiSessionContext = async (path: string): Promise<PiSessionConte
       const budget = prev === null ? ctx : ctx - prev.ctx - prev.output;
       calls.push(call);
       if (prev !== null) items.push(...assistantItems(prev, call, labels));
-      for (const id of retired) lastCall.set(id, prev!.index);
+      // A model that takes mid-conversation system messages gets a changed section or tool appended
+      // in full and keeps the old one; any other gets its head rewritten. The measured gap says which.
       const freed = sum(retired.map((id) => tokensById.get(id) ?? 0));
-      if (budget + freed < 0) negativeGaps += 1;
-      for (const added of attribute(pending, budget + freed, call)) {
+      const expected =
+        sum(pending.map(weightOf)) + IMAGE_TOKENS * sum(pending.map((item) => item.images));
+      const replaced = Math.abs(budget + freed - expected) < Math.abs(budget - expected);
+      if (replaced) for (const id of retired) lastCall.set(id, prev!.index);
+      const gap = replaced ? budget + freed : budget;
+      if (gap < 0) negativeGaps += 1;
+      for (const added of attribute(pending, gap, call)) {
         tokensById.set(added.id, added.tokens);
         items.push(added);
       }

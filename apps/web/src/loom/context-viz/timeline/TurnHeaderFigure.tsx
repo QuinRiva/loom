@@ -1,5 +1,6 @@
 // loom: the "Worked for" header's figure (plan §4): the window at the turn's start and end, what it
-// added and its share of the window, and a Heaviest menu that jumps to the turn's largest rows.
+// added and its share of the window, what that was by kind, and a Heaviest menu that jumps to the
+// turn's largest items, rows or not (a system prompt re-sent mid-thread has none).
 import type { RunId } from "@t3tools/contracts";
 import { ChevronDownIcon } from "lucide-react";
 
@@ -23,7 +24,7 @@ import {
   useFigures,
   useTimelineFigureKey,
 } from "./RowFigure";
-import { byCategory, CATEGORY_LABEL, CATEGORY_OF, jumpToItem } from "./timelineFigures";
+import { byCategory, CATEGORY_LABEL, CATEGORY_OF, itemTitle, jumpToItem } from "./timelineFigures";
 
 const HEAVIEST = 5;
 
@@ -56,7 +57,7 @@ function TurnHeaderFigureOn({
   const heaviest = run.items.filter((item) => item.tokens > 0).slice(0, HEAVIEST);
   const heaviestTokens = heaviest.reduce((sum, item) => sum + item.tokens, 0);
   const share = formatShare(run.endCtx, figures.contextWindow);
-  // Tool-call arguments and withheld prose have no row; their tokens are the rest of the turn.
+  // The latest call's output, until the next call measures it.
   const rest = run.addedTokens - run.items.reduce((sum, item) => sum + item.tokens, 0);
   return (
     <span className="flex min-w-0 flex-1 items-center gap-2">
@@ -74,7 +75,11 @@ function TurnHeaderFigureOn({
                 {formatContextTokens(run.addedTokens)}
               </MenuGroupLabel>
               {heaviest.map((item) => (
-                <MenuItem key={item.id} onClick={() => jumpToItem(figureKey, item.id)}>
+                <MenuItem
+                  key={item.id}
+                  disabled={!figures.rowKeyOfItem.has(item.id)}
+                  onClick={() => jumpToItem(figureKey, item.id)}
+                >
                   <span
                     className={cn(
                       "w-12 shrink-0 text-right tabular-nums",
@@ -85,10 +90,11 @@ function TurnHeaderFigureOn({
                   >
                     {formatItemTokens(item)}
                   </span>
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                  <span className="min-w-0 flex-1 truncate">{itemTitle(item)}</span>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    {item.tool?.replace(/^mcp__.+?__/, "") ??
-                      CATEGORY_LABEL[CATEGORY_OF[item.kind]]}
+                    {item.kind === "tool_result"
+                      ? item.tool?.replace(/^mcp__.+?__/, "")
+                      : CATEGORY_LABEL[CATEGORY_OF[item.kind]]}
                   </span>
                 </MenuItem>
               ))}
@@ -122,10 +128,14 @@ function TurnHeaderFigureOn({
             {byCategory(run.items).map(([category, sum]) => (
               <CardLine key={category} label={CATEGORY_LABEL[category]}>
                 {formatContextTokens(sum.tokens)}
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {formatShare(sum.tokens, run.addedTokens)}
+                </span>
               </CardLine>
             ))}
-            {rest > 0 ? (
-              <CardLine label="Arguments, other">≈{formatContextTokens(rest)}</CardLine>
+            {rest !== 0 ? (
+              <CardLine label="Not yet itemised">{formatContextTokens(rest)}</CardLine>
             ) : null}
           </FigureCard>
         }

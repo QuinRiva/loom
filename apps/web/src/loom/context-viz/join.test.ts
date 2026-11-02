@@ -104,4 +104,13 @@ describe("buildContextJoin on the fixture thread", () => {
     // The mockup's "Worked for" header on turn 52 reads +34.6K.
     expect(join.runs.get("run-52" as RunId)!.addedTokens).toBeCloseTo(34_600, -2);
   });
+
+  it("accounts for every token a run added in its items", () => {
+    const latest = report.calls.at(-1)!;
+    for (const run of join.runs.values()) {
+      const items = run.items.reduce((sum, item) => sum + item.tokens, 0);
+      const pending = run.calls.includes(latest.index) ? latest.output : 0;
+      expect(items + pending).toBe(run.addedTokens);
+    }
+  });
 });

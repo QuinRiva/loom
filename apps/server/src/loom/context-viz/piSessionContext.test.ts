@@ -49,33 +49,51 @@ describe("readPiSessionContext", () => {
     }
   });
 
-  it("retires what a later system entry replaces or removes", async () => {
-    const replacement = JSON.stringify({
-      type: "message",
-      id: "sys2",
-      timestamp: "2026-10-28T01:02:00.000Z",
-      message: {
-        role: "system",
-        content: "",
-        sections: { addendum: "a shorter addendum" },
-        toolsRemoved: [{ name: "demo_schedule_task" }],
-      },
+  describe("a later system entry", () => {
+    // The update lands in the gap before the call at 22863, which measures 600 tokens.
+    const withUpdate = async (addendum: string) => {
+      const update = JSON.stringify({
+        type: "message",
+        id: "sys2",
+        timestamp: "2026-10-28T01:02:00.000Z",
+        message: {
+          role: "system",
+          content: "",
+          sections: { addendum },
+          toolsRemoved: [{ name: "demo_schedule_task" }],
+        },
+      });
+      const lines = NodeFS.readFileSync(fixture("identity.jsonl"), "utf8").split("\n");
+      const at = lines.findIndex((line) => line.includes("Try again."));
+      const path = NodePath.join(
+        NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "context-viz-")),
+        "s.jsonl",
+      );
+      NodeFS.writeFileSync(path, [...lines.slice(0, at), update, ...lines.slice(at)].join("\n"));
+      const session = await read(path);
+      const inWindow = session.items.filter((entry) => entry.inWindow);
+      expect(inWindow.reduce((sum, entry) => sum + entry.tokens, 0)).toBe(session.totals.latestCtx);
+      return (id: string) => session.items.find((entry) => entry.id === id)!;
+    };
+
+    it("keeps what it re-sends when the gap shows it appended", async () => {
+      const item = await withUpdate("a shorter addendum");
+      for (const id of ["e001:addendum", "e001:demo_schedule_task"]) {
+        expect(item(id)).toMatchObject({ inWindow: true });
+      }
+      expect(item("sys2:addendum")).toMatchObject({ inWindow: true, firstSeenCall: 6 });
     });
-    const lines = NodeFS.readFileSync(fixture("identity.jsonl"), "utf8").split("\n");
-    const at = lines.findIndex((line) => line.includes("Try again."));
-    const path = NodePath.join(
-      NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "context-viz-")),
-      "s.jsonl",
-    );
-    NodeFS.writeFileSync(path, [...lines.slice(0, at), replacement, ...lines.slice(at)].join("\n"));
-    const session = await read(path);
-    const item = (id: string) => session.items.find((entry) => entry.id === id)!;
-    for (const id of ["e001:addendum", "e001:demo_schedule_task"]) {
-      expect(item(id)).toMatchObject({ inWindow: false, carriedCalls: 5 });
-    }
-    expect(item("sys2:addendum")).toMatchObject({ inWindow: true, firstSeenCall: 6 });
-    const inWindow = session.items.filter((entry) => entry.inWindow);
-    expect(inWindow.reduce((sum, entry) => sum + entry.tokens, 0)).toBe(session.totals.latestCtx);
+
+    it("retires what it replaces or removes when the gap shows a rewritten head", async () => {
+      const { item: base } = await byId("identity.jsonl");
+      const freed = base("e001:addendum").tokens + base("e001:demo_schedule_task").tokens;
+      // Sized so that the 600-token gap is this addendum less what it and the removal retire.
+      const item = await withUpdate("x".repeat(Math.round((600 + freed) * 2.8)));
+      for (const id of ["e001:addendum", "e001:demo_schedule_task"]) {
+        expect(item(id)).toMatchObject({ inWindow: false, carriedCalls: 5 });
+      }
+      expect(item("sys2:addendum")).toMatchObject({ inWindow: true, firstSeenCall: 6 });
+    });
   });
 
   it("opens a new series at a compaction with one measured base item", async () => {
