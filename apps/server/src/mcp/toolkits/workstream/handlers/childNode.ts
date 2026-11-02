@@ -70,12 +70,15 @@ export const nodeShapeError = (node: NodeInput, nothing: string): string | undef
   return undefined;
 };
 
-/** A gate on the reviewer: `needs_rework` loops to each target, `clean`/`fixed_inline` resolve. */
+/**
+ * A gate on the reviewer: `needs_rework` loops to each target, `clean`/`fixed_inline` resolve.
+ * Resolved ids are deduped: `x` and `thread:x` pass the shape check as two references.
+ */
 export const gateRoutes = (
   rework: ReadonlyArray<ThreadId>,
   maxRounds: number | undefined,
 ): ReadonlyArray<WorkstreamRoute> => [
-  ...rework.map((to) => ({
+  ...[...new Set(rework)].map((to) => ({
     on: ["needs_rework"],
     kind: "loop" as const,
     to,
