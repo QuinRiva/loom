@@ -41,8 +41,7 @@ const FETCH_BAD_PORTS = new Set([
 ]);
 // Dev binds loopback; other interfaces cannot establish port availability.
 const DEV_PORT_PROBE_HOSTS = ["127.0.0.1", "::1"] as const;
-// A pruned migrate-dev-db copy is tens of MB; some worktrees hold a full copy
-// of the live database instead.
+// Migration prunes after copying, so large sources also need an automatic-seeding limit.
 const LARGE_DEV_DATABASE_BYTES = 500 * 1024 * 1024;
 
 /** Only loopback and wildcard binds keep the loopback proxy target reachable. */
@@ -273,6 +272,12 @@ const resolveBaseDir = Effect.fn("dev-runner.resolveBaseDir")(function* (
   const path = yield* Path.Path;
   const configured = baseDir?.trim();
 
+  if (configured === "~") {
+    return yield* HostProcess.HomeDirectory;
+  }
+  if (configured?.startsWith("~/") || configured?.startsWith("~\\")) {
+    return path.join(yield* HostProcess.HomeDirectory, configured.slice(2));
+  }
   if (configured) {
     return path.resolve(configured);
   }
@@ -612,7 +617,7 @@ const runRepoScript = Effect.fn("dev-runner.runRepoScript")(function* (
 });
 
 /**
- * The first start in a worktree seeds its empty database from the live install
+ * The first start in a worktree seeds its empty database from a small live database
  * and warms the web dependency cache. Each step checks for its own output, so
  * later starts skip it.
  */
@@ -647,9 +652,9 @@ const prepareFirstStart = Effect.fn("dev-runner.prepareFirstStart")(function* (i
     if (
       input.seed &&
       !(yield* exists(path.join(stateDir, "statev2.sqlite"))) &&
-      !(yield* exists(path.join(stateDir, "state.sqlite"))) &&
-      (yield* exists(source))
+      !(yield* exists(path.join(stateDir, "state.sqlite")))
     ) {
+      // loom: no 500 MiB source guard; Loom's seed copies a slice of the attached source, not the whole file (DL-1608)
       yield* Effect.logInfo(
         `[dev-runner] seeding ${input.worktreeHome} from ${source} (read-only). --no-seed or T3CODE_DEV_SEED=0 skips this.`,
       );
@@ -850,7 +855,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
                 : Effect.logWarning(
                     `[dev-runner] could not remove the tailnet mapping for port ${String(sharedWebPort)}${
                       result.explanation ? `: ${result.explanation}` : ""
-                    }. Remove it with \`tailscale serve --https=${String(sharedWebPort)} off\`.`,
+                    }. Remove it with \`tailscale serve --https=${String(sharedWebPort)} --set-path=/ off\`.`,
                   ),
             ),
           ),

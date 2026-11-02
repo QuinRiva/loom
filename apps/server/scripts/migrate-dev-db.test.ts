@@ -93,13 +93,17 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
       yield* sql`INSERT INTO scheduled_task_webhook_pending
         (delivery_id, task_id, coalesce_key, due_at, task_json, request_json, delivery_ids_json)
         VALUES ('delivery-1', 'task-1', 'key-1', 1900000000000, '{}', '{}', '[]')`;
-      // The slice is selected on the source, where pending work still exists; it must read as
+      // loom: the slice is selected on the source, where pending work still exists; it must read as
       // cleared, as it will in the dev database, so this family still counts as stopped.
       yield* sql`INSERT INTO orchestration_v2_effect_outbox
         (effect_id, command_id, thread_id, effect_type, payload_json, status, available_at, created_at, updated_at)
         VALUES ('effect-1', 'command-1', 'stopped-thread', 'run.start', '{}', 'pending', '2026-08-01', '2026-08-01', '2026-08-01')`;
       yield* sql`INSERT INTO auth_sessions (session_id, subject, scopes, method, issued_at, expires_at)
         VALUES ('session-1', 'user', '[]', 'pairing', '2026-08-01', '2027-08-01')`;
+      yield* sql`INSERT INTO peer_environment_links
+        (environment_id, secret_name, label, urls_json, access, linked_at, expires_at)
+        VALUES ('environment-box', 'peer-link-box', 'Box', '["https://box.example"]', 'auto',
+          '2026-08-01', '2027-08-01')`;
     }),
   );
   return databasePath;
@@ -135,13 +139,15 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
             tasks: number;
             webhooks: number;
             transfers: number;
+            links: number;
           }>`
             SELECT
               (SELECT COUNT(*) FROM auth_sessions) AS auth,
               (SELECT COUNT(*) FROM scheduled_tasks) AS tasks,
               (SELECT COUNT(*) FROM scheduled_task_webhook_replay_keys) +
                 (SELECT COUNT(*) FROM scheduled_task_webhook_pending) AS webhooks,
-              (SELECT COUNT(*) FROM orchestration_v2_projection_context_transfers) AS transfers`;
+              (SELECT COUNT(*) FROM orchestration_v2_projection_context_transfers) AS transfers,
+              (SELECT COUNT(*) FROM peer_environment_links) AS links`;
           return { threads, events, sessions, leftovers };
         }),
       );
@@ -157,7 +163,13 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         kept.sessions.map((row) => row.provider_session_id),
         ["session-shared"],
       );
-      assert.deepStrictEqual(kept.leftovers, { auth: 0, tasks: 0, webhooks: 0, transfers: 0 });
+      assert.deepStrictEqual(kept.leftovers, {
+        auth: 0,
+        tasks: 0,
+        webhooks: 0,
+        transfers: 0,
+        links: 0,
+      });
     }),
   );
 
@@ -246,6 +258,73 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
     }),
   );
 
+  it.effect("seeds from a source that recorded another migration below V2", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-local-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-local-dest-" });
+      const source = yield* createFixtureSource(sourceDir);
+      yield* withDatabase(
+        source,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`UPDATE effect_sql_migrations SET name = 'SiteLocalMigration'
+            WHERE migration_id = 51`;
+        }),
+      );
+
+      const result = yield* runMigrateDevDb(
+        { baseDir: destDir, source, projects: 5, threadsPerProject: 2 },
+        { sharedHome: sourceDir },
+      );
+      const threads = yield* withDatabase(
+        result.databasePath,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return yield* sql<{ thread_id: string }>`
+            SELECT thread_id FROM orchestration_v2_projection_threads ORDER BY thread_id`;
+        }),
+      );
+      assert.deepStrictEqual(
+        threads.map((row) => row.thread_id),
+        ["fork-thread", "settled-thread", "stopped-thread"],
+      );
+    }),
+  );
+
+  it.effect("refuses a source whose V2 migration history clashes with this checkout", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-clash-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-clash-dest-" });
+      const source = yield* createFixtureSource(sourceDir);
+      yield* withDatabase(
+        source,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`UPDATE effect_sql_migrations SET name = 'OtherBuildMigration'
+            WHERE migration_id = 60`;
+        }),
+      );
+
+      const destination = yield* createFixtureSource(destDir);
+      const sourceBefore = yield* fs.readFile(source);
+      const destinationBefore = yield* fs.readFile(destination);
+
+      const error = yield* runMigrateDevDb(
+        { baseDir: destDir, source, projects: 5, threadsPerProject: 2 },
+        { sharedHome: sourceDir },
+      ).pipe(Effect.flip);
+      assert.equal(error._tag, "MigrateDevDbPhaseError");
+      if (error._tag === "MigrateDevDbPhaseError") {
+        assert.equal(error.phase, "migrate");
+        assert.include(String(error.cause), "60_ThreadSnapshotWindowIndexes");
+      }
+      assert.deepStrictEqual(yield* fs.readFile(source), sourceBefore);
+      assert.deepStrictEqual(yield* fs.readFile(destination), destinationBefore);
+    }),
+  );
+
   it.effect("refuses while a dev server holds the destination", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -264,7 +343,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         { baseDir: destDir, source, projects: 5, threadsPerProject: 10 },
         { sharedHome: sourceDir },
       ).pipe(Effect.flip);
-      assert.equal(error._tag, "ThreadTreeServerRunningError");
+      assert.equal(error._tag, "ThreadTreeServerRunningError"); // loom: threadTreeSlice.loom.ts guard
       if (error._tag === "ThreadTreeServerRunningError") {
         assert.equal(error.pid, process.pid);
       }

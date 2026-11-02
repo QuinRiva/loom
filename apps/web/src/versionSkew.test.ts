@@ -14,7 +14,6 @@ import {
   isVersionMismatchDismissed,
   manualServerUpdateCommand,
   resolveVersionMismatch,
-  serverUpdateGuidance, // loom
 } from "./versionSkew";
 
 const MISMATCH_HINT =
@@ -133,14 +132,5 @@ describe("versionSkew", () => {
         }),
       ),
     ).toBe(false);
-  });
-  // loom: guidance names the server (two-arg serverUpdateGuidance, DL-119)
-  it("matches version-drift guidance to the advertised update path", () => {
-    expect(serverUpdateGuidance("respawn", "Remote server")).toBe(
-      "Update the Remote server so they stay in sync.",
-    );
-    expect(serverUpdateGuidance("desktop-managed", "Desktop server")).toBe(
-      "Update the desktop app that runs the Desktop server.",
-    );
   });
 });

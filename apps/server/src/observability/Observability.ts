@@ -17,6 +17,7 @@ import * as ResourceAttribution from "../resourceTelemetry/ResourceAttribution.t
 import * as ServerLogger from "../serverLogger.ts";
 import * as BrowserTraceCollector from "./BrowserTraceCollector.ts";
 import { withoutSqlStatementSpans } from "./sqlStatementSpans.loom.ts"; // loom:
+import * as HeapAttribution from "./HeapAttribution.ts";
 
 export const layer = Layer.unwrap(
   Effect.gen(function* () {
@@ -72,8 +73,12 @@ export const layer = Layer.unwrap(
           ...(delegate ? { delegate } : {}),
         });
 
+        const heapAttribution = yield* HeapAttribution.make(tracer);
+        yield* heapAttribution.run;
+
         return Layer.mergeAll(
-          Layer.succeed(Tracer.Tracer, yield* withoutSqlStatementSpans(tracer)), // loom: statement spans opt-in
+          // loom: statement spans opt-in
+          Layer.succeed(Tracer.Tracer, yield* withoutSqlStatementSpans(heapAttribution.tracer)),
           BrowserTraceCollector.layer(sink),
         );
       }),

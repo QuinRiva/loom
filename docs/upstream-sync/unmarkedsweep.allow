@@ -49,4 +49,3 @@ package.json
 
 # pull 13 (DL-1473): JSON cannot carry a marker. Loom-only files and the +1 raises
 # (FileBrowserPanel, MarkdownCodeBlock) are Loom's entries; next pull keeps them.
-scripts/effect-budget.json

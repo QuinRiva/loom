@@ -7,7 +7,8 @@ export function resolveFilePreviewPath(path: string | null, cwd: string): string
   return path === "." || workspaceRelativeFilePath(path, cwd) === "." ? null : path;
 }
 
-export const isMarkdownPreviewFile = (path: string): boolean => /\.(?:md|mdx)$/i.test(path);
+export const isMarkdownPreviewFile = (path: string): boolean =>
+  /\.(?:md|mdx|markdown|mdown|mkd)$/i.test(path);
 
 // loom: MDX plan files render through the secure MDX plan renderer, not react-markdown.
 export const isMdxPreviewFile = (path: string): boolean => /\.mdx$/i.test(path);

@@ -364,16 +364,6 @@ export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (in
 });
 
 /**
- * The `runtime-request.respond` answer read. Upstream takes only string answers, but a `loom-ask:`
- * question can be multi-select: its values join as upstream's string-only adapters encode one
- * (`claudeSdkUserInputAnswers`), while the request keeps the array for the live waiter.
- */
-export const loomAskAnswer = (requestId: string, answer: unknown) =>
-  requestId.startsWith(LOOM_ASK_REQUEST_PREFIX) && Array.isArray(answer)
-    ? answer.join(", ")
-    : answer;
-
-/**
  * The `runtime-request.respond` hunk's test (P3-21, DL-347): a `loom-ask:`
  * request whose `mcp__t3-code__ask_user_question` call is still polling takes the answer as
  * its tool result, so upstream's answer message is withheld. With no live

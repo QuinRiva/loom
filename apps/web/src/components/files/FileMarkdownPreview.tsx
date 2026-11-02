@@ -1,10 +1,10 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
 
 import ChatMarkdown from "~/components/ChatMarkdown";
-
 // loom: one notion of "the directory a document's relative paths resolve against",
 // shared with the `.mdx` renderer's `<Image>` block.
 import { documentBaseDir } from "./mdx-plan/planDocument";
+import { maskMarkdownFrontmatter } from "@t3tools/shared/markdownFrontmatter";
 
 export function FileMarkdownPreview(props: {
   readonly cwd: string;
@@ -18,7 +18,7 @@ export function FileMarkdownPreview(props: {
 }) {
   return (
     <ChatMarkdown
-      text={props.text}
+      text={maskMarkdownFrontmatter(props.text)}
       cwd={props.cwd}
       imageBaseDir={documentBaseDir(props.relativePath, props.cwd)}
       threadRef={props.threadRef}

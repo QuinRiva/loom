@@ -30,6 +30,8 @@ export interface WrappedTerminalLinkLine {
 // fenced-code path scanners (`loom/chatPathScan.ts`) so a path is detected
 // identically in the terminal and in a message.
 export const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/giu;
+// The default PowerShell prompt delimits its unquoted path with `PS ` and `>`.
+const POWERSHELL_PROMPT_PATH_PATTERN = /^PS ((?:[A-Za-z]:[\\/]|\\\\|\/)[^>\r\n]*)>/u;
 // Bare paths start only at a segment boundary: hover detection runs this on
 // every frame, so separator-free output must not be rescanned at every suffix.
 export const FILE_PATH_PATTERN =
@@ -42,6 +44,9 @@ const TRAILING_PATH_PUNCTUATION_PATTERN = /[.,;:!?]+$/;
 // A question mark is legal in filenames; only exclude query-bearing request targets.
 const REQUEST_ROUTE_PATTERN =
   /(?:^|[\s"'`])(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|CONNECT|TRACE|proxying)\s+["'`]?(?:\/|[A-Za-z0-9_-]+\/)[^\s?]*\?\S*/g;
+// The tail of `redis://host/0` or `file:///a.mjs` is not a path. One-letter schemes stay drives,
+// a diff's `+` or `-` may lead, and the lookbehind keeps runs from being rescanned at every suffix.
+const SCHEME_URL_PATTERN = /(?<![A-Za-z\d+.-])[+-]?[A-Za-z][A-Za-z\d+.-]+:\/\/[^\s"'`<>]+/gu;
 
 // loom: exported for the chat path scanners (`loom/chatPathScan.ts`).
 export function trimClosingDelimiters(value: string, kind: TerminalLinkKind): string {
@@ -108,19 +113,27 @@ function collectMatches(
 }
 
 export function extractTerminalLinks(line: string): TerminalLinkMatch[] {
-  const requestRoutes = Array.from(line.matchAll(REQUEST_ROUTE_PATTERN), (match) => ({
-    start: match.index,
-    end: match.index + match[0].length,
-  }));
-  const urlMatches = collectMatches(line, "url", URL_PATTERN, []);
-  const quotedMatches = collectMatches(line, "path", QUOTED_FILE_PATH_PATTERN, urlMatches);
+  const promptPath = POWERSHELL_PROMPT_PATH_PATTERN.exec(line)?.[1];
+  const promptMatches: TerminalLinkMatch[] = promptPath
+    ? [{ kind: "path", text: promptPath, start: 3, end: 3 + promptPath.length }]
+    : [];
+  const nonPathRanges = Array.from(
+    [...line.matchAll(REQUEST_ROUTE_PATTERN), ...line.matchAll(SCHEME_URL_PATTERN)],
+    (match) => ({ start: match.index, end: match.index + match[0].length }),
+  );
+  const urlMatches = collectMatches(line, "url", URL_PATTERN, promptMatches);
+  const quotedMatches = collectMatches(line, "path", QUOTED_FILE_PATH_PATTERN, [
+    ...promptMatches,
+    ...urlMatches,
+  ]);
   const pathMatches = collectMatches(line, "path", FILE_PATH_PATTERN, [
+    ...promptMatches,
     ...urlMatches,
     ...quotedMatches,
   ]);
-  return [...urlMatches, ...quotedMatches, ...pathMatches]
+  return [...promptMatches, ...urlMatches, ...quotedMatches, ...pathMatches]
     .filter(
-      (match) => match.kind === "url" || !requestRoutes.some((route) => overlaps(match, route)),
+      (match) => match.kind === "url" || !nonPathRanges.some((range) => overlaps(match, range)),
     )
     .toSorted((a, b) => a.start - b.start);
 }
