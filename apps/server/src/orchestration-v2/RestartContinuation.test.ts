@@ -28,6 +28,7 @@ import * as EventSink from "./EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as EffectWorker from "./EffectWorker.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
+import { redeliveredSteerText } from "../loom/orchestration/dispatcher/controlMessage.ts"; // loom:
 
 const threadId = ThreadId.make("thread:restart");
 const runId = RunId.make("run:restart");
@@ -1016,6 +1017,35 @@ it.effect("continues again after a continuation fails before its prompt", () =>
       dispatches.map((command) => command.restartContinuationOfRunId),
       [failedStart.id],
     );
+  }),
+);
+
+// loom: the startup pass cleared the stash, so the retry carries the steer from the failed prompt (DL-1708)
+it.effect("carries a redelivered steer into the retry of a continuation pi never took", () =>
+  Effect.gen(function* () {
+    const cut = cutMidTurn();
+    const steer = redeliveredSteerText("[From the human] Use the staging database.");
+    const failedStart = {
+      ...cut.runs[0]!,
+      id: RunId.make("run:failed-start"),
+      ordinal: 2,
+      activeAttemptId: RunAttemptId.make("attempt:failed-start"),
+      status: "failed",
+      restartContinuationOfRunId: runId,
+      userMessageId: MessageId.make("message:failed-start"),
+    };
+    const dispatches = yield* continuationDispatches(
+      {
+        ...cut,
+        runs: [...cut.runs, failedStart],
+        messages: [
+          { id: failedStart.userMessageId, text: `Continue.\n\n${steer}`, attachments: [] },
+        ],
+      } as unknown as OrchestrationV2ThreadProjection,
+      failedStart.id,
+    );
+    assert.lengthOf(dispatches, 1);
+    assert.isTrue(dispatches[0]!.text.endsWith(`\n\n${steer}`));
   }),
 );
 

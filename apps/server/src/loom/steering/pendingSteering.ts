@@ -151,6 +151,8 @@ export const listStashed = Effect.fn("pendingSteering.listStashed")(
   Effect.orElseSucceed((): ReadonlyArray<ThreadId> => []),
 );
 
+const REDELIVERED_STEER_HEADER = redeliveredSteerText("").split("\n\n")[0]!;
+
 /**
  * Upstream's restart-continuation prompt for `sourceRunId`, plus the steers stashed from that run:
  * accepted into the cut turn, they ride the turn that resumes it, ahead of every queued message and
@@ -161,7 +163,12 @@ export const withStashedSteer = Effect.fn("pendingSteering.withStashedSteer")(fu
   threadId: ThreadId,
   sourceRunId: string,
   text: string,
+  /** A failed continuation's own prompt: the startup pass cleared the stash it carried (DL-1708). */
+  failedContinuationText?: string,
 ) {
+  const carried = failedContinuationText?.indexOf(REDELIVERED_STEER_HEADER) ?? -1;
+  if (failedContinuationText !== undefined && carried !== -1)
+    return `${text}\n\n${failedContinuationText.slice(carried)}`;
   const stash = yield* (yield* LoomPiAdapterHooks).steerStash.read(threadId);
   return stash?.runId === sourceRunId ? `${text}\n\n${redeliveredSteerText(stash.text)}` : text;
 });

@@ -309,6 +309,10 @@ export const continueRestartedRun = Effect.fn("RestartContinuation.continueResta
         : note.settled
           ? noteText
           : `${noteText}\n\n${CONTINUE_PROMPT}`,
+      // loom: a retry of a continuation pi never took carries that prompt's steer over (DL-1708)
+      continuationFailedBeforePrompt(source, projection.providerTurns)
+        ? sourceMessage?.text
+        : undefined,
     );
     yield* threads
       .dispatch({
