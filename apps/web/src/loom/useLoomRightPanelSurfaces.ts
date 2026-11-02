@@ -1,14 +1,15 @@
-// Loom's right-panel surfaces (seam 18): the launcher / "+" menu entry for
-// the Workstream graph, and its one-shot auto-open seed. Hoisted out of the
+// Loom's right-panel surfaces (seam 18): the launcher / "+" menu entries for
+// the Workstream graph and the Context tab, and their one-shot auto-open seed. Hoisted out of the
 // upstream-owned ChatView and RightPanelTabs so each carries one marked
 // call/prop. Goal tasks (shortcut G) is RightPanelTabs' `onAddTasks` entry.
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { type LucideIcon, Network } from "lucide-react";
+import { Layers, type LucideIcon, Network } from "lucide-react";
 import { useEffect } from "react";
 
 import { useClientSettings } from "../hooks/useSettings";
-import { useRightPanelStore } from "../rightPanelStore";
-import { useThreadShell } from "../state/entities";
+import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
+import { useQuietThreadProjection, useThreadShell } from "../state/entities";
+import { isPiThread } from "./context-viz/contextUsageStore";
 import { useHasLoomChildren } from "./loomChildren";
 import { selectAutoOpenedSurfaces, useWorkstreamUiStore } from "./workstreamUiStore";
 
@@ -26,31 +27,64 @@ export interface LoomSurfaceEligibility {
   /** The thread has Loom children: a workstream root (or sub-orchestrator). */
   readonly workstreamRoot: boolean;
   readonly autoOpenWorkstreamPanel: boolean;
+  /** The active provider thread is pi's: only its session file has a context breakdown. */
+  readonly piThread: boolean;
+  /** `contextVizComposition || contextVizGrowth`: the Context tab follows these switches. */
+  readonly contextPanels: boolean;
 }
 
 /**
- * The auto-open seed (docs/architecture/loom-ui-state-tiers.md): a workstream
- * root seeds the Workstream tab once, never overriding a persisted choice; the
- * durable per-thread flag makes a closed tab stay closed across remounts and
- * reloads.
+ * The auto-open seed (docs/architecture/loom-ui-state-tiers.md): each tab once per thread, never over
+ * a persisted choice; the durable flag keeps a closed tab closed. Both panel switches off removes
+ * the Context tab and clears its flag, writing only on a thread that holds either.
  */
 export function autoOpenLoomSurfaces(ref: ScopedThreadRef, eligibility: LoomSurfaceEligibility) {
-  if (!eligibility.autoOpenWorkstreamPanel || !eligibility.workstreamRoot) return;
-  if (selectAutoOpenedSurfaces(useWorkstreamUiStore.getState(), ref).workstream) return;
-  useRightPanelStore.getState().seedWorkstream(ref);
-  useWorkstreamUiStore.getState().markAutoOpened(ref);
+  const opened = selectAutoOpenedSurfaces(useWorkstreamUiStore.getState(), ref);
+  const workstream =
+    eligibility.autoOpenWorkstreamPanel && eligibility.workstreamRoot && !opened.workstream;
+  const context =
+    eligibility.contextPanels && eligibility.piThread && !opened.context
+      ? true
+      : !eligibility.contextPanels &&
+          (opened.context === true ||
+            selectThreadRightPanelState(
+              useRightPanelStore.getState().byThreadKey,
+              ref,
+            ).surfaces.some((surface) => surface.kind === "context"))
+        ? false
+        : undefined;
+  if (!workstream && context === undefined) return;
+  useRightPanelStore.getState().seedWorkstream(ref, {
+    ...(workstream ? { workstream } : {}),
+    ...(context === undefined ? {} : { context }),
+  });
+  if (workstream) useWorkstreamUiStore.getState().markAutoOpened(ref, "workstream");
+  if (context !== undefined)
+    useWorkstreamUiStore.getState().markAutoOpened(ref, "context", context);
 }
 
 export function useLoomRightPanelSurfaces(
   threadRef: ScopedThreadRef | null,
 ): ReadonlyArray<LoomSurfaceAction> {
   const autoOpenWorkstreamPanel = useClientSettings((settings) => settings.autoOpenWorkstreamPanel);
-  const workstreamThread = useThreadShell(threadRef)?.source.workstream !== undefined;
+  const contextPanels = useClientSettings(
+    (settings) => settings.contextVizComposition || settings.contextVizGrowth,
+  );
+  const shell = useThreadShell(threadRef);
+  // A draft has no shell, and must not open a detail subscription for a thread the server lacks.
+  const piThread = isPiThread(useQuietThreadProjection(shell ? threadRef : null));
+  const workstreamThread = shell?.source.workstream !== undefined;
   const workstreamRoot = useHasLoomChildren(threadRef);
 
   useEffect(() => {
-    if (threadRef) autoOpenLoomSurfaces(threadRef, { workstreamRoot, autoOpenWorkstreamPanel });
-  }, [threadRef, workstreamRoot, autoOpenWorkstreamPanel]);
+    if (threadRef)
+      autoOpenLoomSurfaces(threadRef, {
+        workstreamRoot,
+        autoOpenWorkstreamPanel,
+        piThread,
+        contextPanels,
+      });
+  }, [threadRef, workstreamRoot, autoOpenWorkstreamPanel, piThread, contextPanels]);
 
   return [
     {
@@ -61,6 +95,16 @@ export function useLoomRightPanelSurfaces(
       disabledReason: "Available on a workstream thread.",
       onClick: () => {
         if (threadRef) useRightPanelStore.getState().open(threadRef, "workstream");
+      },
+    },
+    {
+      label: "Context",
+      icon: Layers,
+      shortcut: "C",
+      available: threadRef !== null && piThread && contextPanels,
+      disabledReason: "Available on a pi thread while Composition or Growth is on in Settings.",
+      onClick: () => {
+        if (threadRef) useRightPanelStore.getState().open(threadRef, "context");
       },
     },
   ];

@@ -39,6 +39,7 @@ const WorkstreamPanel = lazy(() =>
   import("../WorkstreamPanel").then((module) => ({ default: module.WorkstreamPanel })),
 );
 const AbsoluteDirectoryPanel = lazy(() => import("../files/AbsoluteDirectoryPanel"));
+const ContextPanel = lazy(() => import("../../loom/context-viz/ContextPanel")); // loom: context-viz experiment
 
 export type RightPanelTerminalProps = Omit<
   PersistentThreadTerminalPanelProps,
@@ -201,6 +202,12 @@ export function RightPanelSurfaceContent(props: {
       return (
         <Suspense fallback={null}>
           <WorkstreamPanel threadRef={threadRef} />
+        </Suspense>
+      );
+    case "context": // loom: context-viz experiment
+      return (
+        <Suspense fallback={null}>
+          <ContextPanel threadRef={threadRef} />
         </Suspense>
       );
     case "dir":

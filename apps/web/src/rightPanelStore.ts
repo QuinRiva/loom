@@ -10,7 +10,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { useClosedViewStore } from "./closedViewStore";
 import { resolveStorage } from "./lib/storage";
 import type { ThreadPanelPresentation } from "./rightPanelLayout";
-import { loomSurface, seedWorkstreamSurface } from "./loom/seedRightPanelSurfaces"; // loom: 3d-2 seam 18
+import { loomSurface, type LoomSurfaceSeed, seedLoomSurfaces } from "./loom/seedRightPanelSurfaces"; // loom: 3d-2 seam 18
 import type { ChatFileAttachment } from "./types";
 
 const RIGHT_PANEL_KINDS = [
@@ -23,6 +23,7 @@ const RIGHT_PANEL_KINDS = [
   "terminal",
   "tasks", // loom: 3d-2 seam 18 — goal tasks (3d-3 mounts it)
   "workstream", // loom: 3d-2 seam 18 — workstream graph
+  "context", // loom: context-viz experiment
   "pull-request",
   "pull-requests",
 ] as const;
@@ -53,6 +54,7 @@ export type RightPanelSurface =
   // loom: 3d-2 seam 18 — the Loom singleton surfaces (seeded by `seedWorkstream`)
   | { id: "tasks"; kind: "tasks" }
   | { id: "workstream"; kind: "workstream" }
+  | { id: "context"; kind: "context" } // loom: context-viz experiment
   // loom: files reveal fields, `dir` surfaces, absolute file paths
   | {
       id: "files";
@@ -153,7 +155,7 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (ref: ScopedThreadRef, kind: SingletonSurfaceKind | "preview") => void; // loom: SingletonSurfaceKind
   /** loom: 3d-2 — the one-shot auto-open seed: one automatic transition, never overriding a user choice. */
-  seedWorkstream: (ref: ScopedThreadRef) => void;
+  seedWorkstream: (ref: ScopedThreadRef, seed: LoomSurfaceSeed) => void;
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
@@ -273,6 +275,7 @@ const singletonSurface = (kind: SingletonSurfaceKind): RightPanelSurface => {
       return { id: "device", kind };
     case "tasks": // loom: 3d-2 seam 18
     case "workstream": // loom: 3d-2 seam 18
+    case "context": // loom: context-viz experiment
       return loomSurface(kind); // loom: 3d-2 seam 18
   }
 };
@@ -555,6 +558,7 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                       return validThreadState.surfaces.some((other) => other.kind === "workstream")
                         ? []
                         : [loomSurface("workstream")];
+                    if (!RIGHT_PANEL_KINDS.includes(kind as RightPanelKind)) return []; // loom: drop retired kinds
                     if (
                       (surface.kind === "file" || surface.kind === "files") &&
                       "folderTrail" in surface &&
@@ -796,8 +800,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           }),
         ),
       // loom: 3d-2 seam 18 "seed, don't override"
-      seedWorkstream: (ref) =>
-        set((state) => automaticUpdate(state, scopedThreadKey(ref), seedWorkstreamSurface)),
+      seedWorkstream: (ref, seed) =>
+        set((state) =>
+          automaticUpdate(state, scopedThreadKey(ref), (current) =>
+            seedLoomSurfaces(current, seed),
+          ),
+        ),
       openDevice: (ref, target, automatic = false) =>
         set((state) =>
           (automatic ? automaticUpdate : userAction)(state, scopedThreadKey(ref), (current) => {

@@ -9,8 +9,8 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import type { ViewBox } from "../lib/forkJoinLayout";
 import { resolveStorage } from "../lib/storage";
 
-/** Keyed by surface for the persisted shape; the Workstream tab is the only seeded one. */
-export type AutoOpenedSurfaces = { readonly workstream?: true };
+/** Keyed by surface for the persisted shape: the Workstream and Context tabs are the seeded ones. */
+export type AutoOpenedSurfaces = { readonly workstream?: true; readonly context?: true };
 
 export interface WorkstreamGraphView {
   readonly viewBox: ViewBox;
@@ -33,7 +33,12 @@ interface WorkstreamUiStoreState {
    */
   graphViewByKey: Readonly<Record<string, WorkstreamGraphView>>;
   setGraphView: (key: string, view: WorkstreamGraphView) => void;
-  markAutoOpened: (ref: ScopedThreadRef) => void;
+  /** `opened: false` clears the flag, so a surface removed by its switch reseeds when it is back on. */
+  markAutoOpened: (
+    ref: ScopedThreadRef,
+    surface: keyof AutoOpenedSurfaces,
+    opened?: boolean,
+  ) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -56,13 +61,17 @@ export const useWorkstreamUiStore = create<WorkstreamUiStoreState>()(
         }),
       setGraphView: (key, view) =>
         set((state) => ({ graphViewByKey: { ...state.graphViewByKey, [key]: view } })),
-      markAutoOpened: (ref) =>
-        set((state) => ({
-          autoOpenedByThreadKey: {
-            ...state.autoOpenedByThreadKey,
-            [scopedThreadKey(ref)]: { workstream: true },
-          },
-        })),
+      markAutoOpened: (ref, surface, opened = true) =>
+        set((state) => {
+          const key = scopedThreadKey(ref);
+          const { [surface]: _previous, ...rest } = state.autoOpenedByThreadKey[key] ?? {};
+          return {
+            autoOpenedByThreadKey: {
+              ...state.autoOpenedByThreadKey,
+              [key]: opened ? { ...rest, [surface]: true } : rest,
+            },
+          };
+        }),
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);

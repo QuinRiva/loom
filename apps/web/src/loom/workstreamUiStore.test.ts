@@ -14,8 +14,8 @@ beforeEach(() => {
 
 describe("workstreamUiStore auto-open flags", () => {
   it("marks per thread; removeThread drops only that thread's flag", () => {
-    useWorkstreamUiStore.getState().markAutoOpened(refA);
-    useWorkstreamUiStore.getState().markAutoOpened(refB);
+    useWorkstreamUiStore.getState().markAutoOpened(refA, "workstream");
+    useWorkstreamUiStore.getState().markAutoOpened(refB, "workstream");
     useWorkstreamUiStore.getState().removeThread(refA);
     expect(flags(refA)).toEqual({});
     expect(flags(refB)).toEqual({ workstream: true });
