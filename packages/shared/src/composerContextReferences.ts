@@ -361,7 +361,10 @@ export function projectComposerContextForProvider(input: {
     // consult_thread documents; Loom withholds upstream's t3_thread_read (DL-752).
     // (`"threadId" in record` also narrows away the open unknown-kind record.)
     if (record?.kind === "thread" && "threadId" in record)
-      return formatThreadLink(record.threadId, occurrence.label);
+      return formatThreadLink(
+        { environmentId: null, threadId: record.threadId }, // loom: v1 link
+        occurrence.label || record.threadId,
+      );
     return formatComposerContextProviderMarker(
       record?.kind ?? occurrence.kind,
       occurrence.label,

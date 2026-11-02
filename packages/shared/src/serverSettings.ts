@@ -446,6 +446,8 @@ export function applyServerSettingsPatch(
       const preferences = (Object.hasOwn(updated, change.provider)
         ? updated[change.provider]
         : undefined) ?? {
+        selectedModels: [], // loom: allow-list fields (LoomModelPreferenceFields)
+        showOnlySelectedModels: false, // loom:
         hiddenModels: [],
         modelOrder: [],
       };
