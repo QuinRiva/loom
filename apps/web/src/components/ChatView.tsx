@@ -35,6 +35,7 @@ import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
 import { useHubLoginBannerItems } from "../loom/HubLoginBanner"; // loom
 import { ReferenceLinksProvider } from "../loom/referenceLinks"; // loom:
 import { useLoomRightPanelSurfaces } from "../loom/useLoomRightPanelSurfaces"; // loom: 3d-2 seam 18
+import { useLoomThreadFamily } from "../loom/useLoomThreadFamily"; // loom: workstream family (DL-1706)
 import { LoomStagedCards } from "../loom/LoomStagedCards"; // loom: 3d-4 staged cards
 import { isDocumentQueryWaiting } from "../loom/DocumentQueryHeader"; // loom: query threads
 import { useSeedPromotedQueryComments } from "../loom/useSeedPromotedQueryComments"; // loom: query threads
@@ -491,6 +492,13 @@ export default function ChatView(props: ChatViewProps) {
   });
   const serverThreadProjection = useQuietThreadProjection(routeThreadDetailRef);
   const serverProjection = serverThreadProjection?.projection ?? null;
+  // loom: a finished workstream's children are out of the cold shell until its family loads (DL-1706)
+  useLoomThreadFamily(
+    routeKind === "server" ? environmentId : null,
+    serverThreadShell?.lineage.rootThreadId ??
+      serverProjection?.thread.lineage.rootThreadId ??
+      null,
+  );
   // Only the shell-less fallback needs these; with a shell, the shell carries them.
   const fallbackDetailRef = serverThreadShell === null ? routeThreadDetailRef : null;
   const fallbackUpdatedAt = useThreadUpdatedAt(fallbackDetailRef);
