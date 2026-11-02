@@ -17,10 +17,7 @@ vi.mock(import("../../state/use-orchestration-command"), async (importOriginal) 
     }) as never,
 }));
 // loom: the header's subscription meter chip needs a SidebarProvider this test does not mount.
-vi.mock(import("~/loom/SubscriptionMeter"), async (importOriginal) => ({
-  ...(await importOriginal()),
-  SubscriptionMeterChip: () => null,
-}));
+vi.mock("~/loom/SubscriptionMeter", () => ({ SubscriptionMeterChip: () => null }));
 vi.mock(import("~/hooks/useThreadActionMenu"), () => ({
   useThreadActionMenu: () => ({ openMenu: () => {}, closeMenu: () => {} }),
 }));
