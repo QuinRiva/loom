@@ -11,6 +11,7 @@ import { type ReactNode, useState } from "react";
 import { ContextPanelView, type ContextPanelViewProps } from "../loom/context-viz/ContextPanel";
 import type { ContextUsageEntry } from "../loom/context-viz/contextUsageStore";
 import { ContextVizSettingsRows } from "../loom/context-viz/ContextVizSettingsRows";
+import { CompositionView } from "../loom/context-viz/composition/CompositionView";
 import reportJson from "../loom/context-viz/preview/report.fixture.json";
 import type { PreviewGroup } from "./fixtures";
 
@@ -57,6 +58,20 @@ function Panel({ short = false, ...props }: Partial<ContextPanelViewProps> & { s
         {...props}
       />
     </PanelFrame>
+  );
+}
+
+function Composition(props: { initialLens?: "tokens" | "cost"; initialGrouped?: boolean }) {
+  return (
+    <div className="w-[480px] rounded-lg border border-border bg-background p-4">
+      <CompositionView
+        key={`${props.initialLens}-${props.initialGrouped}`}
+        report={contextVizPreviewReport}
+        threadRef={contextVizPreviewThreadRef}
+        contextWindow={1_000_000}
+        {...props}
+      />
+    </div>
   );
 }
 
@@ -108,6 +123,45 @@ export const CONTEXT_VIZ_PREVIEW_GROUP: PreviewGroup = {
           <Panel short composition={false} growth={false} />
         </div>
       ),
+    },
+    {
+      id: "loom-context-viz-composition",
+      title: "Composition: in window, Group repeats on",
+      description:
+        "The tab with Growth off: fixed band 52.6K hatched, tool results opened on goal_task_update, the two echo tools grouped in Largest items, the cache callout and the reclaim rows.",
+      render: () => (
+        <div className="flex w-[480px] flex-col rounded-lg border border-border bg-background">
+          <ContextPanelView
+            threadRef={contextVizPreviewThreadRef}
+            entry={ready}
+            piThread
+            composition
+            growth={false}
+            turns={58}
+            contextWindow={1_000_000}
+            onRefresh={() => undefined}
+          />
+        </div>
+      ),
+    },
+    {
+      id: "loom-context-viz-composition-each",
+      title: "Composition: in window, each item",
+      description: "Group repeats off: the fifteen largest single items, mostly echo copies.",
+      render: () => <Composition initialGrouped={false} />,
+    },
+    {
+      id: "loom-context-viz-composition-cost",
+      title: "Composition: cost to keep, Group repeats on",
+      description:
+        "Every bar and figure as one cache write plus every later read; the scale line names what a cold cache would cost now.",
+      render: () => <Composition initialLens="cost" />,
+    },
+    {
+      id: "loom-context-viz-composition-cost-each",
+      title: "Composition: cost to keep, each item",
+      description: "The cost lens with Group repeats off.",
+      render: () => <Composition initialLens="cost" initialGrouped={false} />,
     },
   ],
 };
