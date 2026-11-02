@@ -275,3 +275,124 @@ On deltas: every `thread.updated` the server sends is built from `getThreadShell
 Read fully, all three diffs and every consumer: `ShellStream.ts`, `loomShellJoin.ts`, `ProjectionStore.ts` (Loom hunks and `listActiveShellIndex`; upstream's 2,000-line rewrite read for `decodeMessagePayload` sites and side-chat reads), `ThreadForkService.ts`, `ProviderTurnStartService.ts` (fork and side-chat paths), `ThreadSettlementService.ts`, `RestartContinuation.ts`, `CheckpointService.ts`, `McpInvocationContext.ts`, `McpSessionRegistry.ts`, `pullRequests/handlers.ts`, `EffectWorker.ts`, `ProviderTurnControlService.ts`, `UsageLimitRecoveryWorker.ts`, `LegacyV1ThreadImporter.ts`, `serverRuntimeStartup.ts`, `cli/config.ts`, `cli/server.ts`, `PullRequestWatchReactor.ts`, `ThreadSearch.ts`, `ThreadManagementService.ts` (Loom hunk and upstream's interface changes); plus `Orchestrator.ts` `releaseUnattendedHolds`/`handleRunUpdate`/message-dispatch hold logic, `ProviderRuntimeRecoveryService.ts` hold, `loomRecoveryPolicy.ts`, `ProviderSessionManager.ts:452-525`, `authorisation.ts`, `McpOAuth.ts` scope, `RemoteDelegation.ts` `followScope`, `linkOrigin.ts`, client `shellReducer.ts`/`shell.ts` delta path. Mechanically (Loom delta checked against upstream's shape, no semantic interaction possible): `RemoteDelegation.ts` beyond `followScope`, `DelegatedTaskQuestionReactor.ts`, `ClaudeProvider.ts`, `SessionStore.ts`, `ProviderEventIngestor.ts`, `runtimeLayer.ts`, `thread/tools.ts`, and the 16 test, testkit and fixture files.
 
 Outside my zone, tripped over: none needing action.
+
+---
+
+## Clean-overlap semantic review, Gate 2c: web and client-runtime (62 files + 4 extra reads)
+
+Refs: base `b76a110aa4`, loom `fe75bb6833`, upstream `fa31b66bbb`, merged = branch tip `2eabd319d6`.
+Reviewer: thread `thread:mcp:54c7fda3-ec09-4f4e-a6f2-14730a0be3b8:workstream-scaffold:fe37878c-3046-4fba-ac73-4296a48392fa:3`, read-only (`git`/`rg` only; no tests, installs or servers).
+
+**Machine check.** For every file, each `+` line of `b76a110aa4..fe75bb6833` was looked up in the file at the tip. 65 of 66 carry every Loom line; the one miss is `apps/web/vite.config.ts`'s `decode-named-character-reference` alias, which S1 re-expressed inside upstream's new `resolve.alias` object (DL-1627). No Loom code line was lost.
+
+**Totals (66 entries):** n/a 2 · kept-compatible 57 · adapted 4 · DEFECT 2 · loom behaviour changed 1.
+
+| #   | file | upstream change consumed by loom | disposition | note / fix |
+| --- | ---- | -------------------------------- | ----------- | ---------- |
+| X1  | `apps/web/src/loom/loomTimelineRows.ts` | none in the file; #26240 (bounded pages) beside it | kept-compatible | See "History paging" below. The splice runs over the whole merged row list every render, so a merged older page re-places Loom rows; nothing is dropped. |
+| X2  | `apps/server/src/orchestration-v2/threadHistoryPaging.ts` | #26240 `deferWorkHistoryRows`: a completed run segment with more than 150 completed work items folds all but the first behind one anchor | **loom behaviour changed** | B1 below (consult cards fold with the work). |
+| X3  | `packages/client-runtime/src/state/threadHistoryController.ts` | `Effect.fn` wrappers, `workAnchorId` | n/a | No Loom reader. |
+| X4  | `packages/client-runtime/src/state/threadHistoryMerge.ts` | deferred-work merge (`work` anchor) | n/a | No Loom reader; Loom's `applyOrchestrationV2ProjectionEvent` early return (row 55) never touches `deferredWork`. |
+| 1   | `apps/web/src/rightPanelStore.test.ts` | side-chat surface cases | kept-compatible | Loom's directory, absolute-file, retired-artefact and graph→workstream cases intact. |
+| 2   | `apps/web/src/modelSelection.test.ts` | Project defaults "mixed" tests (+476) | adapted | DL-1673 allow-list fields; DL-1674 read: an automatic default (`stored === null`) resolves through `resolveAppModelSelectionForInstance(…, null)`, which skips excluded models; explicit picks keep DL-913's rule. Only the Project defaults "Mixed" label moves. |
+| 3   | `apps/web/src/lib/composerContextRecords.ts` | thread context records → environment (@-mention a machine, #17130) | kept-compatible | Loom's `line` / `mdx-anchor` union accessors untouched by the swap. |
+| 4   | `apps/web/src/components/settings/ProviderModelsSection.tsx` | "No reasoning" labels; `affectedModels` now required | kept-compatible | Loom's deny-list path passes `[slug]`; allow-list writes go through `onSelectedModelsChange`. |
+| 5   | `apps/web/src/components/ui/toast.tsx` | buffered toast manager (events held until a provider subscribes) | kept-compatible | The wrapper spreads the base manager, so Loom's `dismissAllToasts` → `toastManager.close()` still reaches it. |
+| 6   | `apps/web/src/components/settings/ProviderSettingsPanel.tsx` | managed policy (`canAddProvider`), `IntervalSecondsField`, secret reload | kept-compatible | Loom's whole-map allow-list patch untouched; the cockpit has no policy file (runbook §6.1). |
+| 7   | `apps/web/src/components/files/projectFilesQueryState.ts` | `revision` on `useProjectEntriesQuery`, `AsyncResult.getOrElse` | kept-compatible | Loom's `maxBytes` sits before `enabled`; both callers pass it positionally (`useT3ProjectFileScripts.ts:27`, `FilePreviewPanel.tsx:1232`). |
+| 8   | `apps/web/src/components/usage/UsageLimitsPooled.tsx` | account accent colours; single-account bar hides its repeated % | kept-compatible | Loom's hub-login notices and unlinked-source alert lead the page. |
+| 9   | `apps/web/src/reopenClosedView.test.ts` | side-chat case | kept-compatible | |
+| 10  | `apps/web/src/closedViewStore.ts` | `side-chat` arm in `isClosedViewEntry` | kept-compatible | Union with Loom's `tasks`/`workstream`/`dir` arms. |
+| 11  | `apps/web/src/components/ReopenClosedViewShortcut.browser.test.tsx` | new case | kept-compatible | |
+| 12  | `apps/web/src/components/pullRequest/pullRequestDetail.logic.ts` | de-exports; a bot's verdict counts as a review | kept-compatible | Loom's `kind: "line"` on every built review context intact. |
+| 13  | `apps/web/src/diffPanelStore.ts` | `commit` and `tool-call` selections (no persist-version bump) | kept-compatible | Loom's v5 migrate only drops a stored `coder` selection, so upstream's new kinds persist through it. |
+| 14  | `apps/web/src/hooks/useThreadActionMenu.test.ts` | new cases | adapted | DL-1694: waits for the menu (Loom's goal read is async). |
+| 15  | `apps/web/vite.config.ts` | `resolve.alias` object, jsdom exclude list | adapted | DL-1627, DL-1678. |
+| 16  | `apps/web/src/components/settings/ProviderInstanceCard.tsx` | managed locks, secret sources | kept-compatible | Loom's four allow-list props pass through. |
+| 17  | `apps/web/src/components/usage/UsagePage.tsx` | period toggle hidden on Limits | kept-compatible | `TopThreadSpend` still reads the local `window` selection. |
+| 18  | `apps/web/src/state/threads.ts` | #26762 deleted `useThreadFamily` ("stop loading thread families when opening chats"); `ChatView.tsx` dropped its call | **DEFECT** | D1 below. |
+| 19  | `apps/web/src/closedViewStore.test.ts` | new case | kept-compatible | |
+| 20  | `apps/web/src/components/DiffWorkerPoolProvider.tsx` | theme literal `t3-light` | kept-compatible | Loom's `word-alt` pool options intact. |
+| 21  | `apps/web/src/components/GitActionsControl.tsx` | −315 lines of menu/dialog churn | kept-compatible | Loom's worktree-bound branch sync and `persistThreadBranchSync` unchanged in shape. |
+| 22  | `apps/web/src/components/files/filePreviewMode.ts` | more markdown extensions | kept-compatible | |
+| 23  | `apps/web/src/components/preview/PreviewView.browser.test.tsx` | focus-address cases | kept-compatible | No upstream case asserts the unmount cancel Loom keeps out (§6.4 standing). |
+| 24  | `apps/web/src/components/pullRequest/PullRequestCodeTab.tsx` | code-tab rewrite | kept-compatible | Loom's `word-alt` options still feed `diffViewOptions`. |
+| 25  | `apps/web/src/components/pullRequest/pullRequestDetail.logic.test.ts` | new cases | kept-compatible | |
+| 26  | `apps/web/src/components/pullRequest/pullRequestList.logic.ts` | filter rewrite | kept-compatible | |
+| 27  | `apps/web/src/components/settings/ProviderSettingsPanel.environment.browser.test.tsx` | new cases | kept-compatible | |
+| 28  | `apps/web/src/components/ui/sidebar.tsx` | F6/keyboard sidebar (#25877) | kept-compatible | Loom's visible-scrollbar line still on the thread list's `ScrollArea`. |
+| 29  | `apps/web/src/composer-logic.test.ts` | new cases | kept-compatible | |
+| 30  | `apps/web/src/hooks/useThreadActions.ts` | capability reads → `readEnvironmentServerConfigLoaded`; undo expiry; panel cleanup | kept-compatible | Loom's `opts.thread` fallback for shell-less archive intact. |
+| 31  | `apps/web/src/keybindings.ts` | navigation back/forward | kept-compatible | |
+| 32  | `apps/web/src/state/entities.ts` | capability readers removed; `useDelegatedUnderParent` | kept-compatible | `environmentThreadDetails.errorAtom` still fed, so Loom's sync-error line in `ThreadNow.tsx` works. |
+| 33  | `apps/web/src/routeTree.gen.ts` | new routes | kept-compatible | Every route file is registered and every registered import exists. |
+| 34  | `apps/web/src/components/chat/MarkdownCodeBlock.tsx` | `useCopyToClipboard`; cache write moved into render | adapted | DL-1627 `useRef`. Loom's path decoration hooks run after highlight and stay off while streaming; `ChatMarkdown.tsx:1730` still passes `decorateCodeBlock`. |
+| 35  | `apps/web/src/components/chat/MessagesTimeline.logic.ts` | #26727 incremental rows, burst stacking, #26240 | kept-compatible | `isRowUnchanged` keeps Loom's two row kinds. |
+| 36  | `apps/web/src/components/chat/ModelPickerContent.tsx` | fixed popup height from the tallest tab (`tallestTabUnits`) | **DEFECT** | D2 below. Loom's search ranking and outside-search exclusion intact. |
+| 37  | `apps/web/src/components/chat/ComposerFooterControls.tsx` | footer reshuffle | kept-compatible | `spendThreadRef` is required and `ChatComposer.tsx:3534` passes it. |
+| 38  | `apps/web/src/components/chat/OpenInPicker.tsx` | favourite-editor shortcut now clicks the marked button | kept-compatible | The click calls `openInEditor`, where Loom's `tryClientEditorLaunch` (Zed over SSH) runs first, so the shortcut still reaches it. |
+| 39  | `apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx` | new cases | kept-compatible | |
+| 40  | `apps/web/src/components/chat/MarkdownFileLink.tsx` | small | kept-compatible | |
+| 41  | `apps/web/src/components/chat/timelineMinimapItems.ts` | attachment-only prompts, thread autolinks | kept-compatible | |
+| 42  | `apps/web/src/components/chat/TimelineAssistantRows.tsx` | timestamp hover rows | kept-compatible | Lead for the red `GuestPage.browser.test` below. |
+| 43  | `apps/web/src/session-logic.ts` | #26240 deferred-work entries | kept-compatible | Loom's consult-card branch intact; the folding upstream of it is B1. |
+| 44  | `apps/web/src/components/chat/ComposerCommandMenu.tsx` | environment items | kept-compatible | |
+| 45  | `apps/web/src/components/chat/ComposerPendingUserInputPanel.navigation.browser.test.tsx` | new cases | kept-compatible | |
+| 46  | `apps/web/src/components/chat/SkillInlineText.tsx` | small | kept-compatible | |
+| 47  | `apps/web/src/components/chat/composerFocusRedirect.ts` | `surfaceShortcutKey` | kept-compatible | |
+| 48  | `apps/web/src/components/chat/providerIconUtils.ts` | small | kept-compatible | |
+| 49  | `apps/web/src/composerDraftStore.test.ts` | new cases | kept-compatible | |
+| 50  | `apps/web/src/composerDraftStore.ts` | #25615 draft promotion from the store; effort fallbacks | kept-compatible | |
+| 51  | `apps/web/src/routes/_chat.index.tsx` | archived projects skipped; `role="main"` | kept-compatible | |
+| 52  | `apps/web/src/components/sidebar/SidebarChrome.tsx` | desktop history buttons | kept-compatible | |
+| 53  | `packages/client-runtime/src/connection/presentation.ts` | `presentEnvironmentConnection` wrapper removed | kept-compatible | Loom's `needsSignIn` lives in `presentConnectionState`, which every caller uses. |
+| 54  | `packages/client-runtime/src/rpc/client.ts` | two subscription tags removed | kept-compatible | |
+| 55  | `packages/client-runtime/src/state/orchestrationV2Projection.ts` | `deferredWork` kept across item updates | kept-compatible | |
+| 56  | `packages/client-runtime/src/state/projectCommands.ts` | `createFromThread` | kept-compatible | |
+| 57  | `packages/client-runtime/src/state/threadSearch.test.ts` | new case | kept-compatible | |
+| 58  | `packages/client-runtime/src/rpc/session.test.ts` | prune | kept-compatible | |
+| 59  | `packages/client-runtime/src/state/archivedThreads.ts` | `AsyncResult.getOrElse` | kept-compatible | |
+| 60  | `packages/client-runtime/src/state/models.ts` | `linkOrigin`/`delegatedFrom`; any open question counts as pending input | kept-compatible | |
+| 61  | `packages/client-runtime/src/state/server.test.ts` | new cases | kept-compatible | |
+| 62  | `packages/client-runtime/src/state/sharedSettings.test.ts` | prune | kept-compatible | |
+
+### D1 (DEFECT): opening a finished workstream no longer loads its children, so its Workstream panel is empty
+
+**Who and how often.** Every time Carl opens a finished workstream root, or a child of one, from the sidebar, Cmd+K, a report link or the older-settled shelf. A Loom root auto-settles at its outcome (doc 38, X1), so this is most past workstreams.
+
+**Mechanism.** Since pull 13 the cold shell leaves out a Loom child whose root is settled or archived unless it is flagged (`keepsLoomChildInColdShell`, `apps/server/src/loom/projection/loomShellJoin.ts:47-64`). Pull 13 accepted that on the premise, written into DL-1404 (doc 38 §6.2), that "those roots load their family when opened, as upstream intends": `ChatView.tsx` called `useThreadFamily`, which mounted `threadFamilies.mount(…, rootThreadId)` into `threadFamilies.snapshotAtom`, the snapshot behind Loom's `loomEnvironmentSnapshotAtom` and `useThreadShells`. Upstream #26762 (`eef35b0262`) deleted the hook from `apps/web/src/state/threads.ts` and its call from `ChatView.tsx`, and reworked only its own relationship control to read the selected thread from the projection. The runbook's `lost-ours` pass (§6.3 (b)) recorded `useThreadFamily` as having "no Loom consumer", true by name. But Loom read its effect. No web caller of `threadFamilies.mount` remains (`rg "threadFamilies\." apps/web/src`: only search and shelf `mountRows`).
+
+**What Carl sees.** On a finished root: the Workstream panel's tree (`useWorkstreamNodes`, `apps/web/src/loom/workstreamState.ts:29`, reads shells plus archived snapshots) has no children. The Workstream tab may not be offered at all, because `useHasLoomChildren` (`apps/web/src/loom/loomChildren.ts:17`) finds no child in the shells. The rollup badge under-counts, and `loomTimelineRows`' continuing-root receipts that are out of the shell disappear. On a child opened from a report link: its ancestors and siblings are missing from the panel and the breadcrumb. Origin/main shows all of these. Recovery is cheap, but the panel is the main way to read a finished workstream.
+
+**Fix.** Restore the mount as a Loom hunk: a hook in `apps/web/src/loom/` (e.g. `useLoomThreadFamily(environmentId, rootThreadId)`) that runs `threadFamilies.mount(appAtomRegistry, environmentId, rootThreadId)` in a reasoned effect, called from `ChatView.tsx` with one marked line where upstream's call was, keyed as before (`routeKind === "server"`, root from `serverThreadShell?.lineage.rootThreadId ?? serverProjection?.thread.lineage.rootThreadId`). That costs one family read per chat open, which origin/main already paid. Scoping it to threads with a `workstream` sidecar keeps upstream's saving for plain threads, but an omitted child has no shell to read the sidecar from, so the projection's root would have to decide. The unconditional form is simpler. S4: open a settled workstream root with children and see the tree.
+
+### D2 (DEFECT): the model picker opens at full height with empty rows when models are hidden
+
+`apps/web/src/components/chat/ModelPickerContent.tsx:596-617`. Upstream now fixes the popup's `minHeight` to the tallest tab (`tallestTabUnits`, capped at 86.5 units at `:864`) so switching tabs never resizes it. It counts every row of `flatModels`. Loom keeps excluded models in `flatModels` (hidden, or unselected in allow-list mode, DL-180/DL-913) so search can reach them, and filters them out only when listing (`:669`). With a short allow-list over pi's long catalogue, the tab's height counts the whole catalogue: the picker opens at the cap with a few rows and empty space below, on every open. **Fix:** in the loop, `if (model.excluded || !matchesLockedProvider(model)) continue; // loom: excluded rows never list outside search`. Cosmetic; trivial.
+
+### B1 (loom behaviour changed): consult cards fold away in very long runs
+
+`apps/server/src/orchestration-v2/threadHistoryPaging.ts:181-252` with `ProjectionStore.ts:1925-1928`. In a completed run segment with more than 150 completed work items, #26240 keeps the first item and folds the rest behind a "deferred work" anchor until it is expanded. `dynamic_tool` items fold unless `inlineWorkOutput` marks them persistent, and that list names upstream's own standalone cards: HTML renders, MCP apps, viewed images and `delegate_task`. Loom's consult card (`mcp__t3-code__consult_thread`, rendered standalone by `session-logic.ts:732` and `ConsultCardRow`) is not on it, so in such a run its consult cards hide inside the fold. Expanding the fold brings them back, so nothing is lost. It is rare (only runs with more than 150 tool calls). If wanted: one marked `OR item.payload_json LIKE '%"toolName":"mcp__t3-code__consult_thread"%'` in `inlineWorkOutput` (2a/2b's file).
+
+### History paging and Loom's spliced rows (the brief's §12 risk)
+
+- **What Loom splices.** Only two row kinds. Handoff receipts (`loomTimelineRows.ts`) are placed by time "before the first later row". "Model: A → B" dividers (`modelChangeRows.ts`) are attached to their message, so they appear only when it is loaded. Control and digest cards, flag raises and clears, and report links are messages or turn items, so they page with the history they belong to and cannot land outside the window.
+- **#26240 is not what windows the timeline.** The latest-window load with "Load earlier turns" (`OLDER_THREAD_USER_TURN_LIMIT = 20`, `mergeOlderHistoryIntoProjection`) already existed at the base and on origin/main. #26240 adds the long-run work fold (B1) and the anchor-scoped `loadEarlier(…, workAnchorId)`.
+- **What happens today.** A receipt older than the first loaded row gets index 0. It sits at the top of the loaded window, under "Load earlier turns", in time order, until the older page loads. `insertLoomTimelineRows` then re-runs over the merged rows and moves it into place. Nothing is dropped and nothing duplicates (ids are stable; `isRowUnchanged` compares by reference).
+- **Is the pre-ruled fix needed?** Not for this pull. The behaviour predates it and does not get worse. Receipts usually come at the end of a thread (a handoff hands the thread on), so few are older than the 20-turn window. If S4's long root shows receipts piled at the top, the fix is small: pass `hasMoreHistory` into the splice and hold rows older than the first loaded row while it is true.
+
+### The brief's other questions
+
+- **Batched shell deltas (DL-1613).** The shell stream carries exactly three unsequenced Loom kinds, all published by Loom's three broadcasters (`LoomGoalBroadcast.ts:46`, `LoomCacheBroadcast.ts:107`, `workstream/consult.ts:240,376`): `goal.*`, `consult.updated` and `cache.updated`. `shell.ts:255-274` routes all three before the batch, and `ShellStreamEvent` excludes them. Workstream rollups and attention flags are `workstream` fields on a thread shell, and they ride upstream's sequenced `thread.updated` (`ShellStream.ts:686-711`). The batch path applies the same sequence gate as the single-event path, so nothing changes for them. A goal item applied mid-batch lands on `next.snapshot` before the pending deltas flush onto it, so it survives.
+- **DL-1676's two removed effects.** `HubLoginBanner` reads `useNowMinute()` (UTC `YYYY-MM-DDTHH:mm`), so `Date.parse(\`${…}:00Z\`)` is correct; the snooze lapse and urgency are at most a minute late, as before. The MDX plan comment draft is cached in `onChange`. The only loss is that an untouched edit no longer re-caches the comment's own text, which `getAnnotationDraft(key) ?? comment.text` (`MdxPlanAnnotationLayer.tsx:834`) supplies anyway.
+- **DL-1670.** Both toast coordinators read `environmentSummaries.environmentIdsAtom` (every environment), as origin/main's `useEnvironmentIds` did. **DL-1679:** `.chat-markdown table { width: max-content; max-width: 100% }` stands (`index.css:2358`).
+- **HtmlBlock frame at 360 px (DL-1680): not a regression.** `sandboxedFrame.tsx` differs from origin/main by one lint comment, and the `/preview` fixture fixes the height: `<HtmlBlock … height={360} …>` (`preview/fixtures.tsx:1076`, unchanged since `2fd0d5f489`). An explicit `height` turns auto-height off by design, so the dark band below the cards is the fixture's own frame. S4 can drop this check.
+- **The two red browser tests.** `GuestPage.browser.test` "…without opening an environment connection": a probable cause sits in this zone, unproven since I ran nothing. Every assistant row with a `runId` renders Loom's `DocumentQueryPromoteButton` (`TimelineAssistantRows.tsx:199-206`) with `ctx.activeThreadEnvironmentId`. On the guest page that is `EnvironmentId.make("guest")`. Its atom (`DocumentQueryPromoteButton.tsx:47-56`) reads `environmentThreadShells.quietThreadShellAtom`, which reaches `environmentShell.stateAtom("guest")`. That is `runtime.atom(shellStateChanges)` → `followStreamInEnvironment`, an async environment subscription, which fits a test that fails "sometimes". The guard DL-1695 used fits: skip the button when `ctx.turnItemSource !== undefined`. `ChatView.browser.test` draft case: nothing in this zone explains it.
+
+### Outside my zone (tripped over, not reviewed)
+
+`apps/mobile/src/features/threads/ThreadRouteScreen.tsx`: #26762 dropped the same `useThreadFamily` mount on mobile (2d's zone; matters if mobile shows Loom's workstream tree for a finished root).
+
+### Read fully vs mechanically
+
+Read fully, all three diffs and the consuming Loom code: X1–X4, rows 2, 7, 13, 18, 21, 34, 36, 38, 42, 43, 50, 53, 55, plus `packages/client-runtime/src/state/shell.ts`/`shellReducer.ts` (DL-1613), `modelSelection.ts` (DL-1674), `HubLoginBanner.tsx`, `MdxPlanAnnotationLayer.tsx`, `sandboxedFrame.tsx`, `ShellStream.ts`'s Loom predicates, `ProjectionStore.ts`'s `inlineWorkOutput`. Read for Loom's hunks against the upstream diff headline (shape changes checked by `rg` for Loom readers): the remaining rows, including all 21 test files.
