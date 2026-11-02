@@ -23,6 +23,17 @@ import {
 import { LOOM_TOOL_DEFS, LoomToolError, type LoomToolDef, type LoomToolHandlers } from "./defs.ts";
 import { makeLoomToolHandlers } from "./handlers.ts";
 
+/** Each tool's compiled input decoder, built on its first call. */
+const inputDecoders = new WeakMap<
+  LoomToolDef,
+  ReturnType<typeof Schema.decodeEffect<LoomToolDef["input"]>>
+>();
+const inputDecoder = (def: LoomToolDef) => {
+  const decoder = inputDecoders.get(def) ?? Schema.decodeEffect(def.input);
+  inputDecoders.set(def, decoder);
+  return decoder;
+};
+
 const textResult = (text: string, isError: boolean) =>
   new McpSchema.CallToolResult({ isError, content: [{ type: "text", text }] });
 
@@ -46,7 +57,7 @@ export const callLoomTool = Effect.fn("registration.callLoomTool")(
           ? `This is a read-only query thread: ${def.name} changes workstream state and was refused. The author is the document's only writer; the human promotes an exchange to it as a comment. workstream_list, goal_task_list, consult_thread and set_thread_title still work.`
           : `This is a read-only consult fork of thread ${caller.threadId}: ${def.name} changes workstream state and was refused. Answer from this session's context; workstream_list and goal_task_list still work.`,
       });
-    const input = yield* Schema.decodeEffect(def.input)(payload ?? {}, {
+    const input = yield* inputDecoder(def)(payload ?? {}, {
       onExcessProperty: "error",
     }).pipe(
       Effect.mapError(
@@ -61,7 +72,7 @@ export const callLoomTool = Effect.fn("registration.callLoomTool")(
     ) => Effect.Effect<string, LoomToolError>;
     return yield* handle(input, caller);
   },
-  (effect, def, handlers, payload) =>
+  (effect, def) =>
     effect.pipe(
       Effect.match({
         onSuccess: (rendered) => textResult(rendered, false),

@@ -31,7 +31,6 @@ import * as Schema from "effect/Schema"; // loom
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../config.ts"; // loom
 import * as Settings from "../serverSettings.ts";
 import {
@@ -172,7 +171,6 @@ export const make = Effect.gen(function* () {
     return next;
   });
   const settingsService = yield* Settings.ServerSettingsService;
-  const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
   const stateRef = yield* Ref.make<ReadonlyArray<UsageLimitSourceSnapshot>>([]);
   const changes = yield* Effect.acquireRelease(
     PubSub.unbounded<ReadonlyArray<UsageLimitSourceSnapshot>>(),

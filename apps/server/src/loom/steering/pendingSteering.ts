@@ -124,7 +124,7 @@ export const write = Effect.fn("pendingSteering.write")(
     yield* fs.writeFileString(temp, yield* encodeStash({ runId, steering, transcript }));
     yield* fs.rename(temp, file);
   },
-  (effect, threadId, runId, steering, sessionFile) =>
+  (effect, threadId) =>
     effect.pipe(
       Effect.catchCause((cause) =>
         Effect.logWarning("loom.steer-stash.write-failed", { threadId, cause }),

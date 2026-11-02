@@ -12,7 +12,6 @@ import {
   type OrchestrationV2ServerCommand,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 
 import { v2PullRequestThread } from "../../../orchestration-v2/testkit/pullRequestFixtures.ts";
 import { LOOM_TEST_THREAD, mcpTestLayer, serveMcp } from "./mcpHttp.testkit.ts";

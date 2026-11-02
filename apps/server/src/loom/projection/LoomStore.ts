@@ -540,7 +540,7 @@ const make = Effect.gen(function* () {
       yield* sql`UPDATE loom_goals SET ${assignments(at)}, updated_at = ${at} WHERE goal_id = ${goalId}`;
       return yield* getGoal(goalId);
     },
-    (effect, operation, goalId, assignments) => effect.pipe(sql.withTransaction, run(operation)),
+    (effect, operation) => effect.pipe(sql.withTransaction, run(operation)),
   );
 
   const upsertTaskRow = (goalId: GoalId, task: LoomGoalTaskInput, at: string) =>

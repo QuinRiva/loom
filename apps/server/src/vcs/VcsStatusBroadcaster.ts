@@ -856,7 +856,7 @@ export const make = Effect.gen(function* () {
 
   const releaseRemotePoller = Effect.fn("VcsStatusBroadcaster.releaseRemotePoller")(function* (
     cwd: string,
-    demandCwd: string,
+    _demandCwd: string, // loom: the repository poller gates on its subscribed cwds (DL-1614)
   ) {
     const repositoryKey = (yield* Ref.get(repositoryKeyByCwdRef)).get(cwd) ?? cwd;
     const pollerToInterrupt = yield* SynchronizedRef.modify(pollersRef, (activePollers) => {

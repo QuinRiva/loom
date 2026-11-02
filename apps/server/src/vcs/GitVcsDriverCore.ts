@@ -110,7 +110,6 @@ const LIST_REFS_SNAPSHOT_CACHE_CAPACITY = 64;
 const LIST_REFS_SNAPSHOT_CACHE_TTL = Duration.minutes(2);
 const LIST_REFS_REFRESH_COALESCE_TTL = Duration.seconds(5);
 const LIST_REFS_REFRESH_FAILURE_COOLDOWN = Duration.seconds(30);
-const STATUS_DEFAULT_BRANCH_CACHE_TTL = Duration.minutes(5);
 const STATUS_ORIGIN_EXISTS_CACHE_TTL = Duration.minutes(5);
 const STATUS_UPSTREAM_REFRESH_ENV = Object.freeze({
   GCM_INTERACTIVE: "never",
@@ -2331,42 +2330,6 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         defaultBranch,
       } satisfies GitVcsDriver.GitRemoteStatusDetails;
     });
-  });
-
-  const readBranchRecency = Effect.fn("readBranchRecency")(function* (cwd: string) {
-    const branchRecency = yield* executeGit(
-      "GitVcsDriver.readBranchRecency",
-      cwd,
-      [
-        "for-each-ref",
-        "--format=%(refname:short)%09%(committerdate:unix)",
-        "refs/heads",
-        "refs/remotes",
-      ],
-      {
-        timeoutMs: 15_000,
-        allowNonZeroExit: true,
-      },
-    );
-
-    const branchLastCommit = new Map<string, number>();
-    if (branchRecency.exitCode !== 0) {
-      return branchLastCommit;
-    }
-
-    for (const line of branchRecency.stdout.split("\n")) {
-      if (line.length === 0) {
-        continue;
-      }
-      const [name, lastCommitRaw] = line.split("\t");
-      if (!name) {
-        continue;
-      }
-      const lastCommit = Number.parseInt(lastCommitRaw ?? "0", 10);
-      branchLastCommit.set(name, Number.isFinite(lastCommit) ? lastCommit : 0);
-    }
-
-    return branchLastCommit;
   });
 
   const readStatusDetailsLocal = Effect.fn("readStatusDetailsLocal")(function* (

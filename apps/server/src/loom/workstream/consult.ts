@@ -53,6 +53,8 @@ import { loomHiddenToolsEnv } from "../prompt/sessionComposerLive.ts";
 import { makeConsultTracker } from "./consultTracker.ts";
 import { readLaunchIdentity } from "./launchIdentity.ts";
 
+const decodePiSettings = Schema.decodeEffect(PiSettings);
+
 /** The live card hears from a fork at most this often (it ticks its own clocks between). */
 const PUBLISH_INTERVAL_MS = 500;
 
@@ -154,7 +156,7 @@ export const layer = Layer.effect(
       // The default pi instance's settings (upstream retired the legacy `providers` block).
       const pi = yield* settings.getSettings.pipe(
         Effect.flatMap((current) =>
-          Schema.decodeEffect(PiSettings)(
+          decodePiSettings(
             deriveProviderInstanceConfigMap(current)[defaultInstanceIdForDriver(PI_PROVIDER)]
               ?.config ?? {},
           ),

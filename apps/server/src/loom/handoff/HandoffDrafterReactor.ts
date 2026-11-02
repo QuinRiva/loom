@@ -183,7 +183,7 @@ const make = Effect.gen(function* () {
         });
       }
     },
-    (effect, row, nowMs) =>
+    (effect, row) =>
       effect.pipe(
         Effect.catchCauseIf(
           (cause) => !Cause.hasInterruptsOnly(cause),

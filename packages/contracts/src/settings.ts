@@ -36,9 +36,7 @@ import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./env
 import { KeybindingShortcut } from "./keybindings.ts";
 import {
   CustomModelSetting,
-  DEFAULT_TEXT_GENERATION_MODEL,
-  DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
-  PI_DEFAULT_MODEL, // loom: pi is the fork's default provider
+  PI_DEFAULT_MODEL, // loom: pi is the fork's default provider (replaces the two text-generation defaults)
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";

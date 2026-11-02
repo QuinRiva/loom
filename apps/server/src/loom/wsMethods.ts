@@ -163,7 +163,7 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
       yield* broadcast.publish(goalShellItem(goal));
       return { goal: Struct.omit(goal, ["deletedAt"]) };
     },
-    (effect, method, goalId, write) =>
+    (effect, method) =>
       effect.pipe(
         Effect.catchTags({
           LoomStoreError: (cause) => Effect.fail(fail(method, `${method} failed.`, cause)),

@@ -45,7 +45,6 @@ import {
   dispatchServerCommand,
   readPassInput,
   runReDrivePass,
-  type GateLegComposer,
 } from "../loom/orchestration/redrive.ts";
 import { wakeNotification } from "../loom/orchestration/dispatcher/controlMessage.ts";
 import { makeGateLegComposer } from "../loom/orchestration/dispatcher/gateLegs.ts";

@@ -6906,9 +6906,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         readonly pinned_at: string | null;
         readonly snoozed_until: string | null;
         readonly may_be_live: number;
-        readonly loom_row: number; // loom: DL-1650
-        readonly loom_keep: number | null; // loom:
-        readonly loom_goal_id: string | null; // loom:
+        // loom: the sidecar join (DL-1650)
+        readonly loom_row: number;
+        readonly loom_keep: number | null;
+        readonly loom_goal_id: string | null;
       }>`
         SELECT
           t.thread_id,

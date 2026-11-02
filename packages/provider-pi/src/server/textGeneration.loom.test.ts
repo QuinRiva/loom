@@ -37,6 +37,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 });
 `;
 
+const decodePiSettings = Schema.decodeEffect(PiSettings);
+
 // Live clock: the connection's teardown waits out a real termination grace.
 it.live("keeps extensions on and cancels extension dialogs during text generation", () =>
   Effect.gen(function* () {
@@ -48,9 +50,7 @@ it.live("keeps extensions on and cancels extension dialogs during text generatio
       name: "pi",
       source: FAKE_PI_SOURCE,
     });
-    const textGeneration = yield* makePiTextGeneration(
-      yield* Schema.decodeEffect(PiSettings)({ binaryPath }),
-    );
+    const textGeneration = yield* makePiTextGeneration(yield* decodePiSettings({ binaryPath }));
     const result = yield* textGeneration.generateThreadTitle({
       cwd: dir,
       message: "the login redirect loops forever",
