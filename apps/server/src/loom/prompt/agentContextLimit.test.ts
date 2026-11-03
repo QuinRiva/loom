@@ -143,7 +143,7 @@ it.effect("Loom's per-turn agent context stays under its limits", () =>
               .filter(([, size]) => size > 0)
               .map(([part, size]) => `  ${part}: ${size}`),
           ]),
-          "Raising a limit is Carl's decision, not the agent's.",
+          "Raising a limit is Carl's decision.",
         ].join("\n"),
       );
   }).pipe(Effect.scoped, Effect.provide(mcpTestLayer)),

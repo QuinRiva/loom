@@ -83,8 +83,8 @@ because the next upstream pull would drop it silently. It runs the
 agent-context tests too: upstream's `AgentContextBudget.test.ts` and Loom's
 `agentContextLimit.test.ts`. It refuses a branch that raises a limit in
 `agentContextLimits.json` above `origin/main`'s unless given
-`--allow-context-increase`, which only Carl's approval of that increase
-licenses. Run `lint:mobile` yourself when you have touched native mobile code.
+`--allow-context-increase`, passed only with Carl's approval of that increase.
+Run `lint:mobile` yourself when you have touched native mobile code.
 
 ## The sequence (what `scripts/ship.ts` does)
 
