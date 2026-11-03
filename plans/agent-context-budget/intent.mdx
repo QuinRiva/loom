@@ -1,0 +1,121 @@
+---
+reader:
+  who: Carl, who asked that agents stop bumping the context-budget test, deciding how Loom should guard agent context before anything is built
+  knows: that upstream added a byte-count test and that agents have bumped it twice; none of the research reports behind this brief
+  after_first_screen: why the number drifted, and whether to accept the recommended answers to the four questions or correct them
+kicker: "Intent brief · draft for your corrections · 3 Nov 2026"
+status: draft
+manager_sessions:
+  - id: 01a1a026-28f7-7792-9713-242ded4eeb3b
+    name: Loom agent-context budget that means something
+    role: intent
+    authored_at: 2026-11-03T06:58:49.178Z
+---
+
+# Agent context grows only when someone decides it should
+
+**Goal.** "We don't want to just be constantly incrementing up a test arbitrarily or else some other agents could run into the same issue again soon." Make growth in what Loom agents read every turn a deliberate decision, and stop ordinary Loom work tripping a number nobody is deciding on.
+
+<Stats
+  items={[
+    { label: "Root orchestrator reads per turn", value: "118 KB", detail: "about 44k tokens", tone: "neutral" },
+    { label: "Of that, Loom writes or selects", value: "52 KB", detail: "45%, plus 27 KB of Loom's own AGENTS.md", tone: "info" },
+    { label: "Creep between trims", value: "0.5 to 1 KB a week", detail: "5 to 10% a month", tone: "warning" },
+    { label: "Budget changes in Loom that were decisions", value: "0 of 3", detail: "all re-measures, one of them wrong", tone: "risk" },
+  ]}
+/>
+
+<Callout focus title="What we found">
+**The 77,240 vs 77,369 mystery is a rebase, not the machine.** 77,240 was measured before the branch was rebased. The rebase brought in an optional `reason` field on `workstream_set_outcome`, which is exactly 129 bytes and was never re-measured. Both figures reproduce on demand, and the measurement does not depend on the machine or worktree.
+
+**Nothing in Loom's flow is actually guarding the number:**
+- `pnpm ship` never runs the test.
+- Upstream's GitHub label check only compares the budget file with main's, and `pnpm ship` merges within seconds, so the check usually compares main with itself.
+- The one time the check failed (#521), an agent added the label under your login 12 seconds later.
+
+**The test also measures the wrong thing for Loom:**
+- Two of its three figures cover Claude and Codex, which Loom does not run.
+- The third counts every registered tool, but a root actually carries about 40 KB of the 77 KB and a coder about 10 KB. The rest are deferred behind tool search.
+- What a pi agent actually reads goes unmeasured: the work-model addendum, role text, Loom's resident tools and Loom's skills.
+</Callout>
+
+**You'll know it works when.**
+
+- An agent changing Loom code, roles or tools never has to touch a budget number unless its change pushes Loom's per-turn context past the limit.
+- When a change does push past it, `pnpm ship` stops. The message names which part grew and by how much (for example "orchestrator role +1.2 KB"), and the agent comes to you rather than raising the limit itself.
+- An upstream pull re-measures upstream's figure as part of the pull, without a separate Loom bump.
+- A figure recorded on a branch is always the figure for the tree that merges.
+- **Must not:** add a check that agents learn to satisfy by editing a number. Must not add an upstream-file change that conflicts at every pull. Must not slow `pnpm ship` by more than about a minute.
+
+**Approaches in play.**
+
+- **Recommended.** Keep upstream's test, but measure only upstream's own tools, so its figure moves only when upstream text changes. Add a Loom limit on what Loom puts in front of a root orchestrator and a coder each turn, set at today's size plus a small headroom. `pnpm ship` runs both after its rebase. Under the limit, nobody touches anything. Over it, ship refuses until you approve the increase. Wins if a limit you set once a month or so is enough to make creep a decision.
+- An exact-match Loom snapshot like upstream's: every growth shows up as a number change in the PR that caused it. Wins if you want to see every byte, but bumping it becomes routine, which is the pattern you want gone.
+- No gate, and a monthly size report from real session files instead (they already record exactly what each agent received). Wins if you would rather keep trimming by periodic audit, as with the three cuts since 5 Oct. Creep is found late.
+- Dropped: deleting or skipping upstream's test. It conflicts at every pull and loses the check on Loom edits to upstream tool text.
+- Dropped: relying on upstream's GitHub label check. It never runs the test, and agents merge before it matters.
+
+**Decided.** Nothing from you yet beyond the goal above.
+_Assumed:_
+- The ship-gate step is in scope whatever you answer, because it fixes the wrong-number problem on its own.
+- The Loom limit counts text Loom writes (preamble, work-model addendum, role text, ship policy, roles catalogue, Loom's skills, `bg_*`) plus every MCP tool a Loom role keeps resident, upstream's included, because choosing what is resident is Loom's lever.
+- The limit leaves out per-thread data (thread identity, goal tasks), your global `AGENTS.md`, pi-craft and pi-web-access.
+- Trims never require touching the limit; whoever trims may lower it.
+
+Redirect any of these if wrong.
+
+**Not doing.** Cutting any text now. Guarding your global `AGENTS.md` or pi-craft, which live outside this repo. Measuring Claude or Codex beyond what upstream's test already does.
+
+**Questions for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "upstream-test",
+      title: "How should upstream's test behave in Loom?",
+      subtitle: "Today it counts Loom's whole toolkit, so ordinary Loom tool edits trip it.",
+      mode: "single",
+      options: [
+        { id: "upstream-only", label: "Measure only upstream's tools, so it moves only on upstream pulls", detail: "One marked Loom hunk in the test file. The budget file can then stay as upstream ships it.", recommended: true },
+        { id: "as-is", label: "Leave it counting everything, just run it in pnpm ship", detail: "Every Loom tool edit re-measures it." },
+      ],
+    },
+    {
+      id: "loom-guard",
+      title: "Should Loom guard what its own agents read?",
+      mode: "single",
+      options: [
+        { id: "ceiling", label: "A limit you own: ship stops when Loom's per-turn context goes over it", recommended: true },
+        { id: "snapshot", label: "An exact-match snapshot that every growth must update" },
+        { id: "report", label: "No gate; a monthly size report instead" },
+        { id: "none", label: "Neither; the ship-gate fix is enough" },
+      ],
+    },
+    {
+      id: "headroom",
+      title: "How much headroom above today's size?",
+      subtitle: "At the current creep, 2 KB lasts roughly three to four weeks before you are asked.",
+      mode: "single",
+      options: [
+        { id: "2kb", label: "2 KB per role (about 750 tokens)", recommended: true },
+        { id: "5kb", label: "5 KB per role (about 1,900 tokens)" },
+      ],
+      allowOther: true,
+    },
+    {
+      id: "agents-md",
+      title: "Include Loom's own AGENTS.md in the limit?",
+      subtitle: "It is the largest single text an agent reads in this repo (27 KB) and grew 4.7 KB in a month. Only threads working on Loom itself read it.",
+      mode: "single",
+      options: [
+        { id: "yes", label: "Yes, as its own line with its own headroom", recommended: true },
+        { id: "no", label: "No, leave it to the skill-authoring review" },
+      ],
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- Does upstream's figure without Loom's toolkit match upstream's own budget file exactly, or has Loom edited upstream tool text? A one-line measurement settles it, and decides whether the budget file can stay as upstream ships it.
+- How should ship's refusal be lifted with your approval: a flag such as `--allow-context-increase` that agents pass only on your say-so, or something stronger? The plan proposes one, and it is yours to veto at near-done.
