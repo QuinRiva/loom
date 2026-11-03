@@ -1,0 +1,323 @@
+---
+kicker: "Decision batch · large tool output in agent context · from a census of 14 days of pi sessions (19 Oct to 2 Nov 2026) and two 40 to 50 item samples judged turn by turn · 2 Nov 2026"
+reader:
+  who: Carl, loom's maintainer, who saw one agent spend 28K tokens on `cat ~/.pi/agent/trust.json` and asked whether a command guard should stop that; then asked for an investigation of `read_full` and of large bash output generally
+  knows: how pi tools and loom's command guard work in outline; not the census numbers, which sessions were sampled, or where the `rg` tool and `read_full` are defined
+  after_first_screen: that the `cat` guard is not worth building; that about a quarter of large tool output was avoidable and it sits in three places (`read_full` over 100 KB, content search, and three runbooks); and which three changes to approve
+manager_sessions:
+  - id: 01a19afc-a116-7787-bcd1-5b7536a1e493
+    name: Guard against cat on huge files
+    role: recap
+    authored_at: 2026-11-02T09:17:06.439Z
+---
+
+# The `cat` guard would catch 6% of the problem; three other changes reach about half of it
+
+In 14 days, agents on this machine pulled **24.8M tokens** into context through tool results of 20 KB or more: 11.5M through `bash` and the search tools, 13.3M through `read_full`. Judged turn by turn from two samples (50 bash and search results, 40 `read_full` results), **about 6.6M of that (27%) was avoidable**: output the caller could have bounded with a form it already knew, or a whole file read when one section was needed. The rest was deliberate reading of docs, source, diffs and reports, with no cheaper form that would not lose something. The incident that started this, dumping a data file to look up one entry, happened **three times in a fortnight**, all on `trust.json`, for about 80K tokens; a guard on it would also have blocked 54 legitimate file reads.
+
+<Stats
+  items={[
+    { value: "24.8M", label: "tokens of large results, 14 days", tone: "neutral", detail: "Results of 20 KB or more: 11.5M via bash and search, 13.3M via `read_full`. First-entry count; each result then rides in context until compaction." },
+    { value: "27%", label: "avoidable", tone: "warning", detail: "3.6M bash and search output with a bounded form available; 3.0M `read_full` whole-file reads where a section was needed." },
+    { value: "6%", label: "a cat guard would reach", tone: "risk", detail: "57 bare `cat`/`head`/`tail` results, 0.70M tokens, 54 of them deliberate reads. Recommendation: withdraw." },
+    { value: "~4M", label: "the three changes recover", tone: "success", detail: "`read_full` gate 1 to 2M; `rg` tool fix about 1M; runbook split 1.6M. Per fortnight, before the context multiplier." },
+  ]}
+/>
+
+<Callout tone="decision" title="What it means now" focus>
+  Of six items: **three to accept** (gate `read_full` above 100 KB behind an explicit `whole: true`; give the `rg` tool a files-only mode, a line-width cap and an honest description of `limit`; split the three upstream-sync runbooks so a stage's instructions are not inside a 500 KB ledger), **two to withdraw** (the `cat` guard; a blanket clip of bash output, which nets about 1.7M tokens against roughly 660 extra round trips a fortnight), and **one small habit** to record rather than legislate (hand an assessor an extracted transcript, not a raw session file). One question at the end: where the `rg` change lives, since the tool is a third-party pi extension. An item left undecided takes its recommendation.
+</Callout>
+
+## 1. All items
+
+<Table
+  filterable
+  density="compact"
+  columns={["Item", "Subject", "Verdict", "Recommendation", "Tokens at stake / fortnight"]}
+  rows={[
+    ["A", "Command guard on `cat <bigfile>`", { badge: { label: "withdraw", tone: "risk" }, md: "" }, "Do not build it", "0.70M, of which about 0.1M is waste"],
+    ["B", "`read_full` above 100 KB", { badge: { label: "accept", tone: "success" }, md: "" }, "Refuse unless `whole: true`; refusal carries size, token estimate, an outline", "4.0M in the band; 1 to 2M saved"],
+    ["C", "The `rg` tool", { badge: { label: "accept", tone: "success" }, md: "" }, "Files-only mode, `--max-columns 300` default, say `limit` is per file", "1.34M search output, 95% unused"],
+    ["D", "Blanket clip of bash output over 20 KB", { badge: { label: "withdraw", tone: "risk" }, md: "" }, "Do not build it; the line-width variant is the only version worth revisiting", "8.6M upper bound, 1.7M ±1M net"],
+    ["E", "Upstream-sync cadence runbooks", { badge: { label: "accept", tone: "success" }, md: "" }, "Separate goal: split stage instructions from the per-file ledger", "1.6M across 13 reads"],
+    ["F", "Raw session jsonl handed to assessors", { badge: { label: "record", tone: "info" }, md: "" }, "Capture as a lesson for triage; no new rule", "0.53M across 2 reads"],
+  ]}
+/>
+
+## 2. The items
+
+<Card
+  id="item-a"
+  eyebrow="ITEM A · command guard"
+  heading="Should the command guard block or warn on `cat` of a large file?"
+  tone="risk"
+  badge="withdraw"
+  meta={["scope: loom command guard", "confidence: high (full population, not a sample)", "changes: nothing"]}
+>
+  **No.** The shape it targets is 6% of large bash output, and most of that 6% is a read the agent needed; blocked, it would re-read through another tool at the same price plus a round trip.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Value", "Source"]}
+    rows={[
+      ["Bare `cat`/`head`/`tail` results of 20 KB or more, no consuming pipe", "57 results, 0.70M tokens, 6% of large bash output", "Census over 869 large bash results"],
+      ["Of those, a data-file dump to find one entry", "3 (all `trust.json`, 49 KB, 538 path entries), about 80K tokens", "Census; the file still exists at 49,265 bytes"],
+      ["Of those, source, plans, skills, reports read on purpose", "About 54, including `move1.py` 51 KB, six MDX files 31 KB, `round5-test.md` 44 KB", "Census, command list"],
+      ["Why `trust.json` cost 28.3K tokens for 49 KB", "Path-heavy JSON tokenises at 1.74 bytes per token, against 2.45 for typical output", "Usage deltas around 1,600 single-call results"],
+      ["Every other JSON-shaped large result", "29 results, 0.38M tokens, nearly all output of a script the agent wrote itself", "Census"],
+    ]}
+  />
+
+  What the guard would have done to the incident: blocked it and pointed at `jq`. What it would have done to the other 54: blocked a deliberate read, which the agent then redoes with `read` or `read_full`. The guard's upkeep (a new case in `apps/server/src/provider/Drivers/Pi/loomExtensionParts/commandGuards.ts`, with its tests and message) buys roughly 0.1M tokens a fortnight.
+
+  **If nothing is decided:** nothing is built, and the three-a-fortnight `trust.json` dump continues at about a dollar's cost.
+
+  <ReviewChoice itemId="a-cat-guard" label="A · cat guard" placeholder="Why, if you want it built anyway…" />
+</Card>
+
+<Card
+  id="item-b"
+  eyebrow="ITEM B · read_full"
+  heading="Should `read_full` refuse files over 100 KB unless the call says `whole: true`?"
+  tone="success"
+  badge="accept"
+  meta={["scope: ~/.pi/agent/extensions/read-full.ts, roles/assessor.md, agents/evidence-reader.md, the fork-reader prose", "confidence: medium (40-item sample, 90% CI 21 to 58% on the share)", "changes: one refusal path, three texts"]}
+>
+  **Yes, at 100 KB.** Above that line about half the bytes were a section hunt inside a whole-file read, and the reads that are legitimately whole (assessors, fork readers) can say so in one parameter. Below it the band is about 70% legitimate, and gating it would teach agents to pass `whole: true` by reflex.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Value", "Source"]}
+    rows={[
+      ["`read_full` results of 20 KB or more", "609 results, 13.3M tokens", "Census"],
+      ["Of those, under 50 KB", "421 results, 5.2M tokens: identical bytes to what `read` returns, so no extra cost", "Census; every one was also under 2,000 lines"],
+      ["Over 50 KB", "188 results, 8.1M tokens; the bytes past the 50 KB mark total 4.2M", "Census"],
+      ["Over 100 KB", "45 results, 4.0M tokens; about 48% of sampled bytes in this band were a part-read", "Census and sample"],
+      ["Whole file used (sample of 40 over 50 KB)", "28 whole, 12 part; part is 41% of sampled tokens", "Turn-by-turn judgement of the following assistant turns"],
+      ["Who part-reads", "Coders 8 of 12 (a whole plan or runbook for one section); assessors 2 of 14, both because the role has no other reader; reviewers 0 of 6", "Sample by role"],
+      ["Largest single source", "13 reads of upstream-sync runbooks at 250 to 565 KB: 1.6M tokens (item E)", "Census"],
+      ["Does the description already warn?", "Yes: \"for ordinary code or config reading, prefer the built-in `read` tool\". Coders read whole `.py` and `.tsx` files anyway", "`~/.pi/agent/extensions/read-full.ts` lines 22 to 33"],
+    ]}
+  />
+
+  **The rule at stake**, from the tool's own header: *"this tool deliberately bypasses that guardrail with a 10MB hard cap to prevent accidental session blowups"* (`~/.pi/agent/extensions/read-full.ts`). 10 MB is not a guardrail against a 500 KB runbook; 100 KB with an explicit override is.
+
+  **The change if accepted.** In `read-full.ts`: a `whole` boolean parameter; above 100 KB without it, return a refusal naming the size, the token estimate at 2.45 bytes per token, an outline of the file (markdown headings, or top-level definitions, with line numbers) and the alternatives (`read` with `offset`/`limit`, `rg` for a term, or the same call with `whole: true`). Then three texts say "pass `whole: true` for files over 100 KB": `roles/assessor.md` and `~/.pi/agent/agents/evidence-reader.md` (both have `read_full` as their only reader, so without this line every large read costs them a round trip), and the acknowledge-then-fork sentence in the orchestrator prose. Those are model-facing texts, so they go through `llm-instruction-change` and a reviewer gate briefed to veto.
+
+  **Who it disturbs.** Assessors and fork readers: one extra parameter, no extra call once the role text says so. Reviewers and planners reading a large evidence file (`experiments.md` at 249 KB, the lease `tree.json` files at 90 to 198 KB): one small extra call each, about 30 a fortnight. The outline in the refusal is itself useful to an assessor, which has no `read`.
+
+  **If nothing is decided:** the gate is built as described.
+
+  <Details summary="The 40 sampled reads over 50 KB, with verdicts">
+    <Table
+      density="compact"
+      columns={["Role", "File", "KB", "Verdict", "Reason"]}
+      rows={[
+        ["assessor", "lease `tree.json` (four files)", "90 to 198", { badge: { label: "whole", tone: "success" }, md: "" }, "labelled every node"],
+        ["assessor", "judge-run log", "110", { badge: { label: "whole", tone: "success" }, md: "" }, "compared three runs throughout"],
+        ["assessor", "`workstream-review-gates.md`", "51", { badge: { label: "whole", tone: "success" }, md: "" }, "classified docs against it"],
+        ["assessor", "Pele `clean.txt`", "64", { badge: { label: "whole", tone: "success" }, md: "" }, "whole-version comparison"],
+        ["assessor", "`PIPELINE_GUIDE.md`", "71", { badge: { label: "whole", tone: "success" }, md: "" }, "value assessment across the guide"],
+        ["coder", "`plans/change-review/plan.mdx` (twice)", "74", { badge: { label: "part", tone: "warning" }, md: "" }, "implemented PR 1 or PR 3; the brief named the sections"],
+        ["coder", "`mirvac-ingestion-plan.mdx`", "91", { badge: { label: "part", tone: "warning" }, md: "" }, "needed Step 1 only"],
+        ["coder", "`39-cadence-pull-14…md`", "212", { badge: { label: "part", tone: "warning" }, md: "" }, "ran the S1 merge stage of the runbook"],
+        ["root", "`37-cadence-pull-12…md`", "434", { badge: { label: "part", tone: "warning" }, md: "" }, "used the previous pull as a template; the per-file ledger was not needed"],
+        ["planner", "`experiments.md`", "249", { badge: { label: "whole", tone: "success" }, md: "" }, "summary across the whole log"],
+        ["planner", "`experiments.md`", "60", { badge: { label: "part", tone: "warning" }, md: "" }, "one experiment's section"],
+        ["researcher", "ERP-graph `plan.mdx`", "68", { badge: { label: "whole", tone: "success" }, md: "" }, "stress-tested the whole plan"],
+        ["reviewer", "`change-review/plan.mdx`", "67", { badge: { label: "whole", tone: "success" }, md: "" }, "plan review"],
+        ["assessor", "`clustering-taxonomy/recap.mdx` (twice)", "72, 111", { badge: { label: "whole", tone: "success" }, md: "" }, "checked the recap's claims against the app"],
+        ["coder", "`thread-content-search/plan.mdx`", "65", { badge: { label: "part", tone: "warning" }, md: "" }, "built the server half"],
+        ["coder", "`clustering-taxonomy/recap.mdx`", "72", { badge: { label: "whole", tone: "success" }, md: "" }, "the app must reflect the recap"],
+        ["root", "`removed-docs-audit/recap.mdx`", "54", { badge: { label: "whole", tone: "success" }, md: "" }, "oriented on Carl's annotations"],
+        ["planner", "`clause9-gold` and `clustering-taxonomy` recaps", "56, 72", { badge: { label: "whole", tone: "success" }, md: "" }, "evidence base; whole-recap refresh"],
+        ["reviewer", "`deploy-toasts` plan, `clause9` recap, `benchmark` recap", "52 to 78", { badge: { label: "whole", tone: "success" }, md: "" }, "specification, evidence or fact check"],
+        ["coder", "`packet_rules.py`", "65", { badge: { label: "whole", tone: "success" }, md: "" }, "the file being changed"],
+        ["coder", "`benchmark.py` with three more whole files", "64", { badge: { label: "part", tone: "warning" }, md: "" }, "a parameter follow-up; later used offset reads"],
+        ["coder", "`03-template-source.yaml`", "99", { badge: { label: "whole", tone: "success" }, md: "" }, "migrated every field"],
+        ["coder", "`move1.py`", "58", { badge: { label: "part", tone: "warning" }, md: "" }, "only the prompt section"],
+        ["coder", "`reader_repoint.py`", "55", { badge: { label: "part", tone: "warning" }, md: "" }, "same follow-up as `benchmark.py`"],
+        ["reviewer", "`benchmark.py`", "60", { badge: { label: "whole", tone: "success" }, md: "" }, "the code under review"],
+        ["assessor", "session jsonl", "625", { badge: { label: "part", tone: "warning" }, md: "" }, "needed two digests; mostly tool payload; had no shell (item F)"],
+        ["assessor", "`clusters_template.html`", "194", { badge: { label: "part", tone: "warning" }, md: "" }, "looking for the Escape handler, a grep job; the role has no `rg`"],
+        ["coder", "`clusters_template.html`", "172", { badge: { label: "whole", tone: "success" }, md: "" }, "edits across the whole file"],
+        ["planner", "`explainer.src.html`", "100", { badge: { label: "whole", tone: "success" }, md: "" }, "companion piece built from the parent explainer"],
+        ["reviewer", "`pr4240.diff`", "86", { badge: { label: "whole", tone: "success" }, md: "" }, "PR review"],
+        ["assessor", "`mirvac-sheet.tsv`", "94", { badge: { label: "whole", tone: "success" }, md: "" }, "acknowledge-then-fork reader, by design"],
+        ["assessor", "`14-unseen-core-sheet.csv`", "254", { badge: { label: "whole", tone: "success" }, md: "" }, "language-drift audit across the sheet"],
+      ]}
+    />
+
+    Repeats: the same file read twice in one session, 11 calls, 0.21M tokens. Files read by three or more sessions: 51 files, 227 reads, 5.8M tokens, mostly coder, reviewer and tester pipelines on one artefact, where each cold thread needs the source itself; the runbooks are the exception. A `read_full` followed within ten calls by a `read` or grep of the same file: 63 calls, 1.29M tokens, mostly verification after an edit, not counted as waste.
+  </Details>
+
+  <ReviewChoice itemId="b-read-full-gate" label="B · read_full gate at 100 KB" placeholder="A different threshold, or a different override shape…" />
+</Card>
+
+<Card
+  id="item-c"
+  eyebrow="ITEM C · rg tool"
+  heading="Should the `rg` tool get a files-only mode, a line-width cap and an honest `limit` description?"
+  tone="success"
+  badge="accept"
+  meta={["scope: the file-search extension from github.com/davis7dotsh/my-pi-setup", "confidence: high on direction (14 search samples, none fully used), medium on size", "changes: three in one small extension"]}
+>
+  **Yes, all three.** Search output is the one class where nearly nothing that came back was used, where the caller could have bounded it every time, and where the tool's interface invites the mistake.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Value", "Source"]}
+    rows={[
+      ["Search results of 20 KB or more (bash `grep`/`rg` plus the `rg` tool)", "92 results, 1.34M tokens", "Census"],
+      ["Fully used, in 14 samples", "0 of 14; 13 of 14 had a bounded form available", "Sample"],
+      ["What the caller wanted, in the 11 `rg`-tool samples", "File paths only, in 8 of 11; `rg -l` returns those in about 1 KB", "Sample"],
+      ["Bytes in lines over 500 characters", "45% of all search bytes: minified bundles, ndjson fixtures, session jsonl, markdown tables padded with spaces", "Sample, measured"],
+      ["Large `rg`-tool results that had set `limit`", "13 of 27 set a limit and still hit the 50 KB cap: `limit` maps to `--max-count`, which caps matches per file, not in total", "Census; `extensions/file-search/src/args.ts`"],
+      ["This thread's own two `rg` calls today", "Patterns `pgrep|unbounded recursive|30s|guard` and `pgrep|unbounded|base64` over whole trees with `limit` 5 and 3: 51 KB each, four paths used, about 1% of the bytes; the size was not anticipated", "This session's jsonl"],
+      ["The researcher's own `rg` call", "\"0 of 4142 lines (0B of 430.0MB)\": the first line alone exceeded 50 KB, so the call returned nothing", "Analysis report"],
+    ]}
+  />
+
+  **The change if accepted.** In the file-search extension: (1) a `files_only` parameter that passes `-l` and returns one path per line; (2) `--max-columns 300 --max-columns-preview` on every call, so a minified line shows its first 300 characters and a marker rather than 37 KB; (3) the description of `limit` says "matches per file, not in total; for a broad pattern use `files_only` first". The description change is model-facing text and goes through `llm-instruction-change` with a reviewer gate.
+
+  **Who it disturbs.** An agent that wants a long line whole sees a preview and a marker and re-runs with `cut -c` or a bash `rg` of its own; none of the 14 samples needed that. The extension is third-party, installed from `git:github.com/davis7dotsh/my-pi-setup` in `~/.pi/agent/settings.json`, so the change has to live somewhere that survives updates: the question at the end.
+
+  **If nothing is decided:** the three changes are made, hosted per the answer to the question below (default: a copy in `pi-craft`).
+
+  <Details summary="The recurring shapes and their bounded forms, from 50 samples">
+    <Table
+      density="compact"
+      columns={["Shape", "Example", "Bounded form that loses nothing"]}
+      rows={[
+        ["Broad content search returning matched lines when the caller wanted files", "`rg` tool over a whole worktree; `grep -rn` in a `dist/`", "`rg -l`, then a targeted read"],
+        ["Long lines", "ndjson fixtures at 12 KB a line; markdown tables padded to 3 KB a row; a 37 KB minified line", "`rg --max-columns 300`, `cut -c1-400`, `rg -o '.{0,80}PAT.{0,80}'`"],
+        ["Printing whole records to find one field", "`cat trust.json`; python printing full dicts; `diff` to learn \"same or not\"", "`jq '.[\"key\"]'`, print the needed columns, `diff -q`"],
+        ["A full `git diff` or `--stat` before checking the base", "a stale local `main` turned a stat into 50 KB and, because bash keeps the tail, cut off the report at the head of the chain", "`git diff --stat origin/main...HEAD | tail -1` first"],
+        ["Deliberate reads of docs, source, reports, diffs, tickets", "6.6M tokens, almost all used", "none without loss; a cost of doing business"],
+      ]}
+    />
+
+    Verdicts across the 50: fully used 6.9M tokens, partly used 1.8M (of which about 0.2M actually used), unused 2.8M; so about 61% used, ±10 points. Foreseeability: size was the point 60%, a bounded form was available 31% (3.6M), genuinely unpredictable 9% (a python filter with a bug; the stale-`main` stat).
+  </Details>
+
+  <ReviewChoice itemId="c-rg-tool" label="C · rg tool changes" placeholder="Drop or amend any of the three…" />
+</Card>
+
+<Card
+  id="item-d"
+  eyebrow="ITEM D · output clip"
+  heading="Should every bash result over 20 KB be clipped to head, tail and a pointer to the saved file?"
+  tone="risk"
+  badge="withdraw"
+  meta={["scope: a pi tool_result hook", "confidence: medium (±1M on the net)", "changes: nothing"]}
+>
+  **No.** The upper bound looks large, but 60% of large bash output was a deliberate read whose middle the agent used, and agents rarely follow the saved-file pointer, so a clip trades tokens for re-read round trips and quietly incomplete reads.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Value", "Source"]}
+    rows={[
+      ["Upper bound at 20 KB (keep 4 KB head and 4 KB tail)", "8.6M tokens", "Census arithmetic"],
+      ["Net at 20 KB, counting the re-reads it triggers", "about 1.7M ±1M", "Sample: 37 of 50 would have lost something the agent then used"],
+      ["Extra round trips a fortnight at 20 KB", "about 660; each re-sends the whole context, so at typical context sizes the cache reads are of the same order as the saving", "Sample scaled"],
+      ["How often agents follow the existing 50 KB truncation pointer", "19 of 146 truncated results today", "Today's sessions"],
+      ["Net at 10 KB (keep 2 KB and 2 KB)", "3 to 5.5M, very uncertain; touches about 3,000 results a fortnight, mostly deliberate reads; the 10 to 20 KB band was not sampled", "Census and extrapolation"],
+      ["The one variant with a clean saving", "A per-line width cap of about 2,000 characters across all bash output: about 0.9M saved with little loss in the samples, but it would also clip wide tables an agent sometimes needs", "Sample"],
+    ]}
+  />
+
+  The behavioural point matters more than the arithmetic: a clipped deliberate read is usually acted on as if it were whole, and the thread's quality drops without anyone seeing where.
+
+  **If nothing is decided:** nothing is built. The line-width variant can be revisited after item C lands, since it measures whether a width cap on search alone was enough.
+
+  <ReviewChoice itemId="d-bash-clip" label="D · blanket bash clip" placeholder="If you want the line-width variant or a search-only clip, say which…" />
+</Card>
+
+<Card
+  id="item-e"
+  eyebrow="ITEM E · runbooks"
+  heading="Should the upstream-sync cadence runbooks be split so a stage's instructions are not inside a 500 KB ledger?"
+  tone="success"
+  badge="accept"
+  meta={["scope: docs/upstream-sync/37-, 38-, 39-cadence-pull-*.md, and the template for the next pull", "confidence: high (13 reads, each identified)", "changes: a separate goal"]}
+>
+  **Yes, as its own goal.** The three most recent runbooks are 428, 552 and 536 KB, and the agents that read them whole needed one stage's instructions or the previous pull as a template. This is the largest single source of `read_full` waste and the fix needs no tool change.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Value", "Source"]}
+    rows={[
+      ["Reads of cadence runbooks via `read_full`, 14 days", "13 reads, 1.6M tokens", "Census"],
+      ["File sizes", "`37-cadence-pull-12-20261019.md` 428 KB; `38-cadence-pull-13-20261025.md` 552 KB; `39-cadence-pull-14-20261101.md` 536 KB", "`du -sh` in this worktree"],
+      ["What the readers needed", "A coder ran the S1 merge stage of pull 14 (212 KB read); a root used pull 12 as a template for the next pull (434 KB read)", "Sample"],
+      ["Reads across sessions", "Runbooks 37, 38 and 39 were read by 11 distinct sessions", "Census, hot files"],
+      ["What makes them large", "A per-file decision ledger in the same document as the stage procedure", "The files"],
+    ]}
+  />
+
+  **The change if accepted.** A separate goal in its own worktree: for the next pull's template, and retroactively for 37 to 39 if cheap, put the stage procedure in one file and the per-file ledger in a sibling, with the procedure linking to the ledger rather than containing it. The next pull's coders read a few KB of procedure; the ledger stays where an audit can find it.
+
+  **If nothing is decided:** the goal is handed off as described.
+
+  <ReviewChoice itemId="e-runbook-split" label="E · split the runbooks" placeholder="Scope to the template only, or include 37 to 39…" />
+</Card>
+
+<Card
+  id="item-f"
+  eyebrow="ITEM F · assessor inputs"
+  heading="Should orchestrators be told to hand assessors an extracted transcript rather than a raw session file?"
+  tone="info"
+  badge="record as a lesson"
+  meta={["scope: briefing habit", "confidence: high on the two cases", "changes: one lesson-inbox entry"]}
+>
+  **Record it, do not legislate it.** Two reads of raw session jsonl by an assessor cost 0.53M tokens, and in both the assessor needed two digests that a parent with a shell could have extracted in seconds. Two cases a fortnight is a lesson for the triage pass, not a rule in a role file.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Value", "Source"]}
+    rows={[
+      ["Raw session jsonl read via `read_full`", "2 reads, 0.53M tokens; one was 625 KB", "Census and sample"],
+      ["Why the assessor read it whole", "Its tools are `read_full, ls, find, write`: no shell, no `rg`, so it cannot extract", "`roles/assessor.md` line 7"],
+      ["What it needed", "Two digests inside a transcript that is mostly tool payload", "Sample"],
+    ]}
+  />
+
+  **The change if accepted.** One `capture_lesson` entry: when briefing an assessor to compare runs or transcripts, the parent extracts the assistant text first and hands over that file, because the assessor has no shell to do it. Item B's refusal, with its outline, also catches this case the next time it happens.
+
+  **If nothing is decided:** the lesson is captured.
+
+  <ReviewChoice itemId="f-assessor-inputs" label="F · assessor inputs" placeholder="If you want a line in the role text instead…" />
+</Card>
+
+## 3. Where the `rg` change should live
+
+<QuestionForm
+  questions={[
+    {
+      id: "rg-home",
+      title: "Where should the `rg` tool changes be made?",
+      subtitle: "The tool comes from a third-party pi extension (`git:github.com/davis7dotsh/my-pi-setup`, `extensions/file-search`) listed in `~/.pi/agent/settings.json`, so a change made in place is lost at the next update.",
+      mode: "single",
+      options: [
+        {
+          id: "pi-craft",
+          label: "Copy the extension into `pi-craft` and change it there",
+          recommended: true,
+          detail: "Your own plugin, already loaded from `../../pi-craft`; the upstream entry is removed from settings.json. Survives updates; no dependence on a maintainer.",
+        },
+        {
+          id: "upstream-pr",
+          label: "Send the three changes upstream as a pull request and wait",
+          detail: "Cleanest if accepted; files-only and a width cap are generic improvements. Uncertain timing, and the `limit` description is a judgement the maintainer may not share.",
+        },
+        {
+          id: "loom-override",
+          label: "Override the tool from loom's pi extension, leaving the upstream package in place",
+          detail: "Keeps the upstream install; loom registers its own `rg` and `fd` and hides the package's. More moving parts, and it only applies to threads run through loom, not to pi used directly.",
+        },
+      ],
+    },
+  ]}
+/>
+
+###### Sources: three researcher reports in `/home/Carl/.t3/cockpit/userdata/workstream-reports/` (census `thread_mcp_bcfaf36b…3860fb83…`, `read_full` audit `…b9a07608…_0`, large-output analysis `…b9a07608…_1`), each built from the pi session JSONL under `/home/Carl/.pi/agent/sessions/` for 19 Oct to 2 Nov 2026, deduplicated by tool-call id, tokens at a measured 2.45 bytes per token. No code or configuration was changed in producing this document.

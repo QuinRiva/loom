@@ -10,7 +10,6 @@ import type { EnvironmentId, GoalId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import {
   BotIcon,
-  ClipboardCheckIcon,
   CodeIcon,
   MapIcon,
   NetworkIcon,
@@ -25,7 +24,6 @@ import { buildThreadRouteParams } from "../threadRoutes";
 
 /** The repo's `roles/` vocabulary; anything else falls back to the generic glyph. */
 const ROLE_ICONS: Record<string, typeof BotIcon> = {
-  assessor: ClipboardCheckIcon,
   coder: CodeIcon,
   orchestrator: NetworkIcon,
   planner: MapIcon,

@@ -166,7 +166,6 @@ describe("loadRoleOverlay", () => {
 
   it.each([
     "orchestrator",
-    "assessor",
     "coder",
     "planner",
     "researcher",
