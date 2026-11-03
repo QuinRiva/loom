@@ -303,7 +303,69 @@ with its numbers in the lede, real production screenshots beside
 `<Screen>` mock-ups on the same tenant so the two are visibly different kinds
 of picture, a `<Steps>` walk-through, three options as toned cards, and one
 bottom `<QuestionForm>` for the calls the room must make; anonymised, so the
-tenants and the client are fictional).
+tenants and the client are fictional) and
+`explainers/fact-dense-explanation/explainer.mdx` (the research behind the
+fact-dense unit below; its first screen is that shape on a real paragraph).
+
+## A fact-dense unit
+
+One unit of an explainer or recap that carries several facts from more than
+one party takes the shape `document-quality.md` §3 names: a verdict line, a
+table of what each party says with its source, then short labelled
+judgements with the source beside each. The subject is invented; the shape is
+the point.
+
+```mdx
+<Card eyebrow="2.3 · One ticket, filed wrong" heading="A refund request filed as a complaint" tone="warning">
+
+**Verdict: marked wrong.** <Badge tone="warning">half the classifier's</Badge> <Badge tone="warning">half the guide's</Badge>
+
+The classifier filed the ticket as a complaint. The reviewer filed it as a refund request.
+
+The reviewer's label is the answer the run is scored against. The classifier is sent two texts: the ticket, and the label guide, which says what each class means and which fields it needs.
+
+<Table
+  density="compact"
+  columns={["Who", "What they say about the ticket", "Where"]}
+  rows={[
+    [
+      "**The ticket**",
+      '"I\'d like my money back for the kettle. It stopped heating after a week."',
+      "Ticket 4127, first line",
+    ],
+    [
+      "**The label guide**",
+      "A refund request names the order it is about. A message with no order number and a grievance is a complaint.",
+      "Label guide §2",
+    ],
+    ["**The reviewer**", "Refund request. Order field: `not given`.", "Review sheet, row 118"],
+    {
+      tone: "risk",
+      cells: [
+        "**The classifier**",
+        { badge: { label: "wrong", tone: "risk" }, md: "Complaint. Order field empty." },
+        "Run 14 output",
+      ],
+    },
+  ]}
+/>
+
+**Why it is marked wrong.** A label passes only when its class matches the reviewer's. The reviewer wrote refund request and the classifier wrote complaint. <Sidenote>Scoring rule: class match first, then fields.</Sidenote>
+
+**If the classifier had chosen refund.** It would still have failed, this time on the order field. The reviewer's value is the phrase `not given`, which the scorer compares letter for letter. Nothing the classifier was shown contains that phrase. <Sidenote>Review sheet, row 118, order column.</Sidenote>
+
+**Whose miss.** Half the classifier's: the ticket asks for money back in its first line. Half the guide's: nothing the classifier was sent says what to write when the order number is missing. <Sidenote>Label guide §2, "Refund requests".</Sidenote>
+
+**The ticket next door.** The same customer wrote again the next day with the order number. Both the reviewer and the classifier filed that one as a refund request, and it scored correct. <Sidenote>Ticket 4131, review sheet row 119.</Sidenote>
+
+</Card>
+```
+
+It reads because the verdict comes before the facts, so the reader knows what
+the table is for. The table holds the four readings, so the reader does not.
+Each judgement has a label to find it by, and its source sits beside the
+sentence rather than inside it. A unit with one party keeps the verdict and
+the labelled paragraphs and drops the table.
 
 ## Anti-patterns, and what each costs the reader
 

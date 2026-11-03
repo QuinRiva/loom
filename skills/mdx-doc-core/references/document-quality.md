@@ -108,13 +108,19 @@ first screen is holding something else.
   described. Readers of these documents have said that abstract explanations
   without a worked example are meaningless to them; one example per claim is
   what turns a label into something they can picture.
-- **Facts as fields, not prose.** A passage carrying more than two or three
-  facts the reader must hold together — values, dates, parties, sources —
-  is a compact `<Table>` or a field list, each fact with where it came from
-  and as of when, and a fact the reader will want that nobody recorded stated
-  as unknown. A paragraph of facts is re-derived by every reader; a table is
-  read once, and the source column answers "where does this come from"
-  before it is asked.
+- **A fact-dense passage takes the verdict, table, judgements shape.** One
+  unit that carries several facts from more than one party (what a rule says,
+  what the record holds, what a model answered) opens with the verdict in one
+  line. A compact `<Table>` follows: one row per party, what it says, and a
+  source column. Then one short labelled paragraph per judgement (**Why it is
+  marked wrong.** **Whose miss.**), two or three sentences each. One party:
+  the labelled paragraphs without the table. A reader holds about four items
+  at once; the table holds the rest, and the label lets a judgement be found
+  without rereading. The worked card is in `exemplar.md`, 'A fact-dense unit'.
+- **The source sits beside the claim, not in the sentence.** A clause id, a
+  node id or a path goes in a `<Sidenote>` straight after the sentence it
+  supports, or in the table's source column. A citation inside the sentence
+  parts the subject from its verb, and the lint warns on a bracketed one.
 - **Judgement rides the block, not the sentence.** Where a verdict, state or
   class fits a `<Card>` `tone`, `badge` or `meta` chip, a `<Callout>` tone or a
   table column, put it there and let the prose carry the _why_. A badge reading
@@ -142,9 +148,11 @@ first screen is holding something else.
 - **Gloss in the body, not only in the question form.** A document coins labels
   as it goes — a phase number, an item id, a thread id, a codename, a section
   title used as a noun — and the reader did not sit through the coining. The
-  first use in prose carries the plain-words meaning in the same sentence
-  ("the fan-in deadlock — two threads each waiting for the other to finish"); a thread id or report label is replaced by what it refers to
-  ("the reviewer thread", "the earlier research found …") rather than cited.
+  first use in prose carries the plain-words meaning, in the same sentence or
+  as its own short sentence after it ("the fan-in deadlock. Two threads each
+  wait for the other to finish."); a thread id or report label is replaced by
+  what it refers to ("the reviewer thread", "the earlier research found …")
+  rather than cited.
   This is the rule that already governed `<QuestionForm>` fields, extended to
   the body, because the body is where the reader meets the label first. A
   numbered-section reference ("the evidence is in §5") is the sanctioned
@@ -164,6 +172,7 @@ directly beside the prose it supports, not in a gallery at the end.
 | The answer and its numbers              | Lede paragraph with the numbers in bold; a `<Callout>` for the one urgent thing                                                                                                                                                                                     |
 | Options or causes compared              | `<Table>` for the overview, a `<Card tone badge meta>` per option for the detail: `success` + `RECOMMENDED` on the pick, `neutral` + `REJECTED` / `DEFERRED` on the rest, since a red card makes the reader look for a danger that a rejected option does not carry |
 | Rules tested in order, first match wins | A one-line chain (`a` → X; `b` → Y; …) or a `<Steps>` ladder (`at` = 1…n, `badge` = the result) first, then the full matrix as a `<Table>`: the order is the mechanism, and a matrix states it without showing it                                                   |
+| A source for one claim                  | `<Sidenote>` after the sentence; a source column in a table                                                                                                                                                                                                         |
 | A few fields of a record change         | `<FieldDiff>`                                                                                                                                                                                                                                                       |
 | Line-oriented source change             | `<Diff>`                                                                                                                                                                                                                                                            |
 | N similar items each needing a verdict  | `<Card tone>` per item + `<ReviewChoice>` + summary `<Table filterable>`                                                                                                                                                                                            |

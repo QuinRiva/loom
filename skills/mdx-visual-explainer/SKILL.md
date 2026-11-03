@@ -108,7 +108,12 @@ Top to bottom (the worked version is in
    compiled string, a DOM fragment, a JSON record — the example is the
    artefact itself, trimmed, in the block that matches its shape (`<Code>`,
    `<Json>`). One example per piece is the default; a second is for a
-   boundary the first does not show. Past three or four pieces, a piece or a
+   boundary the first does not show. A piece that carries several facts from
+   more than one party (a rule, a record, a model's answer) takes the shape
+   in `document-quality.md` §3: a verdict line, a `<Table>` of what each
+   party says with a source column, then short labelled judgements. One
+   party: the labelled paragraphs without the table. The worked card is
+   `exemplar.md`, 'A fact-dense unit'. Past three or four pieces, a piece or a
    worked example the reader will come back to can be its own numbered `##`
    rather than a `###` here, since the outline is how they return to it.
 4. **`## 3. What this means for you`** — what to do next, what to watch, what
@@ -141,6 +146,9 @@ may be three paragraphs and a diagram. Both open with the summary.
   notes on the three or four lines that carry the mechanism: a reader who
   wanted the file would open it, and a long quote with a note per line is the
   file again, read slower.
+- **The source beside the claim.** A path, a clause id or a record id goes
+  in a `<Sidenote>` straight after the sentence, or in the table's source
+  column, not in brackets inside the sentence (`document-quality.md` §3).
 - **Judgement in the block.** A piece's state — new, changed, removed, risky,
   the one that is wrong — is a `<Card>` `tone` and `badge`, or a `<Callout>`
   tone, with the prose carrying the why.
