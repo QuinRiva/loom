@@ -3966,6 +3966,17 @@ p > .plan-sidenote {
     --agent-start: var(--color-fuchsia-400);
   }
 }
+/* loom: context-viz rail: while the token-space scrollbar is mounted the native one goes, on fine
+   pointers only; the gutter it reserved collapses with it and the lane's padding grows by the same
+   6 px (the padding subtracts --chat-timeline-gutter), so the prose does not move. */
+@media (pointer: fine) {
+  .messages-timeline-scroll[data-context-scrollbar] {
+    scrollbar-width: none;
+  }
+  .messages-timeline-scroll[data-context-scrollbar]::-webkit-scrollbar {
+    display: none;
+  }
+}
 /* loom: end of fork-only UI */
 
 @layer components {

@@ -181,7 +181,7 @@ interface RunRows {
 const runRowsCache = new WeakMap<ReadonlyArray<MessagesTimelineRow>, Map<RunId, RunRows>>();
 
 /** The runs the loaded rows name, which history pages in from the end of the session. */
-function loadedRuns(rows: ReadonlyArray<MessagesTimelineRow>): ReadonlyMap<RunId, RunRows> {
+export function loadedRuns(rows: ReadonlyArray<MessagesTimelineRow>): ReadonlyMap<RunId, RunRows> {
   const cached = runRowsCache.get(rows);
   if (cached) return cached;
   const runs = new Map<RunId, RunRows>();
@@ -229,10 +229,17 @@ export function landingOf(key: string, item: LoomContextItem): ItemLanding | nul
   return { kind: CATEGORY_OF[item.kind] === "fixed" ? "fixed" : "unloaded", index: 0 };
 }
 
+/**
+ * Hold row `index` at `viewPosition` of the viewport, as `scrollToIndex` places it. By offset: in a
+ * drag `scrollToIndex`'s settle retries kept scrolling after release and could stop short of the row.
+ */
 export function scrollToRow(key: string, index: number, viewPosition: number): void {
-  void navigation
-    .get(key)
-    ?.shared.listRef.current?.scrollToIndex({ index, animated: false, viewPosition });
+  const list = navigation.get(key)?.shared.listRef.current;
+  const state = list?.getState();
+  if (!list || !state) return;
+  const offset =
+    state.positionAtIndex(index) - viewPosition * (state.scrollLength - state.sizeAtIndex(index));
+  void list.scrollToOffset({ offset: Math.max(0, offset), animated: false });
 }
 
 /**

@@ -114,7 +114,7 @@ function rowItems(row: MessagesTimelineRow, join: ContextJoin) {
 }
 
 /** The token span of the rows `start … end`, or null when none of them holds an item in the window. */
-export function rowsSpan(
+function rowsSpan(
   rows: ReadonlyArray<MessagesTimelineRow>,
   start: number,
   end: number,
@@ -132,4 +132,24 @@ export function rowsSpan(
     }
   }
   return top < bottom ? [top, bottom] : null;
+}
+
+/**
+ * The thumb's span for the rows in view. Rows past the report's last item (the latest answer, which
+ * no later call has measured yet) pin a zero-height thumb to the end of the nearest row above.
+ */
+export function thumbSpan(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  start: number,
+  end: number,
+  join: ContextJoin,
+  layout: RailLayout,
+): readonly [number, number] | null {
+  const span = rowsSpan(rows, start, end, join, layout);
+  if (span) return span;
+  for (let index = start - 1; index >= 0; index -= 1) {
+    const above = rowsSpan(rows, index, index, join, layout);
+    if (above) return [above[1], above[1]];
+  }
+  return null;
 }
