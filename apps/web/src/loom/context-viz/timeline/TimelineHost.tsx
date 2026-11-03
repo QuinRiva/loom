@@ -1,6 +1,6 @@
 // loom: the timeline view's one mount beside the minimap (plan §4): while the Timeline switch is on,
 // it loads the thread's report, joins it to the timeline, publishes the join for the row figures
-// and draws the rail. Switched off it reads no store and makes no request.
+// and draws the scrollbar. Switched off it reads no store and makes no request.
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { LoomContextReport, ScopedThreadRef } from "@t3tools/contracts";
 import { useEffect } from "react";
@@ -17,8 +17,6 @@ import { deriveTimelineFigures, publishTimelineFigures } from "./timelineFigures
 interface TimelineHostProps {
   readonly rows: ReadonlyArray<MessagesTimelineRow>;
   readonly shared: TimelineRowSharedState;
-  /** The row of the prompt the minimap marks as being read. */
-  readonly currentRow: number | null;
 }
 
 export function TimelineHost(props: TimelineHostProps) {
@@ -57,7 +55,6 @@ export function TimelineFiguresHost({
   contextWindow,
   rows,
   shared,
-  currentRow,
 }: Omit<TimelineHostProps, "shared"> & {
   readonly shared: Pick<
     TimelineRowSharedState,
@@ -73,12 +70,13 @@ export function TimelineFiguresHost({
   useEffect(() => {
     publishTimelineFigures(figureKey, figures, { rows, shared });
   }, [figureKey, figures, rows, shared]);
-  const current = currentRow === null ? undefined : rows[currentRow];
-  const currentRunId =
-    current?.kind === "message"
-      ? (thread.runs.find((run) => run.userMessageId === current.message.id)?.id ?? null)
-      : null;
   return (
-    <Rail figureKey={figureKey} report={report} figures={figures} currentRunId={currentRunId} />
+    <Rail
+      figureKey={figureKey}
+      report={report}
+      figures={figures}
+      rows={rows}
+      listRef={shared.listRef}
+    />
   );
 }

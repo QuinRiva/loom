@@ -109,7 +109,7 @@ export function deriveTimelineFigures(
 const isAmber = (item: LoomContextItem, run: RunContextFigure) =>
   item.tokens >= AMBER_TOKENS && item.tokens >= run.addedTokens * AMBER_SHARE_OF_RUN;
 
-const KEPT_THREADS = 4;
+export const KEPT_THREADS = 4;
 
 export const useTimelineFigureStore = create<{
   byThreadKey: Record<string, TimelineFigures>;
@@ -119,7 +119,7 @@ interface Navigation {
   rows: ReadonlyArray<MessagesTimelineRow>;
   shared: Pick<TimelineRowSharedState, "listRef" | "onToggleTurnFold" | "onToggleWorkGroup">;
   /** An item whose turn was unfolded for it, scrolled to once its row exists. */
-  pending: string | null;
+  pending: LoomContextItem | null;
 }
 
 const navigation = new Map<string, Navigation>();
@@ -145,7 +145,7 @@ export function publishTimelineFigures(
 
 const rowKeysCache = new WeakMap<ReadonlyArray<MessagesTimelineRow>, Map<string, number>>();
 
-function rowKeys(row: MessagesTimelineRow): ReadonlyArray<string> {
+export function rowKeys(row: MessagesTimelineRow): ReadonlyArray<string> {
   switch (row.kind) {
     case "work":
       return row.groupedEntries.flatMap(
@@ -171,29 +171,91 @@ function rowIndexOf(rows: ReadonlyArray<MessagesTimelineRow>, rowKey: string): n
   return index.get(rowKey) ?? -1;
 }
 
-/**
- * Scroll the timeline to the row behind an item: open its collapsed group, or unfold its turn
- * and finish the jump when the host next publishes rows that hold it. Never animated.
- */
-export function jumpToItem(key: string, itemId: string, unfold = true): void {
+interface RunRows {
+  /** The first row naming the run. */
+  readonly first: number;
+  /** Its collapsed `turn-fold` row, when the turn is folded. */
+  readonly fold: number | null;
+}
+
+const runRowsCache = new WeakMap<ReadonlyArray<MessagesTimelineRow>, Map<RunId, RunRows>>();
+
+/** The runs the loaded rows name, which history pages in from the end of the session. */
+function loadedRuns(rows: ReadonlyArray<MessagesTimelineRow>): ReadonlyMap<RunId, RunRows> {
+  const cached = runRowsCache.get(rows);
+  if (cached) return cached;
+  const runs = new Map<RunId, RunRows>();
+  rows.forEach((row, index) => {
+    const runId =
+      row.kind === "turn-fold" || row.kind === "attempt-fold" || row.kind === "work-toggle"
+        ? row.runId
+        : row.kind === "message"
+          ? row.message.runId
+          : null;
+    if (!runId) return;
+    const fold = row.kind === "turn-fold" && !row.expanded ? index : null;
+    const known = runs.get(runId);
+    runs.set(runId, { first: known?.first ?? index, fold: known?.fold ?? fold });
+  });
+  runRowsCache.set(rows, runs);
+  return runs;
+}
+
+/** Every landing names a row a drag can scroll to; only `kind` differs in what a click does. */
+export type ItemLanding =
+  | { readonly kind: "row"; readonly index: number }
+  | { readonly kind: "folded"; readonly index: number; readonly runId: RunId }
+  /** The run's first row: a superseded attempt or a steer segment hides the item. */
+  | { readonly kind: "hidden"; readonly index: number }
+  /** System prompt, tool schemas, compaction base: no row anywhere. */
+  | { readonly kind: "fixed"; readonly index: 0 }
+  /** A turn history has not paged in yet. */
+  | { readonly kind: "unloaded"; readonly index: 0 };
+
+/** Where an item lands in the rows the host last published; null before it has published. */
+export function landingOf(key: string, item: LoomContextItem): ItemLanding | null {
   const nav = navigation.get(key);
   const figures = useTimelineFigureStore.getState().byThreadKey[key];
-  const rowKey = figures?.rowKeyOfItem.get(itemId);
-  if (!nav || !figures || rowKey === undefined) return;
-  const index = rowIndexOf(nav.rows, rowKey);
-  const row = nav.rows[index];
-  if (row) {
-    if (row.kind === "work-toggle" && !row.expanded)
+  if (!nav || !figures) return null;
+  const rowKey = figures.rowKeyOfItem.get(item.id);
+  const index = rowKey === undefined ? -1 : rowIndexOf(nav.rows, rowKey);
+  if (index >= 0) return { kind: "row", index };
+  const runId = figures.runOfItem.get(item.id);
+  const run = runId === undefined ? undefined : loadedRuns(nav.rows).get(runId);
+  if (runId !== undefined && run)
+    return run.fold === null
+      ? { kind: "hidden", index: run.first }
+      : { kind: "folded", index: run.fold, runId };
+  return { kind: CATEGORY_OF[item.kind] === "fixed" ? "fixed" : "unloaded", index: 0 };
+}
+
+export function scrollToRow(key: string, index: number, viewPosition: number): void {
+  void navigation
+    .get(key)
+    ?.shared.listRef.current?.scrollToIndex({ index, animated: false, viewPosition });
+}
+
+/**
+ * Scroll the timeline to the row behind an item: open its collapsed group, or unfold its turn
+ * and finish the jump when the host next publishes rows that hold it. Never animated. Returns the
+ * landing it acted on; "fixed" and "unloaded" it leaves to the caller.
+ */
+export function jumpToItem(key: string, item: LoomContextItem, unfold = true): ItemLanding | null {
+  const nav = navigation.get(key);
+  const landing = landingOf(key, item);
+  if (!nav || !landing) return null;
+  const row = nav.rows[landing.index];
+  if (landing.kind === "row" || landing.kind === "hidden") {
+    if (landing.kind === "row" && row?.kind === "work-toggle" && !row.expanded)
       nav.shared.onToggleWorkGroup(row.groupId, row.id);
-    void nav.shared.listRef.current?.scrollToIndex({ index, animated: false, viewOffset: 24 });
-    return;
+    void nav.shared.listRef.current?.scrollToIndex({
+      index: landing.index,
+      animated: false,
+      viewOffset: 24,
+    });
+  } else if (landing.kind === "folded" && unfold) {
+    nav.pending = item;
+    nav.shared.onToggleTurnFold(landing.runId);
   }
-  const runId = figures.runOfItem.get(itemId);
-  const folded = nav.rows.some(
-    (candidate) =>
-      candidate.kind === "turn-fold" && candidate.runId === runId && !candidate.expanded,
-  );
-  if (!unfold || runId === undefined || !folded) return;
-  nav.pending = itemId;
-  nav.shared.onToggleTurnFold(runId);
+  return landing;
 }
