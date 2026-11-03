@@ -22,6 +22,11 @@ import { MERGE_AUTHORITY_CEILING_ENV } from "@t3tools/shared/shipPolicy";
 const SHIP_REPO = "QuinRiva/loom";
 const PROTECTED_BRANCHES = ["main", "master", "HEAD"] as const;
 const SHIP_KINDS = ["noticeable", "behind"] as const;
+const CONTEXT_LIMITS_PATH = "apps/server/src/loom/prompt/agentContextLimits.json";
+const AGENT_CONTEXT_TESTS = [
+  "apps/server/src/provider/AgentContextBudget.test.ts",
+  "apps/server/src/loom/prompt/agentContextLimit.test.ts",
+];
 export type ShipKind = (typeof SHIP_KINDS)[number];
 
 export type ShipStepKind =
@@ -30,6 +35,7 @@ export type ShipStepKind =
   | "fetch"
   | "rebase"
   | "check"
+  | "context-limits"
   | "push"
   | "pr-create"
   | "pr-merge"
@@ -95,6 +101,21 @@ export class ShipUntrackedFilesError extends Schema.TaggedError<ShipUntrackedFil
       "Commit the ones that belong to the change by path (git add <path> && git commit),",
       "re-run with --include-untracked if every listed file belongs to it,",
       "or move or delete the strays.",
+    ].join("\n");
+  }
+}
+
+export class ShipContextLimitRaisedError extends Schema.TaggedError<ShipContextLimitRaisedError>()(
+  "ShipContextLimitRaisedError",
+  {
+    raised: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    return [
+      `Refusing to ship: this branch raises Loom's agent-context limits in ${CONTEXT_LIMITS_PATH} above origin/main's:`,
+      ...this.raised.map((line) => `  ${line}`),
+      "Raising a limit is Carl's decision. Pass --allow-context-increase only once he has approved this increase.",
     ].join("\n");
   }
 }
@@ -207,6 +228,12 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
           },
         ] satisfies ReadonlyArray<ShipStep>)),
     {
+      kind: "context-limits",
+      title: "Gate: Loom's agent-context limits are not raised above origin/main's",
+      executable: "git",
+      args: ["show", `origin/main:${CONTEXT_LIMITS_PATH}`],
+    },
+    {
       kind: "check",
       title: "Gate: vp check",
       executable: "vp",
@@ -226,6 +253,13 @@ export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep>
       title: "Gate: unmarked-delta sweep",
       executable: "docs/upstream-sync/pull7-tools/unmarkedsweep.sh",
       args: [],
+    },
+    {
+      // Measured here so the recorded figures are the rebased tree's, the one that merges.
+      kind: "check",
+      title: "Gate: agent context (upstream's budget, Loom's limits)",
+      executable: "vp",
+      args: ["test", "run", ...AGENT_CONTEXT_TESTS],
     },
     {
       kind: "push",
@@ -305,6 +339,17 @@ export function assertSummaryKind(
   return summary === undefined || kind === undefined || problems.length > 0
     ? Effect.fail(new ShipSummaryKindError({ problems }))
     : Effect.succeed({ summary: line, kind: kind as ShipKind });
+}
+
+/** Each limit on origin/main that the branch raises or removes, as `key: main → branch`. */
+export function contextLimitIncreases(
+  main: Readonly<Record<string, number>>,
+  branch: Readonly<Record<string, number>>,
+): ReadonlyArray<string> {
+  return Object.entries(main).flatMap(([key, limit]) => {
+    const next = branch[key];
+    return next !== undefined && next <= limit ? [] : [`${key}: ${limit} → ${next ?? "removed"}`];
+  });
 }
 
 /**
@@ -504,6 +549,23 @@ const runRebaseStep = Effect.fn("runRebaseStep")(function* (step: ShipStep) {
   return yield* new ShipRebaseConflictError({ conflictingFiles });
 });
 
+const runContextLimitsStep = Effect.fn("runContextLimitsStep")(function* (
+  step: ShipStep,
+  allowIncrease: boolean,
+) {
+  yield* Console.log(`\n▸ ${step.title}\n  ${commandLine(step)}`);
+  // A file missing on main has nothing to raise; one missing on the branch removes every limit.
+  const limitsOf = (result: RunResult): Record<string, number> =>
+    result.exitCode === 0 ? JSON.parse(result.stdout) : {};
+  const raised = contextLimitIncreases(
+    limitsOf(yield* captureGit(step.args)),
+    limitsOf(yield* captureGit(["show", `HEAD:${CONTEXT_LIMITS_PATH}`])),
+  );
+  if (raised.length === 0) return;
+  if (!allowIncrease) return yield* new ShipContextLimitRaisedError({ raised });
+  yield* Console.log(`  raised with --allow-context-increase:\n    ${raised.join("\n    ")}`);
+});
+
 const runConfirmStep = Effect.fn("runConfirmStep")(function* (step: ShipStep) {
   yield* Console.log(`\n▸ ${step.title}\n  ${commandLine(step)}`);
   const result = yield* runProcess(step.kind, step.executable, step.args, true).pipe(Effect.scoped);
@@ -530,8 +592,13 @@ const runConfirmStep = Effect.fn("runConfirmStep")(function* (step: ShipStep) {
   }
 });
 
-const runShipStep = Effect.fn("runShipStep")(function* (step: ShipStep) {
+const runShipStep = Effect.fn("runShipStep")(function* (
+  step: ShipStep,
+  allowContextIncrease: boolean,
+) {
   switch (step.kind) {
+    case "context-limits":
+      return yield* runContextLimitsStep(step, allowContextIncrease);
     case "commit":
       return yield* runCommitStep(step);
     case "rebase":
@@ -553,6 +620,7 @@ export const runShip = Effect.fn("runShip")(function* (options: {
   readonly body?: string | undefined;
   readonly dryRun: boolean;
   readonly includeUntracked: boolean;
+  readonly allowContextIncrease: boolean;
 }) {
   const { summary, kind } = yield* assertSummaryKind(options.summary, options.kind);
   const branch = yield* assertShippableBranch(yield* getCurrentBranch());
@@ -593,7 +661,7 @@ export const runShip = Effect.fn("runShip")(function* (options: {
     `Shipping "${branch}"${options.mergeOnly ? " (merge-only)" : ""} → ${SHIP_REPO}`,
   );
   for (const step of steps) {
-    yield* runShipStep(step);
+    yield* runShipStep(step, options.allowContextIncrease);
   }
   yield* Console.log(
     options.prOnly
@@ -651,8 +719,25 @@ export const shipCommand = Command.make(
       ),
       Flag.withDefault(false),
     ),
+    allowContextIncrease: Flag.Boolean("allow-context-increase").pipe(
+      Flag.withDescription(
+        "Ship a branch that raises a limit in agentContextLimits.json; pass it only once Carl has approved that increase.",
+      ),
+      Flag.withDefault(false),
+    ),
   },
-  ({ message, summary, kind, title, body, mergeOnly, prOnly, dryRun, includeUntracked }) =>
+  ({
+    message,
+    summary,
+    kind,
+    title,
+    body,
+    mergeOnly,
+    prOnly,
+    dryRun,
+    includeUntracked,
+    allowContextIncrease,
+  }) =>
     runShip({
       message,
       summary: Option.getOrUndefined(summary),
@@ -662,6 +747,7 @@ export const shipCommand = Command.make(
       prOnly: prOnly || process.env[MERGE_AUTHORITY_CEILING_ENV] === "human",
       dryRun,
       includeUntracked,
+      allowContextIncrease,
       title: Option.getOrUndefined(title),
       body: Option.getOrUndefined(body),
     }),

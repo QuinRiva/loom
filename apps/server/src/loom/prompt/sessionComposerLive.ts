@@ -58,7 +58,7 @@ import {
   threadIdentityClause,
   WORK_MODEL_ADDENDUM,
 } from "./prose.ts";
-import { listRoleOverlays, loadRoleOverlay } from "./roleOverlay.ts";
+import { listRoleOverlays, loadRoleOverlay, type RoleOverlay } from "./roleOverlay.ts";
 import {
   LoomSessionComposer,
   LoomSessionComposerError,
@@ -88,6 +88,53 @@ export class LoomForkSourceIdentityMissing extends Schema.TaggedError<LoomForkSo
   }
 }
 
+/**
+ * The addendum's parts in prompt order, each named: the composer joins them, and the agent-context
+ * limit test (`agentContextLimit.test.ts`) sizes the fixed ones.
+ */
+export const addendumParts = (input: {
+  readonly role: string | null;
+  readonly isChild: boolean;
+  readonly projectRoot: string;
+  readonly mergeAuthorityCeiling: "human" | undefined;
+  readonly threadIdentity: string;
+  readonly goalContext: string | undefined;
+}) => {
+  const { projectRoot } = input;
+  const overlay: RoleOverlay =
+    input.role === RETRO_REVIEWER_ROLE
+      ? { prompt: RETRO_REVIEWER_OVERLAY_PROMPT, delegation: false, tools: RETRO_REVIEWER_TOOLS }
+      : loadRoleOverlay({ role: input.role, projectRoot });
+  const catalogue = overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
+  // The retro reviewer's profile is its whole job: nothing to announce behind tool_search.
+  const resident = input.role === RETRO_REVIEWER_ROLE ? undefined : new Set(overlay.tools);
+  return {
+    overlay,
+    parts: {
+      workModel: WORK_MODEL_ADDENDUM,
+      deferredCapabilities:
+        resident &&
+        deferredCapabilitiesClause(
+          CAPABILITIES.filter((capability) => capability.tools.some((tool) => !resident.has(tool))),
+        ),
+      childReadership: input.isChild ? CHILD_READERSHIP_CLAUSE : undefined,
+      threadIdentity: input.threadIdentity,
+      role: overlay.prompt,
+      shipPolicy: shipPolicyPromptBlock(
+        resolveMergeAuthority(projectRoot, input.mergeAuthorityCeiling),
+      ),
+      roles:
+        catalogue.length > 0
+          ? [
+              "Available roles for spawning children (built in; a project may add its own under `.t3code/roles/`). A free-text role may still be used when none fits:",
+              ...catalogue.map((role) => `- ${role.name}: ${role.summary}`),
+            ].join("\n")
+          : undefined,
+      goalContext: input.goalContext,
+    },
+  };
+};
+
 export const makeLoomSessionComposer = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const projects = yield* ProjectStore.ProjectStoreV2;
@@ -110,51 +157,32 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
   ) {
     // A V2 `fork` (thread_fork, a UI fork) is a root the human drives; only `subagent` is a child.
     const isChild = thread.lineage.relationshipToParent === "subagent";
-    const overlay =
-      workstream?.role === RETRO_REVIEWER_ROLE
-        ? {
-            prompt: RETRO_REVIEWER_OVERLAY_PROMPT,
-            delegation: false,
-            tools: RETRO_REVIEWER_TOOLS,
-          }
-        : loadRoleOverlay({ role: workstream?.role ?? null, projectRoot });
-    const catalogue = overlay.delegation ? listRoleOverlays({ projectRoot }) : [];
     const readAt = DateTime.formatIso(yield* DateTime.now);
     const goal = workstream?.goalId == null ? null : yield* loomStore.goals.get(workstream.goalId);
     // The goal context below is the thread's first read of the tree.
     if (goal !== null) yield* loomStore.goalTreeReads.mark(thread.id, readAt);
-    // The retro reviewer's profile is its whole job: nothing to announce behind tool_search.
-    const resident = workstream?.role === RETRO_REVIEWER_ROLE ? undefined : new Set(overlay.tools);
     const { mergeAuthorityCeiling } = yield* settings.getSettings;
-    const appendSystemPrompt = [
-      WORK_MODEL_ADDENDUM,
-      resident &&
-        deferredCapabilitiesClause(
-          CAPABILITIES.filter((capability) => capability.tools.some((tool) => !resident.has(tool))),
-        ),
-      isChild ? CHILD_READERSHIP_CLAUSE : undefined,
-      threadIdentityClause(
+    const { overlay, parts } = addendumParts({
+      role: workstream?.role ?? null,
+      isChild,
+      projectRoot,
+      mergeAuthorityCeiling,
+      threadIdentity: threadIdentityClause(
         thread.id,
         isChild ? thread.lineage.parentThreadId : null,
         loomPaths(config),
       ),
-      overlay.prompt,
-      shipPolicyPromptBlock(resolveMergeAuthority(projectRoot, mergeAuthorityCeiling)),
-      catalogue.length > 0
-        ? [
-            "Available roles for spawning children (built in; a project may add its own under `.t3code/roles/`). A free-text role may still be used when none fits:",
-            ...catalogue.map((role) => `- ${role.name}: ${role.summary}`),
-          ].join("\n")
-        : undefined,
       // A root the human or a handoff starts has said nothing yet that a goal could
       // summarise; only a root joining work in progress (its goal already has tasks) needs it.
-      goal === null || goal.deletedAt !== null || (!isChild && goal.tasks.length === 0)
-        ? undefined
-        : goalContextInstruction(goal, {
-            asChildBackground: isChild,
-            anchorTaskId: workstream?.anchorTaskId ?? null,
-          }),
-    ]
+      goalContext:
+        goal === null || goal.deletedAt !== null || (!isChild && goal.tasks.length === 0)
+          ? undefined
+          : goalContextInstruction(goal, {
+              asChildBackground: isChild,
+              anchorTaskId: workstream?.anchorTaskId ?? null,
+            }),
+    });
+    const appendSystemPrompt = Object.values(parts)
       .filter((part): part is string => part !== undefined && part.trim().length > 0)
       .join("\n\n");
     return {

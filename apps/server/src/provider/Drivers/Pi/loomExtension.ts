@@ -109,6 +109,65 @@ pi.on("before_agent_start", async (event, ext) => {
 `,
 };
 
+export const ASK_USER_QUESTION_PARAMETERS = {
+  type: "object",
+  properties: {
+    questions: {
+      type: "array",
+      minItems: 1,
+      maxItems: 4,
+      description: "One question; two only when independent and answerable alone.",
+      items: {
+        type: "object",
+        properties: {
+          header: {
+            type: "string",
+            minLength: 1,
+            description: "Short decision title, understandable alone.",
+          },
+          question: {
+            type: "string",
+            minLength: 1,
+            description:
+              "Markdown body for a reader who has read none of this thread or any child report. In order: the situation (what you are working on in plain words, the ticket reference so they can open it, what just happened), one real example (a named file, record or screen with literal content), the stakes and why their decision is needed, then your pick with its reason. Explain what any quoted figure measures. No internal shorthand as names ('D7', 'must-fix #1'), no unexplained acronyms, no references in place of substance ('per the report'): a child's report was written for you, so translate it rather than pass on its labels, ids or questions.",
+          },
+          options: {
+            type: "array",
+            minItems: 2,
+            maxItems: 4,
+            items: {
+              type: "object",
+              properties: {
+                label: {
+                  type: "string",
+                  minLength: 1,
+                  description: "Plain-words outcome; 'Other' and 'Type something.' are reserved.",
+                },
+                description: {
+                  type: "string",
+                  minLength: 1,
+                  description: "What it gains and gives up, not how it works.",
+                },
+                recommended: {
+                  type: "boolean",
+                  description: "Exactly one option: your pick, and the default on dismissal.",
+                },
+              },
+              required: ["label", "description"],
+              additionalProperties: false,
+            },
+          },
+          multiSelect: { type: "boolean", description: "Allow several selections; default false." },
+        },
+        required: ["header", "question", "options"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["questions"],
+  additionalProperties: false,
+};
+
 /** `mcp__t3-code__ask_user_question` over `POST …/ask` + `GET …/wait` (25 s slices; a dropped poll re-attaches). */
 const askUserQuestionPart: LoomExtensionPart = {
   name: "askUserQuestion",
@@ -128,44 +187,7 @@ const askTool = {
   name: ${json(agentToolName("ask_user_question"))},
   label: "Ask User Question",
   ...prose,
-  parameters: {
-    type: "object",
-    properties: {
-      questions: {
-        type: "array",
-        minItems: 1,
-        maxItems: 4,
-        description: "One question; two only when independent and answerable alone.",
-        items: {
-          type: "object",
-          properties: {
-            header: { type: "string", minLength: 1, description: "Short decision title, understandable alone." },
-            question: { type: "string", minLength: 1, description: "Markdown body for a reader who has read none of this thread or any child report. In order: the situation (what you are working on in plain words, the ticket reference so they can open it, what just happened), one real example (a named file, record or screen with literal content), the stakes and why their decision is needed, then your pick with its reason. Explain what any quoted figure measures. No internal shorthand as names ('D7', 'must-fix #1'), no unexplained acronyms, no references in place of substance ('per the report'): a child's report was written for you, so translate it rather than pass on its labels, ids or questions." },
-            options: {
-              type: "array",
-              minItems: 2,
-              maxItems: 4,
-              items: {
-                type: "object",
-                properties: {
-                  label: { type: "string", minLength: 1, description: "Plain-words outcome; 'Other' and 'Type something.' are reserved." },
-                  description: { type: "string", minLength: 1, description: "What it gains and gives up, not how it works." },
-                  recommended: { type: "boolean", description: "Exactly one option: your pick, and the default on dismissal." },
-                },
-                required: ["label", "description"],
-                additionalProperties: false,
-              },
-            },
-            multiSelect: { type: "boolean", description: "Allow several selections; default false." },
-          },
-          required: ["header", "question", "options"],
-          additionalProperties: false,
-        },
-      },
-    },
-    required: ["questions"],
-    additionalProperties: false,
-  },
+  parameters: ${json(ASK_USER_QUESTION_PARAMETERS)},
   async execute(toolCallId, params, signal) {
     if (ctx.humanInputRefused?.() !== false) throw new Error(REFUSAL);
     const { requestId } = await loomFetch(ctx, "POST", "/user-input/ask", { toolCallId, questions: params?.questions }, signal);

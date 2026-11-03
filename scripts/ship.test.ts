@@ -1,7 +1,13 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import { assertShippableBranch, assertSummaryKind, planShipSteps, type ShipStep } from "./ship.ts";
+import {
+  assertShippableBranch,
+  assertSummaryKind,
+  contextLimitIncreases,
+  planShipSteps,
+  type ShipStep,
+} from "./ship.ts";
 
 const note = { message: "msg", summary: 'Fixes "#12": tables scroll', kind: "noticeable" } as const;
 
@@ -33,7 +39,9 @@ it("orders the sequence set-default → commit → rebase → gate → push → 
     "commit",
     "fetch",
     "rebase",
-    // typecheck, vp check, and the unmarked-delta sweep.
+    // Loom's limits vs main, vp check, typecheck, the unmarked-delta sweep, the agent-context tests.
+    "context-limits",
+    "check",
     "check",
     "check",
     "check",
@@ -143,4 +151,11 @@ it("titles the PR from -m unless --title is given, and ends both bodies with the
     ],
     ["pr", "merge", "--merge", "--admin", "--body", `Nice title\n\n${trailers}`],
   ]);
+});
+
+it("flags a Loom context limit the branch raises or removes, not one it lowers or adds", () => {
+  assert.deepEqual(
+    contextLimitIncreases({ root: 100, coder: 50, agents: 10 }, { root: 101, coder: 40, extra: 5 }),
+    ["root: 100 → 101", "agents: 10 → removed"],
+  );
 });
