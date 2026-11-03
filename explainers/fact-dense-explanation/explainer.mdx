@@ -1,0 +1,338 @@
+---
+kicker: "Explainer · how agents should explain fact-dense subjects · research and four candidate shapes · 3 Nov 2026"
+reader:
+  who: Carl, the maintainer who reads every agent-written document, deciding what shape agents should use when they explain something complex to him
+  knows: the problem from his own reading; the MDX document panel and its blocks; nothing of the research literature
+  after_first_screen: which shape to adopt for fact-dense explanations and the one or two evidence-backed reasons for it
+---
+
+# Fact-dense explanations: lead with the verdict, put the parties in a table, then label each judgement
+
+**Recommendation: shape D.** A verdict line comes first. A small table then shows what each party says, with its source in its own column. Each judgement follows as a short labelled paragraph: why it failed, what would have happened otherwise, whose miss it is, and what happened next door.
+
+**Two reasons.** First, a reader holds about four things at once, and the original paragraph asks for nine. The table holds the facts so the reader does not have to. Second, the fields that live on dense, cited argument all do the same two things. They keep the source out of the sentence, and they separate facts from judgements, each under its own label.
+
+Below is the real paragraph you were reading, rewritten in shape D. Every fact in the original is still there. Judge it by reading it.
+
+<Card id="specimen-d" eyebrow="Shape D · recommended" heading="3.3 A floor the definition asks for as a number: the parking licence fee" tone="success">
+
+**Verdict: marked wrong.** <Badge tone="warning">half the model's</Badge> <Badge tone="warning">half the ask's</Badge>
+
+The model wrote the floor as a sentence. Gold and the field definition both want it as a number.
+
+Gold is the human annotator's answer, which the run is scored against. The model is sent two texts per field: the definition, saying what the field means, and the contract, saying what shape the answer must take.
+
+<Table
+  density="compact"
+  columns={["Who", "What they say about the floor", "Where"]}
+  rows={[
+    ["**The licence**", "\"The fee after a review must not be less than the fee before it.\"", "Clause 3(c)(i), `F07:car_parking_licence_14_m/3/(c)/(i)`"],
+    ["**The definition**", "A floor like this is a number: \"100% of a specified reference rent equals a 0% minimum increase over that same rent\".", "Sent to the model"],
+    ["**The contract**", "Three keys are allowed: `rule`, `unit` and `value`.", "Sent to the model"],
+    ["**Gold**", "100% of the passing rent, meaning the fee in force before the review. It fills `value` and `unit`.", "Gold workbook"],
+    { tone: "risk", cells: ["**The model**", { badge: { label: "wrong", tone: "risk" }, md: "The rule as a sentence. No `value`, no `unit`." }, "The run's answer"] },
+  ]}
+/>
+
+**Why it is marked wrong.** An answer passes only if every key gold fills in matches. Gold fills `value` and `unit`. The model left both empty.
+
+**If the model had written the number.** It would still have failed, this time on the unit. Gold's unit is the word `percent_of_passing_rent`, which the scorer compares letter for letter. Nothing the model was shown contains that word. The lease's own review floor and cap fail on the same word (§4.1).
+
+**Whose miss.** Half the model's: the definition asked for a number and it gave a sentence. Half the ask's, meaning the prompt the model was sent: even the right number would have failed on a word it was never told.
+
+**The row next door.** Your chat example "parking review rules" is a different field on the same licence. It holds the review rule itself, tied to the lease's percentage and timing. It scored correct.
+
+</Card>
+
+<Details summary="The original paragraph, for comparison">
+
+> **3.3 A floor the definition asks for as a number: the parking licence fee**
+>
+> The licence says the fee after a review must not be less than the fee before it (`F07:car_parking_licence_14_m/3/(c)/(i)`). Gold records the floor as 100% of the passing rent; the field's definition says in terms that "100% of a specified reference rent equals a 0% minimum increase over that same rent", and the contract allows `rule`, `unit` and `value`. The model returned the rule sentence and no value or unit, so the row fails on the keys gold states. Had it written the value, it would then have met the same undeclared unit word as the lease's floor and cap (§4.1), so this miss is half the model's and half the ask's. your chat example "parking review rules" is this row's neighbour: the review rule itself (linked to the lease's percentage and timing) scored correct.
+
+###### From the extraction-misses explainer in the lease-extraction worktree, §3.3.
+
+</Details>
+
+<Callout focus title="What it means now">
+The choice of shape is yours, in the form at the end. Shape C is the same idea without the table, and suits chat replies. One finding matters for the next phase: your default model is documented by its vendor as writing denser prose than its predecessor (§3).
+</Callout>
+
+## 1. What the research says
+
+The original paragraph is not long by word count. Its sentences average 27 words, and three of the five are under 25. What makes it hard is how much each sentence carries.
+
+<Stats
+  items={[
+    { value: "9", label: "facts in one paragraph", tone: "risk", detail: "Three parties, a counterfactual, a cross-reference and a verdict" },
+    { value: "18 to 40", label: "words per sentence", tone: "warning", detail: "Two of five over the 25-word limit both government style guides set" },
+    { value: "7", label: "terms never explained", tone: "risk", detail: "gold, passing rent, definition, contract, keys, the ask, undeclared unit word" },
+    { value: "1", label: "citation inside a sentence", tone: "warning", detail: "A 40-character node id in brackets between subject and full stop" },
+  ]}
+/>
+
+So a sentence-length rule alone would have flagged two sentences and left the paragraph as it is. The research points at three other things. How many facts must the reader hold? How far apart are the words that depend on each other? Does each judgement have its own place?
+
+<Table
+  density="compact"
+  columns={["Finding", "What it means for a paragraph", "Source"]}
+  rows={[
+    ["Working memory holds about 3 to 5 meaningful items at once.", "Nine facts in one paragraph exceed it. The page has to hold them: a table, or one fact per sentence.", "[Cowan 2001, *Behavioral and Brain Sciences*](https://pubmed.ncbi.nlm.nih.gov/11515286/)"],
+    ["Reading cost rises with the distance between words that depend on each other, and with the number of threads left open.", "A bracketed citation between subject and verb, or a \"Had it..., it would then..., so...\" chain, keeps threads open.", "[Gibson 1998](https://tedlab.mit.edu/tedlab_website/researchpapers/Gibson_1998_Cogn.pdf); [Gibson 2000](https://tedlab.mit.edu/tedlab_website/researchpapers/Gibson_2000_DLT.pdf)"],
+    ["Plain-language standards: average 15 words, none over 25.", "A usable check, but a proxy. The specimen mostly passes it.", "[Australian Government Style Manual](https://www.stylemanual.gov.au/style-manual-resources/government-writing-handbook/editors-tips/sentence-length); [GOV.UK](https://insidegovuk.blog.gov.uk/2014/08/04/sentence-length-why-25-words-is-our-limit/)"],
+    ["The same content rewritten concise, scannable and objective scored 124% higher on measured usability.", "Shape matters as much as content, and the effects add up.", "[Morkes and Nielsen 1997, NN/g](https://www.nngroup.com/articles/concise-scannable-and-objective-how-to-write-for-the-web/)"],
+    ["Readers new to a subject need the links between sentences stated. Experts do better with fewer.", "When splitting, keep \"because\" and \"so\". Bare fragments hurt the reader who is new to the terms.", "[McNamara et al. 1996](https://doi.org/10.1207/s1532690xci1401_1)"],
+    ["Bullet outlines break analytic reasoning into fragments.", "A list of facts is not an explanation. The causal step must survive the split.", "[Tufte, *The Cognitive Style of PowerPoint*](https://www.edwardtufte.com/book/the-cognitive-style-of-powerpoint-pitching-out-corrupts-within-ebook/)"],
+    ["Text and the thing it refers to, placed apart, force the reader to integrate them in their head.", "Put the source beside the claim: a column, or a line under it. Not at the end of the document.", "[Chandler and Sweller 1991](https://doi.org/10.1207/s1532690xci0804_2)"],
+    ["Tables \"help your audience see relationships that are often hidden in dense text\".", "When several parties say something about one fact, a table shows the comparison directly.", "[US plain-language guidelines, Tables](https://digital.gov/guides/plain-language/design/tables)"],
+  ]}
+/>
+
+### 1.1 The limit is items held, not words read
+
+Cowan's review puts the central limit at three to five meaningful items. Miller's famous "seven" was, in Cowan's words, "a rough estimate and a rhetorical device".
+
+###### [Cowan 2001](https://www.cambridge.org/core/journals/behavioral-and-brain-sciences/article/magical-number-4-in-shortterm-memory-a-reconsideration-of-mental-storage-capacity/44023F1147D4A1D44BDC0AD226838496)
+
+The specimen's second sentence asks you to hold three of them at once. Gold's reading, the definition's wording and the contract's keys arrive in one sentence, joined by a semicolon and a comma.
+
+Gibson's work explains why distance hurts. Each word that must be joined to an earlier one costs more the further back that word is. A sentence that opens "Had it written the value" leaves a thread open until its last clause.
+
+###### [Gibson 2000, the dependency locality theory](https://tedlab.mit.edu/tedlab_website/researchpapers/Gibson_2000_DLT.pdf)
+
+### 1.2 Splitting has a cost too
+
+Short sentences only help if the links between them survive. McNamara and colleagues found that readers new to a subject learned more from a text that stated its connections. Readers who already knew the subject did better with a sparser one.
+
+###### [McNamara, Kintsch, Songer and Kintsch 1996](https://doi.org/10.1207/s1532690xci1401_1)
+
+You are the first kind of reader for most of what agents explain to you. The jargon is new even when the project is not. So the rewrite keeps "because", "so" and "even then", and glosses each term the first time it appears.
+
+Tufte makes the same point from the other side. His case against slide bullets is that they break reasoning into pieces and lose the links between them. A table of facts with no sentence explaining it repeats that mistake.
+
+###### [Tufte, *The Cognitive Style of PowerPoint*](https://www.edwardtufte.com/book/the-cognitive-style-of-powerpoint-pitching-out-corrupts-within-ebook/)
+
+### 1.3 How fields that live on cited argument do it
+
+<Columns columns={2}>
+  <Card eyebrow="Law" heading="Citations out of the sentence; facts, issue and ruling under separate heads" tone="info">
+    Bryan Garner noticed two appeal judges who moved every citation out of the text. Their opinions, he wrote, "actually had a discernible train of thought". His fallback for in-text citing is a separate citation sentence. The US Federal Judicial Center tells judges to lay out issues, facts, discussion and disposition as separate parts.
+
+    ###### [Garner, "The Citational Footnote"](https://scribes.org/wp-content/uploads/2022/12/Scribes_vol7_14_The_Citational_Footnote.pdf); [Garner, ABA Journal](https://www.abajournal.com/magazine/article/end_weight_sentence_emphasis_garner); [FJC, *Judicial Writing Manual*](https://www.fjc.gov/content/judicial-writing-manual-pocket-guide-judges-second-edition)
+  </Card>
+  <Card eyebrow="Intelligence analysis" heading="Facts kept apart from judgements; the bottom line first" tone="info">
+    The US analytic standards require a product to "clearly distinguish statements that convey underlying intelligence information" from "assumptions or judgments". The US Army's writing standard asks for the main point first, so the text is understood "in a single rapid reading".
+
+    ###### [ICD 203, standard 3](https://www.dni.gov/files/documents/ICD/ICD-203.pdf); [AR 25-50, para 1-38](https://armypubs.army.mil/epubs/DR_pubs/DR_a/ARN42124-AR_25-50-007-WEB-13.pdf)
+  </Card>
+  <Card eyebrow="Structured writing" heading="One point per chunk, and every chunk labelled" tone="info">
+    Information Mapping's rules are to chunk, keep one main point per chunk, and label every chunk. Its inventor, Robert Horn, called labelling "the single change that would improve written communication to the greatest extent". Minto's pyramid adds the order: the answer first, then the grouped support.
+
+    ###### [Horn, "What Kinds of Writing Have a Future?"](https://faculty.washington.edu/farkas/TC510-Fall2011/Horn-DocsWithFuture.pdf); [Minto, via Toolshero](https://www.toolshero.com/communication-methods/minto-pyramid-principle/)
+  </Card>
+  <Card eyebrow="Scientific writing" heading="Subject next to its verb; the new fact at the end of the sentence" tone="info">
+    Gopen and Swan show readers stumble when many words separate a subject from its verb. Readers also expect the new information at the end of a sentence, its "stress position". One new fact per sentence gives each fact that position.
+
+    ###### [Gopen and Swan 1990, *American Scientist*](https://www.americanscientist.org/blog/the-long-view/the-science-of-scientific-writing)
+  </Card>
+</Columns>
+
+The four fields agree on two moves. The source leaves the sentence. Facts and judgements sit apart, each under a label.
+
+### 1.4 Where citations and examples go
+
+Garner's footnotes and the split-attention research pull in opposite directions. Footnotes clear the sentence but send the eye to the bottom of the page. Chandler and Sweller found that separated sources cost the reader effort to join.
+
+Tufte's sidenotes resolve this: the note sits in the margin beside its line. The panel has no sidenote block. Its footnotes work, but they render at the very end of the document.
+
+###### [Tufte CSS on sidenotes](https://edwardtufte.github.io/tufte-css/); [Chandler and Sweller 1991](https://doi.org/10.1207/s1532690xci0804_2)
+
+*Vocabulary gap: a margin note beside a line was wanted. A source column, or a small source line directly under the paragraph (this document's `######` lines), stands in for it.*
+
+Examples follow the same rule. The quote goes on its own line, its source on the line under it, and the claim it supports in the sentence just before. In shape D the quote is the licence row of the table.
+
+## 2. Four shapes, each applied to the specimen
+
+The original runs to 134 words. Every rewrite is longer, partly because each one explains its seven terms. In a real document those glosses come once, at first use, not in every section.
+
+<Columns columns={2}>
+  <Card eyebrow="Shape A" heading="Re-cut prose: short sentences, one fact each, a source line under the paragraph" tone="neutral" meta={["233 words, 1.7 times", "effort: low"]}>
+    **Weak at:** the side-by-side of three parties. You rebuild it in your head.
+
+    **Evidence:** sentence limits, Gibson, Gopen and Swan, McNamara.
+  </Card>
+  <Card eyebrow="Shape B" heading="Ledger: one table holds every fact, including the verdict" tone="neutral" meta={["137 words, 1.0 times", "effort: medium"]}>
+    **Weak at:** the "because". Every causal step is left for you to infer.
+
+    **Evidence:** plain-language tables, Cowan, split-attention.
+  </Card>
+  <Card eyebrow="Shape C" heading="Labelled case: verdict first, then one labelled paragraph per fact or judgement" tone="neutral" meta={["248 words, 1.9 times", "effort: low", "works in chat"]}>
+    **Weak at:** comparing the parties, which it lists one after another.
+
+    **Evidence:** Information Mapping, ICD 203, the judicial manual, BLUF.
+  </Card>
+  <Card eyebrow="Shape D" heading="Verdict, readings, labelled findings: shape C with the parties in a table" tone="success" badge="recommended" meta={["321 words, 2.4 times", "effort: medium"]}>
+    **Weak at:** nothing in this specimen. A unit with only one party gains nothing from the table; use C there.
+
+    **Evidence:** all of the above, plus Tufte's warning against fragments.
+  </Card>
+</Columns>
+
+All four keep the citations, the quote and every fact. They differ in where the comparison and the reasoning live. Shape D is on the first screen; A, B and C follow.
+
+### 2.1 Shape A: re-cut prose
+
+<Card id="specimen-a" eyebrow="Shape A" heading="3.3 A floor the definition asks for as a number: the parking licence fee" tone="neutral">
+
+The licence sets a floor on the fee. After a review, the fee must not be less than it was before.
+
+###### Licence clause 3(c)(i), `F07:car_parking_licence_14_m/3/(c)/(i)`
+
+Gold is the answer a human annotator recorded, and the run is scored against it. Gold records this floor as 100% of the passing rent, meaning the fee in force before the review.
+
+The field definition is the text that tells the model what the field means. It asks for a floor like this as a number: "100% of a specified reference rent equals a 0% minimum increase over that same rent". The contract, the shape the answer must take, allows three keys: `rule`, `unit` and `value`.
+
+The model returned the rule as a sentence. It gave no value and no unit. An answer passes only if every key gold fills in matches, so this one fails.
+
+Writing the number would not have saved it. Gold's unit is the word `percent_of_passing_rent`, which the scorer compares letter for letter. Nothing the model was shown contains that word. The lease's review floor and cap fail on the same word (§4.1).
+
+So the miss is half the model's and half the ask's, the ask being the prompt the model was sent.
+
+The row next door went the other way. Your chat example "parking review rules" holds the review rule itself, tied to the lease's percentage and timing. It scored correct.
+
+</Card>
+
+Shape A is the cheapest change and reads well. Its weakness is the middle: three parties' readings arrive in three paragraphs, and you compare them in your head.
+
+### 2.2 Shape B: the ledger
+
+**3.3 A floor the definition asks for as a number: the parking licence fee**
+
+<Table
+  density="compact"
+  columns={["", "Finding", "Source"]}
+  rows={[
+    ["Licence", "\"The fee after a review must not be less than the fee before it.\"", "Clause 3(c)(i), `F07:car_parking_licence_14_m/3/(c)/(i)`"],
+    ["Definition", "\"100% of a specified reference rent equals a 0% minimum increase over that same rent\"", "Definition sent to the model"],
+    ["Contract", "Keys allowed: `rule`, `unit`, `value`", "Value contract sent to the model"],
+    ["Gold", "Human answer key: 100% of the passing rent; fills `value` and `unit`", "Gold workbook"],
+    { tone: "risk", cells: ["Model", { badge: { label: "wrong", tone: "risk" }, md: "Rule sentence only; no `value`, no `unit`" }, "Run answer"] },
+    ["Scoring", "Passes only if every key gold fills matches", "Comparator"],
+    ["If it gave 100", "Fails on unit word `percent_of_passing_rent`, never shown to the model; same as the lease's floor and cap (§4.1)", "Comparator"],
+    { tone: "warning", cells: ["Whose miss", { badge: { label: "half model · half ask", tone: "warning" }, md: "" }, ""] },
+    { tone: "success", cells: ["Next door", { badge: { label: "correct", tone: "success" }, md: "\"Parking review rules\", tied to the lease's percentage and timing" }, "Your chat example"] },
+  ]}
+/>
+
+Shape B is the fastest to look things up in. It is the slowest to understand. Each row is true, but nothing says why the model's row leads to the verdict row. That is Tufte's fragment problem in a grid.
+
+### 2.3 Shape C: the labelled case
+
+<Card id="specimen-c" eyebrow="Shape C" heading="3.3 A floor the definition asks for as a number: the parking licence fee" tone="neutral">
+
+**Verdict: marked wrong.** <Badge tone="warning">half the model's</Badge> <Badge tone="warning">half the ask's</Badge>
+
+**What the licence says.** The fee after a review must not be less than the fee before it.
+
+###### Licence clause 3(c)(i), `F07:car_parking_licence_14_m/3/(c)/(i)`
+
+**What the field asks for.** The definition, the text that tells the model what the field means, wants a number: "100% of a specified reference rent equals a 0% minimum increase over that same rent". The contract, the shape the answer must take, allows `rule`, `unit` and `value`.
+
+**What gold recorded.** Gold is the human annotator's answer, which the run is scored against. It records 100% of the passing rent, the fee in force before the review, with a `value` and a `unit`.
+
+**What the model returned.** The rule as a sentence, with no value and no unit.
+
+**Why it is marked wrong.** An answer passes only if every key gold fills in matches. Two are empty.
+
+**If the model had written the number.** It would still have failed on the unit. Gold's word is `percent_of_passing_rent`, compared letter for letter and shown to the model nowhere. The lease's own review floor and cap fail on the same word (§4.1).
+
+**Whose miss.** Half the model's: it gave a sentence where the definition asked for a number. Half the ask's, the prompt the model was sent: the right number would still have failed.
+
+**The row next door.** Your chat example "parking review rules" holds the review rule itself, tied to the lease's percentage and timing. It scored correct.
+
+</Card>
+
+Shape C needs no blocks beyond bold labels, so it works in a chat reply too. Each judgement is findable by its label. Its cost is the four "what X says" units read in sequence where a table would set them side by side.
+
+### 2.4 Why D over C
+
+D and C share the verdict line and the labelled judgements. D adds one thing: the parties' readings sit in one table, each with its source in a column.
+
+That table is where the specimen's difficulty lived. Your words were "relationships between those facts". A table shows a relationship between rows without a sentence having to state it, and the source column keeps the citation beside the claim.
+
+D costs the most words. Most of the extra is labels, the gloss line and the table's headers. A scanning reader reads those first and dips into the text under them: NN/g's eyetracking calls this the layer-cake pattern, and it is the pattern labels exist to serve.
+
+###### [NN/g, The layer-cake pattern of scanning](https://www.nngroup.com/articles/layer-cake-pattern-scanning/)
+
+When a unit has only one party, the table adds nothing. Use C there. A rule of thumb: two or more parties saying something about the same fact earn a table.
+
+## 3. What steers an LLM's prose
+
+This decides whether the next phase writes a rule or rewrites examples. The evidence is thinner here than in §1, and most of it is vendor guidance rather than published experiments.
+
+<Callout tone="warning" title="Your default model writes dense prose by itself">
+Your configured default is `claude-fable-5-1` (in `~/.pi/agent/settings.json`). Anthropic's guide for that model says its "prose is denser than Claude Fable 5's: sentences run longer and there are fewer paragraph breaks". So the skills did not create the density alone. They also do nothing to counter it.
+</Callout>
+
+###### [Anthropic, Prompting Claude Fable 5.1: Writing density](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1)
+
+<Table
+  density="compact"
+  columns={["What is known", "Strength", "Source"]}
+  rows={[
+    ["Examples are \"one of the most reliable ways to steer Claude's output format, tone, and structure\".", { badge: { label: "vendor guidance", tone: "info" }, md: "" }, "[Anthropic, Prompting best practices](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices)"],
+    ["\"The formatting style used in your prompt might influence Claude's response style.\" Their advice is to match the prompt's style to the output wanted.", { badge: { label: "vendor guidance", tone: "info" }, md: "" }, "Same page, \"Control the format of responses\""],
+    ["Say what to do, not what to avoid. Older models handled negated instructions worse as they grew larger.", { badge: { label: "published, older models", tone: "warning" }, md: "" }, "Same page; [Jang et al. 2022](https://arxiv.org/abs/2209.12711)"],
+    ["Models follow explicit length limits poorly, often overshooting or undershooting.", { badge: { label: "published benchmark", tone: "success" }, md: "" }, "[LIFEBench, NeurIPS 2025](https://proceedings.neurips.cc/paper_files/paper/2025/file/c84f00ccee3d35cee1901acb0e258dc7-Paper-Datasets_and_Benchmarks_Track.pdf)"],
+    ["For this model's density, the vendor's fix is an instruction that defines the anti-pattern, placed in a user message. For a different habit (unmarked quoting) its fix is one complete worked example with a sentence saying why it is right.", { badge: { label: "vendor guidance", tone: "info" }, md: "" }, "[Anthropic, Fable 5.1 guide](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1)"],
+  ]}
+/>
+
+Read together, these point at three levers rather than one. An exemplar written in the target shape shows the model what to produce. A short rule, phrased as what to do and with its reason, names the shape. A mechanical check catches what neither guarantees, since a "25 words" rule is the kind of number models miss.
+
+The register point matters most for you. The skills' own prose runs at a median of 31 to 33 words a sentence. If prompt style carries into output, a rule about short sentences written in long sentences works against itself.
+
+## 4. Where the evidence is thin
+
+The most quoted number on this topic is the American Press Institute finding: 8-word sentences fully understood, 43-word sentences under 10%. It appears on hundreds of style blogs. I could not trace it to a published study, so this document does not rely on it.
+
+###### Example of the claim: [Wylie Communications](https://www.wyliecomm.com/how-long-should-a-sentence-be/)
+
+No study I found tests whether an instruction's sentence length transfers to an LLM's output. The "match your prompt style" advice is Anthropic's, observed on formatting such as markdown, not measured on sentence length.
+
+The comprehension research is mostly on students and general readers, not on experts reading technical reports. McNamara's result suggests experts tolerate density better. You are an expert in the project but a newcomer to each document's coined terms, so the newcomer findings apply to the terms.
+
+The four shapes have not been tested on you. The quickest test is the one this document already makes. Read the four renderings of §3.3. Which one could you explain to someone else after one pass?
+
+## 5. Your call
+
+<QuestionForm
+  questions={[
+    {
+      id: "shape",
+      title: "Which shape should agents use when one unit carries many facts?",
+      subtitle: "Each option is shown as a rewrite of the same parking-licence paragraph in §2 and on the first screen.",
+      refs: [{ label: "2. Four shapes, each applied to the specimen", anchor: "2-four-shapes-each-applied-to-the-specimen" }],
+      mode: "single",
+      allowOther: true,
+      options: [
+        { id: "d", label: "D: verdict line, a table of what each party says with sources, then labelled judgements", recommended: true, detail: "Falls back to C when only one party is involved. The longest: about 2.4 times the words of the original." },
+        { id: "c", label: "C: verdict line, then one labelled paragraph per fact or judgement, no table", detail: "Simplest to write; also works in chat replies." },
+        { id: "a", label: "A: the same paragraphs, re-cut to one fact per sentence with sources on their own line", detail: "Smallest change from today's documents." },
+        { id: "b", label: "B: one table holds every fact, including the verdict", detail: "Fastest lookup; leaves the reasoning between rows for you to infer." },
+      ],
+    },
+    {
+      id: "cites",
+      title: "Where should a citation such as a clause id or node id go by default?",
+      subtitle: "Today it sits in brackets inside the sentence. The panel has no margin-note block.",
+      refs: [{ label: "1.4 Where citations and examples go", anchor: "1-4-where-citations-and-examples-go" }],
+      mode: "single",
+      options: [
+        { id: "beside", label: "Beside the claim: a source column in a table, or a small source line directly under the paragraph", recommended: true, detail: "Keeps the sentence clean and the source in view." },
+        { id: "footnote", label: "In footnotes, which the panel renders at the end of the document", detail: "Cleanest sentences; the source is a scroll away." },
+        { id: "inline", label: "Inside the sentence, as now", detail: "No change; the sentence keeps carrying the id." },
+      ],
+    },
+  ]}
+/>
