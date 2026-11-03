@@ -275,25 +275,35 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
     }),
   );
 
-  it.effect("ask opens the question and wait returns the answer", () =>
+  it.effect("an open ask returns at once; a blocking ask's wait returns the answer", () =>
     Effect.gen(function* () {
       const { threadId } = yield* seedThread({ threadId: "routes-ask" as ThreadId });
       yield* seedRunningRun({ threadId });
       const auth = yield* credential(threadId, ["workstream"]);
+      const questions = [
+        {
+          header: "Ship",
+          question: "Ship it?",
+          options: [
+            { label: "Yes", description: "Merge." },
+            { label: "No", description: "Hold." },
+          ],
+        },
+      ];
+      const open = yield* call(auth, "POST", "/user-input/ask", {
+        toolCallId: "call-0",
+        questions,
+      });
+      assert.equal(open.status, 200);
+      assert.include(open.body.rendered, 'Open on this thread as "Ship"');
+
       const opened = yield* call(auth, "POST", "/user-input/ask", {
         toolCallId: "call-1",
-        questions: [
-          {
-            header: "Ship",
-            question: "Ship it?",
-            options: [
-              { label: "Yes", description: "Merge." },
-              { label: "No", description: "Hold." },
-            ],
-          },
-        ],
+        questions,
+        blocking: true,
       });
       assert.equal(opened.status, 200);
+      assert.isUndefined(opened.body.rendered);
       const requestId = RuntimeRequestId.make(opened.body.requestId);
 
       const result = yield* dispatch({

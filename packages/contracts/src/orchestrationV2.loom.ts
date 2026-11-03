@@ -788,6 +788,23 @@ export const LoomClientCommandMembers = [
 /** The id prefix that marks a Loom `mcp__t3-code__ask_user_question` runtime request (P3-26). */
 export const LOOM_ASK_REQUEST_PREFIX = "loom-ask:";
 
+/** A `loom-ask:` request's Loom fact. Absent or `blocking: true` is a question the agent waits on. */
+export const LoomRuntimeRequestFields = Schema.Struct({ blocking: Schema.Boolean });
+export type LoomRuntimeRequestFields = typeof LoomRuntimeRequestFields.Type;
+
+interface PendingRequestLike {
+  readonly status: string;
+  readonly loom?: LoomRuntimeRequestFields | undefined;
+}
+
+/** A pending ask the agent carried on past: it never holds the thread. */
+export const isOpenQuestion = (request: PendingRequestLike) =>
+  request.status === "pending" && request.loom?.blocking === false;
+
+/** "Is this thread waiting on a human": any pending request but an open (non-blocking) question. */
+export const hasBlockingPendingRequest = (requests: ReadonlyArray<PendingRequestLike>) =>
+  requests.some((request) => request.status === "pending" && request.loom?.blocking !== false);
+
 /**
  * Server-only Loom commands, spliced into `OrchestrationV2InternalCommand`.
  * A factory because `thread.spawn` carries upstream's creation fields
@@ -949,6 +966,7 @@ export const makeLoomInternalCommandMembers = <
       ...LoomCommandFields,
       requestId: RuntimeRequestId,
       questions: Schema.Array(userInputQuestion),
+      loom: Schema.optional(LoomRuntimeRequestFields),
     }),
   ] as const;
 

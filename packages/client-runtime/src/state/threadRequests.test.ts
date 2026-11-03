@@ -291,6 +291,7 @@ describe("pending v2 questions", () => {
         responseCapability: "message",
         responseMode: "message",
         dismissible: true,
+        blocking: true, // loom: open questions
         questions: [
           {
             id: "next",

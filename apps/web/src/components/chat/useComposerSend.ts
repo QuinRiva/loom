@@ -238,8 +238,6 @@ interface ComposerSendInput {
     SetStateAction<Record<string, ReadonlyArray<CodexFeedbackSubmission>>>
   >;
   readonly setThreadError: ReturnType<typeof makeThreadErrorSetter>;
-  // loom: 3d-4 — "reply in chat instead" sets this before calling onSend; the send consumes it.
-  readonly loomReplyInChatRef: { current: boolean };
   readonly setKeepFullHistory: (threadKey: string, keep: boolean) => void;
   readonly anchorNewTurn: TimelineFollow["anchorNewTurn"];
   readonly acknowledgeActiveThreadWoke: () => void;
@@ -329,7 +327,6 @@ export function useComposerSend(input: ComposerSendInput) {
     optimisticBlobPreviews,
     setFeedbackSubmissionsByThreadKey,
     setThreadError,
-    loomReplyInChatRef, // loom: 3d-4
     setKeepFullHistory,
     anchorNewTurn,
     acknowledgeActiveThreadWoke,
@@ -417,8 +414,6 @@ export function useComposerSend(input: ComposerSendInput) {
     },
   ) => {
     e?.preventDefault();
-    const loomReplyInChat = loomReplyInChatRef.current; // loom: 3d-4 reply in chat instead
-    loomReplyInChatRef.current = false;
     // What the user pressed send on; uploads below can take a while, and a redirect must not
     // decline approvals for a draft that changed meanwhile.
     const promptAtSend = promptRef.current;
@@ -496,9 +491,7 @@ export function useComposerSend(input: ComposerSendInput) {
         ? parseSideChatCommand(promptAtSend)
         : null;
     const answeringQuestion =
-      Boolean(activePendingProgress) &&
-      sendCtx?.answeringPendingUserInput !== false &&
-      !loomReplyInChat; /* loom: 3d-4 */
+      Boolean(activePendingProgress) && sendCtx?.answeringPendingUserInput !== false;
     // Where side chats are unavailable, `/side` text can still be a literal answer.
     if (sideChatDisabledReason !== null && sideChatCommand && !answeringQuestion) {
       toastManager.add(

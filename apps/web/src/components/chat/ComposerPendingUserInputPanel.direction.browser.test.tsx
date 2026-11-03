@@ -22,6 +22,7 @@ const renderPanel = (questions: Question[], questionIndex = 0) =>
           requestId: RuntimeRequestId.make("question-direction"),
           createdAt: "2026-10-23T00:00:00.000Z",
           dismissible: false,
+          blocking: true,
           responseCapability: "live",
           questions: questions.map((question, index) => ({
             ...question,

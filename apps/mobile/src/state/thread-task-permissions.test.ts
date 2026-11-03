@@ -295,6 +295,7 @@ describe("mobile task permissions", () => {
           createdAt: "2026-09-05T00:00:00.000Z",
           responseCapability: "live",
           dismissible: false,
+          blocking: true, // loom: open questions
           questions: [state.question],
         },
       ],

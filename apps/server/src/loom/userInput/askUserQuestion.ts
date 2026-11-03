@@ -1,11 +1,11 @@
 /**
- * `ask_user_question` on V2: opens a live waiter and a pending `user_input` runtime request that
- * upstream's panels render unchanged; while the waiter is live the `Orchestrator.ts` hunk withholds
- * upstream's answer message and this reactor hands the waiter the outcome. It also dismisses a
- * pending `loom-ask:` request when a human message lands or the asking run ends (read post-commit).
+ * `ask_user_question` on V2: a pending `user_input` runtime request. An open question returns at once
+ * and its answer arrives as upstream's answer message. A blocking ask also opens a live waiter, which
+ * this reactor settles, closing the request when a human message lands or the asking run ends.
  */
 import {
   CommandId,
+  isOpenQuestion,
   LOOM_ASK_REQUEST_PREFIX,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2RuntimeRequest,
@@ -107,6 +107,10 @@ const answerText = (answer: unknown) =>
       ? answer
       : JSON.stringify(answer);
 
+/** The tool result of a non-blocking ask, returned at once. */
+const renderOpenQuestion = (header: string, othersOpen: number) =>
+  `Open on this thread as "${header}"; ${othersOpen} other ${othersOpen === 1 ? "question is" : "questions are"} open. Carry on with your stated assumption; do not wait for the answer or ask again.`;
+
 /** The tool result for a request that is no longer pending. */
 const renderAskOutcome = (
   request: Pick<OrchestrationV2RuntimeRequest, "status" | "answers" | "decision">,
@@ -137,14 +141,22 @@ const renderAskOutcome = (
 /**
  * Opens the question on the caller's own thread. The request id is
  * thread-scoped from pi's tool call id (DL-303), so a retried POST reuses the
- * receipted command and the waiter.
+ * receipted command and the waiter. A non-blocking ask returns its tool result
+ * as `rendered`; a blocking one leaves the extension to long-poll.
  */
 export const openAskUserQuestion = Effect.fn("loom.askUserQuestion.open")(function* (
   caller: WorkstreamCaller,
-  body: { readonly toolCallId?: unknown; readonly questions?: unknown },
+  body: {
+    readonly toolCallId?: unknown;
+    readonly questions?: unknown;
+    readonly blocking?: unknown;
+  },
 ) {
   const validated = validateAskQuestions(body.questions);
   if ("error" in validated) return yield* new LoomAskError({ message: validated.error });
+  if (body.blocking !== undefined && typeof body.blocking !== "boolean")
+    return yield* new LoomAskError({ message: "blocking must be a boolean when provided." });
+  const blocking = body.blocking === true;
   const key = text(body.toolCallId);
   if (key === undefined) return yield* new LoomAskError({ message: "toolCallId is required." });
   const requestId = RuntimeRequestId.make(
@@ -155,8 +167,9 @@ export const openAskUserQuestion = Effect.fn("loom.askUserQuestion.open")(functi
     ...question,
   }));
   const waiters = yield* LoomAskWaiters;
-  yield* waiters.open(requestId, caller.threadId, questions);
-  yield* (yield* OrchestratorV2)
+  if (blocking) yield* waiters.open(requestId, caller.threadId, questions);
+  const orchestrator = yield* OrchestratorV2;
+  yield* orchestrator
     .dispatch({
       type: "runtime-request.create",
       commandId: stableCommandId(caller, key, "ask_user_question"),
@@ -164,6 +177,7 @@ export const openAskUserQuestion = Effect.fn("loom.askUserQuestion.open")(functi
       createdAt: DateTime.formatIso(yield* DateTime.now),
       requestId,
       questions,
+      loom: { blocking },
     })
     .pipe(
       Effect.tapError(() => waiters.drop(requestId)),
@@ -174,12 +188,22 @@ export const openAskUserQuestion = Effect.fn("loom.askUserQuestion.open")(functi
           }),
       ),
     );
-  return requestId;
+  if (blocking) return { requestId };
+  const { runtimeRequests } = yield* orchestrator
+    .getThreadRecords(caller.threadId, ["runtimeRequests"])
+    .pipe(Effect.orElseSucceed(() => ({ runtimeRequests: [] })));
+  const othersOpen = runtimeRequests.filter(
+    (request) => request.id !== requestId && isOpenQuestion(request),
+  ).length;
+  return { requestId, rendered: renderOpenQuestion(questions[0]!.header, othersOpen) };
 });
 
 const TERMINAL_RUN = new Set(["completed", "interrupted", "failed", "cancelled", "rolled_back"]);
-const isPendingAsk = (request: OrchestrationV2RuntimeRequest) =>
-  request.status === "pending" && request.id.startsWith(LOOM_ASK_REQUEST_PREFIX);
+/** A pending ask whose tool call is waiting on it; open questions close only from their card. */
+const isWaitedAsk = (request: OrchestrationV2RuntimeRequest) =>
+  request.status === "pending" &&
+  request.id.startsWith(LOOM_ASK_REQUEST_PREFIX) &&
+  request.loom?.blocking !== false;
 
 const closeAsk = Effect.fn("askUserQuestion.closeAsk")(function* (
   threadId: ThreadId,
@@ -213,11 +237,13 @@ export const reactToAskEvent = Effect.fn("loom.askUserQuestion.react")(function*
       );
     return;
   }
-  // Rule 6: a human message written after the question was asked settles it.
+  // Rule 6: a human message written after a blocking question was asked settles it. An answer to
+  // another question (upstream's `async-answer:` message, stamped human-authored) is not one.
   if (
     event.type === "message.updated" &&
     event.payload.role === "user" &&
-    event.payload.loom?.humanAuthored === true
+    event.payload.loom?.humanAuthored === true &&
+    !event.payload.id.startsWith("async-answer:")
   ) {
     const message = event.payload;
     const { runtimeRequests } = yield* (yield* OrchestratorV2).getThreadRecords(event.threadId, [
@@ -225,7 +251,7 @@ export const reactToAskEvent = Effect.fn("loom.askUserQuestion.react")(function*
     ]);
     const asked = runtimeRequests.find(
       (request) =>
-        isPendingAsk(request) &&
+        isWaitedAsk(request) &&
         DateTime.toEpochMillis(request.createdAt) <= DateTime.toEpochMillis(message.createdAt),
     );
     if (asked !== undefined) yield* closeAsk(event.threadId, asked.id, "superseded");
@@ -238,7 +264,7 @@ export const reactToAskEvent = Effect.fn("loom.askUserQuestion.react")(function*
       ["runtimeRequests", "turnItems"],
       { turnItemTypes: ["user_input_request"], turnItemRunIds: [event.payload.id] },
     );
-    for (const request of records.runtimeRequests.filter(isPendingAsk)) {
+    for (const request of records.runtimeRequests.filter(isWaitedAsk)) {
       if (
         records.turnItems.some(
           (item) => item.type === "user_input_request" && item.requestId === request.id,

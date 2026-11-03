@@ -39,7 +39,7 @@ import { useLoomThreadFamily } from "../loom/useLoomThreadFamily"; // loom: work
 import { LoomStagedCards } from "../loom/LoomStagedCards"; // loom: 3d-4 staged cards
 import { isDocumentQueryWaiting } from "../loom/DocumentQueryHeader"; // loom: query threads
 import { useSeedPromotedQueryComments } from "../loom/useSeedPromotedQueryComments"; // loom: query threads
-import { useHostLoomPendingInput } from "../loom/pendingUserInputLoom"; // loom: 3d-4 DT-36
+import { OpenQuestionsRail } from "../loom/openQuestions/OpenQuestionsRail"; // loom: open questions
 import { usePreviewSurfaceAnnotating } from "../loom/previewAnnotationPicks"; // loom: annotation picks
 import { ArchivedThreadStatusLine } from "../loom/ArchivedThreadStatusLine"; // loom: archived roots
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
@@ -1367,6 +1367,9 @@ export default function ChatView(props: ChatViewProps) {
     activePendingResolvedAnswers,
     activePendingIsResponding,
     respondingRequestIds,
+    loomQuestions, // loom: open-questions rail
+    respondingUserInputRequestIds, // loom: open-questions rail
+    onRespondToUserInput: onRespondToUserInputStable, // loom: open-questions rail
     onRespondToApproval: onRespondToApprovalStable,
     onDismissUserInput: onDismissUserInputStable,
     onSelectActivePendingUserInputOption: onSelectActivePendingUserInputOptionStable,
@@ -1640,19 +1643,6 @@ export default function ChatView(props: ChatViewProps) {
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
-  // loom: 3d-4 — host the pending question's DT-36 addition: "reply in chat
-  // instead" sends the typed answer as an ordinary message through onSend (the
-  // server settles the set superseded).
-  const loomReplyInChatRef = useRef(false);
-  useHostLoomPendingInput(activePendingUserInput?.requestId ?? null, {
-    onReplyInChat: () => {
-      const text = activePendingProgress?.customAnswer.trim() ?? "";
-      if (text.length === 0) return;
-      loomReplyInChatRef.current = true;
-      promptRef.current = text;
-      void onSend();
-    },
-  });
   const gitStatusCwd = activeThread?.worktreePath ?? gitCwd;
   const gitStatusQuery = useEnvironmentQuery(
     gitStatusCwd === null
@@ -3020,7 +3010,6 @@ export default function ChatView(props: ChatViewProps) {
     },
     setFeedbackSubmissionsByThreadKey,
     setThreadError,
-    loomReplyInChatRef, // loom: 3d-4 reply in chat
     setKeepFullHistory,
     anchorNewTurn,
     acknowledgeActiveThreadWoke,
@@ -3629,6 +3618,19 @@ export default function ChatView(props: ChatViewProps) {
                         />
                       </div>
                     </div>
+                  ) : null}
+                  {/* loom: the open-questions rail, above the composer and apart from it */}
+                  {activeThreadRef && isServerThread ? (
+                    <OpenQuestionsRail
+                      threadRef={activeThreadRef}
+                      composerDraftTarget={composerDraftTarget}
+                      questions={loomQuestions}
+                      cwd={gitCwd ?? undefined}
+                      disabled={!canOperateThread}
+                      respondingRequestIds={respondingUserInputRequestIds}
+                      onAnswer={onRespondToUserInputStable}
+                      onDismiss={onDismissUserInputStable}
+                    />
                   ) : null}
                   <div
                     ref={draftHeroComposerAnchorRef}

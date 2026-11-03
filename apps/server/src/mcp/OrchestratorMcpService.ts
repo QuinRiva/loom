@@ -63,6 +63,7 @@ import {
   ThreadId,
   isOrchestrationV2WorkActive,
 } from "@t3tools/contracts";
+import { hasBlockingPendingRequest } from "@t3tools/contracts"; // loom: open questions
 import { getProviderOptionCurrentValue } from "@t3tools/shared/model";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
@@ -3157,8 +3158,8 @@ const make = Effect.gen(function* () {
             .getThreadRecords(input.threadId, ["runtimeRequests"])
             .pipe(Effect.mapError(threadManagementFailure))).runtimeRequests
         : [];
-      const wakesCaller =
-        ownedTask && !childRequests.some((request) => request.status === "pending");
+      // loom: an open question does not hold the child, so its completion still wakes the caller
+      const wakesCaller = ownedTask && !hasBlockingPendingRequest(childRequests);
       return {
         threadId: input.threadId,
         runId: result.run?.id ?? null,

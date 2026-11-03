@@ -85,6 +85,8 @@ export interface ThreadPendingUserInput {
   readonly responseCapability: OrchestrationV2RuntimeRequest["responseCapability"]["type"];
   readonly responseMode?: "message";
   readonly dismissible: boolean;
+  /** loom: false for a Loom open question the agent carried on past. */
+  readonly blocking: boolean;
 }
 
 export interface PendingThreadRequests {
@@ -248,6 +250,7 @@ export function derivePendingThreadRequests(
           multiSelect: question.multiSelect ?? false,
         })),
         responseCapability,
+        blocking: request.loom?.blocking !== false, // loom: open questions
         dismissible: item.responseMode === "message" || responseCapability === "message",
         ...(item.responseMode === "message" || responseCapability === "message"
           ? { responseMode: "message" as const }

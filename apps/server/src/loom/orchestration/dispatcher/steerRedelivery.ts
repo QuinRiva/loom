@@ -4,6 +4,7 @@
  * snapshot text: the stash dir also mirrors live turns' steers and pi overwrites the file. Same id as
  * the startup send, so the paths are exclusive; the file goes only if it still holds that text.
  */
+import { hasBlockingPendingRequest } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import { loomContinuationVetoed } from "../../../orchestration-v2/Orchestrator.loom.ts";
@@ -45,7 +46,7 @@ export const steerRedelivery: PassStep = {
             carrier === undefined ||
             loomContinuationVetoed(
               ctx.nodesById.get(threadId) ?? null,
-              runtimeRequests.some((request) => request.status === "pending"),
+              hasBlockingPendingRequest(runtimeRequests),
             )
           )
             return;

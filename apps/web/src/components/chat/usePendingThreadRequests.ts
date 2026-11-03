@@ -53,6 +53,7 @@ import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { toastManager } from "../ui/toast";
 
 import type { ChatComposerHandle } from "./ChatComposer";
+import { splitLoomQuestions } from "../../loom/openQuestions/openQuestions"; // loom: open-questions rail
 
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const usePendingUserInputAnswers = create<
@@ -160,10 +161,12 @@ export function usePendingThreadRequests(input: {
     pendingRequests.approvals.length === 0
       ? NO_PENDING_APPROVALS
       : derivePendingApprovals(pendingRequests.approvals);
-  const pendingUserInputs =
+  const allPendingUserInputs =
     pendingRequests.userInputs.length === 0
       ? NO_PENDING_USER_INPUTS
       : derivePendingUserInputs(pendingRequests.userInputs);
+  // loom: Loom asks go to the open-questions rail, never upstream's composer panel.
+  const { loomQuestions, pendingUserInputs } = splitLoomQuestions(allPendingUserInputs);
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingRequestKey = userInputDraftKey(
     environmentId,
@@ -302,7 +305,7 @@ export function usePendingThreadRequests(input: {
   ) => {
     if (!activeThreadId || !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope))
       return;
-    const pendingInput = pendingUserInputs.find((input) => input.requestId === requestId);
+    const pendingInput = allPendingUserInputs.find((input) => input.requestId === requestId); // loom: the rail answers too
     if (!pendingInput || pendingInput.responseCapability === "not_resumable") return;
     const responseKey = JSON.stringify([environmentId, activeThreadId, requestId]);
     if (userInputResponsesInFlight.current.has(responseKey)) return;
@@ -382,6 +385,7 @@ export function usePendingThreadRequests(input: {
     return result;
   };
   const onDismissUserInputStable = useStableCallback(onDismissUserInput);
+  const onRespondToUserInputStable = useStableCallback(onRespondToUserInput); // loom: the rail
 
   const setActivePendingUserInputQuestionIndex = (nextQuestionIndex: number) => {
     if (!activePendingUserInput) {
@@ -507,6 +511,9 @@ export function usePendingThreadRequests(input: {
     activePendingResolvedAnswers,
     activePendingIsResponding,
     respondingRequestIds,
+    loomQuestions, // loom: open-questions rail
+    respondingUserInputRequestIds, // loom: open-questions rail
+    onRespondToUserInput: onRespondToUserInputStable, // loom: open-questions rail
     onRespondToApproval: onRespondToApprovalStable,
     onDismissUserInput: onDismissUserInputStable,
     onSelectActivePendingUserInputOption: onSelectActivePendingUserInputOptionStable,

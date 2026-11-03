@@ -689,6 +689,7 @@ function PendingUserInputPreview({
             })),
             responseCapability: "live",
             dismissible,
+            blocking: true, // loom: open questions
           },
         ]}
         respondingRequestIds={[]}

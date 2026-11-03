@@ -163,9 +163,9 @@ const askRoute = HttpRouter.route(
       const body = (yield* request.json.pipe(Effect.orElseSucceed(() => ({})))) as {
         readonly toolCallId?: unknown;
         readonly questions?: unknown;
+        readonly blocking?: unknown;
       };
-      const requestId = yield* openAskUserQuestion(caller, body);
-      return HttpServerResponse.jsonUnsafe({ requestId });
+      return HttpServerResponse.jsonUnsafe(yield* openAskUserQuestion(caller, body));
     }).pipe(
       Effect.catchTags({ LoomAskError: (error) => Effect.succeed(reply(409, error.message)) }),
     ),

@@ -19,6 +19,7 @@ import {
   RuntimeRequestId,
   ThreadId,
 } from "@t3tools/contracts";
+import type { ThreadPendingUserInput } from "@t3tools/client-runtime/state/thread-requests";
 import { LOOM_SEED, loomSeedControlMessages } from "@t3tools/shared/loomSeedFixture.loom";
 import type { FilesystemEntryMetadata } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -598,4 +599,75 @@ export const loomPreviewHandbackMessages: ReadonlyArray<OrchestrationV2Conversat
       },
     ],
   }),
+];
+
+const openQuestion = (
+  key: string,
+  createdAt: string,
+  blocking: boolean,
+  header: string,
+  question: string,
+  options: ReadonlyArray<{ label: string; description: string; recommended?: boolean }>,
+): ThreadPendingUserInput => ({
+  requestId: RuntimeRequestId.make(`loom-ask:preview:${key}`),
+  createdAt,
+  responseCapability: "message",
+  responseMode: "message",
+  dismissible: true,
+  blocking,
+  questions: [
+    {
+      id: "q1",
+      header,
+      question,
+      multiSelect: false,
+      options: options.map(({ label, description, recommended }) =>
+        recommended
+          ? { label: `${label} (Recommended)`, description, value: label }
+          : { label, description },
+      ),
+    },
+  ],
+});
+
+/** The open-questions rail: one blocking ask first, then two the agent carried on past. */
+export const loomPreviewOpenQuestions: ReadonlyArray<ThreadPendingUserInput> = [
+  openQuestion(
+    "push",
+    "2026-10-05T08:48:00.000Z",
+    true,
+    "Push the lease extract to the shared bucket?",
+    "The extract in `data/leases-2026.parquet` holds tenant names. Pushing it to `gs://shared-lake` makes it readable by the whole analytics org. I am waiting on this one because the push cannot be undone.",
+    [
+      { label: "Push it", description: "Everyone in analytics can read it.", recommended: true },
+      { label: "Keep it local", description: "I write a redacted copy instead." },
+    ],
+  ),
+  openQuestion(
+    "colour",
+    "2026-10-05T07:00:00.000Z",
+    false,
+    "Which colour for the lease-extraction favicon",
+    "Six colour versions of the building are on `.artifacts/lease-extraction-colour-options.html`. I am proceeding with white on deep emerald: it has the highest contrast at 16px.",
+    [
+      {
+        label: "White on deep emerald",
+        description: "Highest contrast at 16px.",
+        recommended: true,
+      },
+      { label: "Emerald on white", description: "Washes out on the dark sidebar." },
+      { label: "Monochrome", description: "Indistinguishable from loom." },
+    ],
+  ),
+  openQuestion(
+    "fallback",
+    "2026-10-05T08:20:00.000Z",
+    false,
+    "Keep the old favicon as a fallback?",
+    "Browsers that cached the old favicon keep showing it for a day. I am keeping it as `favicon-legacy.ico` so old bookmarks still resolve.",
+    [
+      { label: "Keep it", description: "One extra file in `public/`.", recommended: true },
+      { label: "Delete it", description: "Old bookmarks show the generic icon." },
+    ],
+  ),
 ];
