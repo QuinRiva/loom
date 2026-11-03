@@ -3,8 +3,8 @@ reader:
   who: Carl, who asked that agents stop bumping the context-budget test, deciding how Loom should guard agent context before anything is built
   knows: that upstream added a byte-count test and that agents have bumped it twice; none of the research reports behind this brief
   after_first_screen: why the number drifted, and whether to accept the recommended answers to the four questions or correct them
-kicker: "Intent brief · draft for your corrections · 3 Nov 2026"
-status: draft
+kicker: "Intent brief · approved · 3 Nov 2026"
+status: approved
 manager_sessions:
   - id: 01a1a026-28f7-7792-9713-242ded4eeb3b
     name: Loom agent-context budget that means something
@@ -55,7 +55,12 @@ manager_sessions:
 - Dropped: deleting or skipping upstream's test. It conflicts at every pull and loses the check on Loom edits to upstream tool text.
 - Dropped: relying on upstream's GitHub label check. It never runs the test, and agents merge before it matters.
 
-**Decided.** Nothing from you yet beyond the goal above.
+**Decided.** Your answers, 3 Nov:
+- Upstream's test: "Measure only upstream's tools, so it moves only on upstream pulls".
+- Loom's guard: "A limit you own: ship stops when Loom's per-turn context goes over it".
+- Headroom: "2 KB per role (about 750 tokens)".
+- Loom's `AGENTS.md`: "Yes, as its own line with its own headroom".
+
 _Assumed:_
 - The ship-gate step is in scope whatever you answer, because it fixes the wrong-number problem on its own.
 - The Loom limit counts text Loom writes (preamble, work-model addendum, role text, ship policy, roles catalogue, Loom's skills, `bg_*`) plus every MCP tool a Loom role keeps resident, upstream's included, because choosing what is resident is Loom's lever.
