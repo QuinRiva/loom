@@ -33,9 +33,10 @@ import * as Stream from "effect/Stream";
 
 import {
   inLiveLoomGoal,
+  isLoomStepBoundary,
   keepsLoomChildInColdShell,
   keepsLoomEntryInColdShell,
-} from "../loom/projection/loomShellJoin.ts"; // loom: DL-1404, DL-1650
+} from "../loom/projection/loomShellJoin.ts"; // loom: DL-1404, DL-1650, card step boundaries
 import { bufferLatestLiveStream } from "./LiveStreamBudget.ts";
 import type { ActiveShellIndexEntry } from "./ProjectionStore.ts";
 
@@ -445,6 +446,7 @@ export function shouldPublishShellApplicationEvent(
   }
   return !(
     subagentThreadIds.has(event.threadId) &&
+    !isLoomStepBoundary(event) && // loom: a tool start/end refreshes the card's active step
     (event.type === "node.updated" ||
       event.type === "turn-item.updated" ||
       event.type === "provider-turn.updated" ||

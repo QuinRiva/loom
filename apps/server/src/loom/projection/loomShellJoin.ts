@@ -4,9 +4,11 @@
  * orchestrator reader sees the joined shape.
  */
 import type {
+  OrchestrationV2StoredEvent,
   OrchestrationV2ThreadShell,
   OrchestrationV2ThreadShellSnapshot,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import type { ActiveShellIndexEntry } from "../../orchestration-v2/ProjectionStore.ts";
@@ -100,4 +102,31 @@ export const keepsLoomEntryInColdShell = (index: ReadonlyArray<ActiveShellIndexE
       (entry.lineage.relationshipToParent === "subagent"
         ? unsettledIds.has(entry.lineage.rootThreadId)
         : inLiveGoal(entry)));
+};
+
+const STEP_ITEM_TYPES = new Set([
+  "command_execution",
+  "file_change",
+  "file_search",
+  "web_search",
+  "dynamic_tool",
+  "subagent",
+]);
+const TERMINAL_ITEM_STATUSES = new Set(["completed", "interrupted", "failed", "cancelled"]);
+
+/**
+ * A subagent's tool start or end, which moves the card's `activeStep` (`LoomStore.threadStats`).
+ * Upstream keeps subagent transcript events off the shell stream, and every workstream child is a
+ * subagent. A tool's first update has `updatedAt === startedAt` and its partial-output updates
+ * almost never do (live data: 1.2 matches per tool, at most 5), so stateless start detection holds.
+ */
+export const isLoomStepBoundary = (event: OrchestrationV2StoredEvent["event"]): boolean => {
+  if (event.type !== "turn-item.updated") return false;
+  const item = event.payload;
+  return (
+    STEP_ITEM_TYPES.has(item.type) &&
+    (TERMINAL_ITEM_STATUSES.has(item.status) ||
+      (item.startedAt !== null &&
+        DateTime.toEpochMillis(item.startedAt) === DateTime.toEpochMillis(item.updatedAt)))
+  );
 };
