@@ -111,8 +111,10 @@ first screen is holding something else.
   unit that carries several facts from more than one party (what a rule says,
   what the record holds, what a model answered) opens with the verdict in one
   line. A compact `<Table>` follows: one row per party, what it says, and a
-  source column. Then one short labelled paragraph per judgement (**Why it is
-  marked wrong.** **Whose miss.**), two or three sentences each. One party:
+  source column, dated where the fact changes over time. A fact the reader
+  will want that nobody recorded is a row that says unknown. Then one short
+  labelled paragraph per judgement (**Why it is marked wrong.** **Whose
+  miss.**), two or three sentences each. One party:
   the labelled paragraphs without the table. A reader holds about four items
   at once; the table holds the rest, and the label lets a judgement be found
   without rereading. The worked card is in `exemplar.md`, 'A fact-dense unit'.
