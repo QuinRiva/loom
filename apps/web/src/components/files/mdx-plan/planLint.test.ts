@@ -46,6 +46,18 @@ describe("lintPlanSource", () => {
     expect(await lintWithReader(source)).toEqual([]);
   });
 
+  it("groups prose-density findings into one warning per check", async () => {
+    const long = `${"A sentence that keeps going and going well past the point a reader can hold it all in mind at once ".repeat(2)}end. `;
+    const findings = await lintWithReader(
+      `# Plan\n\n${long.repeat(3)}See (\`a.ts\`) and (\`b.ts\`).\n`,
+    );
+    expect(findings.map((f) => [f.severity, f.line, f.message.split(" (")[0]])).toEqual([
+      ["warning", 9, "1 paragraph over 100 words"],
+      ["warning", 9, "3 sentences over 30 words"],
+      ["warning", 9, "2 bracketed citations inside a sentence"],
+    ]);
+  });
+
   it("warns (not errors) when frontmatter lacks a complete reader brief", async () => {
     expect(await warningText("# Plan\n")).toContain("No reader brief");
     const signed = READER.replace("---\n\n", "manager_sessions:\n  - role: plan\n---\n\n");

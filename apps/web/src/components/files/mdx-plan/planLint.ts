@@ -1,11 +1,6 @@
 import { fromYaml } from "@t3tools/shared/schemaYaml";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import remarkFrontmatter from "remark-frontmatter";
-import remarkGfm from "remark-gfm";
-import remarkMdx from "remark-mdx";
-import remarkParse from "remark-parse";
-import { unified } from "unified";
 import { z } from "zod";
 
 import type { PlanQuestion } from "./blocks/questionForm";
@@ -14,6 +9,7 @@ import { assignHeadingAnchors } from "./headingAnchors";
 import { attributeValue, type MdxAttrExpression } from "./mdxAttrs";
 import { compilePlanMdx } from "./mdxCompileOptions";
 import { ALLOWED_HTML_TAGS, rawHtmlTagMessage } from "./planBlockTags";
+import { PARAGRAPH_WORDS, parseProseTree, proseDensity, SENTENCE_WORDS } from "./proseDensity";
 import { planBlockByTag } from "./registry";
 import { sanitizeWireframeHtml } from "./sanitizeWireframeHtml";
 import { toneSchema } from "./tones";
@@ -54,10 +50,6 @@ interface JsxAttrNode {
   value?: string | null | MdxAttrExpression;
   position?: { start: Point };
 }
-
-// Frontmatter parsing matches the compile pipeline, so a `sign_document`
-// manifest is not misread as headings/anchors the renderer never emits.
-const mdxParser = unified().use(remarkParse).use(remarkFrontmatter).use(remarkGfm).use(remarkMdx);
 
 /**
  * Source-size budget. The `.mdx` preview reads up to an 8 MiB transport ceiling
@@ -282,6 +274,40 @@ export function stateSemicolonLines(source: string): number[] {
   });
 }
 
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+const lineList = (items: { line: number }[]) => {
+  const lines = [...new Set(items.map(({ line }) => line))];
+  return `line${lines.length === 1 ? "" : "s"} ${lines.join(", ")}`;
+};
+
+/** Prose-density warnings, one per check per document so a long plan is not flooded. */
+function proseDensityFindings(tree: MdastNode): PlanLintFinding[] {
+  const { longParagraphs, longSentences, bracketedCitations, ownLineSidenotes } =
+    proseDensity(tree);
+  const sentenceLines = [...new Set(longSentences.map(({ line }) => line))].map(
+    (line) =>
+      `line ${line}: ${longSentences.flatMap((sentence) => (sentence.line === line ? [sentence.words] : [])).join(", ")}`,
+  );
+  return [
+    longParagraphs.length && {
+      line: longParagraphs[0]!.line,
+      message: `${plural(longParagraphs.length, "paragraph")} over ${PARAGRAPH_WORDS} words (${longParagraphs.map(({ line, words }) => `line ${line}, ${words} words`).join("; ")}). One fact per sentence; the facts a reader must hold together go in a <Table> with a source column (document-quality.md §3).`,
+    },
+    longSentences.length && {
+      line: longSentences[0]!.line,
+      message: `${plural(longSentences.length, "sentence")} over ${SENTENCE_WORDS} words (${sentenceLines.join("; ")}). Split at the clause joint and keep the "because" or "so" that links the halves.`,
+    },
+    bracketedCitations.length && {
+      line: bracketedCitations[0]!.line,
+      message: `${plural(bracketedCitations.length, "bracketed citation")} inside a sentence (${lineList(bracketedCitations)}). Put the source in a <Sidenote> after the sentence, or in the table's source column.`,
+    },
+    ownLineSidenotes.length && {
+      line: ownLineSidenotes[0]!.line,
+      message: `${plural(ownLineSidenotes.length, "<Sidenote> tag")} on a line of its own (${lineList(ownLineSidenotes)}). It renders as a bare line under the previous block; write it straight after the sentence it supports, on the same line.`,
+    },
+  ].flatMap((finding) => (finding ? [{ severity: "warning" as const, ...finding }] : []));
+}
+
 export async function lintPlanSource(source: string): Promise<PlanLintFinding[]> {
   const findings: PlanLintFinding[] = [];
   const sizeFinding = planSizeFinding(source);
@@ -294,7 +320,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
   }
   let tree: MdastNode;
   try {
-    tree = mdxParser.parse(source) as MdastNode;
+    tree = parseProseTree(source) as MdastNode;
   } catch (cause) {
     return [mdxErrorFinding(cause)]; // nothing else is checkable without a parse
   }
@@ -699,6 +725,7 @@ export async function lintPlanSource(source: string): Promise<PlanLintFinding[]>
   };
 
   visit(tree, []);
+  findings.push(...proseDensityFindings(tree));
 
   // Mermaid sources must pass the renderer's own parser (the block shows a
   // per-block error card otherwise).
