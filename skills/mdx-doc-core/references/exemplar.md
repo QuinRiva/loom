@@ -356,9 +356,9 @@ The reviewer's label is the answer the run is scored against. The classifier is 
   ]}
 />
 
-**Why it is marked wrong.** A label passes only when its class matches the reviewer's. The reviewer wrote refund request and the classifier wrote complaint. <Sidenote>Scoring rule: class match first, then fields.</Sidenote>
+**Why it is marked wrong.** A label passes only when its class matches the reviewer's. <Sidenote>Scoring rule: class match first, then fields.</Sidenote> The reviewer wrote refund request and the classifier wrote complaint.
 
-**If the classifier had chosen refund.** It would still have failed, this time on the order field. The reviewer's value is the phrase `not given`, which the scorer compares letter for letter. Nothing the classifier was shown contains that phrase. <Sidenote>Review sheet, row 118, order column.</Sidenote>
+**If the classifier had chosen refund.** It would still have failed, this time on the order field. The reviewer's value is the phrase `not given`, which the scorer compares letter for letter. <Sidenote>Review sheet, row 118, order column.</Sidenote> Nothing the classifier was shown contains that phrase.
 
 **Whose miss.** Half the classifier's: the ticket asks for money back in its first line. Half the guide's: nothing the classifier was sent says what to write when the order number is missing. <Sidenote>Label guide §2, "Refund requests".</Sidenote>
 
@@ -368,9 +368,7 @@ The reviewer's label is the answer the run is scored against. The classifier is 
 ```
 
 It reads because the verdict comes before the facts, so the reader knows what
-the table is for. The table holds the four readings, so the reader does not.
-Each judgement has a label to find it by, and its source sits beside the
-sentence rather than inside it.
+the table is for.
 
 ## Anti-patterns, and what each costs the reader
 

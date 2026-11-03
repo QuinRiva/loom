@@ -87,10 +87,10 @@ Top to bottom (the worked version is in
    withdrawn._
 
    Then one line on what that means for the reader (the pattern behind the
-   amendments, the one item that is urgent). Then **one line of protocol**: an item left
-   undecided takes its recommendation. The widget reports only explicit
-   choices, so that convention is document policy and has to be said, once,
-   after the answer.
+   amendments, the one item that is urgent). Then **one line of protocol**:
+   an item left undecided takes its recommendation. The widget reports only
+   explicit choices, so that convention is document policy and has to be
+   said, once, after the answer.
 
 2. **`## 1. All items`.** A compact `<Table filterable>`, one row per item
    (subject, verdict class, recommendation). `filterable` adds a client-side

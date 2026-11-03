@@ -93,11 +93,11 @@ Needing one of those changed, or finding one no longer clear, goes to the
 owner as one question. So does a new decision that is theirs: a product
 trade-off, deleting data or artefacts, overriding a design document. A choice
 between approaches that differ only on something the owner alone can judge
-is theirs too ("try A and B", with cheap spikes to try). At near-done the owner tries
-their checks and reacts. The reaction becomes changed or new checks in the
-same brief, beside the passed checks and must-not lines every later round is
-still held to. The build goes again until the owner says it works and
-`status` is `done`.
+is theirs too ("try A and B", with cheap spikes to try). At near-done the
+owner tries their checks and reacts. The reaction becomes changed or new
+checks in the same brief, beside the passed checks and must-not lines every
+later round is still held to. The build goes again until the owner says it
+works and `status` is `done`.
 
 ## Where the plan goes
 
@@ -133,9 +133,9 @@ says so in its report, not in the plan. Once the build is final, on the
 branch of the feature's last PR before it ships, the orchestrator appends one
 `## As built` section naming each departure and its reason. There is no
 section when there was none. It also sets `status: done` and adds `recap:`
-if a recap was written. Nothing else changes, because a plan amended as the build goes
-becomes a ledger, and two threads editing one file in a shared worktree
-collide.
+if a recap was written. Nothing else changes, because a plan amended as the
+build goes becomes a ledger, and two threads editing one file in a shared
+worktree collide.
 
 ## Before drafting
 
@@ -211,8 +211,8 @@ genre:
   the decisions that are expensive to undo once data or callers depend on
   them are settled in the plan even when most of the feature ships later.
   Those are the wire format, public ids, data-model shape, and auth and
-  ownership boundaries. Then scope to the smallest first cut that proves the approach
-  without foreclosing it, saying what is in and what is deferred.
+  ownership boundaries. Then scope to the smallest first cut that proves the
+  approach without foreclosing it, saying what is in and what is deferred.
 - **Specific over vague.** Ordered steps name real files, symbols, actions and
   data shapes. A step like "make it work" tells the implementer nothing and
   the reader less.
@@ -237,8 +237,7 @@ Run it before telling the reader the plan is ready. A stray `<` or `{` in
 prose is an MDX compile error that kills the whole rendered document, and
 an unknown tag or invalid props shows an error card in place. Dangling
 canvas ids, ragged tables and sanitiser-stripped HTML degrade silently. Fix
-all
-`error` findings; read each `warning` and fix it unless the degradation is
+all `error` findings; read each `warning` and fix it unless the degradation is
 intended. Exit code 0 means the document compiles and renders, so it will
 display in-app. `--out --png` also writes the rendered page and PNG slices of
 it beside the plan, for you to `read` and look at. How, why they sit beside

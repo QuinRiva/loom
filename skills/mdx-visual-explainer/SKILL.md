@@ -97,18 +97,19 @@ Top to bottom (the worked version is in
    happens → output_, with one literal example beside it. The example is the
    record before and after (`<FieldDiff>`), the input line and the output
    line (`<Code>`), the quoted sentence and what it was classified as, or the
-   exact message or tool result the reader will receive. When the output is an artefact (a
-   compiled string, a DOM fragment, a JSON record), the example is the
-   artefact itself, trimmed, in the block that matches its shape (`<Code>`,
-   `<Json>`). One example per piece is the default; a second is for a
-   boundary the first does not show. A piece that carries several facts from
-   more than one party (a rule, a record, a model's answer) takes the shape
-   in `document-quality.md` §3. A verdict line, a `<Table>` of what each
-   party says with a source column, then short labelled judgements; one
-   party, the labelled paragraphs without the table. The worked card is
-   `exemplar.md`, 'A fact-dense unit'. Past three or four pieces, a piece or a
-   worked example the reader will come back to can be its own numbered `##`
-   rather than a `###` here, since the outline is how they return to it.
+   exact message or tool result the reader will receive. When the output is
+   an artefact (a compiled string, a DOM fragment, a JSON record), the
+   example is the artefact itself, trimmed, in the block that matches its
+   shape (`<Code>`, `<Json>`). One example per piece is the default; a
+   second is for a boundary the first does not show. A piece that carries
+   several facts from more than one party (a rule, a record, a model's
+   answer) takes the shape in `document-quality.md` §3. A verdict line, a
+   `<Table>` of what each party says with a source column, then short
+   labelled judgements; one party, the labelled paragraphs without the table.
+   The worked card is `exemplar.md`, 'A fact-dense unit'. Past three or four
+   pieces, a piece or a worked example the reader will come back to can be
+   its own numbered `##` rather than a `###` here, since the outline is how
+   they return to it.
 4. **`## 3. What this means for you`.** What to do next, what to watch, what
    is unaffected. A short list, or a `<Checklist>` when there are steps.
 5. **`## 4. Open edges`** (optional). What the explanation does not cover,
@@ -169,10 +170,10 @@ The check runs before the reader hears the path. A stray `<` or `{` in
 prose is an MDX compile error that kills the whole rendered document, and an
 unknown tag or invalid props show an error card in place. Fix all `error`
 findings and read each `warning`. Exit code 0 means the document compiles
-and renders, so it will display in-app. `--out --png` writes the rendered page and PNG slices of it
-beside the explainer, for you to `read` and look at (§10 of
-`document-quality.md`, which also says what the page cannot show: a
-`<Mermaid>` draws only in-app). For this genre the look matters more than
+and renders, so it will display in-app. `--out --png` writes the rendered
+page and PNG slices of it beside the explainer, for you to `read` and look
+at (§10 of `document-quality.md`, which also says what the page cannot show:
+a `<Mermaid>` draws only in-app). For this genre the look matters more than
 most, since a figure that does not read is the explanation failing. So when
 the diagram is the one thing you cannot see, the mental model is safer as the
 cards or `<Steps>` ladder the page can check. Any `<Mermaid>` is kept to the
