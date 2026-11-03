@@ -123,7 +123,7 @@ it.effect("agent context matches the committed budget", () =>
       mcpToolListJsonBytes: utf8Bytes(
         JSON.stringify(
           mcp.tools
-            // loom: upstream's figure; Loom's tools are measured by LoomAgentContext.loom.test.ts
+            // loom: upstream's figure; Loom's tools are measured by agentContextLimit.test.ts
             .filter(({ tool }) => !LOOM_TOOL_DEFS.some((def) => def.name === tool.name))
             .map(({ tool }) => ({
               name: tool.name,
