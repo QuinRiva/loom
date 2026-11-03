@@ -240,6 +240,23 @@ For a pill in a `<Card>` header use its `badge`/`badges` props, and in a
 `<Table>` cell the cell's `badge` field — a string attribute is never parsed
 for tags, so `"<Badge>lost</Badge>"` inside a prop renders as literal text.
 
+### `<Sidenote>` — the source beside its claim
+
+A source, id or path for one claim, written inside the paragraph straight
+after the full stop of the sentence it supports. No attributes; the text
+between the tags is inline markdown, so a code span or link renders.
+
+```mdx
+Gold fills both a value and a unit. <Sidenote>Gold workbook, column `F`.</Sidenote> The model left both empty.
+```
+
+In a wide panel the note hangs in the paragraph's right margin, level with
+that line; several notes in one paragraph stack in order. In a narrow panel, or
+a narrow `<Card>` or `<Column>`, it drops to a small line under its sentence.
+In a tight list item it is always that line. Never put it on its own line
+between paragraphs. A `<Table>` cell does not parse tags, so a table carries its
+sources in a source column instead.
+
 ### `<Stats>` — the number strip
 
 The numbers the answer rests on, as large tiles under the lede. Each item is
