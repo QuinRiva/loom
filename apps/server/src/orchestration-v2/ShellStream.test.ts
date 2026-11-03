@@ -37,9 +37,17 @@ const emptyShellSnapshot = {
   archivedThreads: [],
 } as OrchestrationV2ShellSnapshot;
 
+// loom: a tool's mid-run update; `toolItem` below varies it into start and end boundaries
+const runningTool = {
+  type: "command_execution",
+  status: "running",
+  startedAt: DateTime.makeUnsafe(1_000),
+  updatedAt: DateTime.makeUnsafe(1_500),
+};
+
 describe("subagent shell events", () => {
-  const stored = (threadId: string, type: string) =>
-    ({ event: { threadId, type } }) as ApplicationStoredEvent;
+  const stored = (threadId: string, type: string, payload: object = runningTool) =>
+    ({ event: { threadId, type, payload } }) as ApplicationStoredEvent;
 
   it("keeps regular threads and subagent state changes while omitting subagent transcript updates", () => {
     const subagents = new Set(["child"]);
@@ -58,6 +66,21 @@ describe("subagent shell events", () => {
     expect(shouldPublishShellApplicationEvent(stored("child", "run.updated"), subagents)).toBe(
       true,
     );
+  });
+
+  // loom: the card's active step (tool name or thinking) moves only at these boundaries
+  it("publishes a subagent's tool start and end but not its streaming updates", () => {
+    const subagents = new Set(["child"]);
+    const toolItem = (overrides: object) =>
+      stored("child", "turn-item.updated", { ...runningTool, ...overrides });
+    const publishes = (event: ApplicationStoredEvent) =>
+      shouldPublishShellApplicationEvent(event, subagents);
+    expect(publishes(toolItem({ updatedAt: runningTool.startedAt }))).toBe(true);
+    expect(publishes(toolItem({ type: "dynamic_tool", status: "completed" }))).toBe(true);
+    expect(publishes(toolItem({ status: "failed" }))).toBe(true);
+    expect(publishes(toolItem({}))).toBe(false);
+    expect(publishes(toolItem({ type: "reasoning", status: "completed" }))).toBe(false);
+    expect(publishes(stored("child", "message.updated", { status: "completed" }))).toBe(false);
   });
 
   it("tracks subagents created after the subscription starts", () => {
@@ -198,7 +221,9 @@ describe("omitIdleSubagentShells", () => {
     expect(omitted.threads.map((thread) => thread.id)).toEqual(["root"]);
     expect(
       shouldPublishShellApplicationEvent(
-        { event: { threadId: "idle", type: "turn-item.updated" } } as ApplicationStoredEvent,
+        {
+          event: { threadId: "idle", type: "turn-item.updated", payload: runningTool },
+        } as ApplicationStoredEvent,
         omitted.subagentThreadIds,
       ),
     ).toBe(false);
