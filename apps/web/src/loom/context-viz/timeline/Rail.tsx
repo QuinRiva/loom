@@ -81,7 +81,7 @@ export function Rail({
     scrollToRow(figureKey, landing.index, drag.viewPosition);
   };
 
-  // A click lands on the item's row; a turn history has not paged in yet is the one way it pages.
+  // A click lands on the item's row; a click in the veil is the one way the rail pages history.
   const click = (track: HTMLElement, clientY: number) => {
     const item = itemAt(layout, fractionOf(track, clientY) * layout.total);
     const landing = jumpToItem(figureKey, item);
