@@ -1,0 +1,286 @@
+---
+reader:
+  who: Carl, the maintainer and the reader of every agent-written document, approving the intent and the shape of the margin-note block
+  knows: the problem from his own reading, the research explainer (he answered its question form), the document panel and its blocks; nothing of the renderer or lint internals
+  after_first_screen: what will change in the documents he reads, what the margin note will look like at panel width, and the one or two decisions that are still his
+kicker: "Implementation plan · under the approved fact-dense explanations brief · approved 3 Nov 2026"
+status: done
+intent: plans/fact-dense-explanations/intent.mdx
+manager_sessions:
+  - id: 01a19fd5-6d1f-70a2-ba63-0f4c3bf0d8a9
+    name: Fact-dense explanation mechanism plan
+    role: plan
+    authored_at: 2026-11-03T05:35:24.065Z
+---
+
+# Shape D in the skills, a density check in the lint, a margin note in the renderer
+
+Three changes, one PR. The documents agents write you take shape D: a verdict line, a table of what each party says with a source column, then short labelled judgements. The source of a claim sits beside it, never inside the sentence. The document check (the render-health lint every agent runs before handing a document back) warns when prose gets dense again.
+
+**The skills.** The files agents read before writing to you gain a worked example in shape D, one rule naming that shape with its reason, and one rule putting the source beside the claim. Their own sentences get shorter.
+
+**The lint.** The check every document passes before you see it gains three warnings: a paragraph over 100 words, a sentence over 30 words, a bracketed citation inside a sentence. Warnings only; nothing fails.
+
+**The renderer.** A new inline tag, `<Sidenote>`, written straight after a sentence. When the panel is wide the note hangs in the right margin beside that line. When the panel is narrow it drops to a small line under the claim. Both states are below.
+
+**Two bets.** An example steers the model more than a rule does, so the example is the load-bearing change. A margin per paragraph beats a page-wide margin, so only a paragraph with a note gives up width.
+
+**Cost.** Three coder threads in parallel and two review gates, about two days. A fourth thread builds a small eval: half a day, about 300k tokens of proxy quota a run.
+
+<Screen
+      surface="browser"
+      caption="Wide panel: a shape-D unit inside a card, each judgement paragraph with its source hanging in the margin beside its line."
+      html={'<div style="display:flex;flex-direction:column;gap:10px;padding:16px;height:100%"><div style="display:flex;align-items:center;gap:10px;white-space:nowrap;border-bottom:1.4px solid var(--wf-line);padding-bottom:8px"><strong>explainer.mdx</strong><small>explainers/extraction-misses</small><div style="flex:1"></div><span class="wf-pill">Comment</span></div><div class="wf-card" style="display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-left:3px solid var(--wf-ok)"><small>3.3 · A FLOOR THE DEFINITION ASKS FOR AS A NUMBER</small><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><strong>Verdict: marked wrong.</strong><span class="wf-pill">half the model</span><span class="wf-pill">half the ask</span></div><div style="display:flex;flex-direction:column;border:1.4px solid var(--wf-line);border-radius:var(--wf-radius)"><div style="display:flex;gap:10px;padding:6px 10px;border-bottom:1.4px solid var(--wf-line)"><small style="width:90px">Who</small><small style="flex:1">What they say about the floor</small><small style="width:150px">Where</small></div><div style="display:flex;gap:10px;padding:6px 10px;border-bottom:1.4px solid var(--wf-line)"><strong style="width:90px">The licence</strong><span style="flex:1">The fee after a review must not be less than the fee before it.</span><small style="width:150px">Clause 3(c)(i)</small></div><div style="display:flex;gap:10px;padding:6px 10px;border-bottom:1.4px solid var(--wf-line)"><strong style="width:90px">Gold</strong><span style="flex:1">100% of the passing rent. Fills value and unit.</span><small style="width:150px">Gold workbook</small></div><div style="display:flex;gap:10px;padding:6px 10px"><strong style="width:90px">The model</strong><span style="flex:1"><span class="wf-pill">wrong</span> The rule as a sentence. No value, no unit.</span><small style="width:150px">Run answer</small></div></div><div style="display:flex;gap:16px"><p style="flex:1;min-width:0;margin:0"><strong>Why it is marked wrong.</strong> An answer passes only if every key gold fills in matches. Gold fills value and unit. The model left both empty.</p><small style="width:180px;flex:none;border-left:1.4px solid var(--wf-line);padding-left:8px">Scoring rule: the comparator, §4.1 of this document</small></div><div style="display:flex;gap:16px"><p style="flex:1;min-width:0;margin:0"><strong>If the model had written the number.</strong> It would still have failed, this time on the unit. Nothing the model was shown contains the unit word.</p><small style="width:180px;flex:none;border-left:1.4px solid var(--wf-line);padding-left:8px">Unit word: gold workbook, column F. Absent from the definition and the contract sent to the model.</small></div></div></div>'}
+    />
+
+<Screen
+      surface="panel"
+      caption="Narrow panel, beside chat: the same unit, each source now a small line directly under the sentence it supports."
+      html={'<div style="display:flex;flex-direction:column;gap:10px;padding:14px;height:100%"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap;border-bottom:1.4px solid var(--wf-line);padding-bottom:8px"><strong>explainer.mdx</strong><div style="flex:1"></div><span class="wf-pill">Comment</span></div><div class="wf-card" style="display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-left:3px solid var(--wf-ok)"><small>3.3 · A FLOOR THE DEFINITION ASKS FOR AS A NUMBER</small><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><strong>Verdict: marked wrong.</strong><span class="wf-pill">half the model</span><span class="wf-pill">half the ask</span></div><div style="display:flex;flex-direction:column;border:1.4px solid var(--wf-line);border-radius:var(--wf-radius)"><div style="display:flex;gap:8px;padding:6px 8px;border-bottom:1.4px solid var(--wf-line)"><small style="width:64px">Who</small><small style="flex:1">What they say</small><small style="width:72px">Where</small></div><div style="display:flex;gap:8px;padding:6px 8px;border-bottom:1.4px solid var(--wf-line)"><strong style="width:64px">Licence</strong><span style="flex:1">Fee after review not less than before.</span><small style="width:72px">Cl. 3(c)(i)</small></div><div style="display:flex;gap:8px;padding:6px 8px;border-bottom:1.4px solid var(--wf-line)"><strong style="width:64px">Gold</strong><span style="flex:1">100% of passing rent; value and unit.</span><small style="width:72px">Workbook</small></div><div style="display:flex;gap:8px;padding:6px 8px"><strong style="width:64px">Model</strong><span style="flex:1"><span class="wf-pill">wrong</span> A sentence. No value, no unit.</span><small style="width:72px">Run</small></div></div><div style="display:flex;flex-direction:column;gap:4px"><p style="margin:0"><strong>Why it is marked wrong.</strong> An answer passes only if every key gold fills in matches. Gold fills value and unit. The model left both empty.</p><small style="border-left:1.4px solid var(--wf-line);padding-left:8px">Scoring rule: the comparator, §4.1 of this document</small></div><div style="display:flex;flex-direction:column;gap:4px"><p style="margin:0"><strong>If the model had written the number.</strong> It would still have failed, this time on the unit. Nothing the model was shown contains the unit word.</p><small style="border-left:1.4px solid var(--wf-line);padding-left:8px">Unit word: gold workbook, column F. Absent from the definition and the contract.</small></div></div></div>'}
+    />
+
+**In.** The three strands above, the eval (§4), the preview fixture and tests that prove them, and this plan's folder committed with the research explainer. **Out.** Your default model, the release deploy, rewriting existing explainers, a general sidebar block.
+
+**Done means.** The next explainer written under these skills has no bracketed citation in a sentence and passes the lint with no density warning. A document with a `<Sidenote>` shows it beside the line at the preview harness's full width and under the claim at its narrow setting. The five prose files in §3.1 lost words in total, each of the four without a new section lost words on its own, and none of their sentences passes 40 words. One question stays open at the end: how the lint groups its findings.
+
+## 1. The margin note: `<Sidenote>`
+
+<Callout tone="decision" title="An inline tag laid out by CSS, not a wrapper block">
+`<Sidenote>` is written inside the paragraph, straight after the sentence it supports, like `<Badge>` is written inside a sentence today. The renderer needs no new layout component: the paragraph that contains a note reserves a right margin for itself, the note floats into it beside the line it follows, and a container query drops the margin when the paragraph's container is narrower than about 42rem. A paragraph without a note is untouched, so no existing document changes.
+</Callout>
+
+<Columns>
+  <Card eyebrow="Chosen" heading="Inline tag, per-paragraph margin" tone="success" badge="recommended">
+    The author writes the note where the claim is, which is the rule the skills teach. The note aligns with the line it follows, Tufte's placement. Only a noted paragraph narrows, so a document with one note keeps its measure everywhere else, and the same CSS works inside a `<Card>` or `<Callout>`.
+
+    Cost: a noted paragraph is narrower than its neighbours, about 40rem of prose instead of 53rem. In a shape-D unit most judgement paragraphs carry a source, so the ragged edge is confined to the unit.
+  </Card>
+  <Card eyebrow="Rejected" heading="A wrapper block that holds the paragraph and its notes" tone="neutral" badge="rejected">
+    `<Noted>…<Note>…</Note></Noted>` around each paragraph, laid out as a two-column grid like the `<Steps>` aside track. Robust, but the author writes a container per paragraph, the notes stack at the top of the paragraph rather than beside their lines, and it is a second way to say the same thing as the inline tag.
+  </Card>
+  <Card eyebrow="Rejected" heading="A page-wide margin" tone="neutral" badge="rejected">
+    Narrow every paragraph whenever the document has a note and line the notes up in one column. Consistent, but one note reshapes the whole document, and the panel beside chat is often narrower than the prose measure, so there is no margin to reserve. The brief dropped it and you chose the per-paragraph note.
+  </Card>
+</Columns>
+
+### 1.1 The contract
+
+- **Tag.** `Sidenote`, no attributes. The text between the tags is the note: inline markdown, so a code span like `F07:…`, a link or _emphasis_ render. Registered as `inline: true`, like `<Badge>`, so the generated schema reference describes it as text inside a sentence, not a block.
+- **Where it may sit.** Inside a paragraph, after the full stop of the sentence it supports. One sentence may carry one note; a paragraph may carry several, which stack down the margin in order. Inside a `<Card>`, `<Callout>` or `<Column>` body it works the same, against that body's width. In a table cell it does not parse (cells are string attributes, as for `<Badge>`); the table's source column is the place there. In a tight list item there is no paragraph to reserve a margin, so the note always renders as a line under the item; the vocabulary entry says so. On its own line between paragraphs it renders as a small line, and the lint warns.
+- **Wide rendering.** The paragraph reserves 13rem on its right; the note is 12rem wide, small muted text at the `######` line's size, floated right and cleared so a second note sits under the first. It aligns with the top of the line box its tag sits in.
+- **Narrow rendering.** When the nearest container (the document root, or a card or callout body) is narrower than the breakpoint, the paragraph gives up the margin and the note becomes a block line in its place in the text: directly under the sentence it follows. That is the brief's "small source line directly under the paragraph", placed at the claim rather than at the paragraph's end, as your answer to the brief says ("a small line under the claim").
+- **Annotation.** A note is prose, not a block: selecting its text leaves a text-quote comment on the note itself. The flattened text the anchoring code searches gets a line break before a note, so a quote of the sentence before the note never runs into the note's words. Comment badges keep parking outside the prose column, because the margin is inside the paragraph's own box.
+- **Not in the first cut.** A marker numeral in the sentence linking it to its note. The note sits beside its line when wide and under it when narrow, so position carries the link; a numeral is a second cut if a paragraph with three notes proves hard to read.
+
+### 1.2 The steps
+
+1. `apps/web/src/components/files/mdx-plan/blocks/sidenote.tsx`: a `PlanBlock<Record<string, never>>` with an empty zod object, `mdx: { tag: "Sidenote", passChildren: true, inline: true }`, and a `Read` that renders `<small className="plan-sidenote" data-plan-text-boundary>{children}</small>`. Modelled on `blocks/badge.tsx`.
+2. `registry.tsx`: one line in `PLAN_BLOCKS` (`type: "sidenote"`); `planBlockTags.ts`: add `"Sidenote"` to `PLAN_BLOCK_TAGS` (`planBlockTags.test.ts` holds the two in step).
+3. `apps/web/src/index.css`, beside the `.plan-steps` rules, carrying a `/* loom: */` mark since the file exists upstream:
+
+<Code
+  language="css"
+  filename="apps/web/src/index.css (new rules)"
+  code={"/* loom: MDX <Sidenote> (blocks/sidenote.tsx). A note written inline after a\n   sentence floats into a margin its own paragraph reserves, so only a noted\n   paragraph gives up width and the note sits beside the line it follows.\n   Under ~42rem of container the margin goes and the note is a small line\n   under its claim. The container is declared only on a root or body that\n   holds a note, so a document without one is laid out exactly as before.\n   42rem is the starting breakpoint; step 5 of the plan sets the final one. */\n.plan-mdx:has(.plan-sidenote),\n.prose-plan:has(.plan-sidenote) {\n  container-type: inline-size;\n}\n.plan-sidenote {\n  display: block;\n  margin: 0.2rem 0 0.4rem;\n  font-size: 0.8125rem;\n  line-height: 1.45;\n  color: var(--muted-foreground);\n}\np:has(> .plan-sidenote) {\n  display: flow-root; /* the paragraph contains its own floats */\n  padding-right: 13rem;\n}\np > .plan-sidenote {\n  float: right;\n  clear: right;\n  width: 12rem;\n  margin: 0.1rem -13rem 0.35rem 1rem;\n}\n@container (max-width: 42rem) {\n  p:has(> .plan-sidenote) {\n    padding-right: 0;\n  }\n  p > .plan-sidenote {\n    float: none;\n    width: auto;\n    margin: 0.2rem 0 0.4rem;\n  }\n}\n"}
+/>
+
+4. `annotation/anchoring.ts`, `flattenDocument`: treat an element carrying `data-plan-text-boundary` as a boundary, beside the `BOUNDARY_TAGS` check, so a separator lands before the note's text (`flattenDocument` separates only at an element's start). One line.
+5. `apps/web/src/preview/fixtures.tsx`: an `mdx-sidenote` fixture rendering a shape-D unit with three notes, one inside a `<Card>` inside `<Columns>` and one in a list item, with the description telling the checker to try the three widths and to select the sentence before a note. Then settle the breakpoint, as the brief says the harness does: view the fixture at the harness's three widths (full, "Open panel", which takes a 288px side panel out of the width, and "Narrow panel", 420px) and set the `@container` value so that a noted paragraph keeps at least 28rem of prose (about 50 characters a line) wherever the note still hangs, and drops the margin below that. 42rem is the starting value, not the answer; the value chosen and the width at which the note drops go in the coder's report.
+6. `skills/mdx-doc-core/references/block-vocabulary.md`: a `### <Sidenote>` entry after `<Badge>`, by example, saying where it sits, what it does at the two widths, and that a table uses its source column instead. About 120 words.
+7. `blockSchemaDoc.ts`: change the inline wording from "is its label" to "is its content", then `UPDATE_BLOCK_SCHEMA=1 pnpm --filter @t3tools/web test run blockSchemaDoc` regenerates `block-schema.md`.
+
+The lint already rejects an unknown tag and validates props from the registry, so registering the block is what makes `<Sidenote>` legal; the one lint addition specific to it is the own-line warning in §2.
+
+### 1.3 Risks
+
+- `container-type: inline-size` applies layout containment, which makes the root a stacking context and a containing block for positioned descendants. It is declared only when a note is present and `<Steps>` already uses it on itself, but two fixtures are re-run with a note added: `mdx-annotation-defects`, to confirm highlights still track on resize, and the "Plan document" bleed fixture, because layout containment turns the root's visible overflow into ink overflow and a wide block that spills past the root is where that would show.
+- `:has()` is already relied on by the steps rail, so no new browser floor.
+- Three or more notes on one short paragraph overflow the paragraph's height; `display: flow-root` makes the paragraph grow to hold them, which is the right failure.
+
+## 2. The density check
+
+Three warnings, never errors, computed on the parsed tree the lint already walks. They go in a new pure module, `apps/web/src/components/files/mdx-plan/proseDensity.ts`, so the eval in §4 can score model output with the same code. Its interface, fixed here because the lint and eval coders work in parallel:
+
+- **Input.** An MDX source string. The module parses it itself with `unified().use(remarkParse).use(remarkFrontmatter).use(remarkGfm).use(remarkMdx)`, the same chain `planLint.ts` uses, and also exports that parse as `parseProseTree(source)` so `planLint.ts` can hand over the tree it already has instead of parsing twice (`proseDensity(treeOrSource)` accepts either).
+- **Output.** One record, not messages: `{ longParagraphs: { line, words }[], longSentences: { line, words }[], bracketedCitations: { line }[], ownLineSidenotes: { line }[] }`, with the thresholds exported as `PARAGRAPH_WORDS = 100` and `SENTENCE_WORDS = 30`. `planLint.ts` turns the record into the grouped warning messages below; the eval counts the arrays.
+- **Imports.** Only `unified`, `remark-parse`, `remark-frontmatter`, `remark-gfm` and `remark-mdx`. No import from `planLint.ts` or `registry.tsx` (they pull in React), and no relative import at all, so the eval, which runs as `node run.ts` with type stripping and needs explicit `.ts` extensions, can import the file by path (`../../apps/web/src/components/files/mdx-plan/proseDensity.ts`) and typecheck it under `evals/tsconfig.json`. Those five packages are added to `evals/package.json` so the import resolves there.
+
+<Table
+  density="compact"
+  columns={["Signal", "Threshold", "Where the number comes from", "False positives it risks"]}
+  rows={[
+    ["A paragraph with too many words", "over 100 words", "The specimen paragraph is 134 words and unreadable; every shape-D paragraph is under 50.", "A long quoted passage: paragraphs inside a `>` blockquote are skipped, since quoted text is not the author's prose."],
+    ["A sentence with too many words", "over 30 words", "The specimen's two hardest sentences are 33 and 40 words; the longest sentence in the shape-D rewrite is 25; the government style guides set 25.", "A sentence listing files or symbols: inline code counts as one word. A list item that is one long sentence still fires, which is intended."],
+    ["A bracketed citation inside a sentence", "a `(` immediately followed by one inline code span and then `)`, inside paragraph text and outside a `<Sidenote>`; a bracket that merely contains code, like (this document's `######` lines), does not count", "The specimen's bracketed `F07:…` node id between subject and full stop; Gibson's dependency-distance finding.", "A parenthetical that is genuinely the subject, such as a bracketed `--base-dir` in a plan. Rare; a plain `(§4.1)` section reference is not inline code and is not flagged."],
+    ["A `<Sidenote>` on its own line", "any `<Sidenote>` parsed as a flow element", "It renders as a bare line under the previous block, not beside a claim.", "None."],
+  ]}
+/>
+
+**What is not detectable, and is not pretended.** Facts per paragraph (the specimen's nine), terms used before they are explained (its seven), and a citation sitting between a subject and its verb all need a reader. The checks above catch the mechanical signatures that travelled with those; the exemplar and the rule carry the rest. Models follow numeric limits poorly (the research's LIFEBench finding), so the thresholds are a backstop for the reviewer and the author's own pass, not the lever.
+
+**Sentence splitting.** Text of a paragraph is built from its `text` nodes, with each inline code span replaced by one token so a path's dots are not sentence ends. Sentences end at `.`, `!` or `?` followed by whitespace and a capital, opening quote or bracket; `e.g.`, `i.e.`, `vs.`, `etc.` and `§4.1` are not ends. Words are whitespace-separated tokens. Skipped entirely: headings (so `######` source lines never fire), blockquotes, table cells, code, and the children of a `<Sidenote>`.
+
+**Output shape.** One finding per check per document, listing the lines, so a long plan gets at most four density lines rather than a flood that buries the structural warnings:
+
+<Code
+  language="text"
+  filename="lint output, the specimen pasted as a plain paragraph"
+  code={"explainer.mdx:41 warning: 1 paragraph over 100 words (line 41, 134 words). One fact per sentence; the facts a reader must hold together go in a <Table> with a source column (document-quality.md §3).\nexplainer.mdx:41 warning: 2 sentences over 30 words (line 41: 40, 33). Split at the clause joint and keep the \"because\" or \"so\" that links the halves.\nexplainer.mdx:41 warning: 1 bracketed citation inside a sentence (line 41). Put the source in a <Sidenote> after the sentence, or in the table's source column.\n"}
+/>
+
+The open question at the end is whether this grouping is right or you would rather see one line per offending paragraph.
+
+**Tests.** `proseDensity.test.ts`: the specimen as a paragraph fires all three; the shape-D rewrite fires none; the specimen inside a blockquote fires none; `(§4.1)` fires none; a citation inside `<Sidenote>` fires none; an own-line `<Sidenote>` fires the fourth. `planLint.test.ts` keeps its "valid plan with no findings" case green, which proves a normal plan is not flooded.
+
+## 3. The skills
+
+Every file here is text a model reads, so `llm-instruction-change` and `skill-authoring` govern the edit. For prose like this the reviewer and the per-file count stand in for a paired run, and the eval in §4 supplies one. The coder states each file's purpose in one sentence, counts `+N/−M words, file now T` per file in the PR description, and a reviewer who did not draft it holds a veto on four grounds: already covered; changes no decision; derivable from the code or the tool's output; a rule where a fact would do.
+
+### 3.1 What changes, per file
+
+<Table
+  density="compact"
+  columns={["File", "Change", "Budget"]}
+  rows={[
+    ["`skills/mdx-doc-core/references/document-quality.md`", "§3: the **Facts as fields, not prose** bullet is replaced by two bullets, the fact-dense shape and the source beside the claim (text below). The gloss bullet restates the gloss as its own short sentence. §4's table gains the row `A source for one claim → <Sidenote> after the sentence; a source column in a table`. The rest is the register pass.", { md: "about +180/−550; net down", badge: { label: "largest file", tone: "info" } }],
+    ["`skills/mdx-doc-core/references/exemplar.md`", "A new section **A fact-dense unit** holding a complete shape-D card in MDX with invented facts, and one sentence saying why it reads. The explainer candidates list names `explainers/fact-dense-explanation/explainer.mdx`. Register pass on the prose.", "about +280/−150"],
+    ["`skills/mdx-visual-explainer/SKILL.md`", "Skeleton item 3 (**How it works**) gains the per-piece shape: a piece with several facts from more than one party takes shape D; one party, the labelled paragraphs. Discipline list: the source goes in a `<Sidenote>`. Register pass.", "about +90/−220; net down"],
+    ["`skills/mdx-visual-plan/SKILL.md`", "Register pass only.", "about −250"],
+    ["`skills/mdx-visual-recap/SKILL.md`", "Register pass only. The decision-card anatomy already separates facts from readings and judgements; the citation placement reaches it through document-quality.md.", "about −200"],
+    ["`skills/mdx-doc-core/references/block-vocabulary.md`", "The `<Sidenote>` entry (strand 1, step 6). No register pass: its median sentence is 18 words already and its entries are examples.", "about +120"],
+  ]}
+/>
+
+The two replacement bullets for `document-quality.md` §3, as the coder should land them (short sentences on purpose):
+
+<Code
+  language="markdown"
+  filename="document-quality.md §3, replacing 'Facts as fields, not prose'"
+  code={"- **A fact-dense passage takes the verdict, table, judgements shape.** One\n  unit that carries several facts from more than one party (what a rule says,\n  what the record holds, what a model answered) opens with the verdict in one\n  line. A compact `<Table>` follows: one row per party, what it says, and a\n  source column. Then one short labelled paragraph per judgement (**Why it is\n  marked wrong.** **Whose miss.**), two or three sentences each. One party:\n  the labelled paragraphs without the table. A reader holds about four items\n  at once; the table holds the rest, and the label lets a judgement be found\n  without rereading. The worked card is in `exemplar.md`, 'A fact-dense unit'.\n- **The source sits beside the claim, not in the sentence.** A clause id, a\n  node id or a path goes in a `<Sidenote>` straight after the sentence it\n  supports, or in the table's source column. A citation inside the sentence\n  parts the subject from its verb, and the lint warns on a bracketed one.\n"}
+/>
+
+The exemplar card uses an invented subject. The research explainer's specimen quotes a real licence clause and a real node id; a skill ships to every project, and a value the model could copy must not sit in text it reads (`llm-instruction-change`, rule 4). The card keeps the specimen's shape exactly: verdict line with two badges, a four-row table whose last row is toned, four labelled paragraphs, each source in a `<Sidenote>`.
+
+### 3.2 The register pass
+
+Measured with the script below (which splits bullet lists into their items; the research's "median 28, a tenth past 64" figure read a list as one sentence), the five files run at a median of 22 to 27 words a sentence, a tenth past 43 to 51, and longest sentences of 62 to 121. The vendor's guidance is that prompt style may carry into output. The pass applies to the five prose files in the table and nothing else (`block-vocabulary.md`, `wireframe.md`, `canvas.md` and the generated `block-schema.md` stay). Its rules for the coder:
+
+- Split a sentence over 30 words at its clause joint, and keep the "because", "so" or "unless" that joined the halves. A newcomer to a term needs the link stated (the research's McNamara finding); bare fragments are the other failure.
+- A rule and its reason are two sentences, rule first.
+- An em-dash aside becomes its own sentence or is cut.
+- No new rule enters. A sentence that only restates a rule the same file already holds, or that `block-schema.md` makes derivable, is cut; that is where the net reduction comes from.
+- A rule stated in both a genre `SKILL.md` and `document-quality.md` keeps the one in `document-quality.md` and a pointer in the skill.
+
+Target, measured by the coder and re-measured by the reviewer with the same script: in each of the five files, median sentence at most 20 words and no sentence over 40; the five files' total word count down, and each file's own count down except `exemplar.md`, which gains the fact-dense card and may end net up by at most the card's size. `lint-doc.sh` on the card pasted into a scratch `.mdx` passes only once the renderer thread has registered `Sidenote`, so that check runs at gate 2, not in the skills thread.
+
+<Details summary="The measurement, so both sides count the same way">
+
+<Code
+  language="python"
+  filename="run from the worktree root: python3 measure.py skills/mdx-visual-explainer/SKILL.md (scratch, not committed)"
+  code={"import re, statistics, sys\nfor f in sys.argv[1:]:\n    t = open(f).read()\n    t = re.sub(r'^---\\n.*?\\n---\\n', '', t, flags=re.S)       # frontmatter\n    t = re.sub(r'```.*?```', '', t, flags=re.S)                # fences\n    t = re.sub(r'`[^`\\n]*`', 'CODE', t)                       # inline code is one word\n    t = re.sub(r'^(\\||#+ ).*$', '', t, flags=re.M)              # tables, headings\n    paras = [re.sub(r'\\s+', ' ', p).strip() for p in re.split(r'\\n\\s*\\n|\\n(?=\\s*(?:[-*]|\\d+\\.) )', t) if p.strip()]  # a bullet starts a new paragraph\n    sents = []\n    for p in paras:\n        p = re.sub(r'\\b(e\\.g|i\\.e|vs|etc)\\.', lambda m: m.group(1), p)\n        sents += [len(s.split()) for s in re.split(r'(?<=[.!?])\\s+(?=[A-Z_*`(\\[\"])', p) if len(s.split()) > 2]\n    sents.sort()\n    print(f, 'words', sum(len(p.split()) for p in paras), 'median', statistics.median(sents), 'p90', sents[int(len(sents) * .9)], 'max', max(sents))\n"}
+/>
+
+</Details>
+
+### 3.3 The reviewer's brief for the skills gate
+
+The gate reviewer receives: the purpose sentence per file (`document-quality.md`: what does not vary across genres, who the document is for, how it is ordered, how judgement and evidence are shown, and the check before handoff; `exemplar.md`: the order a good document of each genre reads in, worked, and the anti-patterns with their cost; each genre `SKILL.md`: when that genre is the document, where it goes, its skeleton and its discipline), the per-file counts, the measurement output before and after, the four rejection reasons as a veto, and the eval's run (§4). The reviewer also reads the exemplar card as its reader would and says whether it can be repeated after one pass; that is the test the research set.
+
+## 4. The eval
+
+A density eval answers the brief's open question, whether register transfers, with data instead of a reading. You asked for it to run before the skills reviewer signs off. It follows `evals/README.md`'s shape.
+
+- `evals/explainer-density/`: `run.ts`, `README.md`, `cases.ts`, a row in the evals table.
+- **One case.** An invented fact pack in the specimen's shape (a clause, a field definition, a contract, a gold answer, a model answer, a scoring rule, a counterfactual, a neighbouring row: nine facts, three parties) and the instruction to write that section of an explainer for the maintainer. No real data, per the evals rules.
+- **The prompt.** System: the explainer skill, `document-quality.md` and `exemplar.md`, read from a git ref given as `--skills-ref` (`git show <ref>:<path>`). User: the fact pack. Model: `claude-fable-5-1`, the default in Carl's pi settings and the model whose density is the thing measured, through the CLIProxyAPI route `evals/shared/proxy.ts` already provides, so a run costs proxy quota rather than a key; `--model` overrides.
+- **Arms, nested so each delta is attributable.** The skills coder lands two commits, in this order: first the rule, the exemplar card and the §4 row; then the register pass. The arms are then three refs: the branch's merge-base with `main` (today's skills), the first commit, and the second. Five samples per arm, cache-busted, plus a second five-sample run of the first arm as the A/A noise floor.
+- **Grader.** `proseDensity.ts` from §2 (paragraphs over 100, sentences over 30, bracketed citations), plus mean sentence length and whether the output has a verdict line, a `<Table>` and bold-labelled paragraphs, as plain regexes. `run.test.ts` tests the grader. A person reads the samples that moved.
+- **Cost.** About 20 calls (four five-sample runs) of 15k input tokens, so about 300k tokens of proxy quota a run; recorded in the summary.
+
+The eval thread runs it once the skills thread's two commits and the lint module are on the branch, before gate 1, and the gate reads its summary. The drop rule, scored: the primary metric is mean sentence length per output, the secondary the count of sentences over 30 words. The register pass stays if the third arm lowers the primary metric against the second by more than the A/A spread (the difference between the two first-arm runs) and is not worse on the secondary; otherwise it is dropped by reverting its commit, and the brief's second answer is reported back as "measured, no effect beyond noise". If the two arms sit inside the spread but the direction is right, the eval is rerun at ten samples before the rule is applied.
+
+## 5. Sequencing and gates
+
+<Steps>
+  <Step title="Four coders in parallel, no shared files." aside="Renderer, lint, skills, eval.">
+    The lint's citation message and the skills' rule both name `<Sidenote>` by the tag fixed in §1.1, so neither waits on the renderer. The eval imports `proseDensity.ts` by the path and record shape fixed in §2, so it can be written against that interface before the lint module lands.
+  </Step>
+  <Step title="Two review gates." aside="The skills gate may veto lines. The renderer gate runs the harness and the lint.">
+    Gate 1, the skills, with the brief in §3.3. Gate 2, the renderer and the lint together, since the citation check and the tag meet: it opens the `mdx-sidenote` fixture at the harness's three widths, checks the breakpoint the renderer coder settled, selects a sentence beside a note, and runs `lint-doc.sh` on the specimen, the rewrite and the exemplar card.
+  </Step>
+  <Step title="One PR, opened through the ship procedure and merged by you." badge="pnpm ship, then Carl merges">
+    The global AGENTS.md says a skill edit ships as a PR Carl merges, and that rule is more specific than loom's agent-merge policy, so the agent runs the ship procedure up to the merge and leaves the merge to you. One PR, since the skills name a tag only the renderer half makes real. It includes `explainers/fact-dense-explanation/explainer.mdx` (uncommitted today) and this plan's folder; the plan's `status` moves to `done` on the branch. The unmarked-hunk gate needs the `index.css` hunk marked; the `mdx-plan` directory is loom-only.
+  </Step>
+  <Step title="Deploy is yours, later." tone="neutral" dashed>
+    The skills reach `~/.pi/agent/skills` only when a release is promoted. Until then the merged text changes nothing an agent reads.
+  </Step>
+</Steps>
+
+<Details summary="All touched files">
+
+<FileTree
+  title="Change map"
+  entries={[
+    { path: "apps/web/src/components/files/mdx-plan/blocks/sidenote.tsx", change: "added", note: "the inline block, modelled on badge.tsx" },
+    { path: "apps/web/src/components/files/mdx-plan/registry.tsx", change: "modified", note: "one PLAN_BLOCKS line" },
+    { path: "apps/web/src/components/files/mdx-plan/planBlockTags.ts", change: "modified", note: "Sidenote in PLAN_BLOCK_TAGS" },
+    { path: "apps/web/src/components/files/mdx-plan/annotation/anchoring.ts", change: "modified", note: "data-plan-text-boundary joins the boundary test in flattenDocument" },
+    { path: "apps/web/src/index.css", change: "modified", note: "the sidenote rules, marked loom:" },
+    { path: "apps/web/src/preview/fixtures.tsx", change: "modified", note: "mdx-sidenote fixture" },
+    { path: "apps/web/src/components/files/mdx-plan/blockSchemaDoc.ts", change: "modified", note: "'is its label' becomes 'is its content' for inline tags" },
+    { path: "skills/mdx-doc-core/references/block-schema.md", change: "modified", note: "regenerated" },
+    { path: "skills/mdx-doc-core/references/block-vocabulary.md", change: "modified", note: "the <Sidenote> entry" },
+    { path: "apps/web/src/components/files/mdx-plan/proseDensity.ts", change: "added", note: "the three checks and the own-line Sidenote check, pure" },
+    { path: "apps/web/src/components/files/mdx-plan/proseDensity.test.ts", change: "added", note: "specimen fires, rewrite does not" },
+    { path: "apps/web/src/components/files/mdx-plan/planLint.ts", change: "modified", note: "calls proseDensityFindings after the visit" },
+    { path: "skills/mdx-doc-core/references/document-quality.md", change: "modified", note: "the two bullets, the gloss restatement, the §4 row, the register pass" },
+    { path: "skills/mdx-doc-core/references/exemplar.md", change: "modified", note: "A fact-dense unit; candidates list; register pass" },
+    { path: "skills/mdx-visual-explainer/SKILL.md", change: "modified", note: "per-piece shape; register pass" },
+    { path: "skills/mdx-visual-plan/SKILL.md", change: "modified", note: "register pass" },
+    { path: "skills/mdx-visual-recap/SKILL.md", change: "modified", note: "register pass" },
+    { path: "evals/explainer-density/", change: "added", note: "run.ts, cases.ts, run.test.ts, README.md" },
+    { path: "evals/package.json", change: "modified", note: "the explainer-density script and the five remark packages proseDensity.ts imports" },
+    { path: "evals/README.md", change: "modified", note: "a row in the evals table" },
+    { path: "explainers/fact-dense-explanation/explainer.mdx", change: "added", note: "the research, committed with the work" },
+    { path: "plans/fact-dense-explanations/", change: "added", note: "this brief and plan" },
+  ]}
+/>
+
+</Details>
+
+## 6. Verification
+
+- **Gates.** `vp check` and `vp run typecheck`; `vp test run apps/web/src/components/files/mdx-plan` for the lint, tag-list and schema-doc tests beside the change.
+- **The note, live.** The preview harness (`/preview`, fixture `mdx-sidenote`) at its three widths. Full width: each note sits beside the line its tag follows, inside and outside a card. "Open panel": the note still hangs if the settled breakpoint says so, with at least 28rem of prose beside it. "Narrow panel": each note is a small line directly under its sentence, and the paragraph takes the full width again. Select the sentence before a note and open Comment: the quoted text ends at the full stop. Select the note's text: the highlight is on the note. Then the `mdx-annotation-defects` fixture with one note added: highlights track a panel resize. One pass in the real panel via the dev-verify recipe, dragging the split to watch the note drop, is the end-to-end smoke.
+- **The lint, on real documents.** `bash skills/mdx-doc-core/scripts/lint-doc.sh explainers/fact-dense-explanation/explainer.mdx` reports no density warning: its original paragraph is in a blockquote and its rewrite is short. The same paragraph pasted as a plain paragraph into a scratch copy reports the three warnings in §2. `lint-doc.sh plans recaps explainers` ends with zero errors; the warning count it prints is recorded in the PR as the baseline for existing documents.
+- **The skills.** The measurement script's output per file before and after, and `+N/−M words, file now T` per file, in the PR description. `lint-doc.sh` on the exemplar's new card pasted into a scratch `.mdx` renders it with no finding, so the exemplar an author copies is itself valid; this runs at gate 2, after the renderer registers the tag.
+- **The eval.** One full run across the three arms and the A/A repeat before the skills gate, its summary in `evals/explainer-density/runs/` (gitignored), and the drop rule's two metrics with the spread quoted in the gate's report.
+
+<QuestionForm
+  questions={[
+    {
+      id: "lint-grouping",
+      title: "How should the lint report density findings?",
+      subtitle: "A long plan can have many paragraphs over the thresholds; the warnings must not bury the structural ones.",
+      refs: [{ label: "2. The density check", anchor: "2-the-density-check" }],
+      mode: "single",
+      options: [
+        { id: "grouped", label: "One line per check, listing the offending line numbers", recommended: true, detail: "At most four density lines per document." },
+        { id: "per-paragraph", label: "One line per offending paragraph, in document order", detail: "Easier to fix one by one in an editor; noisier on a long plan." },
+      ],
+    },
+  ]}
+/>
+
+## As built
+
+- **Breakpoint 41rem, not 42rem.** The note hangs only in a container wider than 41rem: 28rem of prose plus the 13rem margin, which is exactly the floor step 5 set. At 42rem it would drop a rem early.
+- **Sentence ends are not restricted to a following capital.** §2 said a sentence ends only before a capital, quote or bracket. That merged the specimen's last two sentences (its neighbour sentence begins in lowercase) and gave 40 and 51 words where §2's own expected output says 40 and 33. Ending at any whitespace, with the listed abbreviations excepted, reproduces §2.
+- **The own-line check also catches `<Sidenote>` alone on a line as a paragraph.** That form parses as a paragraph holding only the note, not as a flow element, and it is the mistake an author will actually make.
+- **No packages were added to `evals/package.json`.** Node and tsc resolve `unified` and `remark-*` from `proseDensity.ts`'s own location, and the extra dependencies failed `knip`. The eval imports the file by path as planned.
+- **The lint grouping question was answered by the orchestrator:** grouped, one line per check.
+- **The eval ran the ten-sample rerun itself** when the five-sample result sat inside the A/A spread, so the gate needed no second round. Cost was about 1.17M tokens of proxy quota against the plan's 300k estimate, 700k of it the rerun. The drop rule did not say whether arm three is compared against one run of arm two or both pooled; the orchestrator ruled pooled (gap 1.0 words against a spread of 0.8, secondary better), so the register pass stays. The clearest transfer was not sentence length but em-dashes: zero in 15 register-pass outputs against 129 in 30 without it.
+- **The fact-dense rule keeps two instructions the old bullet had** that §3.1's replacement text dropped: date a fact that changes over time, and state a fact nobody recorded as unknown. Restored after gate 1 as one sentence each.
+- **The "zero errors" line in §6 was recorded as a baseline instead.** `lint-doc.sh plans recaps explainers` ends with 10 errors, all from before this change, in frozen `upstream-pull9` plans and `pull8-decisions` recap images; they were not reopened. Warnings on existing documents: 269, of which 220 are the new density lines.
+- **The gloss example in `document-quality.md` shows the gloss as its own sentence**, since the old example used an em-dash aside, the register being removed; and the explainer skill's source rule is a pointer bullet to `document-quality.md` rather than text inside its mechanism bullet.

@@ -3826,6 +3826,45 @@ code {
   }
 }
 
+/* loom: MDX <Sidenote> (blocks/sidenote.tsx). A note written inline after a
+   sentence floats into a margin its own paragraph reserves, so only a noted
+   paragraph gives up width and the note sits beside the line it follows.
+   At 41rem of container or less (28rem of prose beside a 13rem margin) the margin
+   goes and the note is a small line under its claim. The container is
+   declared only on a root or body that holds a note, so a document without
+   one is laid out exactly as before. */
+.plan-mdx:has(.plan-sidenote),
+.prose-plan:has(.plan-sidenote) {
+  container-type: inline-size;
+}
+.plan-sidenote {
+  display: block;
+  margin: 0.2rem 0 0.4rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+}
+p:has(> .plan-sidenote) {
+  display: flow-root;
+  padding-right: 13rem;
+}
+p > .plan-sidenote {
+  float: right;
+  clear: right;
+  width: 12rem;
+  margin: 0.1rem -13rem 0.35rem 1rem;
+}
+@container (max-width: 41rem) {
+  p:has(> .plan-sidenote) {
+    padding-right: 0;
+  }
+  p > .plan-sidenote {
+    float: none;
+    width: auto;
+    margin: 0.2rem 0 0.4rem;
+  }
+}
+
 /* loom: MDX vocabulary v2: mermaid (blocks/mermaid.tsx), a pele diagram on the
    document card. A `tone-*` node class takes the palette; a two-line node
    (`.plan-status`) reads as a bold name over a mono status line in its tone. */

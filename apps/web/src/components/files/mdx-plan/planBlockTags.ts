@@ -34,6 +34,7 @@ export const PLAN_BLOCK_TAGS: ReadonlySet<string> = new Set([
   "ReviewChoice",
   "Screen",
   "Section",
+  "Sidenote",
   "Stats",
   "Step",
   "Steps",

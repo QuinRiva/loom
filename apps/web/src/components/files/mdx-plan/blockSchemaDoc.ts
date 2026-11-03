@@ -166,7 +166,7 @@ export function generateBlockSchemaDoc(): string {
     const childrenField = block.mdx.childrenField as string | undefined;
     out.push(`## \`<${tag}>\`: \`${type}\``, "");
     if (block.mdx.inline) {
-      out.push("Inline element: the **text between its tags** is its label.", "");
+      out.push("Inline element: the **text between its tags** is its content.", "");
     } else if (block.mdx.passChildren && !childrenField) {
       out.push(
         "Container block: renders nested plan blocks written **between its tags** as children.",

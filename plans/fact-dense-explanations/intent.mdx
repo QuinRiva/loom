@@ -1,0 +1,54 @@
+---
+reader:
+  who: Carl, the maintainer and the reader of every agent-written document, approving the intent and the shape of the margin note before anything is built
+  knows: the problem from his own reading; the research explainer, whose question form he answered; the document panel and its blocks; nothing of the renderer or lint internals
+  after_first_screen: he can correct any line or say "go", and knows the three decisions that are his
+kicker: "Intent brief · approved 3 Nov 2026"
+status: approved
+plan: plans/fact-dense-explanations/plan.mdx
+manager_sessions:
+  - id: 01a19fd5-6d1f-70a2-ba63-0f4c3bf0d8a9
+    name: Fact-dense explanation mechanism plan
+    role: intent
+    authored_at: 2026-11-03T05:35:24.064Z
+---
+
+# Explanations you can parse on one reading: a verdict, a table of who says what, labelled judgements, the source beside the claim
+
+**Goal.** "I frequently find myself reading very dense paragraphs that have a large number of facts in them, relationships between those facts, dependencies, etc. I find it very difficult to parse this information." And: "having citations and having examples is all actually quite helpful, because it helps me understand the context of an issue - but a 100 word sentence is not helpful." When an agent explains something fact-dense to you, the facts are laid out, each judgement is labelled, and the source sits beside the claim rather than inside the sentence.
+
+**You'll know it works when.**
+
+- The next explainer an agent writes you on a many-party subject opens each unit with a verdict line, then a table of what each party says with a source column, then short labelled paragraphs. A unit with one party has the labelled paragraphs and no table.
+- A source sits beside the sentence it supports: in the margin when the document panel is wide, on a small line under the claim when it is narrow. Never inside the sentence.
+- You run the document check (the render-health lint every agent runs before handing a document back, `skills/mdx-doc-core/scripts/lint-doc.sh`) on the original parking-licence paragraph and it warns on the paragraph's length and its bracketed citation. You run it on the shape-D rewrite and it reports nothing.
+- The skill files agents read before writing to you are shorter than today, and none of their sentences runs past 40 words.
+- **Must not:** change how any existing document looks (a document without the new tag renders as it does today); break comments and annotation badges beside a note; block anything (the new checks warn, they never fail a document).
+
+**Approaches in play.**
+
+- Three levers together: an exemplar written in the target shape, a short do-rule with its reason, and a mechanical check in the document lint. _Your pick, from the research._ Wins if the next explainers come out in shape D without being asked.
+- A margin note the renderer draws beside the claim, per paragraph, dropping under the claim when the panel is narrow. Wins if a note beside its line reads faster than a line under the paragraph.
+- An eval that writes the same fact pack under each version of the skills and measures the density. Wins if it shows whether the skills' own register transfers, which the research could not say.
+- Dropped: a page-wide margin that narrows every paragraph, Tufte's layout. One note would change the measure of a whole document, and the panel beside chat is often too narrow to have a margin at all.
+- Dropped: a sentence-length rule alone. The original paragraph mostly passes it.
+- Dropped: an instruction naming your model's density. The exemplar does the same work and survives the next model rollover.
+
+**Decided.**
+
+- Shape: "D: verdict line, a table of what each party says with sources, then labelled judgements". One party: shape C, the same without the table.
+- Citations: "Beside the claim: a source column in a table, or a small source line directly under the paragraph".
+- The margin note: "So why not just build these? If that's the sensible place to put things, shouldn't we just add it?" And its design: "Yes, per paragraph: the note hangs beside its line when there is room, else sits as a small line under the claim".
+- The skills' own prose: "Yes, all five prose files: the shared quality bar, the exemplars, and the explainer, plan and recap skills".
+- The eval: "Yes, build it and run it before the skills reviewer signs off".
+- The global AGENTS.md compression pass is about code diffs and "shouldn't apply to explanations in markdown". It is not cited as a cause.
+- _Assumed:_ the global AGENTS.md is left alone, since its compression pass already reads as code rules; redirect if you want that scope written in.
+- _Assumed:_ the density warnings run on every MDX document, plans and recaps included, because you read all of them; redirect if explainers only.
+- _Assumed:_ the tag is `<Sidenote>`, with no attributes.
+
+**Not doing.** Changing your default model. Deploying the release. Rewriting existing explainers. A general sidebar or aside block. Any check that fails a document.
+
+**Still unknown.**
+
+- Whether the register of the skills' prose transfers to the model's output. The eval settles it before the skills reviewer signs off.
+- Where the note should stop hanging and drop under the claim. The preview harness at three panel widths settles it before the renderer reviewer sees it.

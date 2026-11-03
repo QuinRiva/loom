@@ -764,7 +764,7 @@ function pendingUserInputFixture(
 const MDX_ANNOTATION_FIXTURE_SOURCE = [
   "# Annotation layer defect fixture",
   "",
-  "This paragraph before the card is deliberately long prose so a reviewer can select a multi-line span and comment on it, exercising the text-anchor per-line highlight path. It needs enough words to wrap across several lines at the capped measure: no PR trains, merge order, benchmark tables, scale considerations, just filler that wraps and wraps.",
+  "This paragraph before the card is deliberately long prose so a reviewer can select a multi-line span and comment on it, exercising the text-anchor per-line highlight path. <Sidenote>A margin note: its paragraph declares a container, so highlights must still track a resize.</Sidenote> It needs enough words to wrap across several lines at the capped measure: no PR trains, merge order, benchmark tables, scale considerations, just filler that wraps and wraps.",
   "",
   '<Card heading="S4: the face-rent finding" tone="warning" badge="STAGE">',
   "",
@@ -791,7 +791,7 @@ const MDX_ANNOTATION_FIXTURE_SOURCE = [
 const MDX_WIDE_BLOCK_FIXTURE_SOURCE = [
   "# Wide-block bleed in a plan document",
   "",
-  "This paragraph must keep the readable prose measure no matter how wide the panel gets: the bleed is for artefacts only, and a line of body copy that runs the full width of a large display is exactly what the capped column exists to prevent.",
+  "This paragraph must keep the readable prose measure no matter how wide the panel gets: the bleed is for artefacts only, and a line of body copy that runs the full width of a large display is exactly what the capped column exists to prevent. <Sidenote>A note makes the root a size container; the bleed below must be unchanged.</Sidenote>",
   "",
   "## Top-level diff (split): must bleed",
   "",
@@ -1096,6 +1096,59 @@ const mdxAnnotationFixture: PreviewFixture = {
   render: () => (
     <PlanPanelPreview key="mdx-annotation-defects" source={MDX_ANNOTATION_FIXTURE_SOURCE} />
   ),
+};
+
+/**
+ * `<Sidenote>`: a shape-D unit in a top-level card (notes hang beside their lines when the
+ * body is wide), a card in `<Columns>` (too narrow, so the note sits under its claim), a
+ * tight list item (always a line under) and plain prose with two stacked notes.
+ */
+const MDX_SIDENOTE_FIXTURE_SOURCE = [
+  "# Margin notes beside their claims",
+  "",
+  "The lede has no note.",
+  "",
+  "A paragraph without a note keeps the full measure. This one is here so the ragged edge of the noted paragraphs below is easy to compare against an untouched neighbour.",
+  "",
+  "The floor clause was read as a rule, not a number. <Sidenote>Licence clause 3(c)(i), the review floor.</Sidenote> The gold answer fills both a value and a unit for it, so a rule in words cannot match. <Sidenote>Gold workbook, column `F`; see [the scoring rule](#scoring).</Sidenote> Two notes on one paragraph stack down the margin in order, each level with the line its tag follows.",
+  "",
+  '<Card eyebrow="3.3 · The review floor" heading="Verdict: marked wrong" tone="success" badges={[{ label: "half the model", tone: "warning" }, { label: "half the ask", tone: "info" }]}>',
+  "",
+  '<Table density="compact" columns={["Who", "What they say about the floor", "Where"]} rows={[["The licence", "The fee after a review must not be less than the fee before it.", "Clause 3(c)(i)"], ["Gold", "100% of the passing rent. Fills value and unit.", "Gold workbook"], ["The model", "The rule as a sentence. No value, no unit.", "Run answer"]]} />',
+  "",
+  "**Why it is marked wrong.** An answer passes only if every key gold fills in matches. <Sidenote>Scoring rule: the comparator, §4.1 of this document.</Sidenote> Gold fills value and unit. The model left both empty.",
+  "",
+  "**If the model had written the number.** It would still have failed, this time on the unit. Nothing the model was shown contains the unit word. <Sidenote>Unit word: gold workbook, column `F`. Absent from the definition and the contract sent to the model.</Sidenote>",
+  "",
+  "</Card>",
+  "",
+  "## Inside a card in columns",
+  "",
+  "<Columns>",
+  '  <Card heading="Whose miss" tone="warning">',
+  "    Half the miss is the model's: it had the clause and wrote no number. <Sidenote>Run answer, field `floor`.</Sidenote> Half is the ask's, which never named the unit.",
+  "  </Card>",
+  '  <Card heading="What would fix it" tone="info">',
+  "    Naming the unit in the field definition. Nothing else in the contract needs to change for the floor to score.",
+  "  </Card>",
+  "</Columns>",
+  "",
+  "## In a tight list",
+  "",
+  "- The licence sets the floor. <Sidenote>Clause 3(c)(i).</Sidenote> A tight list item has no paragraph to reserve a margin, so the note is always a line under.",
+  "- The gold answer fills value and unit.",
+  "",
+  "## Scoring",
+  "",
+  "A closing paragraph without a note, back at the full measure.",
+].join("\n");
+
+const mdxSidenoteFixture: PreviewFixture = {
+  id: "mdx-sidenote",
+  title: "Sidenote (margin note)",
+  description:
+    "Full width: each note hangs in the margin level with the line its tag follows, in the top-level card too; the card in <Columns> and the list item show the note as a small line under the claim. 'Open panel' (at a 1440px window): the top-level notes still hang beside 28rem of prose while the card's drop; 'Narrow panel': every note drops under its sentence and the paragraph takes the full width. The note hangs only in a container wider than 41rem. Select the sentence before a note and Comment: the quote ends at its full stop. Select the note's text: the highlight sits on the note.",
+  render: () => <PlanPanelPreview key="mdx-sidenote" source={MDX_SIDENOTE_FIXTURE_SOURCE} />,
 };
 
 const MDX_MERMAID_FIXTURE_SOURCE = [
@@ -1412,6 +1465,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       mdxGlossaryFixture,
       mdxQuestionRefsFixture,
       mdxWideBlockFixture,
+      mdxSidenoteFixture,
       mdxDiffWordsFixture,
       mdxAnnotationFixture,
       mdxScrollingTableFixture,

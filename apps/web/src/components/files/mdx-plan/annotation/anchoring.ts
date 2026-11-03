@@ -139,8 +139,10 @@ export function flattenDocument(root: Node): FlattenedDocument {
   const spans: TextSpan[] = [];
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     if (node.nodeType === Node.ELEMENT_NODE) {
-      if (BOUNDARY_TAGS.has((node as Element).tagName) && text && !text.endsWith(BOUNDARY_SEP))
-        text += BOUNDARY_SEP;
+      const element = node as Element;
+      const boundary =
+        BOUNDARY_TAGS.has(element.tagName) || element.hasAttribute("data-plan-text-boundary");
+      if (boundary && text && !text.endsWith(BOUNDARY_SEP)) text += BOUNDARY_SEP;
       continue;
     }
     const start = text.length;

@@ -444,11 +444,17 @@ Props:
 
 ## `<Badge>`: `badge`
 
-Inline element: the **text between its tags** is its label.
+Inline element: the **text between its tags** is its content.
 
 Props:
 
 - `tone`: `"neutral" | "info" | "success" | "warning" | "risk" | "accent"` _(optional)_
+
+## `<Sidenote>`: `sidenote`
+
+Inline element: the **text between its tags** is its content.
+
+_No attributes._
 
 ## `<Stats>`: `stats`
 

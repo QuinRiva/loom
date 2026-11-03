@@ -32,6 +32,7 @@ import { questionFormBlock } from "./blocks/questionForm";
 import { reviewChoiceBlock } from "./blocks/reviewChoice";
 import { htmlBlock, prototypeBlock } from "./blocks/sandboxedFrame";
 import { designBlock, screenBlock } from "./blocks/screen";
+import { sidenoteBlock } from "./blocks/sidenote";
 import { statsBlock } from "./blocks/stats";
 import { stepBlock, stepsBlock } from "./blocks/steps";
 import { tableBlock } from "./blocks/table";
@@ -92,6 +93,7 @@ export const PLAN_BLOCKS: RegisteredBlock[] = [
   { tag: htmlBlock.mdx.tag, type: "html", block: htmlBlock },
   // vocabulary v2 — one line per block, appended below.
   { tag: badgeBlock.mdx.tag, type: "badge", block: badgeBlock },
+  { tag: sidenoteBlock.mdx.tag, type: "sidenote", block: sidenoteBlock },
   { tag: statsBlock.mdx.tag, type: "stats", block: statsBlock },
   { tag: stepsBlock.mdx.tag, type: "steps", block: stepsBlock },
   { tag: stepBlock.mdx.tag, type: "step", block: stepBlock },
