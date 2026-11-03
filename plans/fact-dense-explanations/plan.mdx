@@ -4,7 +4,7 @@ reader:
   knows: the problem from his own reading, the research explainer (he answered its question form), the document panel and its blocks; nothing of the renderer or lint internals
   after_first_screen: what will change in the documents he reads, what the margin note will look like at panel width, and the one or two decisions that are still his
 kicker: "Implementation plan · under the approved fact-dense explanations brief · approved 3 Nov 2026"
-status: approved
+status: done
 intent: plans/fact-dense-explanations/intent.mdx
 manager_sessions:
   - id: 01a19fd5-6d1f-70a2-ba63-0f4c3bf0d8a9
@@ -272,3 +272,15 @@ The eval thread runs it once the skills thread's two commits and the lint module
     },
   ]}
 />
+
+## As built
+
+- **Breakpoint 41rem, not 42rem.** The note hangs only in a container wider than 41rem: 28rem of prose plus the 13rem margin, which is exactly the floor step 5 set. At 42rem it would drop a rem early.
+- **Sentence ends are not restricted to a following capital.** §2 said a sentence ends only before a capital, quote or bracket. That merged the specimen's last two sentences (its neighbour sentence begins in lowercase) and gave 40 and 51 words where §2's own expected output says 40 and 33. Ending at any whitespace, with the listed abbreviations excepted, reproduces §2.
+- **The own-line check also catches `<Sidenote>` alone on a line as a paragraph.** That form parses as a paragraph holding only the note, not as a flow element, and it is the mistake an author will actually make.
+- **No packages were added to `evals/package.json`.** Node and tsc resolve `unified` and `remark-*` from `proseDensity.ts`'s own location, and the extra dependencies failed `knip`. The eval imports the file by path as planned.
+- **The lint grouping question was answered by the orchestrator:** grouped, one line per check.
+- **The eval ran the ten-sample rerun itself** when the five-sample result sat inside the A/A spread, so the gate needed no second round. Cost was about 1.17M tokens of proxy quota against the plan's 300k estimate, 700k of it the rerun. The drop rule did not say whether arm three is compared against one run of arm two or both pooled; the orchestrator ruled pooled (gap 1.0 words against a spread of 0.8, secondary better), so the register pass stays. The clearest transfer was not sentence length but em-dashes: zero in 15 register-pass outputs against 129 in 30 without it.
+- **The fact-dense rule keeps two instructions the old bullet had** that §3.1's replacement text dropped: date a fact that changes over time, and state a fact nobody recorded as unknown. Restored after gate 1 as one sentence each.
+- **The "zero errors" line in §6 was recorded as a baseline instead.** `lint-doc.sh plans recaps explainers` ends with 10 errors, all from before this change, in frozen `upstream-pull9` plans and `pull8-decisions` recap images; they were not reopened. Warnings on existing documents: 269, of which 220 are the new density lines.
+- **The gloss example in `document-quality.md` shows the gloss as its own sentence**, since the old example used an em-dash aside, the register being removed; and the explainer skill's source rule is a pointer bullet to `document-quality.md` rather than text inside its mechanism bullet.
