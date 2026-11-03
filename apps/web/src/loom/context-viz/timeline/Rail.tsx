@@ -25,6 +25,7 @@ import {
   jumpToItem,
   landingOf,
   loadedRuns,
+  rowStartOffset,
   scrollToRow,
   type TimelineFigures,
 } from "./timelineFigures";
@@ -37,6 +38,8 @@ interface Gesture {
   readonly downY: number;
   /** The pointer's fraction of the track at pointer-down: where the landing row is held. */
   readonly viewPosition: number;
+  /** The list's header and padding above its rows, read once from its layout at pointer-down. */
+  readonly startOffset: number;
   dragging: boolean;
   clientY: number;
   /** The row last scrolled to, or -1; `Infinity` for the end. */
@@ -78,7 +81,7 @@ export function Rail({
     const landing = landingOf(figureKey, itemAt(layout, f * layout.total));
     if (!landing || landing.index === drag.commanded) return;
     drag.commanded = landing.index;
-    scrollToRow(figureKey, landing.index, drag.viewPosition);
+    scrollToRow(figureKey, landing.index, drag.viewPosition, drag.startOffset);
   };
 
   // A click lands on the item's row; a click in the veil is the one way the rail pages history.
@@ -150,6 +153,7 @@ export function Rail({
           gesture.current = {
             downY: event.clientY,
             viewPosition: fractionOf(event.currentTarget, event.clientY),
+            startOffset: rowStartOffset(figureKey),
             dragging: false,
             clientY: event.clientY,
             commanded: -1,

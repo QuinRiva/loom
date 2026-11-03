@@ -230,15 +230,47 @@ export function landingOf(key: string, item: LoomContextItem): ItemLanding | nul
 }
 
 /**
- * Hold row `index` at `viewPosition` of the viewport, as `scrollToIndex` places it. By offset: in a
- * drag `scrollToIndex`'s settle retries kept scrolling after release and could stop short of the row.
+ * LegendList's start offset (top padding, header, align-at-end padding) as it laid the rows out: a
+ * rendered row's offset in the scroller minus its logical position. Constant through a drag.
  */
-export function scrollToRow(key: string, index: number, viewPosition: number): void {
+export function rowStartOffset(key: string): number {
+  const list = navigation.get(key)?.shared.listRef.current;
+  const state = list?.getState();
+  const scroller = list?.getScrollableNode();
+  if (!state || !scroller) return 0;
+  for (let index = Math.max(0, state.start); index <= state.endBuffered; index += 1) {
+    const element = state.elementAtIndex(index);
+    const position = state.positionAtIndex(index);
+    if (element && position !== undefined)
+      return (
+        element.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top +
+        scroller.scrollTop -
+        position
+      );
+  }
+  return 0;
+}
+
+/**
+ * Hold row `index` at `viewPosition` of the viewport, as `scrollToIndex` places it, given the
+ * list's `startOffset`. By offset: in a drag `scrollToIndex`'s settle retries kept scrolling after
+ * release and could stop short of the row. The trailing inset is left out: it is zero here outside
+ * anchored end space.
+ */
+export function scrollToRow(
+  key: string,
+  index: number,
+  viewPosition: number,
+  startOffset = 0,
+): void {
   const list = navigation.get(key)?.shared.listRef.current;
   const state = list?.getState();
   if (!list || !state) return;
   const offset =
-    state.positionAtIndex(index) - viewPosition * (state.scrollLength - state.sizeAtIndex(index));
+    startOffset +
+    state.positionAtIndex(index) -
+    viewPosition * (state.scrollLength - state.sizeAtIndex(index));
   void list.scrollToOffset({ offset: Math.max(0, offset), animated: false });
 }
 
