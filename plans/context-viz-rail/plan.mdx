@@ -3,8 +3,8 @@ reader:
   who: the reviewer gate judging this plan against the approved brief beside it, then the coder who builds from it with none of this thread's context
   knows: the brief (direction 1 chosen) and Loom's vocabulary; not the minimap's internals, LegendList's API or what the rail maps today
   after_first_screen: what the scrollbar does on wheel, drag, click and hover, what the three marked lines in MessagesTimeline.tsx are, and that the drag is measured as the build's first step
-kicker: "Implementation plan · approved 3 Nov 2026 · the build follows §8"
-status: approved
+kicker: "Implementation plan · done 4 Nov 2026 · built, reviewed and accepted"
+status: done
 intent: plans/context-viz-rail/intent.mdx
 manager_sessions:
   - id: 01a19ff8-fee0-743e-a23f-71922c7ba673
@@ -290,3 +290,18 @@ Dev-verify recipe, seeded with `--root 50aa9c55-75dc-4d6a-b059-365a95393600` so 
     },
   ]}
 />
+
+## As built
+
+Built in the §8 order on `t3/context-viz-rail`; the gate passed it clean against the brief and the plan, and Carl accepted it in use on a seeded copy of the 58-turn thread. The upstream footprint is as budgeted: three marked lines in `MessagesTimeline.tsx`, one marked rule in `index.css`, and none of #522's canvas hunks. Where the build departed:
+
+- **The drag scrolls by offset, not `scrollToIndex`.** The plan's one sanctioned variant. With `scrollToIndex`, the sampler read p50 / p95 / max 16.7 / 49.9 / 350 ms, two runs of three stopped short of the top (scrollTop 6887) and the settle retry kept firing after release. With `scrollToOffset` from `positionAtIndex`: 16.7 / 16.8 / 250 ms, 0 reversals, always ended at the top. Over the drag's own three seconds p95 is 150 to 167 ms in the React dev build, because each landing renders a fresh screen of rows; the list never moved against the pointer, so the gate ruled it "keeps up" and the live drag stayed. A production build was not measured. Wheel scroll with the switch on and off: 16.7 / 33.3 ms both, equal.
+- **The landing offset is read from the rendered list, once per drag.** `scrollToOffset` skips LegendList's start-offset adjustment (header, top padding, align-at-end), so rows landed one header height (60 px on the 58-turn thread) away from where `scrollToIndex` puts them. `rowStartOffset` takes a row rendered now and subtracts `positionAtIndex` from its position in the scroller, read at pointer-down and held with `v`; no DOM read per frame, and no copy of LegendList's formula. The trailing-inset term is left out: the timeline passes `contentInsetEndAdjustment` only with `anchoredEndSpace`, so it is expected zero here.
+- **The thumb never disappears at the end of a thread.** The plan said a visible range with no span leaves the thumb unwritten; a thread opened at its end has no span for its latest answer (no later call has measured it), so it would have had no thumb at all. `thumbSpan` pins the thumb to the end of the nearest row above with a span, clamped to `100% − 4px`.
+- **`landingOf` and `jumpToItem` take the item, not its id** (the `"fixed"` case needs its kind); `TurnHeaderFigure` follows. A click on a `"hidden"` landing scrolls to the run's first row. `loadedRuns` lives in `timelineFigures.ts`, not `railLayout.ts`, to avoid an import cycle; `rowSpan` became `rowsSpan` / `thumbSpan` over the visible range; `publishVisibleRows` carries the rows array the range indexes so the thumb never pairs a new range with old rows.
+- **Hover is one `pointermove` on the track** with the segment found by binary search, not `pointerenter` per segment, so plain hover and hover under pointer capture during a drag are one path. Segments are absolutely positioned by token share rather than flex-grown, so pixel-to-token, thumb and veil share one arithmetic.
+- **The two contingent lines for a snap-back while streaming were not added:** no snap-back was seen, but a streaming turn could not be driven on the dev instance (the Replay provider showed "Disabled" on a `migrate-dev-db` instance, root cause not found, and a real pi turn costs money). Left as a known check.
+- **Not verified live, passed by code:** the non-pi (Replay) thread keeping its native scrollbar, for the same reason; and the coarse-pointer case (no pointer-media emulation in the preview browser; the track root and the CSS rule are both inside `(pointer: fine)`).
+- **On the one-turn child** the turn is a single expanded tool-group row, so "call by call" is at row level: the thumb covers the whole group and hover names each call.
+- **The `05-timeline-off` screenshot cannot show the native scrollbar** (the headless capture does not paint it); the evidence for Timeline off being today exactly is the §6 console check: `scrollbarWidth` auto → none, gutter 12 → 0 px, `--chat-timeline-gutter` 6px → 0px, prose left edge 220 → 220.
+- **Found on the way, not this change:** a wide table in an assistant reply loses its left edge when the Timeline switch is on and the lane is narrow; it reproduces with the native scrollbar restored, so the cause is the row-figure margin meeting the bleed translate, which predates this round (task recorded).

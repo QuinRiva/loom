@@ -3,8 +3,8 @@ reader:
   who: Carl, choosing the direction for the context rail after rejecting three placements and a four-option round, before anything is built
   knows: the rail, the rejected placements and last round's four screenshots; Loom's vocabulary; not the minimap's code or what the scrollbar actually maps
   after_first_screen: which of the four directions he wants, having seen each on his own thread and what it costs in the files upstream churns
-kicker: "Intent brief · approved 3 Nov 2026 · direction 1 chosen"
-status: approved
+kicker: "Intent brief · done 4 Nov 2026 · direction 1 built and accepted"
+status: done
 plan: plans/context-viz-rail/plan.mdx
 manager_sessions:
   - id: 01a19fe2-85bd-7594-8ae1-74d34cdd1514
@@ -129,8 +129,8 @@ The minimap today is not a map of the scroll and not a map of the thread: it is 
   ]}
 />
 
-**Still unknown.**
+**Still unknown, settled at near-done.**
 
-- Does `scrollToIndex` once per frame during a thumb drag keep up on the 58-turn thread with a tool group expanded, or does the list fight the drag? A spike on the scratch branch settles it before direction 1 is planned in full; if it fights, the drag becomes click-to-jump with a thumb you can only read, and the brief says so.
-- Does a thumb that jumps 30% on one wheel tick feel like information in use? Only use settles it, at near-done.
-- Under direction 1 on Firefox for macOS, where the scrollbar is already an overlay, hiding it changes nothing and the custom track sits where the overlay would; not checked on a Mac.
+- The live drag keeps up: measured on the 58-turn thread with a group expanded, p50 / p95 / max 16.7 / 16.8 / 250 ms and no frame in which the list moved against the pointer, once the per-frame scroll went by offset rather than `scrollToIndex` (whose settle retry stopped short of the top in two runs of three). The dev build repaints a screen of rows per landing, so the drag steps there; kept as a live drag, not click-to-jump. The plan's As built section has the numbers.
+- The token-space thumb was accepted in use: Carl tried it on a seeded copy of the 58-turn thread and its one-turn child and said "ship it" (4 Nov 2026).
+- Firefox for macOS, where the scrollbar is already an overlay: still not checked on a Mac; by the CSS, hiding it changes nothing and the track sits where the overlay would.
