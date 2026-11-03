@@ -166,7 +166,7 @@ export const ASK_USER_QUESTION_PARAMETERS = {
     blocking: {
       type: "boolean",
       description:
-        "True only where proceeding is irreversible (data leaving a boundary, a destructive step): the call waits, and a dismissal means proceed on the recommended option. Default false.",
+        "True only where the option you would proceed on is itself irreversible (data leaving a boundary, a destructive step): the call waits, and a dismissal means proceed on the recommended option. Default false.",
     },
   },
   required: ["questions"],
