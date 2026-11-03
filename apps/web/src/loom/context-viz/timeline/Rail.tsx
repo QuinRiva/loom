@@ -101,7 +101,10 @@ export function Rail({
   const veil =
     veilStart < 0 || veilEnd === veilStart
       ? null
-      : [layout.starts[veilStart]!, veilEnd < 0 ? layout.total : layout.starts[veilEnd]!];
+      : ([
+          layout.starts[veilStart]!,
+          veilEnd < 0 ? layout.total : layout.starts[veilEnd]!,
+        ] as const);
 
   // The scroller's attribute and the wheel forward live exactly as long as the track does.
   const attachTrack = (track: HTMLDivElement | null) => {
@@ -160,7 +163,7 @@ export function Rail({
           const drag = gesture.current;
           if (!drag) return;
           drag.clientY = event.clientY;
-          drag.dragging ||= Math.abs(event.clientY - drag.downY) > DRAG_SLOP;
+          if (!drag.dragging) drag.dragging = Math.abs(event.clientY - drag.downY) > DRAG_SLOP;
           if (drag.dragging && drag.frame === null)
             drag.frame = requestAnimationFrame(() => scrollFrame(track, drag));
         }}
