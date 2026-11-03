@@ -89,6 +89,7 @@ export function ChatCanvas({
     detailsCardTopInset: model.detailsCardTopInset,
     preferredDetailsCard: model.preferredDetailsCard,
     detailsCardPlacement: model.detailsCardPlacement,
+    detailsCard: model.detailsCard, // loom: context-viz rail
   };
   const { layout } = context;
   return (

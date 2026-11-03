@@ -5,6 +5,7 @@ import type { LoomContextItem, LoomContextReport, RunId } from "@t3tools/contrac
 
 import { useState } from "react";
 
+import { useChatCanvas } from "../../../components/chat/ChatCanvasContext";
 import { cn } from "../../../lib/utils";
 import { formatContextTokens, formatItemTokens } from "../format";
 import {
@@ -129,6 +130,8 @@ export function Rail({
 }) {
   const layout = railLayout(report, figures.amber);
   const [hovered, setHovered] = useState<LaidSegment | null>(null);
+  const canvas = useChatCanvas();
+  const cardBottom = canvas?.detailsCardPlacement ? canvas.detailsCard?.bottom : undefined;
   if (layout.total === 0) return null;
   const spans = (
     currentRunId === null ? [] : (figures.join.runs.get(currentRunId)?.items ?? [])
@@ -140,47 +143,43 @@ export function Rail({
   const bottom = Math.max(...spans.map(([, end]) => end));
   return (
     <div className="pointer-events-none absolute inset-0 @container/context-rail">
-      {/* The timeline's own lane, padded as `.messages-timeline-scroll` pads it: the rail sits in
-          the gutter beyond the lane's end, clear of the details card and the right panel. */}
+      {/* Beside the scrollbar, clear of the content lane at any width, and below an inline
+          details card: its measured bottom plus the card's own 12 px gap. No z-index, so the
+          card and every popover paint over it. */}
       <div
-        className="absolute inset-0"
+        className="absolute bottom-6 hidden w-2 @min-[1100px]/context-rail:block"
         style={{
-          paddingInlineStart: "calc(3rem + var(--chat-lane-inset-start, 0px))",
-          paddingInlineEnd: "calc(3rem + var(--chat-lane-inset-end, 0px))",
+          top: cardBottom === undefined ? 24 : cardBottom + 12,
+          insetInlineEnd: "calc(var(--chat-timeline-gutter, 0px) + 0.5rem)",
         }}
       >
-        <div className="chat-content-lane relative h-full">
-          <div
-            className="pointer-events-auto absolute top-6 bottom-6 hidden w-2 flex-col overflow-hidden rounded-full bg-muted/40 opacity-60 transition-opacity hover:opacity-100 @min-[1100px]/context-rail:flex"
-            style={{ insetInlineStart: "calc(100% + 0.5rem)" }}
-            role="group"
-            aria-label={`Context window, ${formatContextTokens(layout.total)} in session order`}
-            onPointerLeave={() => setHovered(null)}
-          >
-            <RailBars figureKey={figureKey} layout={layout} onHover={setHovered} />
-            {spans.length > 0 ? (
-              <span
-                aria-hidden
-                className="pointer-events-none absolute inset-x-0 rounded-xs ring-1 ring-foreground/70 ring-inset"
-                style={{
-                  top: `${(top / layout.total) * 100}%`,
-                  height: `max(2px, ${((bottom - top) / layout.total) * 100}%)`,
-                }}
-              />
-            ) : null}
-          </div>
-          {hovered && layout.segments.includes(hovered) ? (
+        <div
+          className="pointer-events-auto relative flex h-full flex-col overflow-hidden rounded-full bg-muted/40 opacity-60 transition-opacity hover:opacity-100"
+          role="group"
+          aria-label={`Context window, ${formatContextTokens(layout.total)} in session order`}
+          onPointerLeave={() => setHovered(null)}
+        >
+          <RailBars figureKey={figureKey} layout={layout} onHover={setHovered} />
+          {spans.length > 0 ? (
             <span
               aria-hidden
-              className="pointer-events-none absolute end-0 max-w-72 -translate-y-1/2 truncate rounded-md border bg-popover px-1.5 py-0.5 text-xs text-popover-foreground shadow-md/5"
+              className="pointer-events-none absolute inset-x-0 rounded-xs ring-1 ring-foreground/70 ring-inset"
               style={{
-                top: `calc(1.5rem + (100% - 3rem) * ${(hovered.start + hovered.tokens / 2) / layout.total})`,
+                top: `${(top / layout.total) * 100}%`,
+                height: `max(2px, ${((bottom - top) / layout.total) * 100}%)`,
               }}
-            >
-              {segmentTitle(hovered)}
-            </span>
+            />
           ) : null}
         </div>
+        {hovered && layout.segments.includes(hovered) ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute end-[calc(100%+0.5rem)] max-w-72 -translate-y-1/2 truncate rounded-md border bg-popover px-1.5 py-0.5 text-xs text-popover-foreground shadow-md/5"
+            style={{ top: `${((hovered.start + hovered.tokens / 2) / layout.total) * 100}%` }}
+          >
+            {segmentTitle(hovered)}
+          </span>
+        ) : null}
       </div>
     </div>
   );
