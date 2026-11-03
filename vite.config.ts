@@ -181,6 +181,9 @@ export default defineConfig({
       "plans/**",
       "recaps/**",
       "explainers/**",
+      // loom: upstream-pull runbooks hold agent-appended tables; column padding to
+      // the widest cell more than doubled their size.
+      "docs/upstream-sync/**/*.md",
       // Macroscope requires one glob per line; Markdown formatting corrupts it.
       ".macroscope/ignore.md",
       ".alchemy",

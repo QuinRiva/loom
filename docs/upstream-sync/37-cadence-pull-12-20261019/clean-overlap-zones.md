@@ -10,7 +10,7 @@ on this branch also touched the file, so read the file at the branch tip, not at
 Method per file (doc 29): read upstream's change (`737192594f..07d38b8d17`), Loom's hunks
 (`737192594f..02a2297b61`) and what Loom carries on top of upstream at the branch tip
 (`07d38b8d17..HEAD`); disposition **n/a / kept-compatible / adapted / DEFECT / loom behaviour
-changed**. Tables go in `37-clean-overlap-review.md`.
+changed**. Tables go in `clean-overlap-review.md`.
 
 ## Gate 2a — server core and the orchestration seams (28)
 

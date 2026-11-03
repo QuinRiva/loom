@@ -1,0 +1,19 @@
+## 9. Gate and audit checklist for the end state
+
+- [ ] **markers** — S1: 0 conflict markers, `parsesweep.mjs` clean, `dangling.py` 0 outside the known false positives
+- [x] **hooks** — S3 runs the DL-938 binding test: the driver the server builds runs Loom's live hooks · `PiAdapterV2.loom.test.ts` passes in the full server run; no "built without Loom's hooks" line on the cockpit-copy boots (DL-1297)
+- [ ] **hosted** — Gate 1 checks, S2a tests: an OAuth-signed outside agent is refused by every Loom tool; a thread-less scope is refused (`registration.test.ts`)
+- [ ] **withheld** — S2a: `capabilities.test.ts` proves a Loom credential cannot call `delegate_task` / `t3_thread_send`; `families.test.ts` passes against upstream's current toolkits
+- [x] **reactor** — Gate 2a: `DelegatedTaskQuestionReactor` returns on a Loom child's question; S4 proves no parent message · S4: a child's live `ask_user_question` and a Pi `confirm` approval produced no "Delegated task … has a question" message on the parent (0 events, 0 log hits); `consult_thread` to the parent and `needs_guidance` still land (DL-1311)
+- [x] **rollup** — S2b/S4: one indicator per reason on a workstream root (row 1 as ruled) · S4: upstream's Input/Approval pill and composer banner on the root, Loom's badge counts only the Loom-only `needs_guidance`, snooze disabled; child node ring, strip chip, quick facts and mention dot (DL-1311). Restart edge: DL-1312
+- [x] **compiler** — S2b (DL-1273, no exemptions): `t3code/no-manual-memo` 0 errors over `apps/web/src`; `reactCompilerCoverage.test.ts` green (exemptions as ruled, each a DL row)
+- [x] **typecheck** — S3: `vp run typecheck` green from a fresh install (exit code) · all `node_modules` deleted, `vp i` ×2 (lockfile unchanged), 32/32 packages exit 0
+- [x] **check** — S3: `vp check` 0 errors · 0 errors, 400 warnings after DL-1294
+- [x] **tests** — S3: full `vp test` per §8, browser project included if row 3 says so · all pass; four Loom test fixes (DL-1290–1293); web load flakes recorded (DL-1296); counts in the S3 record
+- [x] **sweep** — S1 and S3: `unmarkedsweep.sh` gate clean vs `main`; `--report` audit of the whole fork vs the new base · both clean (DL-1298)
+- [x] **lost** — S3: `lostdecls.py origin/main 07d38b8d17` and `whatismissing.sh`; every hit adjudicated as a DL row (expected: DL-973's names retired, §5.6's three renames, DL-1102's resolver if deleted, the rollup reasons if row 1 = (a)) · every hit matched (DL-1298)
+- [x] **ledger** — S3: `Migrations.ts` byte-identical; `LoomMigrations.test.ts` passes; boot on a `VACUUM INTO` copy of the cockpit DB with the real config files (DL-1014's method) runs 063–064 in `effect_sql_migrations` and exactly `1060_DropThreadSearchMessageTriggers` in `loom_sql_migrations` (DL-1251, DL-1320); startup and snapshot timings recorded (row 4) · byte-identical; 26/26; 063, 064 and 1060 ran, `sqlite_stat1` emptied (DL-1297). Re-run after Carl reversed the index drop: exactly `1060_DropThreadSearchMessageTriggers`, `loom_thread_search` / `loom_thread_embeddings` and their rows kept (DL-1320). Timing: planner stats pass; upstream's first history compaction degrades reads for ≈ 8 min after the first boot (DL-1295, for Gate 2 / Carl)
+- [ ] **overlap** — Gate 2: 172 silently merged files reviewed by zone; every DEFECT fixed before S4
+- [x] **boot** — S4: a Pi turn completes and resumes after a restart with a stashed steer · `DONE-A STEER-KIWI` after a process-group kill mid-`sleep 150`; DL-1002's double quote did not recur (DL-1310)
+- [x] **live** — S4: the agent-run smoke per §8 · pull 10's list plus pull 12's eight additions, all pass but the citation takeover (not exercised); evidence `.artifacts/pull12-s4/smoke.md` (DL-1311)
+- [ ] **bridge** — before deploy: Slack bridge checked against Effect 4.0.5
