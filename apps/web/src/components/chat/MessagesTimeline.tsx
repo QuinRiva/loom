@@ -112,6 +112,7 @@ import { ModelChangeDivider } from "../../loom/ModelChangeDivider"; // loom: mod
 import { insertModelChangeRows, type ModelChangeRun } from "../../loom/modelChangeRows"; // loom: model-change divider
 import { useConversationJump } from "../../loom/conversationJump"; // loom: W3
 import { TimelineHost } from "../../loom/context-viz/timeline/TimelineHost"; // loom: context-viz
+import { publishVisibleRows } from "../../loom/context-viz/timeline/visibleRows"; // loom: context-viz
 import { TurnHeaderFigure } from "../../loom/context-viz/timeline/TurnHeaderFigure"; // loom: context-viz
 import { TimelineSystemDivider } from "./TimelineSystemDivider";
 
@@ -893,9 +894,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const refreshMinimap = useStableCallback(() => {
     const state = listRef.current?.getState?.();
     if (restoringThreadPosition || state?.data !== rows) return;
-    if (!state || minimapItems.length === 0) {
-      return;
-    }
+    if (!state) return; // loom: context-viz, the rail needs the range on a thread with no human prompt
 
     const firstBufferedIndex = state.startBuffered;
     const firstBufferedRow: HTMLElement | undefined =
@@ -911,6 +910,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
           firstBufferedRow.getBoundingClientRect().top
         : state.scroll;
     const visibleRange = resolveTimelineMinimapVisibleRange({ ...state, scroll });
+    publishVisibleRows(routeThreadKey, visibleRange, rows); // loom: context-viz
     for (const item of minimapItems) {
       const strip = minimapStripMap.get(item.id);
       const inView = isTimelineMinimapRowVisible(
@@ -1436,13 +1436,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
               }}
             />
             <TimelineHost
-              rows={rows} // loom: context-viz, the loader and the rail
+              rows={rows} // loom: context-viz, the loader and the scrollbar
               shared={sharedState}
-              currentRow={
-                minimapCurrentIndex === null
-                  ? null
-                  : (minimapRowIndices[minimapCurrentIndex] ?? null)
-              }
             />
           </TooltipScrollDismissArea>
         </TimelineRowActivityCtx>

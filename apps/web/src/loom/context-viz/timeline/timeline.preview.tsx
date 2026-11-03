@@ -36,6 +36,7 @@ import reportJson from "../preview/report.fixture.json";
 import { TimelineFiguresHost } from "./TimelineHost";
 import { TurnHeaderFigure } from "./TurnHeaderFigure";
 import { deriveTimelineFigures, publishTimelineFigures } from "./timelineFigures";
+import { publishVisibleRows } from "./visibleRows";
 
 const report = Schema.decodeUnknownSync(LoomContextReport)(reportJson);
 const timeline = timelineJson as unknown as {
@@ -209,42 +210,43 @@ const assistantRow = (
     assistantCopyStreaming: false,
   }) as unknown as Extract<MessagesTimelineRow, { kind: "message" }>;
 
-const railRows = thread.runs.map((run) => ({
+/** One prompt row per run, the first ten paged out as history would leave them. */
+const railRows = thread.runs.slice(10).map((run) => ({
   kind: "message",
   id: run.userMessageId,
-  message: { id: run.userMessageId, role: "user" },
+  message: { id: run.userMessageId, role: "user", runId: run.id },
 })) as unknown as ReadonlyArray<MessagesTimelineRow>;
 
-/** Steps the turn being read, as scrolling would, so the outline's re-render can be timed. */
+const RAIL_KEY = "preview-context-viz-rail";
+const readRow = (row: number) => publishVisibleRows(RAIL_KEY, { start: row, end: row }, railRows);
+readRow(19);
+
+/** Steps the row in view, as scrolling would publish it, so the thumb's two style writes show. */
 function RailFrame() {
-  const [currentRow, setCurrentRow] = useState(29);
+  const [currentRow, setCurrentRow] = useState(19);
+  const step = (by: number) => {
+    const row = Math.min(railRows.length - 1, Math.max(0, currentRow + by));
+    setCurrentRow(row);
+    readRow(row);
+  };
   return (
-    <div className="relative h-[640px] w-[1102px] rounded-lg border border-border bg-background">
+    <div className="relative h-[640px] w-[900px] rounded-lg border border-border bg-background">
       <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-        <Button
-          size="xs"
-          variant="outline"
-          onClick={() => setCurrentRow((row) => Math.max(0, row - 1))}
-        >
+        <Button size="xs" variant="outline" onClick={() => step(-1)}>
           Previous turn
         </Button>
-        <Button
-          size="xs"
-          variant="outline"
-          onClick={() => setCurrentRow((row) => Math.min(railRows.length - 1, row + 1))}
-        >
+        <Button size="xs" variant="outline" onClick={() => step(1)}>
           Next turn
         </Button>
-        Reading turn {currentRow + 1}
+        Reading the prompt of loaded turn {currentRow + 1}
       </div>
       <TimelineFiguresHost
-        figureKey="preview-context-viz-rail"
+        figureKey={RAIL_KEY}
         report={report}
         thread={thread}
         contextWindow={1_000_000}
         rows={railRows}
         shared={shared}
-        currentRow={currentRow}
       />
     </div>
   );
@@ -313,9 +315,9 @@ export const TIMELINE_PREVIEW_FIXTURES: ReadonlyArray<PreviewFixture> = [
   },
   {
     id: "loom-context-viz-timeline-rail",
-    title: "Timeline: the rail at 58 turns",
+    title: "Timeline: the scrollbar at 58 turns",
     description:
-      "685K in session order, amber where a row is amber, turn 30 outlined as the turn being read. The frame is 1,100 px wide, the narrowest width that shows it.",
+      "685K in session order at the frame's right edge, amber where a row is amber; the thumb is the prompt row in view, the veil the first ten turns history has not paged in. Hover for the label. There is no list here, so drag and click do nothing.",
     render: () => <RailFrame />,
   },
 ];

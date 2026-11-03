@@ -1,0 +1,136 @@
+---
+reader:
+  who: Carl, choosing the direction for the context rail after rejecting three placements and a four-option round, before anything is built
+  knows: the rail, the rejected placements and last round's four screenshots; Loom's vocabulary; not the minimap's code or what the scrollbar actually maps
+  after_first_screen: which of the four directions he wants, having seen each on his own thread and what it costs in the files upstream churns
+kicker: "Intent brief · done 4 Nov 2026 · direction 1 built and accepted"
+status: done
+plan: plans/context-viz-rail/plan.mdx
+manager_sessions:
+  - id: 01a19fe2-85bd-7594-8ae1-74d34cdd1514
+    name: "Rail into scrollbar or minimap: intent brief"
+    role: intent
+    authored_at: 2026-11-03T05:44:03.721Z
+---
+
+# The rail: make it the scrollbar, put it on the minimap, move it to the left gutter, or drop it
+
+**Goal.** "I like the idea of having it in the scrollbar track, but I think we'd need to rethink how the scrollbar *works* if we were to do that." What broke last round's track option: **the scrollbar, the minimap and the rail map three different things**. The scrollbar maps the pixels of the turns loaded so far; the minimap one strip per human prompt loaded, evenly spaced, left gutter, pointer only, gone under two prompts (so gone on every one-turn child); the rail the tokens of the whole session. Tokens under a pixel thumb was a thumb pointing at nothing. Each direction below picks one space and stays in it.
+
+<Image
+  src="shots/directions.jpg"
+  alt="Four directions on the Context Usage Breakdown thread at the same scroll position, card open: the rail as the scrollbar at the right edge with a thumb and a hover label; weighted minimap strips at the left with the preview card; the rail in the left gutter beside the minimap; and no rail"
+  caption="Your «Context Usage Breakdown Visualisation» thread, the right or left 420 px at full size, card open, light theme. Panels 1 to 3 are painted onto the no-rail screenshot from last round's real pixels; nothing here is built."
+  width={900}
+/>
+
+**You'll know it works when.**
+
+- Timeline on, on your 58-turn thread: from the chat, without opening a panel, you can see where the window went, hover a segment for its name and tokens, and click to land on that row, paging back if its turn is not loaded.
+- On a one-turn child, where most of the work happens, the same view is there, call by call.
+- Nothing sits over the scrollbar thumb, the details card or the prose; whatever thumb there is can be grabbed at its full width.
+- Timeline off: the native scrollbar, the minimap and both gutters are exactly today's Loom, with nothing reserved.
+- **Must not:** animate; cost a frame on scroll; change the minimap when the switch is off; send anything new over the socket. (These carry over from the context-viz brief.)
+
+**Approaches in play.**
+
+<Columns columns={2}>
+  <Card eyebrow="DIRECTION 1" heading="The rail is the scrollbar" tone="accent" badge="your track idea, rethought" meta={["~3 marked lines in MessagesTimeline.tsx", "1 css rule", "native scrollbar hidden while on"]}>
+    The track is the rail, whole session, height by tokens; the thumb is the rows now in view, in token space; drag scrolls, click jumps, hover names. Turns not loaded yet sit under a light veil and a click there pages back. Wins if a thumb that moves by what you scrolled past (a wheel tick past a folded 300K turn jumps it 30%) reads as information rather than as a broken scrollbar.
+  </Card>
+  <Card eyebrow="DIRECTION 2" heading="Weight on the minimap's strips" tone="neutral" badge="one strip per prompt" meta={["~3 marked hunks in TimelineMinimap.tsx", "pointer only", "nothing on a one-turn child"]}>
+    Each strip takes length and colour from what its turn added; the turn's figure joins the hover preview. The rail goes. Wins if "which turn was heavy" is the question, not "which item". Loses the one-turn child, every turn not loaded yet (ten of your thread's 58 are), and the item inside a turn.
+  </Card>
+  <Card eyebrow="DIRECTION 3" heading="The rail in the left gutter, beside the minimap" tone="neutral" badge="no upstream line" meta={["Rail.tsx only", "drops the 3 canvas hunks", "no scrollbar, no card"]}>
+    Last round's "in the gap", mirrored to the side that has no scrollbar and no details card, 2 to 10 px in, where the minimap already lives. Keeps everything the rail has. Wins if a full-height coloured bar at the left of every pi thread is quiet enough; it was not quiet enough on the right.
+  </Card>
+  <Card eyebrow="DIRECTION 4" heading="No rail" tone="neutral" badge="nothing to place" meta={["deletes Rail.tsx and the 3 canvas hunks", "Heaviest and the per-turn bar stay"]}>
+    What goes is the whole-window picture beside the chat and click-to-jump across the session. What stays: the per-turn `226K → 245K · +19.0K` and Heaviest, and the Context tab's Growth chart, which already draws the whole session call by call with a pin that scrolls the chat. Wins if one tab away is close enough.
+  </Card>
+</Columns>
+
+- Dropped: painting the native track (last round's option 2). No hover, no click, and a pixel thumb over a token map.
+- Dropped: the hover-revealed rail (last round's option 3). Nothing says it exists and touch never sees it.
+- Dropped: a track in scroll space with weight as colour (the other way to make the track honest). It keeps the familiar thumb but shows only the loaded page, a folded 300K turn as a 3 px sliver, and positions that drift until every row is measured; and it still needs the custom overlay to get hover and click, so it is direction 1 with a worse map. Shown in §1.
+
+**Decided.** "I like the idea of having it in the scrollbar track, but I think we'd need to rethink how the scrollbar *works* if we were to do that." "I think we need to have a think about *how* to display the rail, as you keep landing on bad design choices." From the context-viz brief: "keep it unless the frame check fails". In this brief's form, 3 Nov 2026: "1 · The rail becomes the timeline's scrollbar". Directions 2, 3 and 4 are dropped: not chosen, and each gives up something direction 1 keeps (the one-turn child, the item inside a turn, the whole-window picture beside the chat).
+
+- _Assumed:_ under direction 1 the custom scrollbar is 8 px (the native one is 6; a thumb you drag wants the hit area), runs full height like the scrollbar does today (the card stops 6 px short of it), is on at every width (it is the scrollbar, so the 1,100 px hide goes), and the left minimap stays as it is; redirect if wrong.
+- _Assumed:_ under direction 1 the native scrollbar is hidden only on fine pointers; touch keeps its own.
+- _Assumed:_ whichever direction, #522 is closed unmerged and the scratch branch's variant switch is deleted.
+
+**Not doing.** The three rejected placements (over the card, mid-chat, below the card). Mobile. Folding the minimap's prompt ticks into the track (a later round, if direction 1 lands and the two maps side by side feel like one too many). Any change to `TimelineMinimap.tsx` outside direction 2.
+
+## 1. What each direction costs, and how it behaves off, narrow, on touch and remote
+
+<Table
+  density="compact"
+  columns={["", "1 · Scrollbar", "2 · Minimap", "3 · Left gutter", "4 · None"]}
+  rows={[
+    ["Upstream files", "`MessagesTimeline.tsx`: publish the visible row range beside the existing host hunk (2 to 3 marked lines; the file has 227 upstream commits since August). `index.css`: one marked rule hiding the native scrollbar on fine pointers while the attribute is set.", "`TimelineMinimap.tsx`: a `decorate` prop and its two uses, strip style and preview line (~3 marked hunks in a file byte-identical to upstream today; 4 upstream commits since August, one of them rewrote the strip loop). `MessagesTimeline.tsx`: one marked prop.", "None beyond today's host mount. The three one-line `// loom: context-viz rail` hunks in `canvasStore.ts`, `ChatCanvasContext.ts` and `ChatCanvas.tsx` are removed.", "Same three hunks removed; the host keeps only the loader."],
+    ["Loom files", "`Rail.tsx` rebuilt: thumb from the visible range, pointer drag to `scrollToIndex`, wheel forwarded with `forwardWheelToTimeline`, click to `jumpToItem` or the conversation-jump store when the row is not loaded, the veil over unloaded items.", "A hook in `context-viz/timeline` reading the run figure store per prompt: share of the heaviest loaded turn, amber, one line of text.", "`Rail.tsx`: `insetInlineStart` instead of end, label opens rightward.", "`Rail.tsx` deleted."],
+    ["Granularity", "Every item, whole session, as the rail today.", "One strip per human prompt loaded. A turn with one 26K read among small calls is one strip; Heaviest answers inside it.", "As the rail today.", "Per turn in the header; per item in Heaviest and the Context tab."],
+    ["Timeline off", "Attribute absent, native scrollbar back, host unmounted: today exactly.", "Prop undefined: today exactly.", "Host unmounted: today exactly.", "Today exactly."],
+    ["Narrow widths", "Always on; it is the scrollbar. The hover label flips inward.", "The minimap fades to hover-only under a 48 px side gutter and so does the weight.", "Hides below 1,100 px as today.", "n/a"],
+    ["Touch", "Hidden on coarse pointers; touch scrolling untouched.", "The minimap is pointer-only, so nothing.", "Visible and tappable, no hover.", "n/a"],
+    ["Relay / remote", "Client only; the report is already loaded. Nothing new on the socket for any direction.", "Same.", "Same.", "Same."],
+    ["Frame cost", "The thumb's top and height are written once per rAF-throttled scroll, the cadence the minimap already marks its strips at; no transition on the thumb. Dragging calls `scrollToIndex` per frame on a virtualised list: the spike below settles it.", "Strip class and length are set at render from a memoised lookup; no new listener.", "As today: measured equal with the switch on and off.", "None."],
+  ]}
+/>
+
+### The scrollbar rethink, close up
+
+<Image
+  src="shots/track-closeup.png"
+  alt="Three close-ups of the right edge at twice actual size: the token-space track with its thumb at the bottom and a hover label, a scroll-space track that is mostly pale teal prose with slivers of colour and the native thumb, and today's bare thumb"
+  caption="Twice actual size, the same 600 px of the edge. Token space: height is tokens, the thumb is the rows in view, the veil above is turns not loaded yet. Scroll space: height is row height, so the loaded page is mostly prose and the heavy folded turns are slivers; the native thumb stays and nothing is hoverable. Today: the native 6 px thumb."
+  width={700}
+/>
+
+The token-space thumb is the design's one bet. Today's rail already outlines the turn being read in token space (the outline at the foot of panel 3 above); the thumb is that outline widened to the rows in view, which `MessagesTimeline.tsx` already computes for the minimap on every scroll and does not yet hand over. A drag moves through tokens, so it lands on the row holding the token under the pointer; a wheel scroll moves through pixels, so the thumb jumps when a folded turn passes. Both are the same fact shown two ways. Hiding the native scrollbar drops its 6 px gutter on both edges, and the timeline's padding already subtracts the measured gutter, so the prose does not move when the switch flips.
+
+### The minimap, close up
+
+<Image
+  src="shots/minimap-closeup.png"
+  alt="Today's minimap, ten short grey strips with two darker ones for the turns in view, beside the weighted version where strip length and colour follow what each turn added and the hover preview carries the turn's figure"
+  caption="Three times actual size. Today: ten prompts loaded of 58 turns, the two in view darker. Weighted: length is the turn's share of the heaviest loaded turn, amber where it holds an amber item, the preview gains one line."
+  width={700}
+/>
+
+The minimap today is not a map of the scroll and not a map of the thread: it is the human prompts loaded so far (`maxUserTurns: 10` in the history page policy), spaced 8 px apart whatever their size, centred in the left gutter, on fine pointers only, and hidden with fewer than two prompts. Weighting its strips answers "which of these ten turns was heavy", which the turn headers already answer inline.
+
+### Where each sits on the screen
+
+<Image
+  src="shots/placement.jpg"
+  alt="The whole screen at half size with three outlines: the scrollbar column at the right edge, the minimap's strips in the left gutter, and the full-height left gutter beside them"
+  caption="Half size. 1 the scrollbar column; 2 the minimap's strips; 3 the left gutter beside them. With the right panel open the left gutter is still 68 px, and the details card never reaches the scrollbar column."
+  width={700}
+/>
+
+**Questions for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "direction",
+      title: "Which direction should be built?",
+      subtitle: "No recommendation is marked. One line of reasoning: if you want the rail at all, direction 1 is the only version of the track idea whose thumb and colours agree; if the Growth tab's whole-session chart is close enough, direction 4 costs nothing. Whichever you pick replaces #522, which is closed unmerged.",
+      mode: "single",
+      allowOther: true,
+      options: [
+        { id: "scrollbar", label: "1 · The rail becomes the timeline's scrollbar", detail: "Token space, whole session, a thumb for the rows in view, drag, click, hover; native scrollbar hidden on fine pointers while Timeline is on." },
+        { id: "minimap", label: "2 · Weight on the minimap's strips, rail removed", detail: "One strip per loaded prompt, length and colour from the turn; nothing on a one-turn child." },
+        { id: "left", label: "3 · The rail in the left gutter beside the minimap", detail: "Today's rail, mirrored to the side with no scrollbar and no card." },
+        { id: "none", label: "4 · No rail", detail: "Per-turn figures, Heaviest and the Growth chart carry it." },
+      ],
+    },
+  ]}
+/>
+
+**Still unknown, settled at near-done.**
+
+- The live drag keeps up: measured on the 58-turn thread with a group expanded, p50 / p95 / max 16.7 / 16.8 / 250 ms and no frame in which the list moved against the pointer, once the per-frame scroll went by offset rather than `scrollToIndex` (whose settle retry stopped short of the top in two runs of three). The dev build repaints a screen of rows per landing, so the drag steps there; kept as a live drag, not click-to-jump. The plan's As built section has the numbers.
+- The token-space thumb was accepted in use: Carl tried it on a seeded copy of the 58-turn thread and its one-turn child and said "ship it" (4 Nov 2026).
+- Firefox for macOS, where the scrollbar is already an overlay: still not checked on a Mac; by the CSS, hiding it changes nothing and the track sits where the overlay would.

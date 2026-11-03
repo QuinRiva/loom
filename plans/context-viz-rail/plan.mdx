@@ -1,0 +1,307 @@
+---
+reader:
+  who: the reviewer gate judging this plan against the approved brief beside it, then the coder who builds from it with none of this thread's context
+  knows: the brief (direction 1 chosen) and Loom's vocabulary; not the minimap's internals, LegendList's API or what the rail maps today
+  after_first_screen: what the scrollbar does on wheel, drag, click and hover, what the three marked lines in MessagesTimeline.tsx are, and that the drag is measured as the build's first step
+kicker: "Implementation plan · done 4 Nov 2026 · built, reviewed and accepted"
+status: done
+intent: plans/context-viz-rail/intent.mdx
+manager_sessions:
+  - id: 01a19ff8-fee0-743e-a23f-71922c7ba673
+    name: Token-space scrollbar plan
+    role: plan
+    authored_at: 2026-11-03T06:14:35.572Z
+---
+
+# The rail becomes the scrollbar: a token-space track at the right edge, three marked lines upstream, the drag measured first
+
+Rebuild `Rail.tsx` as the timeline's scrollbar: an **8 px track at the right edge, full height, on fine pointers only**, coloured by the whole session's context window in tokens as the rail is today, with a **thumb that is the rows now in view, mapped into token space**. **Wheel** over it scrolls the timeline, forwarded as the minimap forwards. **Drag** scrolls through tokens: once per frame the row holding the token under the pointer (a folded turn's collapsed row, when that is what holds it) is brought to the viewport fraction the drag began at, which never scrolls against the pointer and keeps the pointer on the thumb while a folded 300K turn flies past. **Click** lands on the row through today's `jumpToItem`, unfolds a folded turn, or, in the veil over turns not loaded yet, pages back through the conversation jump the Workstream surfaces already use. **Hover** names the item, as today. The native scrollbar goes by **one marked CSS rule** on an attribute the host sets, and the prose does not move because the timeline's padding already subtracts the measured gutter. The upstream cost is **three marked lines in `MessagesTimeline.tsx`**: an import, one guard, one call publishing the visible row range `refreshMinimap` already computes. The one bet the code cannot settle is whether `scrollToIndex` once per frame keeps up on the 58-turn thread, so **the drag is built first and measured** (§3); if it fights, the drag becomes land-on-release, and the brief's unknown is settled either way.
+
+<Stats
+  items={[
+    { value: "3 lines", label: "Marked in MessagesTimeline.tsx", tone: "accent", detail: "An import, one guard, one publish call; the host mount hunk shrinks by five lines" },
+    { value: "1 rule", label: "Marked in index.css", tone: "accent", detail: "Hides the native scrollbar on fine pointers while the attribute is set" },
+    { value: "0 hunks", label: "In the canvas files", tone: "success", detail: "#522's three one-line hunks are not needed; it closes unmerged" },
+    { value: "1 check", label: "The drag, before the rest", tone: "warning", detail: "p95 frame interval during a thumb drag; over 50 ms, or any net reversal, means the list fights" },
+  ]}
+/>
+
+<Callout tone="decision" title="What it means now" focus>
+  The reviewer approves this against the brief; no line of the brief is reopened and no Assumed line is contradicted by the code. The coder starts with §5 (the three lines), then §1 to §3 in that order, and **reports the drag number from §3 before building the veil, the label or the CSS rule**, because the fallback changes one handler and nothing else. One thing the brief's author did not see: on a one-turn child the kickoff brief is `createdBy: "agent"`, so the minimap has **zero** human prompts and `refreshMinimap` returns before it computes the visible range. The guard moves (one marked line, not a new one), which is why the budget is three lines and not two, and why today's rail draws no outline on a one-turn child at all.
+</Callout>
+
+<Image
+  src="shots/track-closeup.png"
+  alt="Three close-ups of the right edge at twice actual size: the token-space track with its thumb at the bottom and a hover label, a scroll-space track, and today's bare native thumb"
+  caption="From the brief, twice actual size, the same 600 px of the right edge. Left: what this plan builds, the thumb being the rows in view and the label the hovered item. Right: today's native 6 px thumb. The middle panel is the scroll-space variant the brief dropped."
+  width={700}
+/>
+
+**What is in.** `Rail.tsx` rebuilt around the visible row range; a small store that carries that range from the timeline to the rail without a React render; `jumpToItem` extended to say when it could not land; the CSS rule; the three lines; the preview fixture updated; one As built line in the experiment plan's removal checklist. **Not in.** Mobile; the minimap's prompt ticks in the track; the hover-revealed timestamp that shifts the Heaviest button; any change to `TimelineMinimap.tsx`. **Done** means the brief's four checks pass live on Carl's 58-turn thread and a one-turn child under it, the frame measurement with the switch on and off is reported, the timeline-off check in §6 passes, and the drag number is in the coder's report. Two questions for the gate are at the end: whether a click on the thumb itself lands or is inert, and where a click on the fixed overhead goes.
+
+## 1. The token-space map
+
+**Reused.** `railLayout` in `Rail.tsx` already filters the report to `inWindow && tokens > 0`, lays the items in session order, and keeps `span`, a map from item id to its `[start, end)` in tokens from the top, plus the merged `segments` with their `start`. `TimelineFigures` (in `timelineFigures.ts`) already carries `rowKeyOfItem` (item id to the row key its row is found under: a tool's `nativeId`, `user:<messageId>` for a prompt) and `runOfItem`; `rowKeys(row)` and `rowIndexOf(rows, rowKey)` already turn a row key into a row index with a per-rows cache. The join (`figures.join`) carries `byNativeId`, `byUserMessageId`, `argsOfTool` and `runs.get(runId).items`. Nothing new is computed on the server and nothing new crosses the socket.
+
+**Added.** Two directions on top of that, both pure, in a new `railLayout.ts` beside `Rail.tsx` (the layout and `segmentTitle` move there from `Rail.tsx`):
+
+<Table
+  density="compact"
+  columns={["Direction", "Input", "How", "Output"]}
+  rows={[
+    ["Pixel to item", "a pointer `clientY` on the track", "`f = clamp((clientY − track.top) / track.height, 0, 1)`; `t = f × layout.total`; binary search `layout.items` (the filtered items, added to the layout beside a parallel `starts` array) for the last item with `start ≤ t`", "the item under the pointer, and `f`, the pointer's fraction of the track"],
+    ["Row to token span", "one `MessagesTimelineRow`", "its items by kind (table below), each item's span from `layout.span`; the row's span is `[min start, max end]` over the items that have one", "a span, or `null` when no item of the row is in the window"],
+  ]}
+/>
+
+Which items a row holds, by row kind. Rows not listed (`loom-model-change`, `loom-handoff`, `context-compaction`, `working`, `thinking`, the history control, the footer) hold no item and have no span.
+
+<Table
+  density="compact"
+  columns={["Row kind", "Its items"]}
+  rows={[
+    ["`message`, user", "`join.byUserMessageId.get(message.id)`"],
+    ["`message`, assistant", "`join.byNativeId.get(projectedItem.item.nativeItemRef.nativeId)`"],
+    ["`work` (an expanded group, one row holding every entry)", "for each `groupedEntries[].projectedItem.item.nativeItemRef.nativeId`: `byNativeId.get(id)` and `argsOfTool.get(id)`"],
+    ["`work-toggle` (a collapsed group)", "for each of `row.nativeIds`: the same two lookups"],
+    ["`turn-fold`, collapsed (`expanded === false`)", "`join.runs.get(row.runId).items`: the whole turn, which is why a folded 300K turn in view makes the thumb 30% tall"],
+    ["`turn-fold`, expanded", "none: it is the header of a turn whose rows are all shown below it, and those rows carry the items. Mapping the header to the run would make the thumb cover the whole turn while only its top is in view, then shrink as the header scrolls off"],
+    ["`attempt-fold` (a superseded attempt)", "none: its items are a slice of the run that `join.runs` does not separate, and `jumpToItem` does not open attempts, so the rail treats what it hides as hidden (below)"],
+  ]}
+/>
+
+Two known gaps in this table, both predating the plan and left for a later round: a **steered turn** has one `turn-fold` row for the run plus a fold per segment whose `runId` is `<runId>:steer:<steerId>` (`MessagesTimeline.logic.ts`, `deriveTurnFolds`), which is not a key of `join.runs`, so a segment row spans nothing and the run's own collapsed fold spans the whole run, segments after the steer included; and items under a collapsed **superseded attempt** or a segment fold have no row the rail can open (`jumpToItem` unfolds `turn-fold` rows only), so they land on the run's first row, as the Heaviest menu's jump does today.
+
+**The thumb.** Its top is the smallest `start` and its bottom the largest `end` over the rows `visibleRows.start … visibleRows.end` that have a span, written as `top: start/total × 100%` and `height: max(4px, (end − start)/total × 100%)`, the formula today's outline uses. When no row in the range has a span (the viewport shows only the history control, or only the footer), **the thumb is not rewritten** and stays where it was. The thumb is today's outline (`ring-1 ring-foreground/70 ring-inset`) with a `bg-foreground/10` fill so it reads as something to grab; no transition on it. The whole 8 px width is grabbable: the track takes the pointer, not the thumb (§2), so the thumb needs no hit area of its own.
+
+**The veil.** Loaded turns are a suffix of the session (history pages in from the end, ten human turns at a time), so the veil is one rectangle: from the first item that is not fixed overhead (`CATEGORY_OF[kind] !== "fixed"`) to the first item whose run has a row. A run has a row when a `turn-fold`, `attempt-fold`, `message` (`message.runId`) or `work-toggle` row names it; `loadedRuns(rows)` is one pass over the rows cached per rows array, like `rowIndexOf`. The veil is `bg-background/60`, `pointer-events-none`, `aria-hidden`, recomputed at render when `rows` change. The fixed overhead at the top (system prompt sections, tool schemas, compaction base) is not veiled: it has no row anywhere, so "not loaded yet" would be a lie; §2 says where a click on it goes.
+
+**Where an item lands.** `jumpToItem(key, itemId)` today scrolls to the row, or unfolds a folded turn and finishes the jump when the host next publishes rows that hold it, or returns silently. It gains a return value, the landing it found, so the rail can take the fourth case itself:
+
+<Code
+  filename="apps/web/src/loom/context-viz/timeline/timelineFigures.ts"
+  language="ts"
+  code={"/** Every landing names a row a drag can scroll to; only `kind` differs in what a click does. */\nexport type ItemLanding =\n  | { kind: \"row\"; index: number } // the item's own row\n  | { kind: \"folded\"; index: number; runId: RunId } // the collapsed turn-fold row hiding it\n  | { kind: \"hidden\"; index: number } // the run's first row: a superseded attempt or steer segment hides it\n  | { kind: \"fixed\"; index: 0 } // system prompt, tool schemas, compaction base: no row anywhere\n  | { kind: \"unloaded\"; index: 0 }; // a turn history has not paged in yet\n\nexport function landingOf(key: string, itemId: string): ItemLanding;\n\n/** As today, and returns the landing it acted on; \"unloaded\" means it did nothing. */\nexport function jumpToItem(key: string, itemId: string, unfold = true): ItemLanding;\n\n/** listRef.scrollToIndex({ index, animated: false, viewPosition }), reading the latest rows. */\nexport function scrollToRow(key: string, index: number, viewPosition: number): void;\n"}
+/>
+
+`landingOf` tests in order: `rowIndexOf(nav.rows, rowKeyOfItem.get(id)) ≥ 0` is `"row"`; a collapsed `turn-fold` row whose `runId` is `runOfItem.get(id)` is `"folded"` with that row's index; a run in `loadedRuns(rows)` with no row for the item is `"hidden"` with the index of the first row naming the run; `CATEGORY_OF[kind] === "fixed"` is `"fixed"`; else `"unloaded"`. It reads `navigation.get(key).rows`, the rows the host last published, as `jumpToItem` does, so a drag during streaming sees the rows the list has. Every landing carries a row index, so a drag always has somewhere to scroll (§2); on the 58-turn thread most of the track is folded turns, and a drag across them has to move the list to their fold rows, not wait for a prompt row.
+
+## 2. The four inputs: wheel, drag, click, hover
+
+**Reused.** `forwardWheelToTimeline` (`apps/web/src/components/chat/timelineMinimapWheel.ts`) is what the minimap attaches with a non-passive listener in a ref callback; the rail does the same with the scroll node from `shared.listRef.current.getScrollableNode()`. `jumpToItem` and the pending-unfold mechanism in `timelineFigures.ts`. `useConversationJumpStore.setRequest({ threadId, at })` (`apps/web/src/loom/conversationJump.ts`), which pages back up to 20 pages, unfolds, scrolls to the entry at or before `at` and flashes the row once. The follow-release path in `timelineViewport.ts`: any upward scroll that is not under a programmatic hold emits `{ source: "scroll" }`, which releases live follow, so the rail's upward `scrollToIndex` releases follow the way the Heaviest menu's does today. The hover label and `segmentTitle` as they are.
+
+**Added.** One pointer-captured gesture on the track element and a per-input rule:
+
+<Table
+  density="compact"
+  columns={["Input", "What happens", "At the boundary"]}
+  rows={[
+    ["Wheel over the track", "`forwardWheelToTimeline(event, scrollNode)`; the list scrolls, the thumb follows on the next published range", "The list clamps at its ends, as it does today"],
+    ["Pointer down on the track", "`setPointerCapture`, `preventDefault` (no text selection), remember the down point and `v`, the pointer's fraction of the track at that moment; nothing scrolls yet", "A down on the thumb is the same gesture: the thumb is not a separate target"],
+    ["Pointer move, past 3 px from the down point (a drag)", "coalesced to one rAF: pixel to item (§1), then `landingOf(item).index`, which every landing has (the item's row, a folded turn's collapsed row, a hidden item's run header, row 0 for fixed overhead and unloaded turns), then `scrollToRow(index, v)` with `v` held from pointer-down for the whole drag, skipped when the index is the one last commanded. The label follows the pointer and names the item", "In the veil every item lands on row 0, so the list sits at the top of the loaded page and release does nothing more: an overshoot at the top must not page history. Past the track's bottom `f` clamps to 1 and `scrollToEnd({ animated: false })` runs instead, so the footer inset is honoured"],
+    ["Pointer up without a drag (a click)", "`jumpToItem(key, item.id)`: `\"row\"` lands with today's 24 px offset, `\"folded\"` unfolds and lands when the rows arrive. `\"unloaded\"`: `setRequest({ threadId, at: item.at })` on the conversation-jump store, which pages back, unfolds, lands and flashes once. `\"fixed\"`: `scrollToRow(0, 0)`, the top of the loaded page, where the history control sits", "A click on the thumb lands on the row under the pointer like any other click (question 1 at the end). A click in the veil is the one way the rail pages history"],
+    ["Pointer up after a drag", "Release capture; the last frame's scroll stands", "Nothing further, in the veil or out of it"],
+    ["Hover", "`pointerenter` per segment sets the hovered segment, as today; during a drag the segment is set from the pointer-to-item lookup, since capture retargets `pointerenter`. The label opens leftward from the track (`end-[calc(100%+0.5rem)]`), `max-w-72`, translated 0 / −50% / −100% at the top, middle and bottom tenth so it never leaves the viewport, `z-30` so it paints over the details card (`z-20`)", "Near the top or bottom edge the translate keeps it inside; at narrow widths it opens over the prose, which is where it opens at every width since the track is at the edge"],
+  ]}
+/>
+
+<Callout tone="decision" title="Drag semantics: the row under the pointer's token goes to the viewport fraction the drag began at, held throughout">
+  `scrollToRow(index, v)` with `viewPosition: v` fixed at pointer-down. LegendList's offset for a `scrollToIndex` is `position − viewPosition × (viewport − trailing inset − row height)` (`@legendapp/list/react.mjs`, `scrollToIndex`), so the row's top sits at `v × (viewport − row height)`, not at `v` of the viewport. With `v` fixed, the offsets of successive landing rows differ by `(1 − v) × hᵢ + v × hᵢ₊₁`, never negative: **the list never moves against the pointer**. And the row holding token `t` is in view on every frame, so `t` is inside the visible range and therefore inside the thumb, by construction. At the ends the scroll clamps (row 0 cannot sit at `v` of the viewport when `v` is large; it sits at the top) and `f ≥ 1` goes to `scrollToEnd`.
+</Callout>
+
+<Columns columns={3}>
+  <Column label="Chosen: viewPosition held at the pointer-down fraction">
+    Monotonic in the pointer, the pointer on the thumb, one `scrollToIndex` per frame when the landing row changes, and the state between frames is the last index commanded and `v`.
+  </Column>
+  <Column label="Rejected: viewPosition following the pointer each frame">
+    While the pointer crosses one row's token span the index is constant and `f` falls, so the offset rises: the list scrolls down while you drag up, about 250 px across a folded 300K turn (0.3 of an 860 px viewport), then snaps at the next row. A measurement of that would blame LegendList for the plan's own arithmetic.
+  </Column>
+  <Column label="Rejected: grab offset in tokens, or interpolating inside the row">
+    A grab offset is right for one frame, then the thumb resizes under the pointer. Interpolating the scroll inside the row's height by the token's share of the row's span is monotonic too, but gains only inside expanded groups (a folded 300K turn is a 40 px row either way) and needs `positionAtIndex` of rows that are not measured yet.
+  </Column>
+</Columns>
+
+A scroll commanded while the agent is streaming is the one place the follow-release ordering could bite: the conversation jump calls `onManualNavigation()` and waits two frames before scrolling because "the timeline must have re-rendered without pinning to the end, or it snaps straight back". The Heaviest menu's `jumpToItem` does neither and has not been reported to snap. If a drag during a running turn snaps back on the dev instance, the fix is two more marked lines in two upstream files, `onManualNavigation: navigateTimeline` on the `sharedState` literal in `MessagesTimeline.tsx` and the field on `TimelineRowSharedState` in `apps/web/src/components/chat/timelineRowContext.ts`, called once at pointer down; the coder adds them only if the snap is seen and says so.
+
+## 3. The drag is step one, and it is measured
+
+The brief's unknown: "Does `scrollToIndex` once per frame during a thumb drag keep up on the 58-turn thread with a tool group expanded, or does the list fight the drag?" This plan does not spike it beforehand; it builds the live drag as the primary design, in the order §8 gives, and measures it before the rest of the rail is built, because the fallback changes one handler.
+
+**The measurement.** Dev-verify recipe, dev database seeded with `vp run migrate-dev-db --root 50aa9c55-75dc-4d6a-b059-365a95393600` (Carl's "Context Usage Breakdown Visualisation" thread, 33 runs in the projection, 58 turns in its session). Timeline switch on, details card open, the largest tool group expanded, the window at the width Carl works at (about 1,600 px) and the right panel closed. In the console:
+
+<Code
+  language="js"
+  wrap
+  code={"// Visible motion, not scrollTop: with maintainVisibleContentPosition on, rows above being\n// measured for the first time move scrollTop while nothing moves on screen. So track the row\n// under the viewport's centre and compare its on-screen top only while it is the same row.\nconst node = document.querySelector('.messages-timeline-scroll');\nconst box = node.getBoundingClientRect();\nconst cx = box.left + box.width / 2, cy = box.top + box.height / 2;\nconst frames = []; let last = performance.now(); let lastRow = null;\nconst report = () => {\n  const dts = frames.map((f) => f.dt).sort((a, b) => a - b);\n  const p = (q) => dts[Math.floor(q * (dts.length - 1))].toFixed(1);\n  // Dragging upward, content must move down the screen: the same row's top going UP by more\n  // than 4 px in one frame is the list moving against the pointer.\n  console.log({ p50: p(0.5), p95: p(0.95), max: dts.at(-1).toFixed(1), reversals: frames.filter((f) => f.dy < -4).length });\n};\nconst tick = (now) => {\n  const row = document.elementFromPoint(cx, cy)?.closest('[data-timeline-row-id]') ?? null;\n  const top = row?.getBoundingClientRect().top ?? null;\n  frames.push({ dt: now - last, dy: row !== null && lastRow?.row === row ? top - lastRow.top : 0 });\n  last = now; lastRow = row === null ? null : { row, top };\n  frames.length < 600 ? requestAnimationFrame(tick) : report();\n};\nrequestAnimationFrame(tick);\n"}
+/>
+
+Start the sampler, then drag the thumb from the bottom of the track to the top over about three seconds at a steady speed, and let the ten-second window close. The list legitimately holds still while the pointer crosses a folded turn's 30% of the track (one 40 px row holds it), so a still list is not a finding; a row moving the wrong way on screen is. Repeat three times; report the median run's four numbers, and the same four for a plain wheel scroll of the same thread with the switch on and again with it off (the frame check the context-viz brief asked for; the As built line of that plan says the two were equal last time).
+
+<Table
+  density="compact"
+  columns={["Result", "Reading", "What the coder does"]}
+  rows={[
+    { tone: "success", cells: ["p95 ≤ 33 ms and 0 reversals", "keeps up: at most one dropped frame at 60 Hz, the viewport never moves against the pointer", "Keeps the live drag; the brief's unknown becomes a passed check"] },
+    { tone: "risk", cells: ["p95 > 50 ms, or any reversal, or rows visibly blank under the pointer", "fights", "Moves `scrollToRow` from the move handler to the up handler: the label and a 1 px marker at the pointer's token follow the pointer, the thumb stays with the list, release lands once with `viewPosition: f`. The brief's unknown settles as land-on-release; a click is a zero-length drag of the same handler, so the brief's 'read-only thumb with click-to-jump' fallback is this one"] },
+    ["between", "unclear", "Reports the numbers and the feel in words; the gate decides, not the coder. If `scrollToIndex`'s settle (it retries until the target row is measured) is what fights, `scrollToOffset` from `state.positionAtIndex(index)` is the one variant to try before falling back, and the only one"],
+  ]}
+/>
+
+## 4. Hiding the native scrollbar
+
+**Reused.** `--app-scrollbar-width: 6px` and the global `::-webkit-scrollbar` rules in `apps/web/src/index.css`; the scroller's `scrollbar-gutter-both` class (`scrollbar-gutter: stable both-edges`, 6 px reserved on each edge); `ChatCanvas.tsx` measuring `(offsetWidth − clientWidth) / 2` into `--chat-timeline-gutter` from a ResizeObserver on the scroller; the rule `[data-chat-canvas] .messages-timeline-scroll` whose `padding-inline-*` is `3rem + inset − gutter`.
+
+**Added.** One rule in the fork-only region of `index.css` (between the `/* loom: from here … */` and `/* loom: end of fork-only UI */` markers), on an attribute the host sets on the scroller:
+
+<Code
+  filename="apps/web/src/index.css"
+  language="css"
+  code={"/* loom: context-viz rail: while the token-space scrollbar is mounted the native one goes, on fine\n   pointers only; the gutter it reserved collapses with it and the lane's padding grows by the same\n   6 px (the padding subtracts --chat-timeline-gutter), so the prose does not move. */\n@media (pointer: fine) {\n  .messages-timeline-scroll[data-context-scrollbar] {\n    scrollbar-width: none;\n  }\n  .messages-timeline-scroll[data-context-scrollbar]::-webkit-scrollbar {\n    display: none;\n  }\n}\n"}
+/>
+
+Both declarations, because they cover different engines: `scrollbar-width: none` is Firefox 64+, Chromium 121+ (the desktop app's Electron 44 is well past that, so it takes this one; Chromium then ignores `::-webkit-scrollbar` on that element, which is fine since both hide) and Safari 18.2+; `::-webkit-scrollbar { display: none }` covers older Safari. On macOS, where the native scrollbar is already an overlay with no gutter, the rule changes nothing visible and the track sits where the overlay would; the brief's "not checked on a Mac" carries forward.
+
+**Why the lane does not shift.** With `scrollbar-width: none`, `scrollbar-gutter` reserves nothing, so `clientWidth` grows by 12 px. The ResizeObserver in `ChatCanvas.tsx` observes the scroller's content box and fires; `timelineGutter` becomes 0; the padding rule's `− var(--chat-timeline-gutter)` term goes from −6 px to 0 on both sides. Content left edge before: 6 px gutter + (48 px + inset − 6 px) padding; after: 0 + (48 px + inset). Same number. The one cost is a frame between the attribute landing and the measurement landing, in which the prose sits 6 px left; it happens once per mount and once per switch flip, not on scroll.
+
+**The attribute.** Written by the track itself, so the native scrollbar is hidden exactly where a real track stands and nowhere else: a ref callback on the track element in `Rail.tsx` sets `scrollNode.dataset.contextScrollbar = ""` (the node from `shared.listRef.current.getScrollableNode()`) and its React 19 ref cleanup deletes it. The track element exists only when `Rail` renders it, which is only under `TimelineFiguresHost` (`report && projection`) with `layout.total > 0`; a non-pi thread (`useContextUsageLoader` never asks for its report), a failed load or an empty report keep the native scrollbar. The cost is one flip per thread open with the switch on: the native scrollbar shows until the report lands (the As built line of the experiment plan measured the 58-turn thread's at 73 ms on the server), then the track takes its place in the same frame the row figures appear, with the one-frame 6 px lane step above. The scroll node lives as long as `MessagesTimeline` does (the list carries no key and `setTimelineList` attaches once per mount) and the Rail is its descendant, so no re-assert is needed; no effect and no lint pragma either.
+
+<Columns>
+  <Column label="Chosen: an attribute on the scroller">
+    One explicit DOM write, invalidation limited to the scroller itself, removed on unmount; the timeline-off state is the attribute's absence.
+  </Column>
+  <Column label="Rejected: a :has() rule on the viewport wrapper">
+    `[data-assistant-citation-viewport]:has(> [data-context-scrollbar]) .messages-timeline-scroll` needs no effect, but makes the engine check the argument on DOM mutations under the wrapper, which is every streamed chunk, and couples the rule to LegendList's element shape.
+  </Column>
+</Columns>
+
+## 5. The three marked lines, and the one-turn child
+
+`MessagesTimeline.tsx` has 227 upstream commits since August and 27 loom hunks; each line added is churn at the next pull. `refreshMinimap` already computes `visibleRange` from LegendList's buffered range and the corrected scroll per rAF-throttled scroll, item resize and content resize, and publishes only `currentIndex`. The lines:
+
+<AnnotatedCode
+  filename="apps/web/src/components/chat/MessagesTimeline.tsx"
+  language="ts"
+  code={"import { TimelineHost } from \"../../loom/context-viz/timeline/TimelineHost\"; // loom: context-viz\nimport { publishVisibleRows } from \"../../loom/context-viz/timeline/visibleRows\"; // loom: context-viz\n\n  const refreshMinimap = useStableCallback(() => {\n    const state = listRef.current?.getState?.();\n    if (restoringThreadPosition || state?.data !== rows) return;\n    if (!state) return; // loom: context-viz, the rail needs the range on a thread with no human prompt\n\n    const firstBufferedIndex = state.startBuffered;\n    // … (the scroll correction, unchanged)\n    const visibleRange = resolveTimelineMinimapVisibleRange({ ...state, scroll });\n    publishVisibleRows(routeThreadKey, visibleRange); // loom: context-viz\n    for (const item of minimapItems) {\n      // … (unchanged)\n    }\n  });\n\n            <TimelineHost\n              rows={rows} // loom: context-viz, the loader and the scrollbar\n              shared={sharedState}\n            />\n"}
+  annotations={[
+    { lines: "2", label: "line 1", note: "The import, beside the existing TimelineHost import." },
+    { lines: "7", label: "line 2", note: "Today: if (!state || minimapItems.length === 0) return. A child thread's kickoff brief is createdBy \"agent\", so deriveTimelineMinimapItems (loom-filtered to human prompts) yields zero items on a one-turn child and the range was never computed there. With the guard reduced, the strip loop is empty and resolveTimelineMinimapCurrentIndex returns null into a no-op setState: what the minimap shows is unchanged. What changes is that a zero-prompt thread now pays the two getBoundingClientRect calls of the scroll correction per scroll frame, with the switch off too, which is what every prompted thread already pays." },
+    { lines: "12", label: "line 3", note: "The publish, keyed by routeThreadKey, which is scopedThreadKey(shared.threadRef), the host's figureKey. One Map write when the range changed; nothing when it did not; nothing subscribed when the switch is off." },
+    { lines: "18-21", label: "shrinks", note: "The host no longer takes currentRow (the thumb replaces the outline that read it), so the existing hunk loses its five currentRow lines." },
+  ]}
+/>
+
+`visibleRows.ts` (new, under `apps/web/src/loom/context-viz/timeline/`) is a Map of thread key to `{ start, end }` with a listener set per key, bounded to the last four keys published as `timelineFigures.ts` bounds its store (`KEPT_THREADS`), since the publish runs with the switch off too: `publishVisibleRows(key, range)` (no-op when both bounds are unchanged), `subscribeVisibleRows(key, listener)` returning the unsubscribe, and `visibleRows(key)` for the first paint. The rail subscribes from a ref callback on the thumb element (React 19 ref cleanup), so a published range becomes two style writes on one element inside the same animation frame `refreshMinimap` ran in, with no React render and no effect.
+
+## 6. Timeline off, width, touch, keyboard
+
+**Timeline off is today exactly.** `TimelineHost` returns `null` before reading any store; the attribute is never set, so the CSS rule never matches, the native scrollbar and both 6 px gutters are back, `--chat-timeline-gutter` measures 6 px, the minimap is untouched (the guard change in §5 is behaviour-identical). The check, in the console on the dev instance with the switch off, then on: `getComputedStyle(document.querySelector('.messages-timeline-scroll')).scrollbarWidth` reads `auto` then `none`; `offsetWidth − clientWidth` on that element reads 12 then 0; `getComputedStyle(document.querySelector('[data-chat-canvas]')).getPropertyValue('--chat-timeline-gutter')` reads `6px` then `0px`; and `document.querySelector('[data-timeline-root]').getBoundingClientRect().left` reads the same number both times. Screenshots of both.
+
+**Width.** The `@container/context-rail` and `@min-[1100px]/context-rail:flex` classes go: the track is the scrollbar and is on at every width. Nothing replaces the rule; the only width-dependent thing is the label, which opens leftward at every width (§2). With the right panel open the track sits at the chat column's right edge, against the panel, where the native scrollbar sits today.
+
+**Touch.** The track root is `hidden [@media(pointer:fine)]:block`, the minimap's own variant, and the CSS rule is under `@media (pointer: fine)`, so on a coarse pointer the rail is absent and the native scrollbar and touch scrolling are untouched.
+
+**Keyboard and accessibility.** The custom scrollbar is a pointer affordance, like the native one: not focusable, no key handling, and keyboard scrolling of the timeline (`timelineViewport.ts` hears PageUp, PageDown, Home, End and the arrows app-wide) is untouched. The track keeps today's `role="group"` and `aria-label` (`Context window, 1.1M in session order`); the segments become `aria-hidden` spans rather than buttons, and the thumb and veil are `aria-hidden`. This removes today's several hundred tab stops (one `<button>` per segment), which no keyboard user was going to tab through to reach a tool result; the Heaviest menu and the Context tab remain the keyboard routes to an item.
+
+## 7. The removal checklist
+
+`plans/context-viz-experiment/plan.mdx` §7 lists every line the experiment touches so any view can be reverted; its body is frozen and its As built section is where later rounds record what changed. This build appends one As built line there, in the same PR, reading in substance: "After the rail became the scrollbar (PR #N): the Timeline-view-only row of §7 also reverts, in `MessagesTimeline.tsx`, the `publishVisibleRows` import and call and the one-line `if (!state) return;` guard in `refreshMinimap` (restoring `if (!state || minimapItems.length === 0)`), each marked `// loom: context-viz`; in `index.css`, the one rule under `/* loom: context-viz rail */`; and the folder now holds `railLayout.ts` and `visibleRows.ts`. The three canvas hunks that PR #522 proposed in `canvasStore.ts`, `ChatCanvasContext.ts` and `ChatCanvas.tsx` were never merged and are not needed: the track is at the scroller's edge, 4 px clear of the details card's 12 px inset, so it needs no measurement of the card." The `rg` check named in that As built section stays the same and still returns nothing after the Everything row.
+
+## 8. Build order and change map
+
+<Steps>
+  <Step at="1" title="The three lines and the store." badge="§5">
+    `visibleRows.ts`; the import, guard and publish in `MessagesTimeline.tsx`; `TimelineHost` drops `currentRow`. Typecheck. The minimap behaves as before on the 58-turn thread (strips darken in view, current index moves) and `visibleRows(key)` reads a range on the one-turn child in the console.
+  </Step>
+  <Step at="2" title="The map and the landing." badge="§1">
+    `railLayout.ts` (layout moved from `Rail.tsx`, `items` and `starts` added, `itemAt(t)`, `rowSpan(row, join, layout)`, `loadedRuns(rows)`); `landingOf`, `jumpToItem`'s return, `scrollToRow` in `timelineFigures.ts`.
+  </Step>
+  <Step at="3" title="The track, the thumb and the live drag, then the measurement." badge="§2, §3" tone="warning">
+    `Rail.tsx` rebuilt: the 8 px track at `inset-y-0 right-0`, segments as spans, the thumb subscribed to the range, the pointer gesture with the live per-frame `scrollToRow`, the wheel forward. Hidden native scrollbar not yet needed for the measurement, but harmless to have. **Run §3 and put the numbers in the report before step 4.** If it fights, move the scroll to the up handler and say so.
+  </Step>
+  <Step at="4" title="Click, veil, label, CSS rule, attribute." badge="§2, §4">
+    The click rule with the conversation jump for `"unloaded"`, the veil, the hover label's placement and `z-30`, the `index.css` rule, the attribute written by the track's ref callback. The `@min-[1100px]` classes go.
+  </Step>
+  <Step at="5" title="Fixture, As built line, verification." badge="§7, §9">
+    `timeline.preview.tsx`'s `RailFrame` publishes a visible range from its buttons instead of stepping `currentRow` (the preview cannot drag, there is no list; it shows thumb, veil and label in seconds). The As built line in the experiment plan. §9 in full; `vp check`, `vp run typecheck`, `vp run check:changed`, and the unmarked-hunk sweep that `pnpm ship` runs.
+  </Step>
+</Steps>
+
+<Details summary="All touched files">
+  <FileTree
+    title="The change map"
+    entries={[
+      { path: "apps/web/src/components/chat/MessagesTimeline.tsx", change: "modified", note: "3 marked lines (import, guard, publish); the host mount hunk loses currentRow" },
+      { path: "apps/web/src/index.css", change: "modified", note: "1 marked rule in the fork-only region: scrollbar-width none and ::-webkit-scrollbar display none under @media (pointer: fine)" },
+      { path: "apps/web/src/loom/context-viz/timeline/", change: "modified", note: "all of the rest lives here; the experiment plan's Timeline-view-only row deletes the folder" },
+      { path: "apps/web/src/loom/context-viz/timeline/visibleRows.ts", change: "added", note: "publishVisibleRows / subscribeVisibleRows / visibleRows, keyed by thread key" },
+      { path: "apps/web/src/loom/context-viz/timeline/railLayout.ts", change: "added", note: "railLayout and segmentTitle moved from Rail.tsx; items, starts, itemAt, rowSpan, loadedRuns" },
+      { path: "apps/web/src/loom/context-viz/timeline/Rail.tsx", change: "modified", note: "rebuilt: track at the edge (its ref callback sets the scroller attribute), thumb from the range, pointer gesture with viewPosition held from pointer-down, wheel forward, veil, label; no container query" },
+      { path: "apps/web/src/loom/context-viz/timeline/timelineFigures.ts", change: "modified", note: "ItemLanding, landingOf, jumpToItem returns its landing, scrollToRow" },
+      { path: "apps/web/src/loom/context-viz/timeline/TimelineHost.tsx", change: "modified", note: "currentRow prop gone; Rail gets rows, shared, threadRef" },
+      { path: "apps/web/src/loom/context-viz/timeline/timeline.preview.tsx", change: "modified", note: "RailFrame publishes a visible range instead of currentRow" },
+      { path: "plans/context-viz-experiment/plan.mdx", change: "modified", note: "one As built line: the removal checklist's new lines and that #522's canvas hunks are not needed" },
+    ]}
+  />
+</Details>
+
+No tests are added. The risk that would earn one is the row-to-span table in §1 (a wrong lookup shows as a thumb that is the wrong size on one row kind), and the live pass on the 58-turn thread with a folded turn, an expanded group and a collapsed group all in view exercises every row kind in the table at once, which a fixture would only imitate.
+
+## 9. Verification
+
+Dev-verify recipe, seeded with `--root 50aa9c55-75dc-4d6a-b059-365a95393600` so the 58-turn thread and its children come along; the one-turn child is "Token-attribution ground truth" (`thread:mcp:665da8f9-b028-4fa5-956b-74d3c08b1aaa:workstream-scaffold:47f4b7a6-dfda-4334-b841-06f2ec56709d:0`), whose kickoff is agent-created, so it is the case §5 fixes. Screenshots go in the PR, not the tree.
+
+<Checklist
+  items={[
+    { id: "wheel", label: "Wheel over the track scrolls the timeline; the thumb moves; a wheel tick past a folded turn jumps the thumb by that turn's share", checked: false },
+    { id: "drag", label: "The §3 measurement, three runs, median reported, plus wheel-scroll p50/p95 with the switch on and off; a drag across the folded turns moves the list fold row by fold row and never against the pointer", checked: false },
+    { id: "click-loaded", label: "Click on a loaded item lands on its row with the 24 px offset; click on an item of a folded loaded turn unfolds it and lands", checked: false },
+    { id: "click-veil", label: "Click in the veil pages history back, unfolds, lands and flashes the row once; the veil shrinks as pages arrive", checked: false },
+    { id: "click-fixed", label: "Click on the system-prompt band scrolls to the top of the loaded page", checked: false },
+    { id: "hover", label: "Hover names the item, including inside the veil and during a drag; the label stays on screen at the top and bottom ends and paints over the open details card", checked: false },
+    { id: "child", label: "One-turn child: track, thumb, hover and click work call by call; the thumb tracks the scroll (there is no minimap here)", checked: false },
+    { id: "states", label: "Screenshots: details card open, right panel open, a wide bled table, a narrow window (below 1,100 px), the one-turn child, dark and light; nothing sits over the thumb, the card or the prose, and the card's right edge is clear of the track", checked: false },
+    { id: "off", label: "Timeline off: the §6 console check (scrollbarWidth auto, 12 px, 6px, same prose left edge) and screenshots; the minimap identical. Timeline on, on a non-pi thread (the Replay provider): native scrollbar present, no track", checked: false },
+    { id: "touch", label: "DevTools device emulation with a coarse pointer: no track, native scrollbar present", checked: false },
+    { id: "gates", label: "vp check, vp run typecheck, vp run check:changed; every upstream hunk marked (the ship gate's unmarked sweep)", checked: false },
+  ]}
+/>
+
+<QuestionForm
+  questions={[
+    {
+      id: "thumb-click",
+      title: "What does a click on the thumb itself do?",
+      subtitle: "The thumb is the rows already in view; a click there either scrolls the row under the pointer to the top like any click, or does nothing like a native thumb.",
+      mode: "single",
+      options: [
+        { id: "land", label: "Land on the row under the pointer, like a click anywhere on the track", recommended: true, detail: "One rule for the whole track; the row you pointed at comes to the top with the usual 24 px offset." },
+        { id: "inert", label: "Do nothing, like a native scrollbar thumb", detail: "Needs the thumb's bounds tested at pointer-up; a click that lands by accident is the cost it avoids." },
+      ],
+    },
+    {
+      id: "fixed-click",
+      title: "Where does a click on the fixed overhead (system prompt, tool schemas) go?",
+      subtitle: "Those items have no row anywhere; the band is at the top of the track and is not veiled.",
+      mode: "single",
+      options: [
+        { id: "top", label: "The top of the loaded page, where the history control sits, with no paging", recommended: true, detail: "Cheap and predictable; the hover label still names the section." },
+        { id: "start", label: "Page history back to the start of the session through the conversation jump", detail: "Up to 20 pages on a long thread, for a band that has no row to land on at the end of it." },
+      ],
+    },
+  ]}
+/>
+
+## As built
+
+Built in the §8 order on `t3/context-viz-rail`; the gate passed it clean against the brief and the plan, and Carl accepted it in use on a seeded copy of the 58-turn thread. The upstream footprint is as budgeted: three marked lines in `MessagesTimeline.tsx`, one marked rule in `index.css`, and none of #522's canvas hunks. Where the build departed:
+
+- **The drag scrolls by offset, not `scrollToIndex`.** The plan's one sanctioned variant. With `scrollToIndex`, the sampler read p50 / p95 / max 16.7 / 49.9 / 350 ms, two runs of three stopped short of the top (scrollTop 6887) and the settle retry kept firing after release. With `scrollToOffset` from `positionAtIndex`: 16.7 / 16.8 / 250 ms, 0 reversals, always ended at the top. Over the drag's own three seconds p95 is 150 to 167 ms in the React dev build, because each landing renders a fresh screen of rows; the list never moved against the pointer, so the gate ruled it "keeps up" and the live drag stayed. A production build was not measured. Wheel scroll with the switch on and off: 16.7 / 33.3 ms both, equal.
+- **The landing offset is read from the rendered list, once per drag.** `scrollToOffset` skips LegendList's start-offset adjustment (header, top padding, align-at-end), so rows landed one header height (60 px on the 58-turn thread) away from where `scrollToIndex` puts them. `rowStartOffset` takes a row rendered now and subtracts `positionAtIndex` from its position in the scroller, read at pointer-down and held with `v`; no DOM read per frame, and no copy of LegendList's formula. The trailing-inset term is left out: the timeline passes `contentInsetEndAdjustment` only with `anchoredEndSpace`, so it is expected zero here.
+- **The thumb never disappears at the end of a thread.** The plan said a visible range with no span leaves the thumb unwritten; a thread opened at its end has no span for its latest answer (no later call has measured it), so it would have had no thumb at all. `thumbSpan` pins the thumb to the end of the nearest row above with a span, clamped to `100% − 4px`.
+- **`landingOf` and `jumpToItem` take the item, not its id** (the `"fixed"` case needs its kind); `TurnHeaderFigure` follows. A click on a `"hidden"` landing scrolls to the run's first row. `loadedRuns` lives in `timelineFigures.ts`, not `railLayout.ts`, to avoid an import cycle; `rowSpan` became `rowsSpan` / `thumbSpan` over the visible range; `publishVisibleRows` carries the rows array the range indexes so the thumb never pairs a new range with old rows.
+- **Hover is one `pointermove` on the track** with the segment found by binary search, not `pointerenter` per segment, so plain hover and hover under pointer capture during a drag are one path. Segments are absolutely positioned by token share rather than flex-grown, so pixel-to-token, thumb and veil share one arithmetic.
+- **The two contingent lines for a snap-back while streaming were not added:** no snap-back was seen, but a streaming turn could not be driven on the dev instance (the Replay provider showed "Disabled" on a `migrate-dev-db` instance, root cause not found, and a real pi turn costs money). Left as a known check.
+- **Not verified live, passed by code:** the non-pi (Replay) thread keeping its native scrollbar, for the same reason; and the coarse-pointer case (no pointer-media emulation in the preview browser; the track root and the CSS rule are both inside `(pointer: fine)`).
+- **On the one-turn child** the turn is a single expanded tool-group row, so "call by call" is at row level: the thumb covers the whole group and hover names each call.
+- **The `05-timeline-off` screenshot cannot show the native scrollbar** (the headless capture does not paint it); the evidence for Timeline off being today exactly is the §6 console check: `scrollbarWidth` auto → none, gutter 12 → 0 px, `--chat-timeline-gutter` 6px → 0px, prose left edge 220 → 220.
+- **Found on the way, not this change:** a wide table in an assistant reply loses its left edge when the Timeline switch is on and the lane is narrow; it reproduces with the native scrollbar restored, so the cause is the row-figure margin meeting the bleed translate, which predates this round (task recorded).

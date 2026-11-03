@@ -78,7 +78,7 @@ function TurnHeaderFigureOn({
                 <MenuItem
                   key={item.id}
                   disabled={!figures.rowKeyOfItem.has(item.id)}
-                  onClick={() => jumpToItem(figureKey, item.id)}
+                  onClick={() => jumpToItem(figureKey, item)}
                 >
                   <span
                     className={cn(
