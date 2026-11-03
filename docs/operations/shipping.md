@@ -79,8 +79,12 @@ nothing, which is why the script runs the gate after the rebase. The script
 also runs the unmarked-delta sweep
 ([`unmarkedsweep.sh`](../upstream-sync/pull7-tools/unmarkedsweep.sh)): a loom
 hunk in an upstream-owned file without a `// loom:` marker fails the ship,
-because the next upstream pull would drop it silently. Run `lint:mobile`
-yourself when you have touched native mobile code.
+because the next upstream pull would drop it silently. It runs the
+agent-context tests too: upstream's `AgentContextBudget.test.ts` and Loom's
+`agentContextLimit.test.ts`. It refuses a branch that raises a limit in
+`agentContextLimits.json` above `origin/main`'s unless given
+`--allow-context-increase`, passed only with Carl's approval of that increase.
+Run `lint:mobile` yourself when you have touched native mobile code.
 
 ## The sequence (what `scripts/ship.ts` does)
 
@@ -95,7 +99,8 @@ files too (above). In order, the script:
 2. Commits any pending changes with your commit message (skipped when the
    tree is clean).
 3. Fetches and rebases onto current `origin/main` (skipped with `--merge-only`).
-4. Runs the gate: `vp check`, `vp run typecheck`, the unmarked-delta sweep.
+4. Runs the gate: the agent-context limits against `origin/main`'s, `vp check`,
+   `vp run typecheck`, the unmarked-delta sweep, the agent-context tests.
 5. Pushes the branch with `git push --force-with-lease -u origin HEAD` (the
    lease lets a rebased, already-pushed branch update without clobbering
    anyone else's push).

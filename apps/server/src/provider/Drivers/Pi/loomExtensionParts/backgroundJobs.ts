@@ -13,7 +13,7 @@ const proseOf = (tool: "bg_start" | "bg_wait") => ({
   promptGuidelines: LOOM_TOOL_PROSE[tool].promptGuidelines.split("\n").filter(Boolean),
 });
 
-const BG_START_PARAMETERS = {
+export const BG_START_PARAMETERS = {
   type: "object",
   properties: {
     command: {
@@ -39,7 +39,7 @@ const BG_START_PARAMETERS = {
   additionalProperties: false,
 };
 
-const BG_WAIT_PARAMETERS = {
+export const BG_WAIT_PARAMETERS = {
   type: "object",
   properties: {
     id: { type: "string", minLength: 1, description: "The job id bg_start returned." },

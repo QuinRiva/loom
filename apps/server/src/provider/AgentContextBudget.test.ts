@@ -12,6 +12,7 @@ import { DeviceService } from "../device/DeviceService.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
+import { LOOM_TOOL_DEFS } from "../mcp/toolkits/workstream/defs.ts"; // loom:
 import { loomToolkitServiceStubs } from "../mcp/toolkits/workstream/mcpHttp.testkit.ts"; // loom:
 import { PreviewAutomationBroker } from "../mcp/PreviewAutomationBroker.ts";
 import {
@@ -121,11 +122,14 @@ it.effect("agent context matches the committed budget", () =>
       // The model sees these fields. outputSchema and annotations are protocol metadata.
       mcpToolListJsonBytes: utf8Bytes(
         JSON.stringify(
-          mcp.tools.map(({ tool }) => ({
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-          })),
+          mcp.tools
+            // loom: upstream's figure; Loom's tools are measured by agentContextLimit.test.ts
+            .filter(({ tool }) => !LOOM_TOOL_DEFS.some((def) => def.name === tool.name))
+            .map(({ tool }) => ({
+              name: tool.name,
+              description: tool.description,
+              inputSchema: tool.inputSchema,
+            })),
         ),
       ),
     };
