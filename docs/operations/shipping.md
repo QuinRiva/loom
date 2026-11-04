@@ -1,6 +1,6 @@
 # Shipping changes (commit → PR → merge → cleanup)
 
-This is the single source of truth for landing approved work on `main` in this
+This is the single source of truth for landing work on `main` in this
 repo: the sequence, the repo-specific gotchas, and the judgement calls the
 mechanical steps leave to a person. The `shipper` role (the delegated path),
 the `ship` skill (the inline path) and `AGENTS.md` all point here and do not
@@ -55,9 +55,6 @@ to this repo's issues (GitHub redirects a PR number to the PR).
 
 ## Before you ship
 
-- **Ship only once the change is approved.** Landing work on `main` is not a step
-  you take on your own initiative: the human (or, in a workstream, the
-  orchestrator acting on the human's approval) must have signed off first.
 - **Honour the project's merge authority** (above).
 - **The work must be ready.** If the checks fail, or the working tree carries
   changes beyond what you are shipping, stop and report that rather than

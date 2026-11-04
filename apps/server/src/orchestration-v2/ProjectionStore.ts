@@ -1,4 +1,5 @@
 import { pendingGuestMessageCount } from "@t3tools/contracts";
+import { isOpenQuestion } from "@t3tools/contracts"; // loom: open questions
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";
 import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
@@ -985,6 +986,7 @@ type ShellThreadRow = {
   readonly pending_secret_request_payload_json: string | null;
   readonly pending_link_request_payload_json: string | null;
   readonly pending_question_header: string | null; // loom: S4
+  readonly open_questions_json: string; // loom: open questions
   readonly latest_user_message_at: string | null;
   readonly latest_user_authored_message_at: string | null;
   readonly has_actionable_proposed_plan: number;
@@ -1446,6 +1448,36 @@ function secretRequestAsPendingInput(
   };
 }
 
+// loom: non-blocking questions, oldest first, each named by its first header.
+const loomOpenQuestions = (
+  requests: OrchestrationV2ThreadProjection["runtimeRequests"],
+  items: ReadonlyArray<OrchestrationV2TurnItem>,
+): NonNullable<OrchestrationV2ThreadShell["openQuestions"]> =>
+  requests
+    .filter(isOpenQuestion)
+    .toSorted(
+      (left, right) =>
+        DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt),
+    )
+    .map((request) => ({
+      id: request.id,
+      header: pendingQuestionHeader(request.id, items).header ?? "",
+      createdAt: request.createdAt,
+    }));
+
+// loom: the shell SQL's open_questions_json, oldest first.
+const decodeLoomOpenQuestions = (json: string) =>
+  (JSON.parse(json) as ReadonlyArray<{ id: string; header: string; createdAt: string }>)
+    .map((question) => ({
+      id: RuntimeRequestId.make(question.id),
+      header: question.header,
+      createdAt: DateTime.makeUnsafe(question.createdAt),
+    }))
+    .toSorted(
+      (left, right) =>
+        DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt),
+    );
+
 // loom: S4 — names a pending question by its first header (its request's turn item).
 const pendingQuestionHeader = (
   requestId: RuntimeRequestId,
@@ -1505,7 +1537,7 @@ export function threadShellFromProjection(
   const liveRunIds = new Set(runs.filter(isActivityRunForShell).map((run) => run.id));
   let pendingRuntimeRequest = pendingRuntimeRequestSummary(
     projection.runtimeRequests
-      .filter((request) => request.status === "pending")
+      .filter((request) => request.status === "pending" && !isOpenQuestion(request)) // loom:
       .toSorted(
         (left, right) =>
           DateTime.toEpochMillis(right.createdAt) - DateTime.toEpochMillis(left.createdAt),
@@ -1603,6 +1635,7 @@ export function threadShellFromProjection(
             ...pendingRuntimeRequest,
             ...pendingQuestionHeader(pendingRuntimeRequest.id, projection.turnItems), // loom: S4
           },
+    openQuestions: loomOpenQuestions(projection.runtimeRequests, projection.turnItems), // loom:
     pendingGuestMessageCount: pendingGuestMessageCount(projection.thread.guestShare),
     // Thread detail owns message bodies. Keeping them out of shell rows makes
     // initial hydration and streaming updates independent of transcript size.
@@ -1718,6 +1751,7 @@ type ShellThreadState = {
   readonly usageLimitResetAt: OrchestrationV2ThreadShell["usageLimitResetAt"];
   readonly pendingRuntimeRequest: OrchestrationV2PendingRuntimeRequestSummary | null;
   readonly pendingQuestionHeader?: string | null; // loom: S4
+  readonly openQuestions?: OrchestrationV2ThreadShell["openQuestions"]; // loom: open questions
   readonly latestUserMessageAt: DateTime.Utc | null;
   readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
   readonly hasActionableProposedPlan: boolean;
@@ -1887,6 +1921,7 @@ function shellFromState(input: {
               ? { header: input.state.pendingQuestionHeader }
               : {}),
           },
+    openQuestions: input.state.openQuestions ?? [], // loom: open questions
     pendingGuestMessageCount: pendingGuestMessageCount(input.state.thread.guestShare),
     latestVisibleMessage: null,
     latestUserMessageAt: input.state.latestUserMessageAt,
@@ -3975,6 +4010,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             AND NOT EXISTS (
               SELECT 1 FROM orchestration_v2_projection_runtime_requests request
               WHERE request.thread_id = t.thread_id AND request.status = 'pending'
+                AND COALESCE(json_extract(request.payload_json, '$.loom.blocking'), 1) = 1 -- loom: open questions do not hold it
             )
           ORDER BY t.thread_id
         `;
@@ -6077,6 +6113,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 FROM orchestration_v2_projection_runtime_requests request
                 WHERE request.thread_id = t.thread_id
                   AND request.status = 'pending'
+                  AND COALESCE(json_extract(request.payload_json, '$.loom.blocking'), 1) = 1 -- loom: open questions are listed apart
                 ORDER BY request.created_at DESC, request.runtime_request_id DESC
                 LIMIT 1
               ) AS pending_request_payload_json,
@@ -6105,9 +6142,30 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   AND question.type = 'user_input_request'
                 WHERE request.thread_id = t.thread_id
                   AND request.status = 'pending'
+                  AND COALESCE(json_extract(request.payload_json, '$.loom.blocking'), 1) = 1
                 ORDER BY request.created_at DESC, request.runtime_request_id DESC
                 LIMIT 1
               ) AS pending_question_header,
+              -- loom: non-blocking questions with their first header; sorted on decode.
+              (
+                SELECT json_group_array(json_object(
+                  'id', request.runtime_request_id,
+                  'createdAt', request.created_at,
+                  'header', COALESCE((
+                    SELECT json_extract(question.payload_json, '$.questions[0].header')
+                    FROM orchestration_v2_projection_turn_items question
+                      INDEXED BY orchestration_v2_projection_turn_items_node_ordinal_idx
+                    WHERE question.node_id = request.node_id
+                      AND question.thread_id = request.thread_id
+                      AND question.type = 'user_input_request'
+                    LIMIT 1
+                  ), '')
+                ))
+                FROM orchestration_v2_projection_runtime_requests request
+                WHERE request.thread_id = t.thread_id
+                  AND request.status = 'pending'
+                  AND json_extract(request.payload_json, '$.loom.blocking') = 0
+              ) AS open_questions_json,
               (
                 SELECT link.payload_json
                 FROM orchestration_v2_projection_turn_items link
@@ -6412,6 +6470,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               AND NOT EXISTS (
                 SELECT 1 FROM orchestration_v2_projection_runtime_requests request
                 WHERE request.thread_id = t.thread_id AND request.status = 'pending'
+                  AND COALESCE(json_extract(request.payload_json, '$.loom.blocking'), 1) = 1 -- loom: open questions do not hold it
               )
               AND NOT EXISTS (
                 SELECT 1 FROM orchestration_v2_projection_turn_items link
@@ -6715,6 +6774,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           ),
           pendingRuntimeRequest,
           pendingQuestionHeader: row.pending_question_header, // loom: S4
+          openQuestions: decodeLoomOpenQuestions(row.open_questions_json), // loom: open questions
           latestUserMessageAt:
             row.latest_user_message_at === null
               ? null

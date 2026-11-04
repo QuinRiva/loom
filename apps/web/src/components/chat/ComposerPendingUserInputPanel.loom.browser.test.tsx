@@ -32,6 +32,7 @@ function panel(questionIndex: number, onAdvance: () => void) {
           requestId: RuntimeRequestId.make("loom-auto-advance"),
           createdAt: "2026-10-26T00:00:00.000Z",
           dismissible: false,
+          blocking: true,
           responseCapability: "live" as const,
           questions: [question("approach"), question("scope")],
         },

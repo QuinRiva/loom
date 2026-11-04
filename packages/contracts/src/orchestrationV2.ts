@@ -92,6 +92,7 @@ import {
   LoomGoalShell,
   LoomGoalShellStreamItemMembers,
   LoomMessageFields,
+  LoomRuntimeRequestFields,
   LoomThreadShellFields,
   makeLoomDomainEventMembers,
   makeLoomInternalCommandMembers,
@@ -1235,6 +1236,7 @@ export const OrchestrationV2RuntimeRequest = Schema.Struct({
   decision: Schema.optional(ProviderApprovalDecision),
   feedback: Schema.optional(Schema.String),
   answers: Schema.optional(ProviderUserInputAnswers),
+  loom: Schema.optional(LoomRuntimeRequestFields), // loom: a loom-ask:'s blocking flag
 });
 export type OrchestrationV2RuntimeRequest = typeof OrchestrationV2RuntimeRequest.Type;
 
@@ -2064,6 +2066,14 @@ export const OrchestrationV2PendingRuntimeRequestSummary = Schema.Struct({
 export type OrchestrationV2PendingRuntimeRequestSummary =
   typeof OrchestrationV2PendingRuntimeRequestSummary.Type;
 
+// loom: a non-blocking `loom-ask:` question, which `pendingRuntimeRequest` leaves out.
+export const LoomOpenQuestionSummary = Schema.Struct({
+  id: RuntimeRequestId,
+  header: Schema.String,
+  createdAt: Schema.DateTimeUtc,
+});
+export type LoomOpenQuestionSummary = typeof LoomOpenQuestionSummary.Type;
+
 export const OrchestrationV2LatestVisibleMessageSummary = Schema.Struct({
   id: MessageId,
   role: OrchestrationV2ConversationMessage.fields.role,
@@ -2110,6 +2120,10 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   lastErrorCode: Schema.optional(Schema.NullOr(Schema.String)),
   usageLimitResetAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pendingRuntimeRequest: Schema.NullOr(OrchestrationV2PendingRuntimeRequestSummary),
+  // loom: non-blocking questions, oldest first
+  openQuestions: Schema.optional(Schema.Array(LoomOpenQuestionSummary)).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   /** Guest messages waiting for the owner to send or dismiss. Absent from older servers. */
   pendingGuestMessageCount: Schema.optional(NonNegativeInt),
   latestVisibleMessage: Schema.NullOr(OrchestrationV2LatestVisibleMessageSummary),
@@ -2712,6 +2726,15 @@ export const OrchestrationV2ThreadShellJson = OrchestrationV2ThreadShell.mapFiel
   latestRunCompletedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   activityRunStartedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pendingRuntimeRequest: Schema.NullOr(OrchestrationV2PendingRuntimeRequestSummaryJson),
+  // loom: non-blocking questions, oldest first
+  openQuestions: Schema.optional(
+    Schema.Array(
+      LoomOpenQuestionSummary.mapFields((fields) => ({
+        ...fields,
+        createdAt: Schema.DateTimeUtcFromString,
+      })),
+    ),
+  ).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   latestVisibleMessage: Schema.NullOr(OrchestrationV2LatestVisibleMessageSummaryJson),
   latestUserMessageAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   latestUserAuthoredMessageAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),

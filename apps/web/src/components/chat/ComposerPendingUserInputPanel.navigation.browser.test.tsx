@@ -33,6 +33,7 @@ const prompt = {
   requestId: RuntimeRequestId.make("question-navigation"),
   createdAt: "2026-10-09T00:00:00.000Z",
   dismissible: false,
+  blocking: true, // loom: open questions
   responseCapability: "live" as const,
   questions: [0, 1, 2].map((index) => ({
     id: `question-${index}`,

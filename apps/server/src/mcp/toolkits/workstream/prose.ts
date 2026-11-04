@@ -179,9 +179,8 @@ export const LOOM_TOOL_PROSE = {
   },
   ask_user_question: {
     description:
-      "Ask the person reading this thread a structured question. For an irreversible, destructive or preference-only decision the request, codebase and prior context do not settle; otherwise state an assumption and proceed, and do not ask to reconfirm scope or for approval you do not need. Never ask whether to ship: once nothing else is pending, say the work is ready to ship and wait for 'ship it'. A document with its own form is answered there, not here. What your parent could answer goes to mcp__t3-code__consult_thread; guidance you cannot frame as options is mcp__t3-code__workstream_request_attention with needs_guidance.",
-    promptSnippet:
-      "a person has written to this thread, so you can put an irreversible, destructive or preference-only decision to them as a structured question; otherwise proceed.",
+      "Put a question to the person reading this thread and carry on: state the assumption you are proceeding on, then ask. It stays open until answered or dismissed; an answer reaches you as a message, a steer mid-turn or a new turn once idle. Ask here rather than in prose. A document with its own form is answered there, not here.",
+    promptSnippet: "put a question to the person reading this thread and carry on.",
     promptGuidelines: "",
   },
   // Local process tools registered by Loom's pi extension (`backgroundJobs.ts`), not MCP tools:

@@ -129,7 +129,7 @@ export const ASK_USER_QUESTION_PARAMETERS = {
             type: "string",
             minLength: 1,
             description:
-              "Markdown body for a reader who has read none of this thread or any child report. In order: the situation (what you are working on in plain words, the ticket reference so they can open it, what just happened), one real example (a named file, record or screen with literal content), the stakes and why their decision is needed, then your pick with its reason. Explain what any quoted figure measures. No internal shorthand as names ('D7', 'must-fix #1'), no unexplained acronyms, no references in place of substance ('per the report'): a child's report was written for you, so translate it rather than pass on its labels, ids or questions.",
+              "Markdown body for a reader who has read none of this thread or any child report. In order: what you are working on in plain words, the ticket reference so they can open it, and what just happened; one real example (a named file, record or screen with literal content); the stakes and why their decision is needed; the assumption you are proceeding on, with its reason. Explain what any quoted figure measures. No internal shorthand as names ('D7', 'must-fix #1'), no unexplained acronyms, no references in place of substance ('per the report'): translate a child's report rather than pass on its labels, ids or questions.",
           },
           options: {
             type: "array",
@@ -150,7 +150,7 @@ export const ASK_USER_QUESTION_PARAMETERS = {
                 },
                 recommended: {
                   type: "boolean",
-                  description: "Exactly one option: your pick, and the default on dismissal.",
+                  description: "Exactly one option: what you proceed on until answered.",
                 },
               },
               required: ["label", "description"],
@@ -163,12 +163,20 @@ export const ASK_USER_QUESTION_PARAMETERS = {
         additionalProperties: false,
       },
     },
+    blocking: {
+      type: "boolean",
+      description:
+        "True only where the option you would proceed on is itself irreversible (data leaving a boundary, a destructive step): the call waits, and a dismissal means proceed on the recommended option. Default false.",
+    },
   },
   required: ["questions"],
   additionalProperties: false,
 };
 
-/** `mcp__t3-code__ask_user_question` over `POST …/ask` + `GET …/wait` (25 s slices; a dropped poll re-attaches). */
+/**
+ * `mcp__t3-code__ask_user_question` over `POST …/ask`, which returns an open question's result at
+ * once; a blocking ask then long-polls `GET …/wait` (25 s slices; a dropped poll re-attaches).
+ */
 const askUserQuestionPart: LoomExtensionPart = {
   name: "askUserQuestion",
   source: `
@@ -190,7 +198,9 @@ const askTool = {
   parameters: ${json(ASK_USER_QUESTION_PARAMETERS)},
   async execute(toolCallId, params, signal) {
     if (ctx.humanInputRefused?.() !== false) throw new Error(REFUSAL);
-    const { requestId } = await loomFetch(ctx, "POST", "/user-input/ask", { toolCallId, questions: params?.questions }, signal);
+    const { requestId, rendered } = await loomFetch(ctx, "POST", "/user-input/ask", { toolCallId, questions: params?.questions, blocking: params?.blocking }, signal);
+    // An open question: the answer arrives later as a message.
+    if (rendered !== undefined) return { content: [{ type: "text", text: rendered }], details: undefined };
     const wait = "/user-input/" + encodeURIComponent(requestId) + "/wait";
     while (true) {
       let result;

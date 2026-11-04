@@ -5,22 +5,11 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/models";
 import { LOOM_SEED } from "@t3tools/shared/loomSeedFixture.loom";
-import {
-  ThreadId,
-  type LoomMessageFields,
-  type RuntimeRequestId,
-  type UserInputQuestion,
-} from "@t3tools/contracts";
-import { useEffect, useState } from "react";
+import { ThreadId, type LoomMessageFields } from "@t3tools/contracts";
+import { useState } from "react";
 
-import { ComposerPendingUserInputPanel } from "../components/chat/ComposerPendingUserInputPanel";
-import { hostLoomPendingInputForPreview } from "../loom/pendingUserInputLoom";
-import {
-  type PendingUserInputDraftAnswer,
-  setPendingUserInputCustomAnswer,
-  togglePendingUserInputOptionSelection,
-} from "@t3tools/client-runtime/state/pending-user-input";
-import { derivePendingUserInputProgress } from "../pendingUserInput";
+import { useComposerDraftStore } from "../composerDraftStore";
+import { OpenQuestionsRail } from "../loom/openQuestions/OpenQuestionsRail";
 
 import { GoalPanelView } from "../components/GoalTasksPanel";
 import { ControlDigestCardView } from "../loom/ControlDigestCard";
@@ -38,6 +27,7 @@ import {
   loomPreviewEnvironmentId,
   loomPreviewGoal,
   loomPreviewHandbackMessages,
+  loomPreviewOpenQuestions,
   loomPreviewThreads,
   loomPreviewWorkspaceRoot,
 } from "./loomFixtures";
@@ -77,90 +67,49 @@ function ControlCard({
   );
 }
 
-const LOOM_QUESTIONS: ReadonlyArray<UserInputQuestion> = [
-  {
-    id: "loom-q-1",
-    header: "Diff scope for the review gate",
-    question:
-      "The reviewer flagged `apps/web/src/components/DiffPanel.tsx` and `apps/web/src/diffPanelStore.ts`.\n\n- **Option 1** keeps the per-run diff (honest with the turn baseline).\n- **Option 2** shows the child's whole range.\n\nWhich should *By coder* show?",
-    options: [
-      { label: "Per-run diff", description: "The child's own checkpoint turns." },
-      { label: "Whole range", description: "First to last checkpoint." },
-    ],
-    multiSelect: false,
-  },
-];
+const OPEN_QUESTIONS_THREAD = {
+  environmentId: loomPreviewEnvironmentId,
+  threadId: ThreadId.make("preview-open-questions-thread"),
+};
 
 /**
- * DT-36 on V2's RuntimeRequest panel: a markdown body (paths become file chips
- * in the app), digit-select that never submits (press 1 or 2: the option is
- * selected and nothing advances), and "reply in chat instead", which in the app
- * sends the composer text as an ordinary message.
+ * The open-questions rail: a blocking ask first, then two the agent carried on past. Typing in the
+ * composer stand-in minimises every row; answering or dismissing shows what would be sent.
  */
-function LoomPendingUserInputPreview() {
-  const requestId = "preview-loom-request" as RuntimeRequestId;
-  const [answers, setAnswers] = useState<Record<string, PendingUserInputDraftAnswer>>({});
+function LoomOpenQuestionsRailPreview() {
+  const [answered, setAnswered] = useState<ReadonlyArray<string>>([]);
   const [sent, setSent] = useState<string | null>(null);
-  const progress = derivePendingUserInputProgress(LOOM_QUESTIONS, answers, 0);
-  const customAnswer = progress.customAnswer;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the preview's request host in the shared host store
-  useEffect(() => {
-    hostLoomPendingInputForPreview(requestId, {
-      onReplyInChat: () => setSent(customAnswer.trim()),
-    });
-  }, [customAnswer, requestId]);
+  const prompt = useComposerDraftStore(
+    (store) => store.getComposerDraft(OPEN_QUESTIONS_THREAD)?.prompt ?? "",
+  );
   return (
     <div className="mx-auto flex h-[85vh] w-full min-w-0 max-w-3xl flex-col justify-end p-6">
-      <ComposerPendingUserInputPanel
+      <OpenQuestionsRail
+        threadRef={OPEN_QUESTIONS_THREAD}
+        composerDraftTarget={OPEN_QUESTIONS_THREAD}
+        questions={loomPreviewOpenQuestions.filter(
+          (question) => !answered.includes(question.requestId),
+        )}
         cwd={undefined}
-        threadRef={{
-          environmentId: loomPreviewEnvironmentId,
-          threadId: ThreadId.make("preview-question-thread"),
-        }}
-        pendingUserInputs={[
-          {
-            requestId,
-            createdAt: "2026-10-06T04:00:00.000Z",
-            questions: LOOM_QUESTIONS.map((question) => ({
-              ...question,
-              multiSelect: question.multiSelect ?? false,
-            })),
-            responseCapability: "live",
-            dismissible: true,
-          },
-        ]}
+        disabled={false}
         respondingRequestIds={[]}
-        answers={answers}
-        questionIndex={0}
-        onToggleOption={(questionId, optionValue) =>
-          setAnswers((current) => ({
-            ...current,
-            [questionId]: togglePendingUserInputOptionSelection(
-              LOOM_QUESTIONS[0]!,
-              current[questionId],
-              optionValue,
-            ),
-          }))
-        }
-        onAdvance={() => setSent("(answers submitted)")}
-        onDismiss={() => {}}
+        onAnswer={(requestId, answers) => {
+          setAnswered((current) => [...current, requestId]);
+          setSent(`answer ${JSON.stringify(answers)}`);
+        }}
+        onDismiss={(requestId) => {
+          setAnswered((current) => [...current, requestId]);
+          setSent("nothing (dismissed)");
+        }}
       />
       <textarea
         aria-label="Composer text"
-        placeholder="Composer stand-in: type to reply in chat instead"
-        className="mt-2 rounded-md border border-border bg-transparent p-2 text-sm"
-        value={customAnswer}
-        onChange={(event) => {
-          const value = event.target.value;
-          setAnswers((current) => ({
-            ...current,
-            "loom-q-1": setPendingUserInputCustomAnswer(
-              LOOM_QUESTIONS[0]!,
-              current["loom-q-1"],
-              value,
-            ),
-          }));
-        }}
+        placeholder="Composer stand-in: chat, never an answer"
+        className="rounded-md border border-border bg-transparent p-2 text-sm"
+        value={prompt}
+        onChange={(event) =>
+          useComposerDraftStore.getState().setPrompt(OPEN_QUESTIONS_THREAD, event.target.value)
+        }
       />
       <p className="mt-2 text-xs text-muted-foreground" data-loom-preview-sent>
         {sent === null ? "Nothing sent yet." : `Sent: ${sent}`}
@@ -377,14 +326,14 @@ export const LOOM_PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
   },
   {
     id: "loom-user-input",
-    title: "Loom user-input panel additions",
+    title: "Loom questions",
     fixtures: [
       {
-        id: "loom-pending-user-input",
-        title: "Question with markdown body and reply in chat",
+        id: "loom-open-questions-rail",
+        title: "Open-questions rail",
         description:
-          "DT-36: markdown body, digit-select never submits (the single question waits for Send), reply in chat instead.",
-        render: () => <LoomPendingUserInputPreview />,
+          "Three open questions, one blocking: one row expanded at a time, digits select and never submit, typing in the composer minimises every row.",
+        render: () => <LoomOpenQuestionsRailPreview />,
       },
     ],
   },

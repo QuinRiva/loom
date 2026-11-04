@@ -1,17 +1,21 @@
 /**
- * `ask_user_question` on the real orchestrator: the request node, the respond hunk with and without a
- * live waiter, supersede and run-end close. The reactor is fed each command's committed events, so
- * every step is deterministic; the long-poll waits on its Deferred under the TestClock.
+ * `ask_user_question` on the real orchestrator, blocking and open. The reactor is fed each
+ * command's committed events, so every step is deterministic; the long-poll waits on its Deferred
+ * under the TestClock.
  */
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
   EnvironmentId,
+  EventId,
+  hasBlockingPendingRequest,
   MessageId,
+  NodeId,
   ProviderInstanceId,
-  type RuntimeRequestId,
+  RuntimeRequestId,
   ThreadId,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
@@ -21,12 +25,16 @@ import type { WorkstreamCaller } from "../../mcp/toolkits/workstream/authorisati
 import { CommandReceiptStoreV2 } from "../../orchestration-v2/CommandReceiptStore.ts";
 import * as EventSink from "../../orchestration-v2/EventSink.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
+import { LoomStoreV2 } from "../projection/LoomStore.ts";
+import { loomContinuationVetoed } from "../../orchestration-v2/Orchestrator.loom.ts";
 import {
   completeSeededRun,
   dispatch,
   LoomOrchestratorTestLayer,
+  seededRunIds,
   seedRunningRun,
   seedThread,
+  writeEvents,
 } from "../testkit/loomOrchestratorLayer.ts";
 import { openAskUserQuestion, reactToAskEvent } from "./askUserQuestion.ts";
 import { LoomAskWaiters, makeLoomAskWaiters } from "./askWaiters.ts";
@@ -87,17 +95,44 @@ const reactToCommand = (commandId: string) =>
       .pipe(Stream.runForEach((stored) => reactToAskEvent(stored.event)));
   });
 
-const askOn = (name: string) =>
+const askOn = (name: string, blocking = true) =>
   Effect.gen(function* () {
     const threadId = ThreadId.make(name);
-    yield* seedThread({ threadId });
+    yield* seedThread({ threadId, role: "orchestrator" });
     const ids = yield* seedRunningRun({ threadId });
-    const requestId = yield* openAskUserQuestion(callerOf(threadId), {
+    const { requestId, rendered } = yield* openAskUserQuestion(callerOf(threadId), {
       toolCallId: `call-${name}`,
       questions: QUESTIONS,
+      blocking,
     });
     const waiters = yield* LoomAskWaiters;
-    return { threadId, ids, requestId, waiters };
+    return { threadId, ids, requestId, rendered, waiters };
+  });
+
+/** Ends the seeded run and feeds its events (and any dismiss the reactor sends) to the reactor. */
+const endRunAndReact = (threadId: ThreadId) =>
+  Effect.gen(function* () {
+    const sink = yield* EventSink.EventSinkV2;
+    const before = yield* sink.latestSequence();
+    yield* completeSeededRun({ threadId });
+    yield* sink.stream({ afterSequence: before, threadId }).pipe(
+      Stream.map((stored) => stored.event),
+      Stream.takeUntil((event) => event.type === "run.updated"),
+      Stream.runForEach(reactToAskEvent),
+    );
+  });
+
+const humanMessage = (threadId: ThreadId, name: string) =>
+  dispatchAndReact({
+    type: "message.dispatch",
+    commandId: CommandId.make(`command:${name}`),
+    threadId,
+    messageId: MessageId.make(`message:${name}`),
+    text: "Unrelated: also bump the changelog.",
+    attachments: [],
+    createdBy: "user",
+    creationSource: "web",
+    dispatchMode: { type: "queue_after_active" },
   });
 
 const poll = (
@@ -122,7 +157,8 @@ it.layer(LoomOrchestratorTestLayer)("Loom mcp__t3-code__ask_user_question", (it)
   it.effect("opens a pending user_input request on its own node, the pick shown in its label", () =>
     fresh(
       Effect.gen(function* () {
-        const { threadId, ids, requestId } = yield* askOn("ask-open");
+        const { threadId, ids, requestId, rendered } = yield* askOn("ask-open");
+        assert.isUndefined(rendered);
         assert.isTrue(requestId.startsWith("loom-ask:ask-open:"));
         const orchestrator = yield* Orchestrator.OrchestratorV2;
         assert.equal(
@@ -145,8 +181,9 @@ it.layer(LoomOrchestratorTestLayer)("Loom mcp__t3-code__ask_user_question", (it)
         const again = yield* openAskUserQuestion(callerOf(threadId), {
           toolCallId: "call-ask-open",
           questions: QUESTIONS,
+          blocking: true,
         });
-        assert.equal(again, requestId);
+        assert.equal(again.requestId, requestId);
       }),
     ),
   );
@@ -273,6 +310,158 @@ it.layer(LoomOrchestratorTestLayer)("Loom mcp__t3-code__ask_user_question", (it)
           threadId,
         );
         assert.equal(projection.runtimeRequests[0]?.decision, "cancel");
+      }),
+    ),
+  );
+  it.effect("an open question returns at once and outlives its run, settle and chat", () =>
+    fresh(
+      Effect.gen(function* () {
+        const { threadId, requestId, rendered, waiters } = yield* askOn("ask-async", false);
+        assert.equal(
+          rendered,
+          'Open on this thread as "Ship"; 0 other questions are open. Carry on with your stated assumption; do not wait for the answer or ask again.',
+        );
+        assert.isUndefined(waiters.get(requestId));
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const shell = yield* orchestrator.getThreadShell(threadId);
+        assert.isNull(shell?.pendingRuntimeRequest ?? null);
+        assert.deepEqual(
+          shell?.openQuestions?.map(({ id, header }) => ({ id, header })),
+          [{ id: requestId, header: "Ship" }],
+        );
+
+        yield* endRunAndReact(threadId);
+        const pending = () =>
+          orchestrator
+            .getThreadProjection(threadId)
+            .pipe(
+              Effect.map(
+                (projection) =>
+                  projection.runtimeRequests.find((request) => request.id === requestId)?.status,
+              ),
+            );
+        assert.equal(yield* pending(), "pending");
+        // Neither a restart continuation, a project move nor a snooze reads it as blocking.
+        const projection = yield* orchestrator.getThreadProjection(threadId);
+        const workstream = yield* (yield* LoomStoreV2).getWorkstream(threadId);
+        assert.isNotNull(workstream);
+        assert.isFalse(
+          loomContinuationVetoed(workstream, hasBlockingPendingRequest(projection.runtimeRequests)),
+        );
+        assert.isFalse(Orchestrator.threadHasUnfinishedWork(projection));
+        yield* dispatch({
+          type: "thread.snooze",
+          commandId: CommandId.make("command:ask-async:snooze"),
+          threadId,
+          snoozedUntil: DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: 1 })),
+        });
+        yield* dispatch({
+          type: "thread.settle",
+          commandId: CommandId.make("command:ask-async:settle"),
+          threadId,
+        });
+        assert.equal(
+          (yield* orchestrator.getThreadShell(threadId))?.settledOverride ?? null,
+          "settled",
+        );
+        assert.equal(yield* pending(), "pending");
+        yield* humanMessage(threadId, "ask-async:chat");
+        assert.equal(yield* pending(), "pending");
+        assert.isTrue(
+          Option.isNone(
+            yield* (yield* CommandReceiptStoreV2).getByCommandId(
+              CommandId.make(`server:loom:ask-supersede:${requestId}`),
+            ),
+          ),
+        );
+        assert.isTrue(
+          Option.isNone(
+            yield* (yield* CommandReceiptStoreV2).getByCommandId(
+              CommandId.make(`server:loom:ask-run-end:${requestId}`),
+            ),
+          ),
+        );
+      }),
+    ),
+  );
+
+  it.effect("answering an open question leaves a blocking ask on the thread waiting", () =>
+    fresh(
+      Effect.gen(function* () {
+        const { threadId, requestId: open } = yield* askOn("ask-mixed", false);
+        const { requestId: blocking } = yield* openAskUserQuestion(callerOf(threadId), {
+          toolCallId: "call-ask-mixed-blocking",
+          questions: QUESTIONS,
+          blocking: true,
+        });
+        const waiters = yield* LoomAskWaiters;
+        const polling = yield* poll(waiters, blocking, threadId);
+
+        yield* respond(threadId, open);
+
+        const projection = yield* (yield* Orchestrator.OrchestratorV2).getThreadProjection(
+          threadId,
+        );
+        assert.isTrue(projection.messages.some((message) => message.id === `async-answer:${open}`));
+        assert.equal(
+          projection.runtimeRequests.find((request) => request.id === blocking)?.status,
+          "pending",
+        );
+        assert.isUndefined(polling.pollUnsafe());
+      }),
+    ),
+  );
+
+  it.effect("open questions stack; any ask is refused while an approval stands", () =>
+    fresh(
+      Effect.gen(function* () {
+        const { threadId, ids } = yield* askOn("ask-stack", false);
+        const second = yield* openAskUserQuestion(callerOf(threadId), {
+          toolCallId: "call-ask-stack-2",
+          questions: [{ ...QUESTIONS[0], header: "Docs" }],
+        });
+        assert.include(second.rendered, '"Docs"; 1 other question is open.');
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        assert.deepEqual(
+          (yield* orchestrator.getThreadShell(threadId))?.openQuestions?.map(
+            (question) => question.header,
+          ),
+          ["Ship", "Docs"],
+        );
+
+        const now = yield* DateTime.now;
+        const approvalId = RuntimeRequestId.make("approval:ask-stack");
+        yield* writeEvents([
+          {
+            id: EventId.make("event:ask-stack:approval"),
+            type: "runtime-request.updated",
+            threadId,
+            runId: ids.runId,
+            nodeId: ids.nodeId,
+            occurredAt: now,
+            payload: {
+              id: approvalId,
+              nodeId: NodeId.make("node:ask-stack:approval"),
+              providerTurnId: seededRunIds(threadId).providerTurnId,
+              nativeRequestRef: null,
+              kind: "command",
+              status: "pending",
+              responseCapability: { type: "message" },
+              createdAt: now,
+              resolvedAt: null,
+            },
+          },
+        ]);
+        assert.equal(
+          (yield* orchestrator.getThreadShell(threadId))?.pendingRuntimeRequest?.id,
+          approvalId,
+        );
+        const refused = yield* openAskUserQuestion(callerOf(threadId), {
+          toolCallId: "call-ask-stack-3",
+          questions: QUESTIONS,
+          blocking: true,
+        }).pipe(Effect.flip);
+        assert.include(refused.message, `already has pending runtime request ${approvalId}`);
       }),
     ),
   );

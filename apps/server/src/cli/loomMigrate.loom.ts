@@ -352,6 +352,7 @@ const findBlockers = Effect.fn("loomMigrate.findBlockers")(function* (
       WHERE thread_id IN ${ids} AND status IN ('idle', 'pending', 'running', 'waiting')
     UNION ALL SELECT thread_id, 'a pending ' || kind || ' request' FROM src.orchestration_v2_projection_runtime_requests
       WHERE thread_id IN ${ids} AND status = 'pending'
+        AND COALESCE(json_extract(payload_json, '$.loom.blocking'), 1) = 1 -- an open question is data; it moves
     UNION ALL SELECT thread_id, 'a ' || status || ' background ' || type FROM src.orchestration_v2_projection_turn_items
       WHERE thread_id IN ${ids} AND type IN ('command_execution', 'dynamic_tool', 'subagent')
         AND status IN ('pending', 'running', 'waiting')

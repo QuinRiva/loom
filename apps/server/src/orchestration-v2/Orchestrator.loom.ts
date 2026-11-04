@@ -17,6 +17,7 @@ import {
   type LoomOutcomeSetCause,
   type LoomThreadWorkstream,
   latestProviderTurnForAttempt,
+  isOpenQuestion,
   LOOM_ASK_REQUEST_PREFIX,
   type OrchestrationV2AppThread,
   type OrchestrationV2Command,
@@ -265,12 +266,12 @@ const loomClearsAttention = (loom: LoomMessageFields | undefined) =>
 
 /**
  * Rule 0 (DL-195): a restart or usage-limit continuation of a Loom thread that
- * is not continued — terminal, archived, deleted, owed a human, or holding an
- * open runtime request. The caller turns it into upstream's accepted no-op.
+ * is not continued — terminal, archived, deleted, owed a human, or holding a
+ * blocking runtime request (`hasBlockingPendingRequest`). The caller turns it into upstream's accepted no-op.
  */
 export const loomContinuationVetoed = (
   workstream: LoomThreadWorkstream | null,
-  pendingRuntimeRequest: boolean,
+  blockingPendingRequest: boolean,
 ) =>
   workstream !== null &&
   (workstream.outcome !== null ||
@@ -278,7 +279,7 @@ export const loomContinuationVetoed = (
     workstream.deletedAt !== null ||
     workstream.attention.includes("needs_guidance") ||
     workstream.attention.includes("awaiting_acceptance") ||
-    pendingRuntimeRequest);
+    blockingPendingRequest);
 
 /** The attention clear for a queued message whose turn starts now (startNextQueuedRun, promote-to-steer). */
 export const loomQueuedTurnAttentionClear = Effect.fn("Orchestrator.loomQueuedTurnAttentionClear")(
@@ -1014,7 +1015,10 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
     if (run === undefined || run.rootNodeId === null) {
       return yield* fail(`Thread ${threadId} has no active run to ask from.`);
     }
-    const pending = projection.runtimeRequests.find((request) => request.status === "pending");
+    // Open (non-blocking) questions stack; anything the agent or a human is waiting on refuses.
+    const pending = projection.runtimeRequests.find(
+      (request) => request.status === "pending" && !isOpenQuestion(request),
+    );
     if (pending !== undefined) {
       return yield* fail(`Thread ${threadId} already has pending runtime request ${pending.id}.`);
     }
@@ -1051,6 +1055,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
         responseCapability: { type: "message" },
         createdAt: now,
         resolvedAt: null,
+        ...(create.loom === undefined ? {} : { loom: create.loom }),
       },
     });
     yield* emit({

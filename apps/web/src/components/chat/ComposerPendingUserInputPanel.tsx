@@ -13,12 +13,10 @@ import { cn } from "~/lib/utils";
 import { isInSideChatPane } from "~/lib/sideChatPane";
 import { ComposerBanner } from "./ComposerBanner";
 import ChatMarkdown from "../ChatMarkdown";
-// loom: 3d-4 — DT-36 additions (the body's one-line summary, reply in chat instead).
+// loom: 3d-4 — DT-36 addition (the body's one-line summary).
 import {
   PendingQuestionAge, // loom: S4
   questionSummary,
-  ReplyInChatInsteadButton,
-  useLoomPendingInputHost,
 } from "~/loom/pendingUserInputLoom";
 
 interface PendingUserInputPanelProps {
@@ -110,7 +108,6 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       !customAnswerActive && progress.selectedOptionValues.includes(option.value ?? option.label),
   );
   const isCollapsed = collapsedQuestionId !== null && collapsedQuestionId === activeQuestion?.id;
-  const loomHost = useLoomPendingInputHost(prompt.requestId); // loom: 3d-4
 
   if (
     optimisticSingleSelect &&
@@ -339,15 +336,6 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                 );
               })}
             </div>
-            {/* loom: 3d-4 — answer the set in prose; the server settles it superseded. */}
-            {loomHost ? (
-              <ReplyInChatInsteadButton
-                hasText={customAnswerActive}
-                questionCount={prompt.questions.length}
-                disabled={responseDisabled}
-                onReply={loomHost.onReplyInChat}
-              />
-            ) : null}
           </ComposerBanner.Body>
         </ComposerBanner.Scroll>
       </CollapsiblePanel>
@@ -357,7 +345,8 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
 
 // Drawn with ui/radio-group's look instead of using its Radio: Radio only checks inside a
 // RadioGroup, whose arrow keys select options and would trip the single-select auto-advance.
-function OptionRadio({ checked }: { checked: boolean }) {
+// loom: exported for the open-questions rail
+export function OptionRadio({ checked }: { checked: boolean }) {
   return (
     <span
       aria-hidden

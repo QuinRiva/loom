@@ -10,6 +10,7 @@ import {
   runRanAfter,
   usageLimitBlockedRun,
 } from "@t3tools/shared/orchestrationV2ThreadError";
+import { hasBlockingPendingRequest, isOpenQuestion } from "@t3tools/contracts"; // loom: open questions
 import { canonicalizeGitCafePullRequestUrl } from "@t3tools/source-control-definitions/registry";
 import { threadPullRequestsOf } from "../sourceControl/threadPullRequests.ts";
 import {
@@ -541,7 +542,7 @@ export function threadHasUnfinishedWork(records: {
         run.status !== "cancelled" &&
         run.status !== "interrupted" &&
         run.status !== "rolled_back",
-    ) || records.runtimeRequests.some((request) => request.status === "pending")
+    ) || hasBlockingPendingRequest(records.runtimeRequests) // loom: an open question moves with the thread
   );
 }
 
@@ -3314,7 +3315,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
 
-      for (const request of pendingRequests) {
+      // loom: settling leaves open (non-blocking) questions open
+      for (const request of pendingRequests.filter((pending) => !isOpenQuestion(pending))) {
         yield* dispatchRuntimeRequestRespond(
           {
             type: "runtime-request.respond",
@@ -3406,7 +3408,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         failure?.class !== "usage_limit" ||
         failure.resetAt !== command.limitRecovery.resetAt ||
         resetMs <= DateTime.toEpochMillis(run.completedAt ?? run.requestedAt) ||
-        projection.runtimeRequests.some((request) => request.status === "pending")
+        hasBlockingPendingRequest(projection.runtimeRequests) // loom: open questions do not hold it
       ) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
@@ -3431,7 +3433,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: `Thread ${command.threadId} snooze wake time ${command.snoozedUntil} is not in the future.`,
         });
       }
-      if (projection.runtimeRequests.some((request) => request.status === "pending")) {
+      // loom: an open (non-blocking) question does not hold the thread
+      if (hasBlockingPendingRequest(projection.runtimeRequests)) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
@@ -5393,7 +5396,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         latestExecutedRun(projection.runs)?.id !== source.id ||
         projection.thread.archivedAt !== null ||
         projection.thread.deletedAt !== null ||
-        projection.runtimeRequests.some((request) => request.status === "pending")
+        hasBlockingPendingRequest(projection.runtimeRequests) // loom: open questions do not hold it
       ) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
@@ -5420,7 +5423,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         projection.thread.deletedAt !== null ||
         projection.thread.settledOverride === "settled" ||
         projection.thread.providerInstanceId !== run.providerInstanceId ||
-        projection.runtimeRequests.some((request) => request.status === "pending") ||
+        hasBlockingPendingRequest(projection.runtimeRequests) || // loom: open questions do not hold it
         (projection.thread.snoozedUntil != null &&
           DateTime.toEpochMillis(projection.thread.snoozedUntil) > DateTime.toEpochMillis(now))
       ) {
@@ -5491,10 +5494,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     // loom: rule 0 (DL-195), before upstream's read watermark: a vetoed continuation is an accepted no-op
     if (
       (command.restartContinuationOfRunId ?? command.usageLimitContinuationOfRunId) !== undefined &&
-      loomContinuationVetoed(
-        loomWorkstream,
-        projection.runtimeRequests.some((request) => request.status === "pending"),
-      )
+      loomContinuationVetoed(loomWorkstream, hasBlockingPendingRequest(projection.runtimeRequests))
     ) {
       yield* emit(
         events,
@@ -10662,6 +10662,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     for (const request of input.projection.runtimeRequests) {
       if (
         request.status !== "pending" ||
+        isOpenQuestion(request) || // loom: an open question outlives the run that asked it
         !input.projection.nodes.some((node) => node.id === request.nodeId && node.runId === run.id)
       )
         continue;
@@ -11767,7 +11768,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               (thread) =>
                 thread.status === "active" || (thread.pendingBackgroundTasks?.length ?? 0) > 0,
             ) &&
-            !child.runtimeRequests.some((request) => request.status === "pending") &&
+            !hasBlockingPendingRequest(child.runtimeRequests) && // loom: open questions leave it idle
             child.turnItems.length === 0 &&
             Option.isNone(yield* Effect.findFirst(child.runs, awaitsRestartContinuation)));
         idleChildren.set(task.childThreadId, idle);

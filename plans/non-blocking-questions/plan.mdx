@@ -1,0 +1,402 @@
+---
+kicker: "Plan · agent questions · 27 Oct 2026"
+reader:
+  who: Carl, deciding whether to approve this redesign of how agents put questions to him
+  knows: the exploration that produced the model (questions should not block, ship readiness is a chat line, the card is minimisable); none of the audit's detail and none of the code
+  after_first_screen: when an agent asks me something a card appears, the agent keeps working, I answer or dismiss when I like, nothing blocks unless the agent flags an irreversible step; I am approving three increments and four open decisions at the bottom
+manager_sessions:
+  - id: 01a176bb-0c07-71ff-acfe-86575d97fc9c
+    name: Non-blocking question rail plan
+    role: plan
+    authored_at: 2026-10-26T05:58:40.674Z
+status: approved
+---
+
+# Agent questions that never block
+
+When an agent asks you something, it will state the assumption it is proceeding on, open a question card, and **keep working**. The card sits in an open-questions rail above the composer, with a header and an age, until you answer it or dismiss it; several can stand at once; it minimises out of your way while you type. Answering sends your pick to the agent as a steer if it is mid-turn or starts a new turn if it is idle, and an answer given an hour after the agent's turn ended still lands. Nothing waits on you unless the agent sets a `blocking` flag, which the tool text reserves for an irreversible step (data leaving a boundary, a destructive change); the audit of October's 128 question sets puts that at about 5. Ship readiness stops being a question: the agent ends its turn saying the work is ready to ship and waits for your "ship it" in chat.
+
+<Stats
+  items={[
+    { value: "0", label: "questions that block by default", tone: "success", detail: "today every one of them holds the agent until you answer" },
+    { value: "34 of 128", label: "October asks that were 'ship it?'", tone: "warning", detail: "become a chat line, never a card" },
+    { value: "≈5 of 128", label: "would have earned the blocking flag", tone: "neutral", detail: "a public repo leak, two real-lease data calls, and the like" },
+    { value: "3", label: "increments, each ships alone", tone: "info", detail: "text first, then server plus rail together, then the arrival surfaces" },
+  ]}
+/>
+
+<Callout focus title="What you are approving">
+Three increments, smallest first: the instruction text (ship readiness as a chat line, no more question cards pointing at a document), then the server change that lets a question outlive the turn that asked it together with the web rail that shows it, then the sidebar, Slack and mobile surfaces. The server work reuses upstream's own answer path; the main new code is the rail and a shared "is this thread blocked" check applied at the dozen places the server asks that question today. Four decisions the model leaves open are in the form at the end; each has a recommended default that applies if you say nothing.
+</Callout>
+
+<Callout tone="decision" title="Decisions recorded 26 October 2026 (Carl, via the form below)">
+All four on the recommended option: a plan's own form joins the rail as a follow-up, not now; no server cap on open questions; a thread settles as normal with its question left open and a chip on the settled row; a chat message never closes a non-blocking question. The plan is approved as written.
+</Callout>
+
+**In scope:** the `mcp__t3-code__ask_user_question` tool on pi threads, its lifecycle on the server, the web rail and card, the sidebar and inbox signal, the desktop notification, the Slack bridge's question posts, the mobile card's wording, and the orchestrator role text. **Out of scope:** the cold-reader body contract (it stays; the audit shows it worked; only its "your pick" wording changes), any new prose field on the question, the Claude and Codex adapters' native question dialogs (upstream's panel keeps serving those), and a tracker for a plan's own `QuestionForm` (section 6 explains why that is a follow-up). **Done means:** an agent on a seeded dev instance asks a question, its turn ends, the server restarts and the agent's cut turn is continued, you answer from the rail an hour later, and the agent's next turn opens with your answer; the sidebar row carried a "Question · 1h" chip the whole time; typing in the composer never answered the card.
+
+## 1. Where the code and the model disagree
+
+Most of the model drops straight onto what exists. Four things in the code push back, and the design below is shaped by them. Each row opens with the plain meaning, then the code.
+
+<Table
+  columns={["What the model assumes", "What the code does today", "What the plan does about it"]}
+  rows={[
+    [
+      "Several questions can stand open on one thread.",
+      { tone: "warning", md: "**One at a time.** The server arm that opens a question (`runtimeRequestCreate` in `Orchestrator.loom.ts`) refuses a second pending request: *\"already has pending runtime request\"*. Upstream's composer panel shows only the first of a list." },
+      "The guard refuses only while a **blocking** request stands (an approval, or a question with the flag). Non-blocking questions stack. The web rail, not upstream's panel, renders them."
+    ],
+    [
+      "The agent keeps working while the question is open; the thread is not 'waiting on you'.",
+      { tone: "risk", md: "**A pending question means 'blocked' everywhere.** The server asks *does this thread have a pending request* at about a dozen places and treats yes as 'waiting on a human': restart continuation after a deploy, usage-limit auto-resume, manual resume, snooze, auto-settle and manual settle (which cancels the question), the sidebar's per-thread summary, the inbox. Most of those read the thread's raw request list, not the summary." },
+      "A non-blocking question is still a `user_input` runtime request (so every renderer keeps working), but it carries a `blocking: false` mark, and one shared predicate, *has a blocking pending request*, replaces the raw check at every site that means 'blocked'. Section 2 lists all of them with what each would otherwise do wrong."
+    ],
+    [
+      "Typing in the composer is chat; it never answers or closes a question.",
+      { tone: "warning", md: "**Chat closes the question.** The chat-supersede rule in `askUserQuestion.ts`: a human message on the thread closes the open question as *superseded* and tells the agent to read the message instead. The web composer's text is the custom answer to the current question." },
+      "Supersede is retired for non-blocking questions (a chat message leaves them standing) and kept for blocking ones, where the agent is literally waiting on the tool call. The composer never enters question mode for a Loom question; the card has its own text field."
+    ],
+    [
+      "Dismiss changes no outcome.",
+      { md: "**Dismiss is an instruction.** The tool result on dismissal reads: *\"Proceed on the recommended option and say so\"*; the agent is still waiting when it arrives." },
+      "A non-blocking question has no waiting tool call, so a dismissal sends nothing. The blocking variant keeps today's text."
+    ],
+    [
+      "Answering sends a steer or starts a turn.",
+      { tone: "success", md: "**Already true.** Upstream's `runtime-request.respond` on a `message`-capability request dispatches the answer as a message with `steer_active` when a run is live, else `queue_after_active`; the one Loom hunk withholds it only while a long-poll waiter is live." },
+      "Not a contradiction: the non-blocking path is the existing path with the waiter removed. No new rail, no new RPC."
+    ],
+  ]}
+/>
+
+Two smaller findings. The "pointer question" sentence lives in two places, the tool description in `apps/server/src/mcp/toolkits/workstream/prose.ts` and the orchestrator role's single-point-of-contact bullet, and the role also says *"offer that as an option in your approval question"*; all three change in section 3. And the agent's recommended option is not a field on the stored question: validation rewrites the label to `… (Recommended)` and keeps the plain label as the answer value. The card's "proceeding on" line reads that suffix; this plan does not add the field back.
+
+## 2. A question's life on the server
+
+A non-blocking question is the request the server already creates, with one new fact on it, one shared check applied where the server asks "is this thread blocked", and three closing rules removed.
+
+<Mermaid
+  caption="How a question closes, by variant. Green is the path the agent hears from; grey closes silently."
+  legend={[{ tone: "success", label: "the agent receives your words" }, { tone: "neutral", label: "nothing is sent" }, { tone: "warning", label: "blocking only" }]}
+  source={'flowchart TB\n  A["ask<br/>tool returns at once"]\n  O["open<br/>outlives the turn"]\n  W["waiting<br/>tool call long-polls"]:::tone-warning\n  ANS["answered<br/>steer, or a new turn"]:::tone-success\n  D["dismissed<br/>nothing sent"]:::tone-neutral\n  S["superseded by chat<br/>message reaches the agent"]:::tone-warning\n  R["run ended<br/>cancelled"]:::tone-warning\n  A -->|default| O\n  A -->|blocking: true| W\n  O --> ANS\n  O --> D\n  W --> ANS\n  W --> D\n  W --> S\n  W --> R\n'}
+/>
+
+Read it top down: the default path is the left column, ask then open then answered or dismissed. The right column is today's behaviour, kept under the flag.
+
+### The request record
+
+The runtime request gains one optional Loom field. It rides in the request's JSON payload (`orchestration_v2_projection_runtime_requests.payload_json`), so **no migration is needed**; a request stored before this change has no `loom` key and reads as blocking, which is what it was.
+
+<FieldDiff
+  title="OrchestrationV2RuntimeRequest for a loom-ask: request (packages/contracts/src/orchestrationV2.ts, // loom: hunk)"
+  beforeLabel="Today"
+  afterLabel="After"
+  fields={[
+    { name: "id", before: "loom-ask:<thread>:<toolCallId>", after: "loom-ask:<thread>:<toolCallId>", kept: true },
+    { name: "kind", before: "user_input", after: "user_input", kept: true },
+    { name: "responseCapability", before: "{ type: \"message\" }", after: "{ type: \"message\" }", kept: true },
+    { name: "loom", after: "{ blocking: false }  (optional; absent or true = blocking)" },
+  ]}
+/>
+
+<DataModel
+  entities={[
+    {
+      id: "shell",
+      name: "OrchestrationV2ThreadShell",
+      fields: [
+        { name: "pendingRuntimeRequest", type: "PendingRuntimeRequestSummary | null", change: "modified", note: "excludes loom.blocking === false" },
+        { name: "openQuestions", type: "Array<{ id, header, createdAt }>", change: "added", note: "// loom: non-blocking asks, oldest first" },
+      ],
+    },
+    {
+      id: "request",
+      name: "OrchestrationV2RuntimeRequest",
+      fields: [
+        { name: "id", type: "RuntimeRequestId", pk: true },
+        { name: "status", type: "pending | resolved | cancelled | expired" },
+        { name: "loom", type: "{ blocking: boolean }", nullable: true, change: "added" },
+      ],
+    },
+  ]}
+  relations={[{ from: "shell", to: "request", kind: "1-n", label: "openQuestions summarise" }]}
+/>
+
+### Steps, in the order a coder would take them
+
+1. **Contract.** `packages/contracts/src/orchestrationV2.ts`: `loom: Schema.optional(Schema.Struct({ blocking: Schema.Boolean }))` on `OrchestrationV2RuntimeRequest` (the Json twin follows through `mapFields`), and `openQuestions` on `OrchestrationV2ThreadShell` and its Json form, optional with a decoding default of `[]`. The `runtime-request.create` command in `packages/contracts/src/orchestrationV2.loom.ts` gains the same optional `loom` field, since that is where the ask stamps it. All `// loom:`. `ThreadPendingUserInput` in `packages/client-runtime/src/state/threadRequests.ts` gains `blocking: boolean`, derived as `request.loom?.blocking !== false`.
+2. **One shared predicate.** `hasBlockingPendingRequest(runtimeRequests)` beside `loomAskAnswer` in `apps/server/src/orchestration-v2/Orchestrator.loom.ts`: pending, and not a Loom ask marked `blocking: false`. Its SQL twin is the clause `AND COALESCE(json_extract(request.payload_json, '$.loom.blocking'), 1) = 1`. The table below is every site that changes to use it.
+3. **Validation and the ask route.** `validateAskQuestions` in `apps/server/src/loom/userInput/askUserQuestion.ts` accepts `blocking?: boolean`. `openAskUserQuestion` opens a waiter **only when blocking**, stamps `loom: { blocking }` on the `runtime-request.create` command, and returns `{ requestId, blocking, openCount }`; `POST /loom/agent/user-input/ask` in `apps/server/src/loom/http/loomAgentRoutes.ts` passes that through. The pi extension's `execute` in `apps/server/src/provider/Drivers/Pi/loomExtension.ts` returns the open-question text at once when `blocking` is false and long-polls `…/wait` exactly as today when it is true.
+4. **The create arm.** `runtimeRequestCreate` carries `loom` onto the request payload and its guard uses the predicate: refuse while a blocking request stands, otherwise allow. The node and turn item it emits are unchanged, so the question still appears in the transcript as a `user_input_request` row and the answer is recorded against it. That row keeps its *waiting* status after the run completes, which today never happens; the coder confirms `MessagesTimeline.tsx` shows it as an open question rather than a live spinner, and adds a `// loom:` presentation hunk if it does not.
+5. **The reactor.** In `reactToAskEvent`, the supersede rule and the run-ended rule apply only to requests with `loom.blocking !== false`. The supersede rule also ignores messages whose id starts with `async-answer:`, the message upstream dispatches from an answer; it is stamped human-authored, so without this exclusion answering a non-blocking question while a blocking one stood would close the blocking one as superseded.
+6. **The shell.** `apps/server/src/orchestration-v2/ProjectionStore.ts`: the in-memory fold that picks `pendingRuntimeRequest` and the `pending_request_payload_json` and `pending_question_header` subqueries in the shell SQL take the predicate; a new `open_questions_json` subquery aggregates the non-blocking pending requests joined to their `user_input_request` turn item's first header, oldest first. `openQuestions` sits on upstream's shell, not the sidecar join, so threads without a workstream row carry it too.
+7. **Answering and dismissing** need no server change. `runtime-request.respond` finds no live waiter (`loomAskTakesAnswer` returns false), builds the message from each question's text and answer, and dispatches it `steer_active` when a run is live or `queue_after_active` when idle, where an idle thread starts a turn. `thread.user-input.dismiss` resolves the request with decision `cancel` and emits nothing. The agent therefore sees your answer as a message that quotes the question it asked, which is what a model needs when the tool call was an hour ago.
+
+### Every place the server asks "is this thread blocked", and what each would do wrong
+
+These read the thread's raw `runtimeRequests` for any pending request. Left alone, a working thread with one open question would hit every row. Each becomes one `// loom:` line using the predicate (or its SQL twin); the right-hand column is the decision.
+
+<Table
+  density="compact"
+  columns={["Change", "Site", "What it decides", "With an open question, left untouched"]}
+  rows={[
+    [{ badge: { label: "predicate", tone: "success" }, md: "3 lines" }, "`loomRecoveryPolicy.ts` `isContinued`; `steerRedelivery.ts`; `Orchestrator.ts` rule-0 veto (all via `loomContinuationVetoed`)", "Whether a cut turn is continued after a server restart or deploy.", { tone: "risk", md: "**Not continued.** The agent's work stops silently at every deploy; this would be the normal state of a working thread." }],
+    [{ badge: { label: "predicate", tone: "success" }, md: "2 lines + SQL" }, "`Orchestrator.ts` usage-limit continuation and limit-recovery configure; `ProjectionStore.ts` limit-recovery candidate SQL", "Whether a thread stopped by a provider usage limit resumes when the limit resets.", { tone: "risk", md: "**Never resumes.**" }],
+    [{ badge: { label: "predicate", tone: "success" }, md: "1 line" }, "`Orchestrator.ts` manual resume from an interrupted run", "Whether *Resume* is allowed.", { tone: "risk", md: "Refused: *This thread can no longer be resumed from that run.*" }],
+    [{ badge: { label: "predicate", tone: "success" }, md: "1 line" }, "`Orchestrator.ts` `thread.snooze`", "Whether the thread can be snoozed.", { tone: "risk", md: "Refused: *has a pending approval or user-input request and cannot be snoozed*. An agent babysitting a PR cannot snooze." }],
+    [{ badge: { label: "decision 3", tone: "warning" }, md: "predicate, if settling is allowed" }, "`ProjectionStore.ts` settlement-candidate SQL and its in-memory twin", "Whether the thread can auto-settle, including the merge-triggered path (`pullRequestSettles`).", { tone: "warning", md: "Never a candidate, so never settles while a question is open." }],
+    [{ badge: { label: "decision 3", tone: "warning" }, md: "skip non-blocking in the cancel loop" }, "`Orchestrator.ts` `thread.settle`", "Manual settle: refuses on a blocking request, then **cancels** every pending message-capability request.", { tone: "risk", md: "Settling silently dismisses every open question." }],
+    [{ badge: { label: "predicate", tone: "success" }, md: "1 line" }, "`Orchestrator.ts` child-idle check in the delegated-task stop path", "Whether an orphaned child is idle enough to cancel.", "A child with an open question reads as busy. Rare: children can ask only after a human writes to them."],
+    [{ badge: { label: "predicate", tone: "success" }, md: "step 4" }, "`Orchestrator.loom.ts` `runtimeRequestCreate` guard", "Whether a second question may open.", "Refused."],
+    [{ badge: { label: "predicate", tone: "success" }, md: "step 6" }, "`ProjectionStore.ts` shell fold and shell SQL", "The sidebar summary `pendingRuntimeRequest`.", "Row says *Awaiting Input*; the inbox treats it as not working; ten consumers of the shell follow."],
+  ]}
+/>
+
+Sites that read pending requests and are **correct as they are**: `RestartContinuation.ts` and `ProviderRuntimeRecoveryService.ts` already exclude or keep `message`-capability requests (a non-blocking question survives a restart as data); `ProviderSessionManager.ts` and the delegated-task wait look only at `live` requests; `ThreadDeletion.ts` cancels everything on delete, correctly; the MCP thread tools (`t3_pending_request_list`, `pendingRequestCount`) list open questions, which is right; the runtime-recovery candidate filters include the thread as a candidate, which is harmless. The delegated-task dismiss that fires when a child's result run is cancelled would also dismiss a child's open questions; acceptable, and children rarely hold one.
+
+<Callout tone="decision" title="Why the question stays a runtime request rather than becoming a new Loom table">
+A new sidecar entity would need its own web rail, mobile card, Slack post, answer RPC and projection, and would still have to teach the sidebar and inbox about it. As a `user_input` runtime request with `message` capability, the question is already rendered by upstream's composer panel and mobile card, folded by the Slack bridge (which keys on exactly this shape and answers with `runtime-request.respond`), kept across restarts, counted by the sidebar, and answered through a path that already steers. The cost of "non-blocking" is one optional field, two deleted closing rules, and one predicate applied at the dozen sites above. The risk is a missed site, which is why the table is exhaustive and increment 2's verification restarts the server.
+</Callout>
+
+**What the agent gets back from a non-blocking ask** (26 words, a new tool-result text; the delivery mechanism is already in the description, so it is not repeated here):
+
+<Code language="text" wrap code={'Open on this thread as "<header>"; <n> other questions are open. Carry on with your stated assumption; do not wait for the answer or ask again.'} />
+
+The blocking variant keeps today's three result texts (answered, dismissed, superseded) unchanged.
+
+## 3. What the agent is told
+
+Every surface a model reads, split by the increment that ships it so that no text describes behaviour that does not exist yet. These ship through a reviewer gate briefed to veto text that changes no decision; the counts are for that gate. Honest totals: the tool's surfaces end at **249 → 249 words** (the body contract is kept; the blocking parameter and the shorter description cancel out), plus a **26-word tool result** the agent reads once per non-blocking ask; the orchestrator role loses **15**. Each rule is stated once: the ship rule in the tool description (34 of 128 October asks were ship asks made through it), the irreversibility rule on the `blocking` parameter, the document-form rule in the description.
+
+### Increment 1: the ship rule and the document rule, on today's tool
+
+<Diff
+  filename="apps/server/src/mcp/toolkits/workstream/prose.ts: ask_user_question.description (95 → 96 words)"
+  wrap
+  before={"Ask the person reading this thread a structured question; it is available because a human has written here. For an irreversible, destructive or preference-only decision the request, codebase and prior context do not settle; otherwise state an assumption and proceed, and do not ask to reconfirm scope or for approval you do not need. Coupled decisions and plan or design sign-offs go in an MDX decision document (the mdx-visual-recap skill), with the question a pointer to it. What your parent could answer goes to mcp__t3-code__consult_thread; guidance you cannot frame as options is mcp__t3-code__workstream_request_attention with needs_guidance."}
+  after={"Ask the person reading this thread a structured question. For an irreversible, destructive or preference-only decision the request, codebase and prior context do not settle; otherwise state an assumption and proceed, and do not ask to reconfirm scope or for approval you do not need. Never ask whether to ship: once nothing else is pending, say the work is ready to ship and wait for 'ship it'. A document with its own form is answered there, not here. What your parent could answer goes to mcp__t3-code__consult_thread; guidance you cannot frame as options is mcp__t3-code__workstream_request_attention with needs_guidance."}
+/>
+
+The pointer sentence ("with the question a pointer to it") goes, replaced by the document-form sentence and the ship sentence. The availability clause ("it is available because a human has written here") goes because the tool's presence already proves it. The snippet is inert and untouched in this increment.
+
+<Diff
+  filename="roles/orchestrator.md: single-point-of-contact bullet, last clause (−12 words)"
+  wrap
+  before={"Assume the human has read no child report: explain the substance, not report labels, and point them at a plan's QuestionForm rather than re-asking its questions."}
+  after={"Assume the human has read no child report: explain the substance, not report labels."}
+/>
+
+<Diff
+  filename="roles/orchestrator.md: hand-back bullet (−3 words)"
+  wrap
+  before={"…ask what an agent may still do: offer that as an option in your approval question, run checks that need agent tools yourself…"}
+  after={"…ask what an agent may still do: offer that in your readiness line, run checks that need agent tools yourself…"}
+/>
+
+The deleted role clause was in place when both of October's document collisions happened (the 20 and 26 October dismissals, where the agent "pointed" with a dialog and then proceeded on a default your document answers contradicted); the tool now carries the one copy of the rule. The ship bullet ("Ship only after approval, and never from memory…") is unchanged; the tool description carries the one copy of the readiness rule, and "readiness line" in the hand-back bullet refers to it. `roles/shipper.md` does not change: a shipper child is launched only after approval, cannot ask a question unless a human has written to it, and its only question path is `consult_thread` to its parent. The AGENTS.md line "Do not ship until the user has approved shipping the change" stays as written.
+
+### Increment 2: the non-blocking tool
+
+<Diff
+  filename="prose.ts: ask_user_question.description (95 → 82 words, on top of increment 1)"
+  wrap
+  before={"Ask the person reading this thread a structured question. For an irreversible, destructive or preference-only decision the request, codebase and prior context do not settle; otherwise state an assumption and proceed, and do not ask to reconfirm scope or for approval you do not need. Never ask whether to ship: once nothing else is pending, say the work is ready to ship and wait for 'ship it'. A document with its own form is answered there, not here. What your parent could answer goes to mcp__t3-code__consult_thread; guidance you cannot frame as options is mcp__t3-code__workstream_request_attention with needs_guidance."}
+  after={"Put a question to the person reading this thread and carry on: state the assumption you are proceeding on, then ask. It stays open until answered or dismissed; an answer reaches you as a message, a steer mid-turn or a new turn once idle. Ask here rather than in prose. Never ask whether to ship: once nothing else is pending, say the work is ready to ship and wait for 'ship it'. A document with its own form is answered there, not here."}
+/>
+
+The routing to `consult_thread` and `needs_guidance` goes because the child addendum every child reads already states it; "do not ask to reconfirm scope" goes because a non-blocking reconfirmation costs you one dismiss; "irreversible, destructive or preference-only" moves to the `blocking` parameter, where it now describes a value.
+
+<Diff
+  filename="prose.ts: ask_user_question.promptSnippet (25 → 16 words; inert today, kept consistent)"
+  wrap
+  before={"a person has written to this thread, so you can put an irreversible, destructive or preference-only decision to them as a structured question; otherwise proceed."}
+  after={"put a question to the person reading this thread and carry on; never for ship approval."}
+/>
+
+<Diff
+  filename="apps/server/src/provider/Drivers/Pi/loomExtension.ts: schema descriptions (question 110 → 106, recommended 10 → 9, blocking new 27; questions and header untouched)"
+  wrap
+  before={"question: Markdown body for a reader who has read none of this thread or any child report. In order: the situation (what you are working on in plain words, the ticket reference so they can open it, what just happened), one real example (a named file, record or screen with literal content), the stakes and why their decision is needed, then your pick with its reason. Explain what any quoted figure measures. No internal shorthand as names ('D7', 'must-fix #1'), no unexplained acronyms, no references in place of substance ('per the report'): a child's report was written for you, so translate it rather than pass on its labels, ids or questions.\n\nrecommended: Exactly one option: your pick, and the default on dismissal."}
+  after={"question: Markdown body for a reader who has read none of this thread or any child report. In order: what you are working on in plain words, the ticket reference so they can open it, and what just happened; one real example (a named file, record or screen with literal content); the stakes and why their decision is needed; the assumption you are proceeding on, with its reason. Explain what any quoted figure measures. No internal shorthand as names ('D7', 'must-fix #1'), no unexplained acronyms, no references in place of substance ('per the report'): translate a child's report rather than pass on its labels, ids or questions.\n\nrecommended: Exactly one option: what you proceed on until answered.\n\nblocking: True only where proceeding is irreversible (data leaving a boundary, a destructive step): the call waits, and a dismissal means proceed on the recommended option. Default false."}
+/>
+
+The body contract keeps all four parts and every prohibition; the only meaning change is "your pick with its reason" becoming "the assumption you are proceeding on, with its reason", because that is now what the pick is. The rest is wording.
+
+## 4. The rail on the web
+
+<Columns>
+  <Column label="Before: one question, the agent paused, the composer is the answer box">
+    <Screen
+      surface="desktop"
+      caption="Today: the thread shows Awaiting input; the composer's text is the custom answer; a second question cannot be asked until this one settles."
+      html={'<div style="display:flex;flex-direction:column;height:100%;box-sizing:border-box;padding:14px;gap:10px"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><strong style="min-width:0;overflow:hidden;text-overflow:ellipsis">Generate distinct project favicons</strong><div style="flex:1"></div><span class="wf-pill">Awaiting input · 3h</span></div><div style="flex:1"></div><div class="wf-card" style="padding:10px 12px;display:flex;flex-direction:column;gap:8px"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="wf-pill">?</span><strong style="min-width:0;overflow:hidden;text-overflow:ellipsis">Which colour for the lease-extraction favicon</strong><div style="flex:1"></div><small class="wf-muted">asked 3h ago</small><small>v</small><small>x</small></div><p style="font-size:12px;line-height:1.45">Six colour versions of the building are on .artifacts/lease-extraction-colour-options.html. Which one should I install?</p><div class="wf-box" style="padding:6px 10px;border-color:var(--wf-accent)"><strong>1 · White on deep emerald (Recommended)</strong><br/><small>Highest contrast at 16px; matches the lease tint.</small></div><div class="wf-box" style="padding:6px 10px"><strong>2 · Emerald on white</strong><br/><small>Lighter, but washes out on the dark sidebar.</small></div><div class="wf-box" style="padding:6px 10px"><strong>3 · Monochrome</strong><br/><small>Safe, but indistinguishable from loom.</small></div><small class="wf-muted">Type in the composer to answer in your own words · Reply in chat instead ↩</small></div><div class="wf-box" style="padding:8px 12px;display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="wf-muted" style="flex:1">Custom answer to “Which colour…”</span><span class="wf-btn">Send answer</span></div></div>'}
+    />
+  </Column>
+  <Column label="After: the rail; the agent is still running; the composer is chat">
+    <Screen
+      surface="desktop"
+      caption="Three open questions. Two are minimised rows (header, age, what the agent is proceeding on); one is expanded with its own text field. The composer is plain chat and the thread shows Running."
+      html={'<div style="display:flex;flex-direction:column;height:100%;box-sizing:border-box;padding:14px;gap:10px"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><strong style="min-width:0;overflow:hidden;text-overflow:ellipsis">Generate distinct project favicons</strong><div style="flex:1"></div><span class="wf-pill accent">Running · bash</span><span class="wf-pill">? 3 open</span></div><div style="flex:1"></div><div class="wf-card" style="padding:8px 12px;display:flex;flex-direction:column;gap:6px"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap;font-size:12px"><span class="wf-pill">?</span><strong style="overflow:hidden;text-overflow:ellipsis">Keep the old favicon as a fallback?</strong><small class="wf-muted">· 2h · proceeding on: keep it</small><div style="flex:1"></div><small>expand</small><small>dismiss</small></div><div style="display:flex;align-items:center;gap:8px;white-space:nowrap;font-size:12px"><span class="wf-pill">?</span><strong style="overflow:hidden;text-overflow:ellipsis">Same mark for the marketing site?</strong><small class="wf-muted">· 40m · proceeding on: yes</small><div style="flex:1"></div><small>expand</small><small>dismiss</small></div><hr/><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="wf-pill accent">?</span><strong style="min-width:0;overflow:hidden;text-overflow:ellipsis">Which colour for the favicon</strong><div style="flex:1"></div><small class="wf-muted">12m · on: white on emerald</small><small>minimise</small></div><p style="font-size:12px;line-height:1.45">Six colour versions of the building are on .artifacts/lease-extraction-colour-options.html. Which one should I install?</p><div class="wf-box" style="padding:6px 10px;border-color:var(--wf-accent)"><strong>1 · White on deep emerald</strong> <span class="wf-pill accent">proceeding on this</span><br/><small>Highest contrast at 16px; matches the lease tint.</small></div><div class="wf-box" style="padding:6px 10px"><strong>2 · Emerald on white</strong><br/><small>Lighter, but washes out on the dark sidebar.</small></div><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="wf-box" style="flex:1;padding:6px 10px" ><span class="wf-muted">Or in your own words…</span></span><span class="wf-btn primary">Answer</span><span class="wf-btn">Dismiss</span></div></div><div class="wf-box" style="padding:8px 12px;display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="wf-muted" style="flex:1">Message the agent…</span><span class="wf-btn">Send</span></div></div>'}
+    />
+  </Column>
+</Columns>
+
+What the rail does, in the order you meet it:
+
+- **Every open Loom question on the thread is a row**, blocking ones first, then oldest first. A row shows the header, the age (the same minute-clock label `pendingUserInputLoom.tsx` already renders), and *proceeding on: the recommended option's label*; a blocking row says *the agent is waiting* instead. Expand, answer and dismiss are on the row.
+- **One row is expanded at a time.** The expanded card is upstream's question body and option list (the markdown body with file chips, `ChatMarkdown`, as today), plus the rail's own text field for an answer in your own words, an Answer button and a Dismiss button. Digits select and never submit, as today.
+- **The composer is never the answer box.** Upstream's composer-as-answer-form is left as it is for native provider questions, and simply never sees a Loom question: `usePendingThreadRequests.ts` hands Loom asks (`requestId` starting `loom-ask:`) to the rail and the rest to upstream's panel. One `// loom:` hunk. The "Reply in chat instead" control and its host plumbing in `pendingUserInputLoom.tsx` go, because chat is now chat. For a **blocking** question the server still closes it as superseded when you send a chat message, so you keep the way out you have today, without the button.
+- **Minimised by default while you type.** When the thread's composer draft is non-empty every row is minimised; when you clear it the rows return to their stored state. An explicit expand while typing holds until the draft is empty again.
+- **Minimise state tiers** (per `docs/architecture/loom-ui-state-tiers.md`): the explicit minimise per question is tier 1, a persisted per-thread store keyed by `scopedThreadKey` holding `collapsed: Record<requestId, boolean>`, with the tier doc's versioned `migrate` and a `removeThread` action, and pruned of ids that are no longer pending on each write so it does not grow with resolved questions. A question can stand for hours across navigations and re-expanding on every visit is the state that lies. The typing default is derived, never written. The "expanded despite typing" override is tier 4, component state. Nothing here is an automatic opener, so the seed-not-override rule has nothing to override.
+- **Several open questions**: the rail shows up to three rows before a *N more* line; "Dismiss all" appears at two or more.
+
+The rail is a Loom component, `apps/web/src/loom/openQuestions/OpenQuestionsRail.tsx`, mounted by `ChatView.tsx` where the composer panel sits (one `// loom:` hunk); it answers through the existing `threadEnvironment.respondToUserInput` and `dismissUserInput` commands that `usePendingThreadRequests.ts` already wraps. Upstream's `ComposerPendingUserInputCard` is not exported today (`ComposerPendingUserInputPanel.tsx`), so reusing its body and option list for the expanded card needs one `// loom:` export hunk; if its props fight the rail's own answer state, the rail owns a ~100-line option list instead and the plan accepts that. The preview harness gets a fixture in `apps/web/src/preview/loomFixtures.ts` with three open questions, one blocking, for the render loop.
+
+## 5. Where you notice it
+
+The attention signal is "this thread has open questions", read from `shell.openQuestions`, and it does not depend on anything blocking. Per the model you confirmed, every question notifies as it opens, on the desktop and in Slack, exactly as a blocking one does today; that is settled, not asked.
+
+<Table
+  columns={["Surface", "Today", "Under this plan", "Where"]}
+  rows={[
+    ["Sidebar row", "*Awaiting Input · header · 3h* while a question blocks; nothing otherwise.", "A blocking question keeps that pill. A thread with open non-blocking questions shows **Question · 12m** (or **2 questions**) as its Loom status when idle, and a small `?2` chip beside the running state when it is working. Rows with the chip count into the sidebar's attention rollup.", "`Sidebar.logic.loom.ts` (`loomAttentionOf`), `loomAttention.ts` labels, `rollup.ts` gains an `open_question` client-side reason beside `brief-needed`; `LoomRollupBadge.tsx`."],
+    ["Inbox", "A blocking question takes the thread out of *working* and into *needs you*.", "Unchanged for blocking. The *working* test (`isThreadWorking` in `threadInbox.ts`) is untouched, so a running thread with an open question stays in *working*; the inbox's needs-you count comes from the attention rollup, which now includes open questions, so the thread is counted there as well and carries the chip. Whether an open question also holds the thread out of *settled* is decision 3 at the end.", "`rollup.ts` only."],
+    ["Desktop notification", "*Input needed · header* when a blocking question opens.", "Fires once per question as it opens, titled *Question · header*, body the thread title.", "`ThreadNotificationCoordinator.tsx`, one `// loom:` hunk reading `openQuestions`."],
+    ["Slack bridge (`loom-slack-bridge`)", "Folds every pending `user_input` request from the thread subscription into a ❓ post with `Q<n>` reply ordinals; a `Q1 2` reply dispatches `runtime-request.respond`; a prose reply supersedes.", "**Works unchanged** for posting and answering: the bridge keys on the request shape this plan keeps, and several open questions already get ordinals. Two hint sentences become wrong until touched: the reply hint and the incomplete-answer re-prompt both say *\"reply normally to answer in prose, that supersedes the question\"*, which no longer holds for a non-blocking question. Drop that clause when `loom.blocking` is false (the bridge reads the request payload, so it can). Its status line stops saying *awaiting input* for non-blocking questions, which is correct.", "`src/message.ts` `replyHint` and `composeIncompleteAnswer`; `src/loom/interpret.ts` fold carries `blocking`."],
+    ["Mobile card", "Renders the first pending `user_input` request (`use-selected-thread-requests.ts` takes `activePendingUserInputs[0]`) with *Asked 3h ago*, options, custom answer, dismiss, and a per-request collapse toggle.", "Renders a non-blocking question the same way with no change; with several open it shows the oldest, and the next after that one settles. One `// loom:` line under the header: *The agent has continued on (the recommended option); answer when you like* versus *The agent is waiting*. Stacking all open questions and a list badge from `openQuestions` are a follow-up once the web rail has settled the wording; the thread list's badge reads `pendingRuntimeRequest`, which now correctly excludes these.", "`apps/mobile/src/features/threads/PendingUserInputCard.tsx`; `threadListV2.ts` deferred."],
+    ["`workstream_list` and the awareness relay", "Status *awaiting_input* from `pendingRuntimeRequest`.", "Unchanged: non-blocking questions no longer read as *awaiting_input*, and nothing is added, since children cannot ask unless a human writes to them and every October set came from a root thread.", "none"],
+  ]}
+/>
+
+## 6. Plans' own forms
+
+The model says a plan's `QuestionForm` is already a non-blocking question set, and asks whether the rail should list a document's open form as one entry with the document's title. The honest answer is that nothing on the server knows a form exists or whether it was answered: a form's answers arrive as review-comment context records on a later human turn, and the document is a file the agent wrote. Showing it in the rail means a tracker that notices a plan with a `QuestionForm` was handed over in this thread (from the chat chip or the write) and clears when answers arrive. That is a second feature with its own lifecycle questions (what if the human annotates but never submits the form; what if the plan is rewritten), and it is not what unblocks the question tool. **Recommendation: a follow-up**, with the pointer-card pattern retired now by the text in section 3 so the collision the audit found cannot recur in the meantime; until then the agent's chat message with the plan's chip is the signal. Decision 1 at the end lets you pull it in now instead.
+
+## 7. Increments and how each is verified
+
+<Steps>
+  <Step at="1" title="Instruction text only: ship readiness as a chat line, pointer cards retired." badge="no behaviour change" aside="prose.ts description, roles/orchestrator.md: −15 role words, tool flat">
+    Ships alone and already removes the two largest wastes in the audit (34 ship asks, 4 document collisions). Only the increment-1 diffs in section 3 ship here; nothing in them describes behaviour the tool does not have. Verify by reading the prompt-debug sidecar of a fresh orchestrator (`promptDebugPath` writes the declared tools array) and confirming the description is verbatim; the PR carries the word counts above for the gate reviewer.
+  </Step>
+  <Step at="2" title="Server and web rail together: a question outlives its turn; the blocking flag; the rail that answers it." badge="real data plus the browser" aside="contracts, askUserQuestion.ts, loomAgentRoutes.ts, loomExtension.ts, Orchestrator.loom.ts, Orchestrator.ts, ProjectionStore.ts, the predicate sites; OpenQuestionsRail.tsx, usePendingThreadRequests.ts, ChatView.tsx, pendingUserInputLoom.tsx, a tier-1 store, a preview fixture; the increment-2 text">
+    One PR, because the server half alone would render non-blocking questions in upstream's panel, where the composer is the answer box, which is the behaviour you ruled out. Focused tests in `askUserQuestion.test.ts`: a non-blocking ask returns at once and its request is still pending after `run.updated` goes terminal; a human message does not close it; two non-blocking asks stand together and a blocking one is refused while an approval stands; the shell's `pendingRuntimeRequest` is null while `openQuestions` has one entry; `isContinued` and `thread.snooze` accept a thread whose only pending request is non-blocking; `thread.settle` leaves it open. Then the canonical check on a dev instance seeded by `vp run migrate-dev-db`: from a root thread ask a non-blocking question mid-task, **restart the server while the turn is running**, and confirm the cut turn is continued (the restart-continuation run appears) rather than left dead; let the turn end; confirm with `sqlite3 "file:…/statev2.sqlite?mode=ro"` that the request is pending with `loom.blocking = false`; wait an hour, answer it from the rail, and confirm a `message.updated` with id `async-answer:loom-ask:…` starts a new run whose first assistant message responds to the answer. In the browser (dev-verify recipe): two open questions and text in the composer, both rows minimise; expand one, answer in your own words, the steer appears in the timeline and the row disappears; dismiss the other, nothing is sent; send a chat message while a question stands, it stays open; reload, the minimised row is still minimised. Ask with `blocking: true`: the row says the agent is waiting, the long-poll holds, a chat send closes it as superseded, and stopping the run cancels it, as today. `vp check`, `vp run typecheck`, and the ship gate's unmarked-hunk sweep.
+  </Step>
+  <Step at="3" title="Arrival surfaces: sidebar chip and rollup, notification, Slack hints, mobile wording." badge="four surfaces" aside="Sidebar.logic.loom.ts, rollup.ts, ThreadNotificationCoordinator.tsx, loom-slack-bridge, PendingUserInputCard.tsx">
+    Same seeded instance: leave the thread and confirm the row reads *Question · 1m*, the rollup counts it, and the toast fired once. Slack: a non-blocking question posts, `Q1 2` answers it, neither hint mentions supersede. Mobile via `test-t3-mobile`: the card shows the *has continued on* line. Until this increment lands, a non-blocking question is visible only inside its thread; the window is one PR.
+  </Step>
+</Steps>
+
+## 8. What the next audit measures
+
+The October audit's method (`orchestration_v2_projection_runtime_requests` joined to `user_input_request` turn items, settlement from `payload_json` and the `ask-supersede` / `ask-run-end` command ids) still works, and the new field makes three more counts possible. Baselines are October's.
+
+<Table
+  columns={["Measure", "How", "October", "What success looks like"]}
+  rows={[
+    ["Rubber-stamp rate", "Sets whose only answer is the recommended option with no custom text, over all answered sets.", "37%", "Falls, because a rubber stamp is now a dismiss (counted apart) and the agent proceeded anyway."],
+    ["Ship asks", "Sets whose first header matches ship, merge or land.", "34 of 128", "0."],
+    ["Blocking-flag use", "`json_extract(payload_json, '$.loom.blocking') = 1` over all `loom-ask:` requests after the change.", "n/a (all blocked)", "Under 10%; above that the parameter's irreversibility clause is being read too widely."],
+    ["Questions buried in prose and never answered", "Final assistant messages on root threads whose last paragraph ends in a question mark, with no tool question in that turn, and no human message on the thread in the following 24 hours or before the agent's next turn. Read by hand, as the October sets were.", "To be baselined from October's messages by the same reader.", "Falls; this is the number behind *I'm still waiting on X*."],
+    ["Answered after the turn ended", "Answers whose `resolvedAt` is later than the asking run's `completedAt`.", "0 by construction", "Any non-zero number is the capability working."],
+    ["Pile-up", "Maximum open non-blocking questions per thread, and the share dismissed rather than answered.", "n/a", "If dismissals pass half, questions are being asked that did not need asking; the tool text tightens before any cap is added."],
+  ]}
+/>
+
+## 9. Risks
+
+- **A missed "is this thread blocked" site.** The table in section 2 is the result of reading every pending-request check on the server; a site that was missed would quietly refuse a resume, a snooze or a continuation on a thread with an open question. Mitigation: the predicate has one name, so a grep for the raw `status === "pending"` check is the review; and increment 2's verification restarts the server mid-turn.
+- **The agent ignores the answer when it arrives.** The steer lands as a user message quoting the question; mid-turn it reaches a `bg_wait` at once but waits out any other tool call, and a model deep in a task may note it and carry on. Mitigation: the steer text is the question followed by the answer, which reads as an instruction rather than an aside; the measure "answered after the turn ended" shows whether late answers get acted on, and the first twenty real cases are read by hand.
+- **Questions pile up.** Nothing closes a non-blocking question except you. The rail's dismiss-all and the three-row cap keep the surface small; the tool result tells the agent how many are open; decision 2 is whether to cap at the server.
+- **A chat reply that answers the question in prose leaves the card open.** With supersede retired for non-blocking questions, you may answer in chat and then have to dismiss the card. Decision 4 offers keeping a softer rule.
+- **Upstream's composer code stays beside the rail.** Two renderers for a question exist on the web (upstream's for native provider questions, the rail for Loom's). The seam is one filter; the duplication is the option list, which the rail reuses from upstream's card through an export hunk where its props allow.
+- **Instruction text is the weakest lever.** Models were told "otherwise state an assumption and proceed" for a month and asked 6.7 times a day. What changes behaviour here is structural: the tool no longer costs the agent its turn, so asking is cheap, and the ship rule names the exact words to write instead.
+
+<Details summary="Change map: every file, by increment">
+<FileTree
+  title="Files touched (1 = text, 2 = server plus rail, 3 = arrival surfaces)"
+  entries={[
+    { "path": "apps/server/src/mcp/toolkits/workstream/prose.ts", "change": "modified", "note": "1 and 2: description per increment; snippet in 2. Loom-only." },
+    { "path": "roles/orchestrator.md", "change": "modified", "note": "1: two clauses, −15 words." },
+    { "path": "apps/server/src/provider/Drivers/Pi/loomExtension.ts", "change": "modified", "note": "2: schema descriptions; blocking parameter; execute returns at once when not blocking. Loom-only." },
+    { "path": "packages/contracts/src/orchestrationV2.ts", "change": "modified", "note": "2: loom.blocking on RuntimeRequest; openQuestions on ThreadShell and its Json twin. // loom:" },
+    { "path": "packages/contracts/src/orchestrationV2.loom.ts", "change": "modified", "note": "2: runtime-request.create carries loom." },
+    { "path": "packages/client-runtime/src/state/threadRequests.ts", "change": "modified", "note": "2: ThreadPendingUserInput.blocking. // loom:" },
+    { "path": "apps/server/src/loom/userInput/askUserQuestion.ts", "change": "modified", "note": "2: validate blocking; waiter only when blocking; supersede and run-end rules scoped to blocking; ignore async-answer: messages; open-question result text." },
+    { "path": "apps/server/src/loom/userInput/askUserQuestion.test.ts", "change": "modified", "note": "2: the behaviours listed in section 7." },
+    { "path": "apps/server/src/loom/http/loomAgentRoutes.ts", "change": "modified", "note": "2: ask route returns { requestId, blocking, openCount }." },
+    { "path": "apps/server/src/orchestration-v2/Orchestrator.loom.ts", "change": "modified", "note": "2: hasBlockingPendingRequest; runtimeRequestCreate carries loom and uses it." },
+    { "path": "apps/server/src/orchestration-v2/Orchestrator.ts", "change": "modified", "note": "2: predicate at rule-0 veto, usage-limit continuation, limit-recovery configure, manual resume, snooze, settle (blocker and cancel loop), child-idle. Each a // loom: line." },
+    { "path": "apps/server/src/loom/recovery/loomRecoveryPolicy.ts", "change": "modified", "note": "2: isContinued uses the predicate." },
+    { "path": "apps/server/src/loom/orchestration/dispatcher/steerRedelivery.ts", "change": "modified", "note": "2: predicate." },
+    { "path": "apps/server/src/orchestration-v2/ProjectionStore.ts", "change": "modified", "note": "2: shell fold and SQL exclude non-blocking; open_questions_json subquery; SQL twin at the limit-recovery and settlement candidate queries and the in-memory settlement twin. // loom:" },
+    { "path": "apps/web/src/loom/openQuestions/OpenQuestionsRail.tsx", "change": "added", "note": "2: rows, expanded card, own text field, answer / dismiss / dismiss all, typing default." },
+    { "path": "apps/web/src/loom/openQuestions/openQuestionsUiStore.ts", "change": "added", "note": "2: tier 1: collapsed per request, keyed by scopedThreadKey, versioned migrate, removeThread, pruned to pending ids." },
+    { "path": "apps/web/src/components/chat/usePendingThreadRequests.ts", "change": "modified", "note": "2: Loom asks routed to the rail, the rest to upstream's panel. // loom:" },
+    { "path": "apps/web/src/components/chat/ComposerPendingUserInputPanel.tsx", "change": "modified", "note": "2: export ComposerPendingUserInputCard for the rail. // loom:" },
+    { "path": "apps/web/src/components/ChatView.tsx", "change": "modified", "note": "2: mount the rail; remove the reply-in-chat host. // loom:" },
+    { "path": "apps/web/src/components/chat/MessagesTimeline.tsx", "change": "modified", "note": "2, if needed: an open question's transcript row after its run completes. // loom:" },
+    { "path": "apps/web/src/loom/pendingUserInputLoom.tsx", "change": "modified", "note": "2: reply-in-chat control and host store removed; age helpers stay." },
+    { "path": "apps/web/src/preview/loomFixtures.ts", "change": "modified", "note": "2: three open questions, one blocking." },
+    { "path": "apps/web/src/components/Sidebar.logic.loom.ts", "change": "modified", "note": "3: open questions as the row's Loom status when idle; chip when running." },
+    { "path": "packages/client-runtime/src/state/loom/rollup.ts", "change": "modified", "note": "3: open_question client-side reason beside brief-needed. // loom:" },
+    { "path": "apps/web/src/loom/loomAttention.ts", "change": "modified", "note": "3: label 'Question'." },
+    { "path": "apps/web/src/components/ThreadNotificationCoordinator.tsx", "change": "modified", "note": "3: notify once per question opened. // loom:" },
+    { "path": "apps/mobile/src/features/threads/PendingUserInputCard.tsx", "change": "modified", "note": "3: 'has continued on' versus 'is waiting' line. // loom:" },
+    { "path": "loom-slack-bridge/src/message.ts", "change": "modified", "note": "3: both supersede hints dropped for non-blocking questions (separate repo)." }
+  ]}
+/>
+</Details>
+
+## Decisions
+
+Each question is answerable from its own text. The recommended option is what the plan assumes if you say nothing.
+
+<QuestionForm
+  questions={[
+    {
+      "id": "plan-forms",
+      "title": "Should a plan's own question form appear in the open-questions rail now, or as a follow-up after the rail ships?",
+      "subtitle": "Listing a document's form in the rail needs a tracker that notices a plan with a form was handed over and clears when its answers arrive; nothing on the server knows that today. Either way the question card that points at a document is retired by the text in increment 1.",
+      "refs": [{ "label": "6. Plans' own forms", "anchor": "6-plans-own-forms" }],
+      "mode": "single",
+      "options": [
+        { "id": "later", "label": "Follow-up: ship the rail for tool questions first; the agent's chat message with the plan chip stays the signal", "recommended": true, "detail": "Keeps this plan to one lifecycle. The pointer-card collision cannot recur because the text forbids the card." },
+        { "id": "now", "label": "Now: add the document tracker to increment 2 so a plan with an unanswered form shows as a rail row with the plan's title", "detail": "One more server piece with its own open questions (annotated but never submitted; plan rewritten). Delays the rail." }
+      ]
+    },
+    {
+      "id": "cap",
+      "title": "Should the server cap how many non-blocking questions a thread can have open at once?",
+      "subtitle": "Nothing closes a non-blocking question except you. The tool result tells the agent how many are open and the rail has dismiss-all; a server cap would refuse the ask with a message naming the open ones.",
+      "refs": [{ "label": "9. Risks", "anchor": "9-risks" }],
+      "mode": "single",
+      "options": [
+        { "id": "none", "label": "No cap: the agent is told the count, the rail shows three rows and a dismiss-all, and the next audit's pile-up measure decides", "recommended": true, "detail": "A cap turns a non-blocking tool back into a refusal the agent must work around." },
+        { "id": "five", "label": "Cap at five: a sixth ask is refused until one is answered or dismissed", "detail": "Hard ceiling on pile-up; the refusal text has to tell the agent to proceed on its assumption anyway." }
+      ]
+    },
+    {
+      "id": "settle",
+      "title": "Can a thread settle (automatically, after its PR merges, or by hand) while one of its questions is still open, and if so does the question stay open?",
+      "subtitle": "Today any pending request keeps a thread out of the auto-settle candidates, and a manual settle cancels every open question. So the choice is between changing both of those so a finished thread settles and keeps its question open with a chip on the settled row, or leaving them so an open question holds the thread in your working list and settling it by hand dismisses the question.",
+      "refs": [{ "label": "2. A question's life on the server", "anchor": "2-a-question-s-life-on-the-server" }],
+      "mode": "single",
+      "options": [
+        { "id": "settle-keeps", "label": "The thread settles as normal and the question stays open: a 'Question · 2h' chip on the settled row is the signal", "recommended": true, "detail": "Three one-line changes (the two settlement-candidate checks and the settle arm's cancel loop). An unanswered question never pins a finished thread to the top of your list, and settling never silently dismisses one." },
+        { "id": "hold", "label": "An open question holds the thread unsettled; settling it by hand dismisses the question", "detail": "No change at those three sites. A finished thread with a forgotten question stays in your working list until you answer or dismiss it, and the Settle action doubles as dismiss-all." }
+      ]
+    },
+    {
+      "id": "chat-closes",
+      "title": "When you send a chat message on a thread with open non-blocking questions, should any of them close?",
+      "subtitle": "Today a chat message closes the open question as superseded and the agent is told to read the message instead. The plan keeps that for blocking questions only, so that a message about something else never clears a card you have not seen.",
+      "refs": [{ "label": "1. Where the code and the model disagree", "anchor": "1-where-the-code-and-the-model-disagree" }],
+      "mode": "single",
+      "options": [
+        { "id": "never", "label": "Never: a non-blocking question closes only from its card (answer or dismiss)", "recommended": true, "detail": "Typing is chat, exactly as you said. If you answer in prose you dismiss the card afterwards, one click." },
+        { "id": "mention", "label": "Only when the message quotes the question's header, close that one as superseded", "detail": "Catches the prose-answer case; a small matcher that will sometimes miss and sometimes misfire." }
+      ]
+    }
+  ]}
+/>

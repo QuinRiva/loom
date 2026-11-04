@@ -6,6 +6,7 @@
  */
 import {
   CommandId,
+  hasBlockingPendingRequest,
   type LoomThreadWorkstream,
   MessageId,
   type OrchestrationV2ThreadProjection,
@@ -39,11 +40,7 @@ import * as PendingSteering from "../steering/pendingSteering.ts";
 const isContinued = (
   workstream: LoomThreadWorkstream | null,
   projection: Pick<OrchestrationV2ThreadProjection, "runtimeRequests">,
-) =>
-  !loomContinuationVetoed(
-    workstream,
-    projection.runtimeRequests.some((request) => request.status === "pending"),
-  );
+) => !loomContinuationVetoed(workstream, hasBlockingPendingRequest(projection.runtimeRequests));
 
 /**
  * Runs the thread's restart continuation now when its outbox effect is still due: a Loom wake

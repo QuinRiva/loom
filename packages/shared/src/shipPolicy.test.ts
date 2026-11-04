@@ -62,6 +62,6 @@ describe("shipPolicyPromptBlock", () => {
     const block = shipPolicyPromptBlock("agent");
     expect(block).toContain("PR");
     expect(block).toContain("feature branch");
-    expect(block).toContain("Never push directly");
+    expect(block).toContain("never push directly");
   });
 });
