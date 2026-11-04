@@ -58,6 +58,9 @@ export interface LoomPiAdapterHooksShape {
   };
   /** New facts about the thread's prompt cache (`LoomCacheBroadcast.update`). */
   readonly cache: (threadId: ThreadId, patch: LoomThreadCachePatch) => Effect.Effect<void>;
+  /** Loom's shipped prompt templates (`/catchup`), passed to the slash-menu discovery pi so the
+   * menu lists what every session receives from the composer. */
+  readonly promptTemplates: ReadonlyArray<string>;
 }
 
 export const passthroughLoomPiAdapterHooks: LoomPiAdapterHooksShape = {
@@ -65,6 +68,7 @@ export const passthroughLoomPiAdapterHooks: LoomPiAdapterHooksShape = {
   sanitiser: () => Effect.void,
   steerStash: { write: () => Effect.void, read: () => Effect.succeed(null) },
   cache: () => Effect.void,
+  promptTemplates: [],
 };
 
 export class LoomPiAdapterHooks extends Context.Reference<LoomPiAdapterHooksShape>(

@@ -43,6 +43,7 @@ import {
 import { LoomAgentRoutesLive } from "./http/loomAgentRoutes.ts";
 import * as LoomThreadConsult from "./workstream/consult.ts";
 import { LoomSessionComposerRealLive } from "./prompt/sessionComposerLive.ts";
+import { CATCHUP_TEMPLATE_PATH } from "./prompt/roleOverlay.ts";
 import { SubscriptionUsagePollerLive } from "../provider/SubscriptionUsagePoller.ts";
 import { LoomAskReactorLive } from "./userInput/askUserQuestion.ts";
 import { LoomStateDirRetentionLive } from "./stateDirRetention.ts";
@@ -108,6 +109,7 @@ const LoomPiAdapterHooksLive = Layer.effect(
         read: (threadId) => PendingSteering.read(threadId).pipe(Effect.provide(stashContext)),
       },
       cache: cache.update,
+      promptTemplates: [CATCHUP_TEMPLATE_PATH],
     } satisfies LoomPiAdapterHooksShape;
   }),
 );
