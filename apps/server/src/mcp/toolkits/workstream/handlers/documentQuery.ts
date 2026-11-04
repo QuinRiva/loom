@@ -32,6 +32,17 @@ export const documentQueryPromote = Effect.fn("LoomToolkit.documentQueryPromote"
     return yield* fail(
       `exchangeAt ${input.exchangeAt} matches no question in this thread. Copy it exactly from the promote turn; the questions were asked at: ${row.documentQuery.questions.map((q) => q.askedAt).join(", ")}.`,
     );
+  // Resolved before the dispatch: a failure here must not report an error for a promotion that
+  // was in fact recorded, which a retry would then duplicate.
+  const author = row.forkFromThreadId;
+  const authorShell =
+    author === null
+      ? null
+      : yield* asToolError(
+          Effect.flatMap(Orchestrator.OrchestratorV2, (orchestrator) =>
+            orchestrator.getThreadShell(author),
+          ),
+        );
   const promotionId = `promotion:${yield* requestKey(undefined)}`;
   const promotedAt = yield* nowIso;
   yield* dispatch({
@@ -53,13 +64,7 @@ export const documentQueryPromote = Effect.fn("LoomToolkit.documentQueryPromote"
       },
     },
   });
-  const author = row.forkFromThreadId;
-  if (author === null)
-    return "Recorded: the comment is waiting in the author's composer, and the human sends it from there.";
-  const authorShell = yield* asToolError(
-    Effect.flatMap(Orchestrator.OrchestratorV2, (orchestrator) =>
-      orchestrator.getThreadShell(author),
-    ),
-  );
-  return `Recorded: the comment is waiting in the composer of ${formatThreadLink({ environmentId: null, threadId: author }, authorShell?.title)}, and the human sends it from there.`;
+  return author === null
+    ? "Recorded: the comment is waiting in the author's composer, and the human sends it from there."
+    : `Recorded: the comment is waiting in the composer of ${formatThreadLink({ environmentId: null, threadId: author }, authorShell?.title)}, and the human sends it from there.`;
 });
