@@ -1,0 +1,124 @@
+---
+reader:
+  who: Carl, who asked for a slash command that brings him up to speed on an orchestrator thread he has not read for hours, and approves its intent before anything is built
+  knows: his own request and how his workstreams run; none of the two research reports behind this brief
+  after_first_screen: he can say what the command will put in front of him and in what order, and confirm his review corrections landed or say "go"
+kicker: "Intent brief · approved 4 Nov 2026"
+status: approved
+plan: plans/catch-me-up-command/plan.mdx
+manager_sessions:
+  - id: 01a1a4e4-47c3-736c-b9fe-1d45c34c13ec
+    name: Catch-me-up slash command
+    role: intent
+    authored_at: 2026-11-04T05:03:33.953Z
+---
+
+# A `/catchup` command that puts what needs you first, and nothing else above it
+
+**Goal.** "By the time I return to the thread, there's often a wall of text that I'm not going to read. I think it would be useful to have some sort of slash command that get's the agent to get me up to speed." Typing one command in an orchestrator thread gets a reply you can act on cold: what is waiting on you, each item decidable on its own; what was decided for you and whether it can still be undone; then what finished and what is running. The thread's history becomes a pointer, not a retelling.
+
+**You'll know it works when.**
+
+- You come back to a thread after a night away, type `/catchup`, and the first line tells you whether anything is broken or blocked and how many items need you. If nothing does, the whole reply is about five lines.
+- Each item under **Needs you** is numbered, self-explaining and decidable from the reply alone: it names what it refers to in product terms, then why it matters, the options, the recommended one and what silence means, so you can reply quickly without opening anything. One line on the surface; the background folded under it in the same message, for when you want to click in.
+- The reply's depth matches how long you have been away, worked out from the time since your last message before anything is written: hours get the delta, weeks get the decisions re-explained from the start.
+- Anything an agent decided on your behalf while you were away is under its own **Decided for you** heading, one-way doors first, each with the point at which it stops being reversible ("until the PR merges"). A dropped table or a merged PR never hides inside a progress paragraph again.
+- A question you were asked earlier and never answered is still there, however old. A question events have since answered is listed as lapsed, so you do not answer stale ones.
+- After you answer, the orchestrator's next reply opens with what you did not address, so nothing waits silently for the next absence.
+- Times are Sydney local, in the thread and in the reply.
+- **Must not:** add a line to every thread's system prompt; read as a chronological narrative; take longer than one normal turn to produce; drop a question that was open in an `ask_user_question` form when you typed the command.
+
+**Approaches in play.**
+
+- A pi prompt template Loom hands to every pi session, so `/catchup` is in the slash menu on web, desktop and mobile. The orchestrator reads its current state from its tools (the thread graph, the task tree, child reports), not from memory, so it survives context compaction. _Chosen in review: one Markdown file, no ambient cost, wording tunable in minutes._
+- A Loom-native command that computes a digest from the database (which holds and questions were raised and cleared, which children finished, when your last message landed) and hands it to the orchestrator with the instruction. Wins if the template turns out to miss facts the database holds. Deferred until that is seen.
+- A side-chat fork that answers without touching the orchestrator's context. Wins if catch-up turns are found to clutter long threads. Deferred.
+- Dropped: a skill. It puts a catalogue line in every thread's prompt for a command only you type, and the model may trigger it itself.
+- Dropped: anchoring on when you last opened the thread. Opening it overwrites the stamp, and a glance on mobile is not a read.
+
+**Decided.** "it *may* contain a list of questions or decisions that are outstanding, or some sort of summary of the last x hours, or since my last message". From your review of the first draft:
+
+- The command is `/catchup`. It lives in this repo and is handed to every pi session Loom starts, so it exists in Loom threads for any project.
+- No duration argument. You never think in hours; the time since your last message is what sets the reply's depth, and the orchestrator works it out first (from session-file timestamps or a server stamp; the plan picks which).
+- Each item is one decidable line on the surface with its background folded under it in the same chat message. An MDX document is written only when verdict controls or a figure are needed, not past a count of decisions.
+- After you answer, the next reply opens with what you left unaddressed.
+- Every item names what it refers to in product terms. "Case 2" or "one definition sentence" on its own is the failure the research found.
+- Times are Sydney local.
+
+- _Assumed:_ the default window starts at the beginning of your last burst of engagement, not at your literal last message. Your messages within about fifteen minutes of each other count as one burst. 22 of 171 last messages were "Yes proceed", "Go" or "bump", and the substance sat just before them.
+- _Assumed:_ the window limits only the **Finished** section. Open questions and decisions made for you are listed whenever they were raised.
+- _Assumed:_ the template text is authored under the instruction-change rules and ships through a reviewer gate, like any text a model reads.
+
+**Not doing.** Shrinking the wall itself (the orchestrator's "Absorbed, nothing to act on" replies are 15% of what piles up; a separate change). An automatic catch-up on return, which every product that tried it drew complaints for. Slack delivery. Any new UI.
+
+## 1. What the research found
+
+Two researchers worked in parallel: one mined 171 real absences of two hours or more across 129 of your orchestrator threads; the other covered handover practice, comparable products and Loom's own machinery. Their findings agree, and the shape above follows from them.
+
+<Stats
+  items={[
+    { label: "Typical absence", value: "8 h", tone: "neutral" },
+    { label: "Words piled up, median", value: "2,500", tone: "warning" },
+    { label: "Absences with an ask for you", value: "72%", tone: "warning" },
+    { label: "Returns that ask for a catch-up outright", value: "22%", tone: "info" },
+  ]}
+/>
+
+**The readable wall is the orchestrator's own prose, reacting to notices.** About half the words are its replies, typically six per absence; most react to a child finishing or a liveness alarm, and 15% say only "nothing to act on". Control-plane cards are another 41% but arrive collapsed. Structured questions and child holds barely feature: questions to you live in prose, tracked by nothing.
+
+**Asks are restated, never withdrawn, and the list mutates.** 37% of absences end with an ask as the last word and 20% restate the same asks three or more times. In one overnight thread the open list went from one decision to four to three to a different three, with members settled by you in a side thread, settled by consulting a fork of your discussion, or newly added, and no line saying which.
+
+**Decisions made for you are buried, and that is where the one real harm hid.** During an upstream merge, fifteen well-structured status replies never said that a coder had chosen to drop the thread-search and embeddings tables, an irreversible deletion of data you paid to compute. It surfaced only because you asked "Were there any decisions made by you or subagents that would have benefitted substantially by me making them?" Research on cockpit automation found the same thing: operators miss conflicts most often when the automation did *more* than they expected.
+
+**A ten-word item costs a round trip.** What follows a catch-up is reliably a request for context: "I can't make an informed decision from a 10 word summary"; "Explain this decision - I don't understand what you are asking me for?"; "DL-1405 - I don't understand this, can you explain it." Items that were decidable cold ("Send the segmenter_eval.html to Will") were acted on at once.
+
+**Even a purpose-built morning page missed the residual.** After you answered an overnight audit page item by item and asked "Is there any outstanding questions/decisions that I haven't addressed?", the orchestrator listed nine.
+
+**Every handover discipline puts state first, then actions with owners, then what to watch for.** The best-evidenced clinical handover bundle (I-PASS) opens with severity, carries an explicit action list and a contingency slot, and cut medical errors by 23% in nine hospitals without lengthening the handover. Incident status reports are written to stand alone in under two minutes and to point at the log rather than retell it. Claude Code's own away-summary prompt says "skip status reports and commit recaps".
+
+<Details summary="Worked example: the catch-up for a real overnight thread, as the command would produce it" open>
+
+The thread is the Haiku instability investigation on 2 to 3 November. You launched a discussion child at about 2 pm on the Sunday, made decisions in it, and came back twenty hours later with "I have not read anything since your last message - can you summarise where we are at". The orchestrator's actual reply was 626 words, chronological, ending "Waiting on you, three things." This is what `/catchup` would have said instead. Each item is one line on the surface; the fold under it holds the background, and is what you open when the line is not enough.
+
+<Card heading="/catchup reply, Monday 10:05 am" tone="neutral">
+
+**Since your definitions-explainer request (Sun 1:40 pm, 20 h ago). Nothing broken. Three things need you, two decided for you.**
+
+**Needs you**
+
+1. **Make the fixed-definitions run the new baseline?** Recommend yes; until you answer, later cases are compared against the old one.
+   <Details summary="Why">The run with the corrected clause definitions scored 98.3% recall with zero spread across three repeats; the baseline it would replace scored 96.7% with a 2.2-point spread. Every later case is scored against whichever one is the baseline.</Details>
+2. **How to handle a clause the model gets right on two runs and misses on the third.** Recommend (b): one run plus a check pass on low-confidence fields. Nothing on this runs until you answer.
+   <Details summary="Options and cost">Example: the rent-review clause in the sample lease was extracted on two of three runs. (a) Three runs and majority vote, about 3× the cost per lease. (b) One run plus a second pass only on fields the model marked low-confidence, about 1.4×. (c) Accept the spread and report it.</Details>
+3. **Does a holding-over period count as a renewal for the lease-term field?** For a subject expert, not a decision; the one case that needs it is parked.
+
+**Decided for you**
+
+- Ran the second add-and-refine experiment (adding the outgoings definition and re-scoring the cluster) before its success criterion had been measured, on the advice of a frozen fork of your cluster thread. $4. Reversible: the result is a file, rerun or ignore it.
+- Held back the reviewer's rewrite of the "permitted use" definition sentence, which it called ambiguous; extraction still runs on the old wording. Reversible any time.
+
+**Settled by you in the side thread, carried over:** the facts-layer framing; the add-and-refine process.
+
+**Next:** the fifth experiment is running (about 40 min). Then nothing starts until item 1 or 2 is answered.
+
+**Finished:** the recall swing traced to clause definitions, not model drift; the fixed-definitions run above; experiments 1, 3 and 4 done and reported.
+
+**Not yet:** no lease has been scored against the new baseline.
+
+Detail: the cluster thread and the five experiment reports under `/home/Carl/.t3/cockpit/userdata/workstream-reports/`.
+
+</Card>
+
+The rail costs and the experiment descriptions are illustrative; the rest is from the thread.
+
+</Details>
+
+## 2. How it would work, briefly
+
+Pi expands a Markdown prompt template into a user turn when a message starts with `/<name>`, and lists templates as provider commands, so they appear in every client's slash menu. It expands them on steers too, so the command works while the orchestrator is mid-turn. Loom already passes `--skill` and `--extension` to every pi session it starts; `--prompt-template` is the same mechanism, so the file lives in this repo and ships with Loom. The template tells the orchestrator the anchor, the sections and their order, and that every item must stand alone. It also has it re-raise any form its own arrival superseded, since typing any message closes a pending `ask_user_question` form, and read the thread graph, task tree and reports rather than its memory.
+
+The folded background relies on the chat renderer collapsing a `<details>` block, which web and desktop do today. Your review set a check for the plan: confirm what mobile does with one, since `/catchup` is a command you expect to type on mobile later.
+
+No questions remain open; your review answered the four the first draft asked.
+
+**Still unknown.** Whether the orchestrator's own write-up misses facts the database holds (flags raised and cleared while you were away, forms superseded, messages lost to compaction). Settled by comparing the first few real catch-ups against the thread's record; if it does, the Loom-native digest in Approaches is the next step. Whether a catch-up should also reach you by Slack when a thread has been waiting on you for days. Settled by whether the Slack bridge's existing escalation is enough once the reply itself is readable.
