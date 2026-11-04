@@ -14,7 +14,7 @@ export interface LoomToolProse {
 export const LOOM_TOOL_PROSE = {
   workstream_spawn: {
     description:
-      "Spawn a child thread of this thread: delegated work with its own role, title, purpose and brief. The child runs in this worktree, so what you commit it sees at once and paths you give it are valid as written. It starts as soon as every thread in blockedBy is done, at once when there are none. For a graph of several dependent nodes, lay out the shape with mcp__t3-code__workstream_scaffold and brief each node with mcp__t3-code__workstream_brief.",
+      "Spawn a child thread of this thread: delegated work with its own role, title, purpose and brief. The child runs in this worktree, so what you commit it sees at once and paths you give it are valid as written. It starts as soon as every thread in blockedBy is done, at once when there are none. For a graph of several dependent nodes, lay out the shape with mcp__t3-code__workstream_scaffold and brief each non-gate node with mcp__t3-code__workstream_brief.",
     promptSnippet:
       "launch a durable child thread for delegated work: role + short title + purpose + optional brief, blockedBy (waits-on ids), and an optional model override. For a multi-node graph prefer mcp__t3-code__workstream_scaffold + mcp__t3-code__workstream_brief.",
     promptGuidelines: "",
