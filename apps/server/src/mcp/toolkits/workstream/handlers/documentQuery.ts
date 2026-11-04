@@ -4,9 +4,11 @@
  * only the words. The author's client seeds it as a composer chip; promoting never closes.
  */
 import { CommandId, DOCUMENT_QUERY_ROLE } from "@t3tools/contracts";
+import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import * as Effect from "effect/Effect";
 
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
+import * as Orchestrator from "../../../../orchestration-v2/Orchestrator.ts";
 import type { WorkstreamCaller } from "../authorisation.ts";
 import type { LoomToolInput } from "../defs.ts";
 import { requestKey } from "../idempotency.ts";
@@ -51,5 +53,13 @@ export const documentQueryPromote = Effect.fn("LoomToolkit.documentQueryPromote"
       },
     },
   });
-  return "Recorded. The comment will appear in the author's composer; the human sends it.";
+  const author = row.forkFromThreadId;
+  if (author === null)
+    return "Recorded: the comment is waiting in the author's composer, and the human sends it from there.";
+  const authorShell = yield* asToolError(
+    Effect.flatMap(Orchestrator.OrchestratorV2, (orchestrator) =>
+      orchestrator.getThreadShell(author),
+    ),
+  );
+  return `Recorded: the comment is waiting in the composer of ${formatThreadLink({ environmentId: null, threadId: author }, authorShell?.title)}, and the human sends it from there.`;
 });

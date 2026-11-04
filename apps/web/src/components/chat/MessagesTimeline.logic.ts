@@ -74,7 +74,7 @@ import {
   formatSearchToolLabel,
 } from "@t3tools/shared/toolActivity";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
-import type { LoomTimelineRow } from "../../loom/loomTimelineRows"; // loom: 3d-3
+import type { LoomPromotionRow, LoomTimelineRow } from "../../loom/loomTimelineRows"; // loom: 3d-3
 import type { LoomModelChangeRow } from "../../loom/modelChangeRows"; // loom: model-change divider
 
 function timelineEntryRunId(entry: TimelineEntry): RunId | null {
@@ -646,6 +646,7 @@ type MessagesTimelineRowContent =
       mcpApp: McpAppReference;
     }
   | LoomTimelineRow // loom: 3d-3 — handoff receipts (loom/loomTimelineRows.ts)
+  | LoomPromotionRow // loom: query-thread promotion receipts (loom/loomTimelineRows.ts)
   | LoomModelChangeRow; // loom: "Model: A → B" divider (loom/modelChangeRows.ts)
 
 export interface StableMessagesTimelineRowsState {
@@ -2403,6 +2404,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
   switch (a.kind) {
     case "loom-handoff": // loom: 3d-3 — the Loom rows are reference-stable per change
+    case "loom-promotion": // loom: promotion receipts, same atom
       return a === b;
     case "loom-model-change": {
       // loom: model-change divider — rebuilt per runs change; the id pins the run.

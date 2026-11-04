@@ -391,7 +391,7 @@ it.layer(TestLayer)("Query threads", (it) => {
     () =>
       Effect.gen(function* () {
         const author = ThreadId.make("query-promote-author");
-        yield* seedThread({ threadId: author });
+        yield* seedThread({ threadId: author, title: "Plan author" });
         yield* seedRunningRun({ threadId: author, driver: pi });
         yield* completeSeededRun({ threadId: author });
         documentContents = "# Promote plan";
@@ -437,7 +437,7 @@ it.layer(TestLayer)("Query threads", (it) => {
         );
         assert.equal(
           reply,
-          "Recorded. The comment will appear in the author's composer; the human sends it.",
+          `Recorded: the comment is waiting in the composer of [Plan author](t3-thread://v1/${author}), and the human sends it from there.`,
         );
         const query = yield* row(first.queryThreadId);
         const asked = query.documentQuery?.questions[1];

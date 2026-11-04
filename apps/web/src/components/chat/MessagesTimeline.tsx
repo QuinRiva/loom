@@ -710,7 +710,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     availableRevertTurnCounts,
     worktreeSetup,
   });
-  // loom: 3d-3 — handoff receipts, spliced in by time.
+  // loom: 3d-3 — handoff and promotion receipts, spliced in by time.
   const loomRows = useLoomTimelineRows(listIdentityKey);
   const rows = useStableRows(
     // loom: 3d-3 handoff receipts + "Model: A → B" dividers (the compiler caches the splice)
@@ -1587,8 +1587,8 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
           }}
         />
       ) : null}
-      {row.kind === "loom-handoff" ? (
-        <LoomTimelineRow row={row} /> // loom: 3d-3
+      {row.kind === "loom-handoff" || row.kind === "loom-promotion" ? (
+        <LoomTimelineRow row={row} /> // loom: 3d-3 handoff + promotion receipts
       ) : null}
       {row.kind === "loom-model-change" ? (
         <ModelChangeDivider row={row} /> // loom: model-change divider
