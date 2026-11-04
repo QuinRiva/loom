@@ -179,9 +179,8 @@ export const LOOM_TOOL_PROSE = {
   },
   ask_user_question: {
     description:
-      "Put a question to the person reading this thread and carry on: state the assumption you are proceeding on, then ask. It stays open until answered or dismissed; an answer reaches you as a message, a steer mid-turn or a new turn once idle. Ask here rather than in prose. Never ask whether to ship: once nothing else is pending, say the work is ready to ship and wait for 'ship it'. A document with its own form is answered there, not here.",
-    promptSnippet:
-      "put a question to the person reading this thread and carry on; never for ship approval.",
+      "Put a question to the person reading this thread and carry on: state the assumption you are proceeding on, then ask. It stays open until answered or dismissed; an answer reaches you as a message, a steer mid-turn or a new turn once idle. Ask here rather than in prose. A document with its own form is answered there, not here.",
+    promptSnippet: "put a question to the person reading this thread and carry on.",
     promptGuidelines: "",
   },
   // Local process tools registered by Loom's pi extension (`backgroundJobs.ts`), not MCP tools:

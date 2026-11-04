@@ -1,7 +1,7 @@
 ---
 name: ship
 description: >-
-  Land approved work on main in this repo: commit, push, open the PR, merge,
+  Land work on main in this repo: commit, push, open the PR, merge,
   delete the branch. Use whenever you are about to commit, push, PR or merge a
   change here, inline or through a shipper child, so the guarded script runs
   instead of a sequence reconstructed from memory.
@@ -36,7 +36,7 @@ honour it however you ship.
 [`docs/operations/shipping.md`](../../docs/operations/shipping.md) is the
 source of truth; its "Judgement calls" section has the detail. In short:
 
-- Ship only after approval, with only your work in the tree.
+- Only your work in the tree.
 - PR framing: the PR title is the first line of `-m` and its body only the
   trailers; pass `--title` / `--body` when that would not tell a reviewer enough. Write a body or comment one line per
   paragraph; GitHub renders every newline as a line break.

@@ -4,7 +4,7 @@ reader:
   who: Carl, deciding which of seven sentences to strike from the text agents read, and whether the "never ask whether to ship" prohibition goes with them
   knows: the shipping policy (he says ship; an agent lands it) and the question tool; none of the session reading behind this document, and he dislikes being told rules
   after_first_screen: agents asked because three places in their prompt said shipping needs my approval and the question tool only forbade asking for approval they did not need; the fix is one sentence in the SHIPPING POLICY block and six deletions, and I can accept or strike each one
-status: draft
+status: approved
 manager_sessions:
   - id: 01a1a451-56a7-7458-9304-f146ee13fb66
     name: "Why agents ask \"ship it?\""
@@ -16,16 +16,20 @@ manager_sessions:
 
 Of the **31** "ship it?" question cards from October whose sessions I read, **29** trace in the agent's own reasoning to one requirement: that shipping needs your approval. <Sidenote>Section 1 quotes each; the full table is in its drill-down.</Sidenote> That requirement sat in three places every turn: `AGENTS.md`, the orchestrator role and the SHIPPING POLICY block. The question tool said only "do not ask for approval you do not need". Approval the prompt said you *did* need was fair game, and a tool whose purpose is getting decisions from you was the obvious way to get it.
 
-The proposal: say once, in the SHIPPING POLICY block, whose act shipping is and what a hand-back looks like instead. Delete the five "needs approval" phrasings and the prohibition added on 26 October. Net **−72 words** across seven files; every surface the context-limit test caps gets smaller.
+The proposal: say once, in the SHIPPING POLICY block, whose act shipping is and what a hand-back looks like instead. Delete the five "needs approval" phrasings and the prohibition added on 26 October. Net **−117 words** across seven files after Carl's two amendments; every surface the context-limit test caps gets smaller.
 
 <Stats
   items={[
     { value: "31 of 31", label: "ship-it asks read", tone: "neutral", detail: "every October card whose header or options said ship or merge; session reasoning read for each" },
     { value: "29", label: "trace to 'needs approval'", tone: "warning", detail: "the agent says so in its reasoning, names AGENTS.md or the policy, or had written 'ship after Carl approves' into its own task tree" },
     { value: "2", label: "trace elsewhere", tone: "info", detail: "a brief that said stop at the PR; the deploy paragraph prompting 'ship, or ship and deploy?'" },
-    { value: "−72", label: "words, net", tone: "success", detail: "+48 / −120 across seven files; AGENTS.md −16, question tool −26" },
+    { value: "−117", label: "words, net", tone: "success", detail: "+55 / −172 across seven files; AGENTS.md −37, orchestrator role −24, question tool −26" },
   ]}
 />
+
+<Callout tone="decision" title="Decisions recorded 4 November 2026 (Carl, in this document)">
+All seven edits accepted. Two amended on his review: the orchestrator role line becomes the terse "Ship with the `ship` skill or a `shipper` child" (his words: "help me understand why this is better than a terse: ship changes with the ship skill or shipper role"), and `AGENTS.md` loses the whole workstream sentence as well as the approval one ("why we need this in both the agents file and the orchestrator role?"; the project overlay `.t3code/roles/orchestrator.md` is the per-project copy). Prohibition removed in the same change as the cause, with the 30-day check; the literal 'ship it' stays in the SHIPPING POLICY sentence.
+</Callout>
 
 <Callout focus title="What you are approving">
 Seven edits, each with its own accept or reject below. One sentence is added (to the SHIPPING POLICY block); everything else is deletion. The bet is that removing the cause removes the asks. Since the prohibition was deployed on 28 October, **20 PRs merged with 0 ship cards**, so it is doing work today; removing it in the same change is the part that could bite. Section 4 pre-registers the check and what happens if asks return. A removal left undecided takes its recommendation.
@@ -141,7 +145,7 @@ The clause "the human says 'ship it' when they want it landed" is there for the 
 <ReviewChoice itemId="edit-ship-policy" label="SHIPPING POLICY block" />
 </Card>
 
-<Card id="edit-agents-md" heading="AGENTS.md: drop both approval phrasings" tone="success" badge="CUT 16" meta={["AGENTS.md lines 19 to 22", "the sentence S45 and S117 named"]}>
+<Card id="edit-agents-md" heading="AGENTS.md: keep the repo facts, drop the workstream sentence and the approval one" tone="success" badge="CUT 37" meta={["AGENTS.md lines 19 to 22", "the sentence S45 and S117 named", "amended after Carl's review: the workstream sentence goes too"]}>
 
 <Diff
   filename="AGENTS.md"
@@ -149,15 +153,15 @@ The clause "the human says 'ship it' when they want it landed" is there for the 
   mode="unified"
   wrap
   before={"In a workstream, spawn a `shipper` child once the work is approved or ship inline via the `ship` skill; outside a workstream, follow the doc directly. Do not ship until the user has approved shipping the change.\n"}
-  after={"In a workstream, spawn a `shipper` child or ship inline via the `ship` skill; outside a workstream, follow the doc directly.\n"}
+  after={""}
 />
 
-The next paragraph already says "in a workstream the SHIPPING POLICY block in your prompt states it", so the pointer to the one place exists. A pi session outside Loom (a terminal in this checkout) loses the sentence. There you are the one typing, and the question tool that produced the cards is Loom's.
+Carl asked why this lives in both `AGENTS.md` and the orchestrator role. A Loom orchestrator in fact reads it three times: here, in the generic role line below, and in the project overlay `.t3code/roles/orchestrator.md` ("On this project, shipping means the `ship` skill (`pnpm ship`, procedure in `docs/operations/shipping.md`): invoke it yourself or via a `shipper` child"). The overlay is the per-project copy and stays; the generic role keeps the cross-project line; so `AGENTS.md` keeps only the repo facts in the sentences before (where the procedure lives, `pnpm ship`, the skill and role that run it) and the whole workstream sentence goes with the approval one. The next paragraph already points at the SHIPPING POLICY block. A pi session outside Loom (a terminal in this checkout) loses nothing it needs: there you are the one typing.
 
 <ReviewChoice itemId="edit-agents-md" label="AGENTS.md" />
 </Card>
 
-<Card id="edit-orchestrator" heading="Orchestrator role: keep 'never from memory', drop 'only after approval'" tone="success" badge="ADD 2 · CUT 6" meta={["roles/orchestrator.md line 45", "the hand-back line 44 stays as it is"]}>
+<Card id="edit-orchestrator" heading="Orchestrator role: one terse line" tone="success" badge="ADD 9 · CUT 33" meta={["roles/orchestrator.md line 45", "the hand-back line 44 stays as it is", "amended after Carl's review"]}>
 
 <Diff
   filename="roles/orchestrator.md"
@@ -165,8 +169,10 @@ The next paragraph already says "in a workstream the SHIPPING POLICY block in yo
   mode="unified"
   wrap
   before={"- Ship only after approval, and never from memory: hand the release to a `shipper` child, or follow the project's ship skill or documented shipping procedure yourself, also when you take over a shipper's merge conflict.\n"}
-  after={"- Never ship from memory: hand the release to a `shipper` child, or follow the project's ship skill or documented shipping procedure yourself, also when you take over a shipper's merge conflict.\n"}
+  after={"- Ship with the `ship` skill or a `shipper` child.\n"}
 />
+
+Carl asked why the line was not simply "ship changes with the ship skill or shipper role". It is now. "Never from memory" was a prohibition stacked on agents seen running git by hand (30 September); "with the `ship` skill" already says how. The merge-conflict clause is derivable: a shipper yields its conflict to the orchestrator, and finishing it is still the skill, which the project overlay also says.
 
 Line 44 is the orchestrator's application of the hand-back shape and stays. <Sidenote>"offer that in your readiness line ... the diff or unmerged PR, plus the command that lands it".</Sidenote> "Readiness line" is defined nowhere today; the SHIPPING POLICY sentence above is what gives it a meaning.
 
