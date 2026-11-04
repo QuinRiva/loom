@@ -90,6 +90,7 @@ const LOOM: LoomOpenSessionFields = {
   appendSystemPrompt: "You are a coder sub-thread.",
   skills: ["/skills/a/SKILL.md", "/skills/b/SKILL.md"],
   extensions: ["/ext/loom.ts"],
+  promptTemplates: ["/prompts/catchup.md"],
 };
 
 const RPC_DATA: Record<string, unknown> = {
@@ -257,6 +258,8 @@ describe("PiAdapterV2 (loom)", () => {
       "/skills/b/SKILL.md",
       "--extension",
       "/ext/loom.ts",
+      "--prompt-template",
+      "/prompts/catchup.md",
       "--extension",
       "/cache/t3-bridge.ts",
     ]);

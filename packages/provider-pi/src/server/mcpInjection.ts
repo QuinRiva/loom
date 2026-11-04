@@ -277,6 +277,7 @@ export function buildPiRpcLaunch(input: {
       : []),
     ...(input.loom?.skills ?? []).flatMap((skill) => ["--skill", skill]), // loom:
     ...(input.loom?.extensions ?? []).flatMap((extension) => ["--extension", extension]), // loom:
+    ...(input.loom?.promptTemplates ?? []).flatMap((path) => ["--prompt-template", path]), // loom:
     // Restrictions must follow launch args so user flags cannot re-enable unattended tools/extensions.
     ...(input.disableExtensions === true ? ["--no-extensions"] : []),
     ...(input.disableTools === true ? ["--no-tools"] : []),

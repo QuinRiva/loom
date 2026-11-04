@@ -145,7 +145,8 @@ const makePiDiscoveryConnection = Effect.fnUntraced(function* (
   piSettings: PiSettings,
   environment: NodeJS.ProcessEnv,
   launchArgs: ReadonlyArray<string>,
-  cwd?: string,
+  cwd: string | undefined,
+  promptTemplates: ReadonlyArray<string>, // loom: so the slash menu lists Loom's templates
 ) {
   const launch = buildPiRpcLaunch({
     launchArgs,
@@ -153,6 +154,7 @@ const makePiDiscoveryConnection = Effect.fnUntraced(function* (
     mcpSession: undefined,
     extensionPath: undefined,
     ephemeral: true,
+    loom: { appendSystemPrompt: "", skills: [], extensions: [], promptTemplates }, // loom:
   });
   const connection = yield* makePiRpcConnection({
     command: piSettings.binaryPath || "pi",
@@ -172,9 +174,16 @@ const discoverPiViaRpc = Effect.fn("PiProviderStatus.discoverPiViaRpc")(function
   piSettings: PiSettings,
   environment: NodeJS.ProcessEnv,
   launchArgs: ReadonlyArray<string>,
-  cwd?: string,
+  cwd: string | undefined,
+  promptTemplates: ReadonlyArray<string>, // loom:
 ) {
-  const connection = yield* makePiDiscoveryConnection(piSettings, environment, launchArgs, cwd);
+  const connection = yield* makePiDiscoveryConnection(
+    piSettings,
+    environment,
+    launchArgs,
+    cwd,
+    promptTemplates, // loom:
+  );
   const stateData = yield* connection.request({ type: "get_state" });
   const modelsData = yield* connection.request({ type: "get_available_models" });
   const commandsData = yield* connection
@@ -202,7 +211,12 @@ const discoverPiViaRpc = Effect.fn("PiProviderStatus.discoverPiViaRpc")(function
 }, Effect.scoped);
 
 export const discoverPiCommandsForCwd = Effect.fn("discoverPiCommandsForCwd")(
-  function* (piSettings: PiSettings, environment: NodeJS.ProcessEnv, cwd: string) {
+  function* (
+    piSettings: PiSettings,
+    environment: NodeJS.ProcessEnv,
+    cwd: string,
+    promptTemplates: ReadonlyArray<string> = [], // loom: Loom's templates (LoomPiAdapterHooks)
+  ) {
     const launchArgs = resolvePiLaunchArgs(piSettings.launchArgs);
     if (!launchArgs.ok) {
       return yield* new PiRpcError({ operation: "launch", detail: launchArgs.message });
@@ -212,6 +226,7 @@ export const discoverPiCommandsForCwd = Effect.fn("discoverPiCommandsForCwd")(
       environment,
       launchArgs.args,
       cwd,
+      promptTemplates, // loom:
     );
     // A failed read must not replace a previously usable workspace catalog with an empty one.
     const commandsData = yield* connection.request({ type: "get_commands" });
@@ -334,6 +349,7 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
   piSettings: PiSettings,
   environment: NodeJS.ProcessEnv = process.env,
   cwd?: string,
+  promptTemplates: ReadonlyArray<string> = [], // loom: Loom's templates (LoomPiAdapterHooks)
 ): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const fallbackModels = piModelsFromSettings(piSettings.customModels);
@@ -467,6 +483,7 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
     environment,
     resolvedLaunchArgs.args,
     cwd,
+    promptTemplates, // loom:
   ).pipe(Effect.timeoutOption(PI_RPC_DISCOVERY_TIMEOUT_MS), Effect.exit);
   if (Exit.isFailure(discoveryExit)) {
     yield* Effect.logWarning("Pi RPC discovery failed.", {

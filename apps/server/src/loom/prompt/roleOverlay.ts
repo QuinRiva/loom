@@ -27,6 +27,12 @@ if (!NodeFS.existsSync(BUILTIN_ROLES_DIR)) {
   throw new Error(`built-in roles directory missing: ${BUILTIN_ROLES_DIR}`);
 }
 
+/** `/catchup`, handed to every pi session as `--prompt-template`; missing fails like `roles/`. */
+export const CATCHUP_TEMPLATE_PATH = NodePath.join(LOOM_REPO_ROOT, "prompts", "catchup.md");
+if (!NodeFS.existsSync(CATCHUP_TEMPLATE_PATH)) {
+  throw new Error(`built-in catchup prompt template missing: ${CATCHUP_TEMPLATE_PATH}`);
+}
+
 export interface RoleOverlay {
   /** System-prompt overlay text (the markdown body after any frontmatter). */
   readonly prompt?: string;

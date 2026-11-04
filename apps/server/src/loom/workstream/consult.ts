@@ -198,6 +198,8 @@ export const layer = Layer.effect(
               appendSystemPrompt: identity.value.appendSystemPrompt,
               skills: identity.value.skills,
               extensions: identity.value.extensions,
+              // Nobody types a slash command into a one-question fork.
+              promptTemplates: [],
               // One short-lived turn: the 5-minute arm; reads are content-keyed.
               env: {
                 ...identity.value.env,

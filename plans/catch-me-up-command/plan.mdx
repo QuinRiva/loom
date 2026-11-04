@@ -1,0 +1,81 @@
+---
+reader:
+  who: the reviewer gating the build, and the two coders building it; Carl only if the plan reopens the brief
+  knows: the approved intent brief beside this file; not the research reports
+  after_first_screen: they can say which two files carry the feature, how the orchestrator learns how long Carl was away, and what proves it works
+kicker: "Implementation plan · 4 Nov 2026"
+status: done
+intent: plans/catch-me-up-command/intent.mdx
+manager_sessions:
+  - id: 01a1a4e4-47c3-736c-b9fe-1d45c34c13ec
+    name: Catch-me-up slash command
+    role: plan
+    authored_at: 2026-11-04T06:28:33.094Z
+---
+
+# `/catchup`: one Markdown template shipped with the server, handed to every pi session
+
+Ship `prompts/catchup.md` at the repo root, beside `roles/`, and have Loom's pi launcher pass it as `--prompt-template` the way it already passes `--skill` and `--extension`. Pi then lists `/catchup` as a provider command in every client's slash menu and expands the file into a user turn when Carl types it, mid-turn included. The template's text carries the whole feature: it has the orchestrator work out how long Carl has been away from its own session file, read its current state from the workstream tools rather than memory, and write the reply in the brief's order. Two bets: that the model's own synthesis is accurate enough without a server-computed digest (the brief defers that until a real catch-up is seen to miss facts), and that the chat renderer's folded block carries the per-item background on the clients Carl uses. Cost: about three small server-side hunks plus their tests, and one model-read file written under the instruction-change rules.
+
+**Done means:** `vp check` and `vp run typecheck` pass; a dev instance's slash menu lists `/catchup` for a pi thread; sending it expands the template into the pi session; a reviewer has judged the template text against the brief's checks; and the mobile behaviour of a folded block is stated in a report.
+
+## 1. The template's contract
+
+`prompts/catchup.md` is a pi prompt template: optional `description` and `argument-hint` frontmatter, then the body pi sends as the user turn. Pi substitutes `$@` for any trailing text, so `/catchup the auth work` can narrow the focus; there is no duration argument, by the brief.
+
+What the body must get the orchestrator to do, in order. These are the outcomes a reviewer checks the text against; the wording is the author's.
+
+1. **Find how long Carl has been away, before writing anything.** His messages are in the session file at `$PI_SESSION_FILE`: the `message` entries with role `user` whose text has no bracketed author line, plus those whose bracketed line is his (`[From the human]`, `[Review comment`, `[Slack reply from Carl]`). Control-plane notices and agent messages open with a bracket naming the sender. The anchor is the start of his last burst (messages within about fifteen minutes of each other), excluding the `/catchup` turn itself. The elapsed time sets the depth: hours get the delta, days get decisions re-explained, weeks get the background from the start. Times in the reply are Sydney local.
+2. **Read current state from the tools, not memory:** `workstream_list` for what finished, failed, holds a flag or is still running; `goal_task_list` for progress; the reports of children that finished since the anchor. Memory is for intent only, since the session may have been compacted.
+3. **Re-raise any question a pending `ask_user_question` form held**, because the `/catchup` message itself closed that form as superseded.
+4. **Write in the brief's order:** one verdict line (anchor, elapsed time, broken or blocked, how many items need him); **Needs you**, numbered; **Decided for you**, one-way doors first with the point at which each stops being reversible and what happens on silence; next and what to watch for; finished, one line per outcome; lapsed questions; pointers.
+5. **Each item is one decidable, self-explaining line on the surface**, naming what it refers to in product terms, with its background folded under it in a `<details>` block in the same message. An MDX document only when verdict controls or a figure are needed.
+6. **Open items are listed whenever they were raised;** only "finished" is limited to the window.
+7. **After Carl answers, the next reply opens with what he left unaddressed.** The template says this once; it binds the following turn.
+
+A thread with no workstream (a plain chat) gets a catch-up on the conversation alone; the text should degrade to that without a separate branch of instructions.
+
+## 2. Plumbing
+
+Three hunks, each marked `// loom:` since the files exist upstream, plus one test each where behaviour changes.
+
+- `packages/contracts/src/orchestrationV2.loom.ts`: `LoomOpenSessionFields` gains `promptTemplates: ReadonlyArray<string>`, one `--prompt-template <path>` each, documented like `skills`.
+- `packages/provider-pi/src/server/mcpInjection.ts`: after the `--extension` spread, `...(input.loom?.promptTemplates ?? []).flatMap((p) => ["--prompt-template", p])`. `--prompt-template` is already in `PI_ARGUMENTS_WITH_VALUES`. Extend the existing args test beside it.
+- `apps/server/src/loom/prompt/sessionComposerLive.ts`: where the composer sets `extensions: [extensionPath]` (and the identity's `extensions` on the resumed path), also set `promptTemplates: [CATCHUP_TEMPLATE_PATH]`. The path is `NodePath.join(LOOM_REPO_ROOT, "prompts", "catchup.md")` from `roleOverlay.ts`, which already resolves the shipped `roles/` the same way; a missing file fails at import like a missing roles directory does, so a broken release is loud.
+- `prompts/catchup.md`: the template, authored separately (section 1). The plumbing coder may commit a one-line placeholder so the path resolves, which the template author replaces.
+
+Verify that pi's `get_commands` lists a `--prompt-template` file as a `prompt`-source command; `parsePiDiscoveredCommands` in `packages/provider-pi/src/server/commands.ts` already maps non-skill commands to slash commands, so the menu should need no change. If pi lists templates only from discovered directories and not from the flag, fall back to passing `--prompt-template` *and* confirming the expansion still happens on `prompt` and `steer`; report which.
+
+## 3. Why the session file, not a server stamp
+
+The server stamps every message with whether a human wrote it, but a template is static text and cannot carry a value computed at send time, and adding a tool or an RPC for one timestamp is machinery the brief did not ask for. The session file is already on the orchestrator's disk, its path is in every shell it runs, and the bracketed-author convention it already lives by separates Carl's messages from everything else. If this proves unreliable in use, the Loom-native digest the brief lists under approaches is the next step.
+
+## 4. Verification
+
+- `vp test run packages/provider-pi/src/server/mcpInjection.test.ts` (or the args test beside it) and the composer test that asserts the open-session fields.
+- Live, by the dev-verify recipe (`docs/dev-site-testing.md`): start a dev instance, seed a workstream, open a pi thread on the cheapest model, confirm `/catchup` appears in the `/` menu with the template's description, send it, and confirm the pi session file's latest user message is the expanded template body. One real turn on the cheapest model is acceptable; do not resume a real cockpit thread, since the dev instance would append to its real session file.
+- Mobile: read how `apps/mobile` renders assistant markdown containing a `<details>` block (the web path is `apps/web/src/components/chat/MarkdownDetails.tsx`) and state in the report whether it folds, shows the content inline, or shows the tags. No mobile code change in this round unless it is a one-line fix; otherwise it is a follow-up.
+- The template text: reviewed against section 1 and the brief's checks by the gate, with the worked example in the brief as the target shape.
+
+<Details summary="Change map">
+
+<FileTree
+  entries={[
+    { path: "prompts/catchup.md", change: "added", note: "the template; model-read text" },
+    { path: "packages/contracts/src/orchestrationV2.loom.ts", change: "modified", note: "promptTemplates on LoomOpenSessionFields" },
+    { path: "packages/provider-pi/src/server/mcpInjection.ts", change: "modified", note: "--prompt-template per entry" },
+    { path: "packages/provider-pi/src/server/mcpInjection.test.ts", change: "modified", note: "args assertion" },
+    { path: "apps/server/src/loom/prompt/sessionComposerLive.ts", change: "modified", note: "passes the shipped template path" },
+    { path: "apps/server/src/loom/prompt/roleOverlay.ts", change: "modified", note: "CATCHUP_TEMPLATE_PATH beside LOOM_REPO_ROOT, or a sibling module" },
+  ]}
+/>
+
+</Details>
+
+## As built
+
+- **The slash menu needed the template too.** The plan expected `parsePiDiscoveredCommands` to list `/catchup` with no change, but the menu is populated by a separate discovery pi process (`makePiDiscoveryConnection` in `packages/provider-pi/src/server/status.ts`) that started with no Loom fields, so the menu showed "No matching command". `promptTemplates` was added to `LoomPiAdapterHooks`, read once in `PiDriver.create` and passed to both discovery calls. No new RPC, tool or UI.
+- **Mobile folds only a top-level `<details>`.** Indented under a list item it does not fold; web folds both. The template therefore asks for each fold flush left between the numbered items, and the native renderer keeps the numbering across the gap.
+- **One sentence added after the real-reply check.** A Haiku run opened the dev instance's `statev2.sqlite` read-write and grepped every session file while "reading the record". The template now states that the workstream tools and reports are the whole record and the database stays closed.
+- **The anchor sentence held on real data.** Three real root sessions, including Slack relays from other people and attachment-prefixed messages, all anchored correctly. On this workstream's own root the "about fifteen minutes" burst rule puts the anchor at "Yep proceed" rather than the review comments seventeen minutes earlier; the model named both.
+

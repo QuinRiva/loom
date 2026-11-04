@@ -12,6 +12,7 @@ export const EMPTY_LOOM_OPEN_SESSION_FIELDS: LoomOpenSessionFields = {
   appendSystemPrompt: "",
   skills: [],
   extensions: [],
+  promptTemplates: [],
 };
 
 /** Composition failed; the open fails loudly rather than launching without the thread's role. */

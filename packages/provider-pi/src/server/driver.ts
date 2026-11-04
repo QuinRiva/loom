@@ -15,6 +15,7 @@ import { makePiTextGeneration } from "./textGeneration.ts";
 import { PiAdapterV2Driver, type PiAdapterV2DriverEnv } from "./adapter.ts";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import { resolveLoomPiBinaryPath } from "./bundledPi.loom.ts"; // loom: bundled patched pi
+import { LoomPiAdapterHooks } from "./loomAdapterHooks.loom.ts"; // loom: shipped prompt templates
 import {
   buildInitialPiProviderSnapshot,
   checkPiProviderStatus,
@@ -147,7 +148,14 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
     );
     const textGeneration = yield* makePiTextGeneration(effectiveConfig, processEnv);
 
-    const checkProvider = checkPiProviderStatus(effectiveConfig, processEnv, cwd).pipe(
+    // loom: Loom's templates for the slash-menu discovery pi (live hooks in loom/serverLayers.ts)
+    const { promptTemplates } = yield* LoomPiAdapterHooks;
+    const checkProvider = checkPiProviderStatus(
+      effectiveConfig,
+      processEnv,
+      cwd,
+      promptTemplates, // loom:
+    ).pipe(
       Effect.map(stampIdentity),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     );
@@ -199,7 +207,12 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
           ? snapshot.getSnapshot
           : Effect.all([
               snapshot.getSnapshot,
-              discoverPiCommandsForCwd(effectiveConfig, processEnv, workspaceCwd).pipe(
+              discoverPiCommandsForCwd(
+                effectiveConfig,
+                processEnv,
+                workspaceCwd,
+                promptTemplates, // loom:
+              ).pipe(
                 Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
                 Effect.mapError(
                   (cause) =>

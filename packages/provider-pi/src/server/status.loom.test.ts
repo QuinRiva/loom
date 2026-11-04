@@ -10,7 +10,7 @@ import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-import { checkPiProviderStatus } from "./status.ts";
+import { checkPiProviderStatus, discoverPiCommandsForCwd } from "./status.ts";
 
 const encoder = new TextEncoder();
 const [provider, id] = PI_DEFAULT_MODEL.split("/") as [string, string];
@@ -24,11 +24,13 @@ const RPC_DATA: Record<string, unknown> = {
   },
   get_commands: { commands: [] },
 };
+const spawnedArgs: Array<ReadonlyArray<string>> = [];
 
 /** `pi --version` prints a version; `pi --mode rpc` answers the three discovery requests. */
 const fakePiSpawner = ChildProcessSpawner.make((command) =>
   Effect.gen(function* () {
     const args = ChildProcess.isStandardCommand(command) ? command.args : [];
+    spawnedArgs.push(args);
     const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
     if (args.includes("--version")) {
       yield* Queue.offer(stdout, encoder.encode("pi 1.0.2\n"));
@@ -88,4 +90,20 @@ it.effect(
         ],
       );
     }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("hands both slash-menu discoveries Loom's prompt templates", () =>
+  Effect.gen(function* () {
+    spawnedArgs.length = 0;
+    const settings = { enabled: true, binaryPath: "pi", launchArgs: "", customModels: [] };
+    yield* checkPiProviderStatus(settings, {}, undefined, ["/p/catchup.md"]);
+    yield* discoverPiCommandsForCwd(settings, {}, "/w", ["/p/catchup.md"]);
+    const rpcSpawns = spawnedArgs.filter((args) => args.includes("rpc"));
+    assert.lengthOf(rpcSpawns, 2);
+    for (const args of rpcSpawns)
+      assert.equal(args[args.indexOf("--prompt-template") + 1], "/p/catchup.md");
+  }).pipe(
+    Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fakePiSpawner),
+    Effect.provide(NodeServices.layer),
+  ),
 );
