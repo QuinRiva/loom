@@ -1,0 +1,313 @@
+---
+kicker: "Plan · why agents asked 'ship it?' · 4 Nov 2026"
+reader:
+  who: Carl, deciding which of seven sentences to strike from the text agents read, and whether the "never ask whether to ship" prohibition goes with them
+  knows: the shipping policy (he says ship; an agent lands it) and the question tool; none of the session reading behind this document, and he dislikes being told rules
+  after_first_screen: agents asked because three places in their prompt said shipping needs my approval and the question tool only forbade asking for approval they did not need; the fix is one sentence in the SHIPPING POLICY block and six deletions, and I can accept or strike each one
+status: draft
+manager_sessions:
+  - id: 01a1a451-56a7-7458-9304-f146ee13fb66
+    name: "Why agents ask \"ship it?\""
+    role: plan
+    authored_at: 2026-11-04T02:26:25.644Z
+---
+
+# Agents asked "ship it?" because their prompt said shipping needs your approval
+
+Of the **31** "ship it?" question cards from October whose sessions I read, **29** trace in the agent's own reasoning to one requirement: that shipping needs your approval. <Sidenote>Section 1 quotes each; the full table is in its drill-down.</Sidenote> That requirement sat in three places every turn: `AGENTS.md`, the orchestrator role and the SHIPPING POLICY block. The question tool said only "do not ask for approval you do not need". Approval the prompt said you *did* need was fair game, and a tool whose purpose is getting decisions from you was the obvious way to get it.
+
+The proposal: say once, in the SHIPPING POLICY block, whose act shipping is and what a hand-back looks like instead. Delete the five "needs approval" phrasings and the prohibition added on 26 October. Net **−72 words** across seven files; every surface the context-limit test caps gets smaller.
+
+<Stats
+  items={[
+    { value: "31 of 31", label: "ship-it asks read", tone: "neutral", detail: "every October card whose header or options said ship or merge; session reasoning read for each" },
+    { value: "29", label: "trace to 'needs approval'", tone: "warning", detail: "the agent says so in its reasoning, names AGENTS.md or the policy, or had written 'ship after Carl approves' into its own task tree" },
+    { value: "2", label: "trace elsewhere", tone: "info", detail: "a brief that said stop at the PR; the deploy paragraph prompting 'ship, or ship and deploy?'" },
+    { value: "−72", label: "words, net", tone: "success", detail: "+48 / −120 across seven files; AGENTS.md −16, question tool −26" },
+  ]}
+/>
+
+<Callout focus title="What you are approving">
+Seven edits, each with its own accept or reject below. One sentence is added (to the SHIPPING POLICY block); everything else is deletion. The bet is that removing the cause removes the asks. Since the prohibition was deployed on 28 October, **20 PRs merged with 0 ship cards**, so it is doing work today; removing it in the same change is the part that could bite. Section 4 pre-registers the check and what happens if asks return. A removal left undecided takes its recommendation.
+</Callout>
+
+This plan replaces one decision of the approved non-blocking questions plan. <Sidenote>`plans/non-blocking-questions/plan.mdx`, increment 1.</Sidenote> That plan's line was "ship readiness stops being a question: the agent ends its turn saying the work is ready and waits for your 'ship it'". The outcome stands. The prohibition written to produce it goes, and a statement of whose act shipping is takes its place. The non-blocking rail (increment 2, on branch `t3/defer-non-gating-orchestrator-questions`) is untouched; the question-tool edit below applies to that branch's text once it lands.
+
+## 1. Why they asked
+
+The agent's reasoning in the turn that raised the card, for ten of the 31. The rest are in the drill-down. Each row quotes what the model wrote to itself before calling the question tool.
+
+<Table
+  density="compact"
+  columns={["Card", "What the agent said to itself", "Source"]}
+  rows={[
+    ["S5 · 7 Oct", "\"get an explicit go-ahead before running the ship command, per the policy of not shipping without approval\"", { badge: { label: "policy", tone: "warning" }, md: "SHIPPING POLICY block" }],
+    ["S45 · 14 Oct", "\"per AGENTS.md rules, I shouldn't ship or even open a PR without Carl's explicit approval, so I should check with him first\"", { badge: { label: "AGENTS.md", tone: "warning" }, md: "named" }],
+    ["S117 · 23 Oct", "\"Carl's 'let's go with 1' approves the direction, but shipping still needs separate sign-off per AGENTS.md\"", { badge: { label: "AGENTS.md", tone: "warning" }, md: "named; a 'go' on the design read as not enough" }],
+    ["S104 · 22 Oct", "\"Since Carl hasn't explicitly approved shipping yet, I need to ask the user directly via ask_user_question\"", { badge: { label: "approval", tone: "warning" }, md: "unnamed; own task tree 'Carl approves; ship'" }],
+    ["S37 · 14 Oct", "\"I need to ask Carl for ship approval since he hasn't given it yet\"", { badge: { label: "approval", tone: "warning" }, md: "own task tree 'once Carl approves'" }],
+    ["S30 · 14 Oct", "\"flag that shipping needs human approval, ask the human, and mark the measure task done\"", { badge: { label: "approval", tone: "warning" }, md: "own task tree 'once the human approves'" }],
+    ["S102 · 21 Oct", "\"The gate looks clean, but shipping still needs Carl's approval\"", { badge: { label: "approval", tone: "warning" }, md: "unnamed" }],
+    ["S56 · 18 Oct", "\"Since the question of shipping the PR needs approval, I should ask the user directly whether to open and merge it now\"", { badge: { label: "skill", tone: "warning" }, md: "pi-craft `platform-update`: 'ask Carl to approve shipping it'" }],
+    ["S120 · 23 Oct", "\"the handoff brief said to stop at the PR, I'll present merging as an option rather than doing it myself\"", { badge: { label: "brief", tone: "info" }, md: "the brief's own line" }],
+    ["S126 · 26 Oct", "\"Since deploying is human-initiated, I should ask Carl whether to ship and deploy or just ship\"", { badge: { label: "deploy", tone: "info" }, md: "AGENTS.md deploy paragraph" }],
+  ]}
+/>
+
+**The mechanism.** On every turn in October an orchestrator read these four sentences together. Three say approval is required; the fourth tells it which approvals it may ask for.
+
+- `AGENTS.md`: "Do not ship until the user has approved shipping the change." (since July)
+- `roles/orchestrator.md`: "Ship only after approval, and never from memory" (since 30 September; before that "Once the human approves shipping, either hand the release to a `shipper` child or ship inline")
+- SHIPPING POLICY block, every thread: "once the work is approved and required checks pass, an agent may land it on the main branch"
+- `ask_user_question`: "do not ask to reconfirm scope or for approval you do not need"
+
+From 19 to 26 October the orchestrator role also said, of a hand-back, "offer that as an option in your approval question". The approval question was named as the hand-back's form. Thirteen of the 31 cards were raised with that line in the prompt. PR #451 replaced it with "readiness line" on 26 October and added the prohibition.
+
+**What the agents did with it.** Fifteen of the 31 had written the requirement into their own task tree before the card ("Ship after Carl approves", "Carl approves; ship the branch via pnpm ship"). The card was the way to tick the task. Three (S5, S117, S120) had already been told "proceed" or "let's go with 1" and raised the card anyway, reasoning that design approval and shipping approval were separate acts. The prohibition could not have changed that reasoning; only the requirement could.
+
+<Details summary="All 31 cards, with the reasoning or task-tree line each one traces to">
+
+<Table
+  density="compact"
+  filterable
+  columns={["Card", "Thread", "Reasoning in the asking turn", "Task-tree line"]}
+  rows={[
+    ["S5", "V2 thread.create role for Slack inbox", "get an explicit go-ahead before running the ship command, per the policy of not shipping without approval", ""],
+    ["S13", "Goal archive vs thread archive", "check in with Carl for approval, flagging that it hasn't been verified live yet", ""],
+    ["S17", "Child completion notices not reaching parent", "then ask Carl for ship approval", "Ship the fix after Carl approves"],
+    ["S21", "Thread mentions design for subthreads", "This feels like an approval decision worth checking with Carl directly", "Ship status-dot thread mentions once Carl approves"],
+    ["S30", "Handoff thread: end after tool call", "flag that shipping needs human approval, ask the human", "Ship the change once the human approves"],
+    ["S32", "Restore system-prompt viewer button", "before asking Carl for shipping approval", "Ship after Carl approves"],
+    ["S36", "Stale goal in new-thread kickoff", "check in with Carl to get approval on shipping", "Ship the goal-sync fix once Carl approves"],
+    ["S37", "Stale goal in new-thread kickoff", "ask Carl for ship approval since he hasn't given it yet", "same"],
+    ["S39", "Stale goal in new-thread kickoff", "tell Carl honestly, asking for ship approval", "same"],
+    ["S40", "MDX communication: iteration 2", "ask him to approve shipping while summarizing what's in the PR", ""],
+    ["S42", "Cite comment pop-up lost on question", "(options: ship now / don't ship yet)", "Ship the fix after approval"],
+    ["S43", "Cite comment pop-up lost on question", "I'll phrase it as a question for the human to decide", "Ship the fix after approval"],
+    ["S44", "Pull upstream GitHub PR bug fixes", "surface two separate questions for the human: ship approval, and the DL-1105 preference", "Ship the merge after approval"],
+    ["S45", "/retro fresh-thread redesign", "per AGENTS.md rules, I shouldn't ship or even open a PR without Carl's explicit approval", ""],
+    ["S48", "MDX communication: iteration 2", "(earlier in the session) I'll ask you to approve shipping once the gate clears", ""],
+    ["S56", "Update Pi to 1.3.0", "the question of shipping the PR needs approval", "PR waits for Carl's shipping approval"],
+    ["S68", "Upstream merge pull 12", "The ship is yours to approve", "Ship on Carl's approval"],
+    ["S69", "Upstream merge pull 12", "re-ask of S68 after 'walk me through this'", "same"],
+    ["S70", "Misleading attention indicators", "(earlier in the session) come back to you for approval before shipping", ""],
+    ["S71", "Misleading attention indicators", "re-ask of S70 after a wording fix", ""],
+    ["S94", "Control plane auto re-engagement", "", "Ship the auto-resume change after Carl approves"],
+    ["S102", "Pi background jobs", "shipping still needs Carl's approval", ""],
+    ["S104", "System prompt bloat review", "Carl hasn't explicitly approved shipping yet, I need to ask the user directly", "Carl approves; ship the branch via pnpm ship"],
+    ["S109", "System prompt bloat review", "", "same"],
+    ["S110", "System prompt bloat review", "", "same"],
+    ["S112", "System prompt bloat review", "", "same"],
+    ["S117", "Subthread digest sent to parent", "shipping still needs separate sign-off per AGENTS.md", ""],
+    ["S118", "Control plane missed stalled thread", "get their approval before proceeding with shipping", ""],
+    ["S120", "Thread-content search revived", "the handoff brief said to stop at the PR; deploy as his call per AGENTS.md", ""],
+    ["S121", "Unexpected agent digest contents", "awaiting your sign-off on that tradeoff", ""],
+    ["S126", "Unexpected agent digest contents", "deploying is human-initiated, I should ask whether to ship and deploy or just ship", ""],
+  ]}
+/>
+
+Method: the audit's 34 "ship or merge" sign-offs less three that were not shipping decisions. S2 and S3 publish a review on a colleague's PR; S96 is a design choice whose header starts with "Ship". For each card, the pi session file named in the thread's provider record was read from the card's `ask_user_question` call backwards to the start of that turn. Thinking blocks are the model's own summaries of its reasoning.
+
+The "approval you do not need" line was the question tool's description for the whole period. The non-blocking rail branch removed it, which is why the current text in the diff below does not contain it.
+
+</Details>
+
+## 2. The edit set
+
+One accept or reject per file. The replacement sentence in the first card is the single place the policy lives afterwards.
+
+<Card id="edit-ship-policy" heading="SHIPPING POLICY block: say whose act shipping is, once" tone="success" badge="ADD 43 · CUT 21" meta={["packages/shared/src/shipPolicy.ts line 37", "every Loom thread, every project", "the one sentence that stays"]}>
+
+The block already reaches every thread on every turn and already states the merge contract. That makes it the one place to say who starts a ship and what the agent does instead of asking. "Required checks pass" goes because `pnpm ship` runs the gate itself. The human-only branch of the block is unchanged; it already ends in a hand-back ("stop and hand back the PR URL").
+
+<Diff
+  filename="packages/shared/src/shipPolicy.ts"
+  language="text"
+  mode="unified"
+  wrap
+  before={"SHIPPING POLICY: merge authority is AGENT-OK: once the work is approved and required checks pass, an agent may land it on the main branch, but only by merging a PR from a feature branch via the repo's guarded ship procedure (the ship skill / `pnpm ship` where present). Never push directly to the main branch and never merge by hand; then clean up the branch.\n"}
+  after={"SHIPPING POLICY: merge authority is AGENT-OK. Shipping starts on the human's word: a hand-back states that the work is ready and names the command or PR that lands it, and the human says 'ship it' when they want it landed. An agent lands work on the main branch only by merging a PR from a feature branch via the repo's guarded ship procedure (the ship skill / `pnpm ship` where present); never push directly to the main branch, never merge by hand, and delete the branch after.\n"}
+/>
+
+The four rejection tests on the added sentence:
+
+- Already covered: no. After the deletions nothing else says who starts a ship.
+- Changes no decision: it does. The agent's output at done becomes a statement rather than a question.
+- Derivable from code or tool output: no. The ship script says nothing about who starts.
+- A rule where a fact would do: it is the fact.
+
+The clause "the human says 'ship it' when they want it landed" is there for the S5 and S117 pattern. In both, a "proceed" on the design left the agent unsure whether it held the word for shipping.
+
+<ReviewChoice itemId="edit-ship-policy" label="SHIPPING POLICY block" />
+</Card>
+
+<Card id="edit-agents-md" heading="AGENTS.md: drop both approval phrasings" tone="success" badge="CUT 16" meta={["AGENTS.md lines 19 to 22", "the sentence S45 and S117 named"]}>
+
+<Diff
+  filename="AGENTS.md"
+  language="markdown"
+  mode="unified"
+  wrap
+  before={"In a workstream, spawn a `shipper` child once the work is approved or ship inline via the `ship` skill; outside a workstream, follow the doc directly. Do not ship until the user has approved shipping the change.\n"}
+  after={"In a workstream, spawn a `shipper` child or ship inline via the `ship` skill; outside a workstream, follow the doc directly.\n"}
+/>
+
+The next paragraph already says "in a workstream the SHIPPING POLICY block in your prompt states it", so the pointer to the one place exists. A pi session outside Loom (a terminal in this checkout) loses the sentence. There you are the one typing, and the question tool that produced the cards is Loom's.
+
+<ReviewChoice itemId="edit-agents-md" label="AGENTS.md" />
+</Card>
+
+<Card id="edit-orchestrator" heading="Orchestrator role: keep 'never from memory', drop 'only after approval'" tone="success" badge="ADD 2 · CUT 6" meta={["roles/orchestrator.md line 45", "the hand-back line 44 stays as it is"]}>
+
+<Diff
+  filename="roles/orchestrator.md"
+  language="markdown"
+  mode="unified"
+  wrap
+  before={"- Ship only after approval, and never from memory: hand the release to a `shipper` child, or follow the project's ship skill or documented shipping procedure yourself, also when you take over a shipper's merge conflict.\n"}
+  after={"- Never ship from memory: hand the release to a `shipper` child, or follow the project's ship skill or documented shipping procedure yourself, also when you take over a shipper's merge conflict.\n"}
+/>
+
+Line 44 is the orchestrator's application of the hand-back shape and stays. <Sidenote>"offer that in your readiness line ... the diff or unmerged PR, plus the command that lands it".</Sidenote> "Readiness line" is defined nowhere today; the SHIPPING POLICY sentence above is what gives it a meaning.
+
+<ReviewChoice itemId="edit-orchestrator" label="Orchestrator role" />
+</Card>
+
+<Card id="edit-question-tool" heading="Question tool: remove the prohibition" tone="warning" badge="ADD 1 · CUT 27" meta={["apps/server/src/mcp/toolkits/workstream/prose.ts lines 182 and 184", "applies after the non-blocking rail branch lands", "the bet"]}>
+
+This is the text on `t3/defer-non-gating-orchestrator-questions`, which is waiting to land; the edit is made on top of it, not against main.
+
+<Diff
+  filename="apps/server/src/mcp/toolkits/workstream/prose.ts"
+  language="text"
+  mode="unified"
+  wrap
+  before={"Put a question to the person reading this thread and carry on: state the assumption you are proceeding on, then ask. It stays open until answered or dismissed; an answer reaches you as a message, a steer mid-turn or a new turn once idle. Ask here rather than in prose. Never ask whether to ship: once nothing else is pending, say the work is ready to ship and wait for 'ship it'. A document with its own form is answered there, not here.\n\nput a question to the person reading this thread and carry on; never for ship approval.\n"}
+  after={"Put a question to the person reading this thread and carry on: state the assumption you are proceeding on, then ask. It stays open until answered or dismissed; an answer reaches you as a message, a steer mid-turn or a new turn once idle. Ask here rather than in prose. A document with its own form is answered there, not here.\n\nput a question to the person reading this thread and carry on.\n"}
+/>
+
+The prohibition is the only text whose removal could bring the cards back, and it is currently working: 20 merges and 0 ship cards since it was deployed on 28 October. It goes in the same change as the cause for two reasons. Leaving it in masks whether the cause was found, and a prohibition on an action is the pattern you asked not to use. Section 4 says how the result is read.
+
+<ReviewChoice itemId="edit-question-tool" label="Question tool prohibition" />
+</Card>
+
+<Card id="edit-ship-skill" heading="Ship skill: 'approved' out of the description and the judgement call" tone="success" badge="ADD 1 · CUT 7" meta={["skills/ship/SKILL.md lines 4 and 39", "loaded at ship time, after the decision"]}>
+
+<Diff
+  filename="skills/ship/SKILL.md"
+  language="markdown"
+  mode="unified"
+  wrap
+  before={"  Land approved work on main in this repo: commit, push, open the PR, merge,\n  delete the branch.\n\n- Ship only after approval, with only your work in the tree.\n"}
+  after={"  Land work on main in this repo: commit, push, open the PR, merge,\n  delete the branch.\n\n- Only your work in the tree.\n"}
+/>
+
+"Only your work in the tree" stays because the script commits every pending change with `git add -A`, which the agent cannot see from its output until it has happened. The skill already points at the one place: "Your system prompt's SHIPPING POLICY block states the active policy; honour it however you ship".
+
+<ReviewChoice itemId="edit-ship-skill" label="Ship skill" />
+</Card>
+
+<Card id="edit-shipper-role" heading="Shipper role: 'completed, approved work' becomes 'completed work'" tone="success" badge="ADD 1 · CUT 2" meta={["roles/shipper.md line 12", "also the orchestrator's role catalogue line, which is this sentence"]}>
+
+<Diff
+  filename="roles/shipper.md"
+  language="markdown"
+  mode="unified"
+  wrap
+  before={"You are a shipper sub-thread. Land completed, approved work: branch, commit, PR — then, only if the project permits it, merge and clean up.\n"}
+  after={"You are a shipper sub-thread. Land completed work: branch, commit, PR — then, only if the project permits it, merge and clean up.\n"}
+/>
+
+A shipper cannot ask you anything; its questions go to its parent. So this word never produced a card. It is a second copy of the policy, and the role's first sentence is what the orchestrator sees as the shipper's catalogue summary.
+
+<ReviewChoice itemId="edit-shipper-role" label="Shipper role" />
+</Card>
+
+<Card id="edit-shipping-doc" heading="Shipping doc: drop the 'Before you ship' approval bullet" tone="success" badge="CUT 41" meta={["docs/operations/shipping.md lines 3 and 58 to 60", "read by agents through the ship skill and the shipper role"]}>
+
+<Diff
+  filename="docs/operations/shipping.md"
+  language="markdown"
+  mode="unified"
+  wrap
+  before={"This is the single source of truth for landing approved work on `main` in this\nrepo: the sequence, the repo-specific gotchas, and the judgement calls the\n\n## Before you ship\n\n- **Ship only once the change is approved.** Landing work on `main` is not a step\n  you take on your own initiative: the human (or, in a workstream, the\n  orchestrator acting on the human's approval) must have signed off first.\n- **Honour the project's merge authority** (above).\n"}
+  after={"This is the single source of truth for landing work on `main` in this\nrepo: the sequence, the repo-specific gotchas, and the judgement calls the\n\n## Before you ship\n\n- **Honour the project's merge authority** (above).\n"}
+/>
+
+The bullet is the fullest copy of the requirement and the one the ship skill sends agents to. It is read at ship time, so it did not raise cards by itself. It goes because a third statement of the policy is a defect once the SHIPPING POLICY block carries it. "Must have signed off first" is also the wording the cards were trying to satisfy.
+
+<ReviewChoice itemId="edit-shipping-doc" label="Shipping doc" />
+</Card>
+
+<Card id="edit-platform-update" heading="Outside this repo: the platform-update skill tells the agent to ask" tone="info" badge="SEPARATE PR · pi-craft" meta={["~/pi-craft/plugins/pi-craft/skills/platform-update/SKILL.md line 64", "S56's card came from this line"]}>
+
+The skill's step 3 ends: "then ask Carl to approve shipping it. Offer **ship and deploy** as one option; if he picks it, follow After the deploy." That is a direct instruction to raise the card. The pi 1.3.0 bump did exactly that. Proposed wording for a pi-craft PR, not part of this change: "then hand back with the branch, `pnpm ship` as the command that lands it, and deploy as the separate step in After the deploy".
+
+<ReviewChoice itemId="edit-platform-update" label="platform-update skill (pi-craft)" />
+</Card>
+
+<Details summary="Every file the change touches">
+
+<FileTree
+  entries={[
+    { path: "packages/shared/src/shipPolicy.ts", change: "modified", note: "the one sentence that stays: whose act shipping is, and the hand-back shape" },
+    { path: "AGENTS.md", change: "modified", note: "two approval phrasings removed; the SHIPPING POLICY pointer already there" },
+    { path: "roles/orchestrator.md", change: "modified", note: "'only after approval' removed from the ship bullet" },
+    { path: "apps/server/src/mcp/toolkits/workstream/prose.ts", change: "modified", note: "the prohibition removed from the question tool's description and snippet; on top of the rail branch" },
+    { path: "skills/ship/SKILL.md", change: "modified", note: "'approved' out of the description; the judgement call keeps 'only your work in the tree'" },
+    { path: "roles/shipper.md", change: "modified", note: "'approved' out of the first sentence" },
+    { path: "docs/operations/shipping.md", change: "modified", note: "the 'Before you ship' approval bullet removed; 'approved' out of the opening line" },
+  ]}
+/>
+
+</Details>
+
+## 3. What stays and why
+
+- **The policy itself.** You say ship; an agent never merges on its own under `human` authority and never without your word under `agent` authority. It now lives in the SHIPPING POLICY block alone.
+- **The hand-back line in the orchestrator role** (line 44): "offer that in your readiness line ... the diff or unmerged PR, plus the command that lands it". It describes the output, which is the positive form the skill asks for.
+- **The human-only SHIPPING POLICY branch.** Unchanged; it already ends in a hand-back and carries no "approved".
+- **The deploy paragraph in AGENTS.md** ("a separate, human-initiated act; never deploy ... unless the user explicitly asks"). It is a fact about whose act deploying is, with a prohibition attached. S56 and S126 show it producing "ship, or ship and deploy?" cards in the same way. The paragraph is out of this change's scope; worth a look if the deploy cards continue after this lands.
+- **`pnpm ship --help`** ("Land approved work on main"): tool output read only while already shipping. Left alone.
+- **The `awaiting_acceptance` and intent-brief approval lines** in the roles: they are about a child's hold and a brief's gate, not shipping.
+
+## 4. The check, and what the result means
+
+This is a shared-surface change (the policy block reaches every thread), so the skill's protocol wants a pre-registered hypothesis and a read of what flips.
+
+**Hypothesis.** Ship-type question cards (header or options containing ship, merge or land) stay at zero over the 30 days after the deploy. Baseline: 34 of 128 sets in October under the requirement alone; 0 of 8 sets, across 20 merges, since the prohibition was deployed on 28 October. The query is the audit's, against the `user_input_request` turn items, and takes a minute to run.
+
+**What it could displace.** An agent that no longer reads "needs approval" might merge without your word. The check reads each merged PR's root thread for a human message in the hour before the merge. <Sidenote>The root thread comes from the commit's `Loom-Thread` trailer.</Sidenote> Today's baseline is not clean. Of the 20 merges since 28 October, 8 follow a literal "ship it"; the rest follow "proceed", "agree with all", or answers given in a document. The signal to watch for is a merge with no human message at all in that window.
+
+**Reading the result.** Cards return: the cause was not fully found, and the next read is of those cards' reasoning, not a restored prohibition. Cards stay at zero and merges still follow your word: done. A merge with no word from you: the policy sentence is not landing, and the first thing to read is that thread's hand-back.
+
+**Verification before the PR.** `vp test run apps/server/src/loom/prompt/agentContextLimit.test.ts` for the byte caps on the orchestrator prompt, the coder prompt and `AGENTS.md`; every one shrinks. Then `vp check`, `vp run typecheck`, and a rendered prompt for one root thread before and after, with the two policy blocks diffed by eye.
+
+## Open questions
+
+<QuestionForm
+  questions={[
+    {
+      id: "prohibition-timing",
+      title: "Remove the prohibition in the same change as the cause, or hold it for a fortnight?",
+      refs: [{ label: "The check, and what the result means", anchor: "4-the-check-and-what-the-result-means" }],
+      subtitle: "The prohibition is working today (20 merges, 0 cards); removing it with the cause is the only way to learn whether the cause was the whole story.",
+      mode: "single",
+      options: [
+        { id: "same", label: "Same change: cause and prohibition go together, with the 30-day check", recommended: true, detail: "Attributable; matches the ask that a prohibition is not the fix." },
+        { id: "staged", label: "Two changes: the cause now, the prohibition a fortnight later", detail: "Safer feel, but the first fortnight shows nothing because the prohibition masks it." },
+      ],
+    },
+    {
+      id: "ship-it-literal",
+      title: "Keep the words 'ship it' in the SHIPPING POLICY sentence?",
+      refs: [{ label: "The edit set", anchor: "2-the-edit-set" }],
+      subtitle: "Three cards were raised after a 'proceed' because the agent read design approval and ship approval as separate; naming the trigger is meant to settle that.",
+      mode: "single",
+      options: [
+        { id: "keep", label: "Keep it: 'the human says ship it when they want it landed'", recommended: true, detail: "One more clause; names the word agents already wait for." },
+        { id: "drop", label: "Drop it: 'Shipping starts on the human's word' is enough", detail: "Shorter; leaves 'proceed' ambiguous as it is today." },
+      ],
+    },
+  ]}
+/>
