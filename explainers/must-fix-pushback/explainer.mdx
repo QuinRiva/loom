@@ -1,0 +1,194 @@
+---
+reader:
+  who: Carl, deciding whether the reviewer and coder role language needs changing
+  knows: the work model, review gates, must-fix, rounds and the contested field; not the numbers, and not that the claims-not-verdicts sentence is already in the coder role
+  after_first_screen: coders contest 86 of 1,177 must-fixes; 12 of 192 sampled must-fixes were clearly not required, and the coder complied with 7 of those; the permission is already written in six places and is visibly read; recommended change to the role text is none
+kicker: "Explainer · review-gate must-fix pushback · 495 rework rounds, 3 Jul to 4 Nov 2026"
+---
+
+# Coders contest 7% of must-fixes, and most must-fixes are real fixes
+
+Across every review-gate rework round since gates began, coders pushed back on **86 of 1,177 must-fix findings (7%)**, in 72 of 495 rounds. Reviewers accepted the coder's reasons in 55 of those 86 and contested once in 27. Judged against the reviewer role's own severity bar, **12 of a random 192 must-fixes (6%) were clearly not required fixes**, another 13 were borderline, and the rest were real bugs, false claims or unmet brief requirements. Of the 12 that were not required, the coder implemented **7 without pushback**. Nearly all were one-line wording or constant changes that cost almost nothing.
+
+<Stats
+  items={[
+    { "value": "86 of 1,177", "label": "Must-fixes contested", "tone": "info", "detail": "14 rejected outright, 67 partly done with reasons, 5 deferred or escalated" },
+    { "value": "12 of 192", "label": "Sampled must-fixes not required", "tone": "warning", "detail": "Plus 13 borderline; 167 met the bar" },
+    { "value": "7 of 12", "label": "Not required, complied anyway", "tone": "warning", "detail": "All cheap edits: a sentence cut, a constant, a comment" },
+    { "value": "55 of 86", "label": "Pushbacks the reviewer accepted", "tone": "success", "detail": "27 contested once, 2 escalated, 2 no adjudication recorded" }
+  ]}
+/>
+
+<Callout focus title="What it means now">
+The permission to reject a finding is already written in six places and coders visibly use it: 87% of the must-fixes they implemented carry a stated reason, often in its exact vocabulary ("Accepted. I checked the three reasons", "Rejected, with reasons"). The must-fixes they accept are overwhelmingly genuine. **Recommendation: no change to the coder or reviewer role text.** The residual reflex (cheap compliance with roughly 4% of must-fixes) costs little, and adding a sentence would not change the economics behind it. Two things are worth watching instead: pushback fell from 10% to 4% when the coders moved to Opus 5.5 and Fable 5.1 while the share of bar-failing findings did not move, and reviewers skip the recovery-cost half of the severity bar on 56% of must-fixes.
+</Callout>
+
+## 1. The numbers you asked for
+
+The rate, per finding and per round, and what happened next. "Pushback" counts a finding the coder rejected with reasons, implemented only in part with reasons for the rest, or deferred to the orchestrator.
+
+<Table
+  density="compact"
+  columns={["Measure", "Count", "Share"]}
+  align={["left", "right", "right"]}
+  rows={[
+    ["Rework rounds (reviewer said needs_rework, coder reopened)", "495", ""],
+    ["Must-fix findings in those rounds", "1,177", "counts.mustFix sums to 1,166"],
+    ["Coder implemented the finding", "1,091", "93%"],
+    ["… and showed it had weighed the finding first", "949", "87% of implemented"],
+    { "tone": "info", "cells": ["Coder pushed back (rejected, partial with reasons, or deferred)", "86", "7.3%"] },
+    ["… rejected outright", "14", "1.2%"],
+    ["Rounds with any pushback", "72 of 495", "15%"],
+    { "tone": "success", "cells": ["Reviewer accepted the pushback", "55 of 86", "64%"] },
+    ["Reviewer contested once", "27 of 86", "31%"],
+    ["Reviewer escalated", "2 of 86", "2%"],
+    ["Coder expressed disagreement but implemented anyway", "13", "1.1%"],
+    ["Nice-to-haves the coder implemented anyway", "855 of 1,106", "77%"]
+  ]}
+/>
+
+When coders do reject outright they are almost always right: of the 14 outright rejections, the full-corpus judge rated 11 as not meeting the bar and 2 as borderline. Across the whole corpus the same judge flagged 21 must-fixes as plainly not required, and coders pushed back on 12 of them. So the coder's filter catches somewhere between four and six in ten of the bad must-fixes, and the ones it lets through are mostly trivial.
+
+### Over time, by project, by model
+
+The rate fell. The quality of the findings did not change with it.
+
+<Table
+  density="compact"
+  columns={["Slice", "Must-fixes", "Pushback", "Judged not clearly required"]}
+  align={["left", "right", "right", "right"]}
+  rows={[
+    ["July", "414", "12%", "7.5%"],
+    ["August", "213", "7%", "3.3%"],
+    ["September", "155", "6%", "5.8%"],
+    ["October", "326", "3%", "1.8%"],
+    ["November (to the 4th)", "69", "1%", "13%"],
+    { "tone": "info", "cells": ["Coder role only, July to September", "674", "10%", "6%"] },
+    { "tone": "info", "cells": ["Coder role only, October to November", "192", "4%", "7%"] },
+    ["Planner reopened by a plan review (all months)", "277", "2%", "2%"],
+    ["Project: loom", "546", "7%", "4.9%"],
+    ["Project: lease-extraction", "557", "8%", "5.4%"]
+  ]}
+/>
+
+Projects do not differ, even though the fathom overlay tells coders that "a reviewer finding that asks for more code carries the burden of proof". <small>(Source: `/home/Carl/.t3/project-roots/fathom-platform/.t3code/roles/coder.md`)</small> What moved with the drop is the coder model. In the coder role, Opus 4.8 pushed back on 14% of must-fixes (42 of 310) and Opus 5 on 8% (24 of 309); Opus 5.5 on 4% (7 of 169) and Fable 5.1 on none of 23. The scrutiny sentence in the coder role has not changed since 14 July, and is identical on current main. <small>(Source: `git log -S` on the scrutiny sentence: commit `7342de882a`, 14 Jul 2026.)</small> The sceptical sample points the same way but is too small to lean on: of the not-required must-fixes it found, coders implemented 8 of 9 from October onwards against 14 of 20 before.
+
+## 2. The permission is already written, in six places
+
+The hand-off that framed this work assumed nothing tells a coder it may contest a must-fix. That is not right: it has been there since gates shipped on 3 July, and the scrutiny test was added on 14 July.
+
+<Table
+  density="compact"
+  columns={["Where", "What it says", "Reaches whom, when"]}
+  rows={[
+    ["`roles/coder.md`", "\"Reviewer findings are claims, not verdicts ... implement what survives scrutiny ... and reject the rest with reasons in your round report.\"", "Every coder, from spawn"],
+    ["Rework message, `gateLegs.ts` line 40", "\"Reviewer findings are claims, not verdicts: adjudicate each one ... reaching `clean` is not the goal; the right change is.\"", "Whoever is reopened (coder, planner, researcher), at the start of each rework round"],
+    ["Re-verify message, `gateLegs.ts` line 63", "\"Where the coder rejected a finding with reasons, adjudicate: contest it at most once.\"", "The reviewer, each re-verify"],
+    ["`skills/workstream-review-gate/SKILL.md`", "\"Findings are claims. The coder may reject a finding with reasons. Adjudicate the rejection on its merits.\"", "The reviewer, before its first verdict"],
+    ["`roles/reviewer.md` severity bar", "\"For each must-fix, state the concrete consequence of NOT acting and its recovery cost; if you can't, it isn't must-fix.\"", "Every reviewer"],
+    ["`roles/orchestrator.md`", "\"Judge findings against concrete consequences and recovery cost, not reviewer satisfaction.\"", "The orchestrator, at gate resolution or yield"]
+  ]}
+/>
+
+One gap: `roles/planner.md` (and the researcher and prose-author roles) does not carry the sentence, so a planner reopened by a plan review sees it only in the rework message. Planners push back on 2% of must-fixes, but their must-fixes meet the bar 98% of the time (they are mostly factual errors in a plan), so there is no evidence the gap costs anything.
+
+## 3. What the must-fixes look like
+
+Three cases, each with a real finding and the coder's reply as written.
+
+<Columns columns={3}>
+  <Card eyebrow="87% of the sample" heading="Real fix, coder implemented after checking" tone="success" badge="WORKING AS INTENDED">
+    The usual round. A reviewer of the usage-ledger work wrote: "MUST-FIX: `cacheWrite1h` is double-counted in `normalizePiTokenUsage` ... Pi's contract states `cacheWrite1h` is a **subset** of `cacheWrite`." The coder replied: "Adjudication: I verified the claim independently against pi-ai's source before changing anything. ... The finding is correct."
+  </Card>
+  <Card eyebrow="7 of 192 sampled" heading="Not required, coder complied anyway" tone="warning" badge="CHEAP COMPLIANCE">
+    A pricing review flagged that "the implementation and tests use `write_tokens > 200000` ... while the review brief explicitly requires `>= threshold`". For integer token counts the two are identical. The coder changed the constant: "Threshold is now `GeminiLongContextThresholdTokens = 200_001` ... matches the gate's ≥ comparator."
+  </Card>
+  <Card eyebrow="5 of 192 sampled" heading="Not required, coder pushed back" tone="info" badge="PERMISSION USED">
+    A workbook review said a note's count was wrong: "says '27 more in free text'. The cut has 26." The coder: "rejected, with a clarification. '27 more in free text' is right ... plus `Desing Fees`, which is misspelt and so missed by a 'design' search." The reviewer: "rejection accepted."
+  </Card>
+</Columns>
+
+### What cheap compliance sounds like
+
+When a coder has weighed a finding, judged it not strictly needed and done it anyway, it usually says why, and the reason is nearly always that compliance costs less than another round. A behaviour-parity review: "functionally this was already neutral ... But strict parity honours the brief's behaviour-preservation mandate and removes all doubt, so it was worth doing." <small>(Source: `80da4127-8402-4c26-9107-6e0b44412752.round-1.md` and the coder's `5d13cc24-2cc5-469d-96b2-e93307e740eb.round-1.md`, 8 Jul.)</small> A Slack-bridge review, after the reviewer upheld its finding once: "I still don't think my threat-model reasoning was wrong on its own terms. But a governing brief constraint doesn't need to win that argument to be binding, and the cost of compliance here turned out to be near-zero." <small>(Source: `20d19b49-34d4-4264-bf66-fcf4ef260cfc.round-2.md`, 21 Aug.)</small> In November the cheap cases are mostly prose trims labelled as must-fix in reviews of instruction text, for example "delete '`goal_task_list` reads the tree in full.'", which the coder simply deleted. <small>(Source: Intent brief review gate, 2 Nov, finding 9.)</small>
+
+### The one costly variant: complying against your own evidence
+
+<Card eyebrow="Origin provenance review · 13 Jul · loom" heading="The coder found the hazard in the reviewer's fix, recorded it, and shipped the fix anyway" tone="risk" badge="RARE · 13 OF 1,177 DISAGREED BUT COMPLIED">
+  The reviewer: "Migration number `054` already collides with the concurrently developed fork feature ... Renumber message provenance (expected next slot: `055`)."
+
+  The coder renumbered, then wrote: "Coordination caveat I want on record: this repo's migrator applies only migrations with `id > latest-applied`; it does not backfill gaps out of order ... (e.g. a DB that already applied `055` before `054` exists would skip `054`)."
+
+  The reviewer, next round: "Migration `055` is not safe while `054` is absent. Your newly discovered migrator behaviour confirms the problem ... Keep this branch contiguous (use 54 here)."
+
+  The coder's own evidence was a reason to reject; it treated it as a caveat instead. The loop caught it a round later, so nothing shipped broken. <small>(Source: `a36c3a47-2731-4082-8848-854161035b32.round-2.md`; coder `cbec5e33-b03d-466e-b627-6d0fb1e021a8.round-1.md`.)</small>
+</Card>
+
+### What happens when a coder does push back
+
+<Steps>
+  <Step at="23 Jul" title="Coder holds the brief's literal wording; reviewer withdraws" tone="success" badge="ACCEPTED">
+    Coder: "The brief says something different, verbatim ... I'm holding the brief's literal." Reviewer: "Finding 1 is withdrawn after consulting the orchestrator; the coder's cap formula is correct."
+  </Step>
+  <Step at="26 Jul" title="Coder rejects twice; parent rules for the coder" tone="success" badge="ESCALATED · CODER RIGHT">
+    Coder: "That guard is a workaround for the exact defect this change removes." Reviewer: "I accept the technical substance of your objection ... However, this review cannot waive an explicit acceptance criterion." After the second contest the gate escalated, and the parent "explicitly waived importing `FIELDS_EXCLUDED_FROM_ADJUDICATION`: it is an obsolete sibling-branch workaround."
+  </Step>
+  <Step at="21 Aug" title="Coder rejects; reviewer cites a constraint only its own brief had" tone="warning" badge="CONTESTED ONCE · CODER COMPLIED">
+    Coder: "I can't find the premise ... the brief says nothing about logging, identifiers or redaction." Reviewer: "The review-gate brief explicitly says to check that 'no credential or channel-id values leak into logs' ... That constraint was absent from the coder's original implementation brief."
+  </Step>
+</Steps>
+
+The third case is a pattern rather than a one-off: 12 of the 27 re-contests cite the reviewer's brief, an acceptance contract or a signed design. The reviewer is enforcing an acceptance criterion the coder may never have been shown. That is an orchestrator briefing habit, not a role-language problem.
+
+## 4. Reading the language: why the rate is what it is
+
+You asked to keep four explanations apart. The evidence settles them.
+
+<Table
+  density="compact"
+  columns={["Explanation", "Verdict", "Evidence"]}
+  rows={[
+    ["The permission is absent", { "badge": { "label": "no", "tone": "neutral" }, "md": "" }, "Written in six places since 3 July (section 2)."],
+    ["Present but buried", { "badge": { "label": "no", "tone": "neutral" }, "md": "" }, "87% of implemented must-fixes carry a stated reason; coders quote the vocabulary back (\"Adjudication:\", \"Reasoning contested; prescription implemented\")."],
+    ["Present but outweighed by the loop", { "badge": { "label": "partly", "tone": "warning" }, "md": "" }, "Only for cheap findings. The coder's next submit goes to the reviewer, who can loop it again, so a rejection costs a round and a one-line edit costs nothing. Coders say so in those words."],
+    ["Working as intended, must-fixes genuinely required", { "badge": { "label": "mostly", "tone": "success" }, "md": "" }, "87% of sampled must-fixes met the bar on a hand check; outright rejections land on bad findings 13 times in 14; reviewers accept 64% of pushback."]
+  ]}
+/>
+
+**The reviewer half of the bar is the weak link, not the coder half.** Reviewers state a concrete consequence for 89% of must-fixes but a recovery cost for only 44%, so the "if you can't, it isn't must-fix" test is mostly not applied. It does filter when applied: findings that state both fail the sceptical judge 10% of the time (9 of 92), findings that do not fail it 20% of the time (20 of 100).
+
+**The contested field does not measure pushback.** Only 2 of 495 coder rework submits used it; coders push back in their round report's prose, as their role tells them to. Most of the 19 submits that carry `contested` are reviewers recording their own re-contests, as the gate skill instructs. A dashboard reading that field would show almost no pushback.
+
+## 5. Recommendation: no change to the role text
+
+<Callout tone="decision" title="Leave the coder and reviewer language as it is">
+The sentence you would add already exists and is being read. The cases where coders comply with a not-required must-fix are cheap edits whose cost is a few words; adding another bullet to the coder role would add clutter to fix a few-word problem, and would not change the economics (one more round versus one more edit) that produce it. The one dangerous variant, complying against your own evidence, occurred once with real stakes in 1,177 findings and was caught by the loop.
+</Callout>
+
+If you want to act anyway, these are the only levers the evidence supports, in order of value:
+
+- **Re-run this measurement in a month** rather than editing text. The drop from 10% to 4% coincides with the move to Opus 5.5 and Fable 5.1 coders, under unchanged text, and the not-required share did not fall with it. If newer models are more compliant, a text change would be an experiment against that, and this pipeline (section 6) re-derives the numbers in about twenty minutes.
+- **Tell orchestrators to give the coder the gate's acceptance criteria.** Several re-contests are the reviewer enforcing a criterion only its own brief carried. That belongs in the orchestrator's gate-spawn habit, not in the coder role.
+- **Leave the reviewer severity bar alone too.** The recovery-cost clause halves the bad-finding rate when reviewers follow it, but it is already explicit; a louder version is the prescriptive clutter you are trying to remove.
+
+## 6. How the numbers were made, and their limits
+
+<Details summary="Method">
+**Corpus.** Every `thread.outcome-recorded` event with outcome `needs_rework` in the live ledger, read-only, paired with the `thread.route-taken` hop it caused to find the reopened thread, that thread's next submit (its round report) and the reviewer's next verdict. 571 verdicts, 526 reopened a thread, 522 had a coder report on disk. 27 were a coder submitting the `needs_rework` token back to its reviewer and are excluded, leaving 495 rounds.
+
+**Per-finding classification.** Gemini (`gemini-4-argon`) read each round's three reports and returned one row per must-fix: a literal quote, the kind, whether the reviewer stated a consequence and a recovery cost, a meets-the-bar judgement, the coder's action, whether it showed evaluation, and the reviewer's adjudication. It found 1,177 must-fixes where reviewers' `counts.mustFix` totals 1,166.
+
+**Bar judgement, three passes.** That first judge rated 95% as meeting the bar, which is lenient because it reads the reviewer's framing. A second, sceptical judge (`gemini-3.1-pro-preview`, counterfactual question, reviewer's label hidden in the wording) re-judged a seeded random 192, and rated 29 not required. I then read those 29 myself: 12 clearly not required, 13 borderline, 4 actually required (an unformatted file failing `vp check`, unreadable 8px diagrams in a talk, a forced branch delete that could lose a grandchild's commits, a garbled legal sentence in a client document). The headline 12 of 192 is my count; the 95% confidence range on 6% is about 4% to 11%.
+
+**Known gaps.** Model is the one recorded at thread creation. 28 coder reports sit in files a later submit could have overwritten. The July 3 rounds include early gate bugs (one reviewer resubmitted its round-1 report verbatim in round 2). Must-fixes raised outside gates, in plain review reports to an orchestrator, are not counted.
+</Details>
+
+<Details summary="Evidence files">
+All under `/home/Carl/.t3/cockpit/worktrees/loom/t3-8d1f49c3/.artifacts/must-fix-pushback/`:
+
+- `findings.csv`: one row per must-fix (1,177), with the quotes, both judges' verdicts and the coder's action.
+- `rounds.csv`: one row per rework round (495), with report paths and nice-to-have counts.
+- `hand_adjudication.csv`: my verdicts on the 29 findings the sceptical judge called not required.
+- `summary.json`: the headline counts.
+- `extract.py`, `build.py`, `classify.py`, `strict_judge.py`, `tables.py`: the pipeline, in that order; `rounds_classified.jsonl` and `strict_sample.jsonl` are the raw model outputs.
+</Details>
