@@ -1,0 +1,167 @@
+---
+reader:
+  who: Carl, deciding whether to stop reviewer briefing outright
+  knows: gates, purposes, kickoffs and briefs, and the 26 Oct rethink and the orchestrator line it added; not what the briefs written since actually contain
+  after_first_screen: 40 of 91 briefs since 27 Oct carried something the reviewer could not read elsewhere, and 7 of those changed a verdict (4 of the 80 gate briefs); the rest is mostly the coder's brief retold plus the role and gate skill restated; before the change the median was 370 words with the same mix, so the change trimmed briefs without changing them; recommended is a control-plane refusal on gated reviewers, with the four texts that invite a brief cut
+kicker: "Explainer · reviewer briefs since the review rethink · 386 briefs, 7 Oct to 4 Nov 2026"
+---
+
+# Reviewer briefs since 27 Oct are shorter, not different
+
+Since the 27 Oct change, orchestrators briefed **91 of 119 reviewers**: 80 gate reviewers and 11 standalone ones. **40 of the 91 carried at least one thing the reviewer could not have read elsewhere.** 10 of those 40 are standalone reviewers, whose brief is their only assignment. Read by hand, **7 of the 40 changed a verdict: 4 of the 80 gate briefs and 3 standalone ones.**
+
+The other words are mostly the coder's brief retold (54%), the reviewer role, gate skill or AGENTS.md restated (12%), process instructions (10%) and the orchestrator's own checklist (9%). Before the change, the median brief was **370 words** with the same mix. The change trimmed what orchestrators write by about a fifth and did not change what they write.
+
+<Stats
+  items={[
+    { "value": "80 of 107", "label": "Gate reviewers still briefed", "tone": "warning", "detail": "75%, against 217 of 221 (98%) before 27 Oct" },
+    { "value": "30 of 80", "label": "Gate briefs with anything new", "tone": "info", "detail": "A strict model check, so an upper bound; 50 carried nothing the reviewer lacked" },
+    { "value": "4 of 80", "label": "Gate briefs that changed a verdict", "tone": "warning", "detail": "Hand-checked: 2 widened the inline-fix licence, 2 raised a bar into a must-fix" },
+    { "value": "352 → 274", "label": "Median gate brief, words", "tone": "neutral", "detail": "All reviewers 370 → 296; 90th percentile 697 → 463" }
+  ]}
+/>
+
+<Callout focus title="What it means now">
+Text alone has not stopped the habit. After the 27 Oct line, three in four gate reviewers were still briefed. The orchestrators' own reasoning shows they knew the gate would launch on its purpose and briefed it anyway: "even though they launch on purpose, since a brief still helps". Four other texts still invite a brief, among them the orchestrator role's rule that instruction text ships "through a reviewer gate briefed to veto it".
+
+**Recommendation: refuse `workstream_brief` on a gate node and `brief` on a gated spawn in the control plane, and cut the four inviting texts in the same change.** From these 80 briefs it would have cost four verdicts:
+
+- Two rework rounds a wider inline-fix licence saved. One sentence in the gate skill's fix licence recovers them.
+- Two must-fixes the brief pushed up. The reviewer called one "at most one stray request in a rare case"; the other overrode the coder's own brief.
+
+Standalone reviewers keep their brief, because it is their assignment.
+</Callout>
+
+## 1. What a post-27-Oct gate brief contains
+
+Every word of every brief was sorted into one of these kinds. The brief and the coder's brief went to one model call each, with the reviewer role, gate skill, AGENTS.md and the project's rules. A second, stricter call then rechecked every piece flagged as new against the coder's brief, the coder's report, the purpose, and the role and rules. It moved 39 of 90 such pieces in gate briefs to restatement.
+
+<Table
+  density="compact"
+  columns={["Kind of content", "Gate briefs since 27 Oct (80)", "Gate briefs before (217)", "Typical example"]}
+  align={["left", "right", "right", "left"]}
+  rows={[
+    { "tone": "success", "cells": ["**Permitted: a stricter or looser bar for this change**", "3.1%", "1.9%", "\"Cutting is `fixed_inline` territory if the meaning survives\""] },
+    { "tone": "success", "cells": ["**Permitted: a fact from outside the change**", "3.4%", "2.8%", "\"against the Mirvac sheet `14-mirvac-external-preview.xlsx` with openpyxl `read_only=True`\""] },
+    { "tone": "success", "cells": ["**Permitted: deferred on purpose**", "0.3%", "0.1%", "\"Deferred on purpose, not findings: mobile, bridge-only deploys, a changelog page\""] },
+    ["The coder's brief, goal or purpose retold", "64.1%", "59.0%", "\"The coder was told to lay the 24.3K turn out call by call from the real session file\""],
+    ["The reviewer role, gate skill or AGENTS.md restated", "12.5%", "11.6%", "\"reject any change for one of four reasons: already covered…\""],
+    ["Process: verdict tokens, checks to run, report shape", "9.8%", "12.7%", "\"`vp run check:changed` green; PR open, not merged.\""],
+    ["The orchestrator's own checklist, derivable from intent and diff", "5.7%", "11.3%", "\"a first line that reaches the right edge, a short first line, a row starting with a code block\""],
+    ["Other", "1.1%", "0.5%", ""]
+  ]}
+/>
+
+The permitted kinds add up to **6.8% of gate-brief words now, against 4.8% before**. The median gate brief carries **no** permitted words in either period. Three habits show up across the corpus:
+
+- **51 of 80** gate briefs cite the coder's brief or report path, which the kickoff already gives the reviewer. Before the change: 105 of 217.
+- **49 of 80** spell out what earns `needs_rework`.
+- **55 of 80** mention inline fixes, restating or widening the gate skill's licence.
+
+Across all 91 briefs, standalone ones included, the permitted kinds are 11.1% of words (9.4% before). That is because standalone reviewers have no coder's brief to restate.
+
+<Details summary="Method and caveats">
+
+- **Population.** `thread.workstream-created` events with `role` reviewer: 305 created 7 to 26 Oct (295 briefed) and 119 created 27 Oct to 4 Nov (91 briefed). "Briefed" means a brief file over 60 words. "Gate" means a `loop` route.
+- **Judge.** `gemini-4-argon`, one call per brief, then a second call per brief that had flagged items. Word counts per kind are the model's estimates, scaled to each brief's real word count.
+- **Hand-check.** I read all 15 post-change briefs the second pass said made or prevented a must-fix, against the round reports. 8 did not hold up, which leaves 7. In those 8 the finding was a plain bug or contradiction, the bar was already the role's, or the item only appeared in an "outside this diff" note.
+- **Bias.** The model leans generous on "new". Its 30 of 80 is an upper bound, and on my reading several of the 30 are marginal ("Verify the claim yourself if it is cheap").
+- **The rethink's study** counted per-change case lists as new content (its 19%). Here they are the orchestrator's checklist, because a reviewer derives them from the intent and the diff. Counting the same way gives about the same total: new content plus checklist is 16% before.
+- **Files.** Scripts, raw outputs and the per-brief JSON are under `.artifacts/reviewer-brief-audit/` (`classify.py`, `strict.py`, `agg2.json`).
+
+</Details>
+
+## 2. The seven briefs that changed a verdict
+
+These are all seven, gate and standalone. The first three quotes are the best examples of content a reviewer genuinely needed. The two stricter-bar gate cases are what Carl worried about: a brief steering the verdict.
+
+<Table
+  density="compact"
+  columns={["Brief", "What the brief said", "What the reviewer did with it", "Effect"]}
+  rows={[
+    { "tone": "success", "cells": [{ "md": "**Gate:** skill-frontmatter guard review (pi-craft, instruction text). The gate skill makes a vetoed line `needs_rework`." }, "\"Cutting is `fixed_inline` territory if the meaning survives; say what you cut and the before/after word count.\"", "\"**Verdict: `fixed_inline`.** … the fixed part of the note went from 51 words to 26\"", { "badge": { "label": "saved a round", "tone": "success" } }] },
+    { "tone": "success", "cells": [{ "md": "**Gate:** fact-check on the nature-of-right decision document (lease-extraction). The skill's licence covers typos, not figures." }, "\"Fix slips inline (a figure, a name, a spelling) and say so; a wrong claim about the audit … is `needs_rework` with the line.\"", "\"**Verdict: fixed_inline.** I corrected 12 slips … None of the slips changes a recommendation.\"", { "badge": { "label": "saved a round", "tone": "success" } }] },
+    { "tone": "success", "cells": [{ "md": "**Standalone:** pull 14 Gate 2d, contracts, shared, mobile, desktop, config. A fact from another track." }, "\"`scripts/dev-runner.test.ts` against DL-1608 (the 500 MiB seed guard was deliberately not adopted because Loom seeds a slice of a 6 GB source)\"", "\"**D2 (must-fix, blocks ship):** two new upstream tests in `scripts/dev-runner.test.ts` check behaviour Loom deliberately changed\"", { "badge": { "label": "made a must-fix", "tone": "info" } }] },
+    { "tone": "warning", "cells": [{ "md": "**Gate:** context-viz P2 client core review. The purpose already said \"the off path does nothing\"; the brief made it must-fix." }, "\"Severity by consequence: a decision drift, an off path that does work, or an unlisted hook is must-fix\"", "\"the off path still reads the store in two places. Your brief makes that must-fix. In practice it costs at most one stray request in a rare case\"", { "badge": { "label": "made a must-fix", "tone": "warning" } }] },
+    { "tone": "risk", "cells": [{ "md": "**Gate:** method-corrections review (lease-extraction). A ruling the coder never got." }, "\"Each of the pre-ruled values must be one the triage thread said would clear by finding\"", "\"Your brief does say 'Definition rulings … scoped by field'. My brief sets the bar the other way\"", { "badge": { "label": "made a must-fix", "tone": "risk" } }] },
+    [{ "md": "**Standalone:** read_full description veto review. The human's decision, quoted." }, "Carl's words: \"… in general for the most part, agents shouldn't be reading entire files.\"", "\"That contradicts Carl's 'in general for the most part, agents shouldn't be reading entire files'.\"", { "badge": { "label": "made a must-fix", "tone": "info" } }],
+    [{ "md": "**Standalone:** minimal Mirvac sheet final review. The brief is the assignment." }, "Carl's numbered decisions, quoted, and the paths to Mirvac's own forms", "\"Removed `holdover.rent_percent` … Decision 9 says the finer clause terms are not fields.\"", { "badge": { "label": "made a must-fix", "tone": "info" } }]
+  ]}
+/>
+
+The two gate briefs that saved a round share a cause. **The gate skill's fix licence is narrower than orchestrators want for documents and instruction text.** It allows typos and formatting, not a wrong figure in a recap or a cut to a model-read sentence. 55 of 80 gate briefs restate or widen that licence. One sentence in the skill would recover both cases and remove the most common reason a gate brief has something real to say.
+
+## 3. Three typical briefs that carried nothing
+
+These are representative of the 50 gate briefs with no permitted content: 250 to 350 words, median length, written in the same turn as the scaffold.
+
+<Columns columns={3}>
+<Card heading="Context-viz fix review" tone="neutral" badge="271 words" meta={["loom", "85% the coder's brief retold"]}>
+
+"The coder's brief is `…_b7bd73fc…_0.md` and its report is at the same stem…" then: "The coder was told to lay the 24.3K turn out call by call from the real session file and name which hypothesis holds (hidden categories vs a run-to-turn mapping error). Re-run the reader over that file yourself…"
+
+Ends: "`vp run check:changed` green; PR open, not merged."
+
+</Card>
+<Card heading="Multi-sibling gate surface" tone="neutral" badge="311 words" meta={["loom", "instruction-text veto gate"]}>
+
+"Each changed file's purpose in one sentence, then the +N/−M word count the coder reported (check it), then reject any change for one of four reasons: already covered elsewhere in the same text; changes no decision a reading model makes; derivable from code or the tool's own output; a rule where a fact would do."
+
+This is the gate skill's paragraph, copied in.
+
+</Card>
+<Card heading="Benchmark round 1 recap review" tone="neutral" badge="244 words" meta={["lease-extraction", "fact-check gate"]}>
+
+"Every figure traces to the file cited beside it (`results/benchmark_baseline.md`, `benchmark_move1*.md`…). Open each file; recompute any derived figure…"
+
+Ends: "Fix slips inline (`fixed_inline`) and say so; a wrong actionable number or a mis-attributed decision goes back as `needs_rework`… Submit a gate verdict."
+
+</Card>
+</Columns>
+
+## 4. Why orchestrators still brief
+
+I split the 80 gate briefs three ways. Where possible, the reason comes from the orchestrator's own reasoning just before the `workstream_brief` or `workstream_spawn` call. I read 74 such calls in pi sessions since 27 Oct.
+
+<Table
+  density="compact"
+  columns={["Why the brief was written", "Gate briefs", "Of which carried anything new", "The orchestrator, in its own words"]}
+  align={["left", "right", "right", "left"]}
+  rows={[
+    { "tone": "info", "cells": ["**The text invites it:** an instruction-text gate. The role says it ships \"through a reviewer gate briefed to veto it: the file's purpose in one sentence, the +N/−M word count, and the four rejection reasons\". The gate skill says \"Your brief carries the file's purpose in one sentence and the diff's +N/−M word count\".", "21", "9", "\"I'll still send it through a reviewer gate briefed to veto, as the rule requires.\" / \"I'm planning to give it the purpose sentence, the count, the four rejection reasons, and the bar, even though the workstream-review-gate skill already carries a brief.\""] },
+    { "tone": "warning", "cells": ["**Habit, against the text:** briefed in the scaffold turn with nothing the reviewer lacked.", "38", "0", "\"I'm drafting the gate briefs for p1-review and p2-review next, even though they launch on purpose, since a brief still helps.\" / \"I'm weighing whether to use workstream_prompt or workstream_brief for the unlaunched gate node, since gate nodes launch on their purpose. I'll brief it anyway.\""] },
+    { "tone": "success", "cells": ["**Something genuinely outside the hand-back.**", "21", "21", "\"I'm briefing the reviewer on what it can't see from the hand-back: the bar is a rebase review rather than a design re-review\""] }
+  ]}
+/>
+
+The tool texts point the same way:
+
+- The `workstream_spawn` description says to "lay out the shape with mcp__t3-code__workstream_scaffold and brief each node with mcp__t3-code__workstream_brief". It has no gate carve-out.
+- The scaffold's `nodes` field says "A gate node's purpose is its brief until you replace it". That reads as a placeholder.
+- One orchestrator read the scaffold text as permission to add to the purpose: "that still leaves room to spell out what the review should look for".
+
+Citing the rule is not the same as following it. One orchestrator wrote "I want to add what it can't see in the hand-back: the stricter standard, meaning losslessness…". The brief it then wrote was, by both passes, entirely the coder's brief retold.<Sidenote>Tool texts: the workstream toolkit's `prose.ts` and `defs.ts`. Role: `roles/orchestrator.md`, the instruction-text bullet. Skill: the review-gate skill, "Instruction text under review". Reasoning quotes: `why.json` in the audit artefacts.</Sidenote>
+
+**The 27 gates that ran on their purpose alone did their job.** 17 of them looped and all 27 resolved `clean` or `fixed_inline`. The sibling must-fix sweep judged **all 32** of their must-fixes as meeting the severity bar. For briefed gates in the same period it was 70 of 80, with 6 borderline and 4 not.
+
+Their purposes already carry a bar when one is needed: "Hold PR A to the plan's §3.3: the ceiling only ever lowers authority, Carl's instance reads AGENT-OK unchanged…". This cannot show what those reviewers missed, but nothing in the round reports suggests they lacked their bearings.
+
+## 5. The three options, against these 91 briefs
+
+<Table
+  density="compact"
+  columns={["Option", "What the 91 briefs would have lost", "What it leaves in place"]}
+  rows={[
+    { "tone": "success", "cells": ["**Refuse `workstream_brief` on a gate node and `brief` on a gated spawn** (control plane), and cut the four inviting texts", "**4 gate verdicts.** Two saved rework rounds: recoverable by letting the gate skill's fix licence cover a figure or name in a document and a meaning-preserving cut in model-read text. Two must-fixes the brief pushed up: one the reviewer called cheap, and one a ruling that belonged with the coder. About 22,600 words of orchestrator writing in nine days, 93% of it not new, would not have been written.", "Standalone reviewers (11 of 91, 10 with real content) keep `brief`: it is their only assignment. A change-specific bar or outside fact still fits in the purpose sentence. Rulings go to the coder, which the role already says. The refusal must also cover `workstream_prompt` on an unlaunched gate node, which the tool appends to the brief, or briefing simply moves there."] },
+    { "tone": "info", "cells": ["**Cut the orchestrator line to a plain \"gate reviewers are not briefed\"**", "In principle the same as above. In practice, less: the current line moved briefing from 98% to 75% of gates, and orchestrators wrote \"I'll brief it anyway\" with the purpose rule in front of them.", "Works only if the role's veto-brief bullet, the gate skill's brief sentence and both tool texts are cut too. Even then, the habit traces above suggest a residual rate well above zero."] },
+    { "tone": "warning", "cells": ["**Leave it**", "Nothing.", "75% of gate reviewers briefed at a median 274 words, 7% of it new. Two of the four briefs that changed a verdict pushed a must-fix the reviewer doubted or the coder's brief contradicted, which is the biasing Carl named."] }
+  ]}
+/>
+
+**Recommended: the first option, with the text cuts and the fix-licence sentence in the same change.** The case for a mechanical guard over a rule: in nine days, under a rule asking for only what the reviewer cannot read, orchestrators wrote 50 gate briefs that carried none of it. The guard's refusal message is where the escape hatch lives: "put a change-specific bar or outside fact in the purpose; send a ruling to the coder".
+
+## 6. Open edges
+
+- **What purpose-only reviewers missed** is not measured. Only what they raised is. Comparing the next month's purpose-only and briefed gates on findings that surface later (after merge, or in Carl's own review) would settle it.
+- **Cross-track facts.** The rethink's clearest decisive case was a migration-number collision with a parallel plan. Nothing like it changed a gate verdict in these nine days. Under a refusal it would have to fit in the purpose, which is a single sentence.
+- **The two "saved a round" cases** assume the reviewer would have looped rather than fixed inline anyway. Reviewers often stretch the licence, so the real saving may be smaller.
