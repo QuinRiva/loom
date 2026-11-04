@@ -1,0 +1,61 @@
+---
+reader:
+  who: Carl, who hit this when a thread with a PR waiting on his review vanished from the sidebar; he approves the intent before anything is built
+  knows: his own complaint and the sidebar; not how PR links or settlement work inside the server
+  after_first_screen: he can say whether "a thread stays in active work while any PR it opened is still open, and leaves when the PR merges" is the behaviour he wants, and correct any line
+kicker: "Intent brief · approved 4 Nov 2026 · open PR keeps a thread active"
+status: done
+manager_sessions:
+  - id: 01a1a463-0a0b-75c2-b9be-76c10686dfee
+    name: Threads settling with an unmerged PR awaiting Carl
+    role: intent
+    authored_at: 2026-11-04T02:34:04.771Z
+---
+
+# A thread with a PR waiting on you stays in active work until you merge it
+
+**Goal.** "Why did this thread settle - there's an open PR for me to review that I haven't looked. If the work gets settled and removed from the 'active work' in the sidebar, I'm going to forget about it - and never see the PR." A workstream whose last step is a PR for you to merge must stay in the sidebar's active work, showing that PR, until the PR is merged or closed.
+
+**What happened.** The pi-craft thread [Coined code nouns in prose for Carl](t3-thread://v1/thread:mcp:62ae6b17-f656-4641-9678-927bea0f3381:goal_handoff:f6c810ba-fcb3-4132-838b-55bb53313827) opened [pi-craft PR #28](https://github.com/QuinRiva/pi-craft/pull/28), did not merge it (the AGENTS.md rule says you merge), and reported done. The sidebar shows the badge **28** on that root row because it looks the PR up from the thread's branch; the same lookup is what keeps an ordinary thread with an open PR from settling. But a Loom root that has reported done is settled in an earlier pass, at its outcome time, before that lookup ever runs. The thread had the PR; the settle rule for finished roots did not look. This happens on every pi-craft instruction-file PR and on any project with a human-merge policy.
+
+_Correction, from your note on the first draft:_ the first draft read this as "the PR link sat on the shipper child, not the root". The real database shows the root's badge comes from the branch, so no link needs mirroring; the finished-root rule just has to respect the PR the row already shows.
+
+**You'll know it works when.**
+
+- A workstream opens a PR and stops short of merging. Its root thread stays in active work, badge showing, after its orchestrator reports done, however the child threads under it finish.
+- You merge (or close) that PR on GitHub. Within about a minute the root thread settles on its own, as any thread with a merged PR does today.
+- **Must not:** hold a thread whose PR an agent merged itself (the common agent-merge case leaves the sidebar exactly as it is now); hold a finished root that has no PR at all; change what a child thread shows or how its PR watch wakes it.
+
+**Approaches in play.**
+
+- **A finished root waits for the PR check like every other thread.** The "settle at outcome time" rule runs only once the thread's PR (linked, or found from its branch) is known to be absent, merged or closed; while it is open the root stays, and the merge releases it. _My pick:_ one condition in the settle rule, no dependence on an agent remembering anything.
+- Teach orchestrators to end such a thread with a hold (`awaiting_acceptance`) or a PR watch. Wins only if the instruction change is tiny; a fresh model read "PR ready for Carl to merge" as done once already, and the role texts are long enough.
+- Dropped: mirroring each child's PR link onto the root. The root already finds its PR from the branch, so the link adds nothing.
+- Dropped: a new sidebar group ("waiting on you"). The active list already is that group once the thread stays in it.
+
+**Decided.** "If the work gets settled and removed from the 'active work' in the sidebar, I'm going to forget about it". So: active work is where it stays, and merging is what releases it.
+_Assumed:_ no change to the role or tool texts models read, because the failure was in the settle rule and the fix needs no rule; redirect if you want the orchestrator's hand-back to name the waiting PR explicitly as well.
+_Assumed:_ the root settles on merge under the existing "settle on merge" setting (on by default), not a new one.
+
+**Not doing.** A "needs you" flag on the row beyond the PR badge. Mobile-specific work (the settle rule is server-side, so mobile follows). Re-surfacing PR #28 itself: you answered that the link above is enough.
+
+**Questions for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "go",
+      title: "Build it as the pick above?",
+      subtitle: "A finished root stays in active work while the PR on its branch is open, and settles once that PR merges or closes.",
+      mode: "single",
+      options: [
+        { id: "yes", label: "Yes, go", recommended: true },
+        { id: "no", label: "No, annotate what to change" },
+      ],
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- A finished root whose branch has no PR, or whose branch was deleted after an agent-side merge, must settle as it does now. The build checks both against the settle rule's tests before it is called done.

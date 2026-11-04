@@ -188,7 +188,7 @@ export function isSnoozed(
 
 export function resolveAutoSettlementAt(input: {
   readonly thread: ProjectionStore.ProjectionSettlementCandidate;
-  readonly pullRequest: SettlementPullRequest | null;
+  readonly pullRequest: SettlementPullRequest | null | undefined; // loom: undefined = PR lookup pending
   readonly nowMs: number;
   readonly autoSettleAfterDays: number | null;
   readonly autoSettleOnMerge: boolean;
@@ -197,7 +197,7 @@ export function resolveAutoSettlementAt(input: {
   readonly autoSettleKeepPullRequests?: boolean;
 }): DateTime.Utc | null {
   const { thread } = input;
-  let pullRequest = input.pullRequest;
+  let pullRequest = input.pullRequest ?? null; // loom:
   const links = settlementPullRequestLinks(thread.pullRequests ?? []);
   if (links.some((link) => link.snapshot === null)) return null;
   // An open link means the pull request has not finished, so only inactivity
@@ -219,7 +219,15 @@ export function resolveAutoSettlementAt(input: {
           };
   }
   if (!isAutoSettlementCandidate(thread, input.nowMs)) return null;
-  if (input.loomFinishedRootAt != null) return input.loomFinishedRootAt; // loom: finished root
+  // loom: a finished root settles at its outcome time once its PR is known not to be open
+  // (links answer up front; otherwise it waits for the branch lookup). Until then neither
+  // rule settles it, inactivity included, so a PR left for the human to merge keeps the root
+  // in active work until it merges or closes.
+  if (input.loomFinishedRootAt != null) {
+    return input.pullRequest !== undefined && !hasOpenLink && pullRequest?.state !== "open"
+      ? input.loomFinishedRootAt
+      : null;
+  }
   const activityAtMs =
     latestMillis([
       toMillis(thread.latestUserMessageAt),
@@ -338,7 +346,10 @@ export const make = Effect.gen(function* () {
 
     // Runs per candidate thread, thousands per sweep on busy servers; the sweep owns the span.
     const settleThread = Effect.fnUntraced(
-      function* (thread: (typeof candidates)[number], pullRequest: SettlementPullRequest | null) {
+      function* (
+        thread: (typeof candidates)[number],
+        pullRequest: SettlementPullRequest | null | undefined, // loom: undefined = lookup pending
+      ) {
         // thread.auto-settle does not recheck settings, so read them per decision; reads are cached.
         const currentSettings = resolveProjectSettings(
           yield* settingsService.getSettings,
@@ -378,32 +389,33 @@ export const make = Effect.gen(function* () {
         ),
     );
 
+    // loom: the threads the lookup pass will query; until it has, their PR state is unknown
+    const awaitsLookup = (thread: (typeof candidates)[number]) =>
+      visibleThreadPullRequests(thread.pullRequests ?? []).length === 0 &&
+      (thread.branch !== null ||
+        thread.linkedPullRequest != null ||
+        thread.branchPullRequest != null);
     const lookupCandidates = (yield* Effect.forEach(
       candidates,
       (thread) => {
+        const pending = awaitsLookup(thread) ? undefined : null; // loom:
         const projectSettings = resolveProjectSettings(settings, thread.projectId).settings;
         // Skip no-op decisions; actual settlement still reads fresh settings before dispatch.
         const settledAt = resolveAutoSettlementAt({
           thread,
-          pullRequest: null,
+          pullRequest: pending, // loom:
           nowMs,
           autoSettleAfterDays: projectSettings.sidebarAutoSettleAfterDays,
           autoSettleOnMerge: projectSettings.sidebarAutoSettleOnMerge,
           loomFinishedRootAt: loomSettlement.get(thread.id)?.finishedRootAt ?? null, // loom:
           autoSettleKeepPullRequests: projectSettings.sidebarAutoSettleKeepPullRequests,
         });
-        return settledAt === null ? Effect.succeed(thread) : settleThread(thread, null);
+        return settledAt === null ? Effect.succeed(thread) : settleThread(thread, pending); // loom:
       },
       { concurrency: 8 },
     ))
       .filter((thread) => thread !== null)
-      .filter((thread) => visibleThreadPullRequests(thread.pullRequests ?? []).length === 0)
-      .filter(
-        (thread) =>
-          thread.branch !== null ||
-          thread.linkedPullRequest != null ||
-          thread.branchPullRequest != null,
-      );
+      .filter(awaitsLookup); // loom:
     const lookupCwdByThreadId = new Map<string, string>();
     yield* Effect.forEach(
       lookupCandidates,
