@@ -1346,6 +1346,132 @@ describe("ThreadSettlementServiceV2 worker", () => {
   );
 });
 
+// loom: a finished Loom root settles at its outcome time only once its PR is known not to be open.
+describe("ThreadSettlementServiceV2 finished Loom roots", () => {
+  const OUTCOME_AT = "2026-08-27T00:00:00.000Z";
+  const LAST_ACTIVITY_AT = "2026-08-20T00:00:00.000Z";
+  it("holds a finished root with an open link, or before its lookup, past the inactivity window", () => {
+    const outcomeAt = DateTime.makeUnsafe(OUTCOME_AT);
+    const decide = (thread: SettlementShell, pullRequest: null | undefined) =>
+      ThreadSettlementService.resolveAutoSettlementAt({
+        thread,
+        pullRequest,
+        nowMs: NOW_MS,
+        autoSettleAfterDays: 2,
+        autoSettleOnMerge: true,
+        loomFinishedRootAt: outcomeAt,
+      });
+    const openLink = shell({ pullRequests: [persistedLink("open", at(-5 * DAY_MS))] });
+    expect(decide(openLink, null)).toBeNull();
+    expect(decide(shell(), undefined)).toBeNull();
+    expect(decide(shell(), null)).toEqual(outcomeAt);
+  });
+  const cases: ReadonlyArray<{
+    readonly name: string;
+    readonly branch: string | null;
+    readonly pr: "open" | "closed" | "merged" | null;
+    readonly finished?: false;
+    readonly inactiveAfterDays?: number;
+    readonly settledAt: string | null;
+  }> = [
+    { name: "stays while its branch PR is open", branch: "feature", pr: "open", settledAt: null },
+    {
+      name: "stays while its branch PR is open past the inactivity window",
+      branch: "feature",
+      pr: "open",
+      inactiveAfterDays: 2,
+      settledAt: null,
+    },
+    {
+      name: "settles at its outcome time once its branch PR merges",
+      branch: "feature",
+      pr: "merged",
+      settledAt: OUTCOME_AT,
+    },
+    {
+      name: "settles at its outcome time once its branch PR merges past the inactivity window",
+      branch: "feature",
+      pr: "merged",
+      inactiveAfterDays: 2,
+      settledAt: OUTCOME_AT,
+    },
+    {
+      name: "settles at its outcome time once its branch PR closes",
+      branch: "feature",
+      pr: "closed",
+      settledAt: OUTCOME_AT,
+    },
+    {
+      name: "settles at its outcome time when its branch has no PR",
+      branch: "feature",
+      pr: null,
+      settledAt: OUTCOME_AT,
+    },
+    {
+      name: "settles at its outcome time with no branch",
+      branch: null,
+      pr: null,
+      settledAt: OUTCOME_AT,
+    },
+    {
+      name: "leaves an ordinary thread with an open branch PR to the inactivity rule",
+      branch: "feature",
+      pr: "open",
+      finished: false,
+      inactiveAfterDays: 2,
+      settledAt: LAST_ACTIVITY_AT,
+    },
+  ];
+  it.effect.each(cases)("$name", ({ branch, pr, finished = true, inactiveAfterDays, settledAt }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const root = makeThread("settling-thread", {
+          branch,
+          latestUserMessageAt: DateTime.makeUnsafe(LAST_ACTIVITY_AT),
+        });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([root]),
+          settings: {
+            ...DEFAULT_SERVER_SETTINGS,
+            sidebarAutoSettleAfterDays: inactiveAfterDays ?? null,
+          },
+          loomWorkstreams: finished
+            ? [
+                {
+                  ...LoomStore.emptyWorkstream({
+                    threadId: root.id,
+                    projectId: PROJECT_ID,
+                    parentThreadId: null,
+                    rootThreadId: root.id,
+                    at: IsoDateTime.make(OUTCOME_AT),
+                  }),
+                  outcome: "done",
+                  outcomeAt: IsoDateTime.make(OUTCOME_AT),
+                },
+              ]
+            : [],
+          branchPullRequest: () => Effect.succeed(pr === null ? null : makeBranchPullRequest(pr)),
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          assert.deepStrictEqual(
+            (yield* Ref.get(fixture.commands)).map((command) => command.settledAt),
+            settledAt === null ? [] : [DateTime.makeUnsafe(settledAt)],
+          );
+          // A finished root with a branch always waits for the lookup; an inactive ordinary
+          // thread settles before it.
+          assert.strictEqual(
+            (yield* Ref.get(fixture.branchCalls)).length,
+            finished && branch !== null ? 1 : 0,
+          );
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+});
+
 describe("ThreadSettlementServiceV2 terminals", () => {
   const appThread = (
     id: string,
