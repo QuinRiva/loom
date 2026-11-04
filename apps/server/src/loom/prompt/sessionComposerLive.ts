@@ -58,7 +58,12 @@ import {
   threadIdentityClause,
   WORK_MODEL_ADDENDUM,
 } from "./prose.ts";
-import { listRoleOverlays, loadRoleOverlay, type RoleOverlay } from "./roleOverlay.ts";
+import {
+  CATCHUP_TEMPLATE_PATH,
+  listRoleOverlays,
+  loadRoleOverlay,
+  type RoleOverlay,
+} from "./roleOverlay.ts";
 import {
   LoomSessionComposer,
   LoomSessionComposerError,
@@ -301,6 +306,8 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
           : identity.appendSystemPrompt,
         skills: identity.skills,
         extensions: identity.extensions,
+        // Per launch, not identity: the path follows the running server's checkout.
+        promptTemplates: [CATCHUP_TEMPLATE_PATH],
         // Per thread, never replayed: a fork commits under its own thread id.
         env: {
           ...identity.env,

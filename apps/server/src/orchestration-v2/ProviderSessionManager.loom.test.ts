@@ -266,6 +266,7 @@ it.effect("hands a provided composer's fields to the adapter", () =>
       appendSystemPrompt: "role overlay",
       skills: ["/s/SKILL.md"],
       extensions: ["/e/loom.ts"],
+      promptTemplates: ["/p/catchup.md"],
     };
     const { opens } = yield* openWith(
       Layer.succeed(LoomSessionComposer, { compose: () => Effect.succeed(fields) }),
