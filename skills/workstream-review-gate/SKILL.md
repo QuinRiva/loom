@@ -90,9 +90,8 @@ If you fixed anything, you MUST re-run project verification (`vp check`,
 When the change is text a model reads (a role, a skill, a tool description,
 an AGENTS.md), the coder's draft and your judgement are the two halves of the
 same act kept apart on purpose: the drafter never gets to decide its own
-addition is worth its tokens. Your brief carries the file's purpose in one
-sentence and the diff's +N/−M word count; if it does not, read the whole file
-and write the purpose yourself before judging a line.
+addition is worth its tokens. Read the whole file and state its purpose in
+one sentence, and the diff's +N/−M words, before judging a line.
 
 For every added or changed line, one of four reasons rejects it, and a line
 that survives all four stays:
