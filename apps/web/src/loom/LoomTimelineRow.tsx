@@ -3,15 +3,18 @@ import { memo, use } from "react";
 
 import { TimelineRowCtx } from "~/components/chat/timelineRowContext";
 
-import type { LoomTimelineRow as LoomTimelineRowData } from "./loomTimelineRows";
-import { LoomTimelineRowView } from "./LoomTimelineRowView";
+import type { LoomPromotionRow, LoomTimelineRow as LoomTimelineRowData } from "./loomTimelineRows";
+import { LoomPromotionRowView, LoomTimelineRowView } from "./LoomTimelineRowView";
 
 export const LoomTimelineRow = memo(function LoomTimelineRow({
   row,
 }: {
-  row: LoomTimelineRowData;
+  row: LoomTimelineRowData | LoomPromotionRow;
 }) {
-  return (
-    <LoomTimelineRowView row={row} environmentId={use(TimelineRowCtx).activeThreadEnvironmentId} />
+  const environmentId = use(TimelineRowCtx).activeThreadEnvironmentId;
+  return row.kind === "loom-promotion" ? (
+    <LoomPromotionRowView row={row} environmentId={environmentId} />
+  ) : (
+    <LoomTimelineRowView row={row} environmentId={environmentId} />
   );
 });

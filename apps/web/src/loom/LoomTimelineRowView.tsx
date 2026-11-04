@@ -4,13 +4,20 @@
  * `/handoff` explanation is shown in full and copyable: on a failure it is the second copy that
  * makes the handoff recoverable.
  */
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { GitBranchIcon, HourglassIcon, TriangleAlertIcon } from "lucide-react";
+import {
+  GitBranchIcon,
+  HourglassIcon,
+  MessageSquareShareIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 
+import { MarkdownThreadLink } from "~/components/chat/MarkdownThreadLink";
 import { MessageCopyButton } from "~/components/chat/MessageCopyButton";
 import { cn } from "~/lib/utils";
 
-import type { LoomReceiptState, LoomTimelineRow } from "./loomTimelineRows";
+import type { LoomPromotionRow, LoomReceiptState, LoomTimelineRow } from "./loomTimelineRows";
 import { ThreadLinkChip } from "./verifiedFileChips";
 
 export const HANDOFF_FAILURE_REASON =
@@ -113,6 +120,36 @@ export function LoomTimelineRowView({
             <MessageCopyButton text={row.explanation} size="icon-xs" variant="ghost" />
           </span>
         ) : null}
+      </div>
+    </section>
+  );
+}
+
+/** A promoted exchange's receipt: the author thread whose composer now holds the comment. */
+export function LoomPromotionRowView({
+  row,
+  environmentId,
+}: {
+  row: LoomPromotionRow;
+  environmentId: EnvironmentId;
+}) {
+  return (
+    <section className="-mx-1 min-w-0 px-1 py-0.5" aria-label="Promoted" data-loom-promotion="">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-l-2 border-border border-l-success/55 bg-success/5 px-2.5 py-1.5 text-xs leading-5 text-muted-foreground">
+        <MessageSquareShareIcon className="size-3.5 shrink-0 text-success-foreground" />
+        <span className="shrink-0 text-3xs font-semibold tracking-widest text-success-foreground uppercase">
+          Promoted
+        </span>
+        {/* `chat-markdown` gives the mention its in-chat link look. */}
+        <span className="chat-markdown min-w-0">
+          Comment waiting in the composer of{" "}
+          <MarkdownThreadLink
+            environmentId={environmentId}
+            link={{ environmentId, threadId: row.authorThreadId }}
+            label="the author thread"
+            fromThreadRef={scopeThreadRef(environmentId, row.sourceThreadId)}
+          />
+        </span>
       </div>
     </section>
   );

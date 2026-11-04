@@ -1,0 +1,42 @@
+---
+reader:
+  who: Carl, who asked for this and approves its intent before anything is built
+  knows: query threads and Promote from daily use; nothing of the code named here
+  after_first_screen: they can correct any line or say "go"
+kicker: "Intent brief · done 4 Nov 2026"
+status: done
+manager_sessions:
+  - id: 01a1a52d-0bb1-7745-8ebd-a107b092ec45
+    name: Link back to thread after promotion
+    role: intent
+    authored_at: 2026-11-04T06:12:25.263Z
+---
+
+# After a Promote, the query thread points you at the composer it filled
+
+**Goal.** "It can be hard to find that thread, particularly if it's a subthread in a big workstream. I think we need some sort of link back to that thread after a promotion occurs." Once an exchange is promoted, the query thread itself tells you which thread's composer now holds the comment, with a link that opens it.
+
+**You'll know it works when.**
+
+- You press Promote on an answer. When the reply lands, a line beneath it reads "Comment waiting in the composer of «author thread title»". The title is the usual thread chip, so one click opens the author thread, as the "Author thread" header button does today.
+- You promote three exchanges across an afternoon, close the browser, and come back: each of the three has its line, in place, with the same working link.
+- The agent's own reply names the author thread as a link too, for a reader skimming the prose.
+- **Must not:** change what the author receives; add anything to the author thread's timeline; repaint the query thread's timeline when no promotion changed.
+
+**Approaches in play.**
+
+- A receipt line in the query thread's timeline, one per promotion. It is derived from the promotions the server already records, as `/handoff` receipts are, so it survives reloads and needs no model cooperation. _My pick._
+- The tool's result names the author thread as a mention, so the model's reply carries the link. Nearly free, so it ships beside the receipt line; alone it is a probability, not a guarantee.
+- Dropped: a toast at promote time. It is gone the moment you look away, and the question is "where did that go?" an hour later.
+- Dropped: relying on the "Author thread" header button. It exists today and did not solve it: it is not where your eyes are after a Promote.
+
+**Decided.** "it posts the responses in the composer for the relevant thread" stays as it is; this adds a way back, not a different delivery. A Promote does not open the author thread for you: "No, just the link; I open it when I'm done promoting".
+_Assumed:_ the line shows the destination only, not whether you have since sent the comment from that composer; the query thread does not hold the author's messages, so "sent" would be a second feature. Redirect if "did I send it?" is the question you actually have.
+_Assumed:_ the link opens the author thread the way the header button does (a tab beside the query thread in the centre panel), not a navigation away. Redirect if wrong.
+_Assumed:_ web only. Mobile has no query-thread surface or Promote today, and the line rides a web-only timeline mechanism.
+
+**Not doing.** A "sent" state on the line. Anything in the author thread. Mobile.
+
+**Still unknown.**
+
+- Nothing that gates approval. Whether the model reliably carries the mention from the tool result into its reply is observed, not guaranteed; the receipt line is there so it does not have to be.

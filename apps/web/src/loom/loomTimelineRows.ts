@@ -1,8 +1,8 @@
 /**
- * loom: the handoff receipts spliced into a thread's timeline, derived from the V2 shell alone so
- * they survive a reload and reach every client: one row per `/handoff` drafter forked from this
- * thread (read from its `handoffDestinations` markers once archived), per `goal_handoff` marker this
- * thread placed, and per root continuing it. Rows are inserted before the first later row, not sorted.
+ * loom: the receipts spliced into a thread's timeline, from the V2 shell alone so they survive a
+ * reload: per `/handoff` drafter forked from this thread (its `handoffDestinations` once archived),
+ * `goal_handoff` marker and continuing root; and per exchange a query thread promoted. Rows are
+ * inserted, not sorted.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -41,7 +41,16 @@ export interface LoomTimelineRow {
   readonly destinations: ReadonlyArray<LoomHandoffDestination>;
 }
 
-const EMPTY_ROWS: ReadonlyArray<LoomTimelineRow> = Object.freeze([]);
+/** A query thread's promoted exchange: the comment waits in the author's composer. */
+export interface LoomPromotionRow {
+  readonly kind: "loom-promotion";
+  readonly id: string;
+  readonly createdAt: string;
+  readonly sourceThreadId: ThreadId;
+  readonly authorThreadId: ThreadId;
+}
+
+const EMPTY_ROWS: ReadonlyArray<LoomTimelineRow | LoomPromotionRow> = Object.freeze([]);
 
 const handoffState = (workstream: LoomThreadShellFields): LoomHandoffState =>
   workstream.outcome ?? (workstream.held ? "staged" : "launched");
@@ -146,6 +155,21 @@ export function handoffReceiptRows(
   ].toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
+export function promotionReceiptRows(
+  source: OrchestrationV2ThreadShell | undefined,
+): ReadonlyArray<LoomPromotionRow> {
+  const authorThreadId = source?.workstream?.forkFromThreadId;
+  return source && authorThreadId
+    ? (source.workstream?.documentQuery?.promotions ?? []).map((promotion) => ({
+        kind: "loom-promotion",
+        id: `loom-promotion:${promotion.promotionId}`,
+        createdAt: promotion.promotedAt,
+        sourceThreadId: source.id,
+        authorThreadId,
+      }))
+    : [];
+}
+
 const loomRowsAtom = Atom.family((threadKey: string) => {
   const ref = parseScopedThreadKey(threadKey);
   let previous = EMPTY_ROWS;
@@ -154,7 +178,10 @@ const loomRowsAtom = Atom.family((threadKey: string) => {
     const threads =
       ref === null ? null : get(loomEnvironmentSnapshotAtom(ref.environmentId))?.threads;
     if (!ref || !threads) return EMPTY_ROWS;
-    const rows = handoffReceiptRows(threads, ref.threadId);
+    const rows = [
+      ...handoffReceiptRows(threads, ref.threadId),
+      ...promotionReceiptRows(threads.find((thread) => thread.id === ref.threadId)),
+    ];
     // Shell churn is constant; hand back the same array unless a row changed.
     const key = JSON.stringify(rows);
     if (key !== previousKey) {
@@ -165,19 +192,26 @@ const loomRowsAtom = Atom.family((threadKey: string) => {
   }).pipe(Atom.withLabel(`loom-timeline-rows:${threadKey}`));
 });
 
-export function useLoomTimelineRows(threadKey: string): ReadonlyArray<LoomTimelineRow> {
+export function useLoomTimelineRows(
+  threadKey: string,
+): ReadonlyArray<LoomTimelineRow | LoomPromotionRow> {
   return useAtomValue(loomRowsAtom(threadKey));
 }
 
 export function insertLoomTimelineRows(
   rows: MessagesTimelineRow[],
-  loomRows: ReadonlyArray<LoomTimelineRow>,
+  loomRows: ReadonlyArray<LoomTimelineRow | LoomPromotionRow>,
 ): MessagesTimelineRow[] {
   if (loomRows.length === 0) return rows;
   const result = [...rows];
   for (const row of loomRows) {
+    // A promotion is recorded mid-turn, so it waits for the turn's reply: before the next human message.
     const index = result.findIndex(
-      (candidate) => candidate.createdAt !== null && candidate.createdAt > row.createdAt,
+      (candidate) =>
+        candidate.createdAt !== null &&
+        candidate.createdAt > row.createdAt &&
+        (row.kind !== "loom-promotion" ||
+          (candidate.kind === "message" && candidate.message.role === "user")),
     );
     const at = index !== -1 ? index : result.findIndex((candidate) => candidate.kind === "working");
     result.splice(at === -1 ? result.length : at, 0, row);
