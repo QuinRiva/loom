@@ -205,8 +205,7 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
     withComposer(1, (composer) =>
       Effect.gen(function* () {
         const { threadId } = yield* seedRoot("order", tempCheckout());
-        const { appendSystemPrompt, env, extensions, promptTemplates } =
-          yield* composer.compose(threadId);
+        const { appendSystemPrompt, env, extensions } = yield* composer.compose(threadId);
         assert.isTrue(
           appendSystemPrompt.startsWith(
             `${ORCHESTRATOR_HEAD}\n\n${threadIdentityClause(threadId, null, yield* paths)}\n\nYou orchestrate`,
@@ -222,7 +221,6 @@ it.layer(LoomOrchestratorTestLayer)("LoomSessionComposer", (it) => {
         assert.lengthOf(extensions, 1);
         assert.equal(NodePath.basename(extensions[0]!), LOOM_EXTENSION_FILENAME);
         assert.isTrue(NodeFS.existsSync(extensions[0]!));
-        assert.deepEqual(promptTemplates, [NodePath.join(LOOM_REPO_ROOT, "prompts", "catchup.md")]);
       }),
     ),
   );

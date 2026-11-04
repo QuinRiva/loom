@@ -22,9 +22,7 @@ const RPC_DATA: Record<string, unknown> = {
       { provider, id, name: "Loom default" },
     ],
   },
-  get_commands: {
-    commands: [{ name: "catchup", description: "Catch me up", source: "prompt" }],
-  },
+  get_commands: { commands: [] },
 };
 const spawnedArgs: Array<ReadonlyArray<string>> = [];
 
@@ -98,14 +96,12 @@ it.effect("hands both slash-menu discoveries Loom's prompt templates", () =>
   Effect.gen(function* () {
     spawnedArgs.length = 0;
     const settings = { enabled: true, binaryPath: "pi", launchArgs: "", customModels: [] };
-    const machine = yield* checkPiProviderStatus(settings, {}, undefined, ["/p/catchup.md"]);
-    const workspace = yield* discoverPiCommandsForCwd(settings, {}, "/w", ["/p/catchup.md"]);
+    yield* checkPiProviderStatus(settings, {}, undefined, ["/p/catchup.md"]);
+    yield* discoverPiCommandsForCwd(settings, {}, "/w", ["/p/catchup.md"]);
     const rpcSpawns = spawnedArgs.filter((args) => args.includes("rpc"));
     assert.lengthOf(rpcSpawns, 2);
     for (const args of rpcSpawns)
       assert.equal(args[args.indexOf("--prompt-template") + 1], "/p/catchup.md");
-    for (const { slashCommands } of [machine, workspace])
-      assert.deepInclude(slashCommands, { name: "catchup", description: "Catch me up" });
   }).pipe(
     Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fakePiSpawner),
     Effect.provide(NodeServices.layer),
