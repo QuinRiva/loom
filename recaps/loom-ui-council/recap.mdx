@@ -32,10 +32,12 @@ manager_sessions:
   ]}
 />
 
+A round 4 column, score only, follows once semantic zoom is in this PR.
+
 Opus rose in every category after round 1's fixes; Fable moved only on colour, and both still put Loom one to three points under upstream in most categories. What both lead with in every round is the graph at fit-to-view and the kickoff bubble's bracketed first line. You have decided the graph gets semantic zoom in this PR; the kickoff line is decision 3 in §3.
 
 <Callout focus title="What it means now">
-  The fixes touched only Loom's own files. Below is the screen you see most, the Digest card on your orchestrator thread, before and after round 1. §1 has the rest of round 1 and §2 round 2. §3 records your graph decision and holds **20 more findings that need you**, each with a recommendation; one left undecided takes its recommendation. Every image is dark mode. The light-mode contrast check after round 1 found no Loom text under 4.5:1; the faintest is 4.62, as before.
+  The fixes touched only Loom's own files. Below is the screen you see most, the Digest card on your orchestrator thread, before and after round 1. §1 has the rest of round 1 and §2 round 2. §3 records your graph decision and holds **19 more findings that need you**, each with a recommendation; one left undecided takes its recommendation. Every image is dark mode. The light-mode contrast check after each round found no Loom text under 4.5:1; the faintest is 4.62, as before the council.
 </Callout>
 
 <Columns>
@@ -166,9 +168,113 @@ The coder worked through 16 items, all in Loom's own files. One needed nothing: 
 
 ## 2. Round 2
 
-<Callout tone="info" title="Before and after pairs arrive with the last pass">
-  Round 2's fixes landed after the last capture with fixes in it, so their after images come from the score-only pass. This section is filled in then; the decisions in §3 do not depend on it.
-</Callout>
+The coder built 13 of the 14 items in full, again only in Loom's files. The link colour was built in part: the teal file chips in chat prose are upstream's and are card 20 in §3. One follow-up commit after round 2 put "Blocked" back as the word for a thread waiting on a dependency, after round 2 had renamed it "waiting". Before images are round 2's capture, after images the final one.
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/r2-01-panel-before.png" alt="Active now card with a blue border and dot, a 10px 1 flagged chip, the flagged node in plain blue, blocked nodes filled amber, and a one-line legend" caption="Before: the Workstream panel maximised; the Active now strip (enlarged 1.5 times), three graph nodes (enlarged 2.2 times) and the left of the legend, dark" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/r2-01-panel-after.png" alt="The same card with an amber border and dot, a 12px chip, the flagged node ringed in amber, blocked nodes grey with dotted borders, and the legend as a grid" caption="After: the same crops" />
+  </Column>
+</Columns>
+
+1. **Amber means one thing: someone must act.** "Survey checkpoint refs" needs the orchestrator, so its card's border and dot are amber; they were the blue that means "in progress".
+2. **Count chips are 12px**, not 10px: "1 flagged" here, and "4/9 settled", "Threads 3" and "2/6" elsewhere, all drawn as the same badge.
+3. **The flagged thread's node is ringed in amber**, so the node that needs the orchestrator is the one the eye lands on.
+4. **A thread waiting on a dependency is grey with a dotted border,** not filled amber: it needs nothing from you. It still reads "blocked".
+5. **The legend lists every state a node can show,** as a left-aligned grid. "Held · staged" is now "Staged", the word the goal panel uses.
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/r2-02-digest-before.png" alt="Digest excerpts starting under the role column, and a Yield card with a filled amber badge repeating its heading" caption="Before: the Digest card expanded and, below the dashed line, the Yield card under it; dark, enlarged 1.5 times" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/r2-02-digest-after.png" alt="Excerpts starting under the item titles, and the Yield card without the badge" caption="After: the same crops" />
+  </Column>
+</Columns>
+
+1. **Excerpts start at the title column,** so "Config loader" and "pnpm bench --filter parser" sit under the item they belong to, not under the role words.
+2. **The Yield card lost its filled badge,** which repeated the heading word for word. It was the only card that signalled with a filled badge.
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/r2-03-consult-before.png" alt="Two consult pills with the question in brackets cut short, a truncated thread link, and teal links" caption="Before: the two consult cards on the done coder 'Add config loader', dark, enlarged twice" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/r2-03-consult-after.png" alt="Two consult cards with a header line and the question on its own line in full, the whole thread link, and blue links" caption="After: the same cards. The 'Scroll to end' pill over the second card is upstream's (card 19)" />
+  </Column>
+</Columns>
+
+1. **The question has its own line,** under a header with the thread and its status, and reads in full.
+2. **The thread link reads in full:** "Plan the migration (needs guidance)".
+3. **Thread links are the app's link blue,** not teal; the thread chips in handoff receipts match.
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/r2-04-goal-before.png" alt="Goal panel with the current thread in a bordered box labelled current, an extra-indented continuation, a bold white chip and a 10px count" caption="Before: the Goal tasks panel, dark, enlarged 1.2 times" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/r2-04-goal-after.png" alt="The current thread marked by a tint alone, the continuation on one left rule, a muted chip and a 12px count" caption="After: the same panel" />
+  </Column>
+</Columns>
+
+1. **The current thread is marked once,** by a tint. The border and the blue word "current" are gone.
+2. **A continuation hangs off one left rule,** drawn the same way for every nested row.
+3. **Task chips are all the muted tone;** the current thread's chip was bold white.
+4. **"2/6" is the same count badge as "Threads 3",** at 12px.
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/r2-05-drawer-before.png" alt="Timeline drawer with the last row wrapping parser onto its own line and dots sitting above the text" caption="Before: the timeline drawer for 'Parser with review gate', dark, enlarged 1.5 times" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/r2-05-drawer-after.png" alt="Every row on one line ending in an ellipsis, and dots centred on the text" caption="After: the same drawer. Its legend below the graph is now the same grid as above" />
+  </Column>
+</Columns>
+
+1. **Each row is one line** that ends in an ellipsis, so "parser" no longer sits alone under the dots.
+2. **Dots are centred on their row's text,** not above it.
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/r2-06-plan-before.png" alt="Section strip with a short fade, an amber kicker, a 10px Pick one chip and a green recommended chip" caption="Before: this branch's plan.mdx, dark, three crops joined at the dashed lines (the strip's end, the kicker, the right of the first open question), enlarged 1.6 times" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/r2-06-plan-after.png" alt="A longer fade, a grey kicker, a 12px Pick one and a grey outlined recommended chip" caption="After: the same crops" />
+  </Column>
+</Columns>
+
+1. **The section strip's fade is twice as long,** so the last tab reads as fading out rather than cut.
+2. **The kicker is grey, not amber:** nothing in the plan is blocked.
+3. **"Pick one" is 12px.**
+4. **"recommended" is a grey outlined chip,** not the green that means done.
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/r2-07-staged-before.png" alt="Staged kickoff card with a rocket beside its title and another on Launch" caption="Before: the staged root's card, dark, real size" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/r2-07-staged-after.png" alt="The same card with only Launch's rocket" caption="After: the same card" />
+  </Column>
+</Columns>
+
+1. **One rocket.** The header's icon is gone; the Launch button keeps its own.
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/r2-08-meter-before.png" alt="Usage meter with pool on its own row and its reset on the header line, and a Fixed overhead card with a blue border" caption="Before: the usage meter (enlarged 2.2 times) and, below the dashed line, the Context tab's bar and cards (enlarged 1.3 times), preview harness, dark" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/r2-08-meter-after.png" alt="The meter with a one-line 5-hour pool heading and the reset in the column with the others, and the card with a plain border" caption="After: the same crops. Every meter label is 12px, up from 11px" />
+  </Column>
+</Columns>
+
+1. **"5-hour pool" is one heading line** beside its projection; "pool" sat on a row of its own.
+2. **The pool's reset time joined the ↻ column** with every account's.
+3. **The Fixed overhead card is plain like Conversation;** its blue border read as a selection with nothing selected.
+
+Not visible in dark mode: light mode's graph text is darker ("idle" on the in-progress fill went from 6.0:1 to 7.7:1), after Opus measured it at about 3.2:1 by eye.
 
 ## 3. Your decisions
 
@@ -181,7 +287,7 @@ One finding was rejected outright and is not a card. Opus 5.5 (round 2) asked fo
   density="compact"
   columns={["#", "Decision", "Raised by", "Recommended"]}
   rows={[
-    ["1", "Graph at fit-to-view: semantic zoom in this PR", "both models, both rounds", { "badge": { "label": "decided: fold in", "tone": "success" } }],
+    ["1", "Graph at fit-to-view: semantic zoom in this PR", "both models, both rounds", { "badge": { "label": "decided: built in this PR", "tone": "success" } }],
     ["2", "Floating thread-info card over Launch", "the restyle's live check", { "badge": { "label": "close as resolved", "tone": "accent" } }],
     ["3", "Kickoff bubble's bracketed first line", "both models, both rounds", { "badge": { "label": "accept", "tone": "info" } }],
     ["4", "One thread, two state words", "Opus, both rounds", { "badge": { "label": "accept", "tone": "info" } }],
@@ -198,16 +304,15 @@ One finding was rejected outright and is not a card. Opus 5.5 (round 2) asked fo
     ["15", "The magenta \"an agent started this\" rail", "both models, round 2", { "badge": { "label": "keep", "tone": "neutral" } }],
     ["16", "\"Dead\" in the Digest's neutral tone", "Opus, round 2", { "badge": { "label": "keep", "tone": "neutral" } }],
     ["17", "A tool name in a notification's text", "Opus, round 2", { "badge": { "label": "keep", "tone": "neutral" } }],
-    ["18", "\"blocked\" now reads \"waiting\"", "the coder", { "badge": { "label": "keep", "tone": "neutral" } }],
-    ["19", "Upstream: contrast", "both models, contrast check", { "badge": { "label": "leave", "tone": "neutral" } }],
-    ["20", "Upstream: layout", "both models", { "badge": { "label": "leave", "tone": "neutral" } }],
-    ["21", "Upstream: words and icons", "both models", { "badge": { "label": "leave", "tone": "neutral" } }],
+    ["18", "Upstream: contrast", "both models, contrast check", { "badge": { "label": "leave", "tone": "neutral" } }],
+    ["19", "Upstream: layout", "both models", { "badge": { "label": "leave", "tone": "neutral" } }],
+    ["20", "Upstream: words and icons", "both models", { "badge": { "label": "leave", "tone": "neutral" } }],
   ]}
 />
 
 ### Choices you have made or already hold
 
-<Card eyebrow="1 · Workstream graph" heading="The graph is still unreadable at fit-to-view. Semantic zoom goes into this PR before it merges." tone="success" badge="decided: fold in" meta={["both models, both rounds", "the biggest single drag on the scores", "your decision, 5 Nov"]}>
+<Card eyebrow="1 · Workstream graph" heading="The graph is still unreadable at fit-to-view. Semantic zoom is built in this PR before it merges." tone="success" badge="decided: built in this PR" meta={["both models, both rounds", "the biggest single drag on the scores", "your decision, 5 Nov"]}>
   **Decided: fold it in.** Your words: "just fold it in. I think we *should* do it, not put it off." Semantic zoom draws less in each card when the graph is small and more as you zoom in, "like google maps does". PR #533 waits for it, and the fit-scale floor is dropped. No choice is needed here; the card stays so the council's findings it answers are on record.
 
   <Table
@@ -526,29 +631,11 @@ One finding was rejected outright and is not a card. Opus 5.5 (round 2) asked fo
   <ReviewChoice itemId="notify-text" label="17 · Keep the notification wording" />
 </Card>
 
-<Card eyebrow="18 · Workstream graph" heading={"Round 2 renamed \"blocked\" to \"waiting\" so the legend, goal panel and nodes share one word. Keep \"waiting\"?"} tone="neutral" badge="recommend: keep" meta={["the coder, round 2", "graph, legend, goal panel, thread mentions"]}>
-  **Recommended: keep "waiting".** Amber now means "someone must act", and a thread waiting on a dependency needs nothing from you; "blocked" reads as a call to act.
-
-  <Table
-    density="compact"
-    columns={["Fact", "Detail"]}
-    rows={[
-      ["What changed", "A dependency-blocked node, its legend entry, the goal panel and thread mentions now say \"waiting\", in grey with a ring round a dot"],
-      ["Why", "Fable 5.1 (round 2) asked for every node state in the legend and one label per state; the council asked for one colour per state"],
-      ["Raised by", "The coder flagged that you may want \"blocked\" back as the column word"],
-    ]}
-  />
-
-  **If accepted** (that is, keep): nothing changes. **Reject** means "blocked" returns as the word, keeping the grey. **If nothing is decided:** kept.
-
-  <ReviewChoice itemId="waiting-word" label={"18 · Keep \"waiting\""} />
-</Card>
-
 ### New: upstream surfaces
 
 Each of these is a finding about upstream's own elements. Fixing any of them is a Loom hunk in an upstream file, so each card is the same question: is this worth a merge conflict at every weekly pull?
 
-<Card eyebrow="19 · Upstream contrast" heading="Seven upstream text elements measure under 4.5:1 in light mode. Patch them in Loom?" tone="neutral" badge="recommend: leave" meta={["contrast check, both rounds", "upstream files", "seven hunks"]}>
+<Card eyebrow="18 · Upstream contrast" heading="Seven upstream text elements measure under 4.5:1 in light mode. Patch them in Loom?" tone="neutral" badge="recommend: leave" meta={["contrast check, both rounds", "upstream files", "seven hunks"]}>
   **Recommended: leave them.** None is text you read to act; patching all seven is seven hunks in upstream files, each a weekly conflict, for text upstream will likely fix itself.
 
   <Table
@@ -567,10 +654,10 @@ Each of these is a finding about upstream's own elements. Fixing any of them is 
 
   **If accepted** (that is, leave): nothing changes. **Reject** means darkening each in a marked Loom hunk. **If nothing is decided:** left.
 
-  <ReviewChoice itemId="upstream-contrast" label="19 · Leave upstream contrast" />
+  <ReviewChoice itemId="upstream-contrast" label="18 · Leave upstream contrast" />
 </Card>
 
-<Card eyebrow="20 · Upstream layout" heading="Six upstream layout findings. Patch any of them in Loom?" tone="neutral" badge="recommend: leave" meta={["both models", "upstream files"]}>
+<Card eyebrow="19 · Upstream layout" heading="Six upstream layout findings. Patch any of them in Loom?" tone="neutral" badge="recommend: leave" meta={["both models", "upstream files"]}>
   **Recommended: leave them.** Each is small and upstream's to fix; the one that matters most to Loom, the empty-state line under the staged card, is its own card (5).
 
   <Table
@@ -588,10 +675,10 @@ Each of these is a finding about upstream's own elements. Fixing any of them is 
 
   **If accepted** (that is, leave): nothing changes. **Reject**, with the rows you want in the note, means a marked hunk for each. **If nothing is decided:** left.
 
-  <ReviewChoice itemId="upstream-layout" label="20 · Leave upstream layout" />
+  <ReviewChoice itemId="upstream-layout" label="19 · Leave upstream layout" />
 </Card>
 
-<Card eyebrow="21 · Upstream words and icons" heading="Five upstream wording and icon findings. Patch any of them in Loom?" tone="neutral" badge="recommend: leave" meta={["both models", "upstream files"]}>
+<Card eyebrow="20 · Upstream words and icons" heading="Five upstream wording and icon findings. Patch any of them in Loom?" tone="neutral" badge="recommend: leave" meta={["both models", "upstream files"]}>
   **Recommended: leave them.** All are upstream's own choices; "SnapShots" is a one-word fix worth reporting upstream rather than carrying.
 
   <Table
@@ -608,7 +695,7 @@ Each of these is a finding about upstream's own elements. Fixing any of them is 
 
   **If accepted** (that is, leave): nothing changes. **Reject**, with the rows you want in the note, means a marked hunk for each. **If nothing is decided:** left.
 
-  <ReviewChoice itemId="upstream-words" label="21 · Leave upstream words and icons" />
+  <ReviewChoice itemId="upstream-words" label="20 · Leave upstream words and icons" />
 </Card>
 
 ## Anything to undo?
