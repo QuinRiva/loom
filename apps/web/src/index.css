@@ -2845,13 +2845,16 @@ code {
 }
 
 .plan-mdx :not(pre) > code:not([data-plan-block-type] *),
-.prose-plan :not(pre) > code {
-  border: 1px solid var(--border);
-  border-radius: 0.375rem;
-  background: var(--muted);
-  padding: 0.1rem 0.35rem;
-  color: var(--foreground);
-  font-size: 0.75rem;
+.prose-plan :not(pre) > code,
+.plan-inline-md code {
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  background: color-mix(in srgb, var(--contrast-foreground) 10%, transparent);
+  padding: 0.1em 0.35em;
+  color: var(--contrast-foreground);
+  font-size: 0.85em;
 }
 
 /* A nested block (a fenced `<Code>` in a <Details>/<Callout>) styles its own <pre>. */
@@ -2859,8 +2862,8 @@ code {
 .prose-plan pre:not(.prose-plan [data-plan-block-type] *) {
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border: 1px solid var(--contrast-border);
+  border-radius: 0.5rem;
   background: var(--muted);
   padding: 0.8rem 0.9rem;
 }
@@ -3306,34 +3309,20 @@ code {
 /* `MDX vocabulary v2: <block>`.                                                */
 /* -------------------------------------------------------------------------- */
 :root {
-  /* sRGB hex, not Tailwind's oklch scale: on a wide-gamut display the oklch
-     tones render past sRGB and read as over-saturated beside the text. The
-     values are the visual-explainer HTML pages' palette. */
+  /* The app's status tokens, so documents follow the theme; `accent` is the
+     brand blue upstream puts on primary actions. */
   --plan-tone-neutral: var(--plan-fg-muted);
-  --plan-tone-info: #1d4ed8;
-  --plan-tone-success: #15803d;
-  --plan-tone-warning: #b45309;
-  --plan-tone-risk: #b91c1c;
-  --plan-tone-accent: #6d28d9;
+  --plan-tone-info: var(--info-foreground);
+  --plan-tone-success: var(--success-foreground);
+  --plan-tone-warning: var(--warning-foreground);
+  --plan-tone-risk: var(--error-foreground);
+  --plan-tone-accent: var(--primary);
   --plan-tone-neutral-soft: color-mix(in srgb, var(--plan-tone-neutral) 14%, transparent);
   --plan-tone-info-soft: color-mix(in srgb, var(--plan-tone-info) 11%, transparent);
   --plan-tone-success-soft: color-mix(in srgb, var(--plan-tone-success) 12%, transparent);
   --plan-tone-warning-soft: color-mix(in srgb, var(--plan-tone-warning) 12%, transparent);
   --plan-tone-risk-soft: color-mix(in srgb, var(--plan-tone-risk) 11%, transparent);
   --plan-tone-accent-soft: color-mix(in srgb, var(--plan-tone-accent) 11%, transparent);
-
-  @variant dark {
-    --plan-tone-info: #7aa2ff;
-    --plan-tone-success: #4ade80;
-    --plan-tone-warning: #f0b454;
-    --plan-tone-risk: #f87171;
-    --plan-tone-accent: #b39dfa;
-    --plan-tone-info-soft: color-mix(in srgb, var(--plan-tone-info) 14%, transparent);
-    --plan-tone-success-soft: color-mix(in srgb, var(--plan-tone-success) 14%, transparent);
-    --plan-tone-warning-soft: color-mix(in srgb, var(--plan-tone-warning) 14%, transparent);
-    --plan-tone-risk-soft: color-mix(in srgb, var(--plan-tone-risk) 14%, transparent);
-    --plan-tone-accent-soft: color-mix(in srgb, var(--plan-tone-accent) 14%, transparent);
-  }
 }
 
 /* loom: MDX vocabulary v2: document surface — a plan/recap/explainer reads on its
@@ -3419,15 +3408,9 @@ code {
   background: var(--plan-tone-accent-soft);
 }
 
-/* MDX vocabulary v2: InlineMarkdown (inlineMarkdown.tsx) — code and links in a
-   string prop rendered outside .prose-plan (a card heading, a table cell). */
-.plan-inline-md code {
-  border: 1px solid var(--border);
-  border-radius: 0.375rem;
-  background: var(--muted);
-  padding: 0.05rem 0.3rem;
-  font-size: 0.85em;
-}
+/* MDX vocabulary v2: InlineMarkdown (inlineMarkdown.tsx) — links in a string
+   prop rendered outside .prose-plan (a card heading, a table cell); its code
+   shares the inline-code rule above. */
 .plan-inline-md a {
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -3440,7 +3423,7 @@ code {
 .plan-card {
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 0.625rem;
+  border-radius: var(--radius-xl);
   background: var(--card);
   padding: 1rem 1.25rem 1.125rem;
 }
@@ -3583,7 +3566,7 @@ code {
 .plan-stat {
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 0.625rem;
+  border-radius: var(--radius-xl);
   background: var(--card);
   padding: 1rem 1.125rem;
 }
@@ -3619,7 +3602,7 @@ code {
 .plan-callout {
   display: flex;
   gap: 0.75rem;
-  border-radius: 0.625rem;
+  border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--plan-callout-tone) 11%, transparent);
   padding: 0.875rem 1.125rem;
 }
@@ -3649,7 +3632,7 @@ code {
   margin: 1.5rem 0;
   border: 1px solid var(--border);
   border-left: 4px solid var(--plan-callout-tone);
-  border-radius: 0 0.625rem 0.625rem 0;
+  border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
   background: var(--card);
   padding: 1.125rem 1.375rem;
 }
