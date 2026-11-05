@@ -155,6 +155,90 @@ function GraphFixture() {
   );
 }
 
+// The dev seed's nine children in its own waves (apps/server/src/dev/seedWorkstream.ts): the
+// graph the semantic-zoom bar is measured on.
+const SEED_AT = "2026-10-05T09:00:00.000Z";
+const seedConsult = (targetThreadId: ThreadId, targetTitle: string) => ({
+  targetThreadId,
+  targetTitle,
+  count: 1,
+  lastConsultAt: SEED_AT,
+  lastQuestionPreview: "Where do checkpoint refs live?",
+});
+const SEED_SHELLS = (
+  [
+    [T.coderDone, { consults: [seedConsult(T.root, "Deliver the workstream fixture")] }],
+    [T.gateCoder, { spawnGeneration: "seed-wave-gate" }],
+    [
+      T.gateReviewer,
+      {
+        spawnGeneration: "seed-wave-gate",
+        blockedBy: [T.gateCoder, T.gateSibling],
+        routes: [
+          { on: ["needs_rework"], kind: "loop", to: T.gateCoder, maxRounds: 2 },
+          { on: ["needs_rework"], kind: "loop", to: T.gateSibling, maxRounds: 2 },
+          { on: ["clean"], kind: "resolve" },
+        ],
+      },
+    ],
+    [
+      T.quiescent,
+      {
+        spawnGeneration: "seed-wave-survey",
+        consults: [seedConsult(T.coderDone, "Add config loader")],
+      },
+    ],
+    [T.blocked, { spawnGeneration: "seed-wave-survey" }],
+    [T.unbriefed, { blockedBy: [T.quiescent] }],
+  ] as const
+).reduce(
+  (current, [threadId, patch]) => withWorkstream(current, threadId, patch),
+  [
+    loomPreviewThreads.root,
+    loomPreviewThreads.done,
+    loomPreviewThreads.inProgress,
+    shell(
+      "Lexer with review gate",
+      workstream(T.gateSibling, {
+        kickoffAt: SEED_AT,
+        spawnGeneration: "seed-wave-gate",
+        outcome: "done",
+        outcomeAt: SEED_AT,
+        toolCalls: 18,
+      }),
+    ),
+    loomPreviewThreads.reviewerInGate,
+    loomPreviewThreads.quiescent,
+    loomPreviewThreads.blocked,
+    loomPreviewThreads.briefNeeded,
+    loomPreviewThreads.cancelled,
+    loomPreviewThreads.cancelledGrandchild,
+  ],
+);
+const seedNodes = buildWorkstreamNodes(SEED_SHELLS);
+const seedIndex = workstreamIndexOf(SEED_SHELLS);
+
+function SeedGraphFixture() {
+  return (
+    <div className="mx-auto w-[720px] p-3">
+      <Suspense fallback={null}>
+        <WorkstreamGraph
+          viewKey="preview:workstream-graph-seed"
+          nodes={subtreeOf(T.root, liveNodes(seedNodes.values()))}
+          satellites={[]}
+          byId={seedNodes}
+          rollupOf={(threadId) => workstreamRollupOf(threadId, SEED_SHELLS, seedIndex)}
+          titleOf={(threadId) => seedNodes.get(threadId)?.title ?? threadId}
+          onOpenThread={noop}
+          onJump={noop}
+          onOpenTimeline={noop}
+          onNodeContextMenu={noop}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
 const trioNodes = buildWorkstreamNodes(loomPreviewTrioThreads);
 const trioIndex = workstreamIndexOf(loomPreviewTrioThreads);
 
@@ -428,6 +512,13 @@ export const WORKSTREAM_PREVIEW_GROUP: PreviewGroup = {
       description:
         "The whole orchestration with the active strip: the reviewer→coder loop edge carries ⟲ rounds/cap and the open-rework dot; the forkFrom child carries the fork badge. Steps: a 17-minute bash (amber) under a 48-character model slug, a 20-second read (name only), and a reviewer with a four-digit tool count beside waiting ⟲1.",
       render: () => <GraphFixture />,
+    },
+    {
+      id: "workstream-graph-seed",
+      title: "Graph: the nine-thread dev seed",
+      description:
+        "The dev seed's shape (a done coder, a gate over two coders mid-round, a quiet researcher with two dependents, a cancelled subtree), the graph semantic zoom is measured on: at fit-to-view every label renders at 11px or more; zooming in walks back to full detail.",
+      render: () => <SeedGraphFixture />,
     },
     {
       id: "workstream-graph-trio",
