@@ -126,7 +126,7 @@ export const COLUMN_ORDER: ReadonlyArray<WorkstreamBoardColumn> = [
 
 export const COLUMN_LABELS = {
   held: "Staged",
-  blocked: "Waiting",
+  blocked: "Blocked",
   ready: "Ready",
   in_progress: "In progress",
   done: "Done",
@@ -135,7 +135,7 @@ export const COLUMN_LABELS = {
 
 export const COLUMN_SHORT_LABELS = {
   held: "Staged",
-  blocked: "Waiting",
+  blocked: "Blocked",
   ready: "Ready",
   in_progress: "In progress",
   done: "Done",
