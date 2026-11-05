@@ -98,9 +98,9 @@ export const quiescenceCandidate = (input: {
     return false;
   const humanStarted = turnStartedByHuman(input.runs, input.userMessages);
   const graceMs = humanStarted ? input.grace.humanStartedMs : input.grace.controlStartedMs;
-  // The grace runs from the latest of the run's end, the record's last change (DL-680/682): past
-  // a run's end only a human or the parent touches it — a reopen, a flag clear, a re-plan — and
-  // a child's settle, whose wake is still on its way when the live-child exemption above lapses.
+  // The grace runs from the latest of: the run's end; the record's last change (DL-680/682: past a
+  // run's end only a human or the parent touches it); and a child's settle, whose wake is still on
+  // its way when the live-child exemption above lapses.
   const quietSince = Math.max(
     DateTime.toEpochMillis(lastRun.completedAt),
     Date.parse(ws.updatedAt),
