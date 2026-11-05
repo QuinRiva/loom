@@ -983,14 +983,18 @@ function BridgeNode({
       tabIndex={0}
     >
       <title>{`Open the orchestrator of wave ${node.waveIndex}`}</title>
-      <rect
-        className="fill-foreground/7 stroke-foreground/18"
-        height={node.h}
-        rx="11"
-        width={node.w}
-        x={node.x}
-        y={node.y}
-      />
+      {/* The canvas's own layers under the tint, so the pill is opaque and the spine passes behind it. */}
+      {["fill-background", "fill-muted", "fill-foreground/7 stroke-foreground/18"].map((layer) => (
+        <rect
+          key={layer}
+          className={layer}
+          height={node.h}
+          rx="11"
+          width={node.w}
+          x={node.x}
+          y={node.y}
+        />
+      ))}
       <FocusRing x={node.x} y={node.y} w={node.w} h={node.h} rx={11} />
       {detail.tier === "full" ? (
         <>
