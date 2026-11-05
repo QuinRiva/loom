@@ -1,6 +1,7 @@
 // loom: the composition's rows: the category → tool → item tree, the largest items, the cache on the
 // latest call and what could be reclaimed. Every figure follows the In window | Cost to keep lens.
 import type { LoomContextFinding, LoomContextItem, LoomContextReport } from "@t3tools/contracts";
+import { ChevronRightIcon } from "lucide-react";
 import type { CSSProperties, ReactElement, ReactNode } from "react";
 
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../../components/ui/tooltip";
@@ -69,7 +70,7 @@ export function formatPct(part: number, total: number) {
   return pct >= 10 ? `${Math.round(pct)}%` : pct >= 0.1 ? `${pct.toFixed(1)}%` : "<0.1%";
 }
 
-const Est = () => <span className="mr-px text-3xs text-warning-foreground">≈</span>;
+const Est = () => <span className="mr-px text-muted-foreground">≈</span>;
 
 export const Swatch = ({ color, hatch }: { color: string; hatch?: boolean }) => (
   <span
@@ -233,10 +234,13 @@ export function TreeRows({
             onMouseLeave={() => ctx.onLit(null)}
             onClick={canOpen ? () => onToggle(node.id) : undefined}
           >
-            <span
-              className={cn("text-center text-3xs text-muted-foreground", isOpen && "rotate-90")}
-            >
-              {canOpen ? "▶" : ""}
+            <span className="grid place-items-center text-muted-foreground">
+              {canOpen ? (
+                <ChevronRightIcon
+                  className={cn("size-3.5 transition-transform", isOpen && "rotate-90")}
+                  aria-hidden
+                />
+              ) : null}
             </span>
             <span className="flex min-w-0 items-center gap-1.5">
               <Swatch color={node.color} hatch={node.hatch} />
@@ -356,7 +360,7 @@ function LeafRows({
                   </Tag>
                 ) : null}
               </span>
-              <span className="text-right text-3xs text-muted-foreground tabular-nums">
+              <span className="text-right text-2xs text-muted-foreground tabular-nums">
                 {turn === null ? "" : `T${turn}`}
               </span>
               <Figure amount={amount} measured={item.measured} lens={ctx.lens} />
@@ -390,7 +394,7 @@ function Tag({ tone, children }: { tone: "loom" | "guide" | "muted"; children: R
   return (
     <span
       className={cn(
-        "rounded border px-1.5 text-3xs leading-4 whitespace-nowrap",
+        "rounded border px-1.5 text-2xs leading-4 whitespace-nowrap",
         tone === "loom" && "border-warning/35 bg-warning/8 text-warning-foreground",
         tone === "guide" && "border-info/35 bg-info/8 text-info-foreground",
         tone === "muted" && "border-border text-muted-foreground",
@@ -479,14 +483,14 @@ export function LargestRows({
           )}
           onClick={jumps ? () => ctx.onJump(item) : undefined}
         >
-          <span className="text-right text-3xs text-muted-foreground tabular-nums">
+          <span className="text-right text-2xs text-muted-foreground tabular-nums">
             {index + 1}
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
             <Swatch color={KIND_COLOR[item.kind]} hatch={item.kind === "system_section"} />
             {row.kind === "group" ? (
               <>
-                <span className="rounded border border-warning/45 bg-warning/8 px-1.5 text-3xs leading-4 whitespace-nowrap text-warning-foreground">
+                <span className="rounded border border-warning/45 bg-warning/8 px-1.5 text-2xs leading-4 whitespace-nowrap text-warning-foreground">
                   ×{row.group.items.length} alike
                 </span>
                 <span className="min-w-0 text-xs font-medium text-foreground">
@@ -508,7 +512,7 @@ export function LargestRows({
               </>
             )}
           </span>
-          <span className="pl-1.5 text-right text-3xs text-muted-foreground tabular-nums">
+          <span className="pl-1.5 text-right text-2xs text-muted-foreground tabular-nums">
             {span}
           </span>
           <Figure
@@ -681,7 +685,7 @@ export function ReclaimRows({
           <div className="text-right text-xs font-semibold tabular-nums">
             {row.exact ? null : <Est />}
             {formatContextTokens(row.amount)}
-            <small className="block text-3xs font-normal text-muted-foreground">{row.sub}</small>
+            <small className="block text-2xs font-normal text-muted-foreground">{row.sub}</small>
           </div>
           <div className="col-span-2 my-0.5 h-1.5 overflow-hidden rounded-full bg-muted">
             <i

@@ -84,9 +84,19 @@ export function ControlDigestCardView({
   const { icon: ChannelIcon, word: channelWord } = CHANNEL_ICONS[model.channel];
   const items = model.kind === "card" ? model.items : [];
   const summary = model.kind === "card" ? model.summary : controlSummaryLine(text);
+  // The card's body size: an excerpt's heading is bold body text, never a page heading.
   const markdown = (body: string) => (
-    <ChatMarkdown text={body} cwd={cwd} threadRef={threadRef ?? undefined} skills={skills} />
+    <ChatMarkdown
+      text={body}
+      cwd={cwd}
+      threadRef={threadRef ?? undefined}
+      skills={skills}
+      className="loom-card-markdown text-xs"
+    />
   );
+  // One role column per card, as wide as its longest role, so every title starts at one x.
+  const roleWidth = Math.max(0, ...items.map((entry) => entry.item.role?.length ?? 0));
+  const iconColumn = items.some((entry) => entry.item.icon);
 
   return (
     <section className="-mx-1 min-w-0 px-1 py-0.5" aria-label={`${model.label}: ${summary}`}>
@@ -134,6 +144,8 @@ export function ControlDigestCardView({
                     : null
                 }
                 expanded={expanded}
+                roleWidth={roleWidth}
+                iconColumn={iconColumn}
                 markdown={markdown}
                 cwd={cwd}
                 threadRef={threadRef}
@@ -153,6 +165,10 @@ export function ControlDigestCardView({
               onClick={() => setShowRaw((value) => !value)}
               aria-expanded={showRaw}
             >
+              <ChevronRightIcon
+                className={cn("size-3.5 shrink-0 transition-transform", showRaw && "rotate-90")}
+                aria-hidden
+              />
               {showRaw ? "Hide raw payload" : "Show raw payload"}
             </InlineButton>
           </div>
@@ -176,6 +192,13 @@ const openDocument = (threadRef: ScopedThreadRef, meta: MarkdownFileLinkMeta) =>
   if (meta.workspaceRelativePath === null) panel.openFileAbsolute(threadRef, meta.filePath);
   else panel.openFile(threadRef, meta.workspaceRelativePath);
 };
+
+/** ↗ means "opens the thread" on every row: the row itself, or its own button beside a report row. */
+const OpenThreadGlyph = () => (
+  <span className="grid size-5 shrink-0 place-items-center text-muted-foreground">
+    <ArrowUpRightIcon className="size-3.5" aria-hidden />
+  </span>
+);
 
 /** A one-word name (`plan.mdx`, `README.md`) says what kind of file, not which: lead with its folder. */
 const documentLabel = ({ filePath, basename }: MarkdownFileLinkMeta) =>
@@ -277,6 +300,8 @@ function ControlDigestItem({
   entry: { item, kindLabel },
   sender,
   expanded,
+  roleWidth,
+  iconColumn,
   markdown,
   cwd,
   threadRef,
@@ -285,6 +310,8 @@ function ControlDigestItem({
   entry: ControlCardItem;
   sender: string | null;
   expanded: boolean;
+  roleWidth: number;
+  iconColumn: boolean;
   markdown: (body: string) => ReactNode;
   cwd: string | undefined;
   threadRef: ScopedThreadRef | null;
@@ -298,15 +325,22 @@ function ControlDigestItem({
       ? () => useRightPanelStore.getState().openFileAbsolute(threadRef, reportPath)
       : null;
   const open = openReport ?? openThread;
+  // Kind and status are two facts ("Finished · done"); a snake_case status reads as words.
+  const facts = [kindLabel, item.status?.replaceAll("_", " ")].filter(Boolean).join(" · ");
   const label = (
     <>
-      {item.icon ? (
-        <span className="shrink-0 text-xs" aria-hidden>
+      {iconColumn ? (
+        <span className="w-4 shrink-0 text-center text-xs" aria-hidden>
           {item.icon}
         </span>
       ) : null}
-      {item.role ? (
-        <span className="shrink-0 font-mono text-xs text-muted-foreground">{item.role}</span>
+      {roleWidth > 0 ? (
+        <span
+          className="shrink-0 font-mono text-xs text-muted-foreground"
+          style={{ width: `${roleWidth}ch` }}
+        >
+          {item.role}
+        </span>
       ) : null}
       <span className="min-w-0 flex-1 truncate text-xs leading-5">
         {sender ? <span className="font-medium text-foreground">{sender}</span> : null}
@@ -319,15 +353,12 @@ function ControlDigestItem({
           Open report
         </span>
       ) : null}
-      {kindLabel ? (
-        <span className="shrink-0 text-xs text-muted-foreground">{kindLabel}</span>
+      {facts ? (
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {facts.charAt(0).toUpperCase() + facts.slice(1)}
+        </span>
       ) : null}
-      {item.status ? (
-        <span className="shrink-0 text-xs text-muted-foreground">{item.status}</span>
-      ) : null}
-      {!openReport && openThread ? (
-        <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-      ) : null}
+      {!openReport && openThread ? <OpenThreadGlyph /> : null}
     </>
   );
   return (

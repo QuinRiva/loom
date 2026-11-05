@@ -11,27 +11,35 @@ import { useNavigate } from "@tanstack/react-router";
 
 import { resolveSidebarThreadStatus } from "../components/Sidebar.logic";
 import { Badge } from "../components/ui/badge";
+import { ATTENTION_COLORS, COLUMN_STYLES } from "../lib/workstreamPresentation";
 import { cn } from "../lib/utils";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { orderGoalThreadsByHandoff } from "./goalThreadChain";
+import { StatusDot } from "./StatusDot";
 
-function resolveChip(thread: EnvironmentThreadShell): { label: string; dot: string } {
+type Chip = { label: string; color: string; hollow?: boolean | undefined };
+
+/** The graph's state palette (`COLUMN_STYLES`, `ATTENTION_COLORS`), so a state reads alike on both. */
+function resolveChip(thread: EnvironmentThreadShell): Chip {
   const reason = rowAttentionOf(thread);
-  if (reason !== null) {
-    return {
-      label: attentionLabel(reason),
-      dot: reason === "error" ? "bg-destructive" : "bg-warning",
-    };
-  }
+  if (reason !== null) return { label: attentionLabel(reason), color: ATTENTION_COLORS[reason] };
   const status = resolveSidebarThreadStatus(thread);
   if (status === "approval" || status === "input")
-    return { label: status === "approval" ? "Approval" : "Input", dot: "bg-warning" };
-  if (status === "working" || status === "waiting") return { label: "Working", dot: "bg-info" };
-  if (status === "failed") return { label: "Failed", dot: "bg-destructive" };
+    return {
+      label: status === "approval" ? "Approval" : "Input",
+      color: COLUMN_STYLES.blocked.color,
+    };
+  if (status === "working" || status === "waiting")
+    return { label: "Working", ...COLUMN_STYLES.in_progress };
+  if (status === "failed") return { label: "Failed", color: ATTENTION_COLORS.error };
   const workstream = thread.source.workstream;
-  if (workstream?.held) return { label: "Staged", dot: "bg-primary" };
-  if (workstream?.outcome) return { label: workstream.outcome, dot: "bg-success" };
-  return { label: "Ready", dot: "bg-muted-foreground" };
+  if (workstream?.held) return { label: "Staged", ...COLUMN_STYLES.held };
+  if (workstream?.outcome)
+    return {
+      label: workstream.outcome,
+      ...COLUMN_STYLES[workstream.outcome === "cancelled" ? "cancelled" : "done"],
+    };
+  return { label: "Ready", ...COLUMN_STYLES.ready };
 }
 
 export function GoalThreadsSection({
@@ -95,7 +103,7 @@ export function GoalThreadsSection({
                     isCurrent && "border-primary/40 bg-accent/60",
                   )}
                 >
-                  <span className="truncate text-xs text-foreground/90">{shell.title}</span>
+                  <span className="truncate text-sm text-foreground">{shell.title}</span>
                   <span
                     className={cn(
                       "flex items-center gap-1.5 text-xs",
@@ -105,7 +113,7 @@ export function GoalThreadsSection({
                         : "text-muted-foreground",
                     )}
                   >
-                    <span className={cn("size-1.5 shrink-0 rounded-full", chip.dot)} />
+                    <StatusDot color={chip.color} hollow={chip.hollow} />
                     {chip.label}
                     {isCurrent ? <span className="ml-auto text-primary">current</span> : null}
                   </span>

@@ -143,45 +143,22 @@ export const COLUMN_SHORT_LABELS = {
 } satisfies Record<WorkstreamBoardColumn, string>;
 
 export interface ColumnStyle {
-  readonly dotClass: string;
-  readonly textClass: string;
-  /** The same token as a CSS colour, for SVG strokes and fills. */
+  /** The state's token as a CSS colour, for dots, SVG strokes and fills. */
   readonly color: string;
+  /** Not started: a ring (`StatusDot`) and a dashed graph border rather than a filled dot. */
+  readonly hollow: boolean;
 }
 
-// Upstream theme tokens only: held/cancelled are neutral, blocked waits amber,
-// ready is info, in-progress the primary accent, done success.
+// The one state palette every Loom surface draws from (graph, legend, Active strip, quick facts,
+// goal panel). Hue marks what is moving (warning blocked, info running, success done); the
+// resting states are told apart by shape: held and ready are rings, ready in the running hue.
 export const COLUMN_STYLES = {
-  held: {
-    dotClass: "bg-muted-foreground/60",
-    textClass: "text-muted-foreground",
-    color: "var(--color-muted-foreground)",
-  },
-  blocked: {
-    dotClass: "bg-warning",
-    textClass: "text-warning-foreground",
-    color: "var(--color-warning)",
-  },
-  ready: {
-    dotClass: "bg-info",
-    textClass: "text-info-foreground",
-    color: "var(--color-info)",
-  },
-  in_progress: {
-    dotClass: "bg-primary",
-    textClass: "text-primary",
-    color: "var(--color-primary)",
-  },
-  done: {
-    dotClass: "bg-success",
-    textClass: "text-success-foreground",
-    color: "var(--color-success)",
-  },
-  cancelled: {
-    dotClass: "bg-muted-foreground/40",
-    textClass: "text-muted-foreground",
-    color: "var(--color-muted-foreground)",
-  },
+  held: { color: "var(--color-muted-foreground)", hollow: true },
+  blocked: { color: "var(--color-warning)", hollow: false },
+  ready: { color: "var(--color-info)", hollow: true },
+  in_progress: { color: "var(--color-info)", hollow: false },
+  done: { color: "var(--color-success)", hollow: false },
+  cancelled: { color: "var(--color-muted-foreground)", hollow: false },
 } satisfies Record<WorkstreamBoardColumn, ColumnStyle>;
 
 // Attention
@@ -203,8 +180,8 @@ const ATTENTION_SHORT_LABELS = {
   "brief-needed": "needs brief",
 } satisfies Record<WorkstreamAttentionReason, string>;
 
-/** The token colour of a reason, for the graph's attention ring. */
-const ATTENTION_COLORS = {
+/** The token colour of a reason, for the graph's attention ring and the goal panel's dot. */
+export const ATTENTION_COLORS = {
   error: "var(--color-error)",
   awaiting_acceptance: "var(--color-info)",
   needs_guidance: "var(--color-warning)",
@@ -483,15 +460,16 @@ export function getNodeStateWord(node: WorkstreamNode, byId: WorkstreamNodeIndex
 }
 
 /**
- * The node's role strip left of its state word: `CODER · ⚒ 75`. The state word and
- * count stay whole and the role yields: at 9.5px the strip's 144px holds ~6.1px per
- * spaced capital and ~5px per state-word character, less 10px for the running dot.
+ * The node's role strip left of its state word: `Coder · ⚒ 75`, sentence case. The state
+ * word and count stay whole and the role yields: at 9.5px the strip's 144px holds ~5.4px
+ * per role character and ~5px per state-word character, less 10px for the running dot.
  */
 export function getNodeStripLabel(node: WorkstreamNode, stateWord: string): string {
   const count = node.toolCalls > 0 ? ` · ⚒ ${node.toolCalls}` : "";
-  const stripChars = (144 - 5 * stateWord.length - (isRunning(node) ? 10 : 0)) / 6.1;
+  const stripChars = (144 - 5 * stateWord.length - (isRunning(node) ? 10 : 0)) / 5.4;
   const roleBudget = Math.max(6, Math.floor(stripChars) - count.length);
-  return `${truncateLabel(getRoleLabel(node), roleBudget).toUpperCase()}${count}`;
+  const role = truncateLabel(getRoleLabel(node), roleBudget);
+  return `${role.charAt(0).toUpperCase()}${role.slice(1)}${count}`;
 }
 
 // Current step — the tool in flight, or the model between tool calls

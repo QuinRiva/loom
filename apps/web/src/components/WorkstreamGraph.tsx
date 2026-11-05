@@ -52,6 +52,7 @@ import {
 } from "../lib/workstreamPresentation";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { useStableCallback } from "../hooks/useStableCallback";
+import { StatusDot } from "../loom/StatusDot";
 import { useWorkstreamUiStore } from "../loom/workstreamUiStore";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -480,7 +481,7 @@ export default function WorkstreamGraph({
         {COLUMN_ORDER.map((column) => (
           <LegendItem
             key={column}
-            swatch={<span className={`size-2 rounded-full ${COLUMN_STYLES[column].dotClass}`} />}
+            swatch={<StatusDot className="size-2" {...COLUMN_STYLES[column]} />}
           >
             {COLUMN_LABELS[column]}
           </LegendItem>
@@ -958,7 +959,7 @@ function GraphNode({
   // The laid node is a structural snapshot; resolve the live one for status.
   const node = byId.get(laid.thread.id) ?? laid.thread;
   const { x, y, w, h } = laid;
-  const color = COLUMN_STYLES[node.column].color;
+  const { color, hollow } = COLUMN_STYLES[node.column];
   const verdict = getVerdictChip(node);
   const stateWord = getNodeStateWord(node, byId);
   const attention = nodeAttentionOf(node);
@@ -1028,6 +1029,7 @@ function GraphNode({
             height={h}
             rx="10"
             stroke={color}
+            strokeDasharray={hollow ? "4 3" : undefined}
             strokeOpacity={recede ? RECEDE_OPACITY : 1}
             strokeWidth={1.4}
             width={w}
@@ -1055,14 +1057,7 @@ function GraphNode({
             fill={color}
             fillOpacity={recede ? 0.16 * RECEDE_OPACITY : 0.16}
           />
-          <text
-            fill={legibleHue(color)}
-            fontSize="9.5"
-            fontWeight="600"
-            letterSpacing="0.06em"
-            x={x + 10}
-            y={y + 14.5}
-          >
+          <text fill={legibleHue(color)} fontSize="9.5" fontWeight="600" x={x + 10} y={y + 14.5}>
             {getNodeStripLabel(node, stateWord)}
           </text>
           {running ? (

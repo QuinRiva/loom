@@ -30,8 +30,7 @@ export const StagedBriefPreviewCard = memo(function StagedBriefPreviewCard({
   const brief = data?.contents ?? null;
   return (
     <StagedCard
-      badgeLabel="Brief"
-      badgeIcon={<FileTextIcon className="size-3" />}
+      icon={<FileTextIcon />}
       title="Kickoff brief"
       trailing={<span className="shrink-0 text-muted-foreground text-xs">Not launched yet</span>}
       bottomInset={bottomInset}

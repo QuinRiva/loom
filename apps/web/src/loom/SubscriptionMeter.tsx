@@ -241,7 +241,7 @@ function Grid({
   readonly children: ReactNode;
 }) {
   return (
-    <div className={cn("grid grid-cols-[54px_minmax(0,1fr)_50px] items-center gap-x-1", className)}>
+    <div className={cn("grid grid-cols-[60px_minmax(0,1fr)_56px] items-center gap-x-1", className)}>
       {children}
     </div>
   );
@@ -275,7 +275,7 @@ function PopoverWindow({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between text-2xs">
+      <div className="flex items-baseline justify-between text-xs">
         <span className="text-muted-foreground">{name}</span>
         <span className={cn("font-medium tabular-nums", TEXT[toneOf(used)])}>
           {Math.round(used)}% used
@@ -284,8 +284,8 @@ function PopoverWindow({
       <span className="block h-2">
         <PaceBar used={used} elapsed={elapsed} height={5} />
       </span>
-      {reset ? <span className="text-3xs text-muted-foreground">{reset}</span> : null}
-      {note ? <span className={cn("text-3xs", note.className)}>{note.text}</span> : null}
+      {reset ? <span className="text-xs text-muted-foreground">{reset}</span> : null}
+      {note ? <span className={cn("text-xs", note.className)}>{note.text}</span> : null}
     </div>
   );
 }
@@ -309,11 +309,11 @@ function RowPopover({
           {name}
         </span>
         {row.email ? (
-          <span className="truncate text-3xs text-muted-foreground">{row.email}</span>
+          <span className="truncate text-xs text-muted-foreground">{row.email}</span>
         ) : null}
       </div>
       {row.login ? (
-        <span className={cn("text-2xs font-medium", TEXT[loginTone(row) ?? "warning"])}>
+        <span className={cn("text-xs font-medium", TEXT[loginTone(row) ?? "warning"])}>
           {loginAttentionText(row.login, name, now)}
         </span>
       ) : null}
@@ -374,7 +374,7 @@ function RowPopover({
           }
         />
       ))}
-      <span className="border-t border-border/60 pt-2 text-3xs text-muted-foreground">
+      <span className="border-t border-border/60 pt-2 text-xs text-muted-foreground">
         Pin a thread here from the model picker.
       </span>
     </div>
@@ -418,7 +418,7 @@ function AccountRow({
             <Identity row={row} name={name} />
             <span
               className={cn(
-                "truncate text-3xs",
+                "truncate text-2xs",
                 login
                   ? cn("font-medium", TEXT[login])
                   : row.exhausted
@@ -433,14 +433,14 @@ function AccountRow({
           </span>
           <span className="h-3">
             {row.login?.status === "dead" ? (
-              <span className="block truncate text-3xs font-medium text-destructive-foreground">
+              <span className="block truncate text-2xs font-medium text-destructive-foreground">
                 signed out
               </span>
             ) : bar ? (
               <TimeBar bar={bar} axis={pool.axis} now={now} height={4} />
             ) : null}
           </span>
-          <span className="flex items-center justify-end gap-0.75 whitespace-nowrap text-3xs">
+          <span className="flex items-center justify-end gap-0.75 whitespace-nowrap text-2xs">
             {row.login ? (
               <span className={cn("font-medium", TEXT[login ?? "warning"])}>
                 {loginTag(row, now)}
@@ -448,7 +448,7 @@ function AccountRow({
             ) : (
               <>
                 {mark ? (
-                  <span className={cn("text-3xs font-bold", mark.className)}>{mark.glyph}</span>
+                  <span className={cn("text-2xs font-bold", mark.className)}>{mark.glyph}</span>
                 ) : null}
                 <span className="text-muted-foreground">
                   {bar?.resetKnown ? `↻ ${formatCountdown(bar.reset - now)}` : "idle"}
@@ -492,12 +492,12 @@ function PoolBlock({
         <span className="font-medium text-foreground">5-hour</span>
         <span className="text-muted-foreground">{Math.round(pool.pool.used)}%</span>
         <span className="flex-1" />
-        <span className="text-3xs">
+        <span className="text-2xs">
           <ResetText bar={pool.pool} now={now} />
         </span>
       </div>
       <Grid className="h-3">
-        <span className="text-3xs text-muted-foreground">pool</span>
+        <span className="text-2xs text-muted-foreground">pool</span>
         <span className="h-3">
           <TimeBar bar={pool.pool} axis={pool.axis} now={now} height={6} />
         </span>
@@ -505,11 +505,11 @@ function PoolBlock({
       </Grid>
       {pool.carveOut ? (
         <Grid className="mt-0.5 h-3">
-          <span className="truncate text-3xs text-muted-foreground">{pool.carveOut.scope} wk</span>
+          <span className="truncate text-2xs text-muted-foreground">{pool.carveOut.scope} wk</span>
           <span className="h-3">
             <PaceBar used={pool.carveOut.used} elapsed={pool.carveOut.elapsed} height={4} />
           </span>
-          <span className="text-right text-3xs text-muted-foreground tabular-nums">
+          <span className="text-right text-2xs text-muted-foreground tabular-nums">
             {Math.round(pool.carveOut.used)}%
           </span>
         </Grid>
@@ -546,7 +546,7 @@ export const SubscriptionMeterView = memo(function SubscriptionMeterView({
                 type="button"
                 onClick={() => void navigate({ to: "/usage" })}
                 aria-label={notice}
-                className="truncate rounded-sm pb-0.5 text-left text-3xs font-medium leading-tight text-destructive-foreground outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                className="truncate rounded-sm pb-0.5 text-left text-2xs font-medium leading-tight text-destructive-foreground outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
               />
             }
           >
@@ -617,7 +617,7 @@ export function SubscriptionMeterChipView({
               bar ? `: 5-hour ${Math.round(bar.used)}% used` : ""
             }`}
             className={cn(
-              "flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-1.75 text-3xs tabular-nums outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              "flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-1.75 text-2xs tabular-nums outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               pool?.stale && "opacity-50",
             )}
           />

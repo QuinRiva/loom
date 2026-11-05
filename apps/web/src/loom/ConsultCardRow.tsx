@@ -205,6 +205,11 @@ export function ConsultCardView({
   readonly stopping: boolean;
 }) {
   const [showSteps, setShowSteps] = useState(false);
+  // A consult that settled inside a second has no duration worth a figure ("0s").
+  const instant =
+    startedAt !== null &&
+    completedAt !== null &&
+    Date.parse(completedAt) - Date.parse(startedAt) < 1000;
   // The fork is still working: the strip, the running log and Stop.
   const running = status === "waiting" && live !== null && live.endedAt === null;
   const earlier = live === null ? 0 : live.toolCalls - live.recent.length;
@@ -247,7 +252,11 @@ export function ConsultCardView({
           <MessageCircleQuestionMarkIcon className="size-3.5 shrink-0 text-info-foreground" />
           <span className="shrink-0 text-foreground">Consulted</span>
           {/* The chip navigates on click; the card must not also toggle. */}
-          <span className="min-w-0 shrink-0" onClick={(event) => event.stopPropagation()}>
+          {/* Capped so the question keeps most of the line; the chip's label ellipsises. */}
+          <span
+            className="flex min-w-0 max-w-[40%] shrink-0 *:max-w-full"
+            onClick={(event) => event.stopPropagation()}
+          >
             {target}
           </span>
           {!expanded && question ? (
@@ -255,7 +264,7 @@ export function ConsultCardView({
           ) : (
             <span className="flex-1" />
           )}
-          {startedAt ? (
+          {startedAt && !instant ? (
             <>
               {/* A long consult is normal: its total never turns amber, only a stuck step does. */}
               <span className="shrink-0 text-muted-foreground">
@@ -468,6 +477,6 @@ const ANSWER_CLAMP_CHARS = 600;
 
 const STATUS = {
   waiting: { label: "waiting", tone: "text-warning-foreground" },
-  answered: { label: "answered", tone: "text-info-foreground" },
+  answered: { label: "answered", tone: "text-muted-foreground" },
   failed: { label: "failed", tone: "text-destructive-foreground" },
 } as const;

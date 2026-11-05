@@ -15,6 +15,7 @@ import {
 } from "../lib/workstreamPresentation";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { formatCostUsd } from "../loom/costFormat";
+import { StatusDot } from "../loom/StatusDot";
 import { useThreadSpend } from "../loom/threadSpend";
 import { WorkstreamEnvironmentContext } from "../loom/WorkstreamSpendSlot";
 import { Badge } from "./ui/badge";
@@ -73,7 +74,7 @@ export function WorkstreamActiveStrip({
                   <button
                     type="button"
                     onClick={() => onOpenThread(node.id)}
-                    className="flex min-w-[260px] max-w-[300px] flex-col rounded-lg border border-border bg-card px-2.5 py-2 text-left hover:bg-accent"
+                    className="flex min-w-[260px] max-w-full flex-col rounded-lg border border-border bg-card px-2.5 py-2 text-left hover:bg-accent"
                     style={
                       attention
                         ? { borderColor: `color-mix(in srgb, ${color} 45%, transparent)` }
@@ -91,9 +92,10 @@ export function WorkstreamActiveStrip({
                   </span>
                 </span>
                 <span className="mt-1 flex gap-1.5 text-xs leading-snug text-muted-foreground">
-                  <span
-                    className="mt-1 size-1.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: color }}
+                  <StatusDot
+                    className="mt-1"
+                    color={color}
+                    hollow={!attention && COLUMN_STYLES[node.column].hollow}
                   />
                   <span className="min-w-0 flex-1 truncate">
                     {attention ? `${attention.label} · ` : ""}

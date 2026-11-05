@@ -220,7 +220,7 @@ function FileTreeRead({ data, blockId }: PlanBlockReadProps<FileTreeData>) {
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
       {data.title && (
-        <div className="border-b border-border/60 bg-muted/40 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="border-b border-border/60 bg-muted/40 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
           {data.title}
         </div>
       )}

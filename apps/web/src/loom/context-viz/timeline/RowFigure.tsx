@@ -232,7 +232,7 @@ function RowFigureOn({
   return (
     <span className={cn("flex shrink-0 items-center gap-1.5", className)}>
       {item.wholeFile ? (
-        <span className="shrink-0 rounded border border-warning/30 bg-warning/10 px-1.5 text-3xs text-warning-foreground">
+        <span className="shrink-0 rounded border border-warning/30 bg-warning/10 px-1.5 text-2xs text-warning-foreground">
           whole file · {Math.max(1, Math.round(item.chars / 1_000))} KB, no cap
         </span>
       ) : null}

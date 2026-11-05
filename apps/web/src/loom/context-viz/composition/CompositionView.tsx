@@ -38,7 +38,7 @@ function Section({
     <section className="pt-3.5 pb-1">
       <div className="mb-1.5 flex items-baseline gap-2">
         <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
-        <span className="ml-auto flex items-center gap-2 text-3xs text-muted-foreground">
+        <span className="ml-auto flex items-center gap-2 text-2xs text-muted-foreground">
           {aside}
         </span>
       </div>
@@ -160,7 +160,7 @@ export function CompositionView({
             </Tooltip>
           ))}
         </div>
-        <div className="relative mt-1 h-[30px] text-3xs whitespace-nowrap text-muted-foreground">
+        <div className="relative mt-1 h-[30px] text-2xs whitespace-nowrap text-muted-foreground">
           {lens === "tokens" ? (
             <>
               {toolResults ? (
@@ -308,9 +308,9 @@ export function CompositionView({
         <ReclaimRows report={report} window={composition.window} used={used} prices={prices} />
       </Section>
 
-      <p className="mt-2.5 text-3xs text-muted-foreground">
-        <span className="text-warning-foreground">≈</span> estimated split of an exact total (by
-        character share). Every other figure is measured from the provider's per-call usage.
+      <p className="mt-2.5 text-2xs text-muted-foreground">
+        <span>≈</span> estimated split of an exact total (by character share). Every other figure is
+        measured from the provider's per-call usage.
       </p>
     </div>
   );

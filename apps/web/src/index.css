@@ -3159,11 +3159,8 @@ code {
 }
 .plan-column-label {
   margin-bottom: 0.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
   color: var(--muted-foreground);
 }
 .plan-column-body > :first-child {
@@ -3393,45 +3390,35 @@ code {
    and every block that carries a BadgeSpec). Source text stays natural case. */
 .plan-badge {
   display: inline-block;
-  /* The label is all caps, which sit high in a line box sized for descenders:
-     trim the box to cap height so equal padding centres the letters (browsers
-     without text-box get a slightly taller, still-balanced pill). */
-  padding: 0.4em 0.75em;
+  /* Identity text: 12px monospace, sentence case (the first letter raised). */
+  padding: 0.25em 0.625em;
   border: 1px solid color-mix(in srgb, currentcolor 18%, transparent);
   border-radius: 999px;
   font-family: var(--font-mono);
-  font-size: 0.625rem;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  text-box: trim-both cap alphabetic;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25;
   white-space: nowrap;
   vertical-align: middle;
 }
+/* loom: toned text in a toned hairline, no fill: a tint under small text drops it below 4.5:1 on paper. */
 .plan-badge--neutral {
   color: var(--plan-tone-neutral);
-  background: var(--plan-tone-neutral-soft);
 }
 .plan-badge--info {
   color: var(--plan-tone-info);
-  background: var(--plan-tone-info-soft);
 }
 .plan-badge--success {
   color: var(--plan-tone-success);
-  background: var(--plan-tone-success-soft);
 }
 .plan-badge--warning {
   color: var(--plan-tone-warning);
-  background: var(--plan-tone-warning-soft);
 }
 .plan-badge--risk {
   color: var(--plan-tone-risk);
-  background: var(--plan-tone-risk-soft);
 }
 .plan-badge--accent {
   color: var(--plan-tone-accent);
-  background: var(--plan-tone-accent-soft);
 }
 
 /* MDX vocabulary v2: InlineMarkdown (inlineMarkdown.tsx) — links in a string
@@ -3458,11 +3445,8 @@ code {
 }
 .plan-card-eyebrow {
   margin-bottom: 0.375rem;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 .plan-card-head {
   display: flex;
@@ -3606,11 +3590,8 @@ code {
 }
 .plan-stat-label {
   margin-top: 0.375rem;
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
   color: var(--muted-foreground);
 }
 .plan-stat-detail {
@@ -3640,12 +3621,9 @@ code {
   color: var(--plan-callout-tone);
 }
 .plan-callout .plan-callout-title {
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.6;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   color: var(--plan-callout-tone);
 }
 .plan-callout .plan-callout-body {
@@ -3663,11 +3641,8 @@ code {
   padding: 1.125rem 1.375rem;
 }
 .plan-callout--focus .plan-callout-title {
-  font-family: var(--font-mono);
   font-size: 0.8125rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--plan-callout-tone);
 }
 .plan-callout--focus .plan-callout-body {
@@ -3687,11 +3662,8 @@ code {
    (kicker.ts). The title keeps its position under it. */
 .plan-mdx > p.plan-kicker {
   margin: 0 0 0.625rem;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--plan-tone-warning);
 }
 .plan-mdx > .plan-kicker + h1 {
@@ -3993,6 +3965,33 @@ p > .plan-sidenote {
   .messages-timeline-scroll[data-context-scrollbar]::-webkit-scrollbar {
     display: none;
   }
+}
+/* loom: markdown inside a control card (loom/ControlDigestCard.tsx) stays at the card's body
+   size: a heading is bold body text and block gaps tighten, so an excerpt never outranks its card. */
+.loom-card-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0.5rem 0 0.25rem;
+  font-size: inherit;
+}
+.loom-card-markdown :is(p, ul, ol, blockquote, pre) {
+  margin: 0.35rem 0;
+}
+.loom-card-markdown > :first-child {
+  margin-top: 0;
+}
+.loom-card-markdown > :last-child {
+  margin-bottom: 0;
+}
+/* loom: the document renderer's small labels are sentence case (Badge, Card eyebrow, Stat label,
+   Column label, callout titles, kicker): an author's lowercase label still opens with a capital. */
+:is(
+  .plan-badge,
+  .plan-card-eyebrow,
+  .plan-stat-label,
+  .plan-column-label,
+  .plan-callout-title,
+  .plan-kicker
+)::first-letter {
+  text-transform: uppercase;
 }
 /* loom: end of fork-only UI */
 

@@ -298,7 +298,7 @@ export const LOOM_PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         id: `loom-control-handback-${message.loom?.controlPayload?.kind}`,
         title: `${message.loom?.controlPayload?.kind}: handed-back documents`,
         description:
-          'Collapsed, as in a timeline: a row with a report opens it (hover says so) and ↗ opens the thread; the report\'s documents are chips (a one-word name leads with its folder, three then "+n more", a missing one struck through); a row with no report keeps the chevron.',
+          'Collapsed, as in a timeline: a row with a report opens it (hover says so) and ↗ opens the thread; the report\'s documents are chips (a one-word name leads with its folder, three then "+n more", a missing one struck through); a row with no report opens the thread itself, under the same ↗.',
         render: () => (
           <TimelineLayoutFrame>
             <ControlCard loom={message.loom} text={message.text} live />

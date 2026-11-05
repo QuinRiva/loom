@@ -106,6 +106,7 @@ export function WorkstreamTimelineDrawer({
   }, [open, onClose]);
 
   const rows = node ? buildTimelineRows(node, titleOf, history) : [];
+  const actionSlot = rows.some((row) => row.reportPath) ? "w-12" : "w-6";
 
   return (
     <>
@@ -127,20 +128,14 @@ export function WorkstreamTimelineDrawer({
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5">
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs font-semibold text-foreground">
               {node?.title ?? "-"}
             </div>
-            <div className="truncate text-2xs text-muted-foreground">
+            <div className="truncate text-xs text-muted-foreground">
               {node ? getRoleLabel(node) : "sub-thread"} · timeline
             </div>
-            {node ? (
-              <div className="flex flex-wrap gap-x-2 font-mono text-2xs text-muted-foreground">
-                <WorkstreamSpendSlot threadId={node.id} />
-                <LoomContextChip usage={node.contextUsage} />
-              </div>
-            ) : null}
           </div>
           {node?.reportPath ? (
             <Button size="xs" variant="outline" onClick={() => onOpenReport(node.reportPath!)}>
@@ -170,14 +165,22 @@ export function WorkstreamTimelineDrawer({
           >
             <XIcon />
           </Button>
+          {node ? (
+            // Its own full-width line, so the figures never wrap under the buttons.
+            <div className="flex w-full gap-x-2 text-xs whitespace-nowrap text-muted-foreground">
+              <WorkstreamSpendSlot threadId={node.id} />
+              <LoomContextChip usage={node.contextUsage} />
+            </div>
+          ) : null}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           <ol className="flex flex-col">
+            {/* One trailing slot width for every row, so the time column holds its x. */}
             {rows.map((row) => (
               <li
                 key={row.key}
-                className="flex items-start gap-2 border-l border-border py-1.5 pl-3"
+                className="group/row flex items-start gap-2 border-l border-border py-1.5 pl-3"
               >
                 <span
                   className={`-ml-[17px] mt-1 size-2 shrink-0 rounded-full ${TONE_DOT_CLASSES[row.tone]}`}
@@ -191,51 +194,56 @@ export function WorkstreamTimelineDrawer({
                 <Tooltip>
                   <TooltipTrigger
                     render={
-                      <span className="mt-0.5 shrink-0 font-mono text-xs tabular-nums text-muted-foreground" />
+                      <span className="mt-0.5 shrink-0 text-xs tabular-nums text-muted-foreground" />
                     }
                   >
                     {formatRelativeAge(row.at)}
                   </TooltipTrigger>
                   <TooltipPopup>{row.at}</TooltipPopup>
                 </Tooltip>
-                {row.jump ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          size="icon-xs"
-                          variant="ghost"
-                          aria-label="Show me where this happened"
-                          onClick={() => onJump(row.jump!)}
-                        />
-                      }
-                    >
-                      <LocateFixedIcon />
-                    </TooltipTrigger>
-                    <TooltipPopup>
-                      {row.key === "created"
-                        ? "Show where it was dispatched"
-                        : "Show me where this happened"}
-                    </TooltipPopup>
-                  </Tooltip>
-                ) : null}
-                {row.reportPath ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          size="icon-xs"
-                          variant="outline"
-                          aria-label="Open this round's completion report"
-                          onClick={() => onOpenReport(row.reportPath!)}
-                        />
-                      }
-                    >
-                      <FileTextIcon />
-                    </TooltipTrigger>
-                    <TooltipPopup>Open this round&rsquo;s completion report</TooltipPopup>
-                  </Tooltip>
-                ) : null}
+                <span className={`flex shrink-0 justify-end ${actionSlot}`}>
+                  {row.jump ? (
+                    // Shown on row hover or focus, not on every row at rest.
+                    <span className="opacity-0 group-hover/row:opacity-100 focus-within:opacity-100">
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              size="icon-xs"
+                              variant="ghost"
+                              aria-label="Show me where this happened"
+                              onClick={() => onJump(row.jump!)}
+                            />
+                          }
+                        >
+                          <LocateFixedIcon />
+                        </TooltipTrigger>
+                        <TooltipPopup>
+                          {row.key === "created"
+                            ? "Show where it was dispatched"
+                            : "Show me where this happened"}
+                        </TooltipPopup>
+                      </Tooltip>
+                    </span>
+                  ) : null}
+                  {row.reportPath ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="icon-xs"
+                            variant="ghost"
+                            aria-label="Open this round's completion report"
+                            onClick={() => onOpenReport(row.reportPath!)}
+                          />
+                        }
+                      >
+                        <FileTextIcon />
+                      </TooltipTrigger>
+                      <TooltipPopup>Open this round&rsquo;s completion report</TooltipPopup>
+                    </Tooltip>
+                  ) : null}
+                </span>
               </li>
             ))}
           </ol>

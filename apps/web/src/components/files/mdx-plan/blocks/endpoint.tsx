@@ -212,9 +212,7 @@ function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointDa
 
           {params.length > 0 && (
             <div className="px-4 pt-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Parameters
-              </div>
+              <div className="text-xs font-semibold text-muted-foreground">Parameters</div>
               <div className="mt-2 flex flex-col gap-1.5">
                 {params.map((param) => (
                   <div
@@ -255,7 +253,7 @@ function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointDa
 
           {data.request?.example && (
             <div className="px-4 pt-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <div className="text-xs font-semibold text-muted-foreground">
                 Request{data.request.contentType ? ` · ${data.request.contentType}` : ""}
               </div>
               <pre className="mt-1.5 overflow-x-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-2xs text-foreground">
@@ -266,9 +264,7 @@ function EndpointRead({ data, blockId, children }: PlanBlockReadProps<EndpointDa
 
           {responses.length > 0 && (
             <div className="px-4 py-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Responses
-              </div>
+              <div className="text-xs font-semibold text-muted-foreground">Responses</div>
               <div className="mt-2 flex flex-col gap-2">
                 {responses.map((response) => (
                   <div key={`${response.status}-${response.description ?? ""}`}>

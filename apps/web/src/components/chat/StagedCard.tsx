@@ -1,11 +1,8 @@
 import { memo, type ReactNode } from "react";
 
-import { Badge } from "../ui/badge";
-
 interface StagedCardProps {
-  /** Short sentence-case badge label, with an optional leading icon. */
-  readonly badgeLabel: string;
-  readonly badgeIcon?: ReactNode;
+  /** A muted leading glyph; the title alone names the card. */
+  readonly icon: ReactNode;
   readonly title: string;
   /** Optional right-aligned header slot (e.g. a status hint). */
   readonly trailing?: ReactNode;
@@ -22,8 +19,7 @@ interface StagedCardProps {
  * read from disk) and supply any footer actions.
  */
 export const StagedCard = memo(function StagedCard({
-  badgeLabel,
-  badgeIcon,
+  icon,
   title,
   trailing,
   bottomInset,
@@ -32,15 +28,12 @@ export const StagedCard = memo(function StagedCard({
 }: StagedCardProps) {
   return (
     <div
-      className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center overflow-y-auto scrollbar-gutter-both px-4 py-6 sm:py-10"
+      className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center overflow-hidden chat-composer-lane py-6 sm:py-10"
       style={bottomInset ? { paddingBottom: bottomInset + 24 } : undefined}
     >
-      <div className="pointer-events-auto flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+      <div className="pointer-events-auto flex max-h-full w-full max-w-(--chat-content-max-width) flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
         <header className="flex items-center gap-2 border-border/60 border-b px-4 py-3 sm:px-5">
-          <Badge variant="info" size="sm">
-            {badgeIcon}
-            {badgeLabel}
-          </Badge>
+          <span className="shrink-0 text-muted-foreground [&_svg]:size-4">{icon}</span>
           <span className="min-w-0 flex-1 truncate font-medium text-sm">{title}</span>
           {trailing}
         </header>

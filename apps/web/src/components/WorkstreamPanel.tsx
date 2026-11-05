@@ -168,7 +168,11 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
           />
         </div>
         <div className="relative min-h-0 flex-1 overflow-hidden">
-          <div className="h-full overflow-y-auto px-3 py-3">
+          {/* The open drawer overlays the right edge: the strip, graph and legend fit beside it. */}
+          <div
+            className="h-full overflow-y-auto px-3 py-3"
+            style={timelineNode ? { paddingRight: "calc(min(340px, 85%) + 0.75rem)" } : undefined}
+          >
             {rootId === null ? (
               <div className="px-3 py-8 text-center text-sm text-muted-foreground">
                 This thread is not part of a workstream.

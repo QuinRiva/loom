@@ -73,7 +73,8 @@ export function TaskThreadChip({
     // Sized here: InlineButton takes its type size from its parent.
     <span
       className={cn(
-        "ml-1.5 inline-flex max-w-[11rem] translate-y-px align-middle text-xs",
+        // Its own line under the task text, so every chip sits at one x whatever the text's length.
+        "mt-0.5 flex w-fit max-w-full text-xs",
         // Cancelled is not archived: dimmed, never hidden.
         cancelled && "opacity-60 hover:opacity-100",
       )}

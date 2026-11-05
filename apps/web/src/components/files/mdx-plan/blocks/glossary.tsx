@@ -126,9 +126,7 @@ function GlossaryRead({ blockId, children }: PlanBlockReadProps<Record<string, n
       data-plan-block-type="glossary"
       className="plan-inline-md my-6 border-t border-border pt-3 text-sm"
     >
-      <div className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-        Glossary
-      </div>
+      <div className="mb-2 text-xs font-semibold text-muted-foreground">Glossary</div>
       <dl className="grid gap-2">{children}</dl>
     </section>
   );

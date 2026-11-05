@@ -39,7 +39,7 @@ function Row({
         ) : null}
         {flagged ? (
           <span
-            className="rounded px-1 font-sans text-3xs"
+            className="rounded px-1 font-sans text-2xs"
             style={{
               color: paletteInk(CLASS_META[entry.cls].color),
               background: `${CLASS_META[entry.cls].color}22`,
@@ -49,7 +49,7 @@ function Row({
           </span>
         ) : null}
         {entry.item.measured ? null : (
-          <span className="rounded bg-muted px-1 font-sans text-3xs text-muted-foreground">
+          <span className="rounded bg-muted px-1 font-sans text-2xs text-muted-foreground">
             est.
           </span>
         )}

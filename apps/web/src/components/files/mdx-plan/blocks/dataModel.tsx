@@ -388,9 +388,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
 
       {relations.length > 0 && (
         <div className="mt-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Relations
-          </div>
+          <div className="text-xs font-semibold text-muted-foreground">Relations</div>
           <div className="mt-2 flex flex-col gap-1.5">
             {relations.map((relation) => {
               const fromEntity = resolveEntity(entities, relation.from);

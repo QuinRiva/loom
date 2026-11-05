@@ -66,7 +66,8 @@ export function LoomContextChip({ usage }: { readonly usage: LoomContextUsage | 
   const percent = max ? Math.min(100, Math.round((usage.usedTokens / max) * 100)) : null;
   return (
     <span
-      className={`tabular-nums ${percent !== null && percent > 50 ? "text-destructive-foreground" : ""}`}
+      // Red past 90%, the composer's context meter's threshold (ContextWindowMeter).
+      className={`tabular-nums ${percent !== null && percent > 90 ? "text-destructive-foreground" : ""}`}
     >
       context {formatContextWindowTokens(usage.usedTokens)}
       {max ? ` / ${formatContextWindowTokens(max)}` : ""}
