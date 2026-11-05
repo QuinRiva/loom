@@ -8,36 +8,36 @@ manager_sessions:
   - id: 01a1ab0b-6805-7401-b9f5-4fb04ba2efae
     name: Loom UI council recap
     role: recap
-    authored_at: 2026-11-05T09:53:07.000Z
+    authored_at: 2026-11-05T10:40:24.000Z
 ---
 
-# The council's fixes lifted one model's scores and barely moved the other's; most of what is left is yours to decide
+# Two fix rounds took Loom's own surfaces from 5.6 and 4.7 to 6.3 with both models; most of what is left is the graph and your decisions
 
 **Two Claude models (Fable 5.1 and Opus 5.5) scored 14 screens of the app, dark and light, out of 10 in seven categories. Each scored upstream's elements and Loom's separately. A coder fixed what they found on Loom's surfaces, they scored again, and the coder fixed again; a last pass scores without fixing.**
 
 <Table
   density="compact"
-  columns={["Category", "Fable · upstream", "Fable · Loom, round 1", "Fable · round 2", "Fable · round 3", "Opus · upstream", "Opus · Loom, round 1", "Opus · round 2", "Opus · round 3"]}
+  columns={["Category", "Fable · upstream, rounds 1 → 3", "Fable · Loom, round 1", "Fable · round 2", "Fable · round 3 (score only)", "Opus · upstream, rounds 1 → 3", "Opus · Loom, round 1", "Opus · round 2", "Opus · round 3 (score only)"]}
   align={["left", "center", "center", "center", "center", "center", "center", "center", "center"]}
   rows={[
-    ["Typography", "8", "5", "5", "…", "8", "4", "6", "…"],
-    ["Hierarchy", "8", "6", "6", "…", "7 → 8", "5", "7", "…"],
-    ["Spacing and density", "8 → 7", "5", "5", "…", "8", "5", "6", "…"],
-    ["Colour and contrast", "8 → 7", "5", "6", "…", "7", "4", "6", "…"],
-    ["Iconography", "8", "6", "6", "…", "8 → 7", "6", "7", "…"],
-    ["Consistency and polish", "8", "6", "6", "…", "8", "5", "6", "…"],
-    ["Clarity", "8", "6", "6", "…", "8", "4", "5", "…"],
-    [{ "md": "**Loom mean**" }, "", { "md": "**5.6**" }, { "md": "**5.7**" }, "…", "", { "md": "**4.7**" }, { "md": "**6.1**" }, "…"],
-    [{ "md": "**Within a point of upstream**" }, "", { "md": "0 of 7" }, { "md": "1 of 7" }, "…", "", { "md": "0 of 7" }, { "md": "3 of 7" }, "…"],
+    ["Typography", "8", "5", "5", "6", "8", "4", "6", "6"],
+    ["Hierarchy", "8", "6", "6", "7", "7 → 8 → 8", "5", "7", "7"],
+    ["Spacing and density", "8 → 7 → 8", "5", "5", "6", "8", "5", "6", "6"],
+    ["Colour and contrast", "8 → 7 → 8", "5", "6", "6", "7 → 7 → 8", "4", "6", "6"],
+    ["Iconography", "8 → 8 → 9", "6", "6", "7", "8 → 7 → 7", "6", "7", "7"],
+    ["Consistency and polish", "8", "6", "6", "6", "8", "5", "6", "6"],
+    ["Clarity", "8", "6", "6", "6", "8", "4", "5", "6"],
+    [{ "md": "**Loom mean**" }, "", { "md": "**5.6**" }, { "md": "**5.7**" }, { "md": "**6.3**" }, "", { "md": "**4.7**" }, { "md": "**6.1**" }, { "md": "**6.3**" }],
+    [{ "md": "**Within a point of upstream**" }, "", { "md": "0 of 7" }, { "md": "1 of 7" }, { "md": "1 of 7" }, "", { "md": "0 of 7" }, { "md": "3 of 7" }, { "md": "2 of 7" }],
   ]}
 />
 
 A round 4 column, score only, follows once semantic zoom is in this PR.
 
-Opus rose in every category after round 1's fixes; Fable moved only on colour, and both still put Loom one to three points under upstream in most categories. What both lead with in every round is the graph at fit-to-view and the kickoff bubble's bracketed first line. You have decided the graph gets semantic zoom in this PR; the kickoff line is decision 3 in §3.
+The two models now agree cell for cell, and both put Loom's own surfaces at 6.3 against about 8 for upstream. The control cards, chips and panels no longer lead their must-fix lists. What still leads both is the graph at fit-to-view, which you decided to fix with semantic zoom in this PR, and findings that need your decision in §3.
 
 <Callout focus title="What it means now">
-  The fixes touched only Loom's own files. Below is the screen you see most, the Digest card on your orchestrator thread, before and after round 1. §1 has the rest of round 1 and §2 round 2. §3 records your graph decision and holds **19 more findings that need you**, each with a recommendation; one left undecided takes its recommendation. Every image is dark mode. The light-mode contrast check after each round found no Loom text under 4.5:1; the faintest is 4.62, as before the council.
+  The fixes touched only Loom's own files. Below is the screen you see most, the Digest card on your orchestrator thread, before and after round 1. §1 has the rest of round 1 and §2 round 2. §3 records your graph decision and holds **22 more findings that need you**, each with a recommendation; one left undecided takes its recommendation. Every image is dark mode. The light-mode contrast check after each round found no Loom text under 4.5:1; the faintest is 4.62, as before the council.
 </Callout>
 
 <Columns>
@@ -168,7 +168,7 @@ The coder worked through 16 items, all in Loom's own files. One needed nothing: 
 
 ## 2. Round 2
 
-The coder built 13 of the 14 items in full, again only in Loom's files. The link colour was built in part: the teal file chips in chat prose are upstream's and are card 20 in §3. One follow-up commit after round 2 put "Blocked" back as the word for a thread waiting on a dependency, after round 2 had renamed it "waiting". Before images are round 2's capture, after images the final one.
+The coder built 13 of the 14 items in full, again only in Loom's files. The link colour was built in part: the teal file chips in chat prose are upstream's and are card 23 in §3. One follow-up commit after round 2 put "Blocked" back as the word for a thread waiting on a dependency, after round 2 had renamed it "waiting". Before images are round 2's capture, after images the final one.
 
 <Columns>
   <Column label="Before">
@@ -202,7 +202,7 @@ The coder built 13 of the 14 items in full, again only in Loom's files. The link
     <Image src="shots/r2-03-consult-before.png" alt="Two consult pills with the question in brackets cut short, a truncated thread link, and teal links" caption="Before: the two consult cards on the done coder 'Add config loader', dark, enlarged twice" />
   </Column>
   <Column label="After">
-    <Image src="shots/r2-03-consult-after.png" alt="Two consult cards with a header line and the question on its own line in full, the whole thread link, and blue links" caption="After: the same cards. The 'Scroll to end' pill over the second card is upstream's (card 19)" />
+    <Image src="shots/r2-03-consult-after.png" alt="Two consult cards with a header line and the question on its own line in full, the whole thread link, and blue links" caption="After: the same cards. The 'Scroll to end' pill over the second card is upstream's (card 22)" />
   </Column>
 </Columns>
 
@@ -282,6 +282,8 @@ Each card below is a finding that was not built. Either it changes what a surfac
 
 One finding was rejected outright and is not a card. Opus 5.5 (round 2) asked for role words, model text, the rollup badge and the "settled" chip in sans instead of monospace. Your intent brief's Decided line already settles that: "Monospace at 12px, no border, sentence case; roles as plain text". A further handful were the test workstream's own text (a title like "Survey checkpoint refs: Survey checkpoint refs"), not the app's.
 
+One more is a slip, not a decision: Fable 5.1 (round 3) saw that the legend's review-loop swatch is blue while the loop edges are orange. Round 2's legend rebuild caused it, and it is fixed with the semantic-zoom work.
+
 <Table
   filterable
   density="compact"
@@ -304,9 +306,12 @@ One finding was rejected outright and is not a card. Opus 5.5 (round 2) asked fo
     ["15", "The magenta \"an agent started this\" rail", "both models, round 2", { "badge": { "label": "keep", "tone": "neutral" } }],
     ["16", "\"Dead\" in the Digest's neutral tone", "Opus, round 2", { "badge": { "label": "keep", "tone": "neutral" } }],
     ["17", "A tool name in a notification's text", "Opus, round 2", { "badge": { "label": "keep", "tone": "neutral" } }],
-    ["18", "Upstream: contrast", "both models, contrast check", { "badge": { "label": "leave", "tone": "neutral" } }],
-    ["19", "Upstream: layout", "both models", { "badge": { "label": "leave", "tone": "neutral" } }],
-    ["20", "Upstream: words and icons", "both models", { "badge": { "label": "leave", "tone": "neutral" } }],
+    ["18", "Digest rows with no role look like the row above", "both models, round 3", { "badge": { "label": "accept", "tone": "info" } }],
+    ["19", "\"Finished · done\" when kind and status agree", "both models, round 3", { "badge": { "label": "accept", "tone": "info" } }],
+    ["20", "The meter's fixed 128px footer", "both models, round 3", { "badge": { "label": "keep", "tone": "neutral" } }],
+    ["21", "Upstream: contrast", "both models, contrast check", { "badge": { "label": "leave", "tone": "neutral" } }],
+    ["22", "Upstream: layout", "both models", { "badge": { "label": "leave", "tone": "neutral" } }],
+    ["23", "Upstream: words and icons", "both models", { "badge": { "label": "leave", "tone": "neutral" } }],
   ]}
 />
 
@@ -631,11 +636,69 @@ One finding was rejected outright and is not a card. Opus 5.5 (round 2) asked fo
   <ReviewChoice itemId="notify-text" label="17 · Keep the notification wording" />
 </Card>
 
+<Card eyebrow="18 · Digest" heading="In the Digest, rows without a role leave the role column blank, so they read as the role of the row above. Put a placeholder there?" tone="info" badge="recommend: accept" meta={["both models, round 3", "Loom file", "keeps round 1's alignment"]}>
+  **Recommended: accept, with a muted placeholder in the blank role cell.** Round 1 reserved the column so every title starts at one x. A placeholder keeps that and stops a blank reading as "same as above"; dropping the column would bring back the two starting points round 1 fixed.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Detail"]}
+    rows={[
+      ["Screen", "Orchestrator thread, Digest expanded (the §2 Digest pair shows it)"],
+      ["Opus 5.5, round 3", "\"'reviewer' labels 'Review the parser', and the next four rows … have a blank role cell, so they read as reviewer rows even though they are coders and a lead.\""],
+      ["Fable 5.1, round 3", "\"the blank gutter reads as 'also reviewer'. Label every row or drop the gutter.\""],
+      ["Why the cells are blank", "Those four items carry no role at all in the test workstream's data. How often real digests mix rows with and without a role is not recorded."],
+      ["Why not built", "Raised in the score-only round, after the last fixes"],
+    ]}
+  />
+
+  **If accepted:** a row with no role shows a muted dash in the role column, in `apps/web/src/loom/ControlDigestCard.tsx`. **If nothing is decided:** accepted.
+
+  <ReviewChoice itemId="role-gutter" label="18 · Placeholder for a missing role" />
+</Card>
+
+<Card eyebrow="19 · Digest" heading={"A Digest row reads \"Finished · done\" when its kind and status say the same thing, and the doubling cuts titles short. Show one word when they agree?"} tone="info" badge="recommend: accept" meta={["both models, round 3", "Loom file", "narrows part of round 1"]}>
+  **Recommended: accept.** Round 1 split kind and status into two facts, which helps when they differ. When they agree, the second word only costs the title its width.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Detail"]}
+    rows={[
+      ["Screen", "Orchestrator thread, Digest expanded"],
+      ["Opus 5.5, round 3", "\"'Finished · done' and 'Gate resolved · clean' say the same thing twice, and the doubled status truncates the title ('Gate resolved (clea…'). Use one status word.\""],
+      ["Fable 5.1, round 3", "\"the status column steals width from the sentence it duplicates.\""],
+      ["Why not built", "Round 1 kept both facts on purpose: kind and status are different fields"],
+    ]}
+  />
+
+  **If accepted:** when the status repeats the kind, the row shows the kind alone ("Finished"), in `apps/web/src/loom/ControlDigestCard.tsx`; rows where they differ keep both. **If nothing is decided:** accepted.
+
+  <ReviewChoice itemId="doubled-status" label="19 · One word when kind and status agree" />
+</Card>
+
+<Card eyebrow="20 · Usage meter" heading="The usage meter's rows sit 12px apart because its footer is fixed at 128px. Let the footer grow?" tone="neutral" badge="recommend: keep" meta={["both models, round 3", "your meter design", "takes height from above it"]}>
+  **Recommended: keep 128px.** Its text is already 12px, and the fixed height is part of the meter design you approved, `plans/usage-meter-redesign`. A taller footer takes its height from whatever sits above it.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Detail"]}
+    rows={[
+      ["Screen", "Usage meter, preview harness (the §2 meter pair shows it)"],
+      ["Opus 5.5, round 3", "\"Rows sit at about 12px pitch … It needs at least 16–18px rows and a visible time-axis cue, or it reads as noise.\""],
+      ["Fable 5.1, round 3", "\"the densest text in the set; the compact chip's 'F' is a single-letter label with no cue\""],
+      ["Why not built", "The row pitch is bounded by the footer's fixed height in the meter's own design"],
+    ]}
+  />
+
+  **If accepted** (that is, keep): nothing changes. **Reject** means the footer grows to give 16 to 18px rows, roughly 170px tall. **If nothing is decided:** kept.
+
+  <ReviewChoice itemId="meter-footer" label="20 · Keep the 128px footer" />
+</Card>
+
 ### New: upstream surfaces
 
 Each of these is a finding about upstream's own elements. Fixing any of them is a Loom hunk in an upstream file, so each card is the same question: is this worth a merge conflict at every weekly pull?
 
-<Card eyebrow="18 · Upstream contrast" heading="Seven upstream text elements measure under 4.5:1 in light mode. Patch them in Loom?" tone="neutral" badge="recommend: leave" meta={["contrast check, both rounds", "upstream files", "seven hunks"]}>
+<Card eyebrow="21 · Upstream contrast" heading="Seven upstream text elements measure under 4.5:1 in light mode. Patch them in Loom?" tone="neutral" badge="recommend: leave" meta={["contrast check, both rounds", "upstream files", "seven hunks"]}>
   **Recommended: leave them.** None is text you read to act; patching all seven is seven hunks in upstream files, each a weekly conflict, for text upstream will likely fix itself.
 
   <Table
@@ -654,10 +717,10 @@ Each of these is a finding about upstream's own elements. Fixing any of them is 
 
   **If accepted** (that is, leave): nothing changes. **Reject** means darkening each in a marked Loom hunk. **If nothing is decided:** left.
 
-  <ReviewChoice itemId="upstream-contrast" label="18 · Leave upstream contrast" />
+  <ReviewChoice itemId="upstream-contrast" label="21 · Leave upstream contrast" />
 </Card>
 
-<Card eyebrow="19 · Upstream layout" heading="Six upstream layout findings. Patch any of them in Loom?" tone="neutral" badge="recommend: leave" meta={["both models", "upstream files"]}>
+<Card eyebrow="22 · Upstream layout" heading="Six upstream layout findings. Patch any of them in Loom?" tone="neutral" badge="recommend: leave" meta={["both models", "upstream files"]}>
   **Recommended: leave them.** Each is small and upstream's to fix; the one that matters most to Loom, the empty-state line under the staged card, is its own card (5).
 
   <Table
@@ -675,10 +738,10 @@ Each of these is a finding about upstream's own elements. Fixing any of them is 
 
   **If accepted** (that is, leave): nothing changes. **Reject**, with the rows you want in the note, means a marked hunk for each. **If nothing is decided:** left.
 
-  <ReviewChoice itemId="upstream-layout" label="19 · Leave upstream layout" />
+  <ReviewChoice itemId="upstream-layout" label="22 · Leave upstream layout" />
 </Card>
 
-<Card eyebrow="20 · Upstream words and icons" heading="Five upstream wording and icon findings. Patch any of them in Loom?" tone="neutral" badge="recommend: leave" meta={["both models", "upstream files"]}>
+<Card eyebrow="23 · Upstream words and icons" heading="Five upstream wording and icon findings. Patch any of them in Loom?" tone="neutral" badge="recommend: leave" meta={["both models", "upstream files"]}>
   **Recommended: leave them.** All are upstream's own choices; "SnapShots" is a one-word fix worth reporting upstream rather than carrying.
 
   <Table
@@ -695,7 +758,7 @@ Each of these is a finding about upstream's own elements. Fixing any of them is 
 
   **If accepted** (that is, leave): nothing changes. **Reject**, with the rows you want in the note, means a marked hunk for each. **If nothing is decided:** left.
 
-  <ReviewChoice itemId="upstream-words" label="20 · Leave upstream words and icons" />
+  <ReviewChoice itemId="upstream-words" label="23 · Leave upstream words and icons" />
 </Card>
 
 ## Anything to undo?
