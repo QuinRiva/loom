@@ -147,6 +147,21 @@ function detailOf(scale: number): Detail {
   };
 }
 
+// Text fits are memoised by (text, width, size): a pan or zoom re-renders every card, and an
+// unchanged label must cost no canvas measuring. Bounded by clearing; fonts loading late clear too.
+const FIT_CACHE_MAX = 4000;
+const widthCache = new Map<string, number>();
+const fitCache = new Map<string, string | null>();
+const wrapCache = new Map<string, ReadonlyArray<string>>();
+function memo<T>(cache: Map<string, T>, key: string, compute: () => T): T {
+  const hit = cache.get(key);
+  if (hit !== undefined) return hit;
+  if (cache.size >= FIT_CACHE_MAX) cache.clear();
+  const value = compute();
+  cache.set(key, value);
+  return value;
+}
+
 let measureCtx: CanvasRenderingContext2D | null | undefined;
 let measureFamily = "";
 /** A label's rendered width in px in the app's UI face (a 0.6em estimate without canvas). */
@@ -154,42 +169,52 @@ function labelWidth(text: string, px: number, weight: number) {
   if (measureCtx === undefined) {
     measureCtx = document.createElement("canvas").getContext("2d");
     measureFamily = getComputedStyle(document.body).fontFamily;
+    document.fonts?.addEventListener("loadingdone", () => {
+      for (const cache of [widthCache, fitCache, wrapCache]) cache.clear();
+    });
   }
-  if (!measureCtx) return text.length * px * 0.6;
-  measureCtx.font = `${weight} ${px}px ${measureFamily}`;
-  return measureCtx.measureText(text).width;
+  const ctx = measureCtx;
+  if (!ctx) return text.length * px * 0.6;
+  return memo(widthCache, `${weight}|${px}|${text}`, () => {
+    ctx.font = `${weight} ${px}px ${measureFamily}`;
+    return ctx.measureText(text).width;
+  });
 }
 
 /** `text` whole if it fits `maxPx`, else its longest prefix with an ellipsis, else null. */
 function fitLabel(text: string, maxPx: number, px: number, weight = 400): string | null {
-  if (labelWidth(text, px, weight) <= maxPx) return text;
-  let lo = 0;
-  let hi = text.length - 1;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    if (labelWidth(`${text.slice(0, mid).trimEnd()}…`, px, weight) <= maxPx) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo === 0 ? null : `${text.slice(0, lo).trimEnd()}…`;
+  return memo(fitCache, `${weight}|${px}|${maxPx}|${text}`, () => {
+    if (labelWidth(text, px, weight) <= maxPx) return text;
+    let lo = 0;
+    let hi = text.length - 1;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (labelWidth(`${text.slice(0, mid).trimEnd()}…`, px, weight) <= maxPx) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo === 0 ? null : `${text.slice(0, lo).trimEnd()}…`;
+  });
 }
 
 /** Word-wraps `text` into at most `maxLines` lines of `maxPx`; the last line truncates. */
 function wrapToWidth(text: string, maxPx: number, px: number, weight: number, maxLines: number) {
-  const words = text.split(/\s+/);
-  const lines: string[] = [];
-  let next = 0;
-  while (next < words.length && lines.length < maxLines - 1) {
-    let line = words[next]!;
-    let end = next + 1;
-    while (end < words.length && labelWidth(`${line} ${words[end]}`, px, weight) <= maxPx)
-      line += ` ${words[end++]}`;
-    if (labelWidth(line, px, weight) > maxPx) break;
-    lines.push(line);
-    next = end;
-  }
-  const last =
-    next < words.length ? fitLabel(words.slice(next).join(" "), maxPx, px, weight) : null;
-  return last ? [...lines, last] : lines;
+  return memo(wrapCache, `${weight}|${px}|${maxPx}|${maxLines}|${text}`, () => {
+    const words = text.split(/\s+/);
+    const lines: string[] = [];
+    let next = 0;
+    while (next < words.length && lines.length < maxLines - 1) {
+      let line = words[next]!;
+      let end = next + 1;
+      while (end < words.length && labelWidth(`${line} ${words[end]}`, px, weight) <= maxPx)
+        line += ` ${words[end++]}`;
+      if (labelWidth(line, px, weight) > maxPx) break;
+      lines.push(line);
+      next = end;
+    }
+    const last =
+      next < words.length ? fitLabel(words.slice(next).join(" "), maxPx, px, weight) : null;
+    return last ? [...lines, last] : lines;
+  });
 }
 
 /**
