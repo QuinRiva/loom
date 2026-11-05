@@ -3,7 +3,7 @@ import { memo, type ReactNode } from "react";
 import { Badge } from "../ui/badge";
 
 interface StagedCardProps {
-  /** Short uppercase badge label, with an optional leading icon. */
+  /** Short sentence-case badge label, with an optional leading icon. */
   readonly badgeLabel: string;
   readonly badgeIcon?: ReactNode;
   readonly title: string;
@@ -35,7 +35,7 @@ export const StagedCard = memo(function StagedCard({
       className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center overflow-y-auto scrollbar-gutter-both px-4 py-6 sm:py-10"
       style={bottomInset ? { paddingBottom: bottomInset + 24 } : undefined}
     >
-      <div className="pointer-events-auto flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
+      <div className="pointer-events-auto flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
         <header className="flex items-center gap-2 border-border/60 border-b px-4 py-3 sm:px-5">
           <Badge variant="info" size="sm">
             {badgeIcon}

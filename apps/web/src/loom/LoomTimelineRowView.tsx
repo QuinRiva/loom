@@ -25,33 +25,37 @@ export const HANDOFF_FAILURE_REASON =
 
 const STATE: Record<
   LoomReceiptState,
-  { kicker: string; icon: typeof GitBranchIcon; box: string; tone: string }
+  { kicker: string; icon: typeof GitBranchIcon; border: string; tone: string }
 > = {
   waiting: {
     kicker: "Handing off",
     icon: HourglassIcon,
-    box: "border-l-info/65 bg-info/5",
-    tone: "text-info-foreground",
+    border: "border-border/80",
+    tone: "text-muted-foreground",
   },
   drafting: {
     kicker: "Handing off",
     icon: HourglassIcon,
-    box: "border-l-info/65 bg-info/5",
-    tone: "text-info-foreground",
+    border: "border-border/80",
+    tone: "text-muted-foreground",
   },
+  // Only the state the user must act on keeps colour.
   failed: {
     kicker: "Handoff needs you",
     icon: TriangleAlertIcon,
-    box: "border-l-warning bg-warning/8",
+    border: "border-warning/50",
     tone: "text-warning-foreground",
   },
   "handed-off": {
     kicker: "Handed off",
     icon: GitBranchIcon,
-    box: "border-l-success/55 bg-success/5",
-    tone: "text-success-foreground",
+    border: "border-border/80",
+    tone: "text-muted-foreground",
   },
 };
+
+const RECEIPT_FRAME =
+  "flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border bg-card/70 px-3 py-2 text-xs leading-5 text-muted-foreground";
 
 /** Context-free (the preview mounts it directly). */
 export function LoomTimelineRowView({
@@ -69,18 +73,9 @@ export function LoomTimelineRowView({
       aria-label={state.kicker}
       data-loom-handoff={row.state}
     >
-      <div
-        className={cn(
-          "flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-l-2 border-border px-2.5 py-1.5 text-xs leading-5 text-muted-foreground",
-          state.box,
-        )}
-      >
+      <div className={cn(RECEIPT_FRAME, state.border)}>
         <Icon className={cn("size-3.5 shrink-0", state.tone)} />
-        <span
-          className={cn("shrink-0 text-3xs font-semibold tracking-widest uppercase", state.tone)}
-        >
-          {state.kicker}
-        </span>
+        <span className={cn("shrink-0 font-medium", state.tone)}>{state.kicker}</span>
         {row.state === "waiting" ? (
           <span>The drafter starts when this turn finishes</span>
         ) : row.state === "drafting" ? (
@@ -97,9 +92,7 @@ export function LoomTimelineRowView({
                 environmentId={environmentId}
               />
             </span>
-            {destination.state ? (
-              <span className="shrink-0 text-3xs tracking-wide uppercase">{destination.state}</span>
-            ) : null}
+            {destination.state ? <span className="shrink-0">{destination.state}</span> : null}
           </span>
         ))}
         {/* Every live drafter, not only a failed one: a hung kickoff flags the source and still reads "drafting". */}
@@ -114,7 +107,7 @@ export function LoomTimelineRowView({
         ) : null}
         {row.explanation ? (
           <span className="flex basis-full items-start gap-1.5">
-            <span className="min-w-0 flex-1 font-medium wrap-break-word text-foreground/85">
+            <span className="min-w-0 flex-1 font-medium wrap-break-word text-foreground">
               {row.explanation}
             </span>
             <MessageCopyButton text={row.explanation} size="icon-xs" variant="ghost" />
@@ -135,11 +128,9 @@ export function LoomPromotionRowView({
 }) {
   return (
     <section className="-mx-1 min-w-0 px-1 py-0.5" aria-label="Promoted" data-loom-promotion="">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-l-2 border-border border-l-success/55 bg-success/5 px-2.5 py-1.5 text-xs leading-5 text-muted-foreground">
-        <MessageSquareShareIcon className="size-3.5 shrink-0 text-success-foreground" />
-        <span className="shrink-0 text-3xs font-semibold tracking-widest text-success-foreground uppercase">
-          Promoted
-        </span>
+      <div className={cn(RECEIPT_FRAME, "border-border/80")}>
+        <MessageSquareShareIcon className="size-3.5 shrink-0" />
+        <span className="shrink-0 font-medium">Promoted</span>
         {/* `chat-markdown` gives the mention its in-chat link look. */}
         <span className="chat-markdown min-w-0">
           Comment waiting in the composer of{" "}
