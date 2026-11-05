@@ -79,7 +79,9 @@ export const quiescenceCandidate = (input: {
   )
     return false;
   const lastRun = latestUnheldRun(input.runs);
-  if (lastRun?.completedAt == null) return false;
+  // An interrupted run was stopped on purpose (a stop button, `workstream_stop`, `t3_thread_interrupt`):
+  // its stopper knows. A restart leaves `cancelled` and a provider death `failed`, still watched.
+  if (lastRun?.completedAt == null || lastRun.status === "interrupted") return false;
   // A failure the liveness sweep still owes its one resume is not quiet, whatever the grace: the
   // parent hears of it only if the resumed turn fails too (the sweep's `error` raise).
   if (awaitsErrorResume(input.shell, ws, input.runs)) return false;
@@ -96,11 +98,13 @@ export const quiescenceCandidate = (input: {
     return false;
   const humanStarted = turnStartedByHuman(input.runs, input.userMessages);
   const graceMs = humanStarted ? input.grace.humanStartedMs : input.grace.controlStartedMs;
-  // The grace runs from the later of the run's end and the record's last change (DL-680/682): past
-  // a run's end only a human or the parent touches it — a reopen, a flag clear, a re-plan.
+  // The grace runs from the latest of: the run's end; the record's last change (DL-680/682: past a
+  // run's end only a human or the parent touches it); and a child's settle, whose wake is still on
+  // its way when the live-child exemption above lapses.
   const quietSince = Math.max(
     DateTime.toEpochMillis(lastRun.completedAt),
     Date.parse(ws.updatedAt),
+    ...input.children.map((child) => (child.outcomeAt === null ? 0 : Date.parse(child.outcomeAt))),
   );
   return graceMs !== null && DateTime.toEpochMillis(input.now) - quietSince >= graceMs;
 };
