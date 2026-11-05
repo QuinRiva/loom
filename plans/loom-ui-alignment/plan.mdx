@@ -1,0 +1,528 @@
+---
+reader:
+  who: the gate reviewer judging this plan against the approved intent brief, then the six coders and the council orchestrator who build from it without having read the audit or this thread
+  knows: the intent brief beside this file and the Loom web app as a user; not the audit report, the redesign PRs, or the files named here
+  after_first_screen: that the work is six parallel restyle units behind one reviewer, then a three-round two-model council run by a new design-council skill, and which three bets the plan makes
+kicker: "Implementation plan · draft for the gate · 5 Nov 2026"
+status: approved
+intent: plans/loom-ui-alignment/intent.mdx
+manager_sessions:
+  - id: 01a1a9ef-5763-7114-94a5-74c34b3d4136
+    name: Loom UI alignment plan
+    role: plan
+    authored_at: 2026-11-05T04:46:48.081Z
+---
+
+# Restyle Loom's surfaces in upstream's idiom, then run a two-model design council over the whole app
+
+Six coder units restyle the three groups the audit found clearly off and sweep the nine slightly off. Each owns its own files, so all six run in parallel behind one reviewer gate. Then a new `design-council` skill in this repo runs Fable 5.1 and Opus 5.5 over **14 named screens in dark and light**, three rounds at most, with one coder fixing Loom-surface findings between rounds. Three bets. Control cards take their colour from the **notice kind**, neutral unless Carl must act, derived in one Loom file so mobile stays untouched. The document renderer's hex palette is **re-pointed at upstream's status tokens**, violet folded into the brand blue, surface tint kept. The council scores **Loom and upstream elements separately on every screenshot**, so "within a point of upstream" is a number read off a table. Cost: about a working day of wall time for the restyle, then two to four hours of agent time per council round.
+
+<Stats
+  items={[
+    { value: "6", label: "Coder units", tone: "info", detail: "No two touch the same file; one reviewer gates all six" },
+    { value: "≈120", label: "Class sites swept", tone: "neutral", detail: "≈25 uppercase kickers, ≈80 ten-pixel labels, 6 raw status dots, 8 CSS declarations" },
+    { value: "14 × 2", label: "Council screens", tone: "info", detail: "Fixed list, dark and light, same names every round" },
+    { value: "≤ 3", label: "Rounds", tone: "warning", detail: "Two scorers and one coder per round; stop early when scores plateau" },
+  ]}
+/>
+
+<Columns>
+  <Column label="Before">
+    <Screen
+      surface="panel"
+      caption="Every control card is green whatever it says; chips are bordered 10px monospace; the kicker is uppercase"
+      html={'<div style="display:flex;flex-direction:column;gap:10px;padding:14px;height:100%"><div style="border:1.4px solid var(--wf-ok);background:color-mix(in srgb,var(--wf-ok) 8%,transparent);border-radius:8px"><div style="display:flex;align-items:center;gap:8px;padding:8px 10px;white-space:nowrap"><span style="color:var(--wf-ok)">&#9993;</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis">FYI digest: nothing below is blocked on you.</span><small style="color:var(--wf-ok);letter-spacing:.08em;font-size:10px">DIGEST</small><small>&#8964;</small></div><div style="border-top:1.4px solid var(--wf-ok);padding:6px 10px;display:flex;flex-direction:column;gap:6px"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span style="border:1.4px solid var(--wf-ok);color:var(--wf-ok);border-radius:4px;padding:0 5px;font-size:10px">coder</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis"><strong>Add config loader</strong>: Completed</span><small style="letter-spacing:.08em;font-size:10px">FINISHED</small></div><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span style="border:1.4px solid var(--wf-ok);color:var(--wf-ok);border-radius:4px;padding:0 5px;font-size:10px">reviewer</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis"><strong>Review the parser</strong>: Gate resolved (clean)</span><small style="letter-spacing:.08em;font-size:10px">GATE RESOLVED</small></div></div></div><div style="border:1.4px solid var(--wf-ok);background:color-mix(in srgb,var(--wf-ok) 8%,transparent);border-radius:8px"><div style="display:flex;align-items:center;gap:8px;padding:8px 10px;white-space:nowrap"><span style="color:var(--wf-ok)">&#9993;</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis">Your children cannot make progress</span><small style="color:var(--wf-ok);letter-spacing:.08em;font-size:10px">DEADLOCK</small><small>&#8964;</small></div></div></div>'}
+    />
+  </Column>
+  <Column label="After">
+    <Screen
+      surface="panel"
+      caption="Neutral 16px cards; channel as icon plus word; roles as plain text; only the deadlock card carries colour"
+      html={'<div style="display:flex;flex-direction:column;gap:10px;padding:14px;height:100%"><div class="wf-card" style="padding:0;border-radius:16px"><div style="display:flex;align-items:center;gap:8px;padding:8px 12px;white-space:nowrap"><span class="wf-muted">&#9993;</span><span class="wf-muted">Digest</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis">FYI digest: nothing below is blocked on you.</span><small>&#8964;</small></div><div style="border-top:1.4px solid var(--wf-line);padding:6px 12px;display:flex;flex-direction:column;gap:6px"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="wf-muted" style="font-size:12px">coder</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis"><strong>Add config loader</strong><span class="wf-muted">: Completed</span></span><small>finished</small></div><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="wf-muted" style="font-size:12px">reviewer</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis"><strong>Review the parser</strong><span class="wf-muted">: Gate resolved (clean)</span></span><small>gate resolved</small></div></div></div><div class="wf-card" style="padding:0;border-radius:16px;border-color:var(--wf-warn)"><div style="display:flex;align-items:center;gap:8px;padding:8px 12px;white-space:nowrap"><span style="color:var(--wf-warn)">&#9993;</span><span style="color:var(--wf-warn)">Deadlock</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis">Your children cannot make progress</span><small>&#8964;</small></div></div></div>'}
+    />
+  </Column>
+</Columns>
+
+**What it means.** In scope: the web app's Loom-only surfaces and a reusable council skill. The surfaces are the control cards and the bubbles that carry kickoffs and steers, handoff receipts, the consult card, the staged card, the MDX document renderer's CSS, the workstream panel, the sidebar rollup badge, the goal panel's thread list, the graph, and a small-type sweep across the rest. Out of scope, as the brief says: changing what any surface shows or where it lives, mobile, upstream files beyond their existing `// loom:` hunks, a Loom theme. Done means three things. Every line of the brief's "you'll know it works when" passes on the seeded dev instance in both themes. The light-mode contrast check reports no metadata under 4.5:1. The council's final round has every Loom category within a point of upstream for both scorers, or three rounds have run. Four questions are open at the end: how a card that needs Carl shows it, whether the document renderer's own small caps labels join the sweep, whether the restyle ships as its own PR before the council, and one that is Carl's alone because it touches a Not-doing line: whether a large graph may open panned to its root so its labels are readable.
+
+## 1. The rules, and how far each surface is from them
+
+The redesign's rules, as the current `apps/web/src/index.css` and `apps/web/src/components/ui` state them, against what the Loom surfaces do today. Every step in §2 to §6 applies one or more rows of this table; a coder who meets a case the steps do not name applies the row.
+
+<Table
+  density="compact"
+  columns={["Rule", "Upstream today", "Loom today", "What changes"]}
+  rows={[
+    ["**Colour means status**", "`success`, `warning`, `info`, `destructive` tokens on state; brand blue `--primary` on actions; raw palette never", "Colour marks the *channel*: every control-plane card green, every inter-thread card blue; status dots in raw `bg-amber-400`", "Severity from the notice kind (§2); channel as icon plus word; dots onto tokens (§4)"],
+    ["**Large surfaces are 16px**", "`rounded-2xl` on `ProposedPlanCard`, the composer, the command palette; `--radius` is 0.5rem", "Cards at `rounded-lg` 8px; MDX cards hard-code `0.625rem`, the pre-redesign `--radius`", "Timeline cards to `rounded-2xl`; MDX radii onto `var(--radius-xl)` (§3)"],
+    ["**No tinted fill on neutral cards**", "`border-border/80 bg-card/70`; the guest bubble is the one tinted message surface", "`border-success/25 bg-success/[0.06]` and the info twin", "Neutral frame; a toned border only on a card Carl must act on (§2)"],
+    ["**Small text is 12px, sentence case**", "`text-xs font-normal text-secondary-label` sidebar metadata; `text-xs font-medium` section headers; no uppercase kickers in chrome", "`text-3xs` (10px) and `text-2xs` (11px) `uppercase tracking-wide` kickers, 43 sites", "Kickers to `text-xs` sentence case; figures may stay small where upstream's do (§4, §6)"],
+    ["**One dim level**", "`text-muted-foreground` or `text-secondary-label`, no stacked alpha", "`text-muted-foreground/60`, `/70`, `/45`, `text-foreground/82`", "Metadata at full token colour; the 2.7:1 light-mode case becomes 4.8:1 (§7)"],
+    ["**Inline code is a borderless pill**", "`border: 1px solid transparent; radius .25rem; background color-mix(contrast-foreground 10%); font-size .85em`", "`.plan-mdx :not(pre) > code`: `1px solid var(--border); .375rem; var(--muted); .75rem`, the removed pre-redesign chat rule", "Chat rules copied verbatim (§3)"],
+    ["**Identity is text, not a capsule**", "PR badge: toned icon plus `text-secondary-label` text, no border (`ThreadStatusIndicators.tsx`)", "Role chips `rounded border font-mono text-3xs`; model pill `rounded-full border`; rollup badge `rounded-full border`", "12px monospace, no border, no uppercase; roles as plain words (§4)"],
+  ]}
+/>
+
+Two earlier plans set the looks this one replaces, and neither is superseded by it. `plans/sidebar-workstream-badge/plan.mdx` chose the bordered rollup capsule; `plans/mdx-vocabulary-v2/plan.mdx` chose the hex tone palette and the monospace uppercase badge. Both are `done`, and this plan changes one styling decision of each, which the brief's Decided lines authorise. A third, `plans/usage-meter-redesign/plan.mdx`, fixed the sidebar meter's footer at 128px in every state, and §6 honours that.
+
+## 2. Control cards, bubbles, consult and handoff receipts
+
+Three Loom files and the two `// loom:` hunks in one upstream file render everything that arrives from the control plane or another thread. Today their colour says which channel a message came from; after this section it says whether Carl has to do anything.
+
+<Callout tone="decision" title="Severity comes from the notice kind, in controlMessages.ts only">
+`controlCardModel` in `apps/web/src/loom/controlMessages.ts` already switches on `payload.kind` and `payload.notice` to pick a label. It gains one more derived field, `severity: "neutral" | "warning" | "destructive"`, from the table below, and `CHANNEL_CLASSES` (six Tailwind strings per channel) is replaced by `CHANNEL_ICONS` (an icon and a word per channel) plus `SEVERITY_CLASSES` (a border and a text colour per severity). The shared `controlBubble.ts` in `packages/client-runtime`, which mobile also imports, does not change: it still says who is talking, and the web decides how loud. The alternative, a `severity` field on the wire payload, would be the right long-term home but touches `packages/contracts`, the server emitters and mobile for a purely visual call, and the brief says mobile is untouched.
+</Callout>
+
+<Table
+  density="compact"
+  columns={["Notice or card", "Who sends it, when", "Severity", "Why"]}
+  rows={[
+    ["`digest`, `yield`", "The dispatcher, when children finish or hand back", { badge: { label: "neutral", tone: "neutral" } }, "Information; the orchestrator reads it on its own"],
+    ["`yield` with `synthesised`", "The dispatcher reconstructed a report because the child went quiet", { badge: { label: "neutral", tone: "neutral" } }, "The marker (`went quiet; report synthesised`) becomes a `Badge size=\"sm\" variant=\"warning\"`; the card itself stays neutral since the orchestrator, not Carl, acts first"],
+    ["`notify`", "A sibling via `mcp__t3-code__notify_thread`", { badge: { label: "neutral", tone: "neutral" } }, "Inter-thread, no human action implied"],
+    ["`stall-nudge`", "`WorkstreamLivenessSweep.ts` when a turn has frozen", { badge: { label: "neutral", tone: "neutral" } }, "Addressed to the agent, which answers it"],
+    ["`gate-reverify`", "`gateLegs.ts` when coders finish a rework round", { badge: { label: "neutral", tone: "neutral" } }, "A machine step in the review loop"],
+    { tone: "warning", cells: ["`gate-rework`", "`gateLegs.ts` when a reviewer loops findings back", { badge: { label: "warning", tone: "warning" } }, "Rework requested: Carl named it as a card he must notice"] },
+    ["`brief-needed`", "`rails.ts` when children wait unbriefed, at 1 h, 6 h and daily", { badge: { label: "neutral", tone: "neutral" } }, "A reminder to the orchestrator, which writes the brief; Carl's rule is colour only when *he* must act"],
+    { tone: "warning", cells: ["`attention`", "`rails.ts` when a child raises `needs_guidance` or an error", { badge: { label: "warning", tone: "warning" } }, "A human is being asked for"] },
+    { tone: "risk", cells: ["`deadlock`", "`rails.ts` when every unsettled child waits on another", { badge: { label: "destructive", tone: "risk" } }, "Nothing will move without intervention"] },
+    ["Raw fallbacks (`Control plane`, `Thread notification`, `Control message`)", "Unknown payload or bulky payload-less notice", { badge: { label: "neutral", tone: "neutral" } }, "The card cannot know what it holds"],
+  ]}
+/>
+
+**Steps, in order, for the unit "Control cards and bubbles"** (files: `controlMessages.ts`, `ControlDigestCard.tsx`, `ConsultCardRow.tsx`, the `// loom:` hunks of `components/chat/TimelineUserMessageRow.tsx`; `controlMessages.test.ts` changes only if removing `CHANNEL_CLASSES` breaks an import there):
+
+1. **Model.** In `controlMessages.ts`, add `severity` to the `card` and `raw` members of `ControlCardModel`, a `NOTICE_SEVERITY: Record<LoomControlNoticeKind, Severity>` table matching the rows above, and `channel` kept as is. Replace `CHANNEL_CLASSES` with `CHANNEL_ICONS: Record<ControlChannel, { icon: LucideIcon; word: string }>` (`InboxIcon` and "Control plane"; `MessagesSquareIcon` and "Thread") and `SEVERITY_CLASSES: Record<Severity, { border: string; text: string }>` (`border-border/80` and `text-muted-foreground`; `border-warning/50` and `text-warning-foreground`; `border-destructive/50` and `text-destructive-foreground`). No test for the table: `Record<LoomControlNoticeKind, Severity>` makes the compiler reject a missing kind, and a case per row would only restate the row.
+2. **Card frame.** In `ControlDigestCard.tsx`, the outer `div` becomes `rounded-2xl border bg-card/70` plus `SEVERITY_CLASSES[severity].border`, the frame `ProposedPlanCard` uses. The header button mirrors upstream's `FoldedMessageHeader` order (icon, label word, summary, chevron) at `text-xs`: the channel icon at `size-3.5` and the label (`Digest`, `Rework round`) both in the severity text colour, the summary in `text-foreground`, the chevron `text-muted-foreground`. The kicker's `tracking-wide uppercase` goes. The synthesised marker becomes `<Badge size="sm" variant="warning">`.
+3. **Items.** `item.role` renders as a plain word, `font-mono text-xs text-muted-foreground`, before the sender; the bordered chip and `classes.chip` go. The kind label keeps the lower-case wording `ITEM_KIND_LABELS` already holds (`finished`, `gate resolved`) and, with the status, becomes `text-xs text-muted-foreground` with the CSS `uppercase` removed; sender stays `font-medium text-foreground`; dividers become `border-border/60`; the `text-foreground/82`, `/75` and `text-muted-foreground/60`, `/70`, `/80` dims become the plain tokens. "Open report" stays hover-revealed but in `text-xs text-muted-foreground`.
+4. **Document chips.** `ReportDocumentChips` drops its hand-rolled `rounded border font-mono text-3xs` class and `chipClass` prop for `<Badge variant="outline" render={<button type="button" />}>` on an openable document, `<Badge variant="outline">` struck through and inert on a missing one, and the "+n more" chip as `<InlineButton tone="muted">`. The existence check, tooltip and open behaviour do not change.
+5. **Raw payload toggle.** "Show raw payload" becomes `<InlineButton tone="muted">` in sentence case at `text-xs`; the `pre` keeps `font-mono text-2xs` (a code surface, not metadata).
+6. **Bubbles.** In `TimelineUserMessageRow.tsx`, the loom hunk that adds `CHANNEL_CLASSES[channel].bubble` to the user bubble is removed, so a kickoff brief or orchestrator steer sits on the neutral `bg-message` surface like any message. The loom hunk that draws the uppercase kicker inside the bubble moves to the slot upstream uses for `Sent by T3 Code` (the `p` with `data-user-message-attribution`), as the channel icon plus `loomBubble.label` in `text-2xs text-muted-foreground`, no alpha. `MessageAuthorHeading` keeps the label for screen readers as it does today. Every hunk keeps its `// loom:` mark.
+7. **Consult card.** In `ConsultCardRow.tsx`, the frame `rounded-lg border border-info/25 bg-info/6` becomes the same neutral `rounded-2xl border border-border/80 bg-card/70`; `hover:bg-info/10` becomes `hover:bg-foreground/[0.06]`; the question `blockquote` border `border-info/40` becomes `border-border`; the `STATUS` words lose `tracking-wide uppercase` and their `/80` alpha, keeping their tones (waiting warning, answered info, failed destructive) since those are states. The `MessageCircleQuestionMarkIcon` stays `text-info-foreground` as the one mark of the consult channel, mirroring the control cards' icon-plus-word.
+
+**Steps for the unit "Handoff receipts and staged card"** (files: `LoomTimelineRowView.tsx`, `components/chat/StagedCard.tsx`):
+
+1. In `LoomTimelineRowView.tsx`, the `STATE` table's `box` strings and the `border-l-2` stripe go. <Sidenote>Today: `border-l-info/65 bg-info/5`, `border-l-warning bg-warning/8`, `border-l-success/55 bg-success/5`.</Sidenote> The receipt is `rounded-2xl border border-border/80 bg-card/70 px-3 py-2 text-xs`, the `FoldedMessageHeader` footprint. Only `failed`, the "Handoff needs you" row, keeps colour: `border-warning/50`, icon and kicker `text-warning-foreground`. `waiting`, `drafting` and `handed-off` icons and kickers are `text-muted-foreground`. Kickers drop `text-3xs font-semibold tracking-widest uppercase` for `text-xs font-medium`; the destination state word such as `staged` drops `uppercase` for `text-xs text-muted-foreground`.
+2. `LoomPromotionRowView` takes the same neutral frame; its icon and "Promoted" kicker are `text-muted-foreground`.
+3. `StagedCard.tsx`: `rounded-xl` becomes `rounded-2xl`, since it is a large surface like `ProposedPlanCard`. The doc comment "Short uppercase badge label" and any caller passing an uppercase `badgeLabel` move to sentence case, `Staged`. The `Badge variant="info" size="sm"` stays: it is a `components/ui` export used as designed.
+
+Nothing in this section loses a fact a card carries today: the channel is the icon and the word, the role is the plain word, the status and kind labels remain, and the `data-control-card`, `data-consult-card` and `data-loom-handoff` attributes stay for the contrast check and the tests.
+
+## 3. The document renderer's CSS
+
+One file, `apps/web/src/index.css`, lines 2661 to 3980, the fork-only `loom:` block. The unit "Document renderer CSS" owns the whole file for the duration so no other unit edits it. Eight declarations and one palette change:
+
+<FieldDiff
+  title="Inline code and code blocks: the chat rules, copied"
+  beforeLabel="Today: the three MDX inline-code rules"
+  afterLabel="After: identical to .chat-markdown :not(pre) > code"
+  fields={[
+    { name: "border", before: "1px solid var(--border)", after: "1px solid transparent" },
+    { name: "border-radius", before: "0.375rem", after: "0.25rem" },
+    { name: "background", before: "var(--muted)", after: "color-mix(in srgb, var(--contrast-foreground) 10%, transparent)" },
+    { name: "padding", before: "0.1rem 0.35rem (0.05rem 0.3rem in .plan-inline-md)", after: "0.1em 0.35em" },
+    { name: "color", before: "var(--foreground)", after: "var(--contrast-foreground)" },
+    { name: "font-size", before: "0.75rem (fixed 12px inside 15px prose)", after: "0.85em" },
+    { name: "box-decoration-break", before: null, after: "clone" },
+  ]}
+/>
+
+<FieldDiff
+  title="Code blocks and the old radius"
+  beforeLabel="Today"
+  afterLabel="After"
+  fields={[
+    { name: ".plan-mdx pre / .prose-plan pre border", before: "1px solid var(--border)", after: "1px solid var(--contrast-border)" },
+    { name: ".plan-mdx pre / .prose-plan pre border-radius", before: "0.75rem", after: "0.5rem", note: "The chat value; a nested <Code> block styles its own pre and is excluded by the existing :not([data-plan-block-type] *)" },
+    { name: ".plan-card border-radius", before: "0.625rem", after: "var(--radius-xl)", note: "12px, the same step the MDX <Table> already uses (rounded-xl)" },
+    { name: ".plan-stat border-radius", before: "0.625rem", after: "var(--radius-xl)" },
+    { name: ".plan-callout border-radius", before: "0.625rem", after: "var(--radius-xl)" },
+    { name: ".plan-callout--focus border-radius", before: "0 0.625rem 0.625rem 0", after: "0 var(--radius-xl) var(--radius-xl) 0" },
+  ]}
+/>
+
+`.plan-surface` already recomputes the `--contrast-*` tokens for its own tinted background (the `:root, [data-app-sidebar], .plan-surface` rule at line 1602), so the copied chat rule reads correctly on the paper and navy surfaces without a second set of values. The tint itself, `--plan-surface` and its raised and sunken companions, does not change: Carl's Decided line keeps it.
+
+<Callout tone="decision" title="The tone palette moves onto upstream's tokens; violet becomes the brand blue">
+The `:root` block at line 3312 sets `--plan-tone-info: #1d4ed8` and five more hex values, with a dark variant of each. They become `var(--info-foreground)`, `var(--success-foreground)`, `var(--warning-foreground)`, `var(--error-foreground)` for `risk`, and `var(--primary)` for `accent`; the dark `@variant` block goes, since the tokens already carry their dark values. The `-soft` companions keep their `color-mix` form over the new bases. The `accent` tone name stays in `tones.ts` and in every document that uses it (a decision callout, an `accent` badge, a `tone-accent` diagram node); only its colour changes, from violet to the blue upstream puts on primary actions and the `accent` section-header tone. That blue sits close to `info` (blue-700 light, blue-400 dark), so a diagram or badge row using both tones will no longer tell them apart by hue; the Decided line authorises this, and a decision callout is still named "Decision" with a bulb icon, so no meaning rides on the hue. The alternative, keeping violet as a seventh colour, was rejected by the brief: "move the tone palette (violet included) onto upstream's tokens".
+</Callout>
+
+The comment above that block records why the palette was hex: on a wide-gamut display Tailwind's oklch tones "render past sRGB and read as over-saturated beside the text". That concern now applies to the whole app, whose status tokens are those oklch values, and Carl took the app as the baseline. The coder deletes the comment with the values; §7 names the check on Carl's display.
+
+Not in this unit, on purpose: `.plan-badge`, `.plan-card-eyebrow`, `.plan-callout-title` and `.plan-stat-label` are monospace uppercase by the document vocabulary's own design. <Sidenote>`plans/mdx-vocabulary-v2/plan.mdx`, the Badge and Card sections.</Sidenote> The brief's checks for the document surface name only inline code and code blocks. Whether they join the sweep is the second question at the end; the council will see them either way.
+
+## 4. Identity chips, panel headings and the goal panel
+
+Carl's line: "Monospace at 12px, no border, sentence case; roles as plain text". The unit "Identity chips and panel headings" owns `WorkstreamActiveStrip.tsx`, `WorkstreamModelPill.tsx`, `LoomRollupBadge.tsx`, `GoalThreadsSection.tsx`, `WorkstreamTimeline.tsx`, `loom/CacheHoverBlock.tsx`, `loom/TaskThreadChips.tsx` and the preview file `preview/loomPreviewGroups.tsx`. It reuses upstream's PR badge idiom in `ThreadStatusIndicators.tsx` (a toned `size-3` icon beside `text-xs tabular-nums text-secondary-label` text, no frame, rendered through `InlineButton`) and upstream's in-panel heading `text-sm font-medium text-foreground`.
+
+<Table
+  density="compact"
+  columns={["Element", "Today", "After", "Reuses"]}
+  rows={[
+    ["Sidebar rollup badge `4/9 · 1!` (`LoomRollupPill`)", "`rounded-full border px-1.5 font-mono text-3xs` with `TONE_CLASS` on border and text", "`font-mono text-xs tabular-nums`, no border or padding; the `NetworkIcon` and the `· 1!` suffix take the tone (`text-warning-foreground`, `text-error`, `text-info`, muted for done and waiting); `4/9` is `text-secondary-label`", "The PR badge's icon-plus-text pattern; `Popover` unchanged"],
+    ["Rollup popover rows", "`text-3xs` labels, `text-3xs text-muted-foreground` empty line", "`text-xs`; reasons keep their tones", "Popover unchanged"],
+    ["Model pill (`WorkstreamModelPill`)", "`rounded-full border` with a per-provider tinted border and fill, `font-mono text-3xs`", "`font-mono text-xs text-muted-foreground`, no border or fill; the provider tint dot stays (one meaning: which provider)", "`Tooltip` unchanged"],
+    ["Role avatar in the active strip", "`size-[26px] rounded-lg border font-mono text-4xs uppercase` showing `COD`", "Gone. The role is a plain `font-mono text-xs text-muted-foreground` word (`coder`) leading the card's third line, before the model; the status dot keeps the colour", "Card frame `rounded-lg border-border bg-card` unchanged (status-coloured border on an attention card is meaningful, kept)"],
+    ["\"ACTIVE NOW\" heading", "`text-2xs font-semibold uppercase tracking-widest text-muted-foreground`", "`text-sm font-medium text-foreground`, \"Active now\", the `Badge size=\"sm\"` counts beside it unchanged", "Upstream's in-panel `h3` idiom (`settingsLayout.tsx`, `UsageShareBar.tsx`)"],
+    ["Strip card metadata", "`text-3xs` age, `text-2xs` activity, `text-3xs` stats", "Age and stats `text-xs text-muted-foreground tabular-nums`; activity line `text-xs`; the card's `min-w` grows to fit, checked in the `Workstream` preview group", ""],
+    ["\"THREADS\" heading (`GoalThreadsSection`)", "`text-3xs tracking-wider uppercase text-muted-foreground/70`; count in a bordered pill; \"handoff order\" at `/60`", "`text-sm font-medium text-foreground` \"Threads\"; count as `<Badge size=\"sm\" variant=\"outline\">`; \"handoff order\" `text-xs text-muted-foreground`", "`Badge` as `WorkstreamPanel.tsx` already uses it"],
+    ["Goal thread status chip", "`rounded-full border` pill with `bg-amber-400`, `bg-violet-400`, `bg-emerald-400`, `bg-zinc-500`, `bg-red-400`, `bg-blue-400` dots; mixed case labels", "No pill: a `size-1.5 rounded-full` dot plus the label `resolveChip` already produces, in `text-xs text-muted-foreground` and sentence-cased only (`Approval`, `Input`, every `attentionLabel`, and a workstream outcome verbatim, so `needs_human` still reads as itself). Dots onto tokens, mirroring today's mapping: error attention and failed `bg-destructive`; other attention, approval and input `bg-warning`; working and waiting `bg-info`; staged `bg-primary`; an outcome `bg-success`; ready `bg-muted-foreground`", "Tokens only; `resolveChip` keeps its precedence order and its labels"],
+    ["Timeline drawer \"GATE · ⟲ 1/2\" kicker (`WorkstreamTimeline.tsx`)", "`text-3xs font-semibold uppercase tracking-widest`", "`text-xs font-medium text-muted-foreground` \"Gate · ⟲ 1/2\"; the `font-mono text-3xs` timestamps become `text-xs`", ""],
+    ["\"PROMPT CACHE\" kicker (`CacheHoverBlock.tsx`)", "`text-2xs tracking-wide uppercase`", "`text-xs font-medium` \"Prompt cache\"", ""],
+    ["Task thread chips (`TaskThreadChips.tsx`)", "`rounded-full border border-border/60 text-3xs`", "`text-xs text-muted-foreground`, no border; hover underline through `InlineButton tone=\"muted\"`", "`InlineButton`"],
+  ]}
+/>
+
+This unit also adds one `/preview` fixture, "Goal threads section", to `loomPreviewGroups.tsx` under the existing "Loom goal tasks panel" group, with one row per chip state, because the audit could only judge this component live and the council needs a screenshot of every state. It is the only unit that edits `preview/*`; every other unit has a fixture already (the "Loom control cards" group carries one notice per kind, the seed carries a synthesised yield).
+
+## 5. Graph labels readable at fit-to-view
+
+`WorkstreamGraph.tsx` letterboxes the whole graph into the panel (`preserveAspectRatio="xMidYMid meet"` on a `viewBox` from `computeForkJoinViewBox`), so a nine-node workstream renders its 11px titles at about 7px and its 8px strip labels at about 5px. The unit "Graph legibility" owns `WorkstreamGraph.tsx` and `lib/forkJoinLayout.ts`:
+
+1. **Type up one step.** Node title `fontSize="11"` to `12`, strip label and state word `8` to `9.5`, satellite and bridge text `9` to `10`, the gate pill `8.5` to `9.5`. `NODE_H` (74, in `forkJoinLayout.ts`) and `STRIP_H` (20, in `WorkstreamGraph.tsx`) grow by the same ratio so two title lines still fit; `wrapLabel(node.title, 24, 2)` becomes 22 characters per line at the wider glyphs. `forkJoinLayout.test.ts` carries the geometry.
+2. **Fit-to-view stays whole.** The type step alone takes the nine-node seed graph's titles from about 7px to about 8px at fit-to-view (its fit scale is about 0.64), which is better and still small. A floor on the fit scale would open a large graph readable but panned to its root with some nodes off-screen, which changes what the panel shows on open and so sits under the brief's "Not doing". It is the fourth question at the end, for Carl, not a step; nothing in this unit depends on the answer.
+3. The strip's `letterSpacing="0.06em"` and the uppercase `getNodeStripLabel` output such as `CODER` stay: the graph is a diagram, and its own legend uses the same case. The council can say otherwise.
+
+## 6. The sweep: what a blind replace would break
+
+The remaining `text-3xs`, `text-2xs`, `uppercase` and `/NN` sites outside the units above belong to the unit "Small-type sweep", which owns `loom/SubscriptionMeter.tsx`, `loom/context-viz/**`, `loom/DeployToastCoordinator.tsx` and `loom/pendingUserInputLoom.tsx`. The rules, in precedence order:
+
+1. A **label or kicker** (a word naming what the row is: `LOOM TOOLING`, `BIGGEST STEP`, the deploy toast's uppercase line) becomes `text-xs` sentence case, `font-medium` where it headed a block.
+2. A **figure** (a count, a percentage, a duration, a file size) may stay at `text-2xs` or `text-3xs tabular-nums` where upstream's own figures do (`ChangedFilesTree.tsx`, `contextChipParts.tsx` show the pattern), but never below 4.5:1 in light mode: `text-muted-foreground/45` becomes `text-muted-foreground`.
+3. A **chart or figure drawn in SVG** keeps its sizes; the `strokeWidth` sites are all chart strokes and are untouched, as the audit confirmed.
+
+Three surfaces need eyes rather than a replace:
+
+<Columns>
+  <Card heading="Subscription meter" tone="warning" badge="dims only">
+    `SubscriptionMeter.tsx` has 14 `text-3xs` sites inside a footer the usage-meter plan fixed at **128px in every state**. Lifting any size reflows it. This unit changes only the five `text-muted-foreground/45` dims to the full token and leaves sizes; it screenshots the "Danger" fixture in the `/preview` group before and after and asserts the footer is still 128px. Anything more goes to the council as a finding with that constraint stated.
+  </Card>
+  <Card heading="Context-viz rows" tone="warning" badge="labels only">
+    `CompositionRows.tsx` (8 sites), `BiggestStep.tsx`, `FindingsList.tsx`: the uppercase eyebrows (`BIGGEST STEP`, the class names) become sentence case `text-xs`; the monospace row labels and figures stay, since they align columns of numbers. The hex chart palettes in `series.ts` and `model.ts` stay: categorical colour, one meaning each, as the brief assumes.
+  </Card>
+  <Card heading="Active strip and graph" tone="info" badge="own units">
+    Already covered in §4 and §5; listed here so the sweep unit does not touch them.
+  </Card>
+</Columns>
+
+## 7. How the six units run, and the gate
+
+<Table
+  density="compact"
+  columns={["Unit", "Owns (no other unit edits these)", "Preview fixture group", "Size"]}
+  rows={[
+    ["Control cards and bubbles", "`loom/controlMessages.ts`, `loom/ControlDigestCard.tsx`, `loom/ConsultCardRow.tsx`, `components/chat/TimelineUserMessageRow.tsx` (loom hunks only)", "Loom control cards; Loom consult card; the seed's root thread", "2–3 h"],
+    ["Handoff receipts and staged card", "`loom/LoomTimelineRowView.tsx`, `components/chat/StagedCard.tsx`", "Loom timeline rows; the seed's staged root", "1 h"],
+    ["Document renderer CSS", "`index.css` (the whole file, for the duration)", "MDX plan document (every fixture)", "1–2 h"],
+    ["Identity chips and panel headings", "`components/WorkstreamActiveStrip.tsx`, `components/WorkstreamModelPill.tsx`, `loom/LoomRollupBadge.tsx`, `loom/GoalThreadsSection.tsx`, `components/WorkstreamTimeline.tsx`, `loom/CacheHoverBlock.tsx`, `loom/TaskThreadChips.tsx`, `preview/loomPreviewGroups.tsx`", "Workstream (sidebar badge, strip, timeline); Loom goal tasks panel", "2–3 h"],
+    ["Graph legibility", "`components/WorkstreamGraph.tsx`, `lib/forkJoinLayout.ts`, `lib/forkJoinLayout.test.ts`", "Workstream (graph fixtures)", "2 h"],
+    ["Small-type sweep", "`loom/SubscriptionMeter.tsx`, `loom/context-viz/**`, `loom/DeployToastCoordinator.tsx`, `loom/pendingUserInputLoom.tsx`", "Subscription meter; Context viz", "1–2 h"],
+  ]}
+/>
+
+All six start at once on one feature branch in this worktree; the file ownership above is what keeps them from colliding, and `WorkstreamActiveStrip.tsx` importing `WorkstreamModelPill.tsx` is why both sit in one unit. Each coder's definition of done: its preview fixtures look right in both themes (set `localStorage["t3code:theme"]` to `light` and reload, since the harness has no toggle), `vp run check:changed` passes, and every hunk in a file that also exists upstream carries `// loom:`. One reviewer thread gates all six (`gate.rework` naming the six, `maxRounds: 2`), judging each unit against the brief's checks and this plan, running `vp check`, `vp run typecheck` and `docs/upstream-sync/pull7-tools/unmarkedsweep.sh`, and fixing a one-line miss inline rather than looping a unit for it. After the gate resolves, one capture thread runs the dev-verify recipe for the brief's end-to-end checks (§9); those screenshots are also the council's round-one input.
+
+<Mermaid
+  caption="Six units in parallel, one gate, then the live pass whose screenshots open the council"
+  source={`flowchart LR
+  A[Control cards<br/>and bubbles] --> G{Reviewer gate<br/>max 2 rounds}
+  B[Handoff receipts<br/>and staged card] --> G
+  C[Document<br/>renderer CSS] --> G
+  D[Identity chips and<br/>panel headings] --> G
+  E[Graph legibility] --> G
+  F[Small-type sweep] --> G
+  G --> H[Capture: dev-verify pass,<br/>contrast check, 14 screens × 2]
+  H --> I[Council round 1]
+  classDef gate fill:#7c5a00,color:#fff
+  class G gate`}
+  legend={[{ tone: "warning", label: "The one loop in Part A" }]}
+/>
+
+Read left to right: nothing waits on anything except the gate, and the capture step is the seam between the restyle and the council.
+
+## 8. The design council
+
+Theo's `council` skill convenes three flagship models from three providers, scores a PR out of 10 per round, fixes, re-scores, and puts a rounds table in the PR description. Carl has one provider, so the brief names Fable 5.1 and Opus 5.5, keeps his seven-category rubric, caps it at three rounds, and widens the scope to "anything" while bounding what gets built. This section is the contract a later child writes `.agents/skills/design-council/SKILL.md` from, with the `llm-instruction-change` skill loaded; the author needs no further decisions.
+
+### 8.1 Where it lives and what it is for
+
+`.agents/skills/design-council/SKILL.md`, beside `test-t3-app` and `contribution-triage`, plus `.agents/skills/design-council/scorer-brief.md`, the verbatim text every scorer receives so rounds are comparable. The name is `design-council`, not `council`, so a later upstream pull of Theo's skill cannot shadow it. Trigger: Carl or an orchestrator says "run the design council" or "design council". The skill is read by the thread that will orchestrate the loop; it never scores anything itself.
+
+### 8.2 The rubric
+
+Seven categories, each scored 0 to 10 twice per screenshot set: once for the **upstream elements** and once for the **Loom elements**, as the screen manifest labels them. One line each, taken into the skill as written:
+
+<Table
+  density="compact"
+  columns={["Category", "What a 10 means here"]}
+  rows={[
+    ["Typography", "One scale, sizes and weights that signal hierarchy, nothing under 11px that must be read, no stray families or casing"],
+    ["Hierarchy", "The eye lands on the most important thing first on every screen; secondary and tertiary information recede in that order"],
+    ["Spacing and density", "Even rhythm, aligned edges, dense where the user scans and airy where they read; nothing cramped or stranded"],
+    ["Colour and contrast", "Colour appears only where it carries meaning and the same meaning everywhere; every text meets 4.5:1; dark and light are equally resolved"],
+    ["Iconography", "One icon family at one stroke, sized to its text, each icon meaning one thing"],
+    ["Consistency and polish", "The same element looks the same everywhere; radii, borders and hover states from one system; no leftovers from an older design"],
+    ["Clarity", "A first-time viewer can say what each element is and what state it is in without a tooltip"],
+  ]}
+/>
+
+Scoring is absolute against those lines, never relative to a previous round. A scorer thread is spawned fresh each round and is told nothing of earlier scores. That is how the skill guards against the inflation Theo saw when an app was scored only against its previous self.
+
+### 8.3 The screen list
+
+Fixed, named, captured in dark and light every round at a 1440 × 900 viewport, into `.artifacts/loom-ui-council/round-<n>/<screen>-<dark|light>.png`. A `round-<n>/manifest.md` beside them lists each screen's Loom and upstream elements. Twelve come from the seeded dev instance of the dev-verify recipe in `docs/dev-site-testing.md`; its seed carries one control card per notice kind, a synthesised yield, consults, a staged root and a stored `needs_guidance`. Two come from the `/preview` harness, because the seed has no hub data or pi session.
+
+<Table
+  density="compact"
+  filterable
+  columns={["Screen", "Source", "Loom elements scored", "Upstream elements scored"]}
+  rows={[
+    ["`sidebar-home`", "Dev instance, first project", "Rollup badges, cache fuel rings, agent-started rail", "Thread rows, PR badge, section headers, search"],
+    ["`orchestrator-thread`", "Dev instance, the seed root", "Control cards (digest, every notice), kickoff bubble", "Composer, timeline chrome, title bar"],
+    ["`orchestrator-thread-expanded`", "Same, digest expanded", "Items, excerpts, document chips, raw payload toggle", "Markdown prose inside the excerpt"],
+    ["`child-thread`", "Dev instance, the done coder", "Kickoff bubble, consult card (answered), handoff receipt, lineage breadcrumb, tabs strip", "Assistant turn, tool rows"],
+    ["`workstream-panel`", "Right panel on the root", "Active strip, model text, graph at fit-to-view, legend", "Panel tabs, panel title row"],
+    ["`workstream-timeline-drawer`", "Graph node middle-click", "Timeline drawer, quick facts on hover", "Panel frame"],
+    ["`goal-panel`", "Goal panel on the root", "Task tree, Threads section, task thread chips", "Panel frame"],
+    ["`plan-document`", "An `.mdx` plan opened in the file panel", "Cards, stats, callout, table, inline code, code block, badges", "File panel chrome"],
+    ["`plan-document-review`", "Same, scrolled to the question form", "Question form, annotation pins, sidenote", "File panel chrome"],
+    ["`staged-root`", "The held root", "Staged kickoff card, brief preview", "Composer"],
+    ["`settings-general`", "Settings › General", "Loom rows (auto-open, context-viz)", "Every other row; the settings layout"],
+    ["`command-palette`", "⌘K on any thread", "None (a calibration screen)", "The palette"],
+    ["`context-viz`", "`/preview`, Context viz group", "Composition, growth, timeline figures", "None"],
+    ["`subscription-meter`", "`/preview`, Subscription meter \"Danger\" fixture", "The meter and its chip", "None"],
+  ]}
+/>
+
+`command-palette` carries no Loom element on purpose: it anchors what a 10 looks like in this app, which is the cheapest calibration available before a competitor screenshot is needed.
+
+### 8.4 The loop
+
+<Steps>
+  <Step at="Round n · 1" title="Capture" badge={{ label: "capture thread · Sonnet", tone: "neutral" }}>
+    One capture thread, spawned once and re-prompted each round with "capture round 2" and so on, keeps a seeded dev instance up and stops it at the end by the PID it recorded. It takes the 28 images and writes the manifest. Then it performs the cheap gate Theo put before his expensive models: every file exists and is not blank, the theme matches the name, and each named Loom element is visible. A failed check is fixed before anything expensive runs.
+  </Step>
+  <Step at="Round n · 2" title="Score" badge={{ label: "two scorers in parallel", tone: "info" }}>
+    Two fresh `reviewer` threads via `workstream_spawn` with explicit `modelSelection`: `{ instanceId: "pi", model: "cliproxy/claude-fable-5-1" }` and `{ instanceId: "pi", model: "cliproxy/claude-opus-5-5" }`, both `thorough`, both told the work is read-only. Those are the ids every existing thread on these models uses (the live database has none on an `anthropic` instance); the parent's brief named `anthropic`, which was its error. Each gets `scorer-brief.md`, the manifest path and the rubric, reads the images with the file tool, and submits the report in §8.5. Neither sees the other, a previous round, or the plan.
+  </Step>
+  <Step at="Round n · 3" title="Aggregate and decide" badge={{ label: "orchestrator", tone: "neutral" }}>
+    The orchestrator writes `round-<n>/summary.md`: the two score tables, the within-a-point check of §8.6, and after round one the lockstep check of §8.7. It triages the findings into three lists. Build: a Loom surface, allowed by the brief. Defer to Carl: an upstream surface, a change to what a surface shows, mobile, or an animation. Reject: contradicts a Decided line, with the line quoted. Then it applies the stop rule of §8.8.
+  </Step>
+  <Step at="Round n · 4" title="Fix" badge={{ label: "one coder, persistent", tone: "success" }}>
+    One `coder` thread, spawned in round one and prompted each round with the build list, so it keeps what it changed. It commits per round with the round number in the message, runs `vp run check:changed`, and reports what it built, what it could not, and why. It may not touch a file outside the Part A ownership table without saying so in its report.
+  </Step>
+  <Step at="End" title="Record" badge={{ label: "PR plus recap", tone: "neutral" }}>
+    The PR description gets the rounds table (§8.9). The deferred findings become `recaps/loom-ui-council/recap.mdx`, a decision batch with one card and one `ReviewChoice` per finding, quoting the scorer and the round, so Carl decides each in-app rather than reading a list.
+  </Step>
+</Steps>
+
+### 8.5 What a scorer returns
+
+The report's markdown opens with the response block and then, verbatim in this shape so the orchestrator can read it without interpretation:
+
+<Code
+  language="markdown"
+  filename="scorer report body"
+  code={`## Scores (0–10, absolute against the rubric)
+
+| Category | Upstream elements | Loom elements | One-line reason |
+| --- | --- | --- | --- |
+| Typography | 8 | 7 | Loom card item rows mix 11 and 12px |
+| Hierarchy | 8 | 8 | … |
+| Spacing and density | … | … | … |
+| Colour and contrast | … | … | … |
+| Iconography | … | … | … |
+| Consistency and polish | … | … | … |
+| Clarity | … | … | … |
+
+Overall (mean of the Loom column, one decimal): 7.4
+
+## Findings
+
+| # | Screen | Theme | Element | Surface | Severity | Finding |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | workstream-panel | dark | active strip card | loom | must-fix | Age and cost sit on different baselines |
+| 2 | sidebar-home | light | PR badge | upstream | nice | … |
+
+Surface is \`loom\` or \`upstream\` as the manifest labels it; severity is \`must-fix\`
+(costs the category at least a point) or \`nice\`. A finding names one element on
+one screen; a pattern across screens is one finding listing the screens.`}
+/>
+
+A scorer that cannot score a category writes `no score`; the orchestrator never fills one in, as Theo's skill says. The manifest's element lists say what is scored in which column; they do not bound the findings. `scorer-brief.md` carries Carl's line "allow the council to provide feedback on anything": a finding may name any element on any screen, Loom or upstream, listed or not.
+
+### 8.6 How "within a point of upstream" is measured
+
+Per scorer, per category: the Loom score is at least the upstream score minus one. The brief's check passes in a round when all fourteen cells (two scorers × seven categories) hold. The orchestrator reports the cells that fail by name ("Opus 5.5, Colour and contrast: upstream 9, Loom 7"), and the coder's build list for the next round leads with the must-fix findings behind those cells.
+
+### 8.7 The lockstep check
+
+After round one, the two scorers move in lockstep when their Loom columns differ by less than one in every category **and** at least four of five of their must-fix findings name the same screen and element. Then round two adds `round-2/calibration/`: two public product screenshots of the Codex desktop app. The capture thread fetches them from OpenAI's product pages and records the URLs in the manifest, and the scorer brief tells each scorer to score the calibration set first on the same rubric, before the app. If the scorers disagree in round one, a spread of one or more in at least two categories, no calibration is added. The brief's unknown is then settled the other way: two models from one provider are a useful check on each other here.
+
+### 8.8 The stop rule
+
+Stop after round n when any of these holds, in this order:
+
+1. The within-a-point check holds and the build list is empty.
+2. n = 3.
+3. No Loom category improved on round n − 1 and at least one fell: the loop has stopped paying, and the coder's last round is kept or reverted on the orchestrator's judgement of the findings, said in the PR.
+
+And Theo's line, taken into the skill: the orchestrator fights scope creep. A finding that would change what a surface shows or where it lives is deferred, not built, however good it is.
+
+### 8.9 The rounds table
+
+In the PR description, before the model and harness line, in Theo's format with the per-category table under it:
+
+<Code
+  language="markdown"
+  filename="PR description section"
+  code={`## Design council
+
+Rounds: 2 of 3 · 14 screens × dark and light · calibration: none
+
+| Delegate | Round 1 | Round 2 |
+| --- | --- | --- |
+| Fable 5.1 | 7.1/10 | 8.4/10 |
+| Opus 5.5 | 7.4/10 | 8.6/10 |
+
+Final round, Loom against upstream per category (Fable / Opus):
+
+| Category | Upstream | Loom | Within a point |
+| --- | --- | --- | --- |
+| Typography | 8 / 8 | 8 / 8 | yes |
+| … | | | |
+
+Deferred to Carl: 4 findings on upstream surfaces, in recaps/loom-ui-council/recap.mdx.`}
+/>
+
+A delegate's round score is the mean of its seven Loom-element scores; an upstream-only overall is not reported, since upstream is the reference, not the subject.
+
+### 8.10 Cost and who runs it
+
+Per round: capture 20 to 40 minutes, two scorers 15 to 30 minutes in parallel, coder one to three hours. That is two to four hours of agent time per round and at most about twelve for three, against Theo's 17.6 hours for a 10/10. The orchestrator of Part B is a child of the goal's root thread, spawned after Part A's PR exists, with the skill loaded. The capture thread is Sonnet: it reads images and drives a browser, and makes no judgement. Scorers are the two named models. The coder is whatever the `coder` role resolves to.
+
+<Details summary="All touched files">
+<FileTree
+  title="Change map"
+  entries={[
+    { path: "apps/web/src/loom/controlMessages.ts", change: "modified", note: "severity per notice kind; CHANNEL_ICONS and SEVERITY_CLASSES replace CHANNEL_CLASSES" },
+    { path: "apps/web/src/loom/ControlDigestCard.tsx", change: "modified", note: "neutral rounded-2xl frame, icon plus word header, roles as text, Badge and InlineButton" },
+    { path: "apps/web/src/loom/ConsultCardRow.tsx", change: "modified", note: "neutral frame, status words in sentence case" },
+    { path: "apps/web/src/components/chat/TimelineUserMessageRow.tsx", change: "modified", note: "loom hunks only: bubble tint removed, kicker moves to the attribution slot" },
+    { path: "apps/web/src/loom/LoomTimelineRowView.tsx", change: "modified", note: "receipts on the FoldedMessageHeader footprint; warning only on failed" },
+    { path: "apps/web/src/components/chat/StagedCard.tsx", change: "modified", note: "rounded-2xl; badge label sentence case" },
+    { path: "apps/web/src/index.css", change: "modified", note: "loom block only: chat code rules copied, radii onto --radius-xl, tone palette onto tokens" },
+    { path: "apps/web/src/components/WorkstreamActiveStrip.tsx", change: "modified", note: "heading, role word, 12px metadata" },
+    { path: "apps/web/src/components/WorkstreamModelPill.tsx", change: "modified", note: "no border or fill; tint dot stays" },
+    { path: "apps/web/src/loom/LoomRollupBadge.tsx", change: "modified", note: "PR-badge idiom: toned icon, secondary-label text" },
+    { path: "apps/web/src/loom/GoalThreadsSection.tsx", change: "modified", note: "heading, Badge count, token dots, sentence-case labels" },
+    { path: "apps/web/src/components/WorkstreamTimeline.tsx", change: "modified", note: "Gate kicker and timestamps" },
+    { path: "apps/web/src/loom/CacheHoverBlock.tsx", change: "modified", note: "Prompt cache kicker" },
+    { path: "apps/web/src/loom/TaskThreadChips.tsx", change: "modified", note: "no border, InlineButton" },
+    { path: "apps/web/src/preview/loomPreviewGroups.tsx", change: "modified", note: "Goal threads section fixture, one row per chip state" },
+    { path: "apps/web/src/components/WorkstreamGraph.tsx", change: "modified", note: "type up one step; STRIP_H" },
+    { path: "apps/web/src/lib/forkJoinLayout.ts", change: "modified", note: "NODE_H for the larger type" },
+    { path: "apps/web/src/lib/forkJoinLayout.test.ts", change: "modified", note: "geometry expectations" },
+    { path: "apps/web/src/loom/SubscriptionMeter.tsx", change: "modified", note: "the five /45 dims only; footer stays 128px" },
+    { path: "apps/web/src/loom/context-viz/composition/CompositionRows.tsx", change: "modified", note: "eyebrows to sentence case" },
+    { path: "apps/web/src/loom/context-viz/growth/BiggestStep.tsx", change: "modified", note: "eyebrows to sentence case" },
+    { path: "apps/web/src/loom/context-viz/growth/FindingsList.tsx", change: "modified", note: "class names to sentence case" },
+    { path: "apps/web/src/loom/DeployToastCoordinator.tsx", change: "modified", note: "one uppercase line" },
+    { path: "apps/web/src/loom/pendingUserInputLoom.tsx", change: "modified", note: "figure dim" },
+    { path: ".agents/skills/design-council/SKILL.md", change: "added", note: "the loop, the rubric, the screen list, the stop rule (§8)" },
+    { path: ".agents/skills/design-council/scorer-brief.md", change: "added", note: "the verbatim scorer brief" },
+    { path: "recaps/loom-ui-council/recap.mdx", change: "added", note: "deferred findings as a decision batch, written at the end" },
+    { path: "packages/client-runtime/src/state/loom/controlBubble.ts", note: "unchanged on purpose: mobile imports it" },
+    { path: "apps/mobile/**", note: "unchanged: the brief's must-not" },
+    { path: "apps/web/src/components/ui/**", note: "unchanged: variants used as exported, nothing restyled via className" },
+  ]}
+/>
+</Details>
+
+## 9. Verification
+
+Each line of the brief's "you'll know it works when", with the check that proves it:
+
+<Table
+  density="compact"
+  columns={["Brief line", "Check", "Where"]}
+  rows={[
+    ["Control cards look like upstream's timeline cards; colour only where it means something", "On the seed root, `data-control-card=\"Digest\"`, `\"Yield\"`, `\"Thread notification\"`, `\"Stall nudge\"`, `\"Re-verify\"` and `\"Brief needed\"` render with `border-border/80` and no fill; `\"Rework round\"` and `\"Attention\"` with `border-warning/50`; `\"Deadlock\"` with `border-destructive/50`; a kickoff bubble in the done coder shows the icon-plus-word attribution line and no tint. Screenshots `orchestrator-thread` and `child-thread`, both themes", "Dev-verify recipe"],
+    ["Plan inline code and code blocks look like chat", "In the \"MDX plan document\" preview group, the computed style of `.plan-mdx :not(pre) > code` equals `.chat-markdown :not(pre) > code` on the same page (border transparent, radius 4px, font-size 0.85em); `pre` radius 8px. Screenshot `plan-document`", "Preview harness, then the dev instance with a real `.mdx`"],
+    ["Badge, model name and \"Active now\" read at upstream's size and weight, sentence case", "`[data-loom-rollup]` computed font-size 12px, no border; the strip heading is `text-sm font-medium`; the model text is 12px monospace with no border. Screenshots `sidebar-home` and `workstream-panel`", "Preview \"Workstream\" group, then dev instance"],
+    ["No Loom metadata text under 4.5:1 in light mode", "The contrast snippet below, run on the `/preview` Loom groups and on the dev instance's `orchestrator-thread`, `workstream-panel` and `goal-panel` screens in light mode, reports no element. The audit measured 2.7:1 on the card kicker today", "Both"],
+    ["Council scores Loom within a point of upstream", "§8.6 on the final round's two reports; round one's scores are the Part B check even if they fail it", "Council"],
+    ["Must not lose information, change upstream surfaces, add animation, touch mobile", "The `data-*` attributes and labels enumerated in §2 still render; `git diff --stat` shows no file outside the ownership table except `// loom:` hunks; no new `animate-` or `transition` loop; `apps/mobile` untouched", "Reviewer gate"],
+  ]}
+/>
+
+**The contrast check.** A snippet run from the browser tool's page-evaluate on each light-mode screen. On the `/preview` page it visits every element with its own text node under each Loom fixture group's root (control cards, timeline rows, consult card, goal tasks panel, Workstream, Subscription meter, Context viz, MDX plan document), and on the dev instance under `[data-control-card]`, `[data-consult-card]`, `[data-loom-handoff]`, `[data-loom-promotion]`, `[data-loom-rollup]`, the Workstream panel and the goal panel. For each it takes the computed `color`, or `fill` for SVG `text` (the graph and the charts), walks ancestors to the first non-transparent `background-color` and composites any alpha over it, computes WCAG relative luminance for both, and prints every element whose ratio `(L1 + 0.05) / (L2 + 0.05)` is under 4.5, with its text. The snippet is pasted, not committed. The capture thread records the lowest ratio per surface in its report beside the audit's 2.7:1. By construction the new values pass: light `--muted-foreground`, zinc-500, on white is about 4.8:1, and dark `--secondary-label`, #8f8f8f, on black about 6.6:1. The check exists to catch a dim that survived the sweep.
+
+**Gates.** `vp check` and `vp run typecheck` at every unit's end and at the gate; `vp test run apps/web/src/lib/forkJoinLayout.test.ts` for the one test that changes; `docs/upstream-sync/pull7-tools/unmarkedsweep.sh` at the gate. The oklch question from §3 is one look by Carl at a plan on his own display after Part A ships, not an agent check.
+
+## 10. Risks
+
+<Columns>
+  <Card heading="A needs-you card that does not stand out enough" tone="warning" badge="design">
+    A toned border and a toned icon-plus-word are quieter than today's full green wash. If a `Deadlock` card scrolls past unnoticed in round one, the council will say so, and the fallback is a `<Badge size="sm" variant="warning">Needs you</Badge>` at the header's right, which is the first question at the end.
+  </Card>
+  <Card heading="The strip cards grow" tone="info" badge="layout">
+    Losing the role square and moving to 12px makes each active-strip card wider; `min-w-[236px] max-w-[274px]` may need to become `min-w-[260px]`. The "Workstream" preview group shows four cards wrapping; the coder checks the panel at its narrowest width.
+  </Card>
+  <Card heading="Large graphs stay small at fit-to-view" tone="info" badge="scope">
+    The type step helps every graph a little and a nine-node one not enough. The remedy that works, a floor on the fit scale, changes what the panel shows on open, so it waits on Carl's answer to the fourth question; the council's `workstream-panel` screenshot will show whether the step alone is enough.
+  </Card>
+  <Card heading="Two scorers agree because they share a provider" tone="neutral" badge="method">
+    Handled by §8.7: the first round's spread decides whether round two carries a competitor calibration set, which is what the brief's unknown asked for.
+  </Card>
+</Columns>
+
+<QuestionForm
+  submitLabel="Record answers"
+  questions={[
+    {
+      id: "needs-you-mark",
+      title: "How does a card Carl must act on show it?",
+      subtitle: "The plan recommends the quietest mark that still survives a scroll; the alternative adds a word.",
+      mode: "single",
+      refs: [{ label: "§2 Control cards", anchor: "2-control-cards-bubbles-consult-and-handoff-receipts" }],
+      options: [
+        { id: "border-and-word", label: "A warning or destructive border, with the icon and label word in the same colour", detail: "No fill, no badge; matches how upstream marks a modified file (muted blue icon, no chip)", recommended: true },
+        { id: "badge", label: "Add a small 'Needs you' badge at the header's right as well", detail: "Louder, one more element per card; cheap to add after round one if the council asks" },
+      ],
+    },
+    {
+      id: "mdx-small-caps",
+      title: "Do the document renderer's own small caps labels join the sweep?",
+      subtitle: "Badges, card eyebrows, stat labels and callout titles are monospace uppercase by the document vocabulary's design; the brief's checks name only inline code and code blocks.",
+      mode: "single",
+      refs: [{ label: "§3 Document renderer", anchor: "3-the-document-renderer-s-css" }],
+      options: [
+        { id: "leave-for-council", label: "Leave them; the council sees them and any finding is built in a round", detail: "Keeps the restyle to what the brief checks; a document vocabulary change gets its own evidence", recommended: true },
+        { id: "sweep-now", label: "Convert them to 12px sentence case in the CSS unit now", detail: "One more hour in the CSS unit; changes every existing plan's look at once" },
+      ],
+    },
+    {
+      id: "pr-shape",
+      title: "Does the restyle ship as its own PR before the council runs?",
+      subtitle: "The repo's rule is one request, one PR; the brief orders the work 'firstly … and then', and Carl tries his checks at near-done.",
+      mode: "single",
+      refs: [{ label: "§7 How the units run", anchor: "7-how-the-six-units-run-and-the-gate" }],
+      options: [
+        { id: "two-prs", label: "Yes: a restyle PR Carl can try, then a council PR carrying the rounds table", detail: "Carl sees the consistency pass before paying for rounds; the council PR is small and its description is the record", recommended: true },
+        { id: "one-pr", label: "No: one branch, the council commits on top, one PR at the end", detail: "Fewer ships; Carl's first look is after up to three rounds" },
+      ],
+    },
+    {
+      id: "graph-fit-floor",
+      title: "May a large workstream graph open panned to its root, rather than shrunk to fit, so its labels are readable?",
+      subtitle: "This is yours to answer: the brief says no surface changes what it shows, and a floored fit shows part of a big graph on open (Reset still fits all). The type step in §5 happens either way.",
+      mode: "single",
+      refs: [{ label: "§5 Graph labels", anchor: "5-graph-labels-readable-at-fit-to-view" }],
+      options: [
+        { id: "floor", label: "Yes: never open below 0.85 scale; a big graph starts at its root and pans", detail: "Labels readable on open; some nodes start off-screen; one more effect in WorkstreamGraph.tsx that re-fits on panel resize", recommended: true },
+        { id: "no-floor", label: "No: keep fit-to-view whole; the type step is the only change", detail: "Nine-node graphs stay at about 8px titles until zoomed" },
+      ],
+    },
+  ]}
+/>
