@@ -7,7 +7,7 @@ import { type ReactNode, useState } from "react";
 import { Toggle, ToggleGroup } from "../../../components/ui/toggle-group";
 import { useConversationJumpStore } from "../../conversationJump";
 import type { ContextViewProps } from "../contextUsageStore";
-import { formatContextTokens, formatShare } from "../format";
+import { formatContextTokens, formatShare, paletteInk } from "../format";
 import { BiggestStep, type LitGroup } from "./BiggestStep";
 import { FindingsList, growthCards } from "./FindingsList";
 import { GrowthChart } from "./GrowthChart";
@@ -238,7 +238,7 @@ function Summary({
         {lead}
         <b className="font-medium text-foreground">{formatContextTokens(totals[cls])}</b>{" "}
         {cls === "loom_tooling" ? "traces to" : "to"} {NUMBER_WORDS[count] ?? count}{" "}
-        <span style={{ color: CLASS_META[cls].color }}>
+        <span style={{ color: paletteInk(CLASS_META[cls].color) }}>
           {cls === "loom_tooling" ? "Loom tooling" : "agent-guidance"}
         </span>{" "}
         finding{count === 1 ? "" : "s"}

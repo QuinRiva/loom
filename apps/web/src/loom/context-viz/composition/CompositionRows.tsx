@@ -69,7 +69,7 @@ export function formatPct(part: number, total: number) {
   return pct >= 10 ? `${Math.round(pct)}%` : pct >= 0.1 ? `${pct.toFixed(1)}%` : "<0.1%";
 }
 
-const Est = () => <span className="mr-px text-3xs text-warning">≈</span>;
+const Est = () => <span className="mr-px text-3xs text-warning-foreground">≈</span>;
 
 export const Swatch = ({ color, hatch }: { color: string; hatch?: boolean }) => (
   <span
@@ -391,8 +391,8 @@ function Tag({ tone, children }: { tone: "loom" | "guide" | "muted"; children: R
     <span
       className={cn(
         "rounded border px-1.5 text-3xs leading-4 whitespace-nowrap",
-        tone === "loom" && "border-warning/35 bg-warning/8 text-warning",
-        tone === "guide" && "border-info/35 bg-info/8 text-info",
+        tone === "loom" && "border-warning/35 bg-warning/8 text-warning-foreground",
+        tone === "guide" && "border-info/35 bg-info/8 text-info-foreground",
         tone === "muted" && "border-border text-muted-foreground",
       )}
     >
@@ -486,7 +486,7 @@ export function LargestRows({
             <Swatch color={KIND_COLOR[item.kind]} hatch={item.kind === "system_section"} />
             {row.kind === "group" ? (
               <>
-                <span className="rounded border border-warning/45 bg-warning/8 px-1.5 text-3xs leading-4 whitespace-nowrap text-warning">
+                <span className="rounded border border-warning/45 bg-warning/8 px-1.5 text-3xs leading-4 whitespace-nowrap text-warning-foreground">
                   ×{row.group.items.length} alike
                 </span>
                 <span className="min-w-0 text-xs font-medium text-foreground">
@@ -558,8 +558,10 @@ export function CacheSection({
           read from cache ({((100 * call.cacheRead) / whole).toFixed(1)}%)
         </span>
         <span>
-          <b className="font-medium text-warning">{formatContextTokens(call.cacheWrite)}</b> newly
-          written
+          <b className="font-medium text-warning-foreground">
+            {formatContextTokens(call.cacheWrite)}
+          </b>{" "}
+          newly written
         </span>
         <span>
           <b className="font-medium text-foreground/85">{call.input}</b> uncached
@@ -577,13 +579,13 @@ export function CacheSection({
       {cold !== null || worst ? (
         <div className="mt-2 rounded-lg border border-warning/25 bg-warning-surface px-2.5 py-2 text-xs leading-snug text-foreground/85">
           {cold !== null ? (
-            <b className="font-semibold text-warning">
+            <b className="font-semibold text-warning-foreground">
               If the cache goes cold, the next call rewrites all{" "}
               {formatContextTokens(report.totals.latestCtx)}: about {formatUsd(cold)}.
             </b>
           ) : null}
           {worst && lapsedCall ? (
-            <span className="block text-muted-foreground">
+            <span className="block">
               {lapses.length === 1
                 ? "It happened once in this thread"
                 : `It happened ${lapses.length} times in this thread; the dearest`}

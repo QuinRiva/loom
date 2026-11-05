@@ -37,13 +37,13 @@ const FILL: Record<MeterTone, string> = {
 
 const TEXT: Record<MeterTone, string> = {
   quiet: "text-foreground",
-  warning: "text-warning",
-  destructive: "text-destructive",
+  warning: "text-warning-foreground",
+  destructive: "text-destructive-foreground",
 };
 
 const MARK: Record<MeterMark, { readonly glyph: string; readonly className: string }> = {
-  risk: { glyph: "▲", className: "text-warning" },
-  opp: { glyph: "▽", className: "text-success" },
+  risk: { glyph: "▲", className: "text-warning-foreground" },
+  opp: { glyph: "▽", className: "text-success-foreground" },
 };
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -221,10 +221,12 @@ function ResetText({
 }) {
   const reset = bar.resetKnown ? `↻ ${formatCountdown(bar.reset - now)}` : "idle";
   return bar.emptyAt === null ? (
-    <span className="text-muted-foreground/75">{reset}</span>
+    <span className="text-muted-foreground">{reset}</span>
   ) : (
-    <span className="text-muted-foreground/75">
-      <span className="font-medium text-warning">empty ~{formatCountdown(bar.emptyAt - now)}</span>
+    <span className="text-muted-foreground">
+      <span className="font-medium text-warning-foreground">
+        empty ~{formatCountdown(bar.emptyAt - now)}
+      </span>
       {withReset ? ` · ${reset}` : null}
     </span>
   );
@@ -274,7 +276,7 @@ function PopoverWindow({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between text-2xs">
-        <span className="text-muted-foreground/75">{name}</span>
+        <span className="text-muted-foreground">{name}</span>
         <span className={cn("font-medium tabular-nums", TEXT[toneOf(used)])}>
           {Math.round(used)}% used
         </span>
@@ -335,7 +337,7 @@ function RowPopover({
                   text: `empty ~${clock(bar.emptyAt)} at ${Math.round(bar.burn.rate)} pts/h${
                     bar.burn.coarse ? " (window average)" : ""
                   }`,
-                  className: "text-warning",
+                  className: "text-warning-foreground",
                 }
               : null
           }
@@ -420,7 +422,7 @@ function AccountRow({
                 login
                   ? cn("font-medium", TEXT[login])
                   : row.exhausted
-                    ? "font-medium text-destructive"
+                    ? "font-medium text-destructive-foreground"
                     : mark
                       ? cn("font-medium", mark.className)
                       : "text-muted-foreground",
@@ -431,7 +433,7 @@ function AccountRow({
           </span>
           <span className="h-3">
             {row.login?.status === "dead" ? (
-              <span className="block truncate text-3xs font-medium text-destructive">
+              <span className="block truncate text-3xs font-medium text-destructive-foreground">
                 signed out
               </span>
             ) : bar ? (
@@ -448,7 +450,7 @@ function AccountRow({
                 {mark ? (
                   <span className={cn("text-3xs font-bold", mark.className)}>{mark.glyph}</span>
                 ) : null}
-                <span className={mark ? "text-muted-foreground" : "text-muted-foreground/75"}>
+                <span className={mark ? "text-muted-foreground" : "text-muted-foreground"}>
                   {bar?.resetKnown ? `↻ ${formatCountdown(bar.reset - now)}` : "idle"}
                 </span>
               </>
@@ -544,7 +546,7 @@ export const SubscriptionMeterView = memo(function SubscriptionMeterView({
                 type="button"
                 onClick={() => void navigate({ to: "/usage" })}
                 aria-label={notice}
-                className="truncate rounded-sm pb-0.5 text-left text-3xs font-medium leading-tight text-destructive outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                className="truncate rounded-sm pb-0.5 text-left text-3xs font-medium leading-tight text-destructive-foreground outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
               />
             }
           >
@@ -622,22 +624,27 @@ export function SubscriptionMeterChipView({
         }
       >
         {dead > 0 ? (
-          <span className="font-semibold text-destructive">⚠ {dead} signed out</span>
+          <span className="font-semibold text-destructive-foreground">⚠ {dead} signed out</span>
         ) : null}
         {failing > 0 ? (
-          <span className="font-semibold text-warning">⚠ {failing} login failing</span>
+          <span className="font-semibold text-warning-foreground">⚠ {failing} login failing</span>
         ) : null}
         {due > 0 ? (
-          <span className={cn("font-semibold", overdue > 0 ? "text-destructive" : "text-warning")}>
+          <span
+            className={cn(
+              "font-semibold",
+              overdue > 0 ? "text-destructive-foreground" : "text-warning-foreground",
+            )}
+          >
             ⚠ {due} login{due === 1 ? "" : "s"} due
           </span>
         ) : null}
         {unlinked > 0 ? (
-          <span className="font-semibold text-destructive">⚠ {unlinked} unlinked</span>
+          <span className="font-semibold text-destructive-foreground">⚠ {unlinked} unlinked</span>
         ) : null}
         {pool && bar ? (
           <>
-            <span className="text-muted-foreground/75">5h</span>
+            <span className="text-muted-foreground">5h</span>
             <span className="h-3 w-14">
               <TimeBar bar={bar} axis={pool.axis} now={now} height={6} />
             </span>
@@ -647,7 +654,7 @@ export function SubscriptionMeterChipView({
         {pool?.carveOut ? (
           <>
             <span className="h-3 w-px bg-border/60" />
-            <span className="text-muted-foreground/75">{pool.carveOut.scope[0]}</span>
+            <span className="text-muted-foreground">{pool.carveOut.scope[0]}</span>
             <span className="h-3 w-7">
               <PaceBar used={pool.carveOut.used} elapsed={pool.carveOut.elapsed} height={6} />
             </span>

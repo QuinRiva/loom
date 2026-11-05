@@ -7,7 +7,7 @@ import { Toggle, ToggleGroup } from "../../../components/ui/toggle-group";
 import { useQuietThreadProjection } from "../../../state/entities";
 import { useConversationJumpStore } from "../../conversationJump";
 import type { ContextViewProps } from "../contextUsageStore";
-import { formatContextTokens } from "../format";
+import { formatContextTokens, paletteInk } from "../format";
 import { contextJoin } from "../join";
 import {
   CacheSection,
@@ -168,7 +168,7 @@ export function CompositionView({
                   className="absolute top-0 -translate-x-1/2"
                   style={{
                     left: `${(100 * (toolsStart + toolResults.tokens / 2)) / scale}%`,
-                    color: COLORS.tools,
+                    color: paletteInk(COLORS.tools),
                   }}
                 >
                   tool results {formatContextTokens(toolResults.tokens)}
@@ -185,20 +185,20 @@ export function CompositionView({
                   {formatContextTokens(contextWindow - used)} free
                 </span>
               ) : null}
-              <span className="absolute top-3.5 left-0" style={{ color: COLORS.defs }}>
+              <span className="absolute top-3.5 left-0" style={{ color: paletteInk(COLORS.defs) }}>
                 ▴ fixed {formatContextTokens(fixed.tokens)}, hatched
               </span>
             </>
           ) : (
             <>
-              <span className="absolute top-0 left-0" style={{ color: COLORS.defs }}>
+              <span className="absolute top-0 left-0" style={{ color: paletteInk(COLORS.defs) }}>
                 ▴ fixed {formatUsd(fixed.cost)}
               </span>
               <span className="absolute top-0 right-0">
                 whole window, cost to keep so far ≈ {formatUsd(total)}
               </span>
               {cold !== null ? (
-                <span className="absolute top-3.5 right-0 text-warning">
+                <span className="absolute top-3.5 right-0 text-warning-foreground">
                   a cold cache now would cost {formatUsd(cold)}
                 </span>
               ) : null}
@@ -206,7 +206,7 @@ export function CompositionView({
           )}
         </div>
         <div className="mt-0.5 grid grid-cols-2 gap-2">
-          <div className="rounded-lg border border-primary/40 bg-primary/8 px-2.5 py-2">
+          <div className="rounded-lg border border-primary/40 px-2.5 py-2">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Swatch color={COLORS.defs} hatch />
               Fixed overhead
@@ -309,8 +309,8 @@ export function CompositionView({
       </Section>
 
       <p className="mt-2.5 text-3xs text-muted-foreground">
-        <span className="text-warning">≈</span> estimated split of an exact total (by character
-        share). Every other figure is measured from the provider's per-call usage.
+        <span className="text-warning-foreground">≈</span> estimated split of an exact total (by
+        character share). Every other figure is measured from the provider's per-call usage.
       </p>
     </div>
   );

@@ -2,7 +2,7 @@
 // size as plain sums by kind and the fixed overhead. Clicking a card lights its items on the chart.
 import type { LoomContextFinding, LoomContextReport } from "@t3tools/contracts";
 
-import { formatContextTokens, formatShare, plural } from "../format";
+import { formatContextTokens, formatShare, paletteInk, plural } from "../format";
 import type { LitGroup } from "./BiggestStep";
 import {
   CLASS_META,
@@ -194,7 +194,7 @@ export function FindingsList({
                 type="button"
                 aria-pressed={lit === card.key}
                 onClick={() => onSelect(lit === card.key ? null : card)}
-                className={`grid w-full grid-cols-[3px_minmax(0,1fr)_auto] gap-x-2.5 rounded-md px-2 py-1.5 text-left hover:bg-accent/50 ${lit === card.key ? "bg-accent/70 ring-1 ring-border" : ""}`}
+                className={`grid w-full grid-cols-[3px_minmax(0,1fr)_auto] gap-x-2.5 rounded-md px-2 py-1.5 text-left hover:bg-accent/50 ${lit === card.key ? "bg-accent/50 ring-1 ring-border" : ""}`}
               >
                 <span className="rounded-sm" style={{ background: CLASS_META[cls].color }} />
                 <span className="min-w-0">
@@ -210,7 +210,10 @@ export function FindingsList({
                     {formatShare(card.tokens, latestCtx)} of context
                   </span>
                   {card.avoidable !== null ? (
-                    <span className="block text-2xs" style={{ color: CLASS_META[cls].color }}>
+                    <span
+                      className="block text-2xs"
+                      style={{ color: paletteInk(CLASS_META[cls].color) }}
+                    >
                       avoidable {card.exact ? "" : "≈ "}
                       {formatContextTokens(card.avoidable)}
                     </span>

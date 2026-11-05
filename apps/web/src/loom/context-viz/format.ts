@@ -19,3 +19,6 @@ export const formatShare = (part: number, whole: number | null) =>
 
 /** `1 call`, `241 calls`. */
 export const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** A chart palette colour used as text, pulled toward the foreground so it clears 4.5:1 in both themes. */
+export const paletteInk = (color: string) => `color-mix(in srgb, ${color} 60%, var(--foreground))`;

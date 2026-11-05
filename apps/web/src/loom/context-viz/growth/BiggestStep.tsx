@@ -1,6 +1,6 @@
 // loom: the panel beside the growth chart (plan §6): the biggest step until a hover or pin names
 // another, or a lit finding's items; each row with its exact or estimated tokens and class.
-import { formatContextTokens, formatShare } from "../format";
+import { formatContextTokens, formatShare, paletteInk } from "../format";
 import { CLASS_META, type GrowthClass, type StepItem, type Unit } from "./series";
 
 export interface LitGroup {
@@ -41,7 +41,7 @@ function Row({
           <span
             className="rounded px-1 font-sans text-3xs"
             style={{
-              color: CLASS_META[entry.cls].color,
+              color: paletteInk(CLASS_META[entry.cls].color),
               background: `${CLASS_META[entry.cls].color}22`,
             }}
           >
