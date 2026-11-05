@@ -482,12 +482,14 @@ export function getNodeStateWord(node: WorkstreamNode, byId: WorkstreamNodeIndex
 }
 
 /**
- * The node's role strip left of its state word: `CODER · ⚒ 75`. The strip holds
- * ~30 characters at 8px, so the state word and count stay whole and the role yields.
+ * The node's role strip left of its state word: `CODER · ⚒ 75`. The state word and
+ * count stay whole and the role yields: at 9.5px the strip's 144px holds ~6.1px per
+ * spaced capital and ~5px per state-word character, less 10px for the running dot.
  */
 export function getNodeStripLabel(node: WorkstreamNode, stateWord: string): string {
   const count = node.toolCalls > 0 ? ` · ⚒ ${node.toolCalls}` : "";
-  const roleBudget = Math.max(6, 30 - stateWord.length - count.length - 2);
+  const stripChars = (144 - 5 * stateWord.length - (isRunning(node) ? 10 : 0)) / 6.1;
+  const roleBudget = Math.max(6, Math.floor(stripChars) - count.length);
   return `${truncateLabel(getRoleLabel(node), roleBudget).toUpperCase()}${count}`;
 }
 

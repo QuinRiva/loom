@@ -13,7 +13,7 @@ const BRIDGE_H = 46;
 // height would re-run the whole layout on every lane or turn transition. Every port, centre
 // and viewBox derives from these constants.
 export const NODE_W = 172;
-const NODE_H = 74;
+const NODE_H = 78;
 const FORK_GAP = 54; // bridge right edge → first child column
 const COL_GAP = 50; // between dependency columns (room for blockedBy arrows)
 const ROW_GAP = 18; // between stacked members in a column

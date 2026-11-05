@@ -67,7 +67,7 @@ const QUERY_STROKE = "var(--color-primary)";
 // Done/cancelled cards recede so the live front reads first.
 const RECEDE_OPACITY = 0.42;
 const FADE_OPACITY = 0.1;
-const STRIP_H = 20;
+const STRIP_H = 22;
 const HOVER_DELAY_MS = 300;
 const FACTS_W = 300;
 // A keyboard-focus outline shown only while its group has focus-visible.
@@ -576,20 +576,20 @@ function GraphEdge({
           }${verdict ? ` · latest verdict: ${verdict.replaceAll("_", " ")}` : ""}`}</title>
           <rect
             fill="var(--color-background)"
-            height={15}
-            rx="7"
+            height={16}
+            rx="8"
             stroke={stroke}
             strokeWidth="1"
-            width={target?.pendingRework ? 52 : 40}
-            x={badge.x - (target?.pendingRework ? 26 : 20)}
-            y={badge.y - 7.5}
+            width={target?.pendingRework ? 56 : 44}
+            x={badge.x - (target?.pendingRework ? 28 : 22)}
+            y={badge.y - 8}
           />
           <text
             fill={legibleHue(stroke)}
-            fontSize="9"
+            fontSize="10"
             textAnchor="middle"
             x={badge.x}
-            y={badge.y + 3}
+            y={badge.y + 3.5}
           >
             {`⟲ ${rounds}/${cap}${target?.pendingRework ? " ●" : ""}`}
           </text>
@@ -715,20 +715,20 @@ function ConsultGraphEdge({
         <g>
           <rect
             fill="var(--color-background)"
-            height={15}
-            rx="7"
+            height={16}
+            rx="8"
             stroke={CONSULT_STROKE}
             strokeWidth="1"
-            width={34}
-            x={badge.x - 17}
-            y={badge.y - 7.5}
+            width={36}
+            x={badge.x - 18}
+            y={badge.y - 8}
           />
           <text
             fill={legibleHue(CONSULT_STROKE)}
-            fontSize="9"
+            fontSize="10"
             textAnchor="middle"
             x={badge.x}
-            y={badge.y + 3}
+            y={badge.y + 3.5}
           >
             {`×${edge.count}`}
           </text>
@@ -786,7 +786,7 @@ function BridgeNode({
       </text>
       <text
         className="fill-muted-foreground"
-        fontSize="9.5"
+        fontSize="10"
         textAnchor="middle"
         x={node.x + node.w / 2}
         y={node.y + 34}
@@ -871,10 +871,10 @@ function SatelliteNode({
         x={x}
         y={y}
       />
-      <text className="fill-foreground" fontSize="10.5" fontWeight="600" x={x + 9} y={y + 16}>
-        {truncateLabel(label, 21)}
+      <text className="fill-foreground" fontSize="11" fontWeight="600" x={x + 9} y={y + 16}>
+        {truncateLabel(label, 20)}
       </text>
-      <text className="fill-muted-foreground" fontSize="9" x={x + 9} y={y + 30}>
+      <text className="fill-muted-foreground" fontSize="10" x={x + 9} y={y + 31}>
         {counts}
       </text>
     </g>
@@ -908,7 +908,7 @@ function CornerBadge({
       {typeof children === "object" ? (
         children
       ) : (
-        <text fill={legibleHue(stroke)} fontSize="9" textAnchor="middle" x={cx} y={cy + 3.5}>
+        <text fill={legibleHue(stroke)} fontSize="10" textAnchor="middle" x={cx} y={cy + 3.5}>
           {children}
         </text>
       )}
@@ -960,8 +960,8 @@ function GraphNode({
   const stepAge = step && formatStepAge(step.since, now);
   // The footer's age ends left of the corner badges; both lines lift clear of a verdict pill.
   const footerEnd = x + w - 10 - (node.forkFromThreadId ? 20 : 0) - (externalConsult ? 20 : 0);
-  const footerY = y + h - (verdict ? 10 : 8);
-  const titleLines = wrapLabel(node.title, 24, 2);
+  const footerY = y + h - (verdict ? 11 : 8);
+  const titleLines = wrapLabel(node.title, 22, 2);
   const roleLabel = getRoleLabel(node);
   const forkBadgeX = x + w - 12;
   const consultBadgeX = forkBadgeX - (node.forkFromThreadId ? 20 : 0);
@@ -1042,26 +1042,32 @@ function GraphNode({
           />
           <text
             fill={legibleHue(color)}
-            fontSize="8"
+            fontSize="9.5"
             fontWeight="600"
             letterSpacing="0.06em"
             x={x + 10}
-            y={y + 13.5}
+            y={y + 14.5}
           >
             {getNodeStripLabel(node, stateWord)}
           </text>
           {running ? (
-            <circle cx={x + w - 16 - stateWord.length * 4.4} cy={y + 10.5} r={2.6} fill={color} />
+            <circle cx={x + w - 16 - stateWord.length * 5.2} cy={y + 11} r={2.8} fill={color} />
           ) : null}
-          <text fill={legibleHue(color)} fontSize="8" textAnchor="end" x={x + w - 10} y={y + 13.5}>
+          <text
+            fill={legibleHue(color)}
+            fontSize="9.5"
+            textAnchor="end"
+            x={x + w - 10}
+            y={y + 14.5}
+          >
             {stateWord}
           </text>
-          <text className="fill-foreground" fontSize="11" fontWeight="600">
-            <tspan x={x + 10} y={y + 35}>
+          <text className="fill-foreground" fontSize="12" fontWeight="600">
+            <tspan x={x + 10} y={y + 38}>
               {titleLines[0] ?? ""}
             </tspan>
             {titleLines[1] !== undefined ? (
-              <tspan x={x + 10} y={y + 48}>
+              <tspan x={x + 10} y={y + 52}>
                 {titleLines[1]}
               </tspan>
             ) : null}
@@ -1094,11 +1100,11 @@ function GraphNode({
             <g
               className="fill-muted-foreground"
               fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-              fontSize={8.5}
+              fontSize={9}
               pointerEvents="none"
             >
               <text x={x + 10} y={footerY}>
-                {step ? truncateLabel(step.label, 16) : (node.activity ?? "idle")}
+                {step ? truncateLabel(step.label, 15) : (node.activity ?? "idle")}
                 {stepAge ? (
                   <>
                     {" · "}
@@ -1219,25 +1225,25 @@ function GatePill({
   xEnd: number;
   yCenter: number;
 }) {
-  const width = label.length * 4.6 + 10;
+  const width = label.length * 5.4 + 10;
   return (
     <g>
       <rect
         fill={`color-mix(in srgb, ${stroke} 18%, var(--color-background))`}
-        height={13}
-        rx="6.5"
+        height={15}
+        rx="7.5"
         stroke={stroke}
         strokeWidth="1"
         width={width}
         x={xEnd - width}
-        y={yCenter - 6.5}
+        y={yCenter - 7.5}
       />
       <text
         fill={legibleHue(stroke)}
-        fontSize="8"
+        fontSize="9.5"
         textAnchor="middle"
         x={xEnd - width / 2}
-        y={yCenter + 2.5}
+        y={yCenter + 3.3}
       >
         {label}
       </text>
