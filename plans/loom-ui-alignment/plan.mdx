@@ -3,8 +3,8 @@ reader:
   who: the gate reviewer judging this plan against the approved intent brief, then the six coders and the council orchestrator who build from it without having read the audit or this thread
   knows: the intent brief beside this file and the Loom web app as a user; not the audit report, the redesign PRs, or the files named here
   after_first_screen: that the work is six parallel restyle units behind one reviewer, then a three-round two-model council run by a new design-council skill, and which three bets the plan makes
-kicker: "Implementation plan · draft for the gate · 5 Nov 2026"
-status: approved
+kicker: "Implementation plan · approved and built · 5 Nov 2026"
+status: done
 intent: plans/loom-ui-alignment/intent.mdx
 recap: recaps/loom-ui-alignment/recap.mdx
 manager_sessions:
@@ -527,3 +527,18 @@ Each line of the brief's "you'll know it works when", with the check that proves
     },
   ]}
 />
+
+## As built
+
+Where the build departed from this plan, and why.
+
+- **One PR, not two.** Carl: "proceed with the next phase and get 2 iterations in. I'll review the existing changes and the iteration changes together." The council's commits went onto the restyle branch and PR #533 is the single PR; its description carries the rounds table.
+- **Two fix rounds plus two score-only passes, not three fix rounds.** Carl asked for two iterations. Round 3 scored the state after round 2's fixes; round 4 scored it again after semantic zoom. Scores (Loom mean, Fable / Opus): 5.6 / 4.7, 5.7 / 6.1, 6.3 / 6.3, 6.3 / 5.9. Within a point of upstream: 2 of 14 cells at the end. 30 findings built, 26 deferred to Carl in `recaps/loom-ui-council/recap.mdx`, 1 rejected against his monospace-identity line.
+- **The lockstep check did not fire after round 1** (Loom columns differed by 1 to 2), so no calibration set was added; by rounds 3 and 4 the two scorers' Loom columns were identical cell for cell. A later run should add the calibration set from the start.
+- **Graph: semantic zoom instead of the fit-scale floor (§5, question 4).** Carl: "Would an alternative solution be to dynamically adjust *what* is shown in the boxes at different zoom levels?" and "just fold it in." Three tiers keyed to rendered scale (Full ≥ 0.917, Compact, Minimal) with labels held at a fixed on-screen size below Full; every label at least 11px at fit-to-view on the nine-node seed. Cards widen into spare panel width up to 2×. Text fitting is memoised by (text, width, tier). `NODE_H` is 78, not about 81; `workstreamPresentation.ts` was edited to stop the strip label colliding with the state word.
+- **Contrast fixes changed dark mode in four places** (§9's check was light-only): settled graph nodes fade their fill and border rather than their text; the annotation pin is black on amber in both themes; the rollup error tone and diff deletion markers use the `-foreground` tokens; the "20m" overrun uses a hue mix. Two tokens were added to `index.css` for it: `--legible-hue-share` (45% hue in light, 60% in dark) and `--plan-tone-ink` (15% ink in light, 0% in dark), because the `-foreground` tokens alone did not clear 4.5:1 on the tinted document page.
+- **Small-type sweep** added `paletteInk` in `context-viz/format.ts` (chart colours used as words mixed 60% toward the foreground), dropped the "Fixed overhead" card's primary fill, and lowered the lit finding row's accent, all to clear 4.5:1 in light.
+- **`StagedCard.tsx` carries no `// loom:` markers**: the file does not exist upstream.
+- **`settings-general` captures Settings › Maintenance**: upstream moved the Loom rows there; the screen name is kept so rounds line up.
+- **The council's capture thread used pi's browser tools rather than `preview_*`**, since they save element screenshots straight to disk.
+
