@@ -52,14 +52,10 @@ export function WorkstreamActiveStrip({
       <div className="mb-2 flex items-center gap-2 px-0.5 text-sm font-medium text-foreground">
         Active now
         {rollup.activity.running > 0 ? (
-          <Badge size="sm" variant="info">
-            {rollup.activity.running} running
-          </Badge>
+          <Badge variant="info">{rollup.activity.running} running</Badge>
         ) : null}
         {rollup.attention.count > 0 ? (
-          <Badge size="sm" variant="warning">
-            {rollup.attention.count} flagged
-          </Badge>
+          <Badge variant="warning">{rollup.attention.count} flagged</Badge>
         ) : null}
       </div>
       <div className="flex flex-wrap gap-2">
@@ -95,7 +91,7 @@ export function WorkstreamActiveStrip({
                   <StatusDot
                     className="mt-1"
                     color={color}
-                    hollow={!attention && COLUMN_STYLES[node.column].hollow}
+                    shape={attention ? "dot" : COLUMN_STYLES[node.column].shape}
                   />
                   <span className="min-w-0 flex-1 truncate">
                     {attention ? `${attention.label} · ` : ""}

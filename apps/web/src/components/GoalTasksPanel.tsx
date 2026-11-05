@@ -19,6 +19,7 @@ import {
 } from "../loom/TaskThreadChips";
 import { useThreadShells } from "../state/entities";
 import { useAtomCommand } from "../state/use-atom-command";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { Input } from "./ui/input";
@@ -114,9 +115,9 @@ function GoalHeader({
           placeholder={goal.slug}
           className="min-w-0 flex-1 truncate bg-transparent text-sm font-semibold text-foreground outline-none focus:rounded-sm focus:bg-accent focus:px-1"
         />
-        <span className="shrink-0 rounded-full border border-border/70 px-2 py-0.5 text-xs tabular-nums text-muted-foreground">
+        <Badge variant="outline">
           {progress.done}/{progress.total}
-        </span>
+        </Badge>
       </div>
       <textarea
         {...description.props}

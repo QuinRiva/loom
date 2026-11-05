@@ -120,9 +120,6 @@ export function ControlDigestCardView({
           />
           <span className={cn("shrink-0", severity.text)}>{model.label}</span>
           <span className="min-w-0 flex-1 truncate text-foreground">{summary}</span>
-          {model.kind === "card" && model.marker ? (
-            <Badge variant="warning">{model.marker}</Badge>
-          ) : null}
           <ChevronDownIcon
             className={cn(
               "size-3.5 shrink-0 text-muted-foreground transition-transform",
@@ -248,7 +245,7 @@ function ReportDocumentChips({
   const lookupExistence = usePathExistence(environmentId, paths);
   if (metas.length === 0) return null;
   return (
-    <div className="flex flex-wrap items-center gap-1 pt-1 pl-5 text-xs">
+    <div className="flex flex-wrap items-center gap-1 pt-1 text-xs">
       {visible.map((meta) => {
         const missing = lookupExistence(meta.filePath)?.exists === false;
         return (
@@ -394,16 +391,27 @@ function ControlDigestItem({
             </Tip>
           ) : null}
         </div>
-        {item.documents?.length ? (
-          <ReportDocumentChips documents={item.documents} cwd={cwd} threadRef={threadRef} />
-        ) : null}
-
-        {expanded && (item.excerpt || item.timestamp) ? (
-          <div className="mt-1 space-y-1 border-l border-border/60 pl-2.5 text-xs">
-            {item.timestamp ? (
-              <div className="text-muted-foreground tabular-nums">{item.timestamp}</div>
-            ) : null}
-            {item.excerpt ? <div>{markdown(item.excerpt)}</div> : null}
+        {item.documents?.length || (expanded && (item.excerpt || item.timestamp)) ? (
+          // Indented to the title column: `ch` here is the role column's 12px monospace.
+          <div
+            className="font-mono text-xs"
+            style={{
+              paddingLeft: `calc(${iconColumn ? "1.5rem" : "0px"} + ${roleWidth > 0 ? `${roleWidth}ch + 0.5rem` : "0px"})`,
+            }}
+          >
+            <div className="font-sans">
+              {item.documents?.length ? (
+                <ReportDocumentChips documents={item.documents} cwd={cwd} threadRef={threadRef} />
+              ) : null}
+              {expanded && (item.excerpt || item.timestamp) ? (
+                <div className="mt-1 space-y-1 border-l border-border/60 pl-2.5">
+                  {item.timestamp ? (
+                    <div className="text-muted-foreground tabular-nums">{item.timestamp}</div>
+                  ) : null}
+                  {item.excerpt ? <div>{markdown(item.excerpt)}</div> : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>

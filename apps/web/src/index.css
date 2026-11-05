@@ -3664,7 +3664,7 @@ code {
   margin: 0 0 0.625rem;
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--plan-tone-warning);
+  color: var(--muted-foreground);
 }
 .plan-mdx > .plan-kicker + h1 {
   margin-top: 0;
@@ -3938,10 +3938,18 @@ p > .plan-sidenote {
 /* loom: legibleHue's share of the hue (lib/workstreamPresentation.ts). Light pulls harder
    toward the foreground so 9.5px graph labels clear 4.5:1 on their own tint. */
 :root {
-  --legible-hue-share: 45%;
+  --legible-hue-share: 35%;
 }
 .dark {
   --legible-hue-share: 60%;
+}
+/* loom: the graph's small node meta ("idle", ages) on a tinted card (WorkstreamGraph.tsx): muted
+   pulled toward the ink in light, where antialiasing at fit scale thins muted grey under 4.5:1. */
+:root {
+  --graph-meta: color-mix(in oklab, var(--muted-foreground), var(--foreground) 45%);
+}
+.dark {
+  --graph-meta: var(--muted-foreground);
 }
 /* loom: the sidebar's agent-started rail (loom/ThreadStart.tsx). No upstream token has a
    non-status hue for "an agent started this"; a custom theme may override --agent-start. */

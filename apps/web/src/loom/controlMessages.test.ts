@@ -1,7 +1,7 @@
 import { loomSeedControlMessages } from "@t3tools/shared/loomSeedFixture.loom";
 import { describe, expect, it } from "vite-plus/test";
 
-import { controlCardModel, SYNTHESISED_MARKER } from "./controlMessages";
+import { controlCardModel } from "./controlMessages";
 
 const seed = loomSeedControlMessages({
   coderDone: "a.md",
@@ -15,24 +15,23 @@ describe("controlCardModel", () => {
       const model = controlCardModel({ origin: "control_notice", controlPayload: payload }, text);
       expect(model?.kind, key).toBe("card");
       return model?.kind === "card"
-        ? [key, model.label, model.marker, model.items.map((entry) => entry.kindLabel)]
+        ? [key, model.label, model.items.map((entry) => entry.kindLabel)]
         : [key];
     });
     expect(labels).toEqual([
       [
         "digest",
         "Digest",
-        null,
         ["finished", "gate resolved", "recovered", "slow tool", "spinning", "dead"],
       ],
-      ["yield", "Yield", SYNTHESISED_MARKER, [null]],
-      ["notice-gate-rework", "Rework round", null, [null]],
-      ["notice-gate-reverify", "Re-verify", null, [null]],
-      ["notice-brief-needed", "Brief needed", null, [null]],
-      ["notice-deadlock", "Deadlock", null, [null]],
-      ["notice-stall-nudge", "Stall nudge", null, [null]],
-      ["notice-attention", "Attention", null, [null]],
-      ["notice-notify", "Thread notification", null, [null]],
+      ["yield", "Yield", [null]],
+      ["notice-gate-rework", "Rework round", [null]],
+      ["notice-gate-reverify", "Re-verify", [null]],
+      ["notice-brief-needed", "Brief needed", [null]],
+      ["notice-deadlock", "Deadlock", [null]],
+      ["notice-stall-nudge", "Stall nudge", [null]],
+      ["notice-attention", "Attention", [null]],
+      ["notice-notify", "Thread notification", [null]],
     ]);
   });
 

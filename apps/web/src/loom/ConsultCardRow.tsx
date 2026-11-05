@@ -252,18 +252,10 @@ export function ConsultCardView({
           <MessageCircleQuestionMarkIcon className="size-3.5 shrink-0 text-info-foreground" />
           <span className="shrink-0 text-foreground">Consulted</span>
           {/* The chip navigates on click; the card must not also toggle. */}
-          {/* Capped so the question keeps most of the line; the chip's label ellipsises. */}
-          <span
-            className="flex min-w-0 max-w-[40%] shrink-0 *:max-w-full"
-            onClick={(event) => event.stopPropagation()}
-          >
+          <span className="flex min-w-0 *:max-w-full" onClick={(event) => event.stopPropagation()}>
             {target}
           </span>
-          {!expanded && question ? (
-            <span className="min-w-0 flex-1 truncate text-muted-foreground">({question})</span>
-          ) : (
-            <span className="flex-1" />
-          )}
+          <span className="flex-1" />
           {startedAt && !instant ? (
             <>
               {/* A long consult is normal: its total never turns amber, only a stuck step does. */}
@@ -285,6 +277,15 @@ export function ConsultCardView({
           />
         </div>
 
+        {!expanded && question ? (
+          // The question on its own row, as a control card's item: neither it nor the thread clips.
+          <div
+            className="cursor-pointer border-t border-border/60 px-3 py-1.5 text-xs leading-5 text-muted-foreground"
+            onClick={onToggle}
+          >
+            <span className="line-clamp-2">{question}</span>
+          </div>
+        ) : null}
         {running ? <ConsultLiveStrip live={live} /> : null}
 
         {expanded ? (
@@ -476,7 +477,7 @@ const PI_INSTANCE = ProviderInstanceId.make("pi");
 const ANSWER_CLAMP_CHARS = 600;
 
 const STATUS = {
-  waiting: { label: "waiting", tone: "text-warning-foreground" },
+  waiting: { label: "waiting", tone: "text-info-foreground" },
   answered: { label: "answered", tone: "text-muted-foreground" },
   failed: { label: "failed", tone: "text-destructive-foreground" },
 } as const;

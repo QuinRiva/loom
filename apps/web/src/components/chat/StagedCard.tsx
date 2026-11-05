@@ -2,7 +2,7 @@ import { memo, type ReactNode } from "react";
 
 interface StagedCardProps {
   /** A muted leading glyph; the title alone names the card. */
-  readonly icon: ReactNode;
+  readonly icon?: ReactNode;
   readonly title: string;
   /** Optional right-aligned header slot (e.g. a status hint). */
   readonly trailing?: ReactNode;
@@ -33,7 +33,9 @@ export const StagedCard = memo(function StagedCard({
     >
       <div className="pointer-events-auto flex max-h-full w-full max-w-(--chat-content-max-width) flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
         <header className="flex items-center gap-2 border-border/60 border-b px-4 py-3 sm:px-5">
-          <span className="shrink-0 text-muted-foreground [&_svg]:size-4">{icon}</span>
+          {icon ? (
+            <span className="shrink-0 text-muted-foreground [&_svg]:size-4">{icon}</span>
+          ) : null}
           <span className="min-w-0 flex-1 truncate font-medium text-sm">{title}</span>
           {trailing}
         </header>

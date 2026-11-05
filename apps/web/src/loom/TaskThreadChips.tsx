@@ -62,7 +62,7 @@ export function TaskThreadChip({
   current,
 }: {
   thread: EnvironmentThreadShell;
-  /** The thread the panel is open on: its own anchor reads "you are here". */
+  /** The thread the panel is open on: its tooltip names it as this thread's anchor. */
   current: boolean;
 }) {
   const navigate = useNavigate();
@@ -83,7 +83,7 @@ export function TaskThreadChip({
         <TooltipTrigger
           render={
             <InlineButton
-              tone={current ? "default" : "muted"}
+              tone="muted"
               className="max-w-full"
               onClick={() =>
                 void navigate({

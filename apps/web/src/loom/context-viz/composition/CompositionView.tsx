@@ -38,7 +38,7 @@ function Section({
     <section className="pt-3.5 pb-1">
       <div className="mb-1.5 flex items-baseline gap-2">
         <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
-        <span className="ml-auto flex items-center gap-2 text-2xs text-muted-foreground">
+        <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
           {aside}
         </span>
       </div>
@@ -160,7 +160,7 @@ export function CompositionView({
             </Tooltip>
           ))}
         </div>
-        <div className="relative mt-1 h-[30px] text-2xs whitespace-nowrap text-muted-foreground">
+        <div className="relative mt-1 h-[30px] text-xs whitespace-nowrap text-muted-foreground">
           {lens === "tokens" ? (
             <>
               {toolResults ? (
@@ -206,18 +206,18 @@ export function CompositionView({
           )}
         </div>
         <div className="mt-0.5 grid grid-cols-2 gap-2">
-          <div className="rounded-lg border border-primary/40 px-2.5 py-2">
+          <div className="rounded-lg border border-border bg-muted/30 px-2.5 py-2">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Swatch color={COLORS.defs} hatch />
               Fixed overhead
             </div>
             <div className="mt-px text-base font-semibold tabular-nums">
               {formatValue(value(fixed, lens), lens)}
-              <small className="ml-1 text-2xs font-medium text-muted-foreground">
+              <small className="ml-1 text-xs font-medium text-muted-foreground">
                 {formatPct(value(fixed, lens), total)}
               </small>
             </div>
-            <div className="mt-0.5 text-2xs leading-snug text-muted-foreground">
+            <div className="mt-0.5 text-xs leading-snug text-muted-foreground">
               {lens === "tokens"
                 ? `System prompt and ${schemas?.items.length ?? 0} tool schemas. Identical on every call, and set by Loom.`
                 : `Small, but re-read on all ${report.calls.filter((call) => call.valid).length} calls.`}
@@ -232,11 +232,11 @@ export function CompositionView({
             </div>
             <div className="mt-px text-base font-semibold tabular-nums">
               {formatValue(value(conversation, lens), lens)}
-              <small className="ml-1 text-2xs font-medium text-muted-foreground">
+              <small className="ml-1 text-xs font-medium text-muted-foreground">
                 {formatPct(value(conversation, lens), total)}
               </small>
             </div>
-            <div className="mt-0.5 text-2xs leading-snug text-muted-foreground">
+            <div className="mt-0.5 text-xs leading-snug text-muted-foreground">
               Everything that arrived since the first call.
               {toolResults
                 ? ` Tool results are ${formatPct(value(toolResults, lens), value(conversation, lens))} of it.`
@@ -308,7 +308,7 @@ export function CompositionView({
         <ReclaimRows report={report} window={composition.window} used={used} prices={prices} />
       </Section>
 
-      <p className="mt-2.5 text-2xs text-muted-foreground">
+      <p className="mt-2.5 text-xs text-muted-foreground">
         <span>≈</span> estimated split of an exact total (by character share). Every other figure is
         measured from the provider's per-call usage.
       </p>

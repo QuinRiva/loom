@@ -361,8 +361,8 @@ export function ThreadLinkChip({
         <TooltipTrigger
           render={
             <ContextChip
-              kind="mention"
-              className="cursor-help opacity-70"
+              kind="neutral"
+              className="cursor-help text-info-foreground opacity-70"
               aria-label={`${label}: ${UNSCOPED_THREAD_CHIP_TITLE}`}
             />
           }
@@ -383,10 +383,11 @@ export function ThreadLinkChip({
       <TooltipTrigger
         render={
           <ContextChip
-            kind="mention"
+            // The app's link colour, as a prose thread mention: the glyph takes it too.
+            kind="neutral"
             render={<button type="button" />}
             aria-label={shell ? `Open ${shell.title}` : `Open ${label}`}
-            className={cn("hover:underline", shell === null && "opacity-70")}
+            className={cn("text-info-foreground hover:underline", shell === null && "opacity-70")}
             onClick={() =>
               void navigate({
                 to: "/$environmentId/$threadId",

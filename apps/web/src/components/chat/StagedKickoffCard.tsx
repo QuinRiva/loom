@@ -40,7 +40,6 @@ export const StagedKickoffCard = memo(function StagedKickoffCard({
   const brief = data?.contents.trim() ? data.contents : null;
   return (
     <StagedCard
-      icon={<RocketIcon />}
       title="Staged kickoff"
       bottomInset={bottomInset}
       footer={

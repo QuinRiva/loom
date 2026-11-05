@@ -149,7 +149,7 @@ const readOutline = (root: HTMLElement): OutlineItem[] => {
 
 const OUTLINE_CHIP =
   "shrink-0 truncate rounded-full px-2.5 py-1 hover:bg-accent hover:text-foreground";
-const EDGE_FADE = "[mask-image:linear-gradient(to_right,black_calc(100%-3rem),transparent)]";
+const EDGE_FADE = "[mask-image:linear-gradient(to_right,black_calc(100%-6rem),transparent)]";
 
 /**
  * Sticky section outline (a chip per H2, then the chosen section's H3s) plus the host's

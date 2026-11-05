@@ -241,7 +241,7 @@ function Grid({
   readonly children: ReactNode;
 }) {
   return (
-    <div className={cn("grid grid-cols-[60px_minmax(0,1fr)_56px] items-center gap-x-1", className)}>
+    <div className={cn("grid grid-cols-[64px_minmax(0,1fr)_60px] items-center gap-x-1", className)}>
       {children}
     </div>
   );
@@ -418,7 +418,7 @@ function AccountRow({
             <Identity row={row} name={name} />
             <span
               className={cn(
-                "truncate text-2xs",
+                "truncate text-xs leading-none",
                 login
                   ? cn("font-medium", TEXT[login])
                   : row.exhausted
@@ -433,14 +433,14 @@ function AccountRow({
           </span>
           <span className="h-3">
             {row.login?.status === "dead" ? (
-              <span className="block truncate text-2xs font-medium text-destructive-foreground">
+              <span className="block truncate text-xs leading-none font-medium text-destructive-foreground">
                 signed out
               </span>
             ) : bar ? (
               <TimeBar bar={bar} axis={pool.axis} now={now} height={4} />
             ) : null}
           </span>
-          <span className="flex items-center justify-end gap-0.75 whitespace-nowrap text-2xs">
+          <span className="flex items-center justify-end gap-0.75 whitespace-nowrap text-xs leading-none">
             {row.login ? (
               <span className={cn("font-medium", TEXT[login ?? "warning"])}>
                 {loginTag(row, now)}
@@ -448,7 +448,9 @@ function AccountRow({
             ) : (
               <>
                 {mark ? (
-                  <span className={cn("text-2xs font-bold", mark.className)}>{mark.glyph}</span>
+                  <span className={cn("text-xs leading-none font-bold", mark.className)}>
+                    {mark.glyph}
+                  </span>
                 ) : null}
                 <span className="text-muted-foreground">
                   {bar?.resetKnown ? `↻ ${formatCountdown(bar.reset - now)}` : "idle"}
@@ -488,28 +490,36 @@ function PoolBlock({
   if (!pool.pool) return <div className={cn(stale && "opacity-50")}>{rows}</div>;
   return (
     <div className={cn("flex flex-col gap-px", stale && "opacity-50")}>
-      <div className="flex h-3 items-center gap-1 text-2xs tabular-nums">
-        <span className="font-medium text-foreground">5-hour</span>
+      <div className="flex h-3 items-center gap-1 text-xs leading-none whitespace-nowrap tabular-nums">
+        {/* The pool's one label: its bar is the row straight below, on the accounts' axis. */}
+        <span className="font-medium text-foreground">5-hour pool</span>
         <span className="text-muted-foreground">{Math.round(pool.pool.used)}%</span>
         <span className="flex-1" />
-        <span className="text-2xs">
-          <ResetText bar={pool.pool} now={now} />
-        </span>
+        {pool.pool.emptyAt !== null ? (
+          <span className="text-xs leading-none">
+            <ResetText bar={pool.pool} now={now} withReset={false} />
+          </span>
+        ) : null}
       </div>
       <Grid className="h-3">
-        <span className="text-2xs text-muted-foreground">pool</span>
+        <span />
         <span className="h-3">
           <TimeBar bar={pool.pool} axis={pool.axis} now={now} height={6} />
         </span>
-        <span />
+        {/* The pool's reset in the accounts' ↻ column. */}
+        <span className="text-right text-xs leading-none whitespace-nowrap text-muted-foreground">
+          {pool.pool.resetKnown ? `↻ ${formatCountdown(pool.pool.reset - now)}` : "idle"}
+        </span>
       </Grid>
       {pool.carveOut ? (
         <Grid className="mt-0.5 h-3">
-          <span className="truncate text-2xs text-muted-foreground">{pool.carveOut.scope} wk</span>
+          <span className="truncate text-xs leading-none text-muted-foreground">
+            {pool.carveOut.scope} wk
+          </span>
           <span className="h-3">
             <PaceBar used={pool.carveOut.used} elapsed={pool.carveOut.elapsed} height={4} />
           </span>
-          <span className="text-right text-2xs text-muted-foreground tabular-nums">
+          <span className="text-right text-xs leading-none text-muted-foreground tabular-nums">
             {Math.round(pool.carveOut.used)}%
           </span>
         </Grid>
@@ -546,7 +556,7 @@ export const SubscriptionMeterView = memo(function SubscriptionMeterView({
                 type="button"
                 onClick={() => void navigate({ to: "/usage" })}
                 aria-label={notice}
-                className="truncate rounded-sm pb-0.5 text-left text-2xs font-medium leading-tight text-destructive-foreground outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                className="truncate rounded-sm pb-0.5 text-left text-xs leading-none font-medium leading-tight text-destructive-foreground outline-none hover:bg-foreground/5 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
               />
             }
           >
@@ -617,7 +627,7 @@ export function SubscriptionMeterChipView({
               bar ? `: 5-hour ${Math.round(bar.used)}% used` : ""
             }`}
             className={cn(
-              "flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-1.75 text-2xs tabular-nums outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              "flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-1.75 text-xs leading-none tabular-nums outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               pool?.stale && "opacity-50",
             )}
           />

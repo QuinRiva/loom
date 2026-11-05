@@ -146,16 +146,12 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
                 />
               ) : null}
               {rollup ? (
-                <Badge size="sm" variant="outline">
+                <Badge variant="outline">
                   {rollup.plan.columns.done + rollup.plan.columns.cancelled}/{rollup.plan.total}{" "}
                   settled
                 </Badge>
               ) : null}
-              {rollup?.plan.deadlocked ? (
-                <Badge size="sm" variant="error">
-                  deadlocked
-                </Badge>
-              ) : null}
+              {rollup?.plan.deadlocked ? <Badge variant="error">deadlocked</Badge> : null}
             </span>
           </div>
           <ThreadLineageBreadcrumb

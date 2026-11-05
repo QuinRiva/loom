@@ -5,7 +5,6 @@ import { forwardRef, useContext } from "react";
 
 import {
   COLUMN_SHORT_LABELS,
-  COLUMN_STYLES,
   formatCompactAge,
   formatRelativeAge,
   getGateWaitLabel,
@@ -14,6 +13,7 @@ import {
   getVerdictChip,
   legibleHue,
   nodeAttentionOf,
+  nodeStyleOf,
   type WorkstreamNode,
   type WorkstreamNodeIndex,
 } from "../lib/workstreamPresentation";
@@ -67,8 +67,8 @@ export const WorkstreamQuickFacts = forwardRef<
         <div className="truncate text-xs text-foreground/80">
           <StatusDot
             className="mr-1 inline-block align-middle"
-            color={attention?.color ?? COLUMN_STYLES[node.column].color}
-            hollow={!attention && COLUMN_STYLES[node.column].hollow}
+            color={attention?.color ?? nodeStyleOf(node, byId).color}
+            shape={attention ? "dot" : nodeStyleOf(node, byId).shape}
           />
           {attention ? (
             <>

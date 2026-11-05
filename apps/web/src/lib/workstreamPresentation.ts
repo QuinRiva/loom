@@ -125,8 +125,8 @@ export const COLUMN_ORDER: ReadonlyArray<WorkstreamBoardColumn> = [
 ];
 
 export const COLUMN_LABELS = {
-  held: "Held · staged",
-  blocked: "Blocked",
+  held: "Staged",
+  blocked: "Waiting",
   ready: "Ready",
   in_progress: "In progress",
   done: "Done",
@@ -134,32 +134,41 @@ export const COLUMN_LABELS = {
 } satisfies Record<WorkstreamBoardColumn, string>;
 
 export const COLUMN_SHORT_LABELS = {
-  held: "Held",
-  blocked: "Blocked",
+  held: "Staged",
+  blocked: "Waiting",
   ready: "Ready",
   in_progress: "In progress",
   done: "Done",
   cancelled: "Cancelled",
 } satisfies Record<WorkstreamBoardColumn, string>;
 
+/** A state dot's shape: filled, a ring (not started), or a ring round a dot (waiting on another thread). */
+export type StatusShape = "dot" | "ring" | "target";
+
 export interface ColumnStyle {
   /** The state's token as a CSS colour, for dots, SVG strokes and fills. */
   readonly color: string;
-  /** Not started: a ring (`StatusDot`) and a dashed graph border rather than a filled dot. */
-  readonly hollow: boolean;
+  /** `StatusDot`'s shape; on the graph a ring is a dashed border and a target a dotted one. */
+  readonly shape: StatusShape;
 }
 
 // The one state palette every Loom surface draws from (graph, legend, Active strip, quick facts,
-// goal panel). Hue marks what is moving (warning blocked, info running, success done); the
-// resting states are told apart by shape: held and ready are rings, ready in the running hue.
+// goal panel, thread mentions). Hue marks what is moving (info running, success done); amber is
+// left to attention, what a human or the orchestrator must act on. Resting states differ by shape.
 export const COLUMN_STYLES = {
-  held: { color: "var(--color-muted-foreground)", hollow: true },
-  blocked: { color: "var(--color-warning)", hollow: false },
-  ready: { color: "var(--color-info)", hollow: true },
-  in_progress: { color: "var(--color-info)", hollow: false },
-  done: { color: "var(--color-success)", hollow: false },
-  cancelled: { color: "var(--color-muted-foreground)", hollow: false },
+  held: { color: "var(--color-muted-foreground)", shape: "ring" },
+  blocked: { color: "var(--color-muted-foreground)", shape: "target" },
+  ready: { color: "var(--color-info)", shape: "ring" },
+  in_progress: { color: "var(--color-info)", shape: "dot" },
+  done: { color: "var(--color-success)", shape: "dot" },
+  cancelled: { color: "var(--color-muted-foreground)", shape: "dot" },
 } satisfies Record<WorkstreamBoardColumn, ColumnStyle>;
+
+/** A node's style: a gate party parked on the other leg waits like a blocked thread. */
+export const nodeStyleOf = (node: WorkstreamNode, byId: WorkstreamNodeIndex): ColumnStyle =>
+  getGateWaitLabel(node, byId)?.active === false
+    ? COLUMN_STYLES.blocked
+    : COLUMN_STYLES[node.column];
 
 // Attention
 
@@ -183,10 +192,10 @@ const ATTENTION_SHORT_LABELS = {
 /** The token colour of a reason, for the graph's attention ring and the goal panel's dot. */
 export const ATTENTION_COLORS = {
   error: "var(--color-error)",
-  awaiting_acceptance: "var(--color-info)",
+  awaiting_acceptance: "var(--color-warning)",
   needs_guidance: "var(--color-warning)",
-  awaiting_orchestrator: "var(--color-info)",
-  "brief-needed": "var(--color-muted-foreground)",
+  awaiting_orchestrator: "var(--color-warning)",
+  "brief-needed": "var(--color-warning)",
 } satisfies Record<WorkstreamAttentionReason, string>;
 
 /** A thread's own pending request, named like the attention reasons. */

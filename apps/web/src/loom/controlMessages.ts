@@ -57,9 +57,6 @@ const ITEM_KIND_LABELS: Record<LoomControlItemKind, string> = {
   "dead-episode": "dead",
 };
 
-/** The synthesised-yield marker (seam 8's wording). */
-export const SYNTHESISED_MARKER = "went quiet; report synthesised";
-
 export interface ControlCardItem {
   readonly item: ControlPayload["items"][number];
   /** The item kind's label; null when the item carries no kind. */
@@ -74,8 +71,6 @@ export type ControlCardModel =
       /** The kicker: what arrived. */
       readonly label: string;
       readonly summary: string;
-      /** Present on a dispatcher-synthesised yield. */
-      readonly marker: string | null;
       readonly items: ReadonlyArray<ControlCardItem>;
     }
   | {
@@ -128,7 +123,6 @@ export function controlCardModel(
         severity: "neutral",
         label: "Digest",
         summary,
-        marker: null,
         items: cardItems,
       };
     case "yield":
@@ -138,7 +132,6 @@ export function controlCardModel(
         severity: "neutral",
         label: "Yield",
         summary,
-        marker: payload.synthesised === true ? SYNTHESISED_MARKER : null,
         items: cardItems,
       };
     case "notice":
@@ -149,7 +142,6 @@ export function controlCardModel(
             severity: NOTICE_SEVERITY[payload.notice],
             label: NOTICE_LABELS[payload.notice],
             summary,
-            marker: null,
             items: cardItems,
           }
         : raw;

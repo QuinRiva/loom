@@ -44,6 +44,7 @@ import {
   isReceded,
   legibleHue,
   nodeAttentionOf,
+  nodeStyleOf,
   TONE_COLORS,
   truncateLabel,
   type WorkstreamNode,
@@ -68,8 +69,10 @@ const QUERY_STROKE = "var(--color-primary)";
 // Done/cancelled cards recede so the live front reads first: their border and
 // tint fade into the canvas while their text stays at full contrast.
 const RECEDE_OPACITY = 0.42;
-// Small grey text on a tinted card: muted-foreground is under 4.5:1 there in light mode.
-const CARD_META_CLASS = "fill-foreground/70 dark:fill-muted-foreground";
+// A not-started node's border follows its legend dot: ring dashed, target (waiting) dotted.
+const DASH = { dot: undefined, ring: "4 3", target: "1.5 2.5" } as const;
+// Small grey text on a tinted card (`--graph-meta`, darker than muted in light mode).
+const CARD_META_FILL = "var(--graph-meta)";
 const FADE_OPACITY = 0.1;
 const STRIP_H = 22;
 const HOVER_DELAY_MS = 300;
@@ -477,7 +480,8 @@ export default function WorkstreamGraph({
           />
         ) : null}
       </div>
-      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-2 pb-1">
+      {/* A left-aligned grid, so a narrow panel (or the open drawer) wraps it into columns. */}
+      <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-x-4 gap-y-1 px-2 pb-1">
         {COLUMN_ORDER.map((column) => (
           <LegendItem
             key={column}
@@ -789,7 +793,7 @@ function BridgeNode({
         {truncateLabel(node.label, 18)}
       </text>
       <text
-        className={CARD_META_CLASS}
+        fill={CARD_META_FILL}
         fontSize="10"
         textAnchor="middle"
         x={node.x + node.w / 2}
@@ -959,7 +963,7 @@ function GraphNode({
   // The laid node is a structural snapshot; resolve the live one for status.
   const node = byId.get(laid.thread.id) ?? laid.thread;
   const { x, y, w, h } = laid;
-  const { color, hollow } = COLUMN_STYLES[node.column];
+  const { color, shape } = nodeStyleOf(node, byId);
   const verdict = getVerdictChip(node);
   const stateWord = getNodeStateWord(node, byId);
   const attention = nodeAttentionOf(node);
@@ -1029,7 +1033,7 @@ function GraphNode({
             height={h}
             rx="10"
             stroke={color}
-            strokeDasharray={hollow ? "4 3" : undefined}
+            strokeDasharray={DASH[shape]}
             strokeOpacity={recede ? RECEDE_OPACITY : 1}
             strokeWidth={1.4}
             width={w}
@@ -1112,7 +1116,7 @@ function GraphNode({
           ) : null}
           {node.column === "in_progress" ? (
             <g
-              className={CARD_META_CLASS}
+              fill={CARD_META_FILL}
               fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
               fontSize={9}
               pointerEvents="none"

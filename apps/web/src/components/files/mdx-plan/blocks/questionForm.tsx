@@ -183,7 +183,7 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
               clear
             </button>
           )}
-          <span className="rounded-full bg-accent px-2 py-0.5 text-3xs font-medium text-muted-foreground">
+          <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-muted-foreground">
             {MODE_LABEL[question.mode]}
           </span>
         </span>
@@ -222,7 +222,7 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
                   <span className="flex items-center gap-1.5 text-sm text-foreground">
                     {option.label}
                     {option.recommended && (
-                      <span className="inline-flex items-center gap-0.5 rounded bg-success/8 px-1 py-0.5 text-xs font-medium text-success-foreground dark:bg-success/16">
+                      <span className="inline-flex items-center gap-0.5 rounded border border-border px-1 py-0.5 text-xs font-medium text-muted-foreground">
                         <IconCircleCheck className="size-3" />
                         recommended
                       </span>

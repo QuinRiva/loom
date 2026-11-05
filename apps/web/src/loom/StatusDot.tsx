@@ -1,19 +1,26 @@
+import type { StatusShape } from "../lib/workstreamPresentation";
 import { cn } from "../lib/utils";
 
-/** A thread-state dot in a `COLUMN_STYLES` (or attention) colour: filled, or a ring when `hollow`. */
+/** A thread-state dot in a `COLUMN_STYLES` (or attention) colour, in its state's shape. */
 export function StatusDot({
   color,
-  hollow = false,
+  shape = "dot",
   className,
 }: {
   readonly color: string;
-  readonly hollow?: boolean | undefined;
+  readonly shape?: StatusShape | undefined;
   readonly className?: string;
 }) {
   return (
     <span
-      className={cn("size-1.5 shrink-0 rounded-full", className)}
-      style={hollow ? { border: `1.5px solid ${color}` } : { backgroundColor: color }}
-    />
+      className={cn("inline-grid size-2 shrink-0 place-items-center rounded-full", className)}
+      style={
+        shape === "dot" ? { backgroundColor: color } : { boxShadow: `inset 0 0 0 1.5px ${color}` }
+      }
+    >
+      {shape === "target" ? (
+        <span className="size-0.75 rounded-full" style={{ backgroundColor: color }} />
+      ) : null}
+    </span>
   );
 }

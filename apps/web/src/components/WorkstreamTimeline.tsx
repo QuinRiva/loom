@@ -180,21 +180,22 @@ export function WorkstreamTimelineDrawer({
             {rows.map((row) => (
               <li
                 key={row.key}
-                className="group/row flex items-start gap-2 border-l border-border py-1.5 pl-3"
+                className="group/row flex items-center gap-2 border-l border-border py-1 pl-3"
               >
                 <span
-                  className={`-ml-[17px] mt-1 size-2 shrink-0 rounded-full ${TONE_DOT_CLASSES[row.tone]}`}
+                  className={`-ml-[17px] size-2 shrink-0 rounded-full ${TONE_DOT_CLASSES[row.tone]}`}
                 />
-                <span className="min-w-0 flex-1">
-                  <span className="text-xs font-medium text-foreground">{row.label}</span>
+                {/* One line: a long detail ellipsises rather than orphaning a word. */}
+                <span className="min-w-0 flex-1 truncate text-xs">
+                  <span className="font-medium text-foreground">{row.label}</span>
                   {row.detail ? (
-                    <span className="ml-1.5 text-2xs text-muted-foreground">{row.detail}</span>
+                    <span className="ml-1.5 text-muted-foreground">{row.detail}</span>
                   ) : null}
                 </span>
                 <Tooltip>
                   <TooltipTrigger
                     render={
-                      <span className="mt-0.5 shrink-0 text-xs tabular-nums text-muted-foreground" />
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground" />
                     }
                   >
                     {formatRelativeAge(row.at)}
