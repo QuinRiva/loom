@@ -121,7 +121,7 @@ export function QuestionListRead({
       data-plan-block-type={blockType}
       className="my-4 overflow-hidden rounded-xl border border-border bg-card"
     >
-      <div className="border-b border-border/60 bg-muted/40 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="border-b border-border/60 bg-muted/40 px-4 py-2 text-xs font-semibold text-muted-foreground">
         Open questions
       </div>
       <ol className="flex flex-col divide-y divide-border/60">
@@ -183,7 +183,7 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
               clear
             </button>
           )}
-          <span className="rounded-full bg-accent px-2 py-0.5 text-3xs font-medium text-muted-foreground">
+          <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-muted-foreground">
             {MODE_LABEL[question.mode]}
           </span>
         </span>
@@ -198,11 +198,8 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
             const selected = answer.selected.includes(option.id);
             const rowClassName = cn(
               "flex w-full items-start gap-2 rounded-md border px-2.5 py-1.5 text-left",
-              selected
-                ? "border-primary bg-primary/10"
-                : option.recommended
-                  ? "border-success/60 bg-success/8"
-                  : "border-border",
+              // The "recommended" chip alone marks a recommendation, so it never reads as chosen.
+              selected ? "border-primary bg-primary/10" : "border-border",
               onChange && "cursor-pointer transition-colors hover:border-primary/60",
             );
             const rowContent = (
@@ -211,11 +208,7 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
                   className={cn(
                     "mt-0.5 grid size-3.5 shrink-0 place-items-center border",
                     question.mode === "single" ? "rounded-full" : "rounded-xs",
-                    selected
-                      ? "border-primary bg-primary"
-                      : option.recommended
-                        ? "border-success"
-                        : "border-muted-foreground/50",
+                    selected ? "border-primary bg-primary" : "border-muted-foreground/50",
                   )}
                 >
                   {selected &&
@@ -229,7 +222,7 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
                   <span className="flex items-center gap-1.5 text-sm text-foreground">
                     {option.label}
                     {option.recommended && (
-                      <span className="inline-flex items-center gap-0.5 rounded bg-success/16 px-1 py-0.5 text-3xs font-semibold text-success-foreground">
+                      <span className="inline-flex items-center gap-0.5 rounded border border-border px-1 py-0.5 text-xs font-medium text-muted-foreground">
                         <IconCircleCheck className="size-3" />
                         recommended
                       </span>

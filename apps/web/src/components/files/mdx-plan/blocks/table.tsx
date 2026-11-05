@@ -197,10 +197,7 @@ export function TableRead({ data, blockId }: PlanBlockReadProps<TableData>) {
               <tr className="border-b border-border bg-muted text-left">
                 {withKeys(columns, (column) => column).map(({ key, item: column }, index) => {
                   const active = sort?.col === index;
-                  const headerClass = cn(
-                    "font-mono font-semibold uppercase tracking-widest text-3xs text-muted-foreground",
-                    pad,
-                  );
+                  const headerClass = cn("font-semibold text-xs text-muted-foreground", pad);
                   if (!filterable) {
                     return (
                       <th key={key} className={headerClass} style={{ textAlign: align(index) }}>
@@ -215,7 +212,7 @@ export function TableRead({ data, blockId }: PlanBlockReadProps<TableData>) {
                         aria-label={`Sort by ${column}`}
                         onClick={() => toggleSort(index)}
                         className={cn(
-                          "flex w-full items-center gap-1 text-left uppercase",
+                          "flex w-full items-center gap-1 text-left",
                           JUSTIFY[align(index) ?? "left"],
                           pad,
                           active ? "text-foreground" : "hover:text-foreground",

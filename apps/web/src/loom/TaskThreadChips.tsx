@@ -18,6 +18,7 @@ import {
   ShipIcon,
 } from "lucide-react";
 
+import { InlineButton } from "../components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { cn } from "../lib/utils";
 import { buildThreadRouteParams } from "../threadRoutes";
@@ -61,7 +62,7 @@ export function TaskThreadChip({
   current,
 }: {
   thread: EnvironmentThreadShell;
-  /** The thread the panel is open on: its own anchor reads "you are here". */
+  /** The thread the panel is open on: its tooltip names it as this thread's anchor. */
   current: boolean;
 }) {
   const navigate = useNavigate();
@@ -69,32 +70,37 @@ export function TaskThreadChip({
   const Icon = ROLE_ICONS[role.toLowerCase()] ?? BotIcon;
   const cancelled = thread.source.workstream?.outcome === "cancelled";
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            onClick={() =>
-              void navigate({
-                to: "/$environmentId/$threadId",
-                params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
-              })
-            }
-            className={cn(
-              "ml-1.5 inline-flex max-w-[11rem] translate-y-px items-center gap-1 rounded-full border border-border/60 px-1.5 align-middle text-3xs text-muted-foreground no-underline hover:bg-accent hover:text-foreground",
-              current && "border-primary/50 text-foreground",
-              // Cancelled is not archived: dimmed, never hidden.
-              cancelled && "opacity-60 hover:opacity-100",
-            )}
-          />
-        }
-      >
-        <Icon className="size-3 shrink-0" />
-        <span className="truncate">{thread.title}</span>
-      </TooltipTrigger>
-      <TooltipPopup>
-        {`${role} · ${thread.title}${current ? " · this thread's anchor" : ""}${cancelled ? " · cancelled" : ""}`}
-      </TooltipPopup>
-    </Tooltip>
+    // Sized here: InlineButton takes its type size from its parent.
+    <span
+      className={cn(
+        // Its own line under the task text, so every chip sits at one x whatever the text's length.
+        "mt-0.5 flex w-fit max-w-full text-xs",
+        // Cancelled is not archived: dimmed, never hidden.
+        cancelled && "opacity-60 hover:opacity-100",
+      )}
+    >
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <InlineButton
+              tone="muted"
+              className="max-w-full"
+              onClick={() =>
+                void navigate({
+                  to: "/$environmentId/$threadId",
+                  params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
+                })
+              }
+            />
+          }
+        >
+          <Icon className="size-3 shrink-0" />
+          <span className="truncate">{thread.title}</span>
+        </TooltipTrigger>
+        <TooltipPopup>
+          {`${role} · ${thread.title}${current ? " · this thread's anchor" : ""}${cancelled ? " · cancelled" : ""}`}
+        </TooltipPopup>
+      </Tooltip>
+    </span>
   );
 }

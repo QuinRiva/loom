@@ -332,7 +332,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                               <div className="flex flex-wrap items-center justify-end gap-1">
                                 {field.change && <ChangeChip change={field.change} />}
                                 {field.pk && (
-                                  <span className="rounded bg-warning/16 px-1.5 py-0.5 text-3xs font-bold uppercase tracking-wide text-warning-foreground">
+                                  <span className="rounded bg-warning/8 px-1.5 py-0.5 text-3xs font-bold uppercase tracking-wide text-warning-foreground dark:bg-warning/16">
                                     PK
                                   </span>
                                 )}
@@ -388,9 +388,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
 
       {relations.length > 0 && (
         <div className="mt-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Relations
-          </div>
+          <div className="text-xs font-semibold text-muted-foreground">Relations</div>
           <div className="mt-2 flex flex-col gap-1.5">
             {relations.map((relation) => {
               const fromEntity = resolveEntity(entities, relation.from);

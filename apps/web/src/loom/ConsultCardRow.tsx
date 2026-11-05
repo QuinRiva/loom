@@ -114,7 +114,7 @@ export const ConsultCardRow = memo(function ConsultCardRow({
             environmentId={ctx.activeThreadEnvironmentId}
           />
         ) : (
-          <span className="text-muted-foreground/80 italic">«{targetName ?? "a thread"}»</span>
+          <span className="text-muted-foreground italic">«{targetName ?? "a thread"}»</span>
         )
       }
       question={question}
@@ -159,7 +159,7 @@ export const ConsultCardRow = memo(function ConsultCardRow({
             ) : null}
           </div>
         ) : status === "waiting" ? null : (
-          <p className="text-muted-foreground/80 text-xs leading-5 whitespace-pre-wrap">
+          <p className="text-xs leading-5 whitespace-pre-wrap text-muted-foreground">
             {answer || (detail.isPending ? "Loading…" : "No answer was returned.")}
           </p>
         )
@@ -205,6 +205,11 @@ export function ConsultCardView({
   readonly stopping: boolean;
 }) {
   const [showSteps, setShowSteps] = useState(false);
+  // A consult that settled inside a second has no duration worth a figure ("0s").
+  const instant =
+    startedAt !== null &&
+    completedAt !== null &&
+    Date.parse(completedAt) - Date.parse(startedAt) < 1000;
   // The fork is still working: the strip, the running log and Stop.
   const running = status === "waiting" && live !== null && live.endedAt === null;
   const earlier = live === null ? 0 : live.toolCalls - live.recent.length;
@@ -213,7 +218,7 @@ export function ConsultCardView({
     live !== null && live.recent.length > 0 ? (
       <div className="flex flex-col gap-0.5 rounded-md bg-muted/40 px-2 py-1.5">
         {earlier > 0 ? (
-          <div className="text-3xs text-muted-foreground/80">
+          <div className="text-2xs text-muted-foreground">
             {earlier} earlier step{earlier === 1 ? "" : "s"}
           </div>
         ) : null}
@@ -228,7 +233,10 @@ export function ConsultCardView({
       className="-mx-1 min-w-0 px-1 py-0.5"
       aria-label={`Consult: ${targetLabel}, ${STATUS[status].label}`}
     >
-      <div className="rounded-lg border border-info/25 bg-info/6" data-consult-card={status}>
+      <div
+        className="overflow-hidden rounded-2xl border border-border/80 bg-card/70"
+        data-consult-card={status}
+      >
         <div
           role="button"
           tabIndex={0}
@@ -239,48 +247,51 @@ export function ConsultCardView({
             event.preventDefault();
             onToggle();
           }}
-          className="focus-visible:ring-ring/70 flex w-full cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs leading-5 transition-colors hover:bg-info/10 focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
+          className="focus-visible:ring-ring/70 flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 text-left text-xs leading-5 transition-colors hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
         >
           <MessageCircleQuestionMarkIcon className="size-3.5 shrink-0 text-info-foreground" />
-          <span className="text-foreground/82 shrink-0">Consulted</span>
+          <span className="shrink-0 text-foreground">Consulted</span>
           {/* The chip navigates on click; the card must not also toggle. */}
-          <span className="min-w-0 shrink-0" onClick={(event) => event.stopPropagation()}>
+          <span className="flex min-w-0 *:max-w-full" onClick={(event) => event.stopPropagation()}>
             {target}
           </span>
-          {!expanded && question ? (
-            <span className="text-muted-foreground/70 min-w-0 flex-1 truncate">({question})</span>
-          ) : (
-            <span className="flex-1" />
-          )}
-          {startedAt ? (
+          <span className="flex-1" />
+          {startedAt && !instant ? (
             <>
               {/* A long consult is normal: its total never turns amber, only a stuck step does. */}
               <span className="shrink-0 text-muted-foreground">
                 <StepElapsed since={startedAt} until={completedAt} amber={false} />
               </span>
-              <span aria-hidden className="shrink-0 text-muted-foreground/50">
+              <span aria-hidden className="shrink-0 text-muted-foreground">
                 ·
               </span>
             </>
           ) : null}
-          <span className={cn("shrink-0 text-3xs tracking-wide uppercase", STATUS[status].tone)}>
-            {STATUS[status].label}
-          </span>
+          <span className={cn("shrink-0", STATUS[status].tone)}>{STATUS[status].label}</span>
           <ChevronDownIcon
             className={cn(
-              "size-3.5 shrink-0 opacity-60 transition-transform duration-200",
+              "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
               expanded && "rotate-180",
             )}
             aria-hidden
           />
         </div>
 
+        {!expanded && question ? (
+          // The question on its own row, as a control card's item: neither it nor the thread clips.
+          <div
+            className="cursor-pointer border-t border-border/60 px-3 py-1.5 text-xs leading-5 text-muted-foreground"
+            onClick={onToggle}
+          >
+            <span className="line-clamp-2">{question}</span>
+          </div>
+        ) : null}
         {running ? <ConsultLiveStrip live={live} /> : null}
 
         {expanded ? (
-          <div className="space-y-2 border-t border-info/15 px-2.5 py-2">
+          <div className="space-y-2 border-t border-border/60 px-3 py-2">
             {question ? (
-              <blockquote className="text-foreground/70 border-l-2 border-info/40 pl-2.5 text-xs leading-5 whitespace-pre-wrap">
+              <blockquote className="border-l-2 border-border pl-2.5 text-xs leading-5 whitespace-pre-wrap text-muted-foreground">
                 {question}
               </blockquote>
             ) : null}
@@ -301,7 +312,7 @@ export function ConsultCardView({
                 </div>
               </>
             ) : status === "waiting" ? (
-              <p className="text-muted-foreground/80 text-xs leading-5">Waiting for the answer.</p>
+              <p className="text-xs leading-5 text-muted-foreground">Waiting for the answer.</p>
             ) : null}
             {status === "answered" && live !== null ? (
               <>
@@ -341,7 +352,7 @@ export function ConsultCardView({
 function ConsultLiveStrip({ live }: { readonly live: LoomLiveConsult }) {
   const cost = formatCostUsd(live.spend?.costUsd);
   return (
-    <div className="space-y-0.5 pr-2.5 pb-1.5 pl-7 text-2xs leading-4 text-muted-foreground">
+    <div className="space-y-0.5 pr-3 pb-1.5 pl-8 text-2xs leading-4 text-muted-foreground">
       <div className="flex min-w-0 items-center gap-2">
         <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-info" />
         <span className="min-w-0 flex-1 truncate">
@@ -370,7 +381,7 @@ function ConsultLiveStrip({ live }: { readonly live: LoomLiveConsult }) {
         </span>
       </div>
       {live.narration ? (
-        <div className="truncate pl-3.5 text-muted-foreground/80 italic">“{live.narration}”</div>
+        <div className="truncate pl-3.5 text-muted-foreground italic">“{live.narration}”</div>
       ) : null}
     </div>
   );
@@ -404,7 +415,7 @@ function ConsultFacts({
           {cost || spend ? bar : null}
         </>
       )}
-      {cost ? <span className="shrink-0 text-foreground/80 tabular-nums">{cost}</span> : null}
+      {cost ? <span className="shrink-0 text-foreground tabular-nums">{cost}</span> : null}
       {spend && spend.inputTokens + spend.outputTokens + spend.cachedTokens > 0 ? (
         <>
           {cost ? bar : null}
@@ -424,7 +435,7 @@ function ConsultStepRow({ step }: { readonly step: LoomConsultStep }) {
     <div
       className={cn(
         "flex min-w-0 items-center gap-2 text-2xs leading-4",
-        step.ok === true ? "text-muted-foreground" : "text-foreground/90",
+        step.ok === true ? "text-muted-foreground" : "text-foreground",
       )}
     >
       <span
@@ -466,7 +477,7 @@ const PI_INSTANCE = ProviderInstanceId.make("pi");
 const ANSWER_CLAMP_CHARS = 600;
 
 const STATUS = {
-  waiting: { label: "waiting", tone: "text-warning-foreground/80" },
-  answered: { label: "answered", tone: "text-info-foreground/80" },
-  failed: { label: "failed", tone: "text-destructive-foreground/80" },
+  waiting: { label: "waiting", tone: "text-info-foreground" },
+  answered: { label: "answered", tone: "text-muted-foreground" },
+  failed: { label: "failed", tone: "text-destructive-foreground" },
 } as const;

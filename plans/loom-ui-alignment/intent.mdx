@@ -1,0 +1,45 @@
+---
+reader:
+  who: Carl, who asked for Loom's own UI to match upstream's redesign and approves the intent before anything is restyled
+  knows: his own request and Theo's video; not the audit or the codebase
+  after_first_screen: he can correct any line, answer the four questions, or say "go"
+kicker: "Intent brief · approved 5 Nov 2026"
+status: done
+plan: plans/loom-ui-alignment/plan.mdx
+manager_sessions:
+  - id: 01a1a9cc-ba51-71f6-a10e-ae9a1259e7e8
+    name: Loom UI Refresh Aligned With Upstream Redesign
+    role: intent
+    authored_at: 2026-11-05T04:08:58.220Z
+---
+
+# Make Loom's own surfaces wear upstream's redesign, then polish them the way Theo did
+
+**Goal.** "Improve my Loom specific elements to firstly be consistent with the new design, and then adapt his approach to improve them." The baseline question is settled: upstream's October redesign (PRs #24865, #25251, #25324, #25778) is already in Loom via pulls 13 and 14, and upstream has changed its design files by 13 lines since, so no pull is needed first. An audit of about 30 Loom surfaces found 18 already consistent, 9 slightly off and 3 groups clearly off. The work is those three groups, a small sweep of the nine, then one bounded scoring pass.
+
+<Image src="shots/orchestrator-thread-dark.png" alt="An orchestrator thread today: green control cards on the new black canvas, a bordered monospace badge in the sidebar, an uppercase ACTIVE NOW strip" caption="Today. Every control-plane card is green whatever it says (this one reads DEADLOCK), cards are 8px with tinted borders, and the sidebar badge and workstream strip are 10px monospace capsules." width={640} />
+
+**You'll know it works when.**
+
+- You open an orchestrator thread and the control cards (digest, notices, yields, handoff receipts) look like upstream's own timeline cards: neutral, 16px corners, no tinted fill. Colour appears only where it tells you something, so a card you must act on (needs guidance, rework requested, deadlock) stands out from the ones you don't.
+- You open a plan or recap and inline code and code blocks look like they do in chat: a borderless translucent pill that scales with the text, 8px blocks.
+- You glance at the sidebar and the workstream panel and the `4/9 · 1!` badge, the model name and the "Active now" heading read at the same size and weight as upstream's own row metadata and section headings, in sentence case.
+- In light mode, no Loom metadata text sits below 4.5:1 contrast (the control cards' 10px uppercase meta is about 2.7:1 today).
+- A two-model design council (Fable 5.1 and Opus 5.5), shown screenshots of the whole app after the restyle, scores it on Theo's seven categories (typography, hierarchy, spacing and density, colour and contrast, iconography, consistency and polish, clarity), and the Loom surfaces score within a point of the upstream surfaces beside them.
+- **Must not:** lose information a card carries today (which channel it came from, which role or model acted, the status it reports); change any upstream surface; add a continuously repainting animation; touch mobile.
+
+**Approaches in play.**
+
+- A hand pass against the redesign's written vocabulary (extracted in the audit: tokens, radii, type scale, dimming, icon stroke, inline code), then one bounded council pass on the result. Wins if the audit found most of what a council would find, which it looks like it did. _Your framing._
+- Theo's loop from the start: council scores the untouched surfaces, the coder iterates until all three are satisfied. Wins only if the audit missed real problems; costs several times more agent time (his 10/10 run was 17.6 hours and roughly $400 at list price).
+- Dropped: pull upstream first or wait for the next pull. Nothing design-related is waiting upstream.
+
+**Decided.** "Use that as a baseline" (upstream's redesign is the reference; Loom surfaces follow it, not a Loom theme). "Firstly be consistent with the new design, and then adapt his approach to improve them" (order of work). Control cards: "Neutral by default; warning or destructive only when I must act". Document pages: "Keep the tint, move the tone palette (violet included) onto upstream's tokens". Identity: "Monospace at 12px, no border, sentence case; roles as plain text". Council: three rounds at most; members are "fable 5.1 and opus 5.5" ("I don't have different providers"); "use Theo's seven category rubric"; and the approved changes "are the starting point that should be assessed as part of an overall assessment ... Don't constrain the assessment to just those items/surfaces - allow the council to provide feedback on anything."
+_Assumed:_ mobile is out of scope; the fuchsia "an agent started this" rail, the context-viz chart palettes and the HTTP verb colours in the MDX API blocks stay, since each carries one meaning. A council finding on an upstream surface is recorded and brought to you as a decision rather than built, because every edit to an upstream file is a conflict at each weekly pull; a finding on a Loom surface is acted on within the three rounds. Redirect if wrong.
+
+**Not doing.** Changing what any Loom surface shows or where it lives. Mobile. A Loom-specific theme.
+
+**Still unknown.**
+
+- Whether the dev seed can be made to show the surfaces the audit could only judge from code (subscription meter, hub login, deploy and handoff toasts, spend slots). The plan settles it by extending the seed or adding preview fixtures.
+- Whether two models from one provider agree too readily to be a useful check on each other. The first round's spread between them settles it; if they move in lockstep, the second round adds a competitor screenshot (Claude Code or Codex, as Theo did) as calibration.

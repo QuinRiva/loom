@@ -162,7 +162,7 @@ function JsonRead({ data, blockId }: PlanBlockReadProps<JsonData>) {
       data-plan-block-type="json-explorer"
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
-      <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
         <span className="min-w-0 flex-1 truncate">{data.title ?? ""}</span>
         <WrapToggle wrapped={wrap} onToggle={() => setWrap((value) => !value)} />
       </div>

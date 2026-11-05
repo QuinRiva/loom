@@ -5,7 +5,14 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/models";
 import { LOOM_SEED } from "@t3tools/shared/loomSeedFixture.loom";
-import { ThreadId, type LoomMessageFields } from "@t3tools/contracts";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import {
+  type LoomMessageFields,
+  type LoomThreadShellFields,
+  type OrchestrationV2ThreadShell,
+  RunId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { useState } from "react";
 
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -14,6 +21,7 @@ import { OpenQuestionsRail } from "../loom/openQuestions/OpenQuestionsRail";
 import { GoalPanelView } from "../components/GoalTasksPanel";
 import { ControlDigestCardView } from "../loom/ControlDigestCard";
 import { controlCardModel } from "../loom/controlMessages";
+import { GoalThreadsSection } from "../loom/GoalThreadsSection";
 import { LoomTimelineRowView } from "../loom/LoomTimelineRowView";
 import type { LoomTimelineRow } from "../loom/loomTimelineRows";
 import { CACHE_LIVENESS_PREVIEW_GROUP } from "./cacheLivenessFixtures";
@@ -30,6 +38,8 @@ import {
   loomPreviewOpenQuestions,
   loomPreviewThreads,
   loomPreviewWorkspaceRoot,
+  shell,
+  workstream,
 } from "./loomFixtures";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
 
@@ -37,6 +47,46 @@ const shells = Object.values(loomPreviewThreads).map((thread) =>
   presentThreadShell(loomPreviewEnvironmentId, thread),
 );
 const senderLabels = new Map(shells.map((thread) => [thread.id, thread.title] as const));
+
+const run = { latestRunId: RunId.make("preview-goal-thread-run") };
+
+/** A goal root thread for the Threads section; the numeric key fixes the handoff order. */
+const goalThread = (
+  key: string,
+  title: string,
+  loom: Partial<LoomThreadShellFields> = {},
+  v2: Partial<OrchestrationV2ThreadShell> = {},
+  present: Partial<EnvironmentThreadShell> = {},
+): EnvironmentThreadShell => {
+  const id = ThreadId.make(`preview-goal-thread-${key}`);
+  return {
+    ...presentThreadShell(
+      loomPreviewEnvironmentId,
+      shell(title, workstream(id, { parentThreadId: null, rootThreadId: id, ...loom }), v2),
+    ),
+    ...present,
+  };
+};
+
+/** One root per chip state, in `resolveChip` precedence order; the last continues the one before. */
+const goalThreadShells = [
+  goalThread("01", "Fix the lease-date parser", { attention: ["error"] }),
+  goalThread("02", "Decide which amendment wins", { attention: ["needs_guidance"] }),
+  goalThread("03", "Accept the clause extractor", { attention: ["awaiting_acceptance"] }),
+  goalThread("04", "Run the migration", {}, {}, { hasPendingApprovals: true }),
+  goalThread("05", "Pick the export format", {}, {}, { hasPendingUserInput: true }),
+  goalThread("06", "Extract clauses from the lease PDFs", {}, { ...run, status: "running" }),
+  goalThread("07", "Wait on the reviewer gate", {}, { ...run, status: "idle" }),
+  goalThread("08", "Rebuild the document index", {}, { ...run, status: "failed" }),
+  goalThread("09", "Ship the parser fix", { held: true }),
+  goalThread("10", "Plan the clause model", {
+    outcome: "done",
+    outcomeAt: "2026-10-05T09:00:00.000Z",
+  }),
+  goalThread("11", "Draft the next plan", {
+    continuesThreadId: ThreadId.make("preview-goal-thread-10"),
+  }),
+];
 
 function ControlCard({
   loom,
@@ -248,7 +298,7 @@ export const LOOM_PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         id: `loom-control-handback-${message.loom?.controlPayload?.kind}`,
         title: `${message.loom?.controlPayload?.kind}: handed-back documents`,
         description:
-          'Collapsed, as in a timeline: a row with a report opens it (hover says so) and ↗ opens the thread; the report\'s documents are chips (a one-word name leads with its folder, three then "+n more", a missing one struck through); a row with no report keeps the chevron.',
+          'Collapsed, as in a timeline: a row with a report opens it (hover says so) and ↗ opens the thread; the report\'s documents are chips (a one-word name leads with its folder, three then "+n more", a missing one struck through); a row with no report opens the thread itself, under the same ↗.',
         render: () => (
           <TimelineLayoutFrame>
             <ControlCard loom={message.loom} text={message.text} live />
@@ -318,6 +368,22 @@ export const LOOM_PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
               goal={loomPreviewGoal}
               thread={{ id: loomPreviewAnchoredThreadId, environmentId: loomPreviewEnvironmentId }}
               shells={shells}
+            />
+          </div>
+        ),
+      },
+      {
+        id: "loom-goal-threads-section",
+        title: "Goal threads section",
+        description:
+          "One root thread per status chip: error and other attention, approval, input, working, waiting, failed, staged, an outcome, and ready (a continuation, and the current thread).",
+        render: () => (
+          <div className="w-[420px] rounded-lg border border-border p-4">
+            <GoalThreadsSection
+              goalId={loomPreviewGoal.id}
+              environmentId={loomPreviewEnvironmentId}
+              activeThreadId={ThreadId.make("preview-goal-thread-11")}
+              shells={goalThreadShells}
             />
           </div>
         ),

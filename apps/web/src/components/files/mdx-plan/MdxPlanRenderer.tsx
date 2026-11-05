@@ -149,6 +149,7 @@ const readOutline = (root: HTMLElement): OutlineItem[] => {
 
 const OUTLINE_CHIP =
   "shrink-0 truncate rounded-full px-2.5 py-1 hover:bg-accent hover:text-foreground";
+const EDGE_FADE = "[mask-image:linear-gradient(to_right,black_calc(100%-6rem),transparent)]";
 
 /**
  * Sticky section outline (a chip per H2, then the chosen section's H3s) plus the host's
@@ -182,7 +183,8 @@ function PlanStickyHeader({
       data-plan-outline-nested={subsections.length > 0 || undefined}
     >
       <nav aria-label="Sections" className="mx-auto min-w-0 max-w-4xl flex-1 px-6 py-1.5">
-        <div className="flex gap-1 overflow-x-auto text-xs text-muted-foreground">
+        {/* Scrolls sideways: the right edge fades, so a clipped last section reads as "more". */}
+        <div className={cn("flex gap-1 overflow-x-auto text-xs text-muted-foreground", EDGE_FADE)}>
           {outline.map((item) => (
             <button
               key={item.id}
@@ -203,7 +205,12 @@ function PlanStickyHeader({
           ))}
         </div>
         {subsections.length > 0 && (
-          <div className="flex gap-0.5 overflow-x-auto pt-0.5 text-2xs text-muted-foreground/80">
+          <div
+            className={cn(
+              "flex gap-0.5 overflow-x-auto pt-0.5 text-2xs text-muted-foreground",
+              EDGE_FADE,
+            )}
+          >
             {subsections.map((sub) => (
               <button
                 key={sub.id}

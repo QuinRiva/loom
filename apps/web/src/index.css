@@ -2845,13 +2845,16 @@ code {
 }
 
 .plan-mdx :not(pre) > code:not([data-plan-block-type] *),
-.prose-plan :not(pre) > code {
-  border: 1px solid var(--border);
-  border-radius: 0.375rem;
-  background: var(--muted);
-  padding: 0.1rem 0.35rem;
-  color: var(--foreground);
-  font-size: 0.75rem;
+.prose-plan :not(pre) > code,
+.plan-inline-md code {
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  background: color-mix(in srgb, var(--contrast-foreground) 10%, transparent);
+  padding: 0.1em 0.35em;
+  color: var(--contrast-foreground);
+  font-size: 0.85em;
 }
 
 /* A nested block (a fenced `<Code>` in a <Details>/<Callout>) styles its own <pre>. */
@@ -2859,8 +2862,8 @@ code {
 .prose-plan pre:not(.prose-plan [data-plan-block-type] *) {
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border: 1px solid var(--contrast-border);
+  border-radius: 0.5rem;
   background: var(--muted);
   padding: 0.8rem 0.9rem;
 }
@@ -2902,7 +2905,7 @@ code {
 /* -------------------------------------------------------------------------- */
 [data-plan-block-type="wireframe"] {
   --wf-ink: #1f2328;
-  --wf-muted: #6b7280;
+  --wf-muted: #646b78;
   --wf-line: #cfd4dc;
   --wf-paper: #ffffff;
   --wf-card: #f7f8fa;
@@ -3156,11 +3159,8 @@ code {
 }
 .plan-column-label {
   margin-bottom: 0.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
   color: var(--muted-foreground);
 }
 .plan-column-body > :first-child {
@@ -3306,15 +3306,36 @@ code {
 /* `MDX vocabulary v2: <block>`.                                                */
 /* -------------------------------------------------------------------------- */
 :root {
-  /* sRGB hex, not Tailwind's oklch scale: on a wide-gamut display the oklch
-     tones render past sRGB and read as over-saturated beside the text. The
-     values are the visual-explainer HTML pages' palette. */
-  --plan-tone-neutral: var(--plan-fg-muted);
-  --plan-tone-info: #1d4ed8;
-  --plan-tone-success: #15803d;
-  --plan-tone-warning: #b45309;
-  --plan-tone-risk: #b91c1c;
-  --plan-tone-accent: #6d28d9;
+  /* The app's status tokens, so documents follow the theme; `accent` is the
+     brand blue upstream puts on primary actions. On light paper they are pulled
+     toward the ink so 10px badge text clears 4.5:1 on its own tint. */
+  --plan-tone-ink: 15%;
+  --plan-tone-neutral: color-mix(
+    in oklab,
+    var(--plan-fg-muted),
+    var(--foreground) var(--plan-tone-ink)
+  );
+  --plan-tone-info: color-mix(
+    in oklab,
+    var(--info-foreground),
+    var(--foreground) var(--plan-tone-ink)
+  );
+  --plan-tone-success: color-mix(
+    in oklab,
+    var(--success-foreground),
+    var(--foreground) var(--plan-tone-ink)
+  );
+  --plan-tone-warning: color-mix(
+    in oklab,
+    var(--warning-foreground),
+    var(--foreground) var(--plan-tone-ink)
+  );
+  --plan-tone-risk: color-mix(
+    in oklab,
+    var(--error-foreground),
+    var(--foreground) var(--plan-tone-ink)
+  );
+  --plan-tone-accent: var(--primary);
   --plan-tone-neutral-soft: color-mix(in srgb, var(--plan-tone-neutral) 14%, transparent);
   --plan-tone-info-soft: color-mix(in srgb, var(--plan-tone-info) 11%, transparent);
   --plan-tone-success-soft: color-mix(in srgb, var(--plan-tone-success) 12%, transparent);
@@ -3323,16 +3344,7 @@ code {
   --plan-tone-accent-soft: color-mix(in srgb, var(--plan-tone-accent) 11%, transparent);
 
   @variant dark {
-    --plan-tone-info: #7aa2ff;
-    --plan-tone-success: #4ade80;
-    --plan-tone-warning: #f0b454;
-    --plan-tone-risk: #f87171;
-    --plan-tone-accent: #b39dfa;
-    --plan-tone-info-soft: color-mix(in srgb, var(--plan-tone-info) 14%, transparent);
-    --plan-tone-success-soft: color-mix(in srgb, var(--plan-tone-success) 14%, transparent);
-    --plan-tone-warning-soft: color-mix(in srgb, var(--plan-tone-warning) 14%, transparent);
-    --plan-tone-risk-soft: color-mix(in srgb, var(--plan-tone-risk) 14%, transparent);
-    --plan-tone-accent-soft: color-mix(in srgb, var(--plan-tone-accent) 14%, transparent);
+    --plan-tone-ink: 0%;
   }
 }
 
@@ -3378,56 +3390,40 @@ code {
    and every block that carries a BadgeSpec). Source text stays natural case. */
 .plan-badge {
   display: inline-block;
-  /* The label is all caps, which sit high in a line box sized for descenders:
-     trim the box to cap height so equal padding centres the letters (browsers
-     without text-box get a slightly taller, still-balanced pill). */
-  padding: 0.4em 0.75em;
+  /* Identity text: 12px monospace, sentence case (the first letter raised). */
+  padding: 0.25em 0.625em;
   border: 1px solid color-mix(in srgb, currentcolor 18%, transparent);
   border-radius: 999px;
   font-family: var(--font-mono);
-  font-size: 0.625rem;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  text-box: trim-both cap alphabetic;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25;
   white-space: nowrap;
   vertical-align: middle;
 }
+/* loom: toned text in a toned hairline, no fill: a tint under small text drops it below 4.5:1 on paper. */
 .plan-badge--neutral {
   color: var(--plan-tone-neutral);
-  background: var(--plan-tone-neutral-soft);
 }
 .plan-badge--info {
   color: var(--plan-tone-info);
-  background: var(--plan-tone-info-soft);
 }
 .plan-badge--success {
   color: var(--plan-tone-success);
-  background: var(--plan-tone-success-soft);
 }
 .plan-badge--warning {
   color: var(--plan-tone-warning);
-  background: var(--plan-tone-warning-soft);
 }
 .plan-badge--risk {
   color: var(--plan-tone-risk);
-  background: var(--plan-tone-risk-soft);
 }
 .plan-badge--accent {
   color: var(--plan-tone-accent);
-  background: var(--plan-tone-accent-soft);
 }
 
-/* MDX vocabulary v2: InlineMarkdown (inlineMarkdown.tsx) — code and links in a
-   string prop rendered outside .prose-plan (a card heading, a table cell). */
-.plan-inline-md code {
-  border: 1px solid var(--border);
-  border-radius: 0.375rem;
-  background: var(--muted);
-  padding: 0.05rem 0.3rem;
-  font-size: 0.85em;
-}
+/* MDX vocabulary v2: InlineMarkdown (inlineMarkdown.tsx) — links in a string
+   prop rendered outside .prose-plan (a card heading, a table cell); its code
+   shares the inline-code rule above. */
 .plan-inline-md a {
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -3440,7 +3436,7 @@ code {
 .plan-card {
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 0.625rem;
+  border-radius: var(--radius-xl);
   background: var(--card);
   padding: 1rem 1.25rem 1.125rem;
 }
@@ -3449,11 +3445,8 @@ code {
 }
 .plan-card-eyebrow {
   margin-bottom: 0.375rem;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 .plan-card-head {
   display: flex;
@@ -3583,7 +3576,7 @@ code {
 .plan-stat {
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 0.625rem;
+  border-radius: var(--radius-xl);
   background: var(--card);
   padding: 1rem 1.125rem;
 }
@@ -3597,11 +3590,8 @@ code {
 }
 .plan-stat-label {
   margin-top: 0.375rem;
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 500;
   color: var(--muted-foreground);
 }
 .plan-stat-detail {
@@ -3619,7 +3609,7 @@ code {
 .plan-callout {
   display: flex;
   gap: 0.75rem;
-  border-radius: 0.625rem;
+  border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--plan-callout-tone) 11%, transparent);
   padding: 0.875rem 1.125rem;
 }
@@ -3631,12 +3621,9 @@ code {
   color: var(--plan-callout-tone);
 }
 .plan-callout .plan-callout-title {
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.6;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   color: var(--plan-callout-tone);
 }
 .plan-callout .plan-callout-body {
@@ -3649,16 +3636,13 @@ code {
   margin: 1.5rem 0;
   border: 1px solid var(--border);
   border-left: 4px solid var(--plan-callout-tone);
-  border-radius: 0 0.625rem 0.625rem 0;
+  border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
   background: var(--card);
   padding: 1.125rem 1.375rem;
 }
 .plan-callout--focus .plan-callout-title {
-  font-family: var(--font-mono);
   font-size: 0.8125rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--plan-callout-tone);
 }
 .plan-callout--focus .plan-callout-body {
@@ -3678,12 +3662,9 @@ code {
    (kicker.ts). The title keeps its position under it. */
 .plan-mdx > p.plan-kicker {
   margin: 0 0 0.625rem;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--plan-tone-warning);
+  color: var(--muted-foreground);
 }
 .plan-mdx > .plan-kicker + h1 {
   margin-top: 0;
@@ -3949,10 +3930,26 @@ p > .plan-sidenote {
   --color-cache-hot: var(--cache-hot);
 }
 :root {
-  --cache-hot: var(--color-orange-600);
+  --cache-hot: var(--color-orange-700);
 }
 .dark {
   --cache-hot: var(--color-orange-400);
+}
+/* loom: legibleHue's share of the hue (lib/workstreamPresentation.ts). Light pulls harder
+   toward the foreground so 9.5px graph labels clear 4.5:1 on their own tint. */
+:root {
+  --legible-hue-share: 35%;
+}
+.dark {
+  --legible-hue-share: 60%;
+}
+/* loom: the graph's small node meta ("idle", ages) on a tinted card (WorkstreamGraph.tsx): muted
+   pulled toward the ink in light, where antialiasing at fit scale thins muted grey under 4.5:1. */
+:root {
+  --graph-meta: color-mix(in oklab, var(--muted-foreground), var(--foreground) 45%);
+}
+.dark {
+  --graph-meta: var(--muted-foreground);
 }
 /* loom: the sidebar's agent-started rail (loom/ThreadStart.tsx). No upstream token has a
    non-status hue for "an agent started this"; a custom theme may override --agent-start. */
@@ -3976,6 +3973,33 @@ p > .plan-sidenote {
   .messages-timeline-scroll[data-context-scrollbar]::-webkit-scrollbar {
     display: none;
   }
+}
+/* loom: markdown inside a control card (loom/ControlDigestCard.tsx) stays at the card's body
+   size: a heading is bold body text and block gaps tighten, so an excerpt never outranks its card. */
+.loom-card-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0.5rem 0 0.25rem;
+  font-size: inherit;
+}
+.loom-card-markdown :is(p, ul, ol, blockquote, pre) {
+  margin: 0.35rem 0;
+}
+.loom-card-markdown > :first-child {
+  margin-top: 0;
+}
+.loom-card-markdown > :last-child {
+  margin-bottom: 0;
+}
+/* loom: the document renderer's small labels are sentence case (Badge, Card eyebrow, Stat label,
+   Column label, callout titles, kicker): an author's lowercase label still opens with a capital. */
+:is(
+  .plan-badge,
+  .plan-card-eyebrow,
+  .plan-stat-label,
+  .plan-column-label,
+  .plan-callout-title,
+  .plan-kicker
+)::first-letter {
+  text-transform: uppercase;
 }
 /* loom: end of fork-only UI */
 

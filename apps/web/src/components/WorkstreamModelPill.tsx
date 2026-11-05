@@ -16,20 +16,14 @@ export function WorkstreamModelPill({ selection }: { selection: ModelSelection }
     <Tooltip>
       <TooltipTrigger
         render={
-          <span
-            className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border py-px pr-2 pl-1.5 font-mono text-3xs text-foreground/80"
-            style={{
-              borderColor: `color-mix(in srgb, ${tint} 40%, transparent)`,
-              background: `color-mix(in srgb, ${tint} 11%, transparent)`,
-            }}
-          />
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 font-mono text-xs text-muted-foreground" />
         }
       >
         <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: tint }} />
         {provider ? (
           <>
-            <span className="min-w-6 shrink-[99] truncate text-muted-foreground">{provider}</span>
-            <span aria-hidden className="shrink-0 text-muted-foreground/70">
+            <span className="min-w-6 shrink-[99] truncate">{provider}</span>
+            <span aria-hidden className="shrink-0">
               ·
             </span>
           </>

@@ -7,7 +7,7 @@ import { Toggle, ToggleGroup } from "../../../components/ui/toggle-group";
 import { useQuietThreadProjection } from "../../../state/entities";
 import { useConversationJumpStore } from "../../conversationJump";
 import type { ContextViewProps } from "../contextUsageStore";
-import { formatContextTokens } from "../format";
+import { formatContextTokens, paletteInk } from "../format";
 import { contextJoin } from "../join";
 import {
   CacheSection,
@@ -37,8 +37,8 @@ function Section({
   return (
     <section className="pt-3.5 pb-1">
       <div className="mb-1.5 flex items-baseline gap-2">
-        <h3 className="text-2xs font-semibold text-muted-foreground">{title}</h3>
-        <span className="ml-auto flex items-center gap-2 text-3xs text-muted-foreground/70">
+        <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
+        <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
           {aside}
         </span>
       </div>
@@ -160,7 +160,7 @@ export function CompositionView({
             </Tooltip>
           ))}
         </div>
-        <div className="relative mt-1 h-[30px] text-3xs whitespace-nowrap text-muted-foreground">
+        <div className="relative mt-1 h-[30px] text-xs whitespace-nowrap text-muted-foreground">
           {lens === "tokens" ? (
             <>
               {toolResults ? (
@@ -168,7 +168,7 @@ export function CompositionView({
                   className="absolute top-0 -translate-x-1/2"
                   style={{
                     left: `${(100 * (toolsStart + toolResults.tokens / 2)) / scale}%`,
-                    color: COLORS.tools,
+                    color: paletteInk(COLORS.tools),
                   }}
                 >
                   tool results {formatContextTokens(toolResults.tokens)}
@@ -185,20 +185,20 @@ export function CompositionView({
                   {formatContextTokens(contextWindow - used)} free
                 </span>
               ) : null}
-              <span className="absolute top-3.5 left-0" style={{ color: COLORS.defs }}>
+              <span className="absolute top-3.5 left-0" style={{ color: paletteInk(COLORS.defs) }}>
                 ▴ fixed {formatContextTokens(fixed.tokens)}, hatched
               </span>
             </>
           ) : (
             <>
-              <span className="absolute top-0 left-0" style={{ color: COLORS.defs }}>
+              <span className="absolute top-0 left-0" style={{ color: paletteInk(COLORS.defs) }}>
                 ▴ fixed {formatUsd(fixed.cost)}
               </span>
               <span className="absolute top-0 right-0">
                 whole window, cost to keep so far ≈ {formatUsd(total)}
               </span>
               {cold !== null ? (
-                <span className="absolute top-3.5 right-0 text-warning">
+                <span className="absolute top-3.5 right-0 text-warning-foreground">
                   a cold cache now would cost {formatUsd(cold)}
                 </span>
               ) : null}
@@ -206,25 +206,25 @@ export function CompositionView({
           )}
         </div>
         <div className="mt-0.5 grid grid-cols-2 gap-2">
-          <div className="rounded-lg border border-primary/40 bg-primary/8 px-2.5 py-2">
-            <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+          <div className="rounded-lg border border-border bg-muted/30 px-2.5 py-2">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Swatch color={COLORS.defs} hatch />
               Fixed overhead
             </div>
             <div className="mt-px text-base font-semibold tabular-nums">
               {formatValue(value(fixed, lens), lens)}
-              <small className="ml-1 text-2xs font-medium text-muted-foreground">
+              <small className="ml-1 text-xs font-medium text-muted-foreground">
                 {formatPct(value(fixed, lens), total)}
               </small>
             </div>
-            <div className="mt-0.5 text-2xs leading-snug text-muted-foreground">
+            <div className="mt-0.5 text-xs leading-snug text-muted-foreground">
               {lens === "tokens"
                 ? `System prompt and ${schemas?.items.length ?? 0} tool schemas. Identical on every call, and set by Loom.`
                 : `Small, but re-read on all ${report.calls.filter((call) => call.valid).length} calls.`}
             </div>
           </div>
           <div className="rounded-lg border border-border bg-muted/30 px-2.5 py-2">
-            <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Swatch
                 color={`linear-gradient(90deg, ${COLORS.tools} 55%, ${COLORS.args} 55% 75%, ${COLORS.msgs} 75%)`}
               />
@@ -232,11 +232,11 @@ export function CompositionView({
             </div>
             <div className="mt-px text-base font-semibold tabular-nums">
               {formatValue(value(conversation, lens), lens)}
-              <small className="ml-1 text-2xs font-medium text-muted-foreground">
+              <small className="ml-1 text-xs font-medium text-muted-foreground">
                 {formatPct(value(conversation, lens), total)}
               </small>
             </div>
-            <div className="mt-0.5 text-2xs leading-snug text-muted-foreground">
+            <div className="mt-0.5 text-xs leading-snug text-muted-foreground">
               Everything that arrived since the first call.
               {toolResults
                 ? ` Tool results are ${formatPct(value(toolResults, lens), value(conversation, lens))} of it.`
@@ -308,9 +308,9 @@ export function CompositionView({
         <ReclaimRows report={report} window={composition.window} used={used} prices={prices} />
       </Section>
 
-      <p className="mt-2.5 text-3xs text-muted-foreground/70">
-        <span className="text-warning">≈</span> estimated split of an exact total (by character
-        share). Every other figure is measured from the provider's per-call usage.
+      <p className="mt-2.5 text-xs text-muted-foreground">
+        <span>≈</span> estimated split of an exact total (by character share). Every other figure is
+        measured from the provider's per-call usage.
       </p>
     </div>
   );

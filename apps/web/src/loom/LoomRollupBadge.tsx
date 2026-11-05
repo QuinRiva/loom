@@ -99,11 +99,11 @@ export function LoomRollupBadge({ threadKey }: { threadKey: string }) {
 }
 
 const TONE_CLASS: Record<WorkstreamBadgeTone, string> = {
-  failed: "border-error/40 text-error",
-  needs_you: "border-warning/40 text-warning-foreground",
-  working: "border-info/40 text-info",
-  done: "border-border/70 text-muted-foreground",
-  waiting: "border-border/70 text-muted-foreground",
+  failed: "text-error-foreground",
+  needs_you: "text-warning-foreground",
+  working: "text-info",
+  done: "text-muted-foreground",
+  waiting: "text-muted-foreground",
 };
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -146,18 +146,15 @@ export function LoomRollupPill({
           render={
             <button
               type="button"
-              className={cn(
-                "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-1.5 font-mono text-3xs tabular-nums hover:bg-accent",
-                TONE_CLASS[tone],
-              )}
+              className="inline-flex shrink-0 cursor-pointer items-center gap-1 font-mono text-xs tabular-nums text-secondary-label underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
               data-loom-rollup={dataKey}
               data-loom-rollup-tone={tone}
             />
           }
         >
-          <NetworkIcon className="size-3" aria-hidden />
+          <NetworkIcon className={cn("size-3", TONE_CLASS[tone])} aria-hidden />
           {settled}/{plan.total}
-          {flagged > 0 ? <span>· {flagged}!</span> : null}
+          {flagged > 0 ? <span className={TONE_CLASS[tone]}>· {flagged}!</span> : null}
         </PopoverTrigger>
         <PopoverPopup
           side="top"
@@ -168,7 +165,7 @@ export function LoomRollupPill({
         >
           <div className="pb-1.5 font-medium text-xs">{summary.join(" · ")}</div>
           {flagged === 0 && tone !== "failed" ? (
-            <div className="pb-1.5 text-3xs text-muted-foreground">Nothing needs you.</div>
+            <div className="pb-1.5 text-xs text-muted-foreground">Nothing needs you.</div>
           ) : null}
           {attention.nodes.length > 0 ? (
             <ul className="-mx-1.5 max-h-64 overflow-y-auto">
@@ -185,9 +182,9 @@ export function LoomRollupPill({
                       </span>
                       <span
                         className={cn(
-                          "text-3xs",
+                          "text-xs",
                           node.reason === "error"
-                            ? "text-error"
+                            ? "text-error-foreground"
                             : node.withAgents
                               ? "text-muted-foreground"
                               : "text-warning-foreground",

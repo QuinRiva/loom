@@ -5,7 +5,6 @@ import { forwardRef, useContext } from "react";
 
 import {
   COLUMN_SHORT_LABELS,
-  COLUMN_STYLES,
   formatCompactAge,
   formatRelativeAge,
   getGateWaitLabel,
@@ -14,10 +13,12 @@ import {
   getVerdictChip,
   legibleHue,
   nodeAttentionOf,
+  nodeStyleOf,
   type WorkstreamNode,
   type WorkstreamNodeIndex,
 } from "../lib/workstreamPresentation";
 import { formatCostUsd } from "../loom/costFormat";
+import { StatusDot } from "../loom/StatusDot";
 import { StepElapsed } from "../loom/StepElapsed";
 import { useThreadSpend, useTotalSpend } from "../loom/threadSpend";
 import { WorkstreamEnvironmentContext, WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
@@ -64,7 +65,11 @@ export const WorkstreamQuickFacts = forwardRef<
 
       <div className="mt-2 flex flex-col gap-1">
         <div className="truncate text-xs text-foreground/80">
-          <span style={{ color: attention?.color ?? COLUMN_STYLES[node.column].color }}>●</span>{" "}
+          <StatusDot
+            className="mr-1 inline-block align-middle"
+            color={attention?.color ?? nodeStyleOf(node, byId).color}
+            shape={attention ? "dot" : nodeStyleOf(node, byId).shape}
+          />
           {attention ? (
             <>
               <span className="font-semibold" style={{ color: legibleHue(attention.color) }}>

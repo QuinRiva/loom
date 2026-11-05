@@ -129,7 +129,7 @@ export function ContextPanelView(props: ContextPanelViewProps) {
         ) : null}
       </div>
       {message !== null || report === null ? (
-        <p className="text-sm text-muted-foreground/70">{message}</p>
+        <p className="text-sm text-muted-foreground">{message}</p>
       ) : subView === "composition" ? (
         <Composition report={report} threadRef={props.threadRef} contextWindow={contextWindow} />
       ) : (

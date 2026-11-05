@@ -146,16 +146,12 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
                 />
               ) : null}
               {rollup ? (
-                <Badge size="sm" variant="outline">
+                <Badge variant="outline">
                   {rollup.plan.columns.done + rollup.plan.columns.cancelled}/{rollup.plan.total}{" "}
                   settled
                 </Badge>
               ) : null}
-              {rollup?.plan.deadlocked ? (
-                <Badge size="sm" variant="error">
-                  deadlocked
-                </Badge>
-              ) : null}
+              {rollup?.plan.deadlocked ? <Badge variant="error">deadlocked</Badge> : null}
             </span>
           </div>
           <ThreadLineageBreadcrumb
@@ -168,7 +164,11 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
           />
         </div>
         <div className="relative min-h-0 flex-1 overflow-hidden">
-          <div className="h-full overflow-y-auto px-3 py-3">
+          {/* The open drawer overlays the right edge: the strip, graph and legend fit beside it. */}
+          <div
+            className="h-full overflow-y-auto px-3 py-3"
+            style={timelineNode ? { paddingRight: "calc(min(340px, 85%) + 0.75rem)" } : undefined}
+          >
             {rootId === null ? (
               <div className="px-3 py-8 text-center text-sm text-muted-foreground">
                 This thread is not part of a workstream.

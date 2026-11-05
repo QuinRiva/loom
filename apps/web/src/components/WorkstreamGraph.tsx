@@ -24,6 +24,8 @@ import {
   type ExternalConsult,
   type LaidEdge,
   type LaidNode,
+  NODE_H,
+  NODE_W,
   roundedPath,
   type ViewBox,
 } from "../lib/forkJoinLayout";
@@ -33,6 +35,7 @@ import {
   COLUMN_STYLES,
   type ConversationAnchor,
   formatCompactAge,
+  type StatusShape,
   getGateLoopCap,
   formatStepAge,
   getNodeStateWord,
@@ -44,6 +47,7 @@ import {
   isReceded,
   legibleHue,
   nodeAttentionOf,
+  nodeStyleOf,
   TONE_COLORS,
   truncateLabel,
   type WorkstreamNode,
@@ -51,7 +55,9 @@ import {
   wrapLabel,
 } from "../lib/workstreamPresentation";
 import { useNowMinute } from "../hooks/useNowMinute";
+import { observeResize } from "../lib/observeResize";
 import { useStableCallback } from "../hooks/useStableCallback";
+import { StatusDot } from "../loom/StatusDot";
 import { useWorkstreamUiStore } from "../loom/workstreamUiStore";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -64,16 +70,166 @@ const CONSULT_STROKE = "var(--color-info)";
 const FORKED_FROM_STROKE = "var(--color-primary)";
 const LOOP_STROKE = "var(--color-primary)";
 const QUERY_STROKE = "var(--color-primary)";
-// Done/cancelled cards recede so the live front reads first.
+// Done/cancelled cards recede so the live front reads first: their border and
+// tint fade into the canvas while their text stays at full contrast.
 const RECEDE_OPACITY = 0.42;
+// A not-started node's border follows its legend dot: ring dashed, target (waiting) dotted.
+const DASH = { dot: undefined, ring: "4 3", target: "1.5 2.5" } as const;
+// Small grey text on a tinted card (`--graph-meta`, darker than muted in light mode).
+const CARD_META_FILL = "var(--graph-meta)";
 const FADE_OPACITY = 0.1;
-const STRIP_H = 20;
+const STRIP_H = 22;
 const HOVER_DELAY_MS = 300;
 const FACTS_W = 300;
 // A keyboard-focus outline shown only while its group has focus-visible.
 const FOCUS_RING_CLASS = "opacity-0 group-focus-visible:opacity-100";
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+// Semantic zoom: what a card shows is keyed to the rendered scale (screen px per layout unit).
+// Below Full every label is counter-scaled to a fixed screen size, so none renders under 11px.
+type DetailTier = "full" | "compact" | "minimal";
+interface Detail {
+  readonly tier: DetailTier;
+  /** Layout units per screen pixel: a label `n` px tall is `n * k` units. */
+  readonly k: number;
+}
+const LABEL_PX = 11;
+const TITLE_PX = 12;
+const BAND_PX = 17; // compact role row: an 11px label with 3px above and below
+const LINE_PX = 14.5; // a 12px title line's pitch
+const PAD_PX = 4;
+// Full's 12-unit title renders at 11px from here (its 9.5-unit strip at 8.7px, as Full always has).
+const FULL_MIN_SCALE = LABEL_PX / 12;
+// The 78-unit card holds the role row and one title line (35.5px) from here; the seed fits at 0.52.
+const COMPACT_MIN_SCALE = (BAND_PX + LINE_PX + PAD_PX) / NODE_H;
+const FULL_DETAIL: Detail = { tier: "full", k: 1 };
+// A height-bound graph widens its cards into the panel's spare width so a title reads at fit (the
+// seed's go from ~10 to ~25 characters); capped at twice the default, past which Full is mostly empty.
+const MAX_NODE_W = 2 * NODE_W;
+const NODE_W_STEP = 16; // a resize re-lays the graph once per 16-unit step, not per pixel
+
+const MAX_SVG_VH = 60;
+/** The panel's room for the SVG: its width, and its height cap. */
+interface PanelBox {
+  readonly w: number;
+  readonly maxH: number;
+}
+
+/** The fit-all box at the default card width, and how its width grows per unit of card width. */
+function probeCardWidth(
+  threads: ReadonlyArray<WorkstreamNode>,
+  satelliteCounts: ReadonlyMap<ThreadId, number>,
+) {
+  const at = (nodeW: number) => {
+    const { nodes, edges } = computeForkJoinLayout(threads, satelliteCounts, nodeW);
+    return computeForkJoinViewBox(nodes, edges);
+  };
+  const narrow = at(NODE_W);
+  return { ...narrow, slope: (at(MAX_NODE_W).w - narrow.w) / (MAX_NODE_W - NODE_W) };
+}
+
+/** The card width at which the fit-all box takes the panel's aspect, so no width goes unused. */
+function cardWidthFor(probe: ReturnType<typeof probeCardWidth>, box: PanelBox | null) {
+  if (!box || box.maxH <= 0 || probe.slope <= 0) return NODE_W;
+  const grow = ((probe.h * box.w) / box.maxH - probe.w) / probe.slope;
+  return clamp(NODE_W + Math.floor(grow / NODE_W_STEP) * NODE_W_STEP, NODE_W, MAX_NODE_W);
+}
+
+function detailOf(scale: number): Detail {
+  if (!(scale > 0)) return FULL_DETAIL;
+  // Floored to 1/16-octave steps (at most 4.4% under the true scale), so a label renders at or
+  // just above its size and the cards re-render only when a step is crossed.
+  const s = 2 ** (Math.floor(Math.log2(scale) * 16) / 16);
+  return {
+    tier: s >= FULL_MIN_SCALE ? "full" : s >= COMPACT_MIN_SCALE ? "compact" : "minimal",
+    k: 1 / s,
+  };
+}
+
+// Text fits are memoised by (text, width, size): a pan or zoom re-renders every card, and an
+// unchanged label must cost no canvas measuring. Bounded by clearing; fonts loading late clear too.
+const FIT_CACHE_MAX = 4000;
+const widthCache = new Map<string, number>();
+const fitCache = new Map<string, string | null>();
+const wrapCache = new Map<string, ReadonlyArray<string>>();
+function memo<T>(cache: Map<string, T>, key: string, compute: () => T): T {
+  const hit = cache.get(key);
+  if (hit !== undefined) return hit;
+  if (cache.size >= FIT_CACHE_MAX) cache.clear();
+  const value = compute();
+  cache.set(key, value);
+  return value;
+}
+
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+let measureFamily = "";
+/** A label's rendered width in px in the app's UI face (a 0.6em estimate without canvas). */
+function labelWidth(text: string, px: number, weight: number) {
+  if (measureCtx === undefined) {
+    measureCtx = document.createElement("canvas").getContext("2d");
+    measureFamily = getComputedStyle(document.body).fontFamily;
+    document.fonts?.addEventListener("loadingdone", () => {
+      for (const cache of [widthCache, fitCache, wrapCache]) cache.clear();
+    });
+  }
+  const ctx = measureCtx;
+  if (!ctx) return text.length * px * 0.6;
+  return memo(widthCache, `${weight}|${px}|${text}`, () => {
+    ctx.font = `${weight} ${px}px ${measureFamily}`;
+    return ctx.measureText(text).width;
+  });
+}
+
+/** `text` whole if it fits `maxPx`, else its longest prefix with an ellipsis, else null. */
+function fitLabel(text: string, maxPx: number, px: number, weight = 400): string | null {
+  return memo(fitCache, `${weight}|${px}|${maxPx}|${text}`, () => {
+    if (labelWidth(text, px, weight) <= maxPx) return text;
+    let lo = 0;
+    let hi = text.length - 1;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (labelWidth(`${text.slice(0, mid).trimEnd()}…`, px, weight) <= maxPx) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo === 0 ? null : `${text.slice(0, lo).trimEnd()}…`;
+  });
+}
+
+/** Word-wraps `text` into at most `maxLines` lines of `maxPx`; the last line truncates. */
+function wrapToWidth(text: string, maxPx: number, px: number, weight: number, maxLines: number) {
+  return memo(wrapCache, `${weight}|${px}|${maxPx}|${maxLines}|${text}`, () => {
+    const words = text.split(/\s+/);
+    const lines: string[] = [];
+    let next = 0;
+    while (next < words.length && lines.length < maxLines - 1) {
+      let line = words[next]!;
+      let end = next + 1;
+      while (end < words.length && labelWidth(`${line} ${words[end]}`, px, weight) <= maxPx)
+        line += ` ${words[end++]}`;
+      if (labelWidth(line, px, weight) > maxPx) break;
+      lines.push(line);
+      next = end;
+    }
+    const last =
+      next < words.length ? fitLabel(words.slice(next).join(" "), maxPx, px, weight) : null;
+    return last ? [...lines, last] : lines;
+  });
+}
+
+/**
+ * The first candidate that fits whole, else the last one truncated. Digits measure as `0`, so
+ * siblings that differ only by a number (`Wave 1`, `Wave 2`) choose alike.
+ */
+const firstFit = (candidates: ReadonlyArray<string>, maxPx: number, px: number, weight = 400) =>
+  candidates.find((text) => labelWidth(text.replace(/\d/g, "0"), px, weight) <= maxPx) ??
+  fitLabel(candidates.at(-1) ?? "", maxPx, px, weight);
+
+const capitalise = (value: string) => `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+
+/** A card's top strip: rounded top corners, square bottom. */
+const stripPath = (x: number, y: number, w: number, h: number) =>
+  `M ${x + 10} ${y} H ${x + w - 10} A 10 10 0 0 1 ${x + w} ${y + 10} V ${y + h} H ${x} V ${y + 10} A 10 10 0 0 1 ${x + 10} ${y} Z`;
 
 // The SVG letterboxes ("meet"), so pan/zoom maps through the effective scale.
 const viewTransform = (rect: DOMRect, vb: ViewBox) => {
@@ -101,6 +257,7 @@ const savedGraphView = (viewKey: string) => useWorkstreamUiStore.getState().grap
 function useStructuralLayout(
   threads: ReadonlyArray<WorkstreamNode>,
   satellites: ReadonlyArray<WorkstreamNode>,
+  box: PanelBox | null,
 ) {
   // A query satellite reserves room under its author's card, so how many hang
   // under each author is structure.
@@ -117,13 +274,16 @@ function useStructuralLayout(
     )
     .join("|")
     .concat("|sat:", [...satelliteCounts].map(([id, count]) => `${id}*${count}`).join(","));
-  const [state, setState] = useState(() => ({
-    key,
-    layout: computeForkJoinLayout(threads, satelliteCounts),
-  }));
-  if (state.key === key) return state.layout;
-  const layout = computeForkJoinLayout(threads, satelliteCounts);
-  setState({ key, layout });
+  const [state, setState] = useState(() => {
+    const probe = probeCardWidth(threads, satelliteCounts);
+    const nodeW = cardWidthFor(probe, box);
+    return { key, probe, nodeW, layout: computeForkJoinLayout(threads, satelliteCounts, nodeW) };
+  });
+  const probe = state.key === key ? state.probe : probeCardWidth(threads, satelliteCounts);
+  const nodeW = cardWidthFor(probe, box);
+  if (state.key === key && state.nodeW === nodeW) return state.layout;
+  const layout = computeForkJoinLayout(threads, satelliteCounts, nodeW);
+  setState({ key, probe, nodeW, layout });
   return layout;
 }
 
@@ -136,8 +296,9 @@ function useGraphGeometry(
   threads: ReadonlyArray<WorkstreamNode>,
   satellites: ReadonlyArray<WorkstreamNode>,
   byId: WorkstreamNodeIndex,
+  box: PanelBox | null,
 ) {
-  const { nodes, edges } = useStructuralLayout(threads, satellites);
+  const { nodes, edges } = useStructuralLayout(threads, satellites, box);
   const queryOverlay = deriveQueryOverlay(nodes, satellites);
   // A query thread's consult of its live author draws like any other card's.
   const consultOverlay = deriveConsultOverlay([...nodes, ...queryOverlay.nodes], byId, edges);
@@ -182,10 +343,14 @@ export default function WorkstreamGraph({
   readonly onOpenTimeline: (node: WorkstreamNode) => void;
   readonly onNodeContextMenu: (node: WorkstreamNode, position: { x: number; y: number }) => void;
 }) {
+  // The SVG's rendered size and the panel's height cap: the first keys the cards' semantic zoom,
+  // the second (with the width) how wide the cards are laid.
+  const [svgSize, setSvgSize] = useState<{ w: number; h: number; maxH: number } | null>(null);
   const { nodes, edges, queryOverlay, consultOverlay, base } = useGraphGeometry(
     threads,
     satellites,
     byId,
+    svgSize,
   );
 
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -200,6 +365,29 @@ export default function WorkstreamGraph({
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hoveredId, setHoveredId] = useState<ThreadId | null>(null);
   const hovered = hoveredId === null ? undefined : byId.get(hoveredId);
+  const detail = detailOf(
+    svgSize ? Math.min(svgSize.w / viewBox.w, svgSize.h / viewBox.h) : Number.NaN,
+  );
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tracks the SVG's rendered size, which keys the cards' semantic zoom
+  useLayoutEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const measure = () => {
+      const { width: w, height: h } = svg.getBoundingClientRect();
+      const maxH = (window.innerHeight * MAX_SVG_VH) / 100;
+      setSvgSize((prev) =>
+        prev?.w === w && prev.h === h && prev.maxH === maxH ? prev : { w, h, maxH },
+      );
+    };
+    measure();
+    const stopObserving = observeResize(svg, measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      stopObserving();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- re-fits a view the user has not zoomed or panned to the new geometry
   useEffect(() => {
@@ -359,7 +547,7 @@ export default function WorkstreamGraph({
           ref={svgRef}
           className="w-full cursor-grab touch-none rounded-xl border border-border bg-muted active:cursor-grabbing"
           // Fit-to-content: the box mirrors the laid-out content's aspect ratio.
-          style={{ aspectRatio: `${base.w} / ${base.h}`, maxHeight: "60vh" }}
+          style={{ aspectRatio: `${base.w} / ${base.h}`, maxHeight: `${MAX_SVG_VH}vh` }}
           viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
           preserveAspectRatio="xMidYMid meet"
           role="group"
@@ -381,6 +569,7 @@ export default function WorkstreamGraph({
               key={edge.key}
               edge={edge}
               byId={byId}
+              full={detail.tier === "full"}
               dimmed={hoveredId !== null && edge.fromKey !== hoveredId && edge.toKey !== hoveredId}
             />
           ))}
@@ -388,6 +577,7 @@ export default function WorkstreamGraph({
             <ConsultGraphEdge
               key={edge.key}
               edge={edge}
+              full={detail.tier === "full"}
               onJump={onJump}
               dimmed={
                 hoveredId !== null &&
@@ -401,6 +591,7 @@ export default function WorkstreamGraph({
               <BridgeNode
                 key={node.key}
                 node={node}
+                detail={detail}
                 onOpenThread={onOpenThread}
                 dimmed={litKeys !== null && !litKeys.has(node.key)}
               />
@@ -408,6 +599,7 @@ export default function WorkstreamGraph({
               <GraphNode
                 key={node.key}
                 laid={node}
+                detail={detail}
                 byId={byId}
                 dimmed={litKeys !== null && !litKeys.has(node.thread.id)}
                 titleOf={titleOf}
@@ -436,6 +628,7 @@ export default function WorkstreamGraph({
             <SatelliteNode
               key={node.key}
               laid={node}
+              detail={detail}
               byId={byId}
               dimmed={litKeys !== null && !litKeys.has(node.thread.id)}
               onOpenThread={onOpenThread}
@@ -473,11 +666,12 @@ export default function WorkstreamGraph({
           />
         ) : null}
       </div>
-      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 px-2 pb-1">
+      {/* A left-aligned grid, so a narrow panel (or the open drawer) wraps it into columns. */}
+      <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-x-4 gap-y-1 px-2 pb-1">
         {COLUMN_ORDER.map((column) => (
           <LegendItem
             key={column}
-            swatch={<span className={`size-2 rounded-full ${COLUMN_STYLES[column].dotClass}`} />}
+            swatch={<StatusDot className="size-2" {...COLUMN_STYLES[column]} />}
           >
             {COLUMN_LABELS[column]}
           </LegendItem>
@@ -488,7 +682,22 @@ export default function WorkstreamGraph({
         <LegendItem swatch={<LineSwatch color={WAITS_ON_STROKE} line="dashed" />}>
           waits-on
         </LegendItem>
-        <LegendItem swatch={<LineSwatch color={LOOP_STROKE} line="solid" />}>
+        {/* One swatch per stroke the loops on screen carry (each takes its gate's latest verdict tone). */}
+        <LegendItem
+          swatch={[
+            ...new Set(
+              edges.flatMap((edge) =>
+                edge.kind === "loop"
+                  ? [loopStrokeOf(edge.sourceId ? byId.get(edge.sourceId) : undefined)]
+                  : [],
+              ),
+            ),
+          ]
+            .concat(edges.some((edge) => edge.kind === "loop") ? [] : [LOOP_STROKE])
+            .map((stroke) => (
+              <LineSwatch key={stroke} color={stroke} line="solid" />
+            ))}
+        >
           review loop ⟲
         </LegendItem>
         <LegendItem swatch={<LineSwatch color={CONSULT_STROKE} line="dotted" />}>
@@ -521,7 +730,7 @@ function LegendItem({ swatch, children }: { swatch: ReactNode; children: ReactNo
 function LineSwatch({ color, line }: { color: string; line: "solid" | "dashed" | "dotted" }) {
   return (
     <span
-      className="inline-block h-0 w-4 border-t"
+      className="inline-block h-0 w-4 border-t-2"
       style={{ borderColor: color, borderStyle: line }}
     />
   );
@@ -538,10 +747,13 @@ function ArrowMarker({ id, fill }: { id: string; fill: string }) {
 function GraphEdge({
   edge,
   byId,
+  full,
   dimmed,
 }: {
   readonly edge: LaidEdge;
   readonly byId: WorkstreamNodeIndex;
+  /** Below Full the round pill hides: the edge keeps its verdict colour, the cards their gate word. */
+  readonly full: boolean;
   readonly dimmed: boolean;
 }) {
   const opacity = dimmed ? FADE_OPACITY : 1;
@@ -570,30 +782,32 @@ function GraphEdge({
           stroke={stroke}
           strokeWidth="1.4"
         />
-        <g>
-          <title>{`Review loop: ${rounds} of ${cap} rework rounds used${
-            target?.pendingRework ? " · rework round open" : ""
-          }${verdict ? ` · latest verdict: ${verdict.replaceAll("_", " ")}` : ""}`}</title>
-          <rect
-            fill="var(--color-background)"
-            height={15}
-            rx="7"
-            stroke={stroke}
-            strokeWidth="1"
-            width={target?.pendingRework ? 52 : 40}
-            x={badge.x - (target?.pendingRework ? 26 : 20)}
-            y={badge.y - 7.5}
-          />
-          <text
-            fill={legibleHue(stroke)}
-            fontSize="9"
-            textAnchor="middle"
-            x={badge.x}
-            y={badge.y + 3}
-          >
-            {`⟲ ${rounds}/${cap}${target?.pendingRework ? " ●" : ""}`}
-          </text>
-        </g>
+        <title>{`Review loop: ${rounds} of ${cap} rework rounds used${
+          target?.pendingRework ? " · rework round open" : ""
+        }${verdict ? ` · latest verdict: ${verdict.replaceAll("_", " ")}` : ""}`}</title>
+        {full ? (
+          <g>
+            <rect
+              fill="var(--color-background)"
+              height={16}
+              rx="8"
+              stroke={stroke}
+              strokeWidth="1"
+              width={target?.pendingRework ? 56 : 44}
+              x={badge.x - (target?.pendingRework ? 28 : 22)}
+              y={badge.y - 8}
+            />
+            <text
+              fill={legibleHue(stroke)}
+              fontSize="10"
+              textAnchor="middle"
+              x={badge.x}
+              y={badge.y + 3.5}
+            >
+              {`⟲ ${rounds}/${cap}${target?.pendingRework ? " ●" : ""}`}
+            </text>
+          </g>
+        ) : null}
       </g>
     );
   }
@@ -665,10 +879,12 @@ function GraphEdge({
 // earlier ones are above it); a badge counts repeat consults.
 function ConsultGraphEdge({
   edge,
+  full,
   onJump,
   dimmed,
 }: {
   readonly edge: ConsultEdge;
+  readonly full: boolean;
   readonly onJump: (anchor: ConversationAnchor) => void;
   readonly dimmed: boolean;
 }) {
@@ -711,24 +927,24 @@ function ConsultGraphEdge({
         strokeDasharray="1.5 3"
         strokeWidth="1.3"
       />
-      {edge.count > 1 ? (
+      {full && edge.count > 1 ? (
         <g>
           <rect
             fill="var(--color-background)"
-            height={15}
-            rx="7"
+            height={16}
+            rx="8"
             stroke={CONSULT_STROKE}
             strokeWidth="1"
-            width={34}
-            x={badge.x - 17}
-            y={badge.y - 7.5}
+            width={36}
+            x={badge.x - 18}
+            y={badge.y - 8}
           />
           <text
             fill={legibleHue(CONSULT_STROKE)}
-            fontSize="9"
+            fontSize="10"
             textAnchor="middle"
             x={badge.x}
-            y={badge.y + 3}
+            y={badge.y + 3.5}
           >
             {`×${edge.count}`}
           </text>
@@ -740,10 +956,12 @@ function ConsultGraphEdge({
 
 function BridgeNode({
   node,
+  detail,
   onOpenThread,
   dimmed,
 }: {
   readonly node: Extract<LaidNode, { kind: "bridge" }>;
+  readonly detail: Detail;
   readonly onOpenThread: (threadId: ThreadId) => void;
   readonly dimmed: boolean;
 }) {
@@ -765,35 +983,106 @@ function BridgeNode({
       tabIndex={0}
     >
       <title>{`Open the orchestrator of wave ${node.waveIndex}`}</title>
-      <rect
-        className="fill-foreground/7 stroke-foreground/18"
-        height={node.h}
-        rx="11"
-        width={node.w}
-        x={node.x}
-        y={node.y}
-      />
+      {/* The canvas's own layers under the tint, so the pill is opaque and the spine passes behind it. */}
+      {["fill-background", "fill-muted", "fill-foreground/7 stroke-foreground/18"].map((layer) => (
+        <rect
+          key={layer}
+          className={layer}
+          height={node.h}
+          rx="11"
+          width={node.w}
+          x={node.x}
+          y={node.y}
+        />
+      ))}
       <FocusRing x={node.x} y={node.y} w={node.w} h={node.h} rx={11} />
-      <text
-        className="fill-foreground/80"
-        fontSize="12"
-        fontWeight="600"
-        textAnchor="middle"
-        x={node.x + node.w / 2}
-        y={node.y + 19}
-      >
-        {truncateLabel(node.label, 18)}
-      </text>
-      <text
-        className="fill-muted-foreground"
-        fontSize="9.5"
-        textAnchor="middle"
-        x={node.x + node.w / 2}
-        y={node.y + 34}
-      >
-        Orchestrator · wave {node.waveIndex}
-      </text>
+      {detail.tier === "full" ? (
+        <>
+          <text
+            className="fill-foreground/80"
+            fontSize="12"
+            fontWeight="600"
+            textAnchor="middle"
+            x={node.x + node.w / 2}
+            y={node.y + 19}
+          >
+            {truncateLabel(node.label, 18)}
+          </text>
+          <text
+            fill={CARD_META_FILL}
+            fontSize="10"
+            textAnchor="middle"
+            x={node.x + node.w / 2}
+            y={node.y + 34}
+          >
+            Orchestrator · wave {node.waveIndex}
+          </text>
+        </>
+      ) : (
+        <CompactBridgeBody node={node} k={detail.k} />
+      )}
     </g>
+  );
+}
+
+/** A bridge below Full: its title over its wave when both fit, else the wave alone. */
+function CompactBridgeBody({
+  node,
+  k,
+}: {
+  readonly node: Extract<LaidNode, { kind: "bridge" }>;
+  readonly k: number;
+}) {
+  const inner = node.w / k - 12;
+  const height = node.h / k;
+  const cx = node.x + node.w / 2;
+  const wave = `Orchestrator · wave ${node.waveIndex}`;
+  if (height >= PAD_PX * 2 + LINE_PX + LABEL_PX + 2) {
+    const title = fitLabel(node.label, inner, TITLE_PX, 600);
+    const meta = firstFit([wave, `Wave ${node.waveIndex}`], inner, LABEL_PX);
+    const top = node.y + (node.h - (LINE_PX + LABEL_PX + 2) * k) / 2;
+    return (
+      <>
+        <text
+          className="fill-foreground/80"
+          fontSize={TITLE_PX * k}
+          fontWeight="600"
+          textAnchor="middle"
+          x={cx}
+          y={top + 11 * k}
+        >
+          {title}
+        </text>
+        <text
+          fill={CARD_META_FILL}
+          fontSize={LABEL_PX * k}
+          textAnchor="middle"
+          x={cx}
+          y={top + (LINE_PX + 10) * k}
+        >
+          {meta}
+        </text>
+      </>
+    );
+  }
+  if (height < LABEL_PX + PAD_PX) return null;
+  const label = firstFit(
+    [wave, `Wave ${node.waveIndex}`, `${node.waveIndex}`],
+    inner,
+    LABEL_PX,
+    600,
+  );
+  return (
+    <text
+      className="fill-foreground/80"
+      fontSize={LABEL_PX * k}
+      fontWeight="600"
+      textAnchor="middle"
+      x={cx}
+      y={node.y + node.h / 2 + 4 * k}
+    >
+      {label}
+    </text>
   );
 }
 
@@ -802,6 +1091,7 @@ const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ?
 /** A query thread hung off its author: `? <document>` and its question and promotion counts. */
 function SatelliteNode({
   laid,
+  detail,
   byId,
   dimmed,
   onOpenThread,
@@ -812,6 +1102,7 @@ function SatelliteNode({
   onFocusStart,
 }: {
   readonly laid: Extract<LaidNode, { kind: "thread" }>;
+  readonly detail: Detail;
   readonly byId: WorkstreamNodeIndex;
   readonly dimmed: boolean;
   readonly onOpenThread: (threadId: ThreadId) => void;
@@ -828,6 +1119,17 @@ function SatelliteNode({
   const counts = query
     ? `${plural(query.questions.length, "question")} · ${query.promotions.length} promoted`
     : "forking…";
+  const { tier, k } = detail;
+  const inner = w / k - 14;
+  // Below Full: the label at 11px, the counts under it when the card has room for both.
+  const lines =
+    tier === "full"
+      ? null
+      : h / k >= PAD_PX * 2 + LINE_PX + LABEL_PX
+        ? [firstFit([label, "?"], inner, LABEL_PX, 600), fitLabel(counts, inner, LABEL_PX)]
+        : h / k >= LABEL_PX + PAD_PX
+          ? [firstFit([label, "?"], inner, LABEL_PX, 600)]
+          : [];
   return (
     <g
       data-graph-hit
@@ -836,7 +1138,7 @@ function SatelliteNode({
       role="button"
       aria-label={`Open query thread ${node.title}`}
       tabIndex={0}
-      opacity={dimmed ? FADE_OPACITY : isReceded(node) ? RECEDE_OPACITY : 1}
+      opacity={dimmed ? FADE_OPACITY : 1}
       onClick={() => onOpenThread(node.id)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -866,17 +1168,43 @@ function SatelliteNode({
         rx="8"
         stroke={QUERY_STROKE}
         strokeDasharray="4 3"
+        strokeOpacity={isReceded(node) ? RECEDE_OPACITY : 1}
         strokeWidth={1.3}
         width={w}
         x={x}
         y={y}
       />
-      <text className="fill-foreground" fontSize="10.5" fontWeight="600" x={x + 9} y={y + 16}>
-        {truncateLabel(label, 21)}
-      </text>
-      <text className="fill-muted-foreground" fontSize="9" x={x + 9} y={y + 30}>
-        {counts}
-      </text>
+      {lines === null ? (
+        <>
+          <text
+            className={isReceded(node) ? "fill-muted-foreground" : "fill-foreground"}
+            fontSize="11"
+            fontWeight="600"
+            x={x + 9}
+            y={y + 16}
+          >
+            {truncateLabel(label, 20)}
+          </text>
+          <text className="fill-muted-foreground" fontSize="10" x={x + 9} y={y + 31}>
+            {counts}
+          </text>
+        </>
+      ) : (
+        lines.map((line, index) => (
+          <text
+            key={index === 0 ? "label" : "counts"}
+            className={
+              index === 0 && !isReceded(node) ? "fill-foreground" : "fill-muted-foreground"
+            }
+            fontSize={LABEL_PX * k}
+            fontWeight={index === 0 ? 600 : undefined}
+            x={x + 7 * k}
+            y={y + h / 2 + (4 + (index - (lines.length - 1) / 2) * (LINE_PX - 1)) * k}
+          >
+            {line}
+          </text>
+        ))
+      )}
     </g>
   );
 }
@@ -884,12 +1212,15 @@ function SatelliteNode({
 function CornerBadge({
   cx,
   cy,
+  k = 1,
   stroke,
   title,
   children,
 }: {
   cx: number;
   cy: number;
+  /** Units per screen px below Full (the badge holds a fixed screen size); 1 at Full. */
+  k?: number;
   stroke: string;
   title: string;
   children: ReactNode;
@@ -901,14 +1232,21 @@ function CornerBadge({
         cx={cx}
         cy={cy}
         fill="var(--color-background)"
-        r="8"
+        r={8 * k}
         stroke={stroke}
-        strokeWidth="1"
+        strokeWidth={k}
       />
       {typeof children === "object" ? (
         children
       ) : (
-        <text fill={legibleHue(stroke)} fontSize="9" textAnchor="middle" x={cx} y={cy + 3.5}>
+        // Full keeps its 10-unit digit; below it the digit holds 11px.
+        <text
+          fill={legibleHue(stroke)}
+          fontSize={(k === 1 ? 10 : LABEL_PX) * k}
+          textAnchor="middle"
+          x={cx}
+          y={cy + 3.6 * k}
+        >
           {children}
         </text>
       )}
@@ -916,8 +1254,140 @@ function CornerBadge({
   );
 }
 
+/** `StatusDot`'s shapes in SVG, so a card below Full reads against the legend's dots. */
+function StatusGlyph({
+  cx,
+  cy,
+  r,
+  color,
+  shape,
+}: {
+  cx: number;
+  cy: number;
+  r: number;
+  color: string;
+  shape: StatusShape;
+}) {
+  return shape === "dot" ? (
+    <circle cx={cx} cy={cy} r={r} fill={color} />
+  ) : (
+    <>
+      <circle cx={cx} cy={cy} r={r * 0.8} fill="none" stroke={color} strokeWidth={r * 0.4} />
+      {shape === "target" ? <circle cx={cx} cy={cy} r={r * 0.4} fill={color} /> : null}
+    </>
+  );
+}
+
+/**
+ * A card below Full, every label at a fixed screen size. Compact: a role row (state glyph, role,
+ * and the state word when it fits) over the title in one or two lines as the card's height
+ * allows. Minimal: one row of glyph, role and as much title as fits; the rest is on hover.
+ */
+function CompactCardBody({
+  node,
+  laid,
+  detail,
+  color,
+  shape,
+  stateWord,
+  recede,
+  badgesPx,
+}: {
+  readonly node: WorkstreamNode;
+  readonly laid: Extract<LaidNode, { kind: "thread" }>;
+  readonly detail: Detail;
+  readonly color: string;
+  readonly shape: StatusShape;
+  readonly stateWord: string;
+  readonly recede: boolean;
+  /** Screen width the corner badges take from the role row. */
+  readonly badgesPx: number;
+}) {
+  const { x, y, w, h } = laid;
+  const { tier, k } = detail;
+  const hue = legibleHue(color);
+  const inner = w / k - 12;
+  const height = h / k;
+  const role = capitalise(getRoleLabel(node));
+  if (tier === "minimal") {
+    // One row: the glyph, the role, and as much of the title as the card's width leaves.
+    const cy = y + h / 2;
+    const label = height >= LABEL_PX + PAD_PX ? fitLabel(role, inner - 10.5, LABEL_PX, 600) : null;
+    const titleRoom = inner - 16.5 - (label ? labelWidth(label, LABEL_PX, 600) : inner);
+    const title = titleRoom >= 3 * LABEL_PX ? fitLabel(node.title, titleRoom, LABEL_PX, 600) : null;
+    return (
+      <>
+        <StatusGlyph cx={x + 9.5 * k} cy={cy} r={3.5 * k} color={color} shape={shape} />
+        {label ? (
+          <text fontSize={LABEL_PX * k} fontWeight="600" x={x + 16.5 * k} y={cy + 3.8 * k}>
+            <tspan fill={hue}>{label}</tspan>
+            {title ? (
+              <tspan className={recede ? "fill-muted-foreground" : "fill-foreground"} dx={6 * k}>
+                {title}
+              </tspan>
+            ) : null}
+          </text>
+        ) : null}
+      </>
+    );
+  }
+  const roleRow = inner - badgesPx;
+  const stateFits =
+    10.5 + labelWidth(role, LABEL_PX, 600) + 8 + labelWidth(stateWord, LABEL_PX, 400) <= roleRow;
+  const lines = wrapToWidth(
+    node.title,
+    inner,
+    TITLE_PX,
+    600,
+    height >= BAND_PX + 2 * LINE_PX + PAD_PX ? 2 : 1,
+  );
+  const top = BAND_PX + (height - BAND_PX - lines.length * LINE_PX) / 2;
+  return (
+    <>
+      <path
+        d={stripPath(x, y, w, BAND_PX * k)}
+        fill={color}
+        fillOpacity={recede ? 0.16 * RECEDE_OPACITY : 0.16}
+      />
+      <StatusGlyph
+        cx={x + 9.5 * k}
+        cy={y + (BAND_PX / 2) * k}
+        r={3.5 * k}
+        color={color}
+        shape={shape}
+      />
+      <text fill={hue} fontSize={LABEL_PX * k} fontWeight="600" x={x + 16.5 * k} y={y + 12.5 * k}>
+        {stateFits ? role : fitLabel(role, roleRow - 10.5, LABEL_PX, 600)}
+      </text>
+      {stateFits ? (
+        <text
+          fill={hue}
+          fontSize={LABEL_PX * k}
+          textAnchor="end"
+          x={x + w - (6 + badgesPx) * k}
+          y={y + 12.5 * k}
+        >
+          {stateWord}
+        </text>
+      ) : null}
+      <text
+        className={recede ? "fill-muted-foreground" : "fill-foreground"}
+        fontSize={TITLE_PX * k}
+        fontWeight="600"
+      >
+        {lines.map((line, index) => (
+          <tspan key={line} x={x + 6 * k} y={y + (top + 11 + index * LINE_PX) * k}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </>
+  );
+}
+
 function GraphNode({
   laid,
+  detail,
   byId,
   dimmed,
   titleOf,
@@ -932,6 +1402,7 @@ function GraphNode({
   onJump,
 }: {
   readonly laid: Extract<LaidNode, { kind: "thread" }>;
+  readonly detail: Detail;
   readonly byId: WorkstreamNodeIndex;
   readonly dimmed: boolean;
   readonly titleOf: (threadId: ThreadId) => string;
@@ -948,7 +1419,7 @@ function GraphNode({
   // The laid node is a structural snapshot; resolve the live one for status.
   const node = byId.get(laid.thread.id) ?? laid.thread;
   const { x, y, w, h } = laid;
-  const color = COLUMN_STYLES[node.column].color;
+  const { color, shape } = nodeStyleOf(node, byId);
   const verdict = getVerdictChip(node);
   const stateWord = getNodeStateWord(node, byId);
   const attention = nodeAttentionOf(node);
@@ -960,11 +1431,19 @@ function GraphNode({
   const stepAge = step && formatStepAge(step.since, now);
   // The footer's age ends left of the corner badges; both lines lift clear of a verdict pill.
   const footerEnd = x + w - 10 - (node.forkFromThreadId ? 20 : 0) - (externalConsult ? 20 : 0);
-  const footerY = y + h - (verdict ? 10 : 8);
-  const titleLines = wrapLabel(node.title, 24, 2);
+  const footerY = y + h - (verdict ? 11 : 8);
+  // 22 characters on the default card; a widened card takes more per line.
+  const titleLines = wrapLabel(node.title, Math.max(22, Math.floor((w - 20) / 6.9)), 2);
   const roleLabel = getRoleLabel(node);
-  const forkBadgeX = x + w - 12;
-  const consultBadgeX = forkBadgeX - (node.forkFromThreadId ? 20 : 0);
+  const { tier, k } = detail;
+  const full = tier === "full";
+  // Full sets its corner badges inside the card; below it they straddle the top border at a
+  // fixed screen size, beside the role, and Minimal drops them.
+  const badgeK = full ? 1 : k;
+  const badgeY = full ? y + h - 12 : y;
+  const forkBadgeX = x + w - 12 * badgeK;
+  const consultBadgeX = forkBadgeX - (node.forkFromThreadId ? 20 * badgeK : 0);
+  const showBadges = tier !== "minimal";
   return (
     <g
       data-graph-hit
@@ -1008,12 +1487,18 @@ function GraphNode({
         onBlur={onHoverEnd}
       >
         <FocusRing x={x} y={y} w={w} h={h} rx={10} />
-        <g opacity={dimmed ? FADE_OPACITY : recede ? RECEDE_OPACITY : 1}>
+        <g opacity={dimmed ? FADE_OPACITY : 1}>
           <rect
-            fill={`color-mix(in srgb, ${color} 14%, var(--color-background))`}
+            fill={
+              recede
+                ? "var(--color-muted)"
+                : `color-mix(in srgb, ${color} 14%, var(--color-background))`
+            }
             height={h}
             rx="10"
             stroke={color}
+            strokeDasharray={DASH[shape]}
+            strokeOpacity={recede ? RECEDE_OPACITY : 1}
             strokeWidth={1.4}
             width={w}
             x={x}
@@ -1035,75 +1520,117 @@ function GraphNode({
               <title>{attention.label}</title>
             </rect>
           ) : null}
-          <path
-            d={`M ${x + 10} ${y} H ${x + w - 10} A 10 10 0 0 1 ${x + w} ${y + 10} V ${y + STRIP_H} H ${x} V ${y + 10} A 10 10 0 0 1 ${x + 10} ${y} Z`}
-            fill={color}
-            fillOpacity="0.16"
-          />
-          <text
-            fill={legibleHue(color)}
-            fontSize="8"
-            fontWeight="600"
-            letterSpacing="0.06em"
-            x={x + 10}
-            y={y + 13.5}
-          >
-            {getNodeStripLabel(node, stateWord)}
-          </text>
-          {running ? (
-            <circle cx={x + w - 16 - stateWord.length * 4.4} cy={y + 10.5} r={2.6} fill={color} />
-          ) : null}
-          <text fill={legibleHue(color)} fontSize="8" textAnchor="end" x={x + w - 10} y={y + 13.5}>
-            {stateWord}
-          </text>
-          <text className="fill-foreground" fontSize="11" fontWeight="600">
-            <tspan x={x + 10} y={y + 35}>
-              {titleLines[0] ?? ""}
-            </tspan>
-            {titleLines[1] !== undefined ? (
-              <tspan x={x + 10} y={y + 48}>
-                {titleLines[1]}
-              </tspan>
-            ) : null}
-          </text>
-          {verdict ? (
-            <GatePill
-              label={truncateLabel(verdict.label, 20)}
-              stroke={TONE_COLORS[verdict.tone]}
-              xEnd={x + w - 6}
-              yCenter={y + h}
-            />
-          ) : null}
-          {node.forkFromThreadId ? (
+          {full ? (
+            <>
+              <path
+                d={stripPath(x, y, w, STRIP_H)}
+                fill={color}
+                fillOpacity={recede ? 0.16 * RECEDE_OPACITY : 0.16}
+              />
+              <text
+                fill={legibleHue(color)}
+                fontSize="9.5"
+                fontWeight="600"
+                x={x + 10}
+                y={y + 14.5}
+              >
+                {getNodeStripLabel(node, stateWord)}
+              </text>
+              {running ? (
+                <circle cx={x + w - 16 - stateWord.length * 5.2} cy={y + 11} r={2.8} fill={color} />
+              ) : null}
+              <text
+                fill={legibleHue(color)}
+                fontSize="9.5"
+                textAnchor="end"
+                x={x + w - 10}
+                y={y + 14.5}
+              >
+                {stateWord}
+              </text>
+              <text
+                className={recede ? "fill-muted-foreground" : "fill-foreground"}
+                fontSize="12"
+                fontWeight="600"
+              >
+                <tspan x={x + 10} y={y + 38}>
+                  {titleLines[0] ?? ""}
+                </tspan>
+                {titleLines[1] !== undefined ? (
+                  <tspan x={x + 10} y={y + 52}>
+                    {titleLines[1]}
+                  </tspan>
+                ) : null}
+              </text>
+              {verdict ? (
+                <GatePill
+                  label={truncateLabel(verdict.label, 20)}
+                  stroke={TONE_COLORS[verdict.tone]}
+                  xEnd={x + w - 6}
+                  yCenter={y + h}
+                />
+              ) : null}
+            </>
+          ) : (
+            <>
+              <CompactCardBody
+                node={node}
+                laid={laid}
+                detail={detail}
+                color={color}
+                shape={shape}
+                stateWord={stateWord}
+                recede={recede}
+                badgesPx={
+                  showBadges ? (node.forkFromThreadId ? 20 : 0) + (externalConsult ? 20 : 0) : 0
+                }
+              />
+              {verdict ? (
+                // The gate pill folds to a dot in its tone on the bottom border; the verdict on hover.
+                <circle
+                  cx={x + 14 * k}
+                  cy={y + h}
+                  fill={TONE_COLORS[verdict.tone]}
+                  r={4.5 * k}
+                  stroke="var(--color-background)"
+                  strokeWidth={1.5 * k}
+                >
+                  <title>{verdict.label}</title>
+                </circle>
+              ) : null}
+            </>
+          )}
+          {node.forkFromThreadId && showBadges ? (
             <CornerBadge
               cx={forkBadgeX}
-              cy={y + h - 12}
+              cy={badgeY}
+              k={badgeK}
               stroke={FORKED_FROM_STROKE}
               title={`Forked from ${titleOf(node.forkFromThreadId)}`}
             >
               <GitForkIcon
-                x={forkBadgeX - 5}
-                y={y + h - 17}
-                width={10}
-                height={10}
+                x={forkBadgeX - 5 * badgeK}
+                y={badgeY - 5 * badgeK}
+                width={10 * badgeK}
+                height={10 * badgeK}
                 color={legibleHue(FORKED_FROM_STROKE)}
               />
             </CornerBadge>
           ) : null}
-          {node.column === "in_progress" ? (
+          {full && node.column === "in_progress" ? (
             <g
-              className="fill-muted-foreground"
+              fill={CARD_META_FILL}
               fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-              fontSize={8.5}
+              fontSize={9}
               pointerEvents="none"
             >
               <text x={x + 10} y={footerY}>
-                {step ? truncateLabel(step.label, 16) : (node.activity ?? "idle")}
+                {step ? truncateLabel(step.label, 15) : (node.activity ?? "idle")}
                 {stepAge ? (
                   <>
                     {" · "}
                     <tspan
-                      className={step?.long ? "fill-warning-foreground" : undefined}
+                      fill={step?.long ? legibleHue("var(--color-warning)") : undefined}
                       fontWeight={step?.long ? 600 : undefined}
                     >
                       {stepAge}
@@ -1118,12 +1645,13 @@ function GraphNode({
           ) : null}
         </g>
       </g>
-      {externalConsult ? (
+      {externalConsult && showBadges ? (
         <ExternalConsultBadge
           consult={externalConsult}
           cx={consultBadgeX}
-          cy={y + h - 12}
-          opacity={dimmed ? FADE_OPACITY : recede ? RECEDE_OPACITY : 1}
+          cy={badgeY}
+          k={badgeK}
+          opacity={dimmed ? FADE_OPACITY : 1}
           onOpen={() =>
             onJump({ threadId: node.id, at: externalConsult.anchorAtIso, consult: true })
           }
@@ -1143,12 +1671,14 @@ function ExternalConsultBadge({
   consult,
   cx,
   cy,
+  k,
   opacity,
   onOpen,
 }: {
   readonly consult: ExternalConsult;
   readonly cx: number;
   readonly cy: number;
+  readonly k: number;
   readonly opacity: number;
   readonly onOpen: () => void;
 }) {
@@ -1179,11 +1709,11 @@ function ExternalConsultBadge({
         cx={cx}
         cy={cy}
         fill="none"
-        r="11"
+        r={11 * k}
         stroke="var(--color-ring)"
         strokeWidth="2"
       />
-      <CornerBadge cx={cx} cy={cy} stroke={CONSULT_STROKE} title={title}>
+      <CornerBadge cx={cx} cy={cy} k={k} stroke={CONSULT_STROKE} title={title}>
         {consult.count > 9 ? "9+" : consult.count}
       </CornerBadge>
     </g>
@@ -1219,25 +1749,25 @@ function GatePill({
   xEnd: number;
   yCenter: number;
 }) {
-  const width = label.length * 4.6 + 10;
+  const width = label.length * 5.4 + 10;
   return (
     <g>
       <rect
         fill={`color-mix(in srgb, ${stroke} 18%, var(--color-background))`}
-        height={13}
-        rx="6.5"
+        height={15}
+        rx="7.5"
         stroke={stroke}
         strokeWidth="1"
         width={width}
         x={xEnd - width}
-        y={yCenter - 6.5}
+        y={yCenter - 7.5}
       />
       <text
         fill={legibleHue(stroke)}
-        fontSize="8"
+        fontSize="9.5"
         textAnchor="middle"
         x={xEnd - width / 2}
-        y={yCenter + 2.5}
+        y={yCenter + 3.3}
       >
         {label}
       </text>

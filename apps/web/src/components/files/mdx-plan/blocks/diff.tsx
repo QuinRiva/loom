@@ -258,7 +258,7 @@ const ROW_BG: Record<DiffRowKind, string> = {
 };
 const SIGN_COLOR: Record<DiffRowKind, string> = {
   added: "text-emerald-700 dark:text-emerald-300",
-  removed: "text-destructive",
+  removed: "text-destructive-foreground",
   context: "text-muted-foreground",
 };
 const SIGN: Record<DiffRowKind, string> = { added: "+", removed: "−", context: " " };
@@ -373,7 +373,7 @@ function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
           <TooltipPopup>{data.filename ?? "diff"}</TooltipPopup>
         </Tooltip>
         <span className="shrink-0 font-mono text-success-foreground">+{added}</span>
-        <span className="shrink-0 font-mono text-destructive">−{removed}</span>
+        <span className="shrink-0 font-mono text-destructive-foreground">−{removed}</span>
         <div className="ml-1 flex shrink-0 overflow-hidden rounded-md border border-border">
           <ModeButton
             active={mode === "unified"}

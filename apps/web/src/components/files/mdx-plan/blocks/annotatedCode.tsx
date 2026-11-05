@@ -116,7 +116,7 @@ function AnnotatedCodeRead({ data, blockId }: PlanBlockReadProps<AnnotatedCodeDa
       <figcaption className="flex items-center justify-between gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-2xs text-muted-foreground">
         <span className="min-w-0 flex-1 truncate font-mono">{data.filename ?? ""}</span>
         <div className="flex shrink-0 items-center gap-2">
-          {language !== "text" && <span className="uppercase tracking-wide">{language}</span>}
+          {language !== "text" && <span>{language}</span>}
           <WrapToggle wrapped={wrap} onToggle={() => setWrap((value) => !value)} />
         </div>
       </figcaption>

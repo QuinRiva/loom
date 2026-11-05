@@ -42,7 +42,11 @@ export function LoomAutoOpenSettingsRows({
     <>
       <SettingsRow
         title="Auto-open workstream"
-        description="On a thread with sub-threads, open its Workstream graph once when you first visit it."
+        description={
+          <span className="block max-w-sm">
+            On a thread with sub-threads, open its Workstream graph once when you first visit it.
+          </span>
+        }
         resetAction={
           settings.autoOpenWorkstreamPanel !== DEFAULT_AUTO_OPEN ? (
             <SettingResetButton

@@ -11,9 +11,10 @@ const BRIDGE_W = 150;
 const BRIDGE_H = 46;
 // Uniform, not per-state: the layout is memoised on a status-excluding key, so a per-state
 // height would re-run the whole layout on every lane or turn transition. Every port, centre
-// and viewBox derives from these constants.
+// and viewBox derives from these constants. NODE_W is the default and narrowest card; the
+// graph widens its cards into a height-bound panel's spare width (`computeForkJoinLayout`).
 export const NODE_W = 172;
-const NODE_H = 74;
+export const NODE_H = 78;
 const FORK_GAP = 54; // bridge right edge → first child column
 const COL_GAP = 50; // between dependency columns (room for blockedBy arrows)
 const ROW_GAP = 18; // between stacked members in a column
@@ -213,6 +214,7 @@ function layoutOrchestrator(
   title: string,
   childrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<WorkstreamNode>>,
   satelliteCounts: ReadonlyMap<ThreadId, number>,
+  nodeW: number,
 ): Block {
   const children = childrenByParent.get(orchestratorId) ?? [];
   if (children.length === 0) return { nodes: [], edges: [], w: 0, h: 0 };
@@ -262,7 +264,7 @@ function layoutOrchestrator(
     const subBlockByMember = new Map<ThreadId, Block>(
       members.map((m) => [
         m.id,
-        layoutMember(m, childrenByParent, satelliteCounts, loopParticipants.has(m.id)),
+        layoutMember(m, childrenByParent, satelliteCounts, nodeW, loopParticipants.has(m.id)),
       ]),
     );
     // A wave that carries a review-gate loop reserves an extra row lane so the
@@ -273,7 +275,7 @@ function layoutOrchestrator(
     const columns = dependencyColumns(members);
     const colLayouts = columns.map((column) => {
       const blocks = column.map((m) => subBlockByMember.get(m.id)!);
-      const colW = blocks.reduce((max, b) => Math.max(max, b.w), NODE_W);
+      const colW = blocks.reduce((max, b) => Math.max(max, b.w), nodeW);
       const colH = blocks.reduce((sum, b) => sum + b.h, 0) + rowGap * (column.length - 1);
       return { column, blocks, colW, colH };
     });
@@ -342,7 +344,7 @@ function layoutOrchestrator(
           key: `blocked:${member.id}:${dep}`,
           fromKey: dep,
           toKey: member.id,
-          x1: source.x + NODE_W,
+          x1: source.x + nodeW,
           y1: source.y,
           x2: target.x,
           y2: target.y,
@@ -370,8 +372,8 @@ function layoutOrchestrator(
         const { points, badge } = routeUnderChannel(
           nodes,
           loopLanes,
-          { x: source.x + NODE_W * 0.3, bottom: srcBottom },
-          { x: loopTarget.x + NODE_W * 0.55, bottom: tgtBottom },
+          { x: source.x + nodeW * 0.3, bottom: srcBottom },
+          { x: loopTarget.x + nodeW * 0.55, bottom: tgtBottom },
           LOOP_CHANNEL_DROP,
           LOOP_LANE_STEP,
           new Set([member.id, route.to]),
@@ -412,7 +414,7 @@ function layoutOrchestrator(
       const ignore = new Set<string>([child.id, dep]);
       const points =
         sourceWave < targetWave
-          ? routeForwardCrossWave(nodes, loopLanes, source, target, ignore)
+          ? routeForwardCrossWave(nodes, loopLanes, source, target, ignore, nodeW)
           : routeInversion(nodes, loopLanes, source, target, ignore);
       edges.push({
         kind: "blocked",
@@ -460,6 +462,7 @@ function layoutMember(
   member: WorkstreamNode,
   childrenByParent: ReadonlyMap<ThreadId, ReadonlyArray<WorkstreamNode>>,
   satelliteCounts: ReadonlyMap<ThreadId, number>,
+  nodeW: number,
   // A gate participant (loop source or target) routes its review loop in the
   // channel just below its card; reserve that lane ABOVE its nested block so the
   // loop can never cut through the member's own spawned descendants.
@@ -476,12 +479,18 @@ function layoutMember(
     ...(satellites > 0 ? { satelliteDy } : {}),
     x: 0,
     y: 0,
-    w: NODE_W,
+    w: nodeW,
     h: NODE_H,
   };
-  const w = satellites > 0 ? Math.max(NODE_W, NEST_INDENT + SATELLITE_W) : NODE_W;
+  const w = satellites > 0 ? Math.max(nodeW, NEST_INDENT + SATELLITE_W) : nodeW;
   const cardH = satellites > 0 ? satelliteDy + satelliteStackH(satellites) - SATELLITE_GAP : NODE_H;
-  const nested = layoutOrchestrator(member.id, member.title, childrenByParent, satelliteCounts);
+  const nested = layoutOrchestrator(
+    member.id,
+    member.title,
+    childrenByParent,
+    satelliteCounts,
+    nodeW,
+  );
   if (nested.nodes.length === 0) {
     return { nodes: [card], edges: [], w, h: cardH };
   }
@@ -508,7 +517,7 @@ function layoutMember(
             ],
           }
         : {}),
-      x1: satellites > 0 ? gutterX : NODE_W / 2,
+      x1: satellites > 0 ? gutterX : nodeW / 2,
       y1: NODE_H,
       x2: satellites > 0 ? firstBridge.x : firstBridge.x + firstBridge.w / 2,
       y2: satellites > 0 ? bridgeMidY : firstBridge.y,
@@ -530,6 +539,8 @@ export function computeForkJoinLayout(
   threads: ReadonlyArray<WorkstreamNode>,
   /** Query satellites per author card, so the layout reserves room under it. */
   satelliteCounts: ReadonlyMap<ThreadId, number> = new Map(),
+  /** Card width: NODE_W, or wider to fill a height-bound panel. */
+  nodeW = NODE_W,
 ): {
   nodes: ReadonlyArray<LaidNode>;
   edges: ReadonlyArray<LaidEdge>;
@@ -544,7 +555,7 @@ export function computeForkJoinLayout(
     if (siblings) siblings.push(thread);
     else childrenByParent.set(thread.parentThreadId, [thread]);
   }
-  return layoutOrchestrator(root.id, root.title, childrenByParent, satelliteCounts);
+  return layoutOrchestrator(root.id, root.title, childrenByParent, satelliteCounts, nodeW);
 }
 
 /** The query-thread satellites laid beside their authors, and the dashed `query` edges to them. */
@@ -866,10 +877,11 @@ function routeForwardCrossWave(
   source: Point,
   target: Point,
   ignore: ReadonlySet<string>,
+  nodeW: number,
 ): Point[] {
   // Bottom port left of centre: clear of the outcome pill (bottom-right) and of
   // a gate loop's drop (0.3W).
-  const port = { x: source.x + NODE_W * 0.45, y: source.y + NODE_H / 2 };
+  const port = { x: source.x + nodeW * 0.45, y: source.y + NODE_H / 2 };
   const gutterX = target.x - LANE_STEP;
   const lo = Math.min(port.x, gutterX);
   const hi = Math.max(port.x, gutterX);
@@ -987,7 +999,7 @@ export function deriveConsultOverlay(
         // gutters that are verified clear of EVERY node (not just the two
         // endpoints), so it can never slice a card on a dense/nested graph.
         const strictlyRight = target.x >= node.x + node.w;
-        const sameColumn = Math.abs(target.x - node.x) < NODE_W;
+        const sameColumn = Math.abs(target.x - node.x) < Math.max(node.w, target.w);
         if (strictlyRight) {
           edges.push({
             ...base,

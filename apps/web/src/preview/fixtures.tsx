@@ -1556,7 +1556,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
         id: "thread-mention",
         title: "Thread mentions (t3-thread://)",
         description:
-          "loom: a `[Title](t3-thread://v1/<id>)` mention leads with the thread's live state: a static dot in its board colour (primary in progress, hollow amber blocked, amber halo needs attention, hollow grey cancelled and greyed), a green check when done, nothing for a quiet root, and the favicon only for another project. The tooltip names the state. The ChatMarkdown paragraph below resolves nothing (no backend), so it shows the muted unavailable form. Colon-bearing workstream ids survive; a legacy `thread://` mention is plain text.",
+          "loom: a `[Title](t3-thread://v1/<id>)` mention leads with the thread's live state: a static dot in its board colour (the Workstream legend's dots: blue in progress, grey ring round a dot blocked, amber halo needs attention, solid grey cancelled), a green check when done, nothing for a quiet root, and the favicon only for another project. The tooltip names the state. The ChatMarkdown paragraph below resolves nothing (no backend), so it shows the muted unavailable form. Colon-bearing workstream ids survive; a legacy `thread://` mention is plain text.",
         render: () => <ThreadMentionStatesFixture />,
       },
       markdownFixture("long-prose", "Long prose", LONG_PROSE_MARKDOWN),

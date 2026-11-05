@@ -496,9 +496,7 @@ function OperationRow({ operation }: { operation: NormalizedOperation }) {
           )}
           {operation.params.length > 0 && (
             <div className="mt-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Parameters
-              </div>
+              <div className="text-xs font-semibold text-muted-foreground">Parameters</div>
               <div className="mt-2 flex flex-col gap-1.5">
                 {operation.params.map((param) => (
                   <div
@@ -538,7 +536,7 @@ function OperationRow({ operation }: { operation: NormalizedOperation }) {
           )}
           {(operation.requestExample || operation.requestContentType) && (
             <div className="mt-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <div className="text-xs font-semibold text-muted-foreground">
                 Request{operation.requestContentType ? ` · ${operation.requestContentType}` : ""}
               </div>
               {operation.requestExample && (
@@ -550,9 +548,7 @@ function OperationRow({ operation }: { operation: NormalizedOperation }) {
           )}
           {operation.responses.length > 0 && (
             <div className="mt-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Responses
-              </div>
+              <div className="text-xs font-semibold text-muted-foreground">Responses</div>
               <div className="mt-2 flex flex-col gap-2">
                 {operation.responses.map((response) => (
                   <div key={response.status}>
@@ -668,7 +664,7 @@ function OpenApiRead({ data, blockId }: PlanBlockReadProps<OpenApiSpecData>) {
         </>
       ) : (
         <div className="overflow-hidden rounded-xl border border-destructive/40 bg-destructive/5">
-          <div className="border-b border-border/60 px-3 py-1.5 font-mono text-xs uppercase tracking-wide text-muted-foreground">
+          <div className="border-b border-border/60 px-3 py-1.5 font-mono text-xs text-muted-foreground">
             {data.title || "OpenAPI"}
           </div>
           <div className="space-y-2 px-3 py-2.5">

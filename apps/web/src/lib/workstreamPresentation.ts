@@ -125,7 +125,7 @@ export const COLUMN_ORDER: ReadonlyArray<WorkstreamBoardColumn> = [
 ];
 
 export const COLUMN_LABELS = {
-  held: "Held · staged",
+  held: "Staged",
   blocked: "Blocked",
   ready: "Ready",
   in_progress: "In progress",
@@ -134,7 +134,7 @@ export const COLUMN_LABELS = {
 } satisfies Record<WorkstreamBoardColumn, string>;
 
 export const COLUMN_SHORT_LABELS = {
-  held: "Held",
+  held: "Staged",
   blocked: "Blocked",
   ready: "Ready",
   in_progress: "In progress",
@@ -142,47 +142,33 @@ export const COLUMN_SHORT_LABELS = {
   cancelled: "Cancelled",
 } satisfies Record<WorkstreamBoardColumn, string>;
 
+/** A state dot's shape: filled, a ring (not started), or a ring round a dot (waiting on another thread). */
+export type StatusShape = "dot" | "ring" | "target";
+
 export interface ColumnStyle {
-  readonly dotClass: string;
-  readonly textClass: string;
-  /** The same token as a CSS colour, for SVG strokes and fills. */
+  /** The state's token as a CSS colour, for dots, SVG strokes and fills. */
   readonly color: string;
+  /** `StatusDot`'s shape; on the graph a ring is a dashed border and a target a dotted one. */
+  readonly shape: StatusShape;
 }
 
-// Upstream theme tokens only: held/cancelled are neutral, blocked waits amber,
-// ready is info, in-progress the primary accent, done success.
+// The one state palette every Loom surface draws from (graph, legend, Active strip, quick facts,
+// goal panel, thread mentions). Hue marks what is moving (info running, success done); amber is
+// left to attention, what a human or the orchestrator must act on. Resting states differ by shape.
 export const COLUMN_STYLES = {
-  held: {
-    dotClass: "bg-muted-foreground/60",
-    textClass: "text-muted-foreground",
-    color: "var(--color-muted-foreground)",
-  },
-  blocked: {
-    dotClass: "bg-warning",
-    textClass: "text-warning-foreground",
-    color: "var(--color-warning)",
-  },
-  ready: {
-    dotClass: "bg-info",
-    textClass: "text-info-foreground",
-    color: "var(--color-info)",
-  },
-  in_progress: {
-    dotClass: "bg-primary",
-    textClass: "text-primary",
-    color: "var(--color-primary)",
-  },
-  done: {
-    dotClass: "bg-success",
-    textClass: "text-success-foreground",
-    color: "var(--color-success)",
-  },
-  cancelled: {
-    dotClass: "bg-muted-foreground/40",
-    textClass: "text-muted-foreground",
-    color: "var(--color-muted-foreground)",
-  },
+  held: { color: "var(--color-muted-foreground)", shape: "ring" },
+  blocked: { color: "var(--color-muted-foreground)", shape: "target" },
+  ready: { color: "var(--color-info)", shape: "ring" },
+  in_progress: { color: "var(--color-info)", shape: "dot" },
+  done: { color: "var(--color-success)", shape: "dot" },
+  cancelled: { color: "var(--color-muted-foreground)", shape: "dot" },
 } satisfies Record<WorkstreamBoardColumn, ColumnStyle>;
+
+/** A node's style: a gate party parked on the other leg waits like a blocked thread. */
+export const nodeStyleOf = (node: WorkstreamNode, byId: WorkstreamNodeIndex): ColumnStyle =>
+  getGateWaitLabel(node, byId)?.active === false
+    ? COLUMN_STYLES.blocked
+    : COLUMN_STYLES[node.column];
 
 // Attention
 
@@ -203,13 +189,13 @@ const ATTENTION_SHORT_LABELS = {
   "brief-needed": "needs brief",
 } satisfies Record<WorkstreamAttentionReason, string>;
 
-/** The token colour of a reason, for the graph's attention ring. */
-const ATTENTION_COLORS = {
+/** The token colour of a reason, for the graph's attention ring and the goal panel's dot. */
+export const ATTENTION_COLORS = {
   error: "var(--color-error)",
-  awaiting_acceptance: "var(--color-info)",
+  awaiting_acceptance: "var(--color-warning)",
   needs_guidance: "var(--color-warning)",
-  awaiting_orchestrator: "var(--color-info)",
-  "brief-needed": "var(--color-muted-foreground)",
+  awaiting_orchestrator: "var(--color-warning)",
+  "brief-needed": "var(--color-warning)",
 } satisfies Record<WorkstreamAttentionReason, string>;
 
 /** A thread's own pending request, named like the attention reasons. */
@@ -441,8 +427,9 @@ export function getProviderTint(provider: string): string {
   return PROVIDER_TINTS[Math.abs(hash) % PROVIDER_TINTS.length]!;
 }
 
-/** A token colour pulled toward the foreground, for legible tinted text. */
-export const legibleHue = (color: string) => `color-mix(in srgb, ${color} 60%, var(--foreground))`;
+/** A token colour pulled toward the foreground, for legible tinted text (share per theme in `index.css`). */
+export const legibleHue = (color: string) =>
+  `color-mix(in srgb, ${color} var(--legible-hue-share), var(--foreground))`;
 
 export function truncateLabel(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
@@ -482,13 +469,16 @@ export function getNodeStateWord(node: WorkstreamNode, byId: WorkstreamNodeIndex
 }
 
 /**
- * The node's role strip left of its state word: `CODER · ⚒ 75`. The strip holds
- * ~30 characters at 8px, so the state word and count stay whole and the role yields.
+ * The node's role strip left of its state word: `Coder · ⚒ 75`, sentence case. The state
+ * word and count stay whole and the role yields: at 9.5px the strip's 144px holds ~5.4px
+ * per role character and ~5px per state-word character, less 10px for the running dot.
  */
 export function getNodeStripLabel(node: WorkstreamNode, stateWord: string): string {
   const count = node.toolCalls > 0 ? ` · ⚒ ${node.toolCalls}` : "";
-  const roleBudget = Math.max(6, 30 - stateWord.length - count.length - 2);
-  return `${truncateLabel(getRoleLabel(node), roleBudget).toUpperCase()}${count}`;
+  const stripChars = (144 - 5 * stateWord.length - (isRunning(node) ? 10 : 0)) / 5.4;
+  const roleBudget = Math.max(6, Math.floor(stripChars) - count.length);
+  const role = truncateLabel(getRoleLabel(node), roleBudget);
+  return `${role.charAt(0).toUpperCase()}${role.slice(1)}${count}`;
 }
 
 // Current step — the tool in flight, or the model between tool calls

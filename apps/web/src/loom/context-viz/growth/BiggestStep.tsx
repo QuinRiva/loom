@@ -1,6 +1,6 @@
 // loom: the panel beside the growth chart (plan §6): the biggest step until a hover or pin names
 // another, or a lit finding's items; each row with its exact or estimated tokens and class.
-import { formatContextTokens, formatShare } from "../format";
+import { formatContextTokens, formatShare, paletteInk } from "../format";
 import { CLASS_META, type GrowthClass, type StepItem, type Unit } from "./series";
 
 export interface LitGroup {
@@ -39,9 +39,9 @@ function Row({
         ) : null}
         {flagged ? (
           <span
-            className="rounded px-1 font-sans text-3xs"
+            className="rounded px-1 font-sans text-2xs"
             style={{
-              color: CLASS_META[entry.cls].color,
+              color: paletteInk(CLASS_META[entry.cls].color),
               background: `${CLASS_META[entry.cls].color}22`,
             }}
           >
@@ -49,7 +49,7 @@ function Row({
           </span>
         ) : null}
         {entry.item.measured ? null : (
-          <span className="rounded bg-muted px-1 font-sans text-3xs text-muted-foreground">
+          <span className="rounded bg-muted px-1 font-sans text-2xs text-muted-foreground">
             est.
           </span>
         )}
@@ -87,7 +87,7 @@ export function BiggestStep({
   readonly onPick: (unit: number) => void;
 }) {
   const box = "rounded-lg border border-border/70 p-3";
-  const eyebrow = "flex justify-between text-2xs uppercase tracking-wide text-muted-foreground";
+  const eyebrow = "flex justify-between text-xs font-medium text-muted-foreground";
   if (lit) {
     const entries = units
       .flatMap((u) =>
@@ -98,7 +98,7 @@ export function BiggestStep({
       <section className={box}>
         <div className={eyebrow}>
           <span>Finding · {CLASS_META[lit.cls].name}</span>
-          <span>
+          <span className="font-normal">
             {entries.length} item{entries.length === 1 ? "" : "s"}
           </span>
         </div>
@@ -141,7 +141,7 @@ export function BiggestStep({
               ? "Step under cursor"
               : "Biggest step"}
         </span>
-        <span className="normal-case tracking-normal">
+        <span className="font-normal">
           {new Date(first.call.at).toLocaleString(undefined, {
             day: "numeric",
             month: "short",

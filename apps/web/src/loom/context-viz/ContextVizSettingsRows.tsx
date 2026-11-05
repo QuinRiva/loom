@@ -51,7 +51,8 @@ export function ContextVizSettingsRows({
     <SettingsRow
       key={row.key}
       title={row.title}
-      description={row.description}
+      // The measure upstream's longer descriptions balance to, so the group reads as one list.
+      description={<span className="block max-w-sm">{row.description}</span>}
       resetAction={
         settings[row.key] !== DEFAULT_UNIFIED_SETTINGS[row.key] ? (
           <SettingResetButton

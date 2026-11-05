@@ -34,10 +34,12 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip"
 import {
   ATTENTION_LABELS,
   COLUMN_LABELS,
+  COLUMN_STYLES,
   isRunning,
   PENDING_REQUEST_LABELS,
 } from "../lib/workstreamPresentation";
 import { cn } from "../lib/utils";
+import { StatusDot } from "./StatusDot";
 import { useProject } from "../state/entities";
 import { environmentThreadShells } from "../state/threads";
 
@@ -97,25 +99,17 @@ const projectIdAtom = Atom.family((key: string) =>
 
 const NULL_ATOM = Atom.make(null);
 
-const ATTENTION_DOT =
-  "bg-warning shadow-[0_0_0_2.5px_color-mix(in_srgb,var(--color-warning)_28%,transparent)]";
-const HOLLOW_MUTED_DOT = "shadow-[inset_0_0_0_1.5px_var(--color-muted-foreground)]";
+const ATTENTION_HALO = {
+  boxShadow: "0 0 0 2.5px color-mix(in srgb, var(--color-warning) 28%, transparent)",
+};
 
-const STATUS_DOTS = {
-  running: "bg-primary",
-  in_progress: "bg-primary",
-  blocked: "shadow-[inset_0_0_0_1.5px_var(--color-warning)]",
-  held: HOLLOW_MUTED_DOT,
-  ready: HOLLOW_MUTED_DOT,
-  cancelled: HOLLOW_MUTED_DOT,
-  error: ATTENTION_DOT,
-  awaiting_approval: ATTENTION_DOT,
-  awaiting_input: ATTENTION_DOT,
-  awaiting_acceptance: ATTENTION_DOT,
-  needs_guidance: ATTENTION_DOT,
-  awaiting_orchestrator: ATTENTION_DOT,
-  "brief-needed": ATTENTION_DOT,
-} satisfies Record<Exclude<ThreadMentionStatus, "done">, string>;
+/** A column or a running turn takes the shared state dot; attention keeps its haloed amber. */
+const columnStyleOf = (status: ThreadMentionStatus) =>
+  status === "running"
+    ? COLUMN_STYLES.in_progress
+    : Object.hasOwn(COLUMN_STYLES, status)
+      ? COLUMN_STYLES[status as keyof typeof COLUMN_STYLES]
+      : null;
 
 const STATUS_LABELS = {
   running: "Running",
@@ -164,7 +158,8 @@ export function ThreadMentionView(props: {
       className={cn(
         !props.resolved &&
           "cursor-help border-muted-foreground/60 border-b border-dashed text-muted-foreground!",
-        status === "cancelled" && "opacity-55 hover:opacity-100",
+        // Greyed by colour, not opacity, so the title still clears 4.5:1.
+        status === "cancelled" && "text-muted-foreground!",
       )}
     >
       {otherProject ? (
@@ -180,13 +175,16 @@ export function ThreadMentionView(props: {
           aria-hidden
         />
       ) : status ? (
-        <span
-          className={cn(
-            "ms-[0.3em] me-[0.35em] inline-block size-[0.5em] rounded-full [vertical-align:0.08em]",
-            STATUS_DOTS[status],
+        <span aria-hidden className="ms-[0.3em] me-[0.35em] inline-flex [vertical-align:0.08em]">
+          {columnStyleOf(status) ? (
+            <StatusDot className="size-[0.5em]" {...columnStyleOf(status)!} />
+          ) : (
+            <span
+              className="inline-block size-[0.5em] rounded-full bg-warning"
+              style={ATTENTION_HALO}
+            />
           )}
-          aria-hidden
-        />
+        </span>
       ) : null}
       {props.title}
     </Link>

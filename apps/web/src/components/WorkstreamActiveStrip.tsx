@@ -10,12 +10,12 @@ import {
   getRoleLabel,
   getStep,
   isRunning,
-  legibleHue,
   nodeAttentionOf,
   type WorkstreamNode,
 } from "../lib/workstreamPresentation";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { formatCostUsd } from "../loom/costFormat";
+import { StatusDot } from "../loom/StatusDot";
 import { useThreadSpend } from "../loom/threadSpend";
 import { WorkstreamEnvironmentContext } from "../loom/WorkstreamSpendSlot";
 import { Badge } from "./ui/badge";
@@ -49,17 +49,13 @@ export function WorkstreamActiveStrip({
 
   return (
     <div className="mb-3">
-      <div className="mb-2 flex items-center gap-2 px-0.5 text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+      <div className="mb-2 flex items-center gap-2 px-0.5 text-sm font-medium text-foreground">
         Active now
         {rollup.activity.running > 0 ? (
-          <Badge size="sm" variant="info">
-            {rollup.activity.running} running
-          </Badge>
+          <Badge variant="info">{rollup.activity.running} running</Badge>
         ) : null}
         {rollup.attention.count > 0 ? (
-          <Badge size="sm" variant="warning">
-            {rollup.attention.count} flagged
-          </Badge>
+          <Badge variant="warning">{rollup.attention.count} flagged</Badge>
         ) : null}
       </div>
       <div className="flex flex-wrap gap-2">
@@ -74,7 +70,7 @@ export function WorkstreamActiveStrip({
                   <button
                     type="button"
                     onClick={() => onOpenThread(node.id)}
-                    className="flex min-w-[236px] max-w-[274px] items-start gap-2.5 rounded-lg border border-border bg-card px-2.5 py-2 text-left hover:bg-accent"
+                    className="flex min-w-[260px] max-w-full flex-col rounded-lg border border-border bg-card px-2.5 py-2 text-left hover:bg-accent"
                     style={
                       attention
                         ? { borderColor: `color-mix(in srgb, ${color} 45%, transparent)` }
@@ -83,56 +79,46 @@ export function WorkstreamActiveStrip({
                   />
                 }
               >
-                <span
-                  className="grid size-[26px] shrink-0 place-items-center rounded-lg border font-mono text-4xs font-semibold uppercase"
-                  style={{
-                    color: legibleHue(color),
-                    borderColor: `color-mix(in srgb, ${color} 50%, transparent)`,
-                    backgroundColor: `color-mix(in srgb, ${color} 16%, transparent)`,
-                  }}
-                >
-                  {getRoleLabel(node).slice(0, 3)}
+                <span className="flex items-baseline gap-1.5">
+                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                    {node.title}
+                  </span>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {formatRelativeAge(node.lastActivityAt, now)}
+                  </span>
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-baseline gap-1.5">
-                    <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
-                      {node.title}
-                    </span>
-                    <span className="shrink-0 text-3xs text-muted-foreground">
-                      {formatRelativeAge(node.lastActivityAt, now)}
-                    </span>
+                <span className="mt-1 flex gap-1.5 text-xs leading-snug text-muted-foreground">
+                  <StatusDot
+                    className="mt-1"
+                    color={color}
+                    shape={attention ? "dot" : COLUMN_STYLES[node.column].shape}
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    {attention ? `${attention.label} · ` : ""}
+                    {node.preview ? <i>› {node.preview}</i> : getActivity(node)}
                   </span>
-                  <span className="mt-1 flex gap-1.5 text-2xs leading-snug text-muted-foreground">
-                    <span
-                      className="mt-1 size-1.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: color }}
-                    />
-                    <span className="min-w-0 flex-1 truncate">
-                      {attention ? `${attention.label} · ` : ""}
-                      {node.preview ? <i>› {node.preview}</i> : getActivity(node)}
+                  {step ? (
+                    <span className="shrink-0">
+                      {step.label}
+                      {stepAge ? (
+                        <>
+                          {" · "}
+                          <span
+                            className={
+                              step.long ? "font-semibold text-warning-foreground" : undefined
+                            }
+                          >
+                            {stepAge}
+                          </span>
+                        </>
+                      ) : null}
                     </span>
-                    {step ? (
-                      <span className="shrink-0">
-                        {step.label}
-                        {stepAge ? (
-                          <>
-                            {" · "}
-                            <span
-                              className={
-                                step.long ? "font-semibold text-warning-foreground" : undefined
-                              }
-                            >
-                              {stepAge}
-                            </span>
-                          </>
-                        ) : null}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="mt-1.5 flex items-center gap-1.5 font-mono text-3xs whitespace-nowrap text-muted-foreground">
-                    <WorkstreamModelPill selection={node.modelSelection} />
-                    <CardStats threadId={node.id} toolCalls={node.toolCalls} />
-                  </span>
+                  ) : null}
+                </span>
+                <span className="mt-1.5 flex items-center gap-1.5 font-mono text-xs whitespace-nowrap text-muted-foreground">
+                  <span className="shrink-0">{getRoleLabel(node)}</span>
+                  <WorkstreamModelPill selection={node.modelSelection} />
+                  <CardStats threadId={node.id} toolCalls={node.toolCalls} />
                 </span>
               </TooltipTrigger>
               <TooltipPopup>
