@@ -191,7 +191,7 @@ export function WorkstreamTimelineDrawer({
                 <Tooltip>
                   <TooltipTrigger
                     render={
-                      <span className="mt-0.5 shrink-0 font-mono text-3xs tabular-nums text-muted-foreground" />
+                      <span className="mt-0.5 shrink-0 font-mono text-xs tabular-nums text-muted-foreground" />
                     }
                   >
                     {formatRelativeAge(row.at)}
@@ -241,11 +241,11 @@ export function WorkstreamTimelineDrawer({
           </ol>
           {node && node.routes.length > 0 ? (
             <div className="mt-3 border-t border-border pt-2">
-              <div className="text-3xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <div className="text-xs font-medium text-muted-foreground">
                 Gate · ⟲ {node.gateRounds}/{getGateLoopCap(node)}
                 {node.pendingRework ? " · rework open" : ""}
               </div>
-              <ul className="mt-1 flex flex-col gap-0.5 text-2xs text-foreground/80">
+              <ul className="mt-1 flex flex-col gap-0.5 text-xs text-foreground/80">
                 {node.routes.map((route) => (
                   <li key={`${route.kind}:${route.on.join(",")}:${route.to ?? ""}`}>
                     {describeRoute(route, titleOf)}

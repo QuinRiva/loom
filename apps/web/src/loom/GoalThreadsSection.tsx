@@ -10,6 +10,7 @@ import type { EnvironmentId, GoalId, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 
 import { resolveSidebarThreadStatus } from "../components/Sidebar.logic";
+import { Badge } from "../components/ui/badge";
 import { cn } from "../lib/utils";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { orderGoalThreadsByHandoff } from "./goalThreadChain";
@@ -19,18 +20,18 @@ function resolveChip(thread: EnvironmentThreadShell): { label: string; dot: stri
   if (reason !== null) {
     return {
       label: attentionLabel(reason),
-      dot: reason === "error" ? "bg-red-400" : "bg-amber-400",
+      dot: reason === "error" ? "bg-destructive" : "bg-warning",
     };
   }
   const status = resolveSidebarThreadStatus(thread);
   if (status === "approval" || status === "input")
-    return { label: status === "approval" ? "Approval" : "Input", dot: "bg-amber-400" };
-  if (status === "working" || status === "waiting") return { label: "working", dot: "bg-blue-400" };
-  if (status === "failed") return { label: "failed", dot: "bg-red-400" };
+    return { label: status === "approval" ? "Approval" : "Input", dot: "bg-warning" };
+  if (status === "working" || status === "waiting") return { label: "Working", dot: "bg-info" };
+  if (status === "failed") return { label: "Failed", dot: "bg-destructive" };
   const workstream = thread.source.workstream;
-  if (workstream?.held) return { label: "staged", dot: "bg-violet-400" };
-  if (workstream?.outcome) return { label: workstream.outcome, dot: "bg-emerald-400" };
-  return { label: "ready", dot: "bg-zinc-500" };
+  if (workstream?.held) return { label: "Staged", dot: "bg-primary" };
+  if (workstream?.outcome) return { label: workstream.outcome, dot: "bg-success" };
+  return { label: "Ready", dot: "bg-muted-foreground" };
 }
 
 export function GoalThreadsSection({
@@ -65,13 +66,11 @@ export function GoalThreadsSection({
   return (
     <section className="mt-4">
       <div className="mb-1.5 flex items-baseline gap-2">
-        <h3 className="text-3xs font-medium tracking-wider text-muted-foreground/70 uppercase">
-          Threads
-        </h3>
-        <span className="rounded-full border border-border/60 px-1.5 text-3xs tabular-nums text-muted-foreground/70">
+        <h3 className="text-sm font-medium text-foreground">Threads</h3>
+        <Badge size="sm" variant="outline">
           {rows.length}
-        </span>
-        <span className="ml-auto text-3xs text-muted-foreground/60">handoff order</span>
+        </Badge>
+        <span className="ml-auto text-xs text-muted-foreground">handoff order</span>
       </div>
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground/70">No threads under this goal yet.</p>
@@ -97,11 +96,9 @@ export function GoalThreadsSection({
                   )}
                 >
                   <span className="truncate text-xs text-foreground/90">{shell.title}</span>
-                  <span className="flex items-center gap-1.5 text-3xs text-muted-foreground/70">
-                    <span className="inline-flex items-center gap-1 rounded-full border border-border/60 px-1.5">
-                      <span className={cn("size-1.5 rounded-full", chip.dot)} />
-                      {chip.label}
-                    </span>
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className={cn("size-1.5 shrink-0 rounded-full", chip.dot)} />
+                    {chip.label}
                     {isCurrent ? <span className="ml-auto text-primary/80">current</span> : null}
                   </span>
                 </button>

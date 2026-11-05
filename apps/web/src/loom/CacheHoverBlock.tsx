@@ -49,7 +49,7 @@ export function CacheHoverBlockView({ view, working }: { view: CacheView; workin
   return (
     <div className="mt-1 grid gap-1.5 border-t border-border/60 pt-2">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-2xs tracking-wide uppercase">Prompt cache</span>
+        <span className="text-xs font-medium">Prompt cache</span>
         <span
           className={cn(
             liveness.state === "warm" || working ? "font-medium text-foreground" : "",
