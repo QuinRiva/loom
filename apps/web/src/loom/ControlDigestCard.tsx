@@ -10,11 +10,13 @@ import type {
   ServerProviderSkill,
   ThreadId,
 } from "@t3tools/contracts";
-import { ArrowUpRightIcon, ChevronDownIcon, ChevronRightIcon, InboxIcon } from "lucide-react";
+import { ArrowUpRightIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { useState, type ReactElement, type ReactNode } from "react";
 
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { revalidatePathExistence, usePathExistence } from "~/components/chat/usePathExistence";
+import { Badge } from "~/components/ui/badge";
+import { InlineButton } from "~/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import {
@@ -26,14 +28,35 @@ import { useRightPanelStore } from "~/rightPanelStore";
 
 import { verifyChipTargetBeforeOpen } from "./verifiedFileChips";
 
-import type { ControlChannel } from "@t3tools/client-runtime/state/loom/controlBubble";
+import type { ControlBubble } from "@t3tools/client-runtime/state/loom/controlBubble";
 
 import {
-  CHANNEL_CLASSES,
+  CHANNEL_ICONS,
   type ControlCardItem,
   type ControlCardModel,
   controlSummaryLine,
+  SEVERITY_CLASSES,
 } from "./controlMessages";
+
+/**
+ * Who a kickoff, steer or short notice bubble speaks for: the channel's icon plus the bubble's
+ * label, in the line upstream uses for "Sent by T3 Code". The bubble itself stays neutral.
+ */
+export function ControlBubbleAttribution({ bubble }: { bubble: ControlBubble }) {
+  const { icon: Icon, word } = CHANNEL_ICONS[bubble.channel];
+  return (
+    <p
+      className="me-1 flex items-center gap-1 text-2xs text-muted-foreground"
+      data-loom-bubble={bubble.channel}
+    >
+      <Icon className="size-3 shrink-0" role="img" aria-label={word} />
+      {bubble.label}
+    </p>
+  );
+}
+
+/** Neutral hover, shared by the header and the openable item rows. */
+const ROW_HOVER = "hover:bg-foreground/[0.06]";
 
 export function ControlDigestCardView({
   model,
@@ -57,7 +80,8 @@ export function ControlDigestCardView({
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [showRaw, setShowRaw] = useState(false);
-  const classes = CHANNEL_CLASSES[model.channel];
+  const severity = SEVERITY_CLASSES[model.severity];
+  const { icon: ChannelIcon, word: channelWord } = CHANNEL_ICONS[model.channel];
   const items = model.kind === "card" ? model.items : [];
   const summary = model.kind === "card" ? model.summary : controlSummaryLine(text);
   const markdown = (body: string) => (
@@ -66,39 +90,44 @@ export function ControlDigestCardView({
 
   return (
     <section className="-mx-1 min-w-0 px-1 py-0.5" aria-label={`${model.label}: ${summary}`}>
-      <div className={cn("rounded-lg border", classes.card)} data-control-card={model.label}>
+      <div
+        className={cn("overflow-hidden rounded-2xl border bg-card/70", severity.border)}
+        data-control-card={model.label}
+      >
         <button
           type="button"
           className={cn(
-            "focus-visible:ring-ring/70 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs leading-5 transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset",
-            classes.hover,
+            "focus-visible:ring-ring/70 flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs leading-5 transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset",
+            ROW_HOVER,
           )}
           onClick={() => setExpanded((value) => !value)}
           aria-expanded={expanded}
         >
-          <InboxIcon className={cn("size-3.5 shrink-0", classes.kicker)} />
-          <span className="text-foreground/82 min-w-0 flex-1 truncate font-medium">{summary}</span>
+          <ChannelIcon
+            className={cn("size-3.5 shrink-0", severity.text)}
+            role="img"
+            aria-label={channelWord}
+          />
+          <span className={cn("shrink-0", severity.text)}>{model.label}</span>
+          <span className="min-w-0 flex-1 truncate text-foreground">{summary}</span>
           {model.kind === "card" && model.marker ? (
-            <span className="shrink-0 rounded border border-warning/30 bg-warning/10 px-1.5 text-3xs text-warning-foreground">
-              {model.marker}
-            </span>
+            <Badge variant="warning">{model.marker}</Badge>
           ) : null}
-          <span className={cn("shrink-0 text-3xs tracking-wide uppercase", classes.kicker)}>
-            {model.label}
-          </span>
           <ChevronDownIcon
-            className={cn("size-3.5 shrink-0 opacity-60", expanded && "rotate-180")}
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform",
+              expanded && "rotate-180",
+            )}
             aria-hidden
           />
         </button>
 
         {items.length > 0 ? (
-          <ul className={cn("space-y-px border-t p-1", classes.divider)}>
+          <ul className="space-y-px border-t border-border/60 px-1.5 py-1">
             {items.map((entry, index) => (
               <ControlDigestItem
                 key={entry.item.threadId ?? `item-${index}`}
                 entry={entry}
-                channel={model.channel}
                 sender={
                   entry.item.threadId
                     ? (senderLabels.get(entry.item.threadId) ?? entry.item.threadId)
@@ -114,25 +143,24 @@ export function ControlDigestCardView({
           </ul>
         ) : expanded ? (
           // The raw-text fallback, and a card with no items: the message itself.
-          <div className={cn("border-t p-2", classes.divider)}>{markdown(text)}</div>
+          <div className="border-t border-border/60 px-3 py-2">{markdown(text)}</div>
         ) : null}
 
         {expanded && items.length > 0 ? (
-          <div className={cn("flex items-center gap-2 border-t px-2 py-1", classes.divider)}>
-            <button
-              type="button"
-              className="text-muted-foreground/60 hover:text-foreground/70 focus-visible:ring-ring/70 text-2xs tracking-wide uppercase transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
+          <div className="flex items-center gap-2 border-t border-border/60 px-3 py-1 text-xs">
+            <InlineButton
+              tone="muted"
               onClick={() => setShowRaw((value) => !value)}
               aria-expanded={showRaw}
             >
               {showRaw ? "Hide raw payload" : "Show raw payload"}
-            </button>
+            </InlineButton>
           </div>
         ) : null}
         {expanded && showRaw ? (
-          <div className={cn("border-t p-2", classes.divider)}>
+          <div className="border-t border-border/60 p-2">
             {/* The verbatim bytes the model received — never through markdown. */}
-            <pre className="bg-muted/40 text-foreground/80 max-h-[420px] overflow-auto rounded-md p-2 font-mono text-2xs leading-5 break-words whitespace-pre-wrap">
+            <pre className="max-h-[420px] overflow-auto rounded-md bg-muted/40 p-2 font-mono text-2xs leading-5 break-words whitespace-pre-wrap text-foreground">
               {text}
             </pre>
           </div>
@@ -177,12 +205,10 @@ function ReportDocumentChips({
   documents,
   cwd,
   threadRef,
-  chipClass,
 }: {
   documents: ReadonlyArray<string>;
   cwd: string | undefined;
   threadRef: ScopedThreadRef | null;
-  chipClass: string;
 }) {
   const [showAll, setShowAll] = useState(false);
   const environmentId: EnvironmentId | null = threadRef?.environmentId ?? null;
@@ -198,10 +224,8 @@ function ReportDocumentChips({
   const paths = visible.map((meta) => meta.filePath);
   const lookupExistence = usePathExistence(environmentId, paths);
   if (metas.length === 0) return null;
-  const chip =
-    "rounded border px-1.5 font-mono text-3xs leading-4.5 whitespace-nowrap focus-visible:ring-ring/70 focus-visible:ring-2 focus-visible:ring-inset focus-visible:outline-none";
   return (
-    <div className="flex flex-wrap items-center gap-1 pt-1 pl-5">
+    <div className="flex flex-wrap items-center gap-1 pt-1 pl-5 text-xs">
       {visible.map((meta) => {
         const missing = lookupExistence(meta.filePath)?.exists === false;
         return (
@@ -215,23 +239,18 @@ function ReportDocumentChips({
             }
           >
             {missing ? (
-              <span
-                className={cn(chip, chipClass, "line-through opacity-45")}
+              <Badge
+                variant="outline"
                 onPointerEnter={() =>
                   environmentId !== null && revalidatePathExistence(environmentId, meta.filePath)
                 }
               >
-                {documentLabel(meta)}
-              </span>
+                <s className="text-muted-foreground">{documentLabel(meta)}</s>
+              </Badge>
             ) : (
-              <button
-                type="button"
-                className={cn(
-                  chip,
-                  chipClass,
-                  "transition-colors hover:brightness-125 disabled:cursor-default",
-                )}
-                disabled={threadRef === null}
+              <Badge
+                variant="outline"
+                render={<button type="button" disabled={threadRef === null} />}
                 onClick={() =>
                   threadRef &&
                   void verifyChipTargetBeforeOpen(environmentId, meta.filePath).then(
@@ -240,22 +259,15 @@ function ReportDocumentChips({
                 }
               >
                 {documentLabel(meta)}
-              </button>
+              </Badge>
             )}
           </Tip>
         );
       })}
       {metas.length > visible.length ? (
-        <button
-          type="button"
-          className={cn(
-            chip,
-            "border-dashed border-muted-foreground/30 text-muted-foreground/80 transition-colors hover:text-foreground/80",
-          )}
-          onClick={() => setShowAll(true)}
-        >
+        <InlineButton tone="muted" onClick={() => setShowAll(true)}>
           +{metas.length - visible.length} more
-        </button>
+        </InlineButton>
       ) : null}
     </div>
   );
@@ -263,7 +275,6 @@ function ReportDocumentChips({
 
 function ControlDigestItem({
   entry: { item, kindLabel },
-  channel,
   sender,
   expanded,
   markdown,
@@ -272,7 +283,6 @@ function ControlDigestItem({
   onOpen,
 }: {
   entry: ControlCardItem;
-  channel: ControlChannel;
   sender: string | null;
   expanded: boolean;
   markdown: (body: string) => ReactNode;
@@ -280,7 +290,6 @@ function ControlDigestItem({
   threadRef: ScopedThreadRef | null;
   onOpen: ((threadId: ThreadId) => void) | null;
 }) {
-  const classes = CHANNEL_CLASSES[channel];
   const { threadId, reportPath } = item;
   const openThread = threadId && onOpen ? () => onOpen(threadId) : null;
   // Reports live outside every worktree: they open read-only in this thread's panel.
@@ -297,38 +306,27 @@ function ControlDigestItem({
         </span>
       ) : null}
       {item.role ? (
-        <span
-          className={cn("shrink-0 rounded border px-1.5 py-0.5 font-mono text-3xs", classes.chip)}
-        >
-          {item.role}
-        </span>
+        <span className="shrink-0 font-mono text-xs text-muted-foreground">{item.role}</span>
       ) : null}
       <span className="min-w-0 flex-1 truncate text-xs leading-5">
-        {sender ? <span className="text-foreground/82 font-medium">{sender}</span> : null}
-        <span className={cn("text-foreground/82", sender && "text-muted-foreground/80")}>
+        {sender ? <span className="font-medium text-foreground">{sender}</span> : null}
+        <span className={sender ? "text-muted-foreground" : "text-foreground"}>
           {sender ? `: ${item.title}` : item.title}
         </span>
       </span>
       {openReport ? (
-        <span
-          className={cn(
-            "shrink-0 text-2xs opacity-0 transition-opacity group-hover/row:opacity-85 group-focus-visible/row:opacity-85",
-            classes.kicker,
-          )}
-        >
+        <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-visible/row:opacity-100">
           Open report
         </span>
       ) : null}
       {kindLabel ? (
-        <span className="text-muted-foreground/70 shrink-0 text-3xs tracking-wide uppercase">
-          {kindLabel}
-        </span>
+        <span className="shrink-0 text-xs text-muted-foreground">{kindLabel}</span>
       ) : null}
       {item.status ? (
-        <span className="text-muted-foreground/70 shrink-0 text-2xs">{item.status}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{item.status}</span>
       ) : null}
       {!openReport && openThread ? (
-        <ChevronRightIcon className="size-3.5 shrink-0 opacity-50" aria-hidden />
+        <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
       ) : null}
     </>
   );
@@ -338,7 +336,7 @@ function ControlDigestItem({
         <div
           className={cn(
             "flex items-center gap-1 rounded-md",
-            open && cn("transition-colors", classes.hover),
+            open && cn("transition-colors", ROW_HOVER),
           )}
         >
           {open ? (
@@ -356,7 +354,7 @@ function ControlDigestItem({
             <Tip tip="Open thread">
               <button
                 type="button"
-                className="text-muted-foreground/70 hover:text-foreground focus-visible:ring-ring/70 grid size-5 shrink-0 place-items-center rounded transition-colors hover:bg-foreground/8 focus-visible:ring-2 focus-visible:ring-inset focus-visible:outline-none"
+                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/70 grid size-5 shrink-0 place-items-center rounded transition-colors hover:bg-foreground/8 focus-visible:ring-2 focus-visible:ring-inset focus-visible:outline-none"
                 onClick={openThread}
                 aria-label="Open thread"
               >
@@ -366,22 +364,15 @@ function ControlDigestItem({
           ) : null}
         </div>
         {item.documents?.length ? (
-          <ReportDocumentChips
-            documents={item.documents}
-            cwd={cwd}
-            threadRef={threadRef}
-            chipClass={classes.chip}
-          />
+          <ReportDocumentChips documents={item.documents} cwd={cwd} threadRef={threadRef} />
         ) : null}
 
         {expanded && (item.excerpt || item.timestamp) ? (
-          <div className={cn("mt-1 space-y-1 border-l pl-2.5 text-xs", classes.divider)}>
+          <div className="mt-1 space-y-1 border-l border-border/60 pl-2.5 text-xs">
             {item.timestamp ? (
-              <div className="text-muted-foreground/60 text-2xs">{item.timestamp}</div>
+              <div className="text-muted-foreground tabular-nums">{item.timestamp}</div>
             ) : null}
-            {item.excerpt ? (
-              <div className="text-foreground/75">{markdown(item.excerpt)}</div>
-            ) : null}
+            {item.excerpt ? <div>{markdown(item.excerpt)}</div> : null}
           </div>
         ) : null}
       </div>

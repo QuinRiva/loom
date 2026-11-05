@@ -89,7 +89,7 @@ import {
   resolvePreviewAnnotationImage,
   userMessageFileLabel,
 } from "./TimelineUserMessageRow.logic";
-import { CHANNEL_CLASSES } from "../../loom/controlMessages"; // loom: 3d-3
+import { ControlBubbleAttribution } from "../../loom/ControlDigestCard"; // loom: 3d-3
 import type { ControlBubble } from "@t3tools/client-runtime/state/loom/controlBubble"; // loom: 3d-3
 import { RowFigure } from "../../loom/context-viz/timeline/RowFigure"; // loom: context-viz
 
@@ -838,6 +838,8 @@ function UserTimelineRow({
           Sent by T3 Code
         </p>
       ) : null}
+      {/* loom: who is talking (kickoff, orchestrator, control plane), in upstream's attribution slot */}
+      {loomBubble ? <ControlBubbleAttribution bubble={loomBubble} /> : null}
       {/* The row's heading already names the guest for screen readers. */}
       {userMessage.guestName !== undefined ? (
         <div aria-hidden>
@@ -867,7 +869,6 @@ function UserTimelineRow({
           userMessage.attribution === "guest"
             ? guestBubbleClassName(false)
             : !mediaOnly && !fileCardsOnly && !audioOnly && "bg-message",
-          loomBubble && CHANNEL_CLASSES[loomBubble.channel].bubble, // loom: the accent, as in V1
           !folded && !mediaOnly && !fileCardsOnly && !audioOnly && "p-3",
           folded && expanded && "w-full",
         )}
@@ -903,17 +904,6 @@ function UserTimelineRow({
               folded && !ctx.findActive && "max-h-96 overflow-auto",
             )}
           >
-            {/* loom: who is talking, as in V1 */}
-            {loomBubble ? (
-              <div
-                className={cn(
-                  "mb-1.5 text-3xs font-medium tracking-wide uppercase",
-                  CHANNEL_CLASSES[loomBubble.channel].kicker,
-                )}
-              >
-                {loomBubble.label}
-              </div>
-            ) : null}
             {!mediaAboveText && mediaBlock}
             {userAudio.length > 0 ? (
               <div className={cn("flex max-w-full flex-col gap-1", !audioOnly && "mb-2")}>

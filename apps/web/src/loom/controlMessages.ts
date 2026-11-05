@@ -11,28 +11,31 @@ import type {
   LoomControlNoticeKind,
   LoomMessageFields,
 } from "@t3tools/contracts";
+import { InboxIcon, MessagesSquareIcon, type LucideIcon } from "lucide-react";
 
-/** Tailwind classes per channel (upstream theme tokens only). */
-export const CHANNEL_CLASSES: Record<
-  ControlChannel,
-  { card: string; hover: string; divider: string; kicker: string; chip: string; bubble: string }
-> = {
-  "inter-thread": {
-    card: "border-info/25 bg-info/[0.06]",
-    hover: "hover:bg-info/10",
-    divider: "border-info/15",
-    kicker: "text-info-foreground",
-    chip: "border-info/30 bg-info/10 text-info-foreground",
-    bubble: "border border-info/30 bg-info/10 text-foreground",
-  },
-  "control-plane": {
-    card: "border-success/25 bg-success/[0.06]",
-    hover: "hover:bg-success/10",
-    divider: "border-success/15",
-    kicker: "text-success-foreground",
-    chip: "border-success/30 bg-success/10 text-success-foreground",
-    bubble: "border border-success/30 bg-success/10 text-foreground",
-  },
+export type ControlSeverity = "neutral" | "warning" | "destructive";
+
+/** Which channel a card or bubble came from: an icon plus a word, never a colour. */
+export const CHANNEL_ICONS: Record<ControlChannel, { icon: LucideIcon; word: string }> = {
+  "control-plane": { icon: InboxIcon, word: "Control plane" },
+  "inter-thread": { icon: MessagesSquareIcon, word: "Thread" },
+};
+
+/** Colour says whether Carl must act: neutral unless he must (upstream theme tokens only). */
+export const SEVERITY_CLASSES: Record<ControlSeverity, { border: string; text: string }> = {
+  neutral: { border: "border-border/80", text: "text-muted-foreground" },
+  warning: { border: "border-warning/50", text: "text-warning-foreground" },
+  destructive: { border: "border-destructive/50", text: "text-destructive-foreground" },
+};
+
+const NOTICE_SEVERITY: Record<LoomControlNoticeKind, ControlSeverity> = {
+  "gate-rework": "warning",
+  "gate-reverify": "neutral",
+  "brief-needed": "neutral",
+  deadlock: "destructive",
+  "stall-nudge": "neutral",
+  attention: "warning",
+  notify: "neutral",
 };
 
 const NOTICE_LABELS: Record<LoomControlNoticeKind, string> = {
@@ -67,6 +70,7 @@ export type ControlCardModel =
   | {
       readonly kind: "card";
       readonly channel: ControlChannel;
+      readonly severity: ControlSeverity;
       /** The kicker: what arrived. */
       readonly label: string;
       readonly summary: string;
@@ -74,7 +78,12 @@ export type ControlCardModel =
       readonly marker: string | null;
       readonly items: ReadonlyArray<ControlCardItem>;
     }
-  | { readonly kind: "raw"; readonly channel: ControlChannel; readonly label: string };
+  | {
+      readonly kind: "raw";
+      readonly channel: ControlChannel;
+      readonly severity: ControlSeverity;
+      readonly label: string;
+    };
 
 const has = <K extends string>(record: Record<K, string>, key: unknown): key is K =>
   typeof key === "string" && Object.hasOwn(record, key);
@@ -93,10 +102,15 @@ export function controlCardModel(
     if (loom?.origin !== "notify" && loom?.origin !== "control_notice") return null;
     if (text.length <= 600 && text.split("\n").length <= 8) return null;
     return loom.origin === "notify"
-      ? { kind: "raw", channel: "inter-thread", label: "Thread notification" }
-      : { kind: "raw", channel: "control-plane", label: "Control plane" };
+      ? { kind: "raw", channel: "inter-thread", severity: "neutral", label: "Thread notification" }
+      : { kind: "raw", channel: "control-plane", severity: "neutral", label: "Control plane" };
   }
-  const raw = { kind: "raw", channel: "control-plane", label: "Control message" } as const;
+  const raw = {
+    kind: "raw",
+    channel: "control-plane",
+    severity: "neutral",
+    label: "Control message",
+  } as const;
   const items = payload.items ?? [];
   if (items.some((item) => item.kind !== undefined && !has(ITEM_KIND_LABELS, item.kind))) {
     return raw;
@@ -111,6 +125,7 @@ export function controlCardModel(
       return {
         kind: "card",
         channel: "control-plane",
+        severity: "neutral",
         label: "Digest",
         summary,
         marker: null,
@@ -120,6 +135,7 @@ export function controlCardModel(
       return {
         kind: "card",
         channel: "control-plane",
+        severity: "neutral",
         label: "Yield",
         summary,
         marker: payload.synthesised === true ? SYNTHESISED_MARKER : null,
@@ -130,6 +146,7 @@ export function controlCardModel(
         ? {
             kind: "card",
             channel: payload.notice === "notify" ? "inter-thread" : "control-plane",
+            severity: NOTICE_SEVERITY[payload.notice],
             label: NOTICE_LABELS[payload.notice],
             summary,
             marker: null,
