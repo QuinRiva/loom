@@ -545,7 +545,7 @@ export default function WorkstreamGraph({
         </div>
         <svg
           ref={svgRef}
-          className="w-full cursor-grab touch-none rounded-xl border border-border bg-muted active:cursor-grabbing"
+          className="w-full cursor-grab touch-none select-none rounded-xl border border-border bg-muted active:cursor-grabbing"
           // Fit-to-content: the box mirrors the laid-out content's aspect ratio.
           style={{ aspectRatio: `${base.w} / ${base.h}`, maxHeight: `${MAX_SVG_VH}vh` }}
           viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
