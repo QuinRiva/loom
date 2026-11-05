@@ -229,7 +229,7 @@ function QuestionItem({ question, index, answer, onChange }: QuestionItemProps) 
                   <span className="flex items-center gap-1.5 text-sm text-foreground">
                     {option.label}
                     {option.recommended && (
-                      <span className="inline-flex items-center gap-0.5 rounded bg-success/16 px-1 py-0.5 text-3xs font-semibold text-success-foreground">
+                      <span className="inline-flex items-center gap-0.5 rounded bg-success/8 px-1 py-0.5 text-3xs font-semibold text-success-foreground dark:bg-success/16">
                         <IconCircleCheck className="size-3" />
                         recommended
                       </span>

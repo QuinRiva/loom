@@ -2905,7 +2905,7 @@ code {
 /* -------------------------------------------------------------------------- */
 [data-plan-block-type="wireframe"] {
   --wf-ink: #1f2328;
-  --wf-muted: #6b7280;
+  --wf-muted: #646b78;
   --wf-line: #cfd4dc;
   --wf-paper: #ffffff;
   --wf-card: #f7f8fa;
@@ -3310,12 +3310,34 @@ code {
 /* -------------------------------------------------------------------------- */
 :root {
   /* The app's status tokens, so documents follow the theme; `accent` is the
-     brand blue upstream puts on primary actions. */
-  --plan-tone-neutral: var(--plan-fg-muted);
-  --plan-tone-info: var(--info-foreground);
-  --plan-tone-success: var(--success-foreground);
-  --plan-tone-warning: var(--warning-foreground);
-  --plan-tone-risk: var(--error-foreground);
+     brand blue upstream puts on primary actions. On light paper they are pulled
+     toward the ink so 10px badge text clears 4.5:1 on its own tint. */
+  --plan-tone-ink: 15%;
+  --plan-tone-neutral: color-mix(
+    in oklab,
+    var(--plan-fg-muted),
+    var(--foreground) var(--plan-tone-ink)
+  );
+  --plan-tone-info: color-mix(
+    in oklab,
+    var(--info-foreground),
+    var(--foreground) var(--plan-tone-ink)
+  );
+  --plan-tone-success: color-mix(
+    in oklab,
+    var(--success-foreground),
+    var(--foreground) var(--plan-tone-ink)
+  );
+  --plan-tone-warning: color-mix(
+    in oklab,
+    var(--warning-foreground),
+    var(--foreground) var(--plan-tone-ink)
+  );
+  --plan-tone-risk: color-mix(
+    in oklab,
+    var(--error-foreground),
+    var(--foreground) var(--plan-tone-ink)
+  );
   --plan-tone-accent: var(--primary);
   --plan-tone-neutral-soft: color-mix(in srgb, var(--plan-tone-neutral) 14%, transparent);
   --plan-tone-info-soft: color-mix(in srgb, var(--plan-tone-info) 11%, transparent);
@@ -3323,6 +3345,10 @@ code {
   --plan-tone-warning-soft: color-mix(in srgb, var(--plan-tone-warning) 12%, transparent);
   --plan-tone-risk-soft: color-mix(in srgb, var(--plan-tone-risk) 11%, transparent);
   --plan-tone-accent-soft: color-mix(in srgb, var(--plan-tone-accent) 11%, transparent);
+
+  @variant dark {
+    --plan-tone-ink: 0%;
+  }
 }
 
 /* loom: MDX vocabulary v2: document surface — a plan/recap/explainer reads on its
@@ -3932,10 +3958,18 @@ p > .plan-sidenote {
   --color-cache-hot: var(--cache-hot);
 }
 :root {
-  --cache-hot: var(--color-orange-600);
+  --cache-hot: var(--color-orange-700);
 }
 .dark {
   --cache-hot: var(--color-orange-400);
+}
+/* loom: legibleHue's share of the hue (lib/workstreamPresentation.ts). Light pulls harder
+   toward the foreground so 9.5px graph labels clear 4.5:1 on their own tint. */
+:root {
+  --legible-hue-share: 45%;
+}
+.dark {
+  --legible-hue-share: 60%;
 }
 /* loom: the sidebar's agent-started rail (loom/ThreadStart.tsx). No upstream token has a
    non-status hue for "an agent started this"; a custom theme may override --agent-start. */

@@ -96,7 +96,15 @@ export function GoalThreadsSection({
                   )}
                 >
                   <span className="truncate text-xs text-foreground/90">{shell.title}</span>
-                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span
+                    className={cn(
+                      "flex items-center gap-1.5 text-xs",
+                      // Muted text on the current row's tint is under 4.5:1 in light mode.
+                      isCurrent
+                        ? "text-foreground/70 dark:text-muted-foreground"
+                        : "text-muted-foreground",
+                    )}
+                  >
                     <span className={cn("size-1.5 shrink-0 rounded-full", chip.dot)} />
                     {chip.label}
                     {isCurrent ? <span className="ml-auto text-primary">current</span> : null}

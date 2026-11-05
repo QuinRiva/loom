@@ -1027,7 +1027,7 @@ export function MdxPlanAnnotationLayer({
             key={overlay.id}
             type="button"
             aria-label={`Comment ${index + 1}`}
-            className="absolute z-20 grid size-5 -translate-y-1 place-items-center rounded-full bg-warning text-3xs font-bold text-white shadow ring-2 ring-background"
+            className="absolute z-20 grid size-5 -translate-y-1 place-items-center rounded-full bg-warning text-3xs font-bold text-black shadow ring-2 ring-background"
             style={{ top: overlay.badge.top, left: overlay.badge.left + 2 }}
             onClick={() => setOpenCardId((current) => (current === overlay.id ? null : overlay.id))}
           >

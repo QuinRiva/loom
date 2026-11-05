@@ -332,7 +332,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                               <div className="flex flex-wrap items-center justify-end gap-1">
                                 {field.change && <ChangeChip change={field.change} />}
                                 {field.pk && (
-                                  <span className="rounded bg-warning/16 px-1.5 py-0.5 text-3xs font-bold uppercase tracking-wide text-warning-foreground">
+                                  <span className="rounded bg-warning/8 px-1.5 py-0.5 text-3xs font-bold uppercase tracking-wide text-warning-foreground dark:bg-warning/16">
                                     PK
                                   </span>
                                 )}

@@ -441,8 +441,9 @@ export function getProviderTint(provider: string): string {
   return PROVIDER_TINTS[Math.abs(hash) % PROVIDER_TINTS.length]!;
 }
 
-/** A token colour pulled toward the foreground, for legible tinted text. */
-export const legibleHue = (color: string) => `color-mix(in srgb, ${color} 60%, var(--foreground))`;
+/** A token colour pulled toward the foreground, for legible tinted text (share per theme in `index.css`). */
+export const legibleHue = (color: string) =>
+  `color-mix(in srgb, ${color} var(--legible-hue-share), var(--foreground))`;
 
 export function truncateLabel(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;

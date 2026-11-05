@@ -99,7 +99,7 @@ export function LoomRollupBadge({ threadKey }: { threadKey: string }) {
 }
 
 const TONE_CLASS: Record<WorkstreamBadgeTone, string> = {
-  failed: "text-error",
+  failed: "text-error-foreground",
   needs_you: "text-warning-foreground",
   working: "text-info",
   done: "text-muted-foreground",
@@ -184,7 +184,7 @@ export function LoomRollupPill({
                         className={cn(
                           "text-xs",
                           node.reason === "error"
-                            ? "text-error"
+                            ? "text-error-foreground"
                             : node.withAgents
                               ? "text-muted-foreground"
                               : "text-warning-foreground",

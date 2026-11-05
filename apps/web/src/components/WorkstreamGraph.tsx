@@ -64,8 +64,11 @@ const CONSULT_STROKE = "var(--color-info)";
 const FORKED_FROM_STROKE = "var(--color-primary)";
 const LOOP_STROKE = "var(--color-primary)";
 const QUERY_STROKE = "var(--color-primary)";
-// Done/cancelled cards recede so the live front reads first.
+// Done/cancelled cards recede so the live front reads first: their border and
+// tint fade into the canvas while their text stays at full contrast.
 const RECEDE_OPACITY = 0.42;
+// Small grey text on a tinted card: muted-foreground is under 4.5:1 there in light mode.
+const CARD_META_CLASS = "fill-foreground/70 dark:fill-muted-foreground";
 const FADE_OPACITY = 0.1;
 const STRIP_H = 22;
 const HOVER_DELAY_MS = 300;
@@ -785,7 +788,7 @@ function BridgeNode({
         {truncateLabel(node.label, 18)}
       </text>
       <text
-        className="fill-muted-foreground"
+        className={CARD_META_CLASS}
         fontSize="10"
         textAnchor="middle"
         x={node.x + node.w / 2}
@@ -836,7 +839,7 @@ function SatelliteNode({
       role="button"
       aria-label={`Open query thread ${node.title}`}
       tabIndex={0}
-      opacity={dimmed ? FADE_OPACITY : isReceded(node) ? RECEDE_OPACITY : 1}
+      opacity={dimmed ? FADE_OPACITY : 1}
       onClick={() => onOpenThread(node.id)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -866,12 +869,19 @@ function SatelliteNode({
         rx="8"
         stroke={QUERY_STROKE}
         strokeDasharray="4 3"
+        strokeOpacity={isReceded(node) ? RECEDE_OPACITY : 1}
         strokeWidth={1.3}
         width={w}
         x={x}
         y={y}
       />
-      <text className="fill-foreground" fontSize="11" fontWeight="600" x={x + 9} y={y + 16}>
+      <text
+        className={isReceded(node) ? "fill-muted-foreground" : "fill-foreground"}
+        fontSize="11"
+        fontWeight="600"
+        x={x + 9}
+        y={y + 16}
+      >
         {truncateLabel(label, 20)}
       </text>
       <text className="fill-muted-foreground" fontSize="10" x={x + 9} y={y + 31}>
@@ -1008,12 +1018,17 @@ function GraphNode({
         onBlur={onHoverEnd}
       >
         <FocusRing x={x} y={y} w={w} h={h} rx={10} />
-        <g opacity={dimmed ? FADE_OPACITY : recede ? RECEDE_OPACITY : 1}>
+        <g opacity={dimmed ? FADE_OPACITY : 1}>
           <rect
-            fill={`color-mix(in srgb, ${color} 14%, var(--color-background))`}
+            fill={
+              recede
+                ? "var(--color-muted)"
+                : `color-mix(in srgb, ${color} 14%, var(--color-background))`
+            }
             height={h}
             rx="10"
             stroke={color}
+            strokeOpacity={recede ? RECEDE_OPACITY : 1}
             strokeWidth={1.4}
             width={w}
             x={x}
@@ -1038,7 +1053,7 @@ function GraphNode({
           <path
             d={`M ${x + 10} ${y} H ${x + w - 10} A 10 10 0 0 1 ${x + w} ${y + 10} V ${y + STRIP_H} H ${x} V ${y + 10} A 10 10 0 0 1 ${x + 10} ${y} Z`}
             fill={color}
-            fillOpacity="0.16"
+            fillOpacity={recede ? 0.16 * RECEDE_OPACITY : 0.16}
           />
           <text
             fill={legibleHue(color)}
@@ -1062,7 +1077,11 @@ function GraphNode({
           >
             {stateWord}
           </text>
-          <text className="fill-foreground" fontSize="12" fontWeight="600">
+          <text
+            className={recede ? "fill-muted-foreground" : "fill-foreground"}
+            fontSize="12"
+            fontWeight="600"
+          >
             <tspan x={x + 10} y={y + 38}>
               {titleLines[0] ?? ""}
             </tspan>
@@ -1098,7 +1117,7 @@ function GraphNode({
           ) : null}
           {node.column === "in_progress" ? (
             <g
-              className="fill-muted-foreground"
+              className={CARD_META_CLASS}
               fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
               fontSize={9}
               pointerEvents="none"
@@ -1109,7 +1128,7 @@ function GraphNode({
                   <>
                     {" · "}
                     <tspan
-                      className={step?.long ? "fill-warning-foreground" : undefined}
+                      fill={step?.long ? legibleHue("var(--color-warning)") : undefined}
                       fontWeight={step?.long ? 600 : undefined}
                     >
                       {stepAge}
@@ -1129,7 +1148,7 @@ function GraphNode({
           consult={externalConsult}
           cx={consultBadgeX}
           cy={y + h - 12}
-          opacity={dimmed ? FADE_OPACITY : recede ? RECEDE_OPACITY : 1}
+          opacity={dimmed ? FADE_OPACITY : 1}
           onOpen={() =>
             onJump({ threadId: node.id, at: externalConsult.anchorAtIso, consult: true })
           }
