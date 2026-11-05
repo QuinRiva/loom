@@ -450,7 +450,7 @@ function AccountRow({
                 {mark ? (
                   <span className={cn("text-3xs font-bold", mark.className)}>{mark.glyph}</span>
                 ) : null}
-                <span className={mark ? "text-muted-foreground" : "text-muted-foreground"}>
+                <span className="text-muted-foreground">
                   {bar?.resetKnown ? `↻ ${formatCountdown(bar.reset - now)}` : "idle"}
                 </span>
               </>
