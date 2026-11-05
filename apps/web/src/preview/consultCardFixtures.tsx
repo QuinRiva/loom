@@ -311,7 +311,7 @@ function ConsultCardPreview({ make }: { readonly make: () => CardState }) {
         state.body === undefined ? null : state.status === "answered" ? (
           markdown(state.body)
         ) : (
-          <p className="text-muted-foreground/80 text-xs leading-5">{state.body}</p>
+          <p className="text-xs leading-5 text-muted-foreground">{state.body}</p>
         )
       }
       renderTranscript={(path) => markdown(`\`${path}\``)}

@@ -73,7 +73,7 @@ export function GoalThreadsSection({
         <span className="ml-auto text-xs text-muted-foreground">handoff order</span>
       </div>
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground/70">No threads under this goal yet.</p>
+        <p className="text-sm text-muted-foreground">No threads under this goal yet.</p>
       ) : (
         <ul className="space-y-0.5">
           {rows.map(({ thread: { shell }, isContinuation }) => {
@@ -99,7 +99,7 @@ export function GoalThreadsSection({
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <span className={cn("size-1.5 shrink-0 rounded-full", chip.dot)} />
                     {chip.label}
-                    {isCurrent ? <span className="ml-auto text-primary/80">current</span> : null}
+                    {isCurrent ? <span className="ml-auto text-primary">current</span> : null}
                   </span>
                 </button>
               </li>
