@@ -181,6 +181,95 @@ it.layer(LoomOrchestratorTestLayer)("Loom quiescence", (it) => {
       }),
   );
 
+  it.effect(
+    "quiescenceCandidate: the grace restarts when the last live child settles, so its wake wins",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const waiting = ThreadId.make("quiet-waiting");
+        const last = ThreadId.make("quiet-waiting-child");
+        yield* spawnChild({ parentThreadId: parent, threadId: waiting, graphKey: "waiting" });
+        yield* spawnChild({ parentThreadId: waiting, threadId: last, graphKey: "last" });
+        yield* seedRunningRun({ threadId: waiting });
+        yield* writeEvents([
+          yield* loomEvent("thread.kickoff-recorded", waiting, {
+            kickoffAt: createdAt,
+            messageId: seededRunIds(waiting).messageId,
+            origin: "kickoff",
+          }),
+        ]);
+        yield* completeSeededRun({ threadId: waiting });
+        const ended = (yield* orchestrator.getThreadProjection(waiting)).runs[0]!.completedAt!;
+        const candidateAt = (now: DateTime.Utc) =>
+          Effect.gen(function* () {
+            return quiescenceCandidate({
+              shell: (yield* orchestrator.getThreadShell(waiting))!,
+              runs: (yield* orchestrator.getThreadProjection(waiting)).runs,
+              userMessages: [],
+              children: yield* (yield* LoomStoreV2).listChildren(waiting),
+              now,
+              grace: minute,
+            });
+          });
+        // Waiting on its child long past the grace: the live child exempts it.
+        const settledAt = DateTime.add(ended, { minutes: 30 });
+        assert.isFalse(yield* candidateAt(settledAt));
+        // The child settles; the parent's wake is still on its way.
+        yield* writeEvents([
+          yield* loomEvent(
+            "thread.outcome-set",
+            last,
+            { outcome: "done", cause: "set" },
+            { occurredAt: settledAt },
+          ),
+        ]);
+        assert.isFalse(yield* candidateAt(DateTime.add(settledAt, { seconds: 1 })));
+        // A wake that never arrives: the backstop fires one grace later.
+        assert.isTrue(yield* candidateAt(DateTime.add(settledAt, { seconds: 60 })));
+      }),
+  );
+
+  it.effect("quiescenceCandidate: a child its parent stopped is paused, not quiet", () =>
+    Effect.gen(function* () {
+      const stopped = ThreadId.make("quiet-stopped");
+      yield* spawnChild({ parentThreadId: parent, threadId: stopped, graphKey: "stopped" });
+      // No provider turn yet, so the interrupt ends the run at once rather than via the provider.
+      yield* seedRunningRun({ threadId: stopped, turn: false });
+      yield* writeEvents([
+        yield* loomEvent("thread.kickoff-recorded", stopped, {
+          kickoffAt: createdAt,
+          messageId: seededRunIds(stopped).messageId,
+          origin: "kickoff",
+        }),
+      ]);
+      // `workstream_stop`'s dispatch: a `server:` interrupt holding the queue, so no flag is raised.
+      yield* dispatch({
+        type: "run.interrupt",
+        commandId: CommandId.make(`server:workstream-stop:${stopped}:request`),
+        threadId: stopped,
+        runId: seededRunIds(stopped).runId,
+        reason: "Paused by its parent orchestrator.",
+        holdQueue: true,
+      });
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projection = yield* orchestrator.getThreadProjection(stopped);
+      assert.equal(projection.runs[0]!.status, "interrupted");
+      assert.deepEqual((yield* (yield* LoomStoreV2).getWorkstream(stopped))!.attention, []);
+      assert.isFalse(yield* candidateAfter(stopped, minute));
+      // The same idle thread had its turn ended normally: quiet.
+      assert.isTrue(
+        quiescenceCandidate({
+          shell: (yield* orchestrator.getThreadShell(stopped))!,
+          runs: projection.runs.map((run) => ({ ...run, status: "completed" as const })),
+          userMessages: [],
+          children: [],
+          now: DateTime.add(projection.runs[0]!.completedAt!, { minutes: 1 }),
+          grace: minute,
+        }),
+      );
+    }),
+  );
+
   it.effect("t-quiescence: false for a thread with a held queued run", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
