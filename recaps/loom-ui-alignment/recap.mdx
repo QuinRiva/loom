@@ -1,0 +1,189 @@
+---
+kicker: "Recap · PR #533, Loom's own surfaces in upstream's redesign · 5 Nov 2026"
+reader:
+  who: Carl, deciding whether to merge PR #533 (branch t3/align-loom-ui-with-upstream-redesign)
+  knows: upstream's October redesign and Theo's video; none of the agent reports, the audit or the commits
+  after_first_screen: that the PR restyles the cards, badges, panels and documents Loom added so they match upstream, that colour now appears only where he must act, that design scoring is the next PR, and what his orchestrator thread looks like before and after
+plan: plans/loom-ui-alignment/plan.mdx
+manager_sessions:
+  - id: 01a1aa64-5a42-7007-8261-9f3ebf540b1c
+    name: Loom UI alignment recap
+    role: recap
+    authored_at: 2026-11-05T06:48:22.000Z
+---
+
+# Loom's own surfaces now follow upstream's redesign
+
+**PR #533 restyles the parts of the app Loom added in upstream's October idiom: neutral cards, sentence-case labels, 12px metadata, and colour only where you have to act.** That covers control cards, handoff receipts, consult cards, plans and recaps, the sidebar badge, and the Workstream and Goal panels. No design-scoring rounds have run yet; having two models score every screen is the next PR.
+
+<Callout focus title="What it means now">
+  Below is the screen you see most, an orchestrator thread with its Workstream panel: four of the six changes show in that one frame. Light mode had its own contrast pass, and the faintest Loom text anywhere went from **1.74:1 to 4.62:1**. One thing stays open and is not part of this PR: the Workstream graph is still small at fit-to-view (§4). The merge question is at the bottom.
+</Callout>
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/01-orchestrator-before.png" alt="Orchestrator thread before: every control card green, uppercase labels, boxed role chips, outlined sidebar badge, role square in the Active now strip" caption="Before: the seeded orchestrator thread, dark, cropped to the sidebar, timeline and top of the Workstream panel" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/01-orchestrator-after.png" alt="Orchestrator thread after: deadlock card red, stall nudge grey, attention card amber, plain role text, badge without outline, no role square" caption="After: the same thread and crop. The graph here predates the last commit, which changed how finished cards fade (§4)" />
+  </Column>
+</Columns>
+
+1. **Cards are coloured by urgency, not by the channel that sent them.** The deadlock card was green like every other card; now it has a red border. Attention and review-rework cards are amber.
+2. **Routine notices are grey.** The stall nudge was the same green as the deadlock; now it is a plain card, like upstream's.
+3. **The header label is a word you read first.** "ATTENTION" in small green capitals at the far right is now "Attention" beside the icon, in the card's colour. You see what kind of notice it is before what it says.
+4. **Roles are plain text.** The outlined green "coder" chip is now the word coder in grey.
+5. **The sidebar badge lost its outline.** `4/9 · 1!` is coloured text beside the network icon, the way upstream draws a pull-request badge.
+6. **The Active now strip lost its role square.** The "RES" avatar is gone; the role is written out on the model line instead.
+
+## 1. Handoff receipts and consult cards
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/02-receipts-before.png" alt="Three handoff receipts with blue, amber and green left stripes and tinted fills" caption="Before: the three handoff receipts, dark, preview harness, enlarged 1.5 times" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/02-receipts-after.png" alt="The same receipts on neutral cards, only Handoff needs you outlined in amber" caption="After: the same receipts" />
+  </Column>
+</Columns>
+
+1. **"Handing off" lost its blue stripe and tint.** A drafter writing a brief needs nothing from you, so it sits on the plain card.
+2. **"Handoff needs you" keeps its colour.** It is the one receipt that wants you, so it is the one amber card, now outlined all round instead of striped.
+3. **"Handed off" lost its green stripe**, and its labels are sentence case ("staged", not "STAGED").
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/02-consult-before.png" alt="An answered consult card with a blue tint, blue border, uppercase ANSWERED and an outlined model pill" caption="Before: an answered consult card, dark, preview harness, enlarged 1.5 times" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/02-consult-after.png" alt="The same consult card on a neutral frame with answered in sentence case and the model as plain text" caption="After: the same card" />
+  </Column>
+</Columns>
+
+1. **The blue tint and border are gone.** A consult is information, not a request, so it sits on the same neutral card as everything else in the thread.
+2. **"ANSWERED" is now "answered",** a larger coloured word.
+3. **The model name is plain text** with its provider dot, not an outlined pill. The Active now strip and the Workstream panel draw it the same way.
+4. **The quoted question has a grey bar,** not a blue one.
+
+## 2. Plans and recaps
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/03-plan-code-before.png" alt="A plan paragraph with inline code in outlined boxes" caption="Before: inline code in a plan, light, preview harness, cropped to one paragraph and enlarged twice" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/03-plan-code-after.png" alt="The same paragraph with inline code as borderless translucent pills" caption="After: the same paragraph" />
+  </Column>
+</Columns>
+
+1. **Inline code in a document matches chat.** The outlined box is gone; `done` is the same borderless translucent pill you see in an agent's message. Code blocks without a file header follow chat's rules too (8px corners, same fill), though no screen here shows one.
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/03-plan-card-before.png" alt="A plan card with a tan amber top edge and badge" caption="Before: a warning-toned card in a plan, dark, preview harness, cropped to the card" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/03-plan-card-after.png" alt="The same card with upstream's amber and slightly rounder corners" caption="After: the same card" />
+  </Column>
+</Columns>
+
+1. **Corners are slightly rounder**, matching upstream's cards.
+2. **Badge and accent colours are upstream's.** This amber is the app's own warning colour; before, documents had a separate palette, so a plan's "warning" was a different amber from the rest of the app.
+
+The page keeps its warm paper tint on purpose, so a plan or recap still reads as a document rather than as a chat message.
+
+## 3. Badges, model names and panel headings
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/04-sidebar-before.png" alt="Sidebar row with an outlined amber 4/9 · 1! badge" caption="Before: the orchestrator's sidebar row, dark, cropped and enlarged three times" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/04-sidebar-after.png" alt="Same sidebar row with the badge as coloured text and no outline" caption="After: the same row" />
+  </Column>
+</Columns>
+
+1. **The badge is text, not a capsule:** 12px, no border, the count in grey and the `1!` in amber.
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/04-active-before.png" alt="Active now strip with uppercase heading, COD and RES role squares, outlined model pills" caption="Before: the Active now strip, dark, preview harness, cropped and enlarged twice" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/04-active-after.png" alt="Active now strip with sentence-case heading, no role squares, role and model on one plain line" caption="After: the same strip" />
+  </Column>
+</Columns>
+
+1. **"ACTIVE NOW" is now "Active now"**, and its counts read "2 running", "2 flagged".
+2. **The role square is gone.** "COD" and "RES" told you less than the word does.
+3. **Role, provider and model share one 12px line** (coder · cliproxy · claude-opus-5-5), with no outlined pill.
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/04-goal-before.png" alt="Goal panel with a tiny uppercase THREADS label, outlined status pills and an outlined thread chip" caption="Before: the Goal tasks panel, dark, preview harness, cropped to the lower half and enlarged twice" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/04-goal-after.png" alt="Goal panel with a Threads heading, status as a dot and a word, and the thread chip as plain link text" caption="After: the same panel in the app, enlarged twice" />
+  </Column>
+</Columns>
+
+1. **"THREADS" in 10px capitals is now a "Threads" heading,** the size upstream uses for headings inside a panel.
+2. **Status is a coloured dot and a word** ("Needs you"), not an outlined pill.
+3. **The task's thread link ("Add config loader") lost its outline;** it reads as a link, like upstream's inline buttons.
+
+## 4. Workstream graph
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/05-graph-before.png" alt="Graph cards with 11px titles; finished and cancelled cards faded as a whole, text included" caption="Before: part of the graph, light, preview harness, enlarged three times from fit-to-view (hence the blur)" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/05-graph-after.png" alt="Graph cards with 12px titles; finished and cancelled cards have faded fills but readable text" caption="After: the same part of the graph" />
+  </Column>
+</Columns>
+
+1. **Text is one step larger on every card:** titles 12px instead of 11, the role and state line 9.5px instead of 8. Longer titles now wrap to two lines.
+2. **A finished card fades its fill and border, not its text.** "Add config loader" used to print at 1.74:1 against its own card; the title is now readable and "done" shows in green.
+3. **Cancelled cards work the same way** ("Abandoned experiment").
+
+<Callout tone="warning" title="Still small at fit-to-view">
+  One step larger is not enough at fit-to-view. The panel shrinks a nine-wave workstream to fit, so a 12px title is drawn at roughly 5 to 8 pixels, depending on panel width. The image below is at real size. Two ways to fix it are with you and are not in this PR. One draws less when the graph is small (titles and status colour only, details on zoom). The other opens the graph at readable size, panned to the root, instead of fitting everything.
+</Callout>
+
+<Image src="shots/05-graph-fit-after.png" alt="The whole workstream graph at fit-to-view, real size, with card text too small to read" caption="After, at real size: the whole graph at fit-to-view, light, preview harness" width={700} />
+
+## 5. Light mode
+
+<Columns>
+  <Column label="Before">
+    <Image src="shots/06-light-before.png" alt="Digest card in light mode with a pale green tint, DIGEST label at 2.7:1, boxed role chips and pale uppercase status words" caption="Before: the expanded digest card, light, preview harness, enlarged 1.5 times" />
+  </Column>
+  <Column label="After">
+    <Image src="shots/06-light-after.png" alt="Digest card in light mode on a white neutral card, Digest label at 4.7:1, plain role text and darker sentence-case status words" caption="After: the same card" />
+  </Column>
+</Columns>
+
+1. **The header label passes contrast.** "DIGEST" in pale green capitals measured 2.7:1; "Digest" in grey beside the icon measures 4.7:1.
+2. **The green tint over the whole card is gone;** it is a white card like upstream's.
+3. **Role chips are plain text**, as in dark mode.
+4. **Status words are sentence case and darker** ("finished", "gate resolved").
+
+Across every Loom surface in the preview harness, the faintest text in light mode was **1.74:1** (the finished graph cards in §4). It is now **4.62:1**, above the 4.5:1 that small text needs.
+
+## Merge?
+
+<QuestionForm
+  questions={[
+    {
+      id: "merge",
+      title: "Merge PR #533 as is?",
+      subtitle: "It lands through pnpm ship; deploying to the cockpit is a separate step you trigger. The graph's fit-to-view size (§4) is a separate decision either way.",
+      mode: "single",
+      allowOther: true,
+      options: [
+        { id: "merge", label: "Merge as is", recommended: true, detail: "Every change above is in the PR; the design-scoring rounds follow in the next one." },
+        { id: "change", label: "Change something first", detail: "Say what in the box below; the change goes on this branch before it merges." },
+      ],
+    },
+  ]}
+/>
