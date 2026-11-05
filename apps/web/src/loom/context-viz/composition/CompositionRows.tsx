@@ -234,7 +234,7 @@ export function TreeRows({
             onClick={canOpen ? () => onToggle(node.id) : undefined}
           >
             <span
-              className={cn("text-center text-3xs text-muted-foreground/70", isOpen && "rotate-90")}
+              className={cn("text-center text-3xs text-muted-foreground", isOpen && "rotate-90")}
             >
               {canOpen ? "▶" : ""}
             </span>
@@ -249,7 +249,7 @@ export function TreeRows({
                 {node.label}
               </span>
               {node.items.length > 1 && canOpen ? (
-                <span className="text-2xs whitespace-nowrap text-muted-foreground/70">
+                <span className="text-2xs whitespace-nowrap text-muted-foreground">
                   ×{node.items.length}
                 </span>
               ) : null}
@@ -356,7 +356,7 @@ function LeafRows({
                   </Tag>
                 ) : null}
               </span>
-              <span className="text-right text-3xs text-muted-foreground/70 tabular-nums">
+              <span className="text-right text-3xs text-muted-foreground tabular-nums">
                 {turn === null ? "" : `T${turn}`}
               </span>
               <Figure amount={amount} measured={item.measured} lens={ctx.lens} />
@@ -479,7 +479,7 @@ export function LargestRows({
           )}
           onClick={jumps ? () => ctx.onJump(item) : undefined}
         >
-          <span className="text-right text-3xs text-muted-foreground/70 tabular-nums">
+          <span className="text-right text-3xs text-muted-foreground tabular-nums">
             {index + 1}
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
@@ -508,7 +508,7 @@ export function LargestRows({
               </>
             )}
           </span>
-          <span className="pl-1.5 text-right text-3xs text-muted-foreground/70 tabular-nums">
+          <span className="pl-1.5 text-right text-3xs text-muted-foreground tabular-nums">
             {span}
           </span>
           <Figure

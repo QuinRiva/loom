@@ -37,8 +37,8 @@ function Section({
   return (
     <section className="pt-3.5 pb-1">
       <div className="mb-1.5 flex items-baseline gap-2">
-        <h3 className="text-2xs font-semibold text-muted-foreground">{title}</h3>
-        <span className="ml-auto flex items-center gap-2 text-3xs text-muted-foreground/70">
+        <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
+        <span className="ml-auto flex items-center gap-2 text-3xs text-muted-foreground">
           {aside}
         </span>
       </div>
@@ -207,7 +207,7 @@ export function CompositionView({
         </div>
         <div className="mt-0.5 grid grid-cols-2 gap-2">
           <div className="rounded-lg border border-primary/40 bg-primary/8 px-2.5 py-2">
-            <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Swatch color={COLORS.defs} hatch />
               Fixed overhead
             </div>
@@ -224,7 +224,7 @@ export function CompositionView({
             </div>
           </div>
           <div className="rounded-lg border border-border bg-muted/30 px-2.5 py-2">
-            <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Swatch
                 color={`linear-gradient(90deg, ${COLORS.tools} 55%, ${COLORS.args} 55% 75%, ${COLORS.msgs} 75%)`}
               />
@@ -308,7 +308,7 @@ export function CompositionView({
         <ReclaimRows report={report} window={composition.window} used={used} prices={prices} />
       </Section>
 
-      <p className="mt-2.5 text-3xs text-muted-foreground/70">
+      <p className="mt-2.5 text-3xs text-muted-foreground">
         <span className="text-warning">≈</span> estimated split of an exact total (by character
         share). Every other figure is measured from the provider's per-call usage.
       </p>

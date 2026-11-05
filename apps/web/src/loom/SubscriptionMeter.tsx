@@ -282,7 +282,7 @@ function PopoverWindow({
       <span className="block h-2">
         <PaceBar used={used} elapsed={elapsed} height={5} />
       </span>
-      {reset ? <span className="text-3xs text-muted-foreground/45">{reset}</span> : null}
+      {reset ? <span className="text-3xs text-muted-foreground">{reset}</span> : null}
       {note ? <span className={cn("text-3xs", note.className)}>{note.text}</span> : null}
     </div>
   );
@@ -307,7 +307,7 @@ function RowPopover({
           {name}
         </span>
         {row.email ? (
-          <span className="truncate text-3xs text-muted-foreground/45">{row.email}</span>
+          <span className="truncate text-3xs text-muted-foreground">{row.email}</span>
         ) : null}
       </div>
       {row.login ? (
@@ -372,7 +372,7 @@ function RowPopover({
           }
         />
       ))}
-      <span className="border-t border-border/60 pt-2 text-3xs text-muted-foreground/45">
+      <span className="border-t border-border/60 pt-2 text-3xs text-muted-foreground">
         Pin a thread here from the model picker.
       </span>
     </div>
@@ -495,7 +495,7 @@ function PoolBlock({
         </span>
       </div>
       <Grid className="h-3">
-        <span className="text-3xs text-muted-foreground/45">pool</span>
+        <span className="text-3xs text-muted-foreground">pool</span>
         <span className="h-3">
           <TimeBar bar={pool.pool} axis={pool.axis} now={now} height={6} />
         </span>

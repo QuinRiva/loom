@@ -87,7 +87,7 @@ export function BiggestStep({
   readonly onPick: (unit: number) => void;
 }) {
   const box = "rounded-lg border border-border/70 p-3";
-  const eyebrow = "flex justify-between text-2xs uppercase tracking-wide text-muted-foreground";
+  const eyebrow = "flex justify-between text-xs font-medium text-muted-foreground";
   if (lit) {
     const entries = units
       .flatMap((u) =>
@@ -98,7 +98,7 @@ export function BiggestStep({
       <section className={box}>
         <div className={eyebrow}>
           <span>Finding · {CLASS_META[lit.cls].name}</span>
-          <span>
+          <span className="font-normal">
             {entries.length} item{entries.length === 1 ? "" : "s"}
           </span>
         </div>
@@ -141,7 +141,7 @@ export function BiggestStep({
               ? "Step under cursor"
               : "Biggest step"}
         </span>
-        <span className="normal-case tracking-normal">
+        <span className="font-normal">
           {new Date(first.call.at).toLocaleString(undefined, {
             day: "numeric",
             month: "short",

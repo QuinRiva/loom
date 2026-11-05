@@ -177,12 +177,12 @@ export function FindingsList({
         if (group.length === 0) return null;
         return (
           <div key={cls} className="mt-2">
-            <div className="flex items-baseline gap-2 px-2 pb-0.5 text-2xs text-muted-foreground">
+            <div className="flex items-baseline gap-2 px-2 pb-0.5 text-xs text-muted-foreground">
               <span
                 className="size-2.5 self-center rounded-sm"
                 style={{ background: CLASS_META[cls].color }}
               />
-              <span className="uppercase tracking-wide">{CLASS_META[cls].name}</span>
+              <span className="font-medium">{CLASS_META[cls].name}</span>
               <span className="truncate">{CLASS_WHAT[cls]}</span>
               <span className="ml-auto font-mono">
                 {formatContextTokens(group.reduce((total, card) => total + card.tokens, 0))}

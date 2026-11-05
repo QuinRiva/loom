@@ -142,9 +142,7 @@ function DeployChangeList({
     <div className="flex flex-col gap-0.5 border-t border-border pt-1.5 text-xs">
       {sections.map((section) => (
         <div key={section.heading} className="flex flex-col gap-0.5">
-          <div className="mt-1.5 text-2xs tracking-wide text-muted-foreground uppercase">
-            {section.heading}
-          </div>
+          <div className="mt-1.5 text-xs font-medium text-muted-foreground">{section.heading}</div>
           {section.changes.map((change) => (
             <div key={change.pr} className="flex gap-2 py-0.5">
               {change.threadId === null ? (
