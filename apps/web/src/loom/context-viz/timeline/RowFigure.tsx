@@ -209,6 +209,20 @@ export function RowFigure(props: {
   ) : null;
 }
 
+/**
+ * An assistant reply's figure, floated so only its first line wraps around it. The room is held
+ * whenever the Timeline switch is on, since the figure arrives only once the next call measures
+ * the reply and the text must not reflow then. A leading code block or table starts below it
+ * rather than narrowing beside it. Its right edge lines up with the work rows'.
+ */
+export function ProseFigure({ nativeId }: { readonly nativeId?: string | null | undefined }) {
+  return useTimelineFigureKey() ? (
+    <span className="float-end ms-4 me-6.5 flex h-5.5 w-31.5 items-center justify-end [&+*_.chat-markdown>:first-child:not(p,ul,ol,blockquote,h1,h2,h3,h4,h5,h6)]:clear-both">
+      <RowFigure nativeId={nativeId} />
+    </span>
+  ) : null;
+}
+
 function RowFigureOn({
   figureKey,
   nativeId,

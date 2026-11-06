@@ -24,7 +24,7 @@ import { useV2ItemSupport } from "../../state/v2ItemSupport";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
 import { MESSAGE_HEADING_LEVEL, MessageAuthorHeading } from "./TimelineRowParts";
 import { DocumentQueryPromoteButton } from "../../loom/DocumentQueryPromoteButton"; // loom: query threads
-import { RowFigure } from "../../loom/context-viz/timeline/RowFigure"; // loom: context-viz
+import { ProseFigure } from "../../loom/context-viz/timeline/RowFigure"; // loom: context-viz
 
 export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
@@ -40,9 +40,8 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
     <>
       <div className="relative min-w-0 px-1 py-0.5">
         <MessageAuthorHeading>T3 Code</MessageAuthorHeading>
-        <RowFigure
-          nativeId={row.projectedItem?.item.nativeItemRef?.nativeId}
-          className="absolute end-7.5 top-1.5 [&+*]:pe-40" // loom: context-viz, a margin the text below keeps clear
+        <ProseFigure
+          nativeId={row.projectedItem?.item.nativeItemRef?.nativeId} // loom: context-viz
         />
         <div data-thread-find-text="true">
           <AssistantCitationSource

@@ -153,6 +153,9 @@ function Rows({ children }: { readonly children: ReactNode }) {
   );
 }
 
+const PROSE =
+  "Three rows updated and the catch-up merge of `origin/main` ([#509](https://example.com/509)–[#513](https://example.com/513)) is running; once it reports green I will hand the outcome back and prompt the reviewer with the new scope.\n\nA second paragraph wraps at the same edge whether or not the figure has arrived, so the next call's measurement never reflows the reply.";
+
 const groupToggle = (expanded: boolean): Extract<MessagesTimelineRow, { kind: "work-toggle" }> => ({
   kind: "work-toggle",
   id: "work-toggle:turn-52",
@@ -257,7 +260,7 @@ export const TIMELINE_PREVIEW_FIXTURES: ReadonlyArray<PreviewFixture> = [
     id: "loom-context-viz-timeline-rows",
     title: "Timeline: work rows with and without a figure",
     description:
-      "Turn 52's rows through the real `SimpleWorkEntryRow`: thinking (exact, from its reasoning usage), a 3.2K command, an 18-token command, three goal_task_update echoes at 8.8K (amber: ≥5K and ≥3% of the turn's +34.6K), then a row the report has no figure for, and an assistant message (≈, split by characters) whose first line reaches the right edge: the figure sits in a margin the text keeps clear, never inside its first line. Hover a figure for its card.",
+      "Turn 52's rows through the real `SimpleWorkEntryRow`: thinking (exact, from its reasoning usage), a 3.2K command, an 18-token command, three goal_task_update echoes at 8.8K (amber: ≥5K and ≥3% of the turn's +34.6K), then a row the report has no figure for, and the same assistant reply twice, measured (≈, split by characters) and not yet measured: the first line wraps short of the figure's room in both, every other line runs to the edge, so the reply keeps its width when the next call's figure arrives. Hover a figure for its card.",
     render: () => (
       <Rows>
         <WorkLogBlock>
@@ -273,12 +276,8 @@ export const TIMELINE_PREVIEW_FIXTURES: ReadonlyArray<PreviewFixture> = [
             workspaceRoot={undefined}
           />
         </WorkLogBlock>
-        <AssistantTimelineRow
-          row={assistantRow(
-            "turn-52:m6:c0",
-            "Three rows updated and the catch-up merge of `origin/main` ([#509](https://example.com/509)–[#513](https://example.com/513)) is running; once it reports green I will hand the outcome back and prompt the reviewer with the new scope.\n\nA second paragraph keeps the same margin, so every line of the reply ends at one edge.",
-          )}
-        />
+        <AssistantTimelineRow row={assistantRow("turn-52:m6:c0", PROSE)} />
+        <AssistantTimelineRow row={assistantRow("prose_not_measured_yet", PROSE)} />
       </Rows>
     ),
   },
