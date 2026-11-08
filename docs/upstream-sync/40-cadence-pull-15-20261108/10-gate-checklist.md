@@ -1,0 +1,28 @@
+## 10. Gate and audit checklist for the end state
+
+- [ ] **markers** · S1: 0 conflict markers, `parsesweep.mjs` clean, `dangling.py` 0 outside the six known false positives (the `useSelectWorkspaceDetail` path repointed)
+- [ ] **rule-d** · S1: for every Rule D file, every `loom`-bearing line of `origin/main`'s version is present in the merged tree or named in a DL row; for every §7.1 caveat hunk, the upstream-deleted or moved code is gone
+- [ ] **prune-guard** · S1 writes, Gate 1 reads: both marked clauses of §4.3 are in `ProjectionMaintenance.ts`; S2a: `ProjectionMaintenance.loom.test.ts` passes with the V1 and the V2 case; S3: 41,855 Loom history rows on the cockpit copy before the boot and after its first pass (V1 count 33,696 unchanged), and after a forced due pass if run; the weekly dashboard (`scripts/loom-evals/run.sh`) gives the same outcome counts on the copy after that pass
+- [ ] **hooks** · S3 runs the DL-938 binding test; `PiAdapterV2.loom.test.ts` passes in the full server run; no "built without Loom's hooks" line on the cockpit-copy boot
+- [ ] **hosted** · Gate 1 checks, S2a tests: an OAuth-signed outside agent is refused by every Loom tool; a thread-less scope is refused (`registration.test.ts`), under Effect 4.1's `McpServer` `registrations`
+- [ ] **withheld** · S2a: `families.test.ts` and `capabilities.test.ts` pass unchanged (no renames this week); `schedule_task` with `freshSession` is reachable through the SCHEDULING carve-out
+- [ ] **cold-shell** · S4: a cold browser connect shows an active root's full badge and a flagged child's `!` (DL-1650; `ShellStream.ts` untouched, re-proved cheaply)
+- [ ] **rollup** · S4: one indicator per reason on a workstream root; a child's question in the root's banner only (DL-1715)
+- [ ] **search** · S3/S4: the fresh-home ledger leaves no `orchestration_v2_message_search*` object (069 → 074 → 1065); Cmd+K finds an archived root and a child's report
+- [ ] **compiler** · S2b: `t3code/no-manual-memo` 0 errors; `reactCompilerCoverage.test.ts` green, no exemptions
+- [ ] **lint** · S2a/S2b/S3: `vp check` 0 errors; `max-settings-description-length` hits on Loom rows fixed at the site
+- [ ] **typecheck** · S2a/S2b/S3: `vp run typecheck` exit 0 under `@effect/tsgo` with `tsconfig.effect.json`'s 86 diagnostics at error; the Effect 4.1 swaps (§5.2) and the mechanical-refactor sites (§5.3) recorded with counts in DL rows
+- [ ] **check** · S3: `vp check` 0 errors; `vp run knip:check` green (the new two-pass task)
+- [ ] **tests** · S3: full `vp test` per §9 (server, shared, contracts, provider-core, provider-pi, client-runtime, web unit + browser, mobile, `@t3tools/scripts`); counts in the S3 record
+- [ ] **build** · S3: `pnpm build` succeeds from the fresh install (DL-1713's lesson); the bundle boots on a fresh home
+- [ ] **sweep** · S1 and S3: `unmarkedsweep.sh` gate clean vs `main`; `--report` audit of the whole fork vs the new base
+- [ ] **lost** · S3: `lostdecls.py origin/main 3fa57b92a2` and `whatismissing.sh`; every hit adjudicated as a DL row (expected: §6.5 (a)'s 19 moves, the `effect/Crypto` names)
+- [ ] **ledger** · S3: `Migrations.ts` byte-identical; boot on a `VACUUM INTO` copy of the cockpit DB runs 077–080 in `effect_sql_migrations` (077 updates 0 rows, 078 drops the index) and nothing in `loom_sql_migrations` (max 1069 before and after); per-migration times; the first prune pass's `deletedEventCount` and duration; first shell read time vs pull 14's 5.2 s trimmed
+- [ ] **overlap** · Gate 2: 187 silently merged files reviewed by zone; every DEFECT fixed before S4
+- [ ] **boot** · S4: a Pi turn completes and resumes after a restart with a stashed steer; a steer sent during a compaction is delivered after it
+- [ ] **live** · S4: the agent-run smoke per §9
+- [ ] **stop** · S4: `workstream_stop` and Stop complete on pi; Force stop never needed for a healthy pi turn
+- [ ] **ask** · S4: an `ask_user_question` answer (single and multi-select) lands as the tool result only
+- [ ] **clear** · S4: `/clear` on a pi root starts a new session; context-viz shows the new session; `consult_thread` answers from it; the pre-clear transcript stays visible
+- [ ] **usage** · S4: the Usage page lists the hub's accounts with the carry-forward and login notices under the `hub` shape (§6.4); a thread title generates through cliproxy with `--offline`
+- [ ] **bridge** · deploy: the Slack bridge restarts on the new release's Effect 4.1.2 and posts the deploy job's root message (§5.1)
