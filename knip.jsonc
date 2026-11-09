@@ -171,6 +171,11 @@
       // loom: the fork's driver registry is Pi-only, so nothing registers this driver.
       "ignoreIssues": { "src/server.ts": ["exports"], "src/server/driver.ts": ["exports"] },
     },
+    "packages/provider-kiro": {
+      "includeEntryExports": true,
+      // loom: the fork's driver registry is Pi-only, so nothing registers this driver (DL-1816).
+      "ignoreIssues": { "src/server.ts": ["exports"], "src/server/driver.ts": ["exports"] },
+    },
     "packages/effect-acp": {
       "includeEntryExports": true,
       "entry": ["test/fixtures/*.ts"],

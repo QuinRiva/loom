@@ -13,6 +13,8 @@ Write or run an eval when a change affects what a model sees or does: agent inst
 | [test-signal](test-signal/)             | Whether a cheap model running the test-signal check flags low-signal tests.                          |
 | [explainer-density](explainer-density/) | How dense the prose is that an agent writes under the MDX document skills at a git ref.              |
 
+<!-- loom: the explainer-density row is Loom's eval (822db4a19e) -->
+
 ## Run an eval
 
 1. Run `vp i` at the repo root.
