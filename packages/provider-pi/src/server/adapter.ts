@@ -1947,6 +1947,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         }
         // A native wake may wait for a turn owner; status belongs to the live session immediately.
         if (event["type"] === "extension_ui_request" && event["method"] === "setStatus") {
+          // loom: the `loom-jobs` line is Loom's background-job channel, not a status entry.
+          if (recordString(event, "statusKey") === LOOM_JOBS_STATUS_KEY) {
+            yield* handleExtensionUiRequest(event);
+            return;
+          }
           yield* updateExtensionStatus(event);
           return;
         }
