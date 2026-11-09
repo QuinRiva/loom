@@ -15,11 +15,11 @@ import {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 
 import * as GitManager from "../git/GitManager.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -64,11 +64,8 @@ const TestLayer = Layer.mergeAll(
           runForThread: () => Effect.succeed({ status: "no-script" } as const),
         }),
         Layer.succeed(
-          Crypto.Crypto,
-          Crypto.make({
-            randomBytes: (size) => new Uint8Array(size).fill(1),
-            digest: (_algorithm, data) => Effect.succeed(data),
-          }),
+          SecureRandom.SecureRandom,
+          SecureRandom.make((size) => new Uint8Array(size).fill(1)),
         ),
       ),
     ),

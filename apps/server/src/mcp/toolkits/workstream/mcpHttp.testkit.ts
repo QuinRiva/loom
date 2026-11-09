@@ -4,6 +4,7 @@
  * Services the toolkits need are stubbed by the caller.
  */
 import { NodeHttpServer } from "@effect/platform-node";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -228,6 +229,7 @@ export const mcpTestLayer = Layer.mergeAll(
     Layer.provide(NodeServices.layer),
   ),
   NodeServices.layer,
+  NodeCrypto.layer,
 );
 
 export const LOOM_TEST_THREAD = ThreadId.make("thread-loom-caller");

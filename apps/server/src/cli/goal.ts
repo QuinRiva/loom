@@ -5,7 +5,7 @@
  */
 import { GoalId, GoalTaskId, type LoomGoal } from "@t3tools/contracts";
 import * as Console from "effect/Console";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -42,7 +42,7 @@ export class GoalCliError extends Schema.TaggedError<GoalCliError>()("GoalCliErr
 }) {}
 
 const fail = (message: string) => Effect.fail(new GoalCliError({ message }));
-const uuid = Effect.flatMap(Crypto.Crypto, (crypto) => crypto.randomUUIDv4());
+const uuid = Effect.flatMap(SecureRandom.SecureRandom, (random) => random.uuidV4());
 
 const store = LoomStore.LoomStoreV2;
 
@@ -56,7 +56,7 @@ const runGoalCommand = Effect.fn("runGoalCommand")(function* <E>(
     | ProjectService.ProjectService
     | WorkspacePaths.WorkspacePaths
     | FileSystem.FileSystem
-    | Crypto.Crypto
+    | SecureRandom.SecureRandom
   >,
 ) {
   const config = yield* resolveCliAuthConfig(flags, yield* GlobalFlag.LogLevel);

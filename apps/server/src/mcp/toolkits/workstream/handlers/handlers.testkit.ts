@@ -3,6 +3,7 @@
  * orchestrator and thread search. Settings, provider catalogue and health are test layers; reports
  * and briefs land in a temp state dir.
  */
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { EnvironmentId, ProviderInstanceId, type ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -55,7 +56,7 @@ export const makeHandlerTestLayer = <E, R>(stubs: Layer.Layer<StubbedServices, E
     // Lexical-only: no embedder in tests.
     ThreadSearchLoom.layer,
     stubs,
-  ).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(NodeServices.layer));
+  ).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
 export const HandlerTestLayer = makeHandlerTestLayer(DefaultServiceStubs);
 

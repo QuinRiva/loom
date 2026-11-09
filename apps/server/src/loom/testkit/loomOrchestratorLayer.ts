@@ -3,6 +3,7 @@
  * migration runs), with a stub adapter whose inert session opens only on
  * `seedRunningRun({ live: true })`. Nothing mocks the engine.
  */
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
@@ -60,8 +61,9 @@ export const testModelSelection = {
   model: "gpt-5.4",
 } satisfies ModelSelection;
 
-const PlatformTestLayer = Layer.merge(
+const PlatformTestLayer = Layer.mergeAll(
   NodeServices.layer,
+  NodeCrypto.layer,
   Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
     resolveLink: () => Effect.die("unused title link"),
   }),
