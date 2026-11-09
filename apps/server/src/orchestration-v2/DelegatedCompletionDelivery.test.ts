@@ -1596,6 +1596,11 @@ it.layer(layerContinuationWorkerTest)("interrupted completion wakes", (it) => {
       assert.deepEqual(
         delivered.messages
           .filter((message) => message.delegatedCompletion?.parentRunId === originRunId)
+          // loom: Loom's message ids are bare uuids, so equal TestClock timestamps order them randomly.
+          .toSorted(
+            (a, b) =>
+              (a.delegatedCompletion?.generation ?? 0) - (b.delegatedCompletion?.generation ?? 0),
+          )
           .map((message) => [message.id, message.delegatedCompletion]),
         [
           [

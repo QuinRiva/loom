@@ -1,6 +1,5 @@
 import type {
   ProviderUsageLimitsUpdate,
-  ServerProviderAuthStatus,
   ServerProviderUsageLimits,
   ServerProviderUsageWindow,
 } from "@t3tools/contracts";
@@ -125,23 +124,22 @@ function usageWindowEquals(a: ServerProviderUsageWindow, b: ServerProviderUsageW
 }
 
 /**
- * loom: a probe with no limits (`probed === undefined`) is uninformative and keeps the published
- * reading: pi never reads its own quota, and other drivers omit it when they did not look. An
- * `unauthenticated` probe is the exception and clears them, since the account is gone.
+ * loom: a probe with no limits (`probed === undefined`) keeps a reading a feeder published (pi never
+ * reads its own quota; the subscription-usage poller does) when the caller says so. A reading the
+ * provider's own probe published still clears, as upstream's sign-in reset relies on.
  */
 export function resolveUsageLimitsAfterProbe(input: {
   readonly published: ServerProviderUsageLimits | undefined;
   readonly probed: ServerProviderUsageLimits | undefined;
-  // loom: the probe's own auth status, the only thing that tells a silent
-  // probe apart from a signed-out one. Omitted reads as "still signed in".
-  readonly probedAuthStatus?: ServerProviderAuthStatus;
+  // loom: set when a feeder published the reading and the probe is not signed out.
+  readonly keepOnSilentProbe?: boolean;
 }): ServerProviderUsageLimits | undefined {
   const { published, probed } = input;
   if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
     return published;
   }
   // loom: see the note above — a silent probe keeps the published reading.
-  if (probed === undefined && published && input.probedAuthStatus !== "unauthenticated") {
+  if (probed === undefined && published && input.keepOnSilentProbe) {
     return published;
   }
   if (

@@ -24,7 +24,6 @@ import {
 import { renderTasks } from "../loom/goals/goalTaskRender.ts";
 import { findGoalTask, flattenGoalTasks } from "../loom/goals/goalTaskTree.ts";
 import * as LoomStore from "../loom/projection/LoomStore.ts";
-import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts"; // loom: autoPull project settings
@@ -60,7 +59,11 @@ const runGoalCommand = Effect.fn("runGoalCommand")(function* <E>(
   >,
 ) {
   const config = yield* resolveCliAuthConfig(flags, yield* GlobalFlag.LogLevel);
-  const runtime = Layer.mergeAll(LoomStore.layer, RuntimeLayer.layerProjectService).pipe(
+  // Deferred like `t3 project`'s: `t3 --version` must not load the orchestration runtime.
+  const { layerProjectService } = yield* Effect.promise(
+    () => import("../orchestration-v2/runtimeLayer.ts"),
+  );
+  const runtime = Layer.mergeAll(LoomStore.layer, layerProjectService).pipe(
     Layer.provideMerge(ProjectEnrichmentService.layer),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(

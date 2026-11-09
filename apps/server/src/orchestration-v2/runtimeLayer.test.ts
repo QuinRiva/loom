@@ -3282,7 +3282,8 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         yield* seedProject({
           projectId,
           title: "Watch unreadable",
-          workspaceRoot: "/workspace/watch-unreadable",
+          // loom: one active project per root (migration 1018) — seedProject bypasses ProjectService (DL-176)
+          workspaceRoot: `/workspace/watch-unreadable-${reason}-${activityFails}`,
           defaultModelSelection: null,
           createdAt: "2026-10-01T00:00:00.000Z",
         });
