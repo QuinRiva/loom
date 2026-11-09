@@ -265,12 +265,18 @@ export function UserMessageRow({
       {modelSwitch ? (
         <ModelSwitchRow environmentId={ctx.activeThreadEnvironmentId} modelSwitch={modelSwitch} />
       ) : null}
-      <UserMessageContent row={row} />
+      <UserMessageContent row={row} loomBubble={loomBubble ?? null} />
     </>
   );
 }
 
-function UserMessageContent({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+function UserMessageContent({
+  row,
+  loomBubble, // loom: forwarded to UserTimelineRow
+}: {
+  row: Extract<TimelineRow, { kind: "message" }>;
+  loomBubble: ControlBubble | null; // loom:
+}) {
   const ctx = use(TimelineRowCtx);
   return ctx.workflowOpening?.messageId === row.message.id ? (
     <WorkflowOpeningBlock
@@ -281,7 +287,7 @@ function UserMessageContent({ row }: { row: Extract<TimelineRow, { kind: "messag
   ) : resolveUserMessagePresentation(row.message).attribution === "automation" ? (
     <AutomationMessageRow row={row} />
   ) : (
-    <UserTimelineRow row={row} loomBubble={loomBubble ?? null} /> // loom: loomBubble
+    <UserTimelineRow row={row} loomBubble={loomBubble} /> // loom: loomBubble
   );
 }
 

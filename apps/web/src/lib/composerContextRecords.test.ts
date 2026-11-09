@@ -411,6 +411,7 @@ describe("pullRequestContextKindLabel", () => {
 
 describe("reviewCommentContextLabel", () => {
   const selection = (sectionId: string) => ({
+    kind: "line" as const, // loom: review contexts are a kind union
     id: "selection",
     sectionId,
     sectionTitle: "Review",

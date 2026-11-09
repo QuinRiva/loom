@@ -1122,6 +1122,7 @@ function pullRequestContextComment(
 
 function isPlainPullRequestContext(comment: ReviewCommentContext): boolean {
   return (
+    comment.kind === "line" && // loom: review contexts are a kind union
     comment.pullRequest !== undefined &&
     comment.text === pullRequestContextComment(comment.pullRequest, []).text
   );
@@ -1163,6 +1164,7 @@ export function buildPullRequestCommentContext(
   if (body === null) return null;
   const author = comment.author?.login ?? "ghost";
   return {
+    kind: "line", // loom: review contexts are a kind union
     id: `pr-comment:${pullRequest.url}:comment:${comment.id}`,
     sectionId: `pull-request:${pullRequestNumber}`,
     sectionTitle: `PR #${pullRequestNumber} conversation`,

@@ -860,7 +860,9 @@ describe("one finding handed over on its own", () => {
         appendHandoff(ask, fix),
         appendHandoff({ prompt: fix.prompt, reviewComments: [...fix.reviewComments] }, ask),
       ]) {
-        const contexts = next.reviewComments.filter((comment) => comment.pullRequest !== undefined);
+        const contexts = next.reviewComments
+          .filter((comment) => comment.kind === "line") // loom: review contexts are a kind union
+          .filter((comment) => comment.pullRequest !== undefined);
         expect(contexts).toHaveLength(1);
         expect(contexts[0]?.text).not.toContain("Do not change any code");
         expect(contexts[0]?.pullRequest).toEqual(metadata);
@@ -962,6 +964,7 @@ describe("asking about a change rather than working on it", () => {
 
   it("keeps both pull requests when two repositories share a number", () => {
     const selection = (id: string) => ({
+      kind: "line" as const, // loom: review contexts are a kind union
       id,
       sectionId: "pull-request:42",
       sectionTitle: "PR #42 review",
@@ -985,12 +988,11 @@ describe("asking about a change rather than working on it", () => {
       request: "and here?",
     });
     const draft = appendHandoff(appendHandoff({ prompt: "", reviewComments: [] }, first), second);
-    expect(draft.reviewComments.map((comment) => comment.pullRequest?.url)).toEqual([
-      base.url,
-      undefined,
-      otherUrl,
-      undefined,
-    ]);
+    expect(
+      draft.reviewComments.map(
+        (comment) => (comment.kind === "line" ? comment.pullRequest?.url : undefined), // loom: kind union
+      ),
+    ).toEqual([base.url, undefined, otherUrl, undefined]);
   });
 
   it("explains a GitLab merge request in its own term", () => {

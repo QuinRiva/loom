@@ -1045,7 +1045,8 @@ export function PullRequestDetailPanel({
       isDraft: detail.isDraft,
     });
     const hasReference = (store.getComposerDraft(attachTarget)?.reviewComments ?? []).some(
-      (existing) => existing.pullRequest?.url === detail.url,
+      // loom: review contexts are a kind union; only a line context carries a pull request
+      (existing) => existing.kind === "line" && existing.pullRequest?.url === detail.url,
     );
     // The active editor may be answering a provider question rather than editing this draft.
     if (!hasReference) store.addReviewComment(attachTarget, reference, { insertAtCaret: false });
