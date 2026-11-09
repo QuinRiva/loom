@@ -78,7 +78,6 @@ import {
 } from "@t3tools/shared/toolActivity";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
 import type { LoomPromotionRow, LoomTimelineRow } from "../../loom/loomTimelineRows"; // loom: 3d-3
-import type { LoomModelChangeRow } from "../../loom/modelChangeRows"; // loom: model-change divider
 
 function timelineEntryRunId(entry: TimelineEntry): RunId | null {
   if (entry.kind === "message") {
@@ -647,8 +646,7 @@ type MessagesTimelineRowContent =
       mcpApp: McpAppReference;
     }
   | LoomTimelineRow // loom: 3d-3 — handoff receipts (loom/loomTimelineRows.ts)
-  | LoomPromotionRow // loom: query-thread promotion receipts (loom/loomTimelineRows.ts)
-  | LoomModelChangeRow; // loom: "Model: A → B" divider (loom/modelChangeRows.ts)
+  | LoomPromotionRow; // loom: query-thread promotion receipts (loom/loomTimelineRows.ts)
 
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;
@@ -2529,13 +2527,6 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "loom-handoff": // loom: 3d-3 — the Loom rows are reference-stable per change
     case "loom-promotion": // loom: promotion receipts, same atom
       return a === b;
-    case "loom-model-change": {
-      // loom: model-change divider — rebuilt per runs change; the id pins the run.
-      const bm = b as typeof a;
-      return (
-        a.createdAt === bm.createdAt && a.fromModel === bm.fromModel && a.toModel === bm.toModel
-      );
-    }
     case "working":
       return (
         a.createdAt === (b as typeof a).createdAt && a.compacting === (b as typeof a).compacting

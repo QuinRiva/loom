@@ -103,18 +103,17 @@ import {
   TIMELINE_ROW_CLASS_NAME,
   timelineContentWidth,
 } from "./timelineLayout";
-// loom: 3d-3 — control cards, handoff receipts, model-change dividers, conversation jumps.
+// loom: 3d-3 — control cards, handoff receipts, conversation jumps.
 import { ControlDigestRow } from "../../loom/ControlDigestRow";
 import { KICKOFF_BUBBLE } from "@t3tools/client-runtime/state/loom/controlBubble"; // loom: query threads
 import { splitDocumentQueryKickoff } from "@t3tools/shared/documentQuery.loom"; // loom: query threads
 import { LoomTimelineRow } from "../../loom/LoomTimelineRow";
 import { insertLoomTimelineRows, useLoomTimelineRows } from "../../loom/loomTimelineRows";
-import { ModelChangeDivider } from "../../loom/ModelChangeDivider"; // loom: model-change divider
-import { insertModelChangeRows, type ModelChangeRun } from "../../loom/modelChangeRows"; // loom: model-change divider
 import { useConversationJump } from "../../loom/conversationJump"; // loom: W3
 import { TimelineHost } from "../../loom/context-viz/timeline/TimelineHost"; // loom: context-viz
 import { publishVisibleRows } from "../../loom/context-viz/timeline/visibleRows"; // loom: context-viz
 import { TurnHeaderFigure } from "../../loom/context-viz/timeline/TurnHeaderFigure"; // loom: context-viz
+import { type HandoffTimelineRun } from "./V2LifecycleRow";
 import { TimelineSystemDivider } from "./TimelineSystemDivider";
 
 import { forwardWheelToTimeline } from "./timelineMinimapWheel";
@@ -311,7 +310,7 @@ interface MessagesTimelineProps {
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   skills?: ReadonlyArray<ServerProviderSkill>;
-  runs: ReadonlyArray<ModelChangeRun>; // loom: model-change divider (a superset of HandoffTimelineRun)
+  runs: ReadonlyArray<HandoffTimelineRun>;
   anchorMessageId: MessageId | null;
   onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
   onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
@@ -713,8 +712,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
   // loom: 3d-3 — handoff and promotion receipts, spliced in by time.
   const loomRows = useLoomTimelineRows(listIdentityKey);
   const rows = useStableRows(
-    // loom: 3d-3 handoff receipts + "Model: A → B" dividers (the compiler caches the splice)
-    insertLoomTimelineRows(insertModelChangeRows(rawRows, runsProp), loomRows),
+    // loom: 3d-3 handoff receipts (the compiler caches the splice)
+    insertLoomTimelineRows(rawRows, loomRows),
     listIdentityKey,
   );
   const matchedApprovalRequestIds = new Set<string>();
@@ -1523,8 +1522,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                   row.kind === "event" ||
                   row.kind === "attempt-fold" ||
                   row.kind === "html-render" ||
-                  row.kind === "mcp-app" ||
-                  row.kind === "loom-model-change" // loom: model-change divider
+                  row.kind === "mcp-app"
                 ? "pb-2"
                 : "pb-4",
         (row.kind === "message" && row.message.role === "assistant") ||
@@ -1591,9 +1589,6 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       ) : null}
       {row.kind === "loom-handoff" || row.kind === "loom-promotion" ? (
         <LoomTimelineRow row={row} /> // loom: 3d-3 handoff + promotion receipts
-      ) : null}
-      {row.kind === "loom-model-change" ? (
-        <ModelChangeDivider row={row} /> // loom: model-change divider
       ) : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />
