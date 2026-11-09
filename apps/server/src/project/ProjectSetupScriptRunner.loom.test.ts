@@ -156,7 +156,9 @@ describe("ProjectSetupScriptRunner (loom)", () => {
       yield* fs.writeFileString(path.join(worktreePath, ".git"), `gitdir: ${gitDir}\n`);
       const readState = fs
         .readFileString(path.join(gitDir, WORKTREE_SETUP_STATE_FILE))
-        .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(WorktreeSetupState))));
+        .pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(WorktreeSetupState))),
+        );
       // A detached fiber writes the settled breadcrumb, so each state write is signalled.
       const stateWrites = yield* Queue.unbounded<void>();
       const signallingFileSystem = Layer.succeed(FileSystem.FileSystem, {

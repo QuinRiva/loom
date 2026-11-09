@@ -1,4 +1,4 @@
-import { assert, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import { ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -18,7 +18,8 @@ const TestLayer = ProjectionMaintenance.layer.pipe(Layer.provideMerge(layerStore
 
 const T = (minute: number) => `2026-01-01T00:${String(minute).padStart(2, "0")}:00.000Z`;
 
-it.layer(TestLayer)("ProjectionMaintenance (loom)", (it) => {
+// A fresh database per case: each pass reads and writes the shared prune mark.
+describe("ProjectionMaintenance (loom)", () => {
   // Upstream's compaction deletes the V1 events of a thread whose transcript is
   // imported; Loom's pre-V2 workstream timeline exists nowhere else.
   it.effect("keeps an imported V1 thread's workstream history and drops the rest", () =>
@@ -76,7 +77,7 @@ it.layer(TestLayer)("ProjectionMaintenance (loom)", (it) => {
       );
       assert.lengthOf(historyBefore, 5);
       assert.deepEqual(yield* store.history(ThreadId.make(threadId)), historyBefore);
-    }),
+    }).pipe(Effect.provide(TestLayer)),
   );
 
   // Upstream's due pass deletes every V2 row older than the mark that is not a stream head;

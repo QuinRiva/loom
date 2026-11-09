@@ -1127,10 +1127,7 @@ describe("PiRpc (loom) — worktree-local node_modules/.bin", () => {
         cwd: "/w/tree",
         env: { PATH: "/release/node_modules/.bin:/usr/bin" },
       }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
-      assert.equal(
-        spawnedPath,
-        "/w/tree/node_modules/.bin:/release/node_modules/.bin:/usr/bin",
-      );
+      assert.equal(spawnedPath, "/w/tree/node_modules/.bin:/release/node_modules/.bin:/usr/bin");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 });

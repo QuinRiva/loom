@@ -1422,10 +1422,11 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
     const server = yield* RpcServer.makeNoSerialization(
       WsRpcGroup.omit(...Object.values(LOOM_WS_METHODS)), // loom: layerWsRpc serves upstream's methods
       {
-      ...WS_RPC_SERVER_OPTIONS,
-      onFromServer: (response) =>
-        response._tag === "Exit" ? Queue.offer(exits, response.exit._tag) : Effect.void,
-    }).pipe(
+        ...WS_RPC_SERVER_OPTIONS,
+        onFromServer: (response) =>
+          response._tag === "Exit" ? Queue.offer(exits, response.exit._tag) : Effect.void,
+      },
+    ).pipe(
       Effect.provide(
         layerWsRpc(
           {

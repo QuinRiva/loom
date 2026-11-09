@@ -56,7 +56,10 @@ export const makeHandlerTestLayer = <E, R>(stubs: Layer.Layer<StubbedServices, E
     // Lexical-only: no embedder in tests.
     ThreadSearchLoom.layer,
     stubs,
-  ).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
+  ).pipe(
+    Layer.provideMerge(LoomOrchestratorTestLayer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+  );
 
 export const HandlerTestLayer = makeHandlerTestLayer(DefaultServiceStubs);
 

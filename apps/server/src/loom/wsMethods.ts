@@ -134,7 +134,9 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
   const reviewSnapshots = yield* ReviewSnapshotService;
   const orchestrator = yield* OrchestratorV2;
   const deployNotices = yield* LoomDeployNotices;
-  const draftServices = yield* Effect.context<OrchestratorV2 | LoomStoreV2 | SecureRandom.SecureRandom>();
+  const draftServices = yield* Effect.context<
+    OrchestratorV2 | LoomStoreV2 | SecureRandom.SecureRandom
+  >();
   const queryServices = yield* Effect.context<
     | OrchestratorV2
     | LoomStoreV2
@@ -210,9 +212,9 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
         Effect.gen(function* () {
           const tree = resolveTaskRewrite(goal, input);
           if (typeof tree === "string") return yield* fail(LOOM_WS_METHODS.goalTaskRewrite, tree);
-          const fresh = (yield* Effect.forEach(idlessNodes(tree), () =>
-            random.uuidV4(),
-          ))[Symbol.iterator]();
+          const fresh = (yield* Effect.forEach(idlessNodes(tree), () => random.uuidV4()))[
+            Symbol.iterator
+          ]();
           return yield* loomStore.tasks.replaceTree(
             goal.id,
             flattenTree(tree, null, () => GoalTaskId.make(fresh.next().value!)),
