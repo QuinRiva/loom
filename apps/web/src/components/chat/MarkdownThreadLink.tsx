@@ -27,8 +27,17 @@ export function MarkdownThreadLink(props: {
   const candidates = threadLinkCandidates(props.link, props.environmentId);
   const writtenRef = candidates[0]!;
   const written = useThreadShell(writtenRef);
+  // loom: a percent-encoded link to a thread this client holds still reads its shell (DL-1818).
+  const decodedRef = candidates[1] ?? null;
+  const decoded = useThreadShell(written === null ? decodedRef : null);
+  const held =
+    written !== null
+      ? { ref: writtenRef, metadata: written }
+      : decodedRef && decoded
+        ? { ref: decodedRef, metadata: decoded }
+        : null;
   const lookup = useEnvironmentQuery(
-    written === null
+    held === null // loom: no metadata query for a thread whose shell the client holds
       ? orchestrationEnvironment.threadLinkMetadata({
           environmentId: writtenRef.environmentId,
           input: { threadIds: candidates.map((ref) => ref.threadId) },
@@ -37,12 +46,12 @@ export function MarkdownThreadLink(props: {
   );
   const settled = lookup.isSuccess && !lookup.isPending;
   const target =
-    written !== null
-      ? { ref: writtenRef, metadata: written }
-      : (candidates.flatMap((ref) => {
-          const metadata = lookup.data?.[ref.threadId];
-          return metadata ? [{ ref, metadata }] : [];
-        })[0] ?? null);
+    held ?? // loom: written or decoded shell
+    candidates.flatMap((ref) => {
+      const metadata = lookup.data?.[ref.threadId];
+      return metadata ? [{ ref, metadata }] : [];
+    })[0] ??
+    null;
   const missing = target === null && settled;
   const guess = missing && props.link.environmentId === null;
   const refs = useThreadRefs(guess);
@@ -61,7 +70,7 @@ export function MarkdownThreadLink(props: {
   const ref = resolved?.ref ?? writtenRef;
   const title = resolved?.metadata.title.trim() || props.label || "Thread";
   // loom: a thread this client holds a shell for reads as Loom's status-led mention.
-  const shell = written ?? remote;
+  const shell = held?.metadata ?? remote;
   if (shell !== null) {
     return (
       <ThreadMention

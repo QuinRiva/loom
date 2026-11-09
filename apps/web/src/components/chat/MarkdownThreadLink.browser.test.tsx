@@ -12,8 +12,12 @@ const state = vi.hoisted(() => ({
   remote: null as unknown,
 }));
 vi.mock(import("../../state/entities"), () => ({
-  useThreadShell: ((ref: { environmentId: string } | null) =>
-    ref?.environmentId === "remote" ? state.remote : null) as never,
+  useThreadShell: ((ref: { environmentId: string; threadId: string } | null) =>
+    ref?.environmentId === "remote"
+      ? state.remote
+      : ref?.threadId === "held-thread" // loom: a local shell only under its decoded id
+        ? { ...(state.remote as object), environmentId: ref.environmentId, id: ref.threadId }
+        : null) as never,
   useThreadRefs: (enabled = true) =>
     enabled
       ? [{ environmentId: EnvironmentId.make("remote"), threadId: ThreadId.make("older-thread") }]
@@ -45,6 +49,7 @@ function setup() {
     id: ThreadId.make("older-thread"),
     title: "Remote thread",
     projectId: ProjectId.make("essay-project"),
+    source: {}, // loom: ThreadMention reads the shell's workstream role
   };
   return { reply, registry: AtomRegistry.make() };
 }
@@ -119,7 +124,8 @@ it.each([
     }
     await act(() => registry.set(reply, AsyncResult.success({})));
     if (legacy) {
-      const remote = screen.getByRole("link", { name: "Thread, Remote thread" });
+      // loom: a held shell reads as Loom's status-led mention, not upstream's chip
+      const remote = screen.getByRole("link", { name: "Remote thread", exact: true });
       await expect.element(remote).toBeVisible();
       await remote.click();
       await vi.waitFor(() =>
@@ -132,3 +138,25 @@ it.each([
     }
   },
 );
+
+// loom: DL-1818 — a percent-encoded link to a thread the client holds is Loom's mention, not a chip.
+it("reads the decoded shell of a percent-encoded link", async () => {
+  const { registry } = setup();
+  using _registry = { [Symbol.dispose]: () => registry.dispose() };
+  const environmentId = EnvironmentId.make("environment");
+  await using screen = await render(
+    <RegistryContext value={registry}>
+      <MarkdownThreadLink
+        environmentId={environmentId}
+        link={{ environmentId, threadId: ThreadId.make("held%2Dthread") }}
+        label={null}
+      />
+    </RegistryContext>,
+  );
+  const mention = screen.getByRole("link", { name: "Remote thread", exact: true });
+  await expect.element(mention).toBeVisible();
+  await mention.click();
+  await vi.waitFor(() =>
+    expect(screen.router?.state.location.pathname).toBe("/environment/held-thread"),
+  );
+});
