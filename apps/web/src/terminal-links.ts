@@ -36,8 +36,7 @@ const POWERSHELL_PROMPT_PATH_PATTERN = /^PS ((?:[A-Za-z]:[\\/]|\\\\|\/)[^>\r\n]*
 // every frame, so separator-free output must not be rescanned at every suffix.
 // For the same reason `]` needs its `[`: trimming a long run of `]` is quadratic.
 // Parentheses count only before a slash, so `src/foo.ts(3,10)` stays a compiler location.
-// loom: exported for chatPathScan.ts
-export const FILE_PATH_PATTERN =
+export const FILE_PATH_PATTERN = // loom: exported for chatPathScan.ts
   /(?:~[\\/]|\.{1,2}[\\/]|\/|[A-Za-z]:[\\/]|\\\\)[^\s"'`<>]+|(?<![\p{L}\p{M}\p{N}._-])[\p{L}\p{M}\p{N}._-]+(?:[\\/](?:[\p{L}\p{M}\p{N}._$+@-]|\[{1,2}[\p{L}\p{M}\p{N}._-]+\]{1,2}|\([\p{L}\p{M}\p{N}._-]+\)(?=[\\/]))+)+(?::\d+){0,2}/gu;
 const QUOTED_FILE_PATH_PATTERN =
   /(["'`])(?<path>(?:~[\\/]|\.{1,2}[\\/]|\/|[A-Za-z]:[\\/]|\\\\|[\p{L}\p{M}\p{N}._ -]+[\\/])[^\r\n]*?|[\p{L}\p{M}\p{N}._ -]+\.[\p{L}\p{M}\p{N}_-]+(?::\d+){0,2})\1(?<position>(?::\d+){0,2})/gu;

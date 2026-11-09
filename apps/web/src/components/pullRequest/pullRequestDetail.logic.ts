@@ -45,8 +45,6 @@ import {
   type LineReviewCommentContext, // loom: review contexts are a kind union
   type ReviewCommentContext,
 } from "~/reviewCommentContext";
-import { reviewCommentContextId } from "~/lib/composerContextRecords";
-import { removeInlineContextReference } from "~/lib/composerContextReferences";
 
 export const PULL_REQUEST_MERGE_METHOD_LABELS: Record<PullRequestMergeMethod, string> = {
   merge: "Merge",
