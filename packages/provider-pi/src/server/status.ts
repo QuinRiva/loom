@@ -154,6 +154,7 @@ const makePiDiscoveryConnection = Effect.fnUntraced(function* (
     mcpSession: undefined,
     extensionPath: undefined,
     ephemeral: true,
+    shortLived: true,
     loom: { appendSystemPrompt: "", skills: [], extensions: [], promptTemplates }, // loom:
   });
   const connection = yield* makePiRpcConnection({

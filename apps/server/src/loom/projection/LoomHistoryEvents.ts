@@ -45,9 +45,9 @@ export const HistoryEventRow = Schema.Union([
 ]);
 
 /**
- * The timeline's only copy of pre-V2 workstream history is these V1 event rows,
- * so the event-store compaction (`ProjectionMaintenance.compactEventStore`)
- * must keep them even after the thread's transcript is imported.
+ * The timeline's only copy of workstream history is these event rows (V1 and V2),
+ * so both event-store prune passes (`ProjectionMaintenance.pruneEventStore`)
+ * must keep them, past the day of replay and after a transcript import.
  */
 export const HISTORY_EVENT_TYPES = HistoryEventRow.members.map(
   (member) => member.fields.type.literal,

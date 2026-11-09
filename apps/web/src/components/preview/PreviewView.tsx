@@ -1,5 +1,7 @@
+import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
+import type { DesktopPreviewAnnotationVoiceConfig } from "@t3tools/contracts";
 import { previewStreamDownloadUrl } from "@t3tools/client-runtime/preview/server-browser-stream";
 import {
   isAtomCommandInterrupted,
@@ -57,6 +59,10 @@ import {
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { useRightPanelStore } from "~/rightPanelStore";
 
+import { effectiveShortcutsForCommand } from "~/keybindings";
+import { randomUUID } from "~/lib/utils";
+import { primaryServerKeybindingsAtom } from "~/state/server";
+import { PreviewAnnotationSpeech } from "./PreviewAnnotationSpeech";
 import { previewBridge } from "./previewBridge";
 import { subscribePreviewAction } from "./previewActionBus";
 import { closePreviewSession } from "./closePreviewSession";
@@ -71,7 +77,7 @@ import { BrowserDeviceToolbar } from "~/browser/BrowserDeviceToolbar";
 import { BROWSER_DEVICE_TOOLBAR_HEIGHT } from "~/browser/browserViewportLayout";
 import { useBrowserLayoutZoomFactor } from "~/browser/useBrowserLayoutZoomFactor";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
-import { BrowserSettingsReadError } from "~/browser/openFileInPreview";
+import { isBrowserSettingsReadError } from "~/browser/openFileInPreview";
 import { PreviewFileNotShown, PreviewUnreachable } from "./PreviewUnreachable";
 import { revealInFileExplorerLabel } from "./fileExplorerLabel";
 import { shouldShowPreviewEmptyState } from "./previewEmptyStateLogic";
@@ -158,6 +164,9 @@ export function PreviewView({
     useEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope) &&
     Boolean(onSendAnnotation);
   const activeRecordingTabIds = useActiveBrowserRecordingTabIds();
+  const [annotationVoice, setAnnotationVoice] =
+    useState<DesktopPreviewAnnotationVoiceConfig | null>(null);
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const previewState = useThreadPreviewState(threadRef);
   const recentHistoryEntries = useThreadRecentHistory(
     threadRef,
@@ -250,7 +259,7 @@ export function PreviewView({
     const result = await openPreviewSession({ openPreview: open, threadRef, url: resolvedUrl });
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
-      if (error instanceof BrowserSettingsReadError) {
+      if (isBrowserSettingsReadError(error)) {
         toastManager.add({
           type: "error",
           title: "Unable to open browser",
@@ -744,8 +753,17 @@ export function PreviewView({
       typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
     const pickRequest = beginPreviewPick(runtimeTabId); // loom: per-tab pick
     let submitted = false;
+    // The guest learns only the dictation chords, never the whole keybinding config.
+    const voice: DesktopPreviewAnnotationVoiceConfig = {
+      sessionId: randomUUID(),
+      shortcuts: effectiveShortcutsForCommand(keybindings, "composer.dictation", {
+        context: { previewFocus: true, previewOpen: true, editableFocus: true },
+      }),
+    };
+    setAnnotationVoice(voice);
     const finishPick = () => {
       const isCurrentPick = endPreviewPick(runtimeTabId, pickRequest); // loom: per-tab pick
+      if (isCurrentPick) setAnnotationVoice(null);
       if (
         (isCurrentPick || submitted) &&
         previouslyFocused &&
@@ -765,10 +783,14 @@ export function PreviewView({
           readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
       );
       if (pickRequest.cancelled) return;
-      const result = await bridge.pickElement(runtimeTabId);
+      const result = await bridge.pickElement(runtimeTabId, voice);
       if (!result || pickRequest.cancelled) return;
       // The accepted pick must survive further clicks, tab changes, and unmount; stop cancellation here.
-      if (endPreviewPick(runtimeTabId, pickRequest)) submitted = true; // loom: per-tab pick
+      // loom: per-tab pick
+      if (endPreviewPick(runtimeTabId, pickRequest)) {
+        setAnnotationVoice(null);
+        submitted = true;
+      }
       const { annotation: picked, submission, screenshotFailed = false } = result;
       // Send annotations even if the optional crop fails or stalls; drop failed screenshots so prompts cannot
       // claim an attachment.
@@ -865,6 +887,15 @@ export function PreviewView({
       className="flex min-h-0 flex-1 flex-col bg-background"
       data-thread-key={scopedThreadKey(threadRef)}
     >
+      {pickActive && runtimeTabId && annotationVoice ? (
+        <PreviewAnnotationSpeech
+          key={annotationVoice.sessionId}
+          threadRef={threadRef}
+          tabId={runtimeTabId}
+          config={annotationVoice}
+          keybindings={keybindings}
+        />
+      ) : null}
       <PreviewChromeRow
         url={url}
         loading={loading || serverStreamPending}

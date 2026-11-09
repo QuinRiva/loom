@@ -37,6 +37,7 @@ import { usePrimaryEnvironmentId } from "../state/environments";
 import { readLocalApi } from "../localApi";
 import { readLoomGoal } from "../loom/loomGoalState"; // loom: goal submenu
 import { showWithLoomGoalMenu, useLoomGoalActions } from "../loom/sidebarGoalActions"; // loom
+import { configuredHostedAppUrl } from "../hostedPairing";
 import {
   deriveLogicalProjectKeyFromSettings,
   derivePhysicalProjectKey,
@@ -308,7 +309,9 @@ export function useThreadActionMenu(input: {
           }
           return;
         case "copy-thread":
-          void copyThreadReference(threadChipCopyTarget(threadRef, thread.title));
+          void copyThreadReference(
+            threadChipCopyTarget(threadRef, thread.title, configuredHostedAppUrl()),
+          );
           return;
         case "copy-thread-id":
           copyThreadIdToClipboard(thread.id, { threadId: thread.id });

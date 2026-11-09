@@ -7,7 +7,8 @@ import {
   type UsageLimitSourceConsumeResetCreditInput,
   type ProviderConsumeResetCreditResult,
   type ServerSettings,
-  type UsageLimitSourceConfig,
+  UsageLimitSourceConfig,
+  settingsSecretLiteral,
   type UsageLimitSourceId,
   type UsageLimitSourceLoginFinishInput, // loom
   type UsageLimitSourceLoginFinishResult, // loom
@@ -31,11 +32,15 @@ import * as Schema from "effect/Schema"; // loom
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
+import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
+import * as SecretResolverLayer from "../secrets/SecretResolver.ts";
+import { resolveSettingsSecrets } from "../secrets/settingsSecretValue.ts";
 import { ServerConfig } from "../config.ts"; // loom
 import * as Settings from "../serverSettings.ts";
 import {
   carriedAccounts, // loom
   type CliproxyAuthFile, // loom
+  type CliproxyHub, // loom
   makeCliproxyApi,
 } from "./cliproxyApi.ts";
 import {
@@ -104,6 +109,12 @@ function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
   }
 }
 
+function missingManagementKey(config: UsageLimitSourceConfig): string {
+  return typeof config.managementKey === "string"
+    ? "No management key configured."
+    : "Could not read the management key from its secret provider.";
+}
+
 /** @public */
 export const make = Effect.gen(function* () {
   const api = yield* makeCliproxyApi;
@@ -126,7 +137,7 @@ export const make = Effect.gen(function* () {
    * changed, and persist. A failed download keeps the account's last record.
    */
   const detectLogins = Effect.fn("UsageLimitSources.detectLogins")(function* (
-    config: UsageLimitSourceConfig,
+    hub: CliproxyHub,
     files: ReadonlyArray<CliproxyAuthFile>,
   ) {
     const now = DateTime.toEpochMillis(yield* DateTime.now);
@@ -140,7 +151,7 @@ export const make = Effect.gen(function* () {
           confirmedAt.set(email, now);
           return Effect.succeed([] as const);
         }
-        return api.downloadAuthFile(config, file.id).pipe(
+        return api.downloadAuthFile(hub, file.id).pipe(
           Effect.map((facts) => {
             const next = detectLogin(previous, file, facts, now, confirmedAt.get(email));
             if (next) confirmedAt.set(email, now);
@@ -171,6 +182,13 @@ export const make = Effect.gen(function* () {
     return next;
   });
   const settingsService = yield* Settings.ServerSettingsService;
+  const secrets = yield* SecretResolver.SecretResolver;
+  const readManagementKey = Effect.fn("UsageLimitSources.readManagementKey")(function* (
+    config: UsageLimitSourceConfig,
+  ) {
+    const resolved = yield* resolveSettingsSecrets(secrets, UsageLimitSourceConfig, config);
+    return settingsSecretLiteral(resolved.managementKey);
+  });
   const stateRef = yield* Ref.make<ReadonlyArray<UsageLimitSourceSnapshot>>([]);
   const changes = yield* Effect.acquireRelease(
     PubSub.unbounded<ReadonlyArray<UsageLimitSourceSnapshot>>(),
@@ -187,14 +205,16 @@ export const make = Effect.gen(function* () {
     // loom: Anthropic 429s most per-account usage reads, so each account's last
     // good reading carries forward (see `carriedAccounts`) instead of flickering out.
     const previous = (yield* Ref.get(stateRef)).find((source) => source.id === id)?.accounts ?? [];
-    if (config.managementKey.length === 0) {
-      return { ...base, accounts: [], error: "No management key configured." };
+    const managementKey = yield* readManagementKey(config);
+    if (managementKey.length === 0) {
+      return { ...base, accounts: [], error: missingManagementKey(config) };
     }
+    const hub = { url: config.url, managementKey };
     // loom: one listing feeds login detection and the usage reads.
     const accounts = yield* Effect.gen(function* () {
-      const files = yield* api.listAccounts(config);
-      const known = yield* detectLogins(config, files);
-      const read = yield* api.readAccounts(config, previous, files, (email) =>
+      const files = yield* api.listAccounts(hub);
+      const known = yield* detectLogins(hub, files);
+      const read = yield* api.readAccounts(hub, previous, files, (email) =>
         email === undefined ? undefined : known[email],
       );
       const schedule = reloginSchedule(
@@ -257,12 +277,20 @@ export const make = Effect.gen(function* () {
       Effect.mapError(() => new UsageLimitSourceError({ detail: "Could not read hub settings." })),
     );
     const config = settings.usageLimitSources[input.sourceId];
-    if (!config?.enabled || !config.managementKey) {
+    if (!config?.enabled) {
       return yield* new UsageLimitSourceError({
         detail: "The usage limit source is missing or disabled.",
       });
     }
-    const result = yield* api.consume(config, input.accountId, input.creditId);
+    const managementKey = yield* readManagementKey(config);
+    if (managementKey.length === 0) {
+      return yield* new UsageLimitSourceError({ detail: missingManagementKey(config) });
+    }
+    const result = yield* api.consume(
+      { url: config.url, managementKey },
+      input.accountId,
+      input.creditId,
+    );
     const snapshot = yield* readSource(input.sourceId, config);
     const previous = yield* Ref.get(stateRef);
     yield* publish(previous.map((source) => (source.id === input.sourceId ? snapshot : source)));
@@ -271,26 +299,27 @@ export const make = Effect.gen(function* () {
 
   // loom: the hub login dialog. Both share the refresh lock only for the
   // re-read that records the login, never across the wait for the hub.
-  const enabledSource = (sourceId: UsageLimitSourceId) =>
-    settingsService.getSettings.pipe(
+  const enabledSource = Effect.fn("UsageLimitSources.enabledSource")(function* (
+    sourceId: UsageLimitSourceId,
+  ) {
+    const settings = yield* settingsService.getSettings.pipe(
       Effect.mapError(() => new UsageLimitSourceError({ detail: "Could not read hub settings." })),
-      Effect.flatMap((settings) => {
-        const config = settings.usageLimitSources[sourceId];
-        return config?.enabled && config.managementKey
-          ? Effect.succeed(config)
-          : Effect.fail(
-              new UsageLimitSourceError({
-                detail: "The usage limit source is missing or disabled.",
-              }),
-            );
-      }),
     );
+    const config = settings.usageLimitSources[sourceId];
+    const managementKey = config?.enabled ? yield* readManagementKey(config) : "";
+    if (!config || managementKey.length === 0) {
+      return yield* new UsageLimitSourceError({
+        detail: "The usage limit source is missing or disabled.",
+      });
+    }
+    return { url: config.url, managementKey } satisfies CliproxyHub;
+  });
 
   const loginStart = Effect.fn("UsageLimitSources.loginStart")(function* (
     input: UsageLimitSourceLoginStartInput,
   ) {
-    const config = yield* enabledSource(input.sourceId);
-    const { url, state } = yield* api.authUrl(config);
+    const hub = yield* enabledSource(input.sourceId);
+    const { url, state } = yield* api.authUrl(hub);
     const expiresAt = DateTime.add(yield* DateTime.now, {
       minutes: LOGIN_CALLBACK_WINDOW_MINUTES,
     });
@@ -300,7 +329,7 @@ export const make = Effect.gen(function* () {
   const loginFinish = Effect.fn("UsageLimitSources.loginFinish")(function* (
     input: UsageLimitSourceLoginFinishInput,
   ) {
-    const config = yield* enabledSource(input.sourceId);
+    const hub = yield* enabledSource(input.sourceId);
     const body = oauthCallbackBody(input.pasted, input.state);
     if (!body.redirect_url && !body.code) {
       return yield* new UsageLimitSourceError({
@@ -309,9 +338,9 @@ export const make = Effect.gen(function* () {
     }
     // The hub stamps the login (`last_refresh`, whole seconds) after this instant.
     const startedAt = DateTime.toEpochMillis(yield* DateTime.now) - 2_000;
-    yield* api.oauthCallback(config, body);
+    yield* api.oauthCallback(hub, body);
     // The exchange runs on the hub after the callback is accepted.
-    const status = yield* api.authStatus(config, input.state).pipe(
+    const status = yield* api.authStatus(hub, input.state).pipe(
       Effect.filterOrFail(
         (reply) => reply.status !== "wait",
         () => "wait" as const,
@@ -388,4 +417,6 @@ export const make = Effect.gen(function* () {
   } satisfies UsageLimitSources["Service"];
 });
 
-export const layer = Layer.effect(UsageLimitSources, make);
+export const layer = Layer.effect(UsageLimitSources, make).pipe(
+  Layer.provide(SecretResolverLayer.layer),
+);
