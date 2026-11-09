@@ -17,6 +17,8 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
+import * as EventStore from "../../orchestration-v2/EventStore.ts";
+import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
 import * as ProjectionReplay from "../../orchestration-v2/testkit/ProjectionReplay.ts";
 import {
   LoomOrchestratorTestLayer,
@@ -660,7 +662,13 @@ it.layer(TestLayer)("Loom projector", (it) => {
         yield* store.goals.listByProject(projectId, { includeDeleted: true }),
         goalsBefore,
       );
-    }).pipe(Effect.provide(ProjectionReplay.layer)),
+    }).pipe(
+      Effect.provide(
+        ProjectionReplay.layer.pipe(
+          Layer.provide(Layer.merge(EventStore.layer, ProjectionStore.layer)),
+        ),
+      ),
+    ),
   );
 
   it.effect("goal surface: nothing without loom: true; snapshot goals and items with it", () =>

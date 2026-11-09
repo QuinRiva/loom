@@ -130,7 +130,7 @@ const makeFakePi = Effect.gen(function* () {
     Queue.offer(stdout, new TextEncoder().encode(`${JSON.stringify(record)}\n`));
   const spawner = ChildProcessSpawner.make((command) =>
     Effect.sync(() => {
-      if (ChildProcess.isStandardCommand(command)) spawns.push(command.args);
+      if (ChildProcess.isStandardCommand(command)) spawns.push(command.args.map(String));
       return ChildProcessSpawner.makeHandle({
         pid: ChildProcessSpawner.ProcessId(999_999_998),
         exitCode: Effect.never,
@@ -1102,10 +1102,10 @@ describe("PiAdapterV2 (loom) — cache facts", () => {
 describe("PiRpc (loom) — worktree-local node_modules/.bin", () => {
   it.effect("prepends <cwd>/node_modules/.bin to the spawned pi's PATH", () =>
     Effect.gen(function* () {
-      let spawnedEnv: NodeJS.ProcessEnv | undefined;
+      let spawnedPath: unknown;
       const spawner = ChildProcessSpawner.make((command) =>
         Effect.sync(() => {
-          if (ChildProcess.isStandardCommand(command)) spawnedEnv = command.options.env;
+          if (ChildProcess.isStandardCommand(command)) spawnedPath = command.options.env?.PATH;
           return ChildProcessSpawner.makeHandle({
             pid: ChildProcessSpawner.ProcessId(999_999_997),
             exitCode: Effect.never,
@@ -1128,7 +1128,7 @@ describe("PiRpc (loom) — worktree-local node_modules/.bin", () => {
         env: { PATH: "/release/node_modules/.bin:/usr/bin" },
       }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
       assert.equal(
-        spawnedEnv?.PATH,
+        spawnedPath,
         "/w/tree/node_modules/.bin:/release/node_modules/.bin:/usr/bin",
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),

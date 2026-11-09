@@ -1536,6 +1536,7 @@ it.layer(
                 refresh: Effect.succeed(provider),
                 streamChanges: Stream.empty,
                 applyUsageLimits: () => Effect.void,
+                retractUsageLimits: () => Effect.void, // loom: usage-limit retraction
               },
               invalidateCaches: Ref.update(invalidations, (count) => count + 1),
               orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
@@ -1993,6 +1994,7 @@ it.layer(
                 refresh: Effect.as(refresh, snapshot),
                 streamChanges: Stream.empty,
                 applyUsageLimits: () => Effect.void,
+                retractUsageLimits: () => Effect.void, // loom: usage-limit retraction
               },
               orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
               textGeneration: {} as ProviderInstance["textGeneration"],
@@ -2136,6 +2138,7 @@ it.layer(
             }),
             streamChanges: Stream.fromPubSub(changes),
             applyUsageLimits: () => Effect.void,
+            retractUsageLimits: () => Effect.void, // loom: usage-limit retraction
           },
           orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
           textGeneration: {} as ProviderInstance["textGeneration"],
@@ -2361,6 +2364,7 @@ it.layer(
             refresh: Effect.succeed(initialProvider),
             streamChanges: Stream.fromPubSub(changes),
             applyUsageLimits: () => Effect.void,
+            retractUsageLimits: () => Effect.void, // loom: usage-limit retraction
           },
           orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
           textGeneration: {} as ProviderInstance["textGeneration"],

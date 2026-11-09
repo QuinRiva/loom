@@ -15,6 +15,7 @@ import {
   ProviderInstanceId,
   SourceControlRepositoryError,
   WS_METHODS,
+  LOOM_WS_METHODS, // loom: the server serves Loom's methods beside layerWsRpc
   WsRpcGroup,
   WsServerRefreshProvidersRpc,
   WsSubscribeServerConfigRpc,
@@ -149,6 +150,15 @@ import {
   WS_RPC_SERVER_OPTIONS,
   withLateConfigDiscovery,
 } from "./ws.ts";
+
+// loom: the shell stream reads Loom's goal and cache services; these tests never opt in (`loom: true`).
+const provideLoomShellServices = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.provideService(LoomStoreV2, {} as never),
+    Effect.provideService(LoomGoalBroadcast, {} as never),
+    Effect.provideService(LoomThreadConsult, {} as never),
+    Effect.provideService(LoomCacheBroadcast, {} as never),
+  );
 
 const snapshotConfig = (fields: Partial<ServerConfig>) =>
   ({ availableEditors: [], settings: {}, ...fields }) as unknown as ServerConfig;
@@ -527,6 +537,7 @@ it.effect("shell groups read distinct threads once and keep each event's own seq
             ),
           ),
         ),
+        provideLoomShellServices, // loom
       );
 
     const collectSummary = (afterSequence: number) =>
@@ -1408,7 +1419,9 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
       Layer.mock(ServerEnvironment.ServerEnvironment)({}),
       Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
     );
-    const server = yield* RpcServer.makeNoSerialization(WsRpcGroup, {
+    const server = yield* RpcServer.makeNoSerialization(
+      WsRpcGroup.omit(...Object.values(LOOM_WS_METHODS)), // loom: layerWsRpc serves upstream's methods
+      {
       ...WS_RPC_SERVER_OPTIONS,
       onFromServer: (response) =>
         response._tag === "Exit" ? Queue.offer(exits, response.exit._tag) : Effect.void,
@@ -1511,6 +1524,7 @@ it.effect.each(["thread", "shell"] as const)(
         Effect.provideService(ProjectEnrichment.ProjectEnrichmentService, {
           subscribeChanges: PubSub.subscribe(yield* PubSub.unbounded()),
         } as ProjectEnrichment.ProjectEnrichmentService["Service"]),
+        provideLoomShellServices, // loom
         Effect.exit,
       );
       assert.deepEqual(Exit.isFailure(exit) ? Cause.squash(exit.cause) : exit, "snapshot");
@@ -1579,6 +1593,7 @@ it.effect.each(["thread", "shell"] as const)(
         Effect.provideService(ProjectEnrichment.ProjectEnrichmentService, {
           subscribeChanges: PubSub.subscribe(yield* PubSub.unbounded()),
         } as ProjectEnrichment.ProjectEnrichmentService["Service"]),
+        provideLoomShellServices, // loom
         Effect.exit,
         Effect.forkChild,
       );

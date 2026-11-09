@@ -642,6 +642,9 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
                 Layer.provide(
                   Layer.mergeAll(
                     IdAllocator.layer,
+                    Layer.mock(LoomStore.LoomStoreV2)({
+                      getWorkstream: () => Effect.succeed(null),
+                    } as never), // loom:
                     NodeCrypto.layer,
                     Layer.mock(CheckpointStore.CheckpointStore)({
                       isGitRepository: () => Effect.succeed(true),
