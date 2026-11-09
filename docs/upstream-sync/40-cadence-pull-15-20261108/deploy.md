@@ -46,12 +46,21 @@ a human-initiated act after the merge.
    server test suite ran beside it), 1,391,225 events deleted (1,459,197 →
    68,022), 3.45 GB reclaimable; the server stayed responsive (event-loop p99
    22–120 ms per minute, worst stall 0.6 s). The first pass after the deploy
-   takes about 13 s and deletes nothing.
+   takes about 13 s and deletes nothing. **S4 repeated it on a fresh copy
+   with the built bundle and nothing else running (DL-1913):** 23 min 49 s,
+   1,403,130 events deleted (1,471,258 → 68,155), 3.49 GB reclaimable, every
+   Loom history row kept. So: **minute one after the flip, a pass that
+   deletes nothing; about 24 h later, a 24-minute pass that deletes about
+   1.4 M events while the app stays responsive.**
 3. **Loom's workstream history survives** (§4.3's guard): on the copy all
    41,920 rows (33,696 V1, 8,224 V2) were there after the first pass and after
    the forced pass, and the weekly dashboard's 2026-W45 readings matched the
    live database row for row (DL-1898). If it did not, the Timeline tab of every workstream older
-   than a day would lose its outcomes, flags and routes.
+   than a day would lose its outcomes, flags and routes. S4 (DL-1913): on a
+   second copy, 33,696 V1 + 8,290 V2 rows before, 33,696 + 8,292 after the
+   due pass, and the Timeline drawer of a 14-day-old coder ("Field-id
+   vocabulary tightening", root "Mirvac Audit Template") lists all 31 of its
+   outcomes, yields, rework rounds and routes after it.
 4. **The Slack bridge runs on Effect 4.1.2 from the flip.** Its
    `node_modules/effect` symlinks to the release's `packages/contracts/node_modules/effect`
    (RUNBOOK.md §"Every bridge release resolves the running release's
@@ -63,7 +72,14 @@ a human-initiated act after the merge.
    rest of the lockfile (a native optional dependency, `linux-x64`); no VM
    change. S3 ran `pnpm build` from a fresh install (51 s, 7/7 tasks) and the
    built `dist/bin.mjs` served a fresh home (DL-1899's typecheck note
-   aside: the ship waits for the host upgrade, DL-1926).
+   aside: the ship waits for the host upgrade, DL-1926). S4 rebuilt it on the
+   final tree (50 s) and booted it on a cockpit copy: listening in 6.5 s,
+   exactly 077–080, `loom_sql_migrations` unchanged at 1069.
+   **The host is being upgraded from Debian 11 to Debian 13 on 9 Nov at
+   about 18:00 AEDT (DL-1926).** The ship gate's `vp run typecheck` (the
+   tsrs checker, which needs glibc ≥ 2.34) and the web browser project are
+   run after that upgrade, not before; nothing else in this pull waits on
+   it.
 6. **Three undeployed Loom PRs ride along:** #534 (false needs-attention
    flags), #535 (graph drag no longer selects text), #536 (prose width
    narrowing). Nothing in them needs a migration or a setting.
@@ -74,8 +90,22 @@ a human-initiated act after the merge.
    tool-call visibility setting (showing everything); a thread with an open
    question can be snoozed; PR composers complete `#123` and `@user`;
    dictation in the composer on every client; the event log shrinking over
-   the days after the deploy.
+   the days after the deploy. S4 saw these live (DL-1914): `/clear` arms
+   "Your next message starts a fresh session" and draws a "New session"
+   divider, the old transcript stays above it; one model-switch divider per
+   switch, upstream's, and **threads from before the deploy lose Loom's old
+   "Model: A → B" lines** (DL-1906); a pasted Copy-thread link becomes the
+   thread chip; at Labs → Tool calls → Hide all, consult cards, questions and
+   Loom's control cards still show.
 8. **Restarted turns resume.** A pi turn cut by the promotion resumes, and a
-   steer stashed at shutdown is delivered (§10 `boot`); a steer held during a
-   compaction at the moment of SIGTERM is dropped, as upstream's own steers
-   are (§6.1, §12).
+   steer stashed at shutdown is delivered (§10 `boot`). A steer held while pi
+   compacts is mirrored into the same stash since Gate 2's DL-1903, so it
+   survives the SIGTERM too (S0's note that it would be dropped predates that
+   fix). S4 (DL-1913): a steer stashed during a running command survived a
+   restart and was delivered once; a `bg_start` job keeps the pi session and
+   wakes the agent with its summary when it ends (DL-1895); a job running at
+   the restart dies with pi, as before.
+9. **S4's verdict: ship-ready** (`s4-record.md`). Not exercised live, each
+   resting on its unit test: DL-1903's mid-turn compaction hold, #527's
+   open-PR hold, `--offline` on short-lived pi processes; mobile not run
+   (agent device access is off here).

@@ -8,7 +8,7 @@ manager_sessions:
 
 # 40: Cadence pull 15 (base `fa31b66bbb` → `upstream/main` `3fa57b92a2`, 2026-11-08)
 
-**Status: S3 done (DL-1891–DL-1899, `s3-record.md`): green from a fresh install apart from load flakes in the web browser project; `UPSTREAM_BASE` at `3fa57b92a2`; Gate 2's zones in `clean-overlap-zones.md`. `vp run typecheck` under tsrs is owed after the host upgrade (DL-1926); every package exits 0 under `effect-tsgo tsc`.**
+**Status: S4 done (DL-1913–DL-1914, `s4-record.md`): ship-ready; the prune kept every Loom history row on a cockpit copy and the bundle boots with 077–080 only. S3 done (DL-1891–DL-1899, `s3-record.md`): green from a fresh install apart from load flakes in the web browser project; `UPSTREAM_BASE` at `3fa57b92a2`; Gate 2's zones in `clean-overlap-zones.md`. `vp run typecheck` under tsrs is owed after the host upgrade (DL-1926); every package exits 0 under `effect-tsgo tsc`.**
 This is the runbook for pull 15, in pull 14's shape (doc 39): one branch, one
 merge commit, sessions with a definition of done each, and a decision log the
 coders append to.
