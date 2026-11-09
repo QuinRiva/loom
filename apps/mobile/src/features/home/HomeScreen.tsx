@@ -597,7 +597,7 @@ export function HomeScreen(props: HomeScreenProps) {
         <ArchivedSearchResultRow
           match={item.match}
           searchQuery={props.searchQuery}
-          {...(primaryColumn ? { pane: "sidebar" as const } : {})}
+          {...(sidebarSurface ? { pane: "sidebar" as const } : {})} // loom: DL-1909
           selected={
             scopedThreadKey(item.match.environmentId, item.match.threadId) === selectedThreadKey
           }
