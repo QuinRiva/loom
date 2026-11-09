@@ -235,4 +235,4 @@ Reviewer: thread `thread:mcp:b55997f1-0508-49a3-a752-d3c313374c13:workstream-sca
 
 - Upstream's `preparing` status (worktree setup) no longer counts as `working`. Three Loom-only readers still test `=== "working"`: `apps/web/src/loom/GoalThreadsSection.tsx` `resolveChip`, `apps/web/src/loom/CacheFuelRing.tsx` `yourMove` and `apps/web/src/loom/CacheHoverBlock.tsx`. During a new root's worktree setup, the goal-threads chip drops "Working" for a few seconds. The fuel ring and hover block need a cache arm, which a first turn never has. Fix: add `|| status === "preparing"` at each site.
 - Thread-tag hiding (#29053, opt-in) does not hide Loom workstream children under a hidden root, because they are listed lineage. This only matters if Carl ever sets `hiddenThreadTags`.
-- Zone 2d: check whether mobile (`ThreadFeed.tsx`) has the same double model-switch divider as row 6.
+- Mobile is not affected by row 6: it carries no Loom model-change divider, only upstream's `ThreadModelSwitchDivider` (`apps/mobile/src/features/threads/thread-handoff-row.tsx`). So after this pull mobile shows model switches too, once each.
