@@ -10,6 +10,7 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -75,7 +76,10 @@ const GitLayers = Layer.mergeAll(
     Layer.provide(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProcessLayer))),
   ),
   GitVcsDriver.layer,
-).pipe(Layer.provide(ServerConfigLayer), Layer.provideMerge(NodeServices.layer));
+).pipe(
+  Layer.provide(ServerConfigLayer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 const TestLayer = ReviewSnapshotService.layer.pipe(
   Layer.provideMerge(ProjectStore.layer),
   Layer.provideMerge(LoomOrchestratorTestLayer),

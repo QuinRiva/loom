@@ -4,6 +4,7 @@
  * `needs_guidance` on the source (or the drafter when the source has no Loom row). `/retro` starts
  * a fresh goal-less reviewer whose manifest carries the source's whole tree.
  */
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -79,7 +80,10 @@ const TestLayer = Layer.mergeAll(
   // The ws handlers also carry the query-thread method; these tests never call it.
   Layer.mock(ProjectStoreV2)({}),
   Layer.mock(WorkspaceFileSystem)({}),
-).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(NodeServices.layer));
+).pipe(
+  Layer.provideMerge(LoomOrchestratorTestLayer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 
 /** An idle source whose one turn finished on `driver`; with `goal`, it is a Loom root with a row. */
 const seedSource = (name: string, options: { driver?: ProviderDriverKind; goal?: boolean } = {}) =>

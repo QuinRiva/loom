@@ -4,6 +4,7 @@
  * Loom child has `subagent` lineage, which upstream refuses PR watches for, so a Loom sidecar row
  * exempts it; an upstream subagent with no row is still refused.
  */
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -73,7 +74,7 @@ const TestLayer = Layer.mergeAll(
 ).pipe(
   Layer.provideMerge(Layer.mergeAll(ProjectionStore.layer, ProjectStore.layer)),
   Layer.provideMerge(LoomOrchestratorTestLayer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 const createdAt = "2026-01-01T00:00:00.000Z";

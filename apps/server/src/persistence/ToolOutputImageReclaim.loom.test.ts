@@ -16,14 +16,14 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
 import * as EventStore from "../orchestration-v2/EventStore.ts";
-import * as ProjectionMaintenance from "../orchestration-v2/ProjectionMaintenance.ts";
+import * as ProjectionReplay from "../orchestration-v2/testkit/ProjectionReplay.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ToolOutputImageStore from "../orchestration-v2/ToolOutputImageStore.loom.ts";
 import * as SqlitePersistence from "./Sqlite.ts";
 import { reclaimToolOutputImages } from "./ToolOutputImageReclaim.loom.ts";
 
 const layerTest = Layer.mergeAll(
-  ProjectionMaintenance.layer.pipe(
+  ProjectionReplay.layer.pipe(
     Layer.provideMerge(Layer.merge(EventStore.layer, ProjectionStore.layer)),
     Layer.provideMerge(SqlitePersistence.layerMemory),
   ),
@@ -120,7 +120,7 @@ it.layer(layerTest)("ToolOutputImageReclaim", (it) => {
         SELECT turn_item_id, payload_json FROM orchestration_v2_projection_turn_items
         ORDER BY turn_item_id`;
       const reclaimed = yield* projectedRows;
-      yield* (yield* ProjectionMaintenance.ProjectionMaintenanceV2).rebuild;
+      yield* (yield* ProjectionReplay.ProjectionReplay).rebuild;
       assert.deepEqual(yield* projectedRows, reclaimed);
     }),
   );

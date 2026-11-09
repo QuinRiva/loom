@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { GoalId, GoalTaskId, LOOM_WS_METHODS, ProjectId } from "@t3tools/contracts";
@@ -33,7 +34,10 @@ const TestLayer = Layer.mergeAll(
   Layer.mock(ProjectStoreV2)({}),
   Layer.mock(WorkspaceFileSystem)({}),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-ws-" }),
-).pipe(Layer.provideMerge(SqlitePersistence.layerMemory), Layer.provideMerge(NodeServices.layer));
+).pipe(
+  Layer.provideMerge(SqlitePersistence.layerMemory),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 const goalId = GoalId.make("goal:ws");
 const task = (id: string) => GoalTaskId.make(id);
 

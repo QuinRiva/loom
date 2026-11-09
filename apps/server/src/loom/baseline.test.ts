@@ -6,6 +6,7 @@
  */
 import * as NodePath from "node:path";
 
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -59,7 +60,7 @@ const TestLayer = Layer.mergeAll(
 ).pipe(
   Layer.provideMerge(Layer.mergeAll(CheckpointStoreLive, VcsProcessLive)),
   Layer.provideMerge(LoomOrchestratorTestLayer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 const projectId = ProjectId.make("project:loom-test");

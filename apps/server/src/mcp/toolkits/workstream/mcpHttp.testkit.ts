@@ -16,6 +16,7 @@ import * as Path from "effect/Path";
 import { ChildProcessSpawner } from "effect/process";
 import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 
+import * as AssetSigner from "../../../assets/AssetSigner.ts";
 import * as ServerSecretStore from "../../../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../../../config.ts";
 import * as DeviceService from "../../../device/DeviceService.ts";
@@ -81,6 +82,7 @@ export interface McpServiceStubs {
 
 const stubServices = (stubs: McpServiceStubs) =>
   Layer.mergeAll(
+    Layer.mock(AssetSigner.AssetSigner)({}),
     Layer.mock(Orchestrator.OrchestratorV2)(stubs.orchestrator ?? {}),
     Layer.mock(ProjectService.ProjectService)(stubs.projects ?? {}),
     Layer.mock(ProjectionStore.ProjectionStoreV2)({}),

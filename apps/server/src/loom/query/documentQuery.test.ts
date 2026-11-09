@@ -4,6 +4,7 @@
  * (done, archived) once it changes; a mid-turn author defers the fork, and the reactor sends
  * the fork and the overlay-led first question once the author's run ends.
  */
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -67,7 +68,10 @@ const TestLayer = Layer.mergeAll(
       }),
   }),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-query-" }),
-).pipe(Layer.provideMerge(LoomOrchestratorTestLayer), Layer.provideMerge(NodeServices.layer));
+).pipe(
+  Layer.provideMerge(LoomOrchestratorTestLayer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 
 const filePath = "plans/read-lane/plan.mdx";
 const ask = (sourceThreadId: ThreadId, question: string): DocumentQueryInput => ({
