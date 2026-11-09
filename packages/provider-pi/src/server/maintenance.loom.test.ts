@@ -7,6 +7,7 @@
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import { ChildProcessSpawner } from "effect/process";
 
@@ -29,7 +30,7 @@ it.layer(NodeServices.layer)("providerMaintenance (loom)", (it) => {
 
       const capabilities = yield* resolveProviderMaintenanceCapabilitiesEffect(PI_UPDATE, {
         binaryPath,
-        env: { PATH: process.env.PATH ?? "" },
+        env: { PATH: (yield* HostProcess.Environment).PATH ?? "" },
       }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, noSpawn));
 
       // Upstream also reports the resolved `installPath`; only the refusal matters here.

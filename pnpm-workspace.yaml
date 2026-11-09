@@ -290,9 +290,6 @@ patchedDependencies:
   react-native-enriched-markdown@1.2.0-t3.16: patches/react-native-enriched-markdown@1.2.0-t3.16.patch
   # A failed Artifacts.cached effect hangs every later caller: https://github.com/alchemy-run/alchemy/issues/2981
   alchemy@2.0.0-beta.85: patches/alchemy@2.0.0-beta.85.patch
-  # loom: effect-tsgo tsrs falls back to the Go checker where tsrs cannot start (glibc < 2.34,
-  # the cockpit VM); inert elsewhere. Remove after the host upgrade (DL-1890).
-  "@effect/tsgo@0.67.1": patches/@effect__tsgo@0.67.1.patch
 
 # Unmet peers fail resolution, so a pin outside a dependency's peer range is
 # caught when the lockfile changes instead of scrolling past as a warning.
