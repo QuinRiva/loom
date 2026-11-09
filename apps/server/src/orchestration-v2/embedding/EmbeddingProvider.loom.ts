@@ -1,10 +1,10 @@
-import * as Data from "effect/Data";
 import type * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
-export class EmbeddingError extends Data.TaggedError("EmbeddingError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+export class EmbeddingError extends Schema.TaggedError<EmbeddingError>()("EmbeddingError", {
+  message: Schema.String,
+  cause: Schema.optional(Schema.Defect()),
+}) {}
 
 /**
  * One way of turning text into vectors for thread search. Implementations:

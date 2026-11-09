@@ -82,8 +82,7 @@ export const makeLoomAskWaiters = () => {
       Effect.suspend(() => {
         const waiter = waiters.get(requestId);
         if (waiter === undefined || waiter.threadId !== threadId)
-          // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
-          return Effect.succeed(undefined);
+          return Effect.undefined;
         waiter.attached += 1;
         return Deferred.await(waiter.outcome).pipe(
           Effect.timeoutOption(sliceMs),

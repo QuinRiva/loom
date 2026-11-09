@@ -12,6 +12,7 @@ import * as NodeUtil from "node:util";
 
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Cause from "effect/Cause"; // loom: pretty-printed reconcile cause
+import type * as Digest from "effect/crypto/Digest"; // loom: Pi-only env
 import type * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -54,7 +55,8 @@ type ProviderInstanceRegistryHydrationEnv =
   // loom: the Pi-only registry's `BuiltInDriversEnv` no longer carries what the
   // adapter infrastructure below needs (upstream's driver union did).
   | ProviderEventLoggers.ProviderEventLoggers
-  | ServerSecretStore.ServerSecretStore;
+  | ServerSecretStore.ServerSecretStore
+  | Digest.Digest;
 
 export const deriveProviderInstanceConfigMap = (
   settings: ServerSettings,

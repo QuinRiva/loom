@@ -1,4 +1,4 @@
-// @effect-diagnostics globalFetch:off globalFetchInEffect:off preferSchemaOverJson:off globalTimers:off - provider HTTP adapter at a Promise boundary.
+// @effect-diagnostics globalFetch:off globalFetchInEffect:off globalJsonInEffect:off globalTimers:off - provider HTTP adapter at a Promise boundary.
 import { GoogleAuth } from "google-auth-library";
 import * as Effect from "effect/Effect";
 

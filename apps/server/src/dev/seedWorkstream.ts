@@ -7,12 +7,13 @@
  */
 // Dev-only fixture tooling (not shipped): plain Error/Date/JSON and node:fs keep
 // the seeder legible, matching `scripts/*.ts`.
-// @effect-diagnostics nodeBuiltinImport:off globalErrorInEffectFailure:off globalDateInEffect:off globalDate:off preferSchemaOverJson:off
+// @effect-diagnostics nodeBuiltinImport:off globalErrorInEffectFailure:off globalDateInEffect:off globalDate:off globalJsonInEffect:off
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
@@ -831,7 +832,7 @@ const main = Effect.gen(function* () {
     Effect.provide(seedRuntimeLayer(config, database, { runEffectWorker: true })),
   );
 }).pipe(
-  Effect.provide(NodeServices.layer),
+  Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   Effect.provideService(References.MinimumLogLevel, "Error"),
 );
 

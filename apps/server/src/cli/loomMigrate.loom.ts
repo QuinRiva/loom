@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalDate:off globalDateInEffect:off preferSchemaOverJson:off - an operator CLI: git, hashing, manifests and file copies are synchronous Node calls.
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off globalDateInEffect:off globalJsonInEffect:off - an operator CLI: git, hashing, manifests and file copies are synchronous Node calls.
 /**
  * `t3 loom-migrate export | import | verify` (plans/jacob-loom-account/plan.mdx §5). Ids never change;
  * import rewrites only paths and project ids, on known keys, and renumbers events in source order.

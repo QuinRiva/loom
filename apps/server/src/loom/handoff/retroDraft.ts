@@ -316,7 +316,7 @@ export const launchRetro = Effect.fn("retroDraft.launchRetro")(
     };
     yield* fileSystem.writeFileString(
       NodePath.join(runDir, "manifest.json"),
-      // @effect-diagnostics-next-line preferSchemaOverJson:off -- a plain record, pretty-printed for the scanner and a human.
+      // @effect-diagnostics-next-line globalJsonInEffect:off -- a plain record, pretty-printed for the scanner and a human.
       `${JSON.stringify(manifest, null, 2)}\n`,
     );
 

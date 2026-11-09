@@ -1417,7 +1417,14 @@ export const make = Effect.gen(function* () {
     if (details === null || !details.isRepo) {
       return null;
     }
-
+    return yield* remoteResultFromDetails(cwd, details, options); // loom: shared with readRemoteStatuses
+  });
+  // loom: readRemoteStatus's tail, so Loom's batched poller keeps the merged-PR ahead-count rule.
+  const remoteResultFromDetails = Effect.fn("remoteResultFromDetails")(function* (
+    cwd: string,
+    details: GitVcsDriver.GitRemoteStatusDetails,
+    options?: GitRemoteStatusOptions,
+  ) {
     const { pr, headSha } =
       details.branch !== null
         ? yield* lookupStatusPr(
@@ -1485,28 +1492,9 @@ export const make = Effect.gen(function* () {
       input.entries,
       (entry, index) => {
         const statusDetails = details[index];
-        if (!statusDetails?.isRepo) return Effect.succeed(null);
-        return (
-          statusDetails.branch === null
-            ? Effect.succeed(null)
-            : lookupStatusPr(entry.cwd, {
-                branch: statusDetails.branch,
-                upstreamRef: statusDetails.upstreamRef,
-                defaultBranch: statusDetails.defaultBranch,
-                isDefaultBranch: statusDetails.isDefaultBranch,
-              })
-        ).pipe(
-          Effect.map(
-            (pr) =>
-              ({
-                hasUpstream: statusDetails.hasUpstream,
-                aheadCount: statusDetails.aheadCount,
-                behindCount: statusDetails.behindCount,
-                aheadOfDefaultCount: statusDetails.aheadOfDefaultCount,
-                pr,
-              }) satisfies VcsStatusRemoteResult,
-          ),
-        );
+        return statusDetails?.isRepo
+          ? remoteResultFromDetails(entry.cwd, statusDetails, options)
+          : Effect.succeed(null);
       },
       { concurrency: "unbounded" },
     );
