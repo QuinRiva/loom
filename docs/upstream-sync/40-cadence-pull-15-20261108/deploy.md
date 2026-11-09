@@ -38,10 +38,10 @@ a human-initiated act after the merge.
    shrinks gradually. **After that pass the event log is a day deep**: a
    pre-promotion snapshot (`deployctl … --restore-snapshot`) is the only way
    back to the full log, and a Loom migration that backfills from old events
-   cannot be written afterwards (§4.4). **Carl's call:** keep that snapshot
-   beyond the usual rotation as the one archive of the full event log (he does
-   research over agent behaviour, and the log is the only record of event
-   timing older than the projections), or let it rotate. **S3's forced pass on
+   cannot be written afterwards (§4.4). **Carl's ruling (10 Nov): "Keep"**: the pre-promotion snapshot
+   is kept beyond the usual rotation as the one archive of the full event log
+   (the only record of event timing older than the projections). The deploy
+   runbook's rotation must exclude it. **S3's forced pass on
    the copy (DL-1898):** 23 min 31 s under the duty cycle (an upper bound: the
    server test suite ran beside it), 1,391,225 events deleted (1,459,197 →
    68,022), 3.45 GB reclaimable; the server stayed responsive (event-loop p99
