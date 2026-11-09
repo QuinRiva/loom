@@ -633,10 +633,30 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       // Prompts sent before the pump observed compaction_start are rejected
       // after it; they precede every prompt held since.
       let rejectedHeldCount = 0;
+      // loom: a steer held through a compaction never reaches pi's queue_update, so the stash
+      // mirrors pi's last reported queue plus the active turn's held steers (DL-1903)
+      let loomPiSteering: ReadonlyArray<string> = [];
+      const writeLoomSteerStash = (held: ReadonlyArray<PiPromptSend>) => {
+        const turn = threadState?.activeTurn ?? null;
+        return loomHooks.steerStash.write(
+          threadState?.providerThread.appThreadId ?? input.threadId,
+          turn?.turnInput.runId ?? null,
+          [
+            ...loomPiSteering,
+            ...held.flatMap((prompt) =>
+              prompt.kind === "steer" && prompt.providerTurnId === turn?.providerTurn.id
+                ? [String(prompt.record["message"])]
+                : [],
+            ),
+          ],
+          threadState?.providerThread.nativeThreadRef?.nativeId ?? null,
+        );
+      };
 
       const sendPrompt = Effect.fnUntraced(function* (prompt: PiPromptSend) {
         if (nativeCompacting) {
           heldPrompts.push(prompt);
+          if (prompt.kind === "steer") yield* writeLoomSteerStash(heldPrompts); // loom: DL-1903
           return;
         }
         yield* connection.send(prompt.record);
@@ -2038,12 +2058,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           // loom: mirror pi's undelivered steers, stamped with their run and session file; pi drops one as it enters the conversation (seam 20, DL-691/694/1002)
           case "queue_update": {
             const steering = event["steering"];
-            yield* loomHooks.steerStash.write(
-              state?.providerThread.appThreadId ?? input.threadId,
-              turn?.turnInput.runId ?? null,
-              Array.isArray(steering) ? steering.filter((text) => typeof text === "string") : [],
-              state?.providerThread.nativeThreadRef?.nativeId ?? null,
-            );
+            loomPiSteering = Array.isArray(steering)
+              ? steering.filter((text) => typeof text === "string")
+              : [];
+            yield* writeLoomSteerStash(heldPrompts);
             return;
           }
           case "message_start": {
@@ -2352,6 +2370,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               responseTurn !== null
             ) {
               heldPrompts.splice(rejectedHeldCount++, 0, pendingPrompt);
+              if (pendingPrompt.kind === "steer") yield* writeLoomSteerStash(heldPrompts); // loom: DL-1903
               return;
             }
             // Settlement is not probed while a steer awaits its ack (see
@@ -2481,6 +2500,13 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 // Send before the handler can probe settlement, so Pi sees the
                 // prompt first. Prompts whose turn ended or is stopping are dropped.
                 rejectedHeldCount = 0;
+                // loom: re-mirror with only the steers released below, before pi can deliver one past the mirror's offset (DL-1903)
+                if (heldPrompts.some((held) => held.kind === "steer"))
+                  yield* writeLoomSteerStash(
+                    threadState?.activeTurn?.interrupted === true || stopRequested
+                      ? []
+                      : heldPrompts,
+                  );
                 for (const held of heldPrompts.splice(0)) {
                   const turn = threadState?.activeTurn;
                   if (

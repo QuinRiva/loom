@@ -1035,6 +1035,73 @@ describe("PiAdapterV2 (loom) — steer stash", () => {
       assert.deepEqual(yield* PendingSteering.read(THREAD_ID), { runId, text: "second steer" });
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
+
+  it.effect("mirrors a steer upstream holds while pi compacts, until it is released", () =>
+    Effect.gen(function* () {
+      const { fake, runtime, events } = yield* openRuntime(undefined, yield* liveHooks(false));
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection,
+        runtimePolicy,
+      });
+      const runId = RunId.make(`run:${THREAD_ID}:compacting`);
+      const message = (text: string) =>
+        ({
+          messageId: `message:${THREAD_ID}:${text}` as never,
+          text,
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+        }) as const;
+      yield* runtime.startTurn({
+        appThread: yield* appThread,
+        threadId: THREAD_ID,
+        runId,
+        runOrdinal: 1,
+        providerTurnOrdinal: 1,
+        attemptId: RunAttemptId.make(`run-attempt:${runId}:1`),
+        rootNodeId: NodeId.make(`node:${runId}:root`),
+        providerThread,
+        message: message("Hello pi"),
+        modelSelection,
+        runtimePolicy,
+      });
+      let providerTurnId: string | undefined;
+      while (providerTurnId === undefined) {
+        const event = yield* Queue.take(events);
+        if (event.type === "provider_turn.updated") providerTurnId = event.providerTurn.id;
+      }
+      yield* prompts(fake, 1);
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit({ type: "compaction_start" });
+      while (true) {
+        const event = yield* Queue.take(events);
+        if (event.type === "turn_item.updated" && event.turnItem.type === "compaction") break;
+      }
+
+      // A parent's notify lands mid-compaction: upstream holds it, so pi never reports it queued.
+      yield* runtime.steerTurn({
+        threadId: THREAD_ID,
+        runId,
+        providerThread,
+        providerTurnId: providerTurnId as never,
+        message: message("Steer while compacting"),
+      });
+      assert.deepEqual(yield* PendingSteering.read(THREAD_ID), {
+        runId,
+        text: "Steer while compacting",
+      });
+      assert.equal(fake.requests.filter((request) => request["type"] === "prompt").length, 1);
+
+      // Released at compaction_end; the stash keeps it until pi reports its own queue.
+      yield* fake.emit({ type: "compaction_end", result: { summary: "compacted" } });
+      assert.deepEqual(yield* prompts(fake, 2), ["Hello pi", "Steer while compacting"]);
+      assert.deepEqual(yield* PendingSteering.read(THREAD_ID), {
+        runId,
+        text: "Steer while compacting",
+      });
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
 });
 
 // ── Prompt-cache keeping D: cache refreshes reach the hook for the sidebar's liveness ring ───
