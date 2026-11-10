@@ -3,8 +3,8 @@ reader:
   who: the reviewer gating this plan, then Carl, who approves the one question it leaves him; a coder builds from it cold
   knows: Loom's sidecar tables and the pull-15 runbook by name; not the fold in LoomStore.history, the evals scripts' queries or the cockpit row counts
   after_first_screen: Loom's workstream history moves into its own table, written when the event commits and filled once from the log; the table keeps the raw event rows; the prune guard then goes; Carl ruled history only, no archive, with gate warnings carried too
-kicker: "Implementation plan · approved by Carl 10 Nov 2026"
-status: approved
+kicker: "Implementation plan · approved 10 Nov 2026 · built the same day"
+status: done
 manager_sessions:
   - id: 01a1c2c5-cced-7067-a34c-2ba9fe55a7c3
     name: History-projection plan
@@ -195,3 +195,13 @@ Untouched, checked:
 <Callout tone="decision" title="History table only; no archive of upstream's events">
   Carl, 10 Nov, asked what the prune would delete and whether it mattered for his intermittent self-analytics. Of the 1.49 M log rows, 1.36 M are streaming deltas (`turn-item.updated`, `node.updated`, `message.updated`, `provider-turn.updated`, `run.updated`) whose final state the projections keep with timestamps; his trace checks read the pi session files, which the prune never touches; and the kept pre-promotion snapshot archives everything to deploy day. The only Loom signal that fell through was `thread.gate-warning`, so it is carried. His words: "Yes proceed on that basis."
 </Callout>
+
+## As built
+
+Commit `a6981233c2` delivers §§1–8 as written. Three test-only departures:
+
+- `1070_LoomThreadHistory.test.ts` asserts only what the migration alone can get wrong (row count, column mapping, `stream_version` order) and seeds a gate warning and a non-thread row to cover the ninth type and the `aggregate_kind` filter; the fold assertions stay in `LoomStore.test.ts` (reviewer's note N6).
+- `LoomStore.test.ts`'s noise row is a `thread.gate-warning` instead of `thread.title-set`, since only history types can exist in the table; it proves the fold returns nothing for a gate warning.
+- `HISTORY_EVENT_TYPES` is no longer exported from `LoomHistoryEvents.ts`; `loomProjection.ts` derives its filter set from `HistoryEventRow`, the only remaining caller.
+
+On the cockpit copy: 33,696 V1 and 8,701 V2 rows carried (the V2 count had grown from 8,507 by build time); after both prune passes the log held 24 of them and the table all of them plus 7 live writes. `dashboard.py` and `gate_escapes.py` output for 2026-W45 was byte-identical before and after (1,347 and 162 rows).
