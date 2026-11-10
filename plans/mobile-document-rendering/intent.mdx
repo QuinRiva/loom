@@ -15,7 +15,7 @@ manager_sessions:
 
 # Plans, recaps and explainers on the phone, looking as they do on web
 
-**Goal.** "Loom's MDX files (and presumably other artefacts like html) don't render in the mobile app". Today the phone treats an `.mdx` document as plain markdown. The prose and headings come through, and **every block is either dropped without a trace or printed as its raw source**. The work is to draw the document with **the same renderer web uses**, inside the browser view the app already has. It also lets you **tap answers** to its questions and verdicts. HTML files failing with "Preview unavailable" is a **separate defect**, being fixed alongside.
+**Goal.** "Loom's MDX files (and presumably other artefacts like html) don't render in the mobile app". Today the phone treats an `.mdx` document as plain markdown. The prose and headings come through, and **every block is either dropped without a trace or printed as its raw source**. The work is to draw the document with **the same renderer web uses**, inside the browser view the app already has. It also lets you **tap answers** to its questions and verdicts. The HTML file you saw fail is a **separate matter with its own fix** (§1).
 
 <Columns>
   <Column label="Today">
@@ -63,7 +63,7 @@ manager_sessions:
 **Decided.** "Loom's MDX files (and presumably other artefacts like html) don't render in the mobile app".
 
 - How much the phone lets you do: "Read, and tap answers to questions and accept / reject verdicts".
-- HTML artefacts: "I have seen an HTML artefact fail on the phone", and "I'm *pretty sure* I've seen html artefacts fail with "preview unavailable"". Your screenshot confirms one. It is a defect with its own fix, not part of this feature.
+- HTML artefacts: "I have seen an HTML artefact fail on the phone", and "I'm *pretty sure* I've seen html artefacts fail with "preview unavailable"". Your screenshot confirms one. Its link pointed at a path with no file, and the card did not say so. That has its own fix and is not part of this feature.
 
 - _Assumed:_ every `.mdx` file opens in the document view. Its raw source stays one tap away in the file menu, as it is for markdown today. Redirect if wrong.
 - _Assumed:_ the phone reads documents up to the same 8 MB as web. Today it cuts a file off at 1 MB. Redirect if wrong.
@@ -96,7 +96,7 @@ Every way of opening a file on the phone ends at the same file screen. That cove
   code={"<QuestionForm\n  questions={[\n    {\n      id: \"go\",\n      title: \"Build it as the pick above?\",\n      mode: \"single\",\n      options: [\n        { id: \"yes\", label: \"Yes, go\", recommended: true },\n        { id: \"no\", label: \"No, annotate what to change\" },\n      ],\n    },\n  ]}\n/>\n"}
 />
 
-**HTML artefacts.** Your screenshot shows a "Preview unavailable" card for `viz/packet-gaps/redesign/framework/pages/index.html` in `lease-extraction`. The phone shows that card when it cannot get a link for the file from the server. The embedded browser view is not involved at that point. By the code, an `.html` file should open in that view with its scripts running, so this is a defect. Its cause is being diagnosed in a separate fix.
+**HTML artefacts.** Your screenshot shows a "Preview unavailable" card for `viz/packet-gaps/redesign/framework/pages/index.html` in `lease-extraction`. The phone shows that card when it cannot get a link for the file from the server. Here the server had no file at that path: an agent had cited it relative to a nested folder, and the phone looked from the top of the worktree. The server does issue a link for the real file, so an `.html` file should open in the embedded browser view with its scripts running. A separate fix makes the card say "File not found" and name the path it checked.
 
 **How this was established.** The MDX rows: by reading the phone app's code and running the part of it that prepares a markdown file for display on the three real documents named above. The last step, the phone's own text view painting that result, was not observed. The HTML failure: your screenshot. Agents have no device of their own here.
 
@@ -125,6 +125,6 @@ Not in any option: asking a question on a section, which on web opens a side con
 **Still unknown.**
 
 - What your phone shows for a document, today and after. Agents have no device, so each PR is tried on your phone before it ships. The plan says what that asks of you.
-- Why the HTML file failed, and whether the same cause can stop the document view loading. The separate fix settles the first. The first try of the reading PR on your phone settles the second.
+- Whether a page loads in the embedded browser view on your phone at all. Nobody has watched one. The first try of the reading PR settles it.
 - Whether the widest blocks (design boards, annotated code, three cards across) read at a phone's width. The render above reads well apart from wide tables. Opening two or three real documents on the phone settles it.
 - How long the first open takes over the tunnel on mobile data. The renderer is roughly 1 MB to download once after each server update, then the phone keeps it. Measured on the first build; if it is too slow, the fallback is packing the renderer inside the app.

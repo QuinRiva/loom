@@ -17,7 +17,7 @@ manager_sessions:
 
 **Recommendation.** Give the web app a second, small page that holds only the MDX document renderer. The mobile app opens that page from the Loom server in the WebView it already ships, and hands it the file's text over a message bridge. The page never signs in; the app keeps doing all private reads over its existing session. **Two PRs.** The first makes every `.mdx` file readable as on web. The second makes question options and accept / reject verdicts tappable, landing in the phone's composer as the same records web sends. **Roughly two to three days of agent work each.**
 
-It makes two bets. First, that a page served by the server loads in the WebView on Carl's Android phone over the tailnet. Nobody has seen that, and an HTML file failed for him this week for a reason still being diagnosed. The first on-phone check of PR 1 settles it, and the fallback (the same page packed inside the app) changes one URL and nothing else. Second, that the renderer reads at a phone's width. A static render of a real plan at 390 px already does, apart from wide tables.
+It makes two bets. First, that a page served by the server loads in the WebView on Carl's Android phone over the tailnet. Nobody has seen a page load there. The HTML file that failed for him this week had a link to a missing file, so it says nothing either way. The first on-phone check of PR 1 settles the bet, and the fallback (the same page packed inside the app) changes one URL and nothing else. Second, that the renderer reads at a phone's width. A static render of a real plan at 390 px already does, apart from wide tables.
 
 <Columns>
   <Column label="Today">
@@ -246,7 +246,7 @@ The brief's remaining check, a new block reaching the phone without a new APK, h
   density="compact"
   columns={["Risk", "How likely", "What the plan does"]}
   rows={[
-    { tone: "warning", cells: ["The served page does not load in the WebView on Carl's phone", "Unknown. The HTML failure he saw is a different step: the app could not get a link for the file, before any WebView load. The page load needs no link. But the cause is undiagnosed.", "Step 7 of PR 1 turns it into a visible notice, not a blank screen. If it happens on the first try, switch to the fallback: pack the built page into the app and load it locally. The bridge is unchanged. The cost is a new APK per block change."] },
+    { tone: "warning", cells: ["The served page does not load in the WebView on Carl's phone", "Unknown, leaning unlikely. The HTML failure he saw was a link to a path with no file; the server issues a link for the real file. But no page has been watched loading in that WebView.", "Step 7 of PR 1 turns it into a visible notice, not a blank screen. If it happens on the first try, switch to the fallback: pack the built page into the app and load it locally. The bridge is unchanged. The cost is a new APK per block change."] },
     ["A wide block reads badly at 390 px", "Likely for design boards and annotated code", "Fix in the page, which needs no new APK. Check three real documents on the phone: the plan above, `recaps/issue-280-fan-in-deadlock-v2/recap.mdx`, `plans/agent-started-thread-cue-v2/plan.mdx`."],
     ["A multi-megabyte document is slow to hand to the page", "Low; typical plans are 25 to 70 KB", "Measure with the largest real document to hand. If slow, send the source in chunks; the contract allows another message."],
     ["The viewer bundle pulls app state in through block imports", "Possible via `blocks/image.tsx`", "Harmless at run time (the lint script and the preview harness import the same graph with no backend). Size is measured; lazy-load if large."],
@@ -255,7 +255,9 @@ The brief's remaining check, a new block reaching the phone without a new APK, h
   ]}
 />
 
-The HTML defect's fix may touch `ThreadFilesRouteScreen.tsx` or `WorkspaceFileWebPreview.tsx`. PR 1 edits `FileContent` in the first, so it starts after that fix lands in this worktree. If that fix needs its own APK, hand Carl one APK carrying both.
+Two things from the HTML fix (commit `391153a1c6`, already in this worktree). It edits `ThreadFilesRouteScreen.tsx`, the file PR 1 changes, so PR 1 builds on top of it. And it is an app change, so it needs an APK too: hand Carl one APK carrying both.
+
+That fix also measured something this plan does not solve. A path an agent cites relative to some folder other than the thread's worktree root does not resolve on the phone: about one in five relative paths in Loom threads. An `.mdx` chip like that shows "File unavailable" before and after this work. It is tracked as its own task.
 
 <Details summary="All touched files, by PR">
 
