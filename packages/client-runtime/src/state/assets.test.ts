@@ -2,6 +2,8 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   type AssetCreateUrlResult,
   type AssetResource,
+  AssetWorkspaceAssetInspectionError,
+  AssetWorkspaceAssetNotFoundError,
   EnvironmentId,
   ThreadId,
   WS_METHODS,
@@ -26,6 +28,7 @@ import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import type * as RpcSession from "../rpc/session.ts";
 import {
   ASSET_URL_MAX_IN_FLIGHT,
+  assetUrlStateFromResult,
   createAssetEnvironmentAtoms,
   createProjectFaviconUrlAtomFamily,
   makeRevisionedAssetUrlFamily,
@@ -175,6 +178,30 @@ const makeAssetUrlHarness = Effect.fn("TestAssetUrl.makeHarness")(function* (
       }
     },
   };
+});
+
+describe("assetUrlStateFromResult", () => {
+  const resource: AssetResource = {
+    _tag: "workspace-file",
+    threadId: ThreadId.make("thread-1"),
+    path: "/repo/viz/pages/index.html",
+  };
+
+  // loom: a file screen must tell a wrong path apart from a server that could not serve the file.
+  it("reports a file the server could not find as not-found, and nothing else", () => {
+    const state = (error: unknown) =>
+      assetUrlStateFromResult(AsyncResult.failure(Cause.fail(error)), "https://host/");
+    expect(state(new AssetWorkspaceAssetNotFoundError({ resource }))).toEqual({
+      _tag: "Failure",
+      reason: "not-found",
+    });
+    expect(state(new AssetWorkspaceAssetInspectionError({ resource, cause: "EIO" }))).toEqual({
+      _tag: "Failure",
+    });
+    expect(
+      assetUrlStateFromResult(AsyncResult.failure(Cause.die("socket closed")), "https://host/"),
+    ).toEqual({ _tag: "Failure" });
+  });
 });
 
 describe("asset URL requests", () => {

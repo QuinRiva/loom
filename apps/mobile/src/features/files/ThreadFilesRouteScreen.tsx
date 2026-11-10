@@ -236,6 +236,7 @@ function FileContent(props: {
       <WorkspaceFilePreviewError
         environmentId={props.environmentId}
         reason={props.previewFailure}
+        path={resolveWorkspaceFilePath(props.cwd, props.relativePath)} // loom
         onRetry={props.onRetryPreview}
       />
     );

@@ -16,6 +16,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
@@ -74,7 +75,7 @@ export type AssetUrlState =
   | { readonly _tag: "Loading" }
   | {
       readonly _tag: "Failure";
-      readonly reason?: "missing-file-access";
+      readonly reason?: "missing-file-access" | "not-found"; // loom: not-found
     }
   | {
       readonly _tag: "Success";
@@ -115,7 +116,13 @@ export function assetUrlStateFromResult(
   result: AsyncResult.AsyncResult<AssetCreateUrlResult, unknown>,
   httpBaseUrl: string | null,
 ): AssetUrlState {
-  if (result._tag === "Failure") return { _tag: "Failure" };
+  if (result._tag === "Failure") {
+    // loom: a wrong path is the one failure the reader can act on, so keep it distinct.
+    const error = Option.getOrUndefined(Cause.findErrorOption(result.cause));
+    return Predicate.isTagged(error, "AssetWorkspaceAssetNotFoundError")
+      ? { _tag: "Failure", reason: "not-found" }
+      : { _tag: "Failure" };
+  }
   if (httpBaseUrl === null || result._tag !== "Success") return { _tag: "Loading" };
   const url = resolveAssetUrl(httpBaseUrl, result.value.relativeUrl);
   if (url === null) return { _tag: "Failure" };
