@@ -2,7 +2,7 @@
 reader:
   who: the reviewer gate checking this plan against the approved brief, then the coders who build each PR from it
   knows: the brief beside this plan; the repo in general; nothing of the investigation behind either document
-  after_first_screen: the phone opens .mdx files in the web renderer hosted in the app's WebView, served by the Loom server and fed by the app; two PRs, reading then tapping answers; each needs a new APK that Carl installs and tries before it ships
+  after_first_screen: the phone opens .mdx files in the web renderer hosted in the app's WebView, served by the Loom server and fed by the app; two PRs, reading then tapping answers; each needs a new APK that Carl installs once his server is deployed, then tries on his phone
 kicker: "Implementation plan · mobile document rendering · 10 Nov 2026"
 status: draft
 intent: plans/mobile-document-rendering/intent.mdx
@@ -17,7 +17,7 @@ manager_sessions:
 
 **Recommendation.** Give the web app a second, small page that holds only the MDX document renderer. The mobile app opens that page from the Loom server in the WebView it already ships, and hands it the file's text over a message bridge. The page never signs in; the app keeps doing all private reads over its existing session. **Two PRs.** The first makes every `.mdx` file readable as on web. The second makes question options and accept / reject verdicts tappable, landing in the phone's composer as the same records web sends. **Roughly two to three days of agent work each.**
 
-It makes two bets. First, that a page served by the server loads in the WebView on Carl's Android phone over the tailnet. Nobody has seen a page load there. The HTML file that failed for him this week had a link to a missing file, so it says nothing either way. The first on-phone check of PR 1 settles the bet, and the fallback (the same page packed inside the app) changes one URL and nothing else. Second, that the renderer reads at a phone's width. A static render of a real plan at 390 px already does, apart from wide tables.
+It makes two bets. First, that a page served by the server loads in the WebView on Carl's Android phone over the tailnet. Nobody has seen a page load there. A thirty-second check on his current app settles most of it before anything is built (§6). If the bet fails there is no cheap switch: packing the page into the app is unbuilt Android work of a day or more (§7). Second, that the renderer reads at a phone's width. A static render of a real plan at 390 px already does, apart from wide tables.
 
 <Columns>
   <Column label="Today">
@@ -42,7 +42,7 @@ It makes two bets. First, that a page served by the server loads in the WebView 
 
   **Every app change is a new APK that Carl installs by hand** (§5). So the app side is kept thin and the page fat: after these two installs, later renderer changes reach the phone with a server deploy alone.
 
-  **Done** is the brief's checks passing on Carl's phone. Agents have no device, so §6 says what agents prove first and the five minutes each PR asks of him. No open questions for Carl.
+  **Done** is the brief's checks passing on Carl's phone. Agents have no device, so §6 says what agents prove before merge and what each PR asks of him after his deploy. No open questions for Carl.
 </Callout>
 
 ## 1. How it fits together
@@ -70,7 +70,7 @@ Read it top to bottom. The app reads the file exactly as it does today for the m
   <Card heading="Served, not bundled" tone="info" badge="DECISION">
     The page comes from the server, so a new block type shows on the phone after a server deploy with no new APK. That is one of the brief's checks.
 
-    Bundling the page into the app stays the fallback. Mobile already embeds a browser entry that way (`src/features/devices/device-stream.browser.ts`).
+    Bundling the page into the app is the fallback if serving fails, and it is not a cheap one (§7).
   </Card>
 </Columns>
 
@@ -83,7 +83,7 @@ One module, `packages/shared/src/documentViewerBridge.ts`, exported as `@t3tools
   columns={["Direction", "Message", "Carries", "PR"]}
   rows={[
     ["page → app", "`ready`", "`protocol`", "1"],
-    ["app → page", "`init`", "`protocol`, `token`, `source`, `filePath`, `baseDir`, `cwd`, `appearance` (light or dark), `topInset`; from PR 2 also `answers` when the file belongs to a thread", "1"],
+    ["app → page", "`init`", "`protocol`, `token`, `source`, `filePath`, `baseDir`, `cwd`, `appearance` (light or dark), `topInset`; from PR 2 also `answers` (`draftTarget`, the scoped thread key, and `present`) when the file belongs to a thread", "1"],
     ["page → app", "`rendered`", "`ok`, and the compile error text when not", "1"],
     ["page → app", "`link`", "`href` as authored", "1"],
     ["page → app", "`image-request`", "`id`, absolute host `path`", "1"],
@@ -98,6 +98,7 @@ Rules that hold for both PRs:
 
 - **Transport.** Page to app is `window.ReactNativeWebView.postMessage(JSON)`. App to page is `injectJavaScript` of a `window.postMessage`, the pattern `postTheme` uses in `apps/mobile/src/features/threads/HtmlRenderWebView.tsx`.
 - **Token.** The app makes a random token per load and sends it in `init`. Every page message except `ready` must carry it, and the app drops any that does not. Reason: Android exposes `ReactNativeWebView` to every frame, including the scripted sandbox of a document's `<Prototype>`. Without the token an agent-written document could post a forged answer into Carl's composer. The app injects `init` into the top frame only, which a sandboxed frame cannot read.
+- **Page-side guard.** The page accepts app messages only where `event.source === window`, which is what an injected `window.postMessage` produces. A sandboxed frame's `parent.postMessage` has the frame as its source, so it cannot swap the displayed document or the answered state.
 - **Validation.** The app decodes every message with the module's schema and ignores unknown types. In PR 2 it also decodes `record` with `ReviewCommentContextRecord` from `@t3tools/contracts` and requires `mdxAnchor` present and `filePath` equal to the open file.
 - **Skew.** Messages only ever gain optional fields. The page offers tappable answers only when `init` carries `answers`, so a PR 1 app with a PR 2 page stays read-only, and a PR 2 app with a PR 1 page never receives answer messages.
 - **Handshake.** The server answers an unknown path with the app shell, so a 200 proves nothing. The app treats the page as loaded only on a valid `ready`.
@@ -122,13 +123,13 @@ Rules that hold for both PRs:
     At 390 px the page must not scroll sideways; a wide table scrolls inside its own wrapper. Today the real plan measures 453 px wide because a top-level table's bleed width follows its content. Fix in the `.plan-mdx` rules of `apps/web/src/index.css` without changing what a desktop-width panel shows.
   </Step>
   <Step at="5" title="Mobile: the document view">
-    Add `apps/mobile/src/features/files/MdxDocumentView.loom.tsx`: a `react-native-webview` on the connection's `httpBaseUrl` (from `usePreparedConnection`) plus `DOCUMENT_VIEWER_PATH`. It sends `init` on `ready` and again when the source changes, answers `image-request` with `refreshAssetUrl` for a `media-file` resource (the resource web's `<Image>` uses), and routes `link` through the same logic as `onLinkPress` in `FileMarkdownPreview.tsx`. `onShouldStartLoadWithRequest` refuses any navigation away from the viewer URL.
+    Add `apps/mobile/src/features/files/MdxDocumentView.loom.tsx`: a `react-native-webview` on the connection's `httpBaseUrl` (from `usePreparedConnection`) plus `DOCUMENT_VIEWER_PATH`. It sends `init` on `ready` and again when the source changes, answers `image-request` with `refreshAssetUrl` for a `media-file` resource (the resource web's `<Image>` uses), and routes `link` through the same logic as `onLinkPress` in `FileMarkdownPreview.tsx`. It follows `HtmlRenderWebView.tsx` on the Android lifecycle. `onShouldStartLoadWithRequest` allows sub-frames (`isTopFrame === false`) and refuses any top-frame navigation away from the viewer URL, so a document's `<Prototype>` and `<HtmlBlock>` frames still load. `onOpenWindow` sends an `https` target to the phone's browser. `onRenderProcessGone` and `onContentProcessDidTerminate` restart the view, because Android kills a backgrounded app's renderer and the view would otherwise go blank. `setSupportMultipleWindows` is false, as in `WorkspaceFileWebPreview.tsx`.
   </Step>
   <Step at="6" title="Mobile: route .mdx to it">
     In `ThreadFilesRouteScreen.tsx`, `FileContent` renders `MdxDocumentView` for an `.mdx` path in preview mode; `.md` keeps `FileMarkdownPreview`. Add `isMdxDocumentFile` beside `isMarkdownPreviewFile` in `filePath.ts`. The `readFile` query passes `maxBytes: DOCUMENT_READ_MAX_BYTES` for `.mdx`, and `preload-workspace-file.ts` passes the same input so the preloaded read is the one the screen uses. The file menu's Preview / Source toggle already covers `.mdx`; add Refresh. `AttachmentDocumentBody.tsx` uses the same view for an attached `.mdx`, with no image resolution.
   </Step>
   <Step at="7" title="Mobile: when it cannot be drawn" tone="warning">
-    No valid `ready` within eight seconds, or a WebView load error: a notice, "Document view unavailable", with Try again and View source. A compile failure: the page shows the renderer's own error card and the app adds a View source bar. `.mdx` never falls back to the flattened markdown view, because that is the half-rendered document the brief rules out.
+    No valid `ready` within eight seconds of `onLoadEnd`, or a WebView load error (`onError`, `onHttpError`): a notice, "Document view unavailable", with Try again and View source. The timer starts at `onLoadEnd`, not at mount, so a slow first download on mobile data is not reported as a failure. A compile failure: the page shows the renderer's own error card and the app adds a View source bar. `.mdx` never falls back to the flattened markdown view, because that is the half-rendered document the brief rules out.
   </Step>
   <Step at="8" title="A runbook page for the APK">
     Add `docs/operations/loom-android-apk.md` with the build commands in §5. The repo documents only upstream's store and over-the-air pipeline, which Loom cannot use, so the next agent would reach for the wrong one.
@@ -167,7 +168,7 @@ The blocks already have the seam. `QuestionListRead` and the `ReviewChoice` bloc
     Move the comment construction out of `MdxPlanAnnotationLayer.tsx` into `questionAnswerComment(...)` in `mdx-plan/questionAnswers.ts` and `reviewChoiceComment(...)` in `mdx-plan/reviewChoices.ts`. The layer calls them; its behaviour does not change.
   </Step>
   <Step at="2" title="Web: the viewer's answer providers">
-    Add `apps/web/src/loom/documentViewer/answers.ts`. When `init.answers` is present it provides both contexts. `getAnswer` and `getChoice` return the stored selection only while the matching `contextId` is in the present set, mirroring the layer. `setAnswer` and `setChoice` store the selection, build the comment with the shared builder and `anchorForBlockElement` (`annotation/anchoring.ts`), convert it with `reviewCommentContextRecord` and `reviewCommentContextReference` (`~/lib/composerContextRecords`) and `formatComposerContextReference`, and post `comment-upsert`. An empty answer posts `comment-remove`. The present set updates on `answers-present`.
+    Add `apps/web/src/loom/documentViewer/answers.ts`. When `init.answers` is present it provides both contexts. `getAnswer` and `getChoice` return the stored selection only while the matching `contextId` is in the present set, mirroring the layer. Selections are stored under `questionAnswerDraftKey` and `reviewChoiceDraftKey` with `init.answers.draftTarget` as the target, so the same file answered in two threads keeps two selections. `setAnswer` and `setChoice` store the selection, build the comment with the shared builder and `anchorForBlockElement` (`annotation/anchoring.ts`), convert it with `reviewCommentContextRecord` and `reviewCommentContextReference` (`~/lib/composerContextRecords`) and `formatComposerContextReference`, and post `comment-upsert`. An empty answer posts `comment-remove`. The present set updates on `answers-present`.
   </Step>
   <Step at="3" title="Mobile: hold a document answer in the draft">
     In `apps/mobile/src/state/use-composer-drafts.ts` add `upsertComposerDraftContextRecord(draftKey, record, reference)`: replace the record in place when its `contextId` is already referenced by the draft text, else `insertComposerDraftContext` with the reference text. Add `removeComposerDraftContextRecord(draftKey, contextId)`: cut that reference from the text and let `setComposerDraftText` prune the record. The draft key is `scopedThreadKey(environmentId, threadId)`, as `appendReviewCommentToDraft` uses.
@@ -198,26 +199,44 @@ Before handing an APK over, the coder confirms two things. `aapt2 dump xmltree` 
 
 ## 6. Verification
 
-Agents cannot run the mobile app: device access is off for this environment, and this server has no emulator. So each PR is proved in two tiers.
+Agents cannot run the mobile app: device access is off for this environment, and this server has no emulator. So each PR is proved by agents before merge, and on Carl's phone after his deploy.
 
-<Columns>
-  <Card heading="What agents prove before asking Carl" tone="info" badge="BOTH PRS">
-    **The page, in Chromium at 390 × 844.** Android's WebView is Chromium, so a browser test (`*.browser.test.tsx`) that plays the app's side of the bridge exercises the real page. PR 1: after `init` with `plans/sqlite-read-lane-v2/plan.mdx`, the six tables and the callouts are in the DOM, the page does not scroll sideways, a link click posts `link`, and a message without the token changes nothing. PR 2: tapping an option posts a `comment-upsert` whose record decodes as `ReviewCommentContextRecord`, and clearing it posts `comment-remove`.
+<Callout tone="warning" title="Install only after the deploy">
+  The APK replaces the app Carl uses every day, and that app talks to his real server. An APK from this work against a server that does not yet serve the page shows "Document view unavailable" for **every** `.mdx` he opens, until the server is deployed. That is worse than today's flattened view. So the order is fixed: merge, deploy, then install. The coder keeps the previous APK's path in its hand-back; installing it again restores today's behaviour.
+</Callout>
 
-    **The app's logic, as unit tests.** The bridge decoder, the token rule, and in PR 2 the two draft helpers: upserting twice leaves one reference and the latest record; removing leaves neither.
+<Steps>
+  <Step at="Before PR 1" title="Carl opens one .html file on his current app" badge="30 seconds" aside="Settles most of the first bet before any build.">
+    From the Files browser, any `.html` file that exists. It loads in the same WebView, from the same server origin, as the document page will. If it draws, the WebView on his phone can load pages from his server. If it does not, stop: the approach is re-planned before anything is built.
+  </Step>
+  <Step at="Before merge" title="Agents prove the page and the app logic">
+    **The page, in Chromium at 390 × 844.** Android's WebView is Chromium, so a browser test (`*.browser.test.tsx`) that plays the app's side of the bridge exercises the real page. PR 1: after `init` with `plans/sqlite-read-lane-v2/plan.mdx`, the six tables and the callouts are in the DOM, the page does not scroll sideways, a link click posts `link`, and a message whose source is not the window changes nothing. PR 2: tapping an option posts a `comment-upsert` whose record decodes as `ReviewCommentContextRecord`, and clearing it posts `comment-remove`.
+
+    **The app's logic, as unit tests.** The token rule, and in PR 2 the two draft helpers: upserting twice leaves one reference and the latest record; removing leaves neither.
 
     **The gates.** `vp check`, `vp run typecheck`, `vp run lint:mobile`, and the APK builds.
 
-    **Size.** The PR states the viewer entry's gzipped size from the build manifest. Expect about 1 MB. If the image block's imports drag the chat bundle in, load that path lazily.
-  </Card>
-  <Card heading="What Carl does, about five minutes per PR" tone="warning" badge="ON HIS PHONE">
-    The coder runs the branch as a dev instance shared over the tailnet (`vp run dev --share`), checks that the shared origin serves the viewer page at `/document-viewer.html`, and posts two things: the APK's path, and a link that pairs the phone to that instance. The link is `t3code-preview://connections/new?pairingUrl=…&autoConnect=1`, with the pairing URL minted the way `.agents/skills/test-t3-mobile/scripts/pair-client.sh` mints one.
+    **The PR carries** phone-size screenshots of the page on the three documents in §7, and the viewer entry's gzipped size from the build manifest. Expect about 1 MB. If the image block's imports drag the chat bundle in, load that path lazily.
+  </Step>
+  <Step at="Ship" title="Carl says ship it, the PR merges, and he deploys the server">
+    The server half is additive: a static page nothing else links to. Web and the installed app behave as before.
+  </Step>
+  <Step at="After deploy" title="Carl installs the APK built from main and tries the checks" badge="about 5 minutes">
+    On his real server, in his real threads, over his real connection. He replies pass or fail per check, or sends a screenshot. A fault in the page is fixed with another deploy and no install. A fault in the app needs a fixed APK.
+  </Step>
+</Steps>
 
-    Carl installs the APK over the app, taps the link, and tries the brief's checks in a seeded Loom thread. He replies pass or fail per check, or sends a screenshot.
+This ships each PR before Carl has seen it on the phone. What makes that acceptable: the document is drawn by the page, which agents can prove in the engine his phone uses; the app half reaches his phone only when he installs it; and the old APK is one install away.
 
-    His real server is untouched until he says ship it. After the merge and his deploy, the same APK works against it.
-  </Card>
-</Columns>
+<Details summary="If Carl wants to try a PR before it merges">
+
+The test must not touch his daily app. Build the APK under a second application id so it installs beside it: the same commands as §5 with `APP_VARIANT=development`, which gives `com.t3tools.t3code.dev`, named "T3 Code Dev". That a release build of that variant runs standalone is unverified; his first launch is the test.
+
+Run the branch with `vp run dev --share --built`, not plain `--share`. Plain `--share` puts Vite's dev server on the tailnet, so the phone would load unbundled modules: slow enough over mobile data to trip the eight-second notice, and not the server's static handler the plan bets on. With `--built` the backend serves `apps/web/dist`. Check that the shared origin returns the viewer at `/document-viewer.html`, not the app shell.
+
+Pair the test app with `t3code-dev://connections/new?pairingUrl=…`, the pairing URL minted the way `.agents/skills/test-t3-mobile/scripts/pair-client.sh` mints one. A release build ignores `autoConnect`, so the link opens the pairing form filled in and Carl taps Connect. He removes that environment afterwards. For PR 2's send check, use the free Replay (dev) provider; the dev instance has no provider settings.
+
+</Details>
 
 **The checks, as the user journey.** These are the brief's, in the order he would meet them.
 
@@ -233,7 +252,7 @@ Agents cannot run the mobile app: device access is off for this environment, and
     ["File menu, Source", "1", "The raw text shows; Preview returns to the document"],
     ["Tap Yes, go, then Back to chat", "2", "The option shows chosen; the chip is in the message box"],
     ["Remove the chip, reopen the document", "2", "The question shows unanswered"],
-    ["Answer again and send", "2", "The agent's turn shows the answer text web would send: Q: Build it as the pick above? → chose: \"Yes, go\" (the recommended option)"],
+    ["Answer again and send, on a brief that is really waiting for the answer", "2", "The chip in the sent message opens to the answer text web would send: Q: Build it as the pick above? → chose: \"Yes, go\" (the recommended option). The server writes what the agent reads from that record, the same as for web."],
     ["Open a recap with accept / reject items, tap a verdict", "2", "Same round trip as an answer"],
   ]}
 />
@@ -246,7 +265,7 @@ The brief's remaining check, a new block reaching the phone without a new APK, h
   density="compact"
   columns={["Risk", "How likely", "What the plan does"]}
   rows={[
-    { tone: "warning", cells: ["The served page does not load in the WebView on Carl's phone", "Unknown, leaning unlikely. The HTML failure he saw was a link to a path with no file; the server issues a link for the real file. But no page has been watched loading in that WebView.", "Step 7 of PR 1 turns it into a visible notice, not a blank screen. If it happens on the first try, switch to the fallback: pack the built page into the app and load it locally. The bridge is unchanged. The cost is a new APK per block change."] },
+    { tone: "warning", cells: ["The served page does not load in the WebView on Carl's phone", "Unknown, leaning unlikely. HTML files already load in that WebView from that origin by the code, and the one failure he saw was a link to a missing file.", "The thirty-second check before PR 1 (§6) tests it before any build. If it fails later anyway, step 7 of PR 1 shows a notice, not a blank screen. There is then no cheap switch. Packing the page into the app needs a build with a relative base, a config plugin to copy it into the Android assets (prebuild regenerates `android/`), and either file-URL access or a single-file build with the compile worker inlined. Whether module scripts and workers load from a local file in Android's WebView is unverified. Budget a day or more, and a new APK per block change after that. The bridge is unchanged."] },
     ["A wide block reads badly at 390 px", "Likely for design boards and annotated code", "Fix in the page, which needs no new APK. Check three real documents on the phone: the plan above, `recaps/issue-280-fan-in-deadlock-v2/recap.mdx`, `plans/agent-started-thread-cue-v2/plan.mdx`."],
     ["A multi-megabyte document is slow to hand to the page", "Low; typical plans are 25 to 70 KB", "Measure with the largest real document to hand. If slow, send the source in chunks; the contract allows another message."],
     ["The viewer bundle pulls app state in through block imports", "Possible via `blocks/image.tsx`", "Harmless at run time (the lint script and the preview harness import the same graph with no backend). Size is measured; lazy-load if large."],

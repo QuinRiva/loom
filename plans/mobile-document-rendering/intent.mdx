@@ -55,7 +55,7 @@ manager_sessions:
 **Approaches in play.**
 
 - **The web renderer, inside the app's built-in browser view.** The Loom server serves a small page holding only the document renderer. The app opens it in the embedded browser view it already uses for HTML files, and hands it the file's text. The page never signs in and fetches nothing private, so it works over every connection the app works over. Wins if it opens quickly over the tunnel and reads well at a phone's width. The picture above is the first evidence for the second. _My pick._
-- **The same renderer, packed inside the app instead of served.** Wins if serving it proves slow or unreliable away from home. It costs a new app build every time a block is added.
+- **The same renderer, packed inside the app instead of served.** Wins if serving it proves slow or unreliable away from home. It costs a new app build every time a block is added. It is also unbuilt: packing the page into the Android app is a day or more of its own work.
 - Dropped: **rebuilding the blocks as native app components.** About 40 block types and 11,700 lines of web code to mirror, then two renderers to keep in step for every block added. Wireframes, diagrams, prototypes and HTML figures are web content that would need the browser view regardless.
 - Dropped: **opening the whole Loom web app inside the phone app.** It needs its own sign-in inside the app, puts a desktop layout on a phone screen, and any answer would land in a second message box rather than the phone's.
 - Dropped: **the server flattens the document into a fixed HTML page.** No expanders, tabs or diagrams and no path to tapping answers later. The renderer lives in the web app, so the server would need its own build of it, and the saving over the pick is small.
@@ -124,7 +124,7 @@ Not in any option: asking a question on a section, which on web opens a side con
 
 **Still unknown.**
 
-- What your phone shows for a document, today and after. Agents have no device, so each PR is tried on your phone before it ships. The plan says what that asks of you.
-- Whether a page loads in the embedded browser view on your phone at all. Nobody has watched one. The first try of the reading PR settles it.
+- What your phone shows for a document, today and after. Agents have no device, so each PR is tried on your phone once your server is deployed. The plan says what that asks of you.
+- Whether a page loads in the embedded browser view on your phone at all. Nobody has watched one. Opening any `.html` file that exists, on the app you have now, settles it before anything is built.
 - Whether the widest blocks (design boards, annotated code, three cards across) read at a phone's width. The render above reads well apart from wide tables. Opening two or three real documents on the phone settles it.
 - How long the first open takes over the tunnel on mobile data. The renderer is roughly 1 MB to download once after each server update, then the phone keeps it. Measured on the first build; if it is too slow, the fallback is packing the renderer inside the app.
