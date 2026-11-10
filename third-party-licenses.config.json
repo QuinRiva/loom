@@ -828,6 +828,22 @@
     },
     {
       "license": "MIT",
+      "name": "@earendil-works/pi-schema",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/schema",
+      "generatedNotices": [
+        {
+          "licenseId": "MIT",
+          "copyrights": ["Copyright (c) Mario Zechner and the Earendil Works contributors"]
+        },
+        {
+          "licenseId": "MIT",
+          "preamble": ["Includes code from TypeBox."],
+          "copyrights": ["Copyright (c) 2017-2026 Haydn Paterson"]
+        }
+      ]
+    },
+    {
+      "license": "MIT",
       "name": "@earendil-works/pi-telemetry",
       "sourceUrl": "https://github.com/earendil-works/pi/tree/main/packages/telemetry",
       "generatedNotice": {

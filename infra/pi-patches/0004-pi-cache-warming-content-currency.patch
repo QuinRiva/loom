@@ -18,7 +18,7 @@
   * Create an AgentSession with the specified options.
   *
   * @example
-@@ -219,7 +230,7 @@
+@@ -218,7 +229,7 @@
              return (currentModel.provider === requestModel.provider &&
                  currentModel.id === requestModel.id &&
                  messages.length <= currentMessages.length &&

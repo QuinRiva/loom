@@ -71,8 +71,13 @@ function __loomResolveRpcCwdOverride(cwdOverride) {
 }
 `;
 
+/** A function rather than a constant: the default is an import from pi-ai's chunk, which an
+ * esbuild chunk cycle could leave uninitialised while this header runs. */
 const IDLE_HORIZON_HEADER = `
 // LOOM PATCH — see infra/pi-patches/README.md (0003 idle cache-warming horizon, PI_CACHE_WARMING_IDLE_MAX_MS).
+function __loomIdleWarmingMaxMs() {
+  return Number(process.env.PI_CACHE_WARMING_IDLE_MAX_MS) || CACHE_WARMING_MAX_IDLE_AGE_MS;
+}
 `;
 
 const CACHE_CURRENCY_HEADER = `
@@ -166,20 +171,26 @@ const TARGETS = [
   },
   {
     patch: "0003",
-    locator: "MAX_IDLE_WARMING_AGE_MS",
-    marker: "PI_CACHE_WARMING_IDLE_MAX_MS",
+    locator: "idle safety limit reached",
+    marker: "__loomIdleWarmingMaxMs",
     header: IDLE_HORIZON_HEADER,
     edits: [
       [
-        "0003 idle warming horizon reads PI_CACHE_WARMING_IDLE_MAX_MS",
-        /MAX_IDLE_WARMING_AGE_MS=30\*6e4/g,
-        "MAX_IDLE_WARMING_AGE_MS=Number(process.env.PI_CACHE_WARMING_IDLE_MAX_MS)||30*6e4",
+        "0003 idle deadline after the run settles reads the configured horizon",
+        /run\.startedAt\+CACHE_WARMING_MAX_IDLE_AGE_MS;/g,
+        "run.startedAt+__loomIdleWarmingMaxMs();",
+        1,
+      ],
+      [
+        "0003 idle deadline when scheduling a refresh reads the configured horizon",
+        /run\.phase==="idle"\?CACHE_WARMING_MAX_IDLE_AGE_MS:/g,
+        'run.phase==="idle"?__loomIdleWarmingMaxMs():',
         1,
       ],
       [
         "0003 idle safety-limit reason names the configured horizon",
         /"30-minute idle safety limit reached"/g,
-        "`${MAX_IDLE_WARMING_AGE_MS/6e4}-minute idle safety limit reached`",
+        "`${__loomIdleWarmingMaxMs()/6e4}-minute idle safety limit reached`",
         2,
       ],
     ],

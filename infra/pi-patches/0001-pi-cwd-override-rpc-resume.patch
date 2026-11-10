@@ -11,8 +11,8 @@
              result.models = args[++i]
                  .split(",")
 @@ -304,6 +307,8 @@
-   --session-id <id>              Use exact project session ID, creating it if missing
-   --fork <path|id>               Fork specific session file or partial UUID into a new session
+   --session-id <id>              Use the current directory's existing session with the ID, creating it otherwise
+   --fork <path|id>               Fork a session by file path or full/partial ID into the current directory
    --session-dir <dir>            Directory for session storage and lookup
 +  --cwd <dir>                    Working directory for a --session resume, instead of the
 +                                 session's recorded cwd (use when that directory is gone)
@@ -40,7 +40,7 @@
  import { createInterface } from "node:readline";
  import { modelsAreEqual } from "@earendil-works/pi-ai";
  import { setCapabilityOverrides } from "@earendil-works/pi-tui";
-@@ -262,9 +263,39 @@
+@@ -307,9 +308,39 @@
          process.exit(1);
      }
  }
@@ -82,7 +82,7 @@
      }
      catch (error) {
          const message = error instanceof Error ? error.message : String(error);
-@@ -282,7 +313,7 @@
+@@ -327,7 +358,7 @@
          process.exit(1);
      }
  }
@@ -91,7 +91,7 @@
      if (parsed.noSession || parsed.help || parsed.listModels !== undefined) {
          return SessionManager.inMemory(cwd, parsed.sessionId !== undefined ? { id: parsed.sessionId } : undefined);
      }
-@@ -307,6 +338,12 @@
+@@ -352,6 +383,12 @@
      }
      if (parsed.session) {
          const resolved = await resolveSessionPath(parsed.session, cwd, sessionDir);
@@ -104,7 +104,7 @@
          switch (resolved.type) {
              case "path":
              case "local":
-@@ -529,6 +566,7 @@
+@@ -583,6 +620,7 @@
      }
      validateForkFlags(parsed);
      validateSessionIdFlags(parsed);
@@ -112,7 +112,7 @@
      // Run migrations (pass cwd for project-local migrations)
      const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(cwd);
      time("runMigrations");
-@@ -552,7 +590,7 @@
+@@ -606,7 +644,7 @@
      const sessionDir = (parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined) ??
          (envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
          startupSettingsManager.getSessionDir();
@@ -149,7 +149,7 @@
  /**
   * Run in RPC mode.
   * Listens for JSON commands on stdin, outputs events and responses on stdout.
-@@ -472,7 +491,7 @@
+@@ -494,7 +513,7 @@
                  return success(id, "export_html", { path });
              }
              case "switch_session": {
