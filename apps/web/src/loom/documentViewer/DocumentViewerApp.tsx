@@ -8,12 +8,17 @@ import { useEffect, useState } from "react";
 
 import { MdxPlanRenderer } from "~/components/files/mdx-plan/MdxPlanRenderer";
 import { PlanDocumentContext } from "~/components/files/mdx-plan/planDocument";
+import { PlanQuestionAnswersContext } from "~/components/files/mdx-plan/questionAnswers";
+import { PlanReviewChoicesContext } from "~/components/files/mdx-plan/reviewChoices";
 import { setAppearanceMode } from "~/hooks/useTheme";
+
+import { useDocumentAnswers } from "./answers";
 
 /**
  * loom: the mobile app's document viewer. The app loads this page in its WebView and hands it
  * the document over the bridge; the page holds no credential and fetches nothing private. It
- * renders what web's file preview renders for an `.mdx`, without the annotation layer.
+ * renders what web's file preview renders for an `.mdx`, without the annotation layer; when the
+ * app opens it in a thread, question options and verdicts can be tapped (`./answers.ts`).
  */
 
 declare global {
@@ -64,6 +69,15 @@ export function DocumentViewerApp() {
   const [init, setInit] = useState<DocumentViewerInit | null>(null);
   const [answerable, setAnswerable] = useState(false);
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
+  const [present, setPresent] = useState<ReadonlySet<string>>(new Set());
+  const answers = useDocumentAnswers({
+    answers: init?.answers,
+    filePath: init?.filePath ?? "",
+    present,
+    setPresent,
+    upsert: (record) => send({ type: "comment-upsert", record }),
+    remove: (contextId) => send({ type: "comment-remove", contextId }),
+  });
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the bridge to the host app is a window message channel outside React
   useEffect(() => {
@@ -75,6 +89,9 @@ export function DocumentViewerApp() {
         token = message.token;
         setAppearanceMode(message.appearance);
         setInit(message);
+        setPresent(new Set(message.answers?.present));
+      } else if (message?.type === "answers-present") {
+        setPresent(new Set(message.present));
       } else if (message?.type === "image-url") {
         pendingImages.get(message.id)?.(message.url);
         pendingImages.delete(message.id);
@@ -90,13 +107,24 @@ export function DocumentViewerApp() {
   }, []);
 
   if (init === null) return null;
+  const rendered = (
+    <MdxPlanRenderer
+      source={init.source}
+      onSettled={(error) => {
+        setAnswerable(error === null && frame?.querySelector(ANSWERABLE_BLOCKS) != null);
+        send(
+          error === null ? { type: "rendered", ok: true } : { type: "rendered", ok: false, error },
+        );
+      }}
+    />
+  );
   return (
     // The phone is the whole viewport, so wide blocks bleed to it (as `lint-plan.mjs` does).
     <div
       ref={setFrame}
       className="min-h-dvh w-full min-w-0 bg-background text-foreground [--timeline-available-width:100vw]"
     >
-      {answerable ? (
+      {answerable && answers === null ? (
         <p className="mx-auto max-w-4xl px-6 pt-4 text-xs text-muted-foreground">
           Questions here are answered by replying in chat.
         </p>
@@ -104,17 +132,15 @@ export function DocumentViewerApp() {
       <PlanDocumentContext.Provider
         value={{ baseDir: init.baseDir, cwd: init.cwd, resolveImageUrl }}
       >
-        <MdxPlanRenderer
-          source={init.source}
-          onSettled={(error) => {
-            setAnswerable(error === null && frame?.querySelector(ANSWERABLE_BLOCKS) != null);
-            send(
-              error === null
-                ? { type: "rendered", ok: true }
-                : { type: "rendered", ok: false, error },
-            );
-          }}
-        />
+        {answers === null ? (
+          rendered
+        ) : (
+          <PlanQuestionAnswersContext.Provider value={answers.questionAnswers}>
+            <PlanReviewChoicesContext.Provider value={answers.reviewChoices}>
+              {rendered}
+            </PlanReviewChoicesContext.Provider>
+          </PlanQuestionAnswersContext.Provider>
+        )}
       </PlanDocumentContext.Provider>
     </div>
   );

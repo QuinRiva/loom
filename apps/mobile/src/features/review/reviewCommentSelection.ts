@@ -398,6 +398,7 @@ export function parseReviewInlineComments(
       record.kind !== "review-comment" ||
       "payload" in record ||
       record.sectionId.startsWith("pull-request:") ||
+      record.mdxAnchor !== undefined || // loom: a document answer belongs to no diff
       !referencedIds.has(record.contextId)
     ) {
       continue;

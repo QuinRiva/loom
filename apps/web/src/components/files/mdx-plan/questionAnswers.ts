@@ -1,4 +1,7 @@
+import type { PlanCommentAnchor } from "@t3tools/contracts";
 import { createContext } from "react";
+
+import type { MdxAnchorReviewCommentContext } from "~/reviewCommentContext";
 
 import type { PlanQuestion } from "./blocks/questionForm";
 
@@ -44,10 +47,7 @@ export const isQuestionAnswerCommentId = (id: string): boolean =>
   id.startsWith(QUESTION_COMMENT_PREFIX);
 
 /** The agent-facing answer prose ("Q: … → chose: …") carried as the comment text. */
-export function formatQuestionAnswerText(
-  question: PlanQuestion,
-  answer: PlanQuestionAnswer,
-): string {
+function formatQuestionAnswerText(question: PlanQuestion, answer: PlanQuestionAnswer): string {
   const labels = answer.selected.map((id) => {
     const option = question.options?.find((entry) => entry.id === id);
     return option
@@ -59,6 +59,39 @@ export function formatQuestionAnswerText(
     ...(answer.other.trim() ? [`wrote in: "${answer.other.trim()}"`] : []),
   ];
   return `Q: ${question.title} → ${parts.join("; ")}`;
+}
+
+/** The file name an answer's section falls back to when its block has no section. */
+export const planFileNameOf = (filePath: string): string => {
+  const normalized = filePath.replaceAll("\\", "/");
+  return normalized.slice(normalized.lastIndexOf("/") + 1) || filePath;
+};
+
+/**
+ * The review comment an answer rides in: one builder for web's annotation layer and the
+ * phone's document viewer, so the agent reads the same text from either client.
+ */
+export function questionAnswerComment(
+  filePath: string,
+  question: PlanQuestion,
+  answer: PlanQuestionAnswer,
+  anchor: PlanCommentAnchor = {
+    anchorKind: "visual",
+    targetKind: "control",
+    blockType: "question-form",
+  },
+): MdxAnchorReviewCommentContext {
+  return {
+    kind: "mdx-anchor",
+    id: questionAnswerCommentId(filePath, question.id),
+    filePath,
+    sectionId: anchor.sectionId ?? `file:${filePath}`,
+    sectionTitle: anchor.sectionTitle ?? planFileNameOf(filePath),
+    rangeLabel: `answer: ${question.id}`,
+    text: formatQuestionAnswerText(question, answer),
+    anchor,
+    quotedText: question.title,
+  };
 }
 
 /** Parse a persisted answer draft, degrading to unanswered on any malformation. */

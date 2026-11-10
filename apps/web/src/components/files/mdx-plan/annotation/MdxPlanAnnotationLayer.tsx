@@ -34,22 +34,23 @@ import { MdxPlanRenderer, PLAN_BLEED_ATTR } from "../MdxPlanRenderer";
 import { PlanEagerMountContext } from "../planEagerMount";
 import {
   EMPTY_QUESTION_ANSWER,
-  formatQuestionAnswerText,
   isEmptyQuestionAnswer,
   isQuestionAnswerCommentId,
   parseQuestionAnswerDraft,
+  planFileNameOf,
   PlanQuestionAnswersContext,
   type PlanQuestionAnswersApi,
+  questionAnswerComment,
   questionAnswerCommentId,
 } from "../questionAnswers";
 import {
   EMPTY_REVIEW_CHOICE,
-  formatReviewChoiceText,
   isEmptyReviewChoice,
   isReviewChoiceCommentId,
   parseReviewChoiceDraft,
   PlanReviewChoicesContext,
   type PlanReviewChoicesApi,
+  reviewChoiceComment,
   reviewChoiceCommentId,
 } from "../reviewChoices";
 import {
@@ -201,11 +202,6 @@ function toHostRect(rect: DOMRect, frame: HTMLIFrameElement | null): DOMRect {
   );
 }
 
-function fileNameOf(filePath: string): string {
-  const normalized = filePath.replaceAll("\\", "/");
-  return normalized.slice(normalized.lastIndexOf("/") + 1) || filePath;
-}
-
 function isMdxAnchorComment(
   comment: ReviewCommentContext,
   filePath: string,
@@ -322,22 +318,10 @@ export function MdxPlanAnnotationLayer({
       }
       setAnnotationDraft(draftKey, JSON.stringify(answer));
       const anchored = blockElement && root ? anchorForBlockElement(blockElement, root) : undefined;
-      const anchor: PlanCommentAnchor = anchored?.anchor ?? {
-        anchorKind: "visual",
-        targetKind: "control",
-        blockType: "question-form",
-      };
-      addReviewComment(composerDraftTarget, {
-        kind: "mdx-anchor",
-        id: commentId,
-        filePath,
-        sectionId: anchor.sectionId ?? `file:${filePath}`,
-        sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
-        rangeLabel: `answer: ${question.id}`,
-        text: formatQuestionAnswerText(question, answer),
-        anchor,
-        quotedText: question.title,
-      });
+      addReviewComment(
+        composerDraftTarget,
+        questionAnswerComment(filePath, question, answer, anchored?.anchor),
+      );
     },
   };
 
@@ -364,23 +348,10 @@ export function MdxPlanAnnotationLayer({
       }
       setAnnotationDraft(draftKey, JSON.stringify(choice));
       const anchored = blockElement && root ? anchorForBlockElement(blockElement, root) : undefined;
-      const anchor: PlanCommentAnchor = anchored?.anchor ?? {
-        anchorKind: "visual",
-        targetKind: "control",
-        blockType: "review-choice",
-      };
-      const label = item.label ?? item.itemId;
-      addReviewComment(composerDraftTarget, {
-        kind: "mdx-anchor",
-        id: commentId,
-        filePath,
-        sectionId: anchor.sectionId ?? `file:${filePath}`,
-        sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
-        rangeLabel: `review: ${item.itemId}`,
-        text: formatReviewChoiceText(label, choice),
-        anchor,
-        quotedText: label,
-      });
+      addReviewComment(
+        composerDraftTarget,
+        reviewChoiceComment(filePath, item, choice, anchored?.anchor),
+      );
     },
   };
 
@@ -848,11 +819,11 @@ export function MdxPlanAnnotationLayer({
     const anchor: PlanCommentAnchor = {
       ...composer.anchor,
       sectionId: composer.anchor.sectionId ?? `file:${filePath}`,
-      sectionTitle: composer.anchor.sectionTitle ?? fileNameOf(filePath),
+      sectionTitle: composer.anchor.sectionTitle ?? planFileNameOf(filePath),
     };
     const location = {
       sectionId: anchor.sectionId ?? `file:${filePath}`,
-      sectionTitle: anchor.sectionTitle ?? fileNameOf(filePath),
+      sectionTitle: anchor.sectionTitle ?? planFileNameOf(filePath),
       rangeLabel:
         composer.rangeLabel ??
         (anchor.anchorKind === "text"
@@ -1142,7 +1113,7 @@ export function MdxPlanAnnotationLayer({
           mode={composer.mode}
           queryLabel={query?.label ?? "Ask the author's fork"}
           queryDetail={query?.detail ?? null}
-          fileName={fileNameOf(filePath)}
+          fileName={planFileNameOf(filePath)}
           draftKey={composer.draftKey}
           top={composer.top}
           left={composer.left}

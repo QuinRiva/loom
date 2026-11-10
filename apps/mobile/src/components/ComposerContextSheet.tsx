@@ -251,7 +251,24 @@ export function ComposerContextSheet(props: {
                     value={`${record.pullRequest.title}\n${record.pullRequest.headBranch} → ${record.pullRequest.baseBranch}`}
                   />
                 ) : null}
-                {!record.sectionId.startsWith("pull-request:") ? (
+                {record.mdxAnchor ? (
+                  // loom: a document answer or comment has no diff; show what it says and where.
+                  <>
+                    <ContextField label="Document" value={record.filePath} code />
+                    <ContextField label="Section" value={record.sectionTitle} />
+                    <ContextField
+                      label={
+                        record.rangeLabel.startsWith("answer:")
+                          ? "Answer"
+                          : record.rangeLabel.startsWith("review:")
+                            ? "Verdict"
+                            : "Comment"
+                      }
+                      value={record.text}
+                    />
+                    <ContextField label="Quoted" value={record.mdxAnchor.quotedText} />
+                  </>
+                ) : !record.sectionId.startsWith("pull-request:") ? (
                   <>
                     <ReviewCommentCard
                       comment={{ ...record, id: record.contextId }}
