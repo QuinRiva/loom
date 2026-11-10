@@ -21,8 +21,13 @@ from pathlib import Path
 import yaml
 
 CATALOGUE = Path(__file__).resolve().parent.parent / "signals.yaml"
-CONTROL = "[T3 Workstream control plane"
-AGENT_LABEL = re.compile(r"^\[(?:From your parent|From another agent|Brief from another agent|Automated resume|Sent by automation|Scheduled task)")
+CONTROL = ("[T3 Workstream control plane", "[T3 Code control plane")  # the second: RerouteSweep.ts resumes, older retries
+AGENT_LABEL = re.compile(r"^\[(?:From your parent|From another agent|Brief from another agent|Automated resume|Sent by automation|Scheduled[- ]task)")
+# An agent's relay, delivered bare as a user turn (render.ts composeNotifyFramedText; consult.ts for a consult fork).
+NOTIFY = re.compile(r"(?:Notification|Consult) from (.+?), (?:sent )?via \S*(?:notify|consult)_thread[:.]")
+# The loom server's pi prompt templates (CATCHUP_TEMPLATE_PATH): pi records only the expansion, never the slash command.
+PROMPTS = Path(__file__).resolve().parents[3] / "prompts"
+PLACEHOLDER = re.compile(r"\$\{@(?::-([^}]*))?[^}]*\}|\$@|\$ARGUMENTS|\$\d+")
 # In a child, only labelled turns are the human's: older briefs and steers carry no agent label.
 HUMAN_LABEL = re.compile(r"^\[(?:From the human|Review comment|assistant-quote|Slack reply|User attached)")
 NOTICE_KINDS = [("digest", "FYI digest"), ("yield", "YIELDED to you"), ("quiet", "went quiet"), ("wedged", "looks wedged"),
@@ -45,10 +50,13 @@ def text_of(blocks):
 
 
 def _review_comment(block):
-    """One review-comment context → one line: the passage, its section and the human's comment."""
+    """One review-comment context → one line: the passage, its section and the human's comment. A comment promoted
+    from a query thread is worded by the query thread's agent (document_query_promote), so it is marked as such."""
     f = lambda k: (re.search(rf"^{k}:(?:\n((?:  .*\n?)+)| (.*))", block, re.M) or [None, "", ""])
     field = lambda k: " ".join(x.strip() for x in (f(k)[1] or f(k)[2] or "").splitlines()).strip()
-    return f"[review of \u201c{field('quoted passage')}\u201d ({field('section')}): {field('comment')}]"
+    promoted = " PROMOTED FROM A QUERY THREAD: an agent's summary of the human's discussion there, not the human's wording" \
+        if "promoted from a query thread" in block else ""
+    return f"[review of \u201c{field('quoted passage')}\u201d ({field('section')}){promoted}: {field('comment')}]"
 
 
 def _citations(block):
@@ -68,13 +76,75 @@ def clean_human(text):
     text = re.sub(r"(?:\[Review comment: [^\]]*\] ?){2,}", lambda m: f"[{m.group(0).count('[Review comment')} review comments:]", text)
     text = re.sub(r'<context kind="review-comment"[^>]*>\n?(.*?)</context>\n?', lambda m: _review_comment(m.group(1)) + "\n", text, flags=re.S)
     text = re.sub(r"<assistant_citations>\n(?:The following citations[^\n]*\n)?(\[.*?\])\n</assistant_citations>", lambda m: _citations(m.group(1)), text, flags=re.S)
-    return re.sub(r"\n*<t3_context version=\"1\">\s*</t3_context>", "", text).strip()
+    return re.sub(r"\s*<t3_context version=\"1\">\s*", "\n", re.sub(r"\s*</t3_context>", "", text)).strip()
 
 
-def user_kind(text, root):
+@functools.cache
+def templates():
+    """(command, literal text before its first argument, literal text after it, the argument's default) per template."""
+    out = []
+    for p in sorted(PROMPTS.glob("*.md")):
+        body = re.sub(r"\A---\n.*?\n---\n", "", p.read_text(), flags=re.S).strip()
+        m = PLACEHOLDER.search(body)
+        nxt = m and PLACEHOLDER.search(body, m.end())
+        out.append((p.stem, body[:m.start()] if m else body, body[m.end():nxt.start() if nxt else None][:80] if m else "", m and m.group(1)))
+    return out
+
+
+def command_of(text):
+    """(command, argument) when text is a prompt template's expansion: the human's slash command, not their words."""
+    for name, head, tail, default in templates():
+        if len(head) >= 40 and text.startswith(head):
+            arg = text[len(head):].split(tail, 1)[0].strip() if tail else ""
+            return name, "" if arg == default else arg
+    return None
+
+
+def answered(text, asked):
+    """[(header, question, answer)] when text answers an open ask_user_question asked earlier in the session: the
+    server sends each answered question's text, a newline and the answer, joined by blank lines (Orchestrator.ts)."""
+    body = text.removeprefix("[From the human]\n\n")
+    for qs in reversed(asked):
+        ms = sorted((m.start(), m.end(), h, q) for h, q in qs if q and (m := re.search(r"(?:\A|\n\n)" + re.escape(q) + r"\n", body)))
+        if ms and ms[0][0] == 0:
+            return [(h, q, body[e:ms[i + 1][0] if i + 1 < len(ms) else None].strip()) for i, (_, e, h, q) in enumerate(ms)]
+    return None
+
+
+def user_kind(text, root, asked=()):
+    """control | notify (an agent's relay) | agent | human, or, for the human's turns the platform composed, answer (the
+    agent's question with the human's answer) and command (a prompt template's expansion). Unclear stays human."""
     if text.startswith(CONTROL):
         return "control"
-    return "human" if HUMAN_LABEL.match(text) or (root and not AGENT_LABEL.match(text)) else "agent"
+    if NOTIFY.match(text):
+        return "notify"
+    if command_of(text):
+        return "command"
+    if not (HUMAN_LABEL.match(text) or (root and not AGENT_LABEL.match(text))):
+        return "agent"
+    return "answer" if answered(text, asked) else "human"
+
+
+HUMAN_KINDS = {"human": "", "answer": "answer to an agent's question", "command": "slash command"}
+
+
+def human_text(kind, text, asked):
+    """A human turn as the reviewer reads it: the human's words verbatim, and what they did not type marked or collapsed."""
+    if kind == "command":
+        name, arg = command_of(text)
+        return f"[/{name}" + (f" {arg}" if arg else "") + f": its {len(text):,}-character template is not shown]"
+    if kind == "answer":
+        return "\n\n".join(f"[the agent asked \u201c{h}\u201d: \u201c{one_line(q, 200)}\u2026\u201d; the human answered:]\n{clean_human(a)}"
+                           for h, q, a in answered(text, asked))
+    return clean_human(text)
+
+
+def notification(text, label):
+    """An agent's relay → (sender, its message without the platform's framing and footer)."""
+    who = NOTIFY.match(text).group(1)
+    sid, title = re.search(r"thread:[\w:-]+", who), re.search(r"\u00ab(.*?)\u00bb", who)
+    sender = label.get(sid and sid.group(0)) or (f"\u00ab{title.group(1)}\u00bb (outside this tree)" if title else who)
+    return sender, text.split("\n\n", 1)[-1].rsplit("\n\nNo reply is owed.", 1)[0]
 
 
 def notice_kind(text):
@@ -85,7 +155,7 @@ def parse_session(path, root):
     """One pass over a pi session jsonl; everything later sections need. Of tool results it keeps errors in full and,
     per call, a short record (exit code, first 300 characters, which guard fired) for the trace checks."""
     s = dict(turns=0, calls=0, cost=0.0, ctx=0, image=0, tools=set(), errors=[], users=[], texts=[], events=[],
-             spawned={}, results={}, first=None, last=None, start=None, cwd=None, model=None)
+             spawned={}, results={}, asked=[], first=None, last=None, start=None, cwd=None, model=None)
     seen = Counter()
     for line in open(path, encoding="utf-8"):
         e = json.loads(line)
@@ -109,7 +179,7 @@ def parse_session(path, root):
             s["tools"] -= {t["name"] for t in m.get("toolsRemoved") or []}
         elif role == "user":
             text = text_of(blocks)
-            s["users"].append((user_kind(text, root), ts, text))
+            s["users"].append((user_kind(text, root, s["asked"]), ts, text))
             s["events"].append(("user", ts, text))
         elif role == "assistant":
             s["turns"] += 1
@@ -125,6 +195,9 @@ def parse_session(path, root):
                     s["events"].append(("assistant", ts, b["text"]))
                 elif b.get("type") == "toolCall":
                     s["calls"] += 1
+                    if (b.get("name") or "").endswith("ask_user_question") and isinstance(b.get("arguments"), dict):
+                        s["asked"].append([(q.get("header") or "", (q.get("question") or "").strip())
+                                           for q in b["arguments"].get("questions") or [] if isinstance(q, dict)])
                     seen[(b.get("name"), json.dumps(b.get("arguments"), sort_keys=True))] += 1
                     s["events"].append(("call", ts, (b.get("name") or "", b.get("arguments"), b.get("id"))))
         elif role == "toolResult":
@@ -669,11 +742,20 @@ def scan(manifest, out):
 
     L += ["", "## Human messages", ""]
     for t in scanned:
-        msgs = [(ts, clean_human(text)) for kind, ts, text in t["s"]["users"] if kind == "human"]
+        msgs = [(kind, ts, text) for kind, ts, text in t["s"]["users"] if kind in HUMAN_KINDS]
         if msgs:
-            L += [f"### {label[t['id']]} — {len(msgs)} message(s)", ""]
-            for ts, text in msgs:
-                L += [f"**{ts}**", "", *[f"> {l}" if l else ">" for l in text.splitlines()], ""]
+            n = Counter(k for k, *_ in msgs)
+            L += [f"### {label[t['id']]} — {len(msgs)} message(s)" + "".join(f", {n[k]} {w}" for k, w in (("answer", "answering an agent's question"), ("command", "slash command(s)")) if n[k]), ""]
+            for kind, ts, text in msgs:
+                tag = HUMAN_KINDS[kind] or ("has a review comment an agent worded" if "promoted from a query thread" in text else "")
+                L += [f"**{ts}**" + (f" · {tag}" if tag else ""), "",
+                      *[f"> {l}" if l else ">" for l in human_text(kind, text, t["s"]["asked"]).splitlines()], ""]
+
+    L += ["## Agent notifications", "",
+          "_Relays an agent sent with notify_thread: delivered as user turns, written by the sender. Sender → receiver, then the start of the message._", ""]
+    notes = sorted((ts or "", *notification(text, label), label[t["id"]]) for t in scanned for kind, ts, text in t["s"]["users"] if kind == "notify")
+    L += [f"- {ts} {sender} → {to}: “{one_line(body, 200)}”" for ts, sender, body, to in notes] or ["- none"]
+    L += [""]
 
     L += ["## Control-plane notices", ""]
     digests = Counter(t["id"] for t, nk, *_ in notices if nk == "digest")
@@ -715,7 +797,8 @@ def scan(manifest, out):
         "source": src, "focus": manifest.get("focus"),
         "threads": [{"id": t["id"], "n": t["n"], "role": t["role"], "title": t.get("title"), "flags": flags.get(t["id"], []),
                      **({k: t["s"][k] for k in ("turns", "calls", "repeated", "cost", "ctx", "image", "first", "last")} |
-                        {"errors": len(t["s"]["errors"]), "tools": sorted(t["s"]["tools"])} if t["s"] else {"launched": False})}
+                        {"errors": len(t["s"]["errors"]), "tools": sorted(t["s"]["tools"]),
+                         "userTurns": dict(Counter(k for k, *_ in t["s"]["users"]))} if t["s"] else {"launched": False})}
                     for t in threads],
         "signals": {s["id"]: {"kind": s["kind"], "scope": s["scope"], "hits": sum(hits[s["id"]].values()),
                               "threads": dict(hits[s["id"]])} for s in catalogue},
@@ -757,6 +840,7 @@ def extract(manifest, tid, out, briefs=""):
     full = set(num.values()) if briefs == "all" else {int(n) for n in briefs.split(",") if n.strip()}
     by_title = {x.get("title"): x["id"] for x in threads}
     keys = {}  # scaffold node key → thread id, as the results arrive
+    users = iter(s["users"])  # one per user event, in order: the classification parse_session made with the asks before it
     L = [f"# Extract: {t.get('title')}", "", f"`{t['id']}` · {t.get('role') or 'orchestrator'} · {t.get('model')} · session `{t['sessionPath']}`", ""]
     pending = Counter()
 
@@ -805,9 +889,13 @@ def extract(manifest, tid, out, briefs=""):
             continue
         flush()
         if kind == "user":
-            who = user_kind(x, t.get("parentId") is None)
-            L += [f"## {ts} — {'HUMAN' if who == 'human' else 'CONTROL NOTICE' if who == 'control' else 'AGENT MESSAGE'}", "",
-                  clean_human(x) if who == "human" else collapse_digest(x, label) if who == "control" and notice_kind(x) == "digest" else relabel(x, label) if who == "control" else x, ""]
+            who = next(users)[0]
+            sender, body = notification(x, label) if who == "notify" else (None, None)
+            head = {"human": "HUMAN", "answer": "HUMAN ANSWER to an agent's question", "command": "HUMAN SLASH COMMAND",
+                    "control": "CONTROL NOTICE", "notify": f"AGENT NOTIFICATION from {sender}"}.get(who, "AGENT MESSAGE")
+            L += [f"## {ts} — {head}", "",
+                  human_text(who, x, s["asked"]) if who in HUMAN_KINDS else relabel(body, label) if who == "notify" else
+                  collapse_digest(x, label) if who == "control" and notice_kind(x) == "digest" else relabel(x, label) if who == "control" else x, ""]
         elif kind == "thinking":
             L += [f"_thinking {ts}_", "", *[f"> {l}" if l else ">" for l in x.strip().splitlines()], ""]
         elif kind == "assistant":
