@@ -1,7 +1,6 @@
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 import {
   lookUpUnanchoredFile,
-  unanchoredCandidatePaths,
   type UnanchoredLookupResult,
 } from "@t3tools/client-runtime/unanchored-file-references";
 import type { EnvironmentId } from "@t3tools/contracts";
@@ -14,7 +13,7 @@ import { MOBILE_MOTION } from "../../lib/designTokens";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { projectEnvironment } from "../../state/projects";
 import { basename } from "../files/filePath";
-import { messageDirectoryBases, type UnanchoredFileLink } from "./messageFileLinks.loom";
+import { messageFileCandidates, type UnanchoredFileLink } from "./messageFileLinks.loom";
 
 /**
  * The shared lookup order run once for a tap: the root, the message's folders, then the index's
@@ -35,13 +34,7 @@ export async function lookUpMessageFile(input: {
   };
   let rootIsDirectory = false;
   const result = await lookUpUnanchoredFile({
-    candidates: unanchoredCandidatePaths(
-      input.link.rootPath,
-      input.link.reference,
-      input.markdown === undefined
-        ? []
-        : messageDirectoryBases(input.markdown, input.workspaceRoot),
-    ),
+    candidates: messageFileCandidates(input.link, input.markdown, input.workspaceRoot),
     reference: input.link.reference,
     stat: async (path) => {
       const result = await executeAtomQuery(
@@ -82,6 +75,7 @@ const NOT_FOUND_DISMISS_MS = 5_000;
 export function createLinkLookupFeedback() {
   let feedback: LookupFeedback = IDLE;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let lookup: AbortController | null = null;
   const listeners = new Set<() => void>();
   const set = (
     next: LookupFeedback,
@@ -100,10 +94,13 @@ export function createLinkLookupFeedback() {
     },
     get: () => feedback,
     /** Shows a busy notice if the lookup outlasts a short delay; an abort clears it. */
-    pending: (reference: string, signal: AbortSignal) => {
+    pending: (reference: string, request: AbortController) => {
+      lookup = request;
       set(IDLE, { ms: PENDING_DELAY_MS, next: { kind: "pending", reference } });
-      signal.addEventListener("abort", () => set(IDLE), { once: true });
+      request.signal.addEventListener("abort", () => set(IDLE), { once: true });
     },
+    /** The way out of a stalled lookup: drop the tap, open nothing. */
+    cancel: () => lookup?.abort(),
     settle: () => set(IDLE),
     notFound: (reference: string) =>
       set({ kind: "not-found", reference }, { ms: NOT_FOUND_DISMISS_MS, next: IDLE }),
@@ -129,7 +126,11 @@ export function LinkLookupFeedbackOverlay(props: { readonly feedback: LinkLookup
       pointerEvents="box-none"
     >
       {feedback.kind === "pending" ? (
-        <Toast message={`Looking for ${basename(feedback.reference)}`} busy />
+        <Toast
+          message={`Looking for ${basename(feedback.reference)}`}
+          busy
+          onDismiss={props.feedback.cancel}
+        />
       ) : (
         <Toast
           message="File not found"

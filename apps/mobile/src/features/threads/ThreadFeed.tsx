@@ -2901,7 +2901,7 @@ export const ThreadFeed = memo(function ThreadFeed({
       openMarkdownLink(href, imageEmbed, request);
       return;
     }
-    linkLookupFeedback.pending(link.reference, request.signal);
+    linkLookupFeedback.pending(link.reference, request);
     void lookUpMessageFile({
       environmentId: props.environmentId,
       workspaceRoot: props.workspaceRoot,

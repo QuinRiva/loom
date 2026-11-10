@@ -1,6 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { messageDirectoryBases, unanchoredFileLink } from "./messageFileLinks.loom";
+import {
+  messageDirectoryBases,
+  messageFileCandidates,
+  unanchoredFileLink,
+} from "./messageFileLinks.loom";
 
 const ROOT = "/home/carl/wt";
 
@@ -36,6 +40,18 @@ describe("messageDirectoryBases", () => {
       "/home/carl/wt/workbench/study",
       `${ROOT}/local`,
       "/home/carl/out",
+    ]);
+  });
+});
+
+describe("messageFileCandidates", () => {
+  it("tries the root, the path without a repeated project prefix, then named folders", () => {
+    const root = "/repo/apps/web";
+    const link = unanchoredFileLink("apps/web/src/x.ts", root)!;
+    expect(messageFileCandidates(link, "See `/repo/other/`.", root)).toEqual([
+      "/repo/apps/web/apps/web/src/x.ts",
+      "/repo/apps/web/src/x.ts",
+      "/repo/other/apps/web/src/x.ts",
     ]);
   });
 });

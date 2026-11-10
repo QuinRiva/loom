@@ -40,6 +40,16 @@ describe("lookUpUnanchoredFile", () => {
     expect(await lookUp({ [indexed]: FILE }, indexed)).toEqual({ _tag: "Found", path: indexed });
   });
 
+  it("opens a confirmed candidate without waiting on an index that is still scanning", async () => {
+    const result = await lookUpUnanchoredFile({
+      candidates: [`${ROOT}/${REFERENCE}`],
+      reference: REFERENCE,
+      stat: async () => FILE,
+      locate: () => new Promise(() => {}),
+    });
+    expect(result).toEqual({ _tag: "Found", path: `${ROOT}/${REFERENCE}` });
+  });
+
   it("does not open a directory in place of a file", async () => {
     expect(await lookUp({ [`${ROOT}/${REFERENCE}`]: DIRECTORY }, null)).toEqual({
       _tag: "NotFound",

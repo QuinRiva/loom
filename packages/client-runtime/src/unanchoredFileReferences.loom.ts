@@ -72,9 +72,10 @@ export type UnanchoredLookupResult =
   | { readonly _tag: "Unverified" };
 
 /**
- * {@link selectUnanchoredPath} run once, for a tap: every candidate stat and the index lookup go
- * out together, then the index's match is stat'd so a file deleted since it was indexed is not
- * opened. `stat` and `locate` resolve undefined when they could not answer.
+ * {@link selectUnanchoredPath} run once, for a tap. Every candidate stat and the index lookup go
+ * out together, but the answer comes as soon as it is settled: a confirmed candidate opens without
+ * waiting on the index, which may still be scanning. The index's match is stat'd so a file deleted
+ * since it was indexed is not opened. `stat` and `locate` resolve undefined when they could not answer.
  */
 export async function lookUpUnanchoredFile(input: {
   readonly candidates: readonly string[];
@@ -82,16 +83,24 @@ export async function lookUpUnanchoredFile(input: {
   readonly stat: (path: string) => Promise<PathExistence | undefined>;
   readonly locate: (reference: string) => Promise<string | null | undefined>;
 }): Promise<UnanchoredLookupResult> {
+  const settle = <A>(promise: Promise<A>) => promise.catch(() => undefined);
+  const stats = input.candidates.map((path) => settle(input.stat(path)));
+  const locating = settle(input.locate(input.reference));
   const existence = new Map<string, PathExistence | undefined>();
-  const [, located] = await Promise.all([
-    Promise.all(input.candidates.map(async (path) => existence.set(path, await input.stat(path)))),
-    input.locate(input.reference),
-  ]);
-  if (located && !existence.has(located)) existence.set(located, await input.stat(located));
   const lookupExistence = (path: string) => existence.get(path);
+  for (const [index, candidate] of input.candidates.entries()) {
+    existence.set(candidate, await stats[index]);
+    if (existence.get(candidate) === undefined) return { _tag: "Unverified" };
+    const path = selectUnanchoredPath({
+      candidates: input.candidates,
+      lookupExistence,
+      located: null,
+    });
+    if (path !== null) return { _tag: "Found", path };
+  }
+  const located = await locating;
+  if (located === undefined) return { _tag: "Unverified" };
+  if (located && !existence.has(located)) existence.set(located, await settle(input.stat(located)));
   const path = selectUnanchoredPath({ candidates: input.candidates, lookupExistence, located });
-  if (path !== null) return { _tag: "Found", path };
-  const unverified =
-    located === undefined || input.candidates.some((path) => existence.get(path) === undefined);
-  return unverified ? { _tag: "Unverified" } : { _tag: "NotFound" };
+  return path === null ? { _tag: "NotFound" } : { _tag: "Found", path };
 }

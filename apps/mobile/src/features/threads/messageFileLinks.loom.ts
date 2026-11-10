@@ -1,8 +1,13 @@
 import {
   directoryBasesFromPaths,
   isAnchoredFileReference,
+  unanchoredCandidatePaths,
 } from "@t3tools/client-runtime/unanchored-file-references";
+import { stripRepeatedWorkspacePrefix } from "@t3tools/client-runtime/workspace-basename-lookup";
+import { renderCodexInlineDirectivesAsMarkdown } from "@t3tools/shared/codexMarkdownDirectives";
 import {
+  extractInlineCodeSpans,
+  extractMarkdownLinkHrefs,
   inlineCodeFilePathCandidate,
   normalizeMarkdownLinkDestination,
 } from "@t3tools/shared/markdownLinks";
@@ -35,20 +40,12 @@ export function unanchoredFileLink(
   };
 }
 
-const FENCED_BLOCK = /^(```|~~~)[\s\S]*?^\1/gm;
-const INLINE_CODE = /`([^`\n]+)`/g;
-const LINK_DESTINATION = /\]\(\s*(<[^>\n]+>|[^)\s]+)/g;
-
-/** The folders a message names with a trailing separator, as web collects them. */
+/** The folders a message names with a trailing separator, collected as web collects them. */
 export function messageDirectoryBases(markdown: string, workspaceRoot: string): string[] {
-  const prose = markdown.replace(FENCED_BLOCK, "");
   const targets = [
-    ...[...prose.matchAll(INLINE_CODE)].flatMap(([, span]) => {
-      const candidate = inlineCodeFilePathCandidate(span!);
-      return candidate === null ? [] : [candidate];
-    }),
-    ...[...prose.matchAll(LINK_DESTINATION)].map(([, destination]) =>
-      normalizeMarkdownLinkDestination(destination!),
+    ...extractInlineCodeSpans(markdown).flatMap((span) => inlineCodeFilePathCandidate(span) ?? []),
+    ...extractMarkdownLinkHrefs(renderCodexInlineDirectivesAsMarkdown(markdown)).map(
+      normalizeMarkdownLinkDestination,
     ),
   ];
   return directoryBasesFromPaths(
@@ -58,4 +55,29 @@ export function messageDirectoryBases(markdown: string, workspaceRoot: string): 
       return resolved === null ? [] : [`${resolveWorkspaceFilePath(workspaceRoot, resolved)}/`];
     }),
   );
+}
+
+/**
+ * Stat candidates for a tap, in the shared order. A path that repeats a subfolder project's own
+ * prefix (`apps/web/src/x.ts` in a project rooted at `apps/web`) is also tried without it, as web
+ * does when it opens a markdown link.
+ */
+export function messageFileCandidates(
+  link: UnanchoredFileLink,
+  markdown: string | undefined,
+  workspaceRoot: string,
+): string[] {
+  const stripped = stripRepeatedWorkspacePrefix(link.reference, workspaceRoot);
+  const [root, ...named] = unanchoredCandidatePaths(
+    link.rootPath,
+    link.reference,
+    markdown === undefined ? [] : messageDirectoryBases(markdown, workspaceRoot),
+  );
+  return [
+    ...new Set([
+      root!,
+      ...(stripped === null ? [] : [resolveWorkspaceFilePath(workspaceRoot, stripped)]),
+      ...named,
+    ]),
+  ];
 }
