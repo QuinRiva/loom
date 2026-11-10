@@ -40,6 +40,7 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import { ThreadRouteScreen } from "../threads/ThreadRouteScreen";
 import { FilePreviewLoading, FilePreviewNotice } from "./FilePreviewFeedback";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
+import { MdxDocumentView } from "./MdxDocumentView.loom"; // loom
 import { FileTreeBrowser } from "./FileTreeBrowser";
 import { useFileTreeEntries } from "./useFileTreeEntries";
 import { preloadWorkspaceFileContents } from "./preload-workspace-file";
@@ -59,9 +60,11 @@ import {
   resolveWorkspaceRelativeFilePath,
   isAudioPreviewFile,
   isMarkdownPreviewFile,
+  isMdxDocumentFile, // loom
   isSvgImagePreviewFile,
   isVideoPreviewFile,
   needsWorkspaceFileContents,
+  workspaceFileReadInput, // loom
 } from "./filePath";
 import { useWorkspaceFileAssetUrlState } from "./workspaceFileAssetUrl";
 
@@ -216,12 +219,15 @@ function FileContent(props: {
   readonly fromRelativeLink: boolean; // loom
   readonly truncated: boolean;
   readonly onRefresh?: () => Promise<void> | void;
+  readonly onViewSource: () => void; // loom
 }) {
   // Reopening a mutable host file must not reuse a poster from an earlier visit.
   const thumbnailInstanceId = useId();
   const barOverlap = useContentTopInset();
   const reservedHeaderInset = props.truncated ? barOverlap : 0;
-  const isMarkdown = isMarkdownPreviewFile(props.relativePath);
+  // loom: never an `.mdx` - the flattened markdown view drops its blocks.
+  const isMarkdown =
+    isMarkdownPreviewFile(props.relativePath) && !isMdxDocumentFile(props.relativePath);
   const delimiter = filePreviewDelimiter({ name: props.relativePath });
   const isBrowserFile = isWorkspaceBrowserPreviewPath(props.relativePath);
   const isImageFile = isWorkspaceImagePreviewPath(props.relativePath);
@@ -293,11 +299,25 @@ function FileContent(props: {
     return <FilePreviewLoading message="Loading file..." />;
   }
 
+  // loom: an `.mdx` is drawn by web's renderer; one cut short would compile wrong, so it shows as source.
+  if (props.activeMode === "preview" && isMdxDocumentFile(props.relativePath) && !props.truncated) {
+    return (
+      <MdxDocumentView
+        environmentId={props.environmentId}
+        source={props.fileContents}
+        filePath={props.relativePath}
+        workspace={{ cwd: props.cwd, threadId: props.threadId }}
+        onViewSource={props.onViewSource}
+      />
+    );
+  }
+
   return (
     <View className="flex-1 bg-sheet" style={{ paddingTop: reservedHeaderInset }}>
       {props.truncated ? (
         <FilePreviewNotice title="Partial file">
-          Preview limited to the first 1 MB of a truncated file.
+          {/* loom: an `.mdx` reads up to 8 MB */}
+          {`Preview limited to the first ${isMdxDocumentFile(props.relativePath) ? 8 : 1} MB of a truncated file.`}
         </FilePreviewNotice>
       ) : null}
       {props.activeMode === "preview" && delimiter ? (
@@ -711,7 +731,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
       needsFileContents
       ? projectEnvironment.readFile({
           environmentId,
-          input: { cwd, relativePath },
+          input: workspaceFileReadInput(cwd, relativePath), // loom: .mdx reads web's document budget
         })
       : null,
   );
@@ -873,13 +893,18 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
           } as const)
         : null,
       resolvedActiveMode === "preview" &&
-      (isBrowserFile || isImageFile || isVideoFile || isAudioFile)
+      (isBrowserFile ||
+        isImageFile ||
+        isVideoFile ||
+        isAudioFile ||
+        isMdxDocumentFile(relativePath)) // loom: .mdx
         ? ({
             id: "refresh",
             title: "Refresh",
             icon: "arrow.clockwise",
             inline: false,
             onPress: async () => {
+              if (isMdxDocumentFile(relativePath)) return fileQuery.refresh(); // loom: re-read the text
               if (isVideoFile || isAudioFile) await assetPreview.refresh();
               setPreviewRevision((current) => current + 1);
             },
@@ -1015,6 +1040,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
           threadId={threadId}
           truncated={fileData?.truncated ?? false}
           onRefresh={() => fileQuery.refresh()}
+          onViewSource={() => setModeOverride({ path: relativePath, mode: "source" })} // loom
         />
       </ScreenContent>
       <FilePreviewModal

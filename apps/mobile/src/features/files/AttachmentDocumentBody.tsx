@@ -7,6 +7,8 @@ import { HtmlRenderWebView } from "../threads/HtmlRenderWebView";
 import { AudioFilePreview } from "./AudioFilePreview";
 import { DelimitedFilePreview } from "./DelimitedFilePreview";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
+import { isMdxDocumentFile } from "./filePath"; // loom
+import { MdxDocumentView } from "./MdxDocumentView.loom"; // loom
 import { FilePreviewLoading, FilePreviewNotice } from "./FilePreviewFeedback";
 import { SourceFileSurface } from "./SourceFileSurface";
 import { WorkspaceFileWebPreview } from "./WorkspaceFileWebPreview";
@@ -37,6 +39,7 @@ export function AttachmentDocumentBody(props: {
   readonly nativeViewer: "pending" | "open" | "unavailable" | null;
   readonly nativeError: string | null;
   readonly onOpenNative: () => void;
+  readonly onViewSource: () => void; // loom: the document view's fallback
 }) {
   const { document } = props;
   if (document.error) {
@@ -69,7 +72,21 @@ export function AttachmentDocumentBody(props: {
         ) : null}
         {table && document.activeMode === "table" ? (
           <DelimitedFilePreview table={table} />
-        ) : document.activeMode === "markdown" && props.environmentId ? (
+        ) : document.activeMode === "markdown" &&
+          props.environmentId &&
+          isMdxDocumentFile(props.name) &&
+          !content.truncated ? (
+          // loom: an attached `.mdx` is drawn by web's renderer; it has no workspace to sign images in.
+          <MdxDocumentView
+            environmentId={props.environmentId}
+            source={content.text}
+            filePath={props.name}
+            workspace={null}
+            onViewSource={props.onViewSource}
+          />
+        ) : document.activeMode === "markdown" &&
+          props.environmentId &&
+          !isMdxDocumentFile(props.name) /* loom: a cut-short `.mdx` shows as source */ ? (
           <FileMarkdownPreview
             cwd=""
             relativePath=""

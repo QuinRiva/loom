@@ -1,4 +1,4 @@
-import { useContext, useState, type ReactNode } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { z } from "zod";
 
 import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
@@ -57,6 +57,52 @@ function fileUrl(path: string): string {
   return `file://${encodeURI(path.replace(/\\/g, "/"))}`;
 }
 
+function ImageUnavailable({ children }: { children: ReactNode }) {
+  return (
+    <span className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
+/** An image whose URL the host signs on request (the mobile document viewer). */
+function RequestedImage({
+  path,
+  src,
+  alt,
+  copyMarkdown,
+  resolveImageUrl,
+}: {
+  path: string;
+  src: string;
+  alt: string;
+  copyMarkdown: string;
+  resolveImageUrl: (absolutePath: string) => Promise<string | null>;
+}) {
+  const [url, setUrl] = useState<string | null | undefined>(undefined);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- asks the host app to sign the image path, an async request outside React
+  useEffect(() => {
+    let active = true;
+    void resolveImageUrl(path).then((next) => {
+      if (active) setUrl(next);
+    });
+    return () => {
+      active = false;
+    };
+  }, [path, resolveImageUrl]);
+  if (url === null) return <ImageUnavailable>Image “{src}” could not be loaded.</ImageUnavailable>;
+  return url === undefined ? (
+    <span className="block h-40 w-full rounded-lg border border-border bg-muted/30" />
+  ) : (
+    <img
+      src={url}
+      alt={alt}
+      data-markdown-copy={copyMarkdown}
+      className="max-h-[30rem] max-w-full rounded-lg border border-border"
+    />
+  );
+}
+
 /**
  * The picture itself plus the resolved host path for the caller to stamp. Shared
  * by the `<Image>` block and the markdown `img` mapping so both resolve, sign,
@@ -83,9 +129,24 @@ function usePlanImage(
   if (source._tag === "Blocked") {
     return {
       picture: (
-        <span className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+        <ImageUnavailable>
           Image “{src}” could not be resolved. Write the path relative to this document.
-        </span>
+        </ImageUnavailable>
+      ),
+    };
+  }
+  if (source._tag === "WorkspaceFile" && !location?.threadRef && location?.resolveImageUrl) {
+    return {
+      path: source.path,
+      picture: (
+        <RequestedImage
+          key={source.path}
+          path={source.path}
+          src={src}
+          alt={label}
+          copyMarkdown={copyMarkdown}
+          resolveImageUrl={location.resolveImageUrl}
+        />
       ),
     };
   }

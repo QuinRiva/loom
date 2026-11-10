@@ -1,6 +1,7 @@
 import type { FilesystemEntryMetadata } from "@t3tools/contracts";
 import { filePreviewDelimiter } from "@t3tools/shared/delimitedPreview";
 import { joinPath, resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
+import { DOCUMENT_READ_MAX_BYTES } from "@t3tools/shared/documentViewerBridge.loom"; // loom
 import {
   isWorkspaceAudioPreviewPath,
   isWorkspaceVideoPreviewPath,
@@ -109,6 +110,20 @@ export function isSvgImagePreviewFile(path: string): boolean {
 
 export function isMarkdownPreviewFile(path: string): boolean {
   return /\.(?:md|mdx)$/i.test(path.split(/[?#]/, 1)[0] ?? "");
+}
+
+// loom: an `.mdx` opens in the document view, drawn by web's renderer.
+export function isMdxDocumentFile(path: string): boolean {
+  return /\.mdx$/i.test(path.split(/[?#]/, 1)[0] ?? "");
+}
+
+// loom: the read input a file screen uses; `.mdx` asks for web's document budget.
+export function workspaceFileReadInput(cwd: string, relativePath: string) {
+  return {
+    cwd,
+    relativePath,
+    ...(isMdxDocumentFile(relativePath) ? { maxBytes: DOCUMENT_READ_MAX_BYTES } : {}),
+  };
 }
 
 export function needsWorkspaceFileContents(input: {

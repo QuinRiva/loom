@@ -2870,6 +2870,13 @@ code {
   font-size: 0.85em;
 }
 
+/* loom: a long identifier or path in inline code breaks rather than widen the page on a
+   phone (the mobile document viewer); break-word leaves min-content, so wider panels and
+   table columns lay out exactly as before. */
+.plan-mdx :not(pre) > code {
+  overflow-wrap: break-word;
+}
+
 /* A nested block (a fenced `<Code>` in a <Details>/<Callout>) styles its own <pre>. */
 .plan-mdx pre:not([data-plan-block-type] *),
 .prose-plan pre:not(.prose-plan [data-plan-block-type] *) {

@@ -9,7 +9,7 @@ import {
 
 import { appAtomRegistry } from "../../state/atom-registry";
 import { projectEnvironment } from "../../state/projects";
-import { isVideoPreviewFile } from "./filePath";
+import { isVideoPreviewFile, workspaceFileReadInput } from "./filePath"; // loom
 import { prepareSourceFileDocument } from "./source-file-document";
 import { sourceHighlightAtom } from "./sourceHighlightingState";
 import type { HighlightScheme } from "../../lib/highlights";
@@ -49,7 +49,7 @@ export function preloadWorkspaceFileContents(input: {
     appAtomRegistry,
     projectEnvironment.readFile({
       environmentId: input.environmentId,
-      input: { cwd: input.cwd, relativePath: input.relativePath },
+      input: workspaceFileReadInput(input.cwd, input.relativePath), // loom: same read as the screen
     }),
     {
       label: "workspace file preload",

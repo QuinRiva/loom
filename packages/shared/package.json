@@ -299,6 +299,10 @@
       "types": "./src/planCommentAnchor.loom.ts",
       "import": "./src/planCommentAnchor.loom.ts"
     },
+    "./documentViewerBridge.loom": {
+      "types": "./src/documentViewerBridge.loom.ts",
+      "import": "./src/documentViewerBridge.loom.ts"
+    },
     "./documentQuery.loom": {
       "types": "./src/documentQuery.loom.ts",
       "import": "./src/documentQuery.loom.ts"

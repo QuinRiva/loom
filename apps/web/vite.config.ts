@@ -413,6 +413,11 @@ export default defineConfig(() => {
       manifest: true,
       sourcemap: buildSourcemap,
       rolldownOptions: {
+        // loom: the mobile app's document viewer is a second, small page beside the app.
+        input: {
+          index: NodePath.resolve(import.meta.dirname, "index.html"),
+          "document-viewer": NodePath.resolve(import.meta.dirname, "document-viewer.html"),
+        },
         output: {
           // PDF.js resolves decoder modules and ICC data relative to wasmUrl.
           assetFileNames: (asset) =>

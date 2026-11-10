@@ -140,6 +140,7 @@ vi.mock("./AudioFilePreview", () => ({ AudioFilePreview: () => null }));
 vi.mock("./FileMarkdownPreview", () => ({ FileMarkdownPreview: () => null }));
 vi.mock("./WorkspaceFileWebPreview", () => ({ WorkspaceFileWebPreview: () => null }));
 vi.mock("../threads/HtmlRenderWebView", () => ({ HtmlRenderWebView: () => null }));
+vi.mock("./MdxDocumentView.loom", () => ({ MdxDocumentView: () => null })); // loom
 vi.mock("../settings/appearance/AppearancePreferencesProvider", () => ({
   useAppearancePreferences: () => ({
     appearance: { codeWordBreak: false },

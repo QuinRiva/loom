@@ -1180,7 +1180,11 @@ export function getThemeDefinition(theme: ThemePreference): ThemeDefinition | nu
   return (
     BUILT_IN_THEME_DEFINITIONS.find((definition) => definition.id === themeId) ??
     getCustomThemes().find((definition) => definition.id === themeId) ??
-    getEnvironmentThemes().find((definition) => definition.id === themeId) ??
+    // loom: no published theme takes a reserved id, so "system" never reads the server config
+    // (which starts the connection runtime: the mobile document viewer must not connect).
+    (isReservedThemeId(themeId)
+      ? null
+      : getEnvironmentThemes().find((definition) => definition.id === themeId)) ??
     null
   );
 }
