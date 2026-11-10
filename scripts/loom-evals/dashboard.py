@@ -131,9 +131,9 @@ def load(q, to):
     goals = dict(q("goals", "select goal_id, created_at from loom_goals where created_at < ?", iso(to)))
     events = q(
         "outcome events",
-        "select stream_id, event_type, occurred_at, command_id, payload_json from orchestration_events "
-        "where application_event_version = 2 and event_type in ('thread.outcome-recorded', 'thread.outcome-set') "
-        "and occurred_at < ? and stream_id not in (:excluded) order by sequence",
+        "select thread_id, event_type, occurred_at, command_id, payload_json from loom_thread_history "
+        "where event_version = 2 and event_type in ('thread.outcome-recorded', 'thread.outcome-set') "
+        "and occurred_at < ? and thread_id not in (:excluded) order by thread_id, stream_version",
         iso(to),
     )
     messages = q(

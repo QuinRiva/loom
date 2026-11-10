@@ -19,6 +19,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import type * as SqlClient from "effect/sql/SqlClient";
 
+import { HistoryEventRow } from "./LoomHistoryEvents.ts";
 import { emptyWorkstream, readWorkstream, writeWorkstream } from "./LoomStore.ts";
 
 // Shell-level previews, as V1's projection pipeline bounded them.
@@ -201,6 +202,21 @@ const foldWorkstream = (
       return undefined;
   }
 };
+
+const HISTORY_TYPES: ReadonlySet<string> = new Set(
+  HistoryEventRow.members.map((member) => member.fields.type.literal),
+);
+
+// Copies the event's own log row, written earlier in this transaction, so the history outlives the log.
+const recordHistory = (sql: SqlClient.SqlClient, event: LoomDomainEvent) =>
+  HISTORY_TYPES.has(event.type)
+    ? sql`INSERT INTO loom_thread_history
+          (event_id, thread_id, stream_version, event_type, occurred_at, command_id, event_version, payload_json)
+        SELECT event_id, stream_id, stream_version, event_type, occurred_at, command_id,
+          application_event_version, payload_json
+        FROM orchestration_events WHERE event_id = ${event.id}
+        ON CONFLICT (event_id) DO NOTHING`
+    : Effect.void;
 
 /** Writes to the edge tables; replay-safe by event / record id. */
 const applyEdgeTables = (sql: SqlClient.SqlClient, event: LoomDomainEvent) => {
@@ -415,6 +431,7 @@ export const applyLoomProjectionEvent = Effect.fn("loomProjection.applyLoomProje
     if (MIRRORED_THREAD_EVENTS.has(event.type))
       return yield* applyMirroredThreadEvent(sql, event, at);
     if (!isLoomDomainEvent(event)) return;
+    yield* recordHistory(sql, event);
     yield* applyEdgeTables(sql, event);
     const current = yield* readWorkstream(sql, event.threadId);
     const row =

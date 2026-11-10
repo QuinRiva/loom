@@ -481,17 +481,14 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
       const store = yield* LoomStore.LoomStoreV2;
       const threadId = "history-thread";
       const event = (version: number, n: number, type: string, payload: object) =>
-        sql`INSERT INTO orchestration_events ${sql.insert({
+        sql`INSERT INTO loom_thread_history ${sql.insert({
           event_id: `event:${n}`,
-          aggregate_kind: "thread",
-          stream_id: threadId,
+          thread_id: threadId,
           stream_version: n,
           event_type: type,
           occurred_at: T(n),
-          actor_kind: "server",
+          event_version: version,
           payload_json: JSON.stringify(payload),
-          metadata_json: "{}",
-          application_event_version: version,
         })}`;
       // V1 payloads carry `threadId` / `updatedAt` besides the V2 fields; V1's
       // route-taken has no kind and its yield is a lane.
@@ -507,7 +504,11 @@ it.layer(TestLayer)("LoomStoreV2", (it) => {
       yield* event(1, 3, "thread.route-taken", { ...v1, to: "coder", round: 1 });
       yield* event(1, 4, "thread.plan-lane-set", { ...v1, planLane: "yielded" });
       yield* event(1, 5, "thread.plan-lane-set", { ...v1, planLane: "in_progress" });
-      yield* event(2, 6, "thread.title-set", { title: "noise" });
+      yield* event(2, 6, "thread.gate-warning", {
+        kind: "target-done-mid-round",
+        detail: "stored, not shown",
+        threadIds: [threadId],
+      });
       yield* event(2, 7, "thread.attention-raised", { reason: "needs_guidance" });
       yield* event(2, 8, "thread.attention-cleared", {});
       yield* event(2, 9, "thread.report-set", { reportPath: "/r/t.md" });

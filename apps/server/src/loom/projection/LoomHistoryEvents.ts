@@ -2,6 +2,7 @@ import {
   EventId,
   IsoDateTime,
   LoomCancelReason,
+  LoomGateWarningKind,
   LoomOutcome,
   LoomRouteKind,
   NonNegativeInt,
@@ -23,7 +24,10 @@ const historyRow = <const Type extends string, Payload extends Schema.Struct.Fie
     payload: Schema.fromJsonString(Schema.Struct(payload)),
   });
 
-/** The event-log rows `LoomStore.history` folds. V1 rows carry extra payload fields and V1 reasons. */
+/**
+ * The `loom_thread_history` rows `LoomStore.history` folds, copied from the event log by the Loom
+ * projector at commit time (and once by migration 1070). V1 rows carry extra payload fields and V1 reasons.
+ */
 export const HistoryEventRow = Schema.Union([
   historyRow("thread.report-set", { reportPath: TrimmedNonEmptyString }),
   historyRow("thread.outcome-recorded", Struct.omit(WorkOutcomeRecord.fields, ["eventId", "at"])),
@@ -42,13 +46,10 @@ export const HistoryEventRow = Schema.Union([
   }),
   // V1's lane axis: a yield was the `yielded` lane, done/cancelled were lanes.
   historyRow("thread.plan-lane-set", { planLane: Schema.String }),
+  // Stored for later reads; the timeline shows nothing for it.
+  historyRow("thread.gate-warning", {
+    kind: LoomGateWarningKind,
+    detail: Schema.String,
+    threadIds: Schema.Array(ThreadId),
+  }),
 ]);
-
-/**
- * The timeline's only copy of workstream history is these event rows (V1 and V2),
- * so both event-store prune passes (`ProjectionMaintenance.pruneEventStore`)
- * must keep them, past the day of replay and after a transcript import.
- */
-export const HISTORY_EVENT_TYPES = HistoryEventRow.members.map(
-  (member) => member.fields.type.literal,
-);

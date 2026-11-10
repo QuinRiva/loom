@@ -7,7 +7,6 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { HISTORY_EVENT_TYPES as LOOM_HISTORY_EVENT_TYPES } from "../loom/projection/LoomHistoryEvents.ts"; // loom: workstream history survives the prune passes
 import {
   EVENT_LOG_PRUNE_MARK,
   EVENT_LOG_PRUNED_THROUGH,
@@ -126,8 +125,6 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
               WHEN event.application_event_version = 1 THEN 0
               -- The legacy importer treats a thread without thread.created as not yet imported.
               WHEN event.event_type = 'thread.created' THEN 0
-              WHEN event.aggregate_kind = 'thread'
-                AND event.event_type IN ${sql.in(LOOM_HISTORY_EVENT_TYPES)} THEN 0 -- loom: workstream history (LoomStore.history) lives only here
               -- Codex usage history reads the selection a run attempt started with.
               WHEN event.event_type = 'run.updated'
                 AND json_extract(event.payload_json, '$.status') = 'running' THEN 0
@@ -202,9 +199,7 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
               SELECT 1 FROM orchestration_v2_legacy_imports AS legacy_import
               WHERE legacy_import.thread_id = event.stream_id
                 AND legacy_import.transcript_imported_at IS NOT NULL
-            )
-              AND event.event_type NOT IN ${sql.in(LOOM_HISTORY_EVENT_TYPES)} -- loom: V1 workstream history survives (DL-1300)
-              AS imported
+            ) AS imported
           FROM orchestration_events AS event
             INDEXED BY idx_orchestration_events_application_sequence
           WHERE event.application_event_version = 1
