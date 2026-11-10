@@ -251,8 +251,8 @@ export function ComposerContextSheet(props: {
                     value={`${record.pullRequest.title}\n${record.pullRequest.headBranch} → ${record.pullRequest.baseBranch}`}
                   />
                 ) : null}
-                {/* loom: a document answer or comment has no diff; show what it says and where. */}
                 {record.mdxAnchor ? (
+                  // loom: a document answer or comment has no diff; show what it says and where.
                   <>
                     <ContextField label="Document" value={record.filePath} code />
                     <ContextField label="Section" value={record.sectionTitle} />
