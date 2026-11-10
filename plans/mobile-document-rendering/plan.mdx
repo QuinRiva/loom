@@ -1,0 +1,300 @@
+---
+reader:
+  who: the reviewer gate checking this plan against the approved brief, then the coders who build each PR from it
+  knows: the brief beside this plan; the repo in general; nothing of the investigation behind either document
+  after_first_screen: the phone opens .mdx files in the web renderer hosted in the app's WebView, served by the Loom server and fed by the app; two PRs, reading then tapping answers; each needs a new APK that Carl installs and tries before it ships
+kicker: "Implementation plan · mobile document rendering · 10 Nov 2026"
+status: draft
+intent: plans/mobile-document-rendering/intent.mdx
+manager_sessions:
+  - id: 01a1c464-fb56-76bc-bb1d-ca559746cf02
+    name: "Mobile documents: findings and intent brief"
+    role: plan
+    authored_at: 2026-11-10T09:46:46.863Z
+---
+
+# Open `.mdx` documents on the phone in the web renderer, then let answers be tapped
+
+**Recommendation.** Give the web app a second, small page that holds only the MDX document renderer. The mobile app opens that page from the Loom server in the WebView it already ships, and hands it the file's text over a message bridge. The page never signs in; the app keeps doing all private reads over its existing session. **Two PRs.** The first makes every `.mdx` file readable as on web. The second makes question options and accept / reject verdicts tappable, landing in the phone's composer as the same records web sends. **Roughly two to three days of agent work each.**
+
+It makes two bets. First, that a page served by the server loads in the WebView on Carl's Android phone over the tailnet. Nobody has seen that, and an HTML file failed for him this week for a reason still being diagnosed. The first on-phone check of PR 1 settles it, and the fallback (the same page packed inside the app) changes one URL and nothing else. Second, that the renderer reads at a phone's width. A static render of a real plan at 390 px already does, apart from wide tables.
+
+<Columns>
+  <Column label="Today">
+    <Screen
+      surface="mobile"
+      caption="Reconstructed from the app's own markdown preparation of plans/sqlite-read-lane-v2/plan.mdx. Both tables are gone."
+      html={"<div style='box-sizing:border-box;height:100%;display:flex;flex-direction:column'><div style='display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;padding:10px 14px;border-bottom:1px solid var(--wf-line);white-space:nowrap'><span>&lsaquo;</span><div style='min-width:0'><div><strong>plan.mdx</strong></div><small class='wf-muted'>loom · plans/sqlite-read-lane-v2</small></div><div style='flex:1'></div><span>&middot;&middot;&middot;</span></div><div style='flex:1;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;gap:10px'><h2>1. The two defects and the fix for each</h2><p>Vocabulary used throughout, in plain words. The <strong>worker read lane</strong> is loom's second SQLite connection: it lives on a worker thread, is opened read-only, and exists so expensive reads do not block the writer.</p><h3>The four numbers that decide it</h3><p>The memoisation facts behind the fix (Effect 4.0.0-rc.115): the memo key is the layer <em>object</em>; a provided layer re-runs its build with the same memo map.</p></div></div>"}
+    />
+  </Column>
+  <Column label="After PR 1">
+    <Image
+      src="shots/after-web-renderer-phone-width.jpg"
+      alt="The same section drawn by the web renderer at phone width: the heading followed by its four-column table"
+      caption="The web renderer's real output for the same section at 390 px. PR 1 puts this inside the app's file screen."
+      width={300}
+    />
+  </Column>
+</Columns>
+
+<Callout tone="decision" title="What it means" focus>
+  **In scope:** reading (PR 1), then tapping answers to `<QuestionForm>` and `<ReviewChoice>` (PR 2). **Out, per the brief:** commenting on a block or passage, questions on a section, a document panel, editing, and the HTML "Preview unavailable" defect, which has its own fix.
+
+  **Every app change is a new APK that Carl installs by hand** (§5). So the app side is kept thin and the page fat: after these two installs, later renderer changes reach the phone with a server deploy alone.
+
+  **Done** is the brief's checks passing on Carl's phone. Agents have no device, so §6 says what agents prove first and the five minutes each PR asks of him. No open questions for Carl.
+</Callout>
+
+## 1. How it fits together
+
+<Mermaid
+  caption="One document open. Solid messages are PR 1; the last is PR 2. Only the app talks to the server with a credential."
+  source={
+    'sequenceDiagram\n  participant A as Phone app\n  participant P as Document page in the WebView\n  participant S as Loom server\n  A->>S: read file text, existing RPC\n  A->>P: load /document-viewer.html\n  P->>S: page and scripts, static, no sign-in\n  P->>A: ready\n  A->>P: init: text, path, light or dark, token\n  P->>A: link tapped, image wanted\n  A->>S: sign image URL, existing RPC\n  A->>P: image URL\n  P-->>A: answer upsert or remove\n'
+  }
+/>
+
+Read it top to bottom. The app reads the file exactly as it does today for the markdown view. The page is static, public and holds no data until the app sends `init`. Every later message from the page carries the token from `init`.
+
+<Columns>
+  <Card heading="A second HTML entry, not a route" tone="info" badge="DECISION">
+    The viewer is `apps/web/document-viewer.html` with its own small entry module, built beside `index.html` by the same Vite build.
+
+    A route inside the app would boot the whole shell first: router, auth gate, stores and a connection attempt. Its main chunks alone are over 1 MB gzipped, and it would ask for a sign-in the brief forbids.
+  </Card>
+  <Card heading="The app does the private I/O" tone="info" badge="DECISION">
+    The page gets the document text, and signed image URLs on request, from the app. It holds no credential.
+
+    So it works over every connection the app works over. The server already serves static files without a session, on the same origin the app's RPC uses.
+  </Card>
+  <Card heading="Served, not bundled" tone="info" badge="DECISION">
+    The page comes from the server, so a new block type shows on the phone after a server deploy with no new APK. That is one of the brief's checks.
+
+    Bundling the page into the app stays the fallback. Mobile already embeds a browser entry that way (`src/features/devices/device-stream.browser.ts`).
+  </Card>
+</Columns>
+
+## 2. The bridge contract
+
+One module, `packages/shared/src/documentViewerBridge.ts`, exported as `@t3tools/shared/documentViewerBridge`, defines the messages, the viewer path and the protocol number. Both sides import it. `@t3tools/shared/htmlRender` is the precedent: a message protocol shared by web and mobile for HTML shown in a WebView.
+
+<Table
+  density="compact"
+  columns={["Direction", "Message", "Carries", "PR"]}
+  rows={[
+    ["page → app", "`ready`", "`protocol`", "1"],
+    ["app → page", "`init`", "`protocol`, `token`, `source`, `filePath`, `baseDir`, `cwd`, `appearance` (light or dark), `topInset`; from PR 2 also `answers` when the file belongs to a thread", "1"],
+    ["page → app", "`rendered`", "`ok`, and the compile error text when not", "1"],
+    ["page → app", "`link`", "`href` as authored", "1"],
+    ["page → app", "`image-request`", "`id`, absolute host `path`", "1"],
+    ["app → page", "`image-url`", "`id`, signed absolute `url` or null", "1"],
+    ["page → app", "`comment-upsert`", "`record` (a `ReviewCommentContextRecord` with `mdxAnchor`), `reference` (its composer token text)", "2"],
+    ["page → app", "`comment-remove`", "`contextId`", "2"],
+    ["app → page", "`answers-present`", "the `contextId`s of this file's answers now in the thread's draft", "2"],
+  ]}
+/>
+
+Rules that hold for both PRs:
+
+- **Transport.** Page to app is `window.ReactNativeWebView.postMessage(JSON)`. App to page is `injectJavaScript` of a `window.postMessage`, the pattern `postTheme` uses in `apps/mobile/src/features/threads/HtmlRenderWebView.tsx`.
+- **Token.** The app makes a random token per load and sends it in `init`. Every page message except `ready` must carry it, and the app drops any that does not. Reason: Android exposes `ReactNativeWebView` to every frame, including the scripted sandbox of a document's `<Prototype>`. Without the token an agent-written document could post a forged answer into Carl's composer. The app injects `init` into the top frame only, which a sandboxed frame cannot read.
+- **Validation.** The app decodes every message with the module's schema and ignores unknown types. In PR 2 it also decodes `record` with `ReviewCommentContextRecord` from `@t3tools/contracts` and requires `mdxAnchor` present and `filePath` equal to the open file.
+- **Skew.** Messages only ever gain optional fields. The page offers tappable answers only when `init` carries `answers`, so a PR 1 app with a PR 2 page stays read-only, and a PR 2 app with a PR 1 page never receives answer messages.
+- **Handshake.** The server answers an unknown path with the app shell, so a 200 proves nothing. The app treats the page as loaded only on a valid `ready`.
+
+## 3. PR 1: reading
+
+<Steps>
+  <Step at="1" title="Shared: the bridge module">
+    Add `packages/shared/src/documentViewerBridge.ts` with the PR 1 messages, `DOCUMENT_VIEWER_PATH = "/document-viewer.html"`, `DOCUMENT_VIEWER_PROTOCOL = 1` and `DOCUMENT_READ_MAX_BYTES` (8 MiB, the server's `PROJECT_READ_FILE_PLAN_MAX_BYTES`). Add the subpath export in `packages/shared/package.json`.
+  </Step>
+  <Step at="2" title="Web: the viewer page">
+    Add `apps/web/document-viewer.html` (viewport meta as in `index.html`, no theme bootstrap script) and `apps/web/src/loom/documentViewer/main.tsx`, which imports `../../index.css` and mounts `DocumentViewerApp.tsx`. Register the second input in `apps/web/vite.config.ts` under `build.rolldownOptions.input`, and the entry in `knip.jsonc`.
+
+    `DocumentViewerApp` posts `ready`, waits for `init`, then renders what `FilePreviewPanel.tsx` renders for `.mdx` minus the annotation layer: a wrapper setting `--timeline-available-width: 100vw` (as `lint-plan.mjs` does), `PlanDocumentContext.Provider`, and `MdxPlanRenderer` with the source. It applies `appearance` through `setAppearanceMode` in `~/hooks/useTheme`, which the code and diagram blocks read. It posts `rendered` when the renderer settles.
+  </Step>
+  <Step at="3" title="Web: links and images through the bridge">
+    Links: one click listener on the document root. An in-page `#anchor` is left alone; any other `a[href]` is cancelled and posted as `link`.
+
+    Images: `PlanDocumentLocation` in `mdx-plan/planDocument.ts` gains an optional `resolveImageUrl(absolutePath)`. `usePlanImage` in `mdx-plan/blocks/image.tsx` uses it when there is no `threadRef`, in place of the `file://` fallback, and shows the existing "could not be resolved" placeholder on null. The viewer implements it with `image-request` and `image-url`.
+  </Step>
+  <Step at="4" title="Web: phone width">
+    At 390 px the page must not scroll sideways; a wide table scrolls inside its own wrapper. Today the real plan measures 453 px wide because a top-level table's bleed width follows its content. Fix in the `.plan-mdx` rules of `apps/web/src/index.css` without changing what a desktop-width panel shows.
+  </Step>
+  <Step at="5" title="Mobile: the document view">
+    Add `apps/mobile/src/features/files/MdxDocumentView.loom.tsx`: a `react-native-webview` on the connection's `httpBaseUrl` (from `usePreparedConnection`) plus `DOCUMENT_VIEWER_PATH`. It sends `init` on `ready` and again when the source changes, answers `image-request` with `refreshAssetUrl` for a `media-file` resource (the resource web's `<Image>` uses), and routes `link` through the same logic as `onLinkPress` in `FileMarkdownPreview.tsx`. `onShouldStartLoadWithRequest` refuses any navigation away from the viewer URL.
+  </Step>
+  <Step at="6" title="Mobile: route .mdx to it">
+    In `ThreadFilesRouteScreen.tsx`, `FileContent` renders `MdxDocumentView` for an `.mdx` path in preview mode; `.md` keeps `FileMarkdownPreview`. Add `isMdxDocumentFile` beside `isMarkdownPreviewFile` in `filePath.ts`. The `readFile` query passes `maxBytes: DOCUMENT_READ_MAX_BYTES` for `.mdx`, and `preload-workspace-file.ts` passes the same input so the preloaded read is the one the screen uses. The file menu's Preview / Source toggle already covers `.mdx`; add Refresh. `AttachmentDocumentBody.tsx` uses the same view for an attached `.mdx`, with no image resolution.
+  </Step>
+  <Step at="7" title="Mobile: when it cannot be drawn" tone="warning">
+    No valid `ready` within eight seconds, or a WebView load error: a notice, "Document view unavailable", with Try again and View source. A compile failure: the page shows the renderer's own error card and the app adds a View source bar. `.mdx` never falls back to the flattened markdown view, because that is the half-rendered document the brief rules out.
+  </Step>
+  <Step at="8" title="A runbook page for the APK">
+    Add `docs/operations/loom-android-apk.md` with the build commands in §5. The repo documents only upstream's store and over-the-air pipeline, which Loom cannot use, so the next agent would reach for the wrong one.
+  </Step>
+</Steps>
+
+A non-interactive question form reads as disabled in PR 1. When a document contains `<QuestionForm` or `<ReviewChoice` and `init` has no `answers`, the viewer shows one muted line above the document: "Questions here are answered by replying in chat." That line stays true after PR 2 for a file opened outside a thread.
+
+## 4. PR 2: tapping answers
+
+The blocks already have the seam. `QuestionListRead` and the `ReviewChoice` block read `PlanQuestionAnswersContext` and `PlanReviewChoicesContext`, and are read-only when no provider is mounted. On web, `MdxPlanAnnotationLayer` provides both and writes into web's composer store. PR 2 gives the viewer its own providers that write to the app instead.
+
+<Columns>
+  <Column label="The document: an option tapped">
+    <Screen
+      surface="mobile"
+      html={"<div style='box-sizing:border-box;height:100%;display:flex;flex-direction:column'><div style='display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;padding:10px 14px;border-bottom:1px solid var(--wf-line);white-space:nowrap'><span>&lsaquo;</span><div style='min-width:0'><div><strong>intent.mdx</strong></div><small class='wf-muted'>loom · plans/open-pr-keeps-thread-active</small></div><div style='flex:1'></div><span>&middot;&middot;&middot;</span></div><div style='flex:1;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;gap:10px'><div class='wf-card' style='padding:0'><div style='padding:8px 12px;border-bottom:1px solid var(--wf-line)'><small class='wf-muted'>Open questions</small></div><div style='padding:12px;display:flex;flex-direction:column;gap:8px'><strong>Build it as the pick above?</strong><div class='wf-box' style='padding:8px 10px;border-color:var(--wf-accent);background:var(--wf-accent-soft)'>&#9679; Yes, go <span class='wf-pill'>recommended</span></div><div class='wf-box' style='padding:8px 10px'>&#9675; No, annotate what to change</div></div></div></div><div style='display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;padding:10px 14px;border-top:1px solid var(--wf-line);white-space:nowrap'><small>1 answer ready to send</small><div style='flex:1'></div><button class='primary'>Back to chat</button></div></div>"}
+    />
+  </Column>
+  <Column label="The chat: the answer as a chip">
+    <Screen
+      surface="mobile"
+      html={"<div style='box-sizing:border-box;height:100%;display:flex;flex-direction:column'><div style='display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;padding:10px 14px;border-bottom:1px solid var(--wf-line);white-space:nowrap'><span>&lsaquo;</span><strong style='overflow:hidden;text-overflow:ellipsis'>Open PR keeps thread active</strong><div style='flex:1'></div><span>&middot;&middot;&middot;</span></div><div style='flex:1;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;gap:10px'><div class='wf-card' style='padding:10px 12px'><p>The brief is ready for your corrections: <span class='wf-chip'>plans/open-pr-keeps-thread-active/intent.mdx</span></p></div></div><div style='box-sizing:border-box;width:100%;padding:10px 14px;border-top:1px solid var(--wf-line);display:flex;flex-direction:column;gap:8px'><div class='wf-box' style='padding:8px 10px;min-height:44px'><span class='wf-chip accent'>intent.mdx answer: go</span></div><div style='display:flex;align-items:center;width:100%'><small class='wf-muted'>Loom · default model</small><div style='flex:1'></div><button class='primary'>Send</button></div></div></div>"}
+    />
+  </Column>
+</Columns>
+
+<Callout tone="decision" title="The composer draft is the truth, as on web">
+  An answer exists exactly while its record is in the thread's composer draft. Removing the chip un-answers the question; sending the message clears it. The structured selection (which option ids, which verdict, the note) lives in the page's `localStorage` through web's own `useMdxAnnotationDraftStore`, unchanged, because the comment text cannot be parsed back. That is the same split web makes, with the same edge: if the stored selection is lost while the chip remains, the block shows unanswered and the next tap replaces the chip.
+
+  The record and its composer token are built by web code inside the page, so the text the agent receives is identical to web's by construction. The app stores and shows the record; it does not compose it.
+</Callout>
+
+<Steps>
+  <Step at="1" title="Web: one builder for both callers">
+    Move the comment construction out of `MdxPlanAnnotationLayer.tsx` into `questionAnswerComment(...)` in `mdx-plan/questionAnswers.ts` and `reviewChoiceComment(...)` in `mdx-plan/reviewChoices.ts`. The layer calls them; its behaviour does not change.
+  </Step>
+  <Step at="2" title="Web: the viewer's answer providers">
+    Add `apps/web/src/loom/documentViewer/answers.ts`. When `init.answers` is present it provides both contexts. `getAnswer` and `getChoice` return the stored selection only while the matching `contextId` is in the present set, mirroring the layer. `setAnswer` and `setChoice` store the selection, build the comment with the shared builder and `anchorForBlockElement` (`annotation/anchoring.ts`), convert it with `reviewCommentContextRecord` and `reviewCommentContextReference` (`~/lib/composerContextRecords`) and `formatComposerContextReference`, and post `comment-upsert`. An empty answer posts `comment-remove`. The present set updates on `answers-present`.
+  </Step>
+  <Step at="3" title="Mobile: hold a document answer in the draft">
+    In `apps/mobile/src/state/use-composer-drafts.ts` add `upsertComposerDraftContextRecord(draftKey, record, reference)`: replace the record in place when its `contextId` is already referenced by the draft text, else `insertComposerDraftContext` with the reference text. Add `removeComposerDraftContextRecord(draftKey, contextId)`: cut that reference from the text and let `setComposerDraftText` prune the record. The draft key is `scopedThreadKey(environmentId, threadId)`, as `appendReviewCommentToDraft` uses.
+  </Step>
+  <Step at="4" title="Mobile: wire the view">
+    `MdxDocumentView` sends `answers` in `init` when it has a thread, handles the two comment messages under the rules in §2, and sends `answers-present` whenever the draft's set for this file changes. Under the document it shows a bar while that set is non-empty: "N answers ready to send" and Back to chat.
+  </Step>
+  <Step at="5" title="Mobile: show a document answer as what it is">
+    A record with `mdxAnchor` has no diff. In `apps/mobile/src/components/ComposerContextSheet.tsx`, show its document, section, answer text and quoted passage as fields, not a `ReviewCommentCard`. In `features/review/reviewCommentSelection.ts`, `parseReviewInlineComments` skips records carrying `mdxAnchor`. The chip label needs nothing: it is the record's own label, such as `intent.mdx answer: go`.
+  </Step>
+</Steps>
+
+_Assumed, redirect if wrong:_ the "N answers ready to send" bar. The brief says answers join the next message as chips; on a phone the document covers the composer, so without the bar a tap has no visible destination.
+
+## 5. How a change reaches Carl's phone
+
+The repo does not say, so this comes from the thread that installed the app on 9 Nov. Carl's phone runs an APK built on this server: the preview variant (`com.t3tools.t3code.preview`, "T3 Code Preview"), arm64, signed with the debug key, with the JavaScript bundle embedded and over-the-air updates switched off. Updates are off on purpose: `updates.url` in `apps/mobile/app.config.ts` points at upstream's Expo project, and an update from there would replace Loom's code with upstream's. There is no store build. That the phone is Android, and runs this APK, is read off his screenshot rather than stated by him.
+
+So **both PRs need a new APK, built by the coder and installed by Carl**. Nothing reaches the phone any other way. The build takes about six minutes with warm caches:
+
+<Code
+  language="bash"
+  wrap
+  code={". /etc/profile.d/android-sdk.sh; export JAVA_HOME=$ANDROID_JAVA_HOME APP_VARIANT=preview T3CODE_MOBILE_UPDATES_ENABLED=0\ncd apps/mobile && EXPO_NO_GIT_STATUS=1 CI=1 npx expo prebuild --clean --platform android\ncd android && NODE_ENV=production ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a \"-Dorg.gradle.jvmargs=-Xmx8g -XX:MaxMetaspaceSize=2g\"\n"}
+/>
+
+Before handing an APK over, the coder confirms two things. `aapt2 dump xmltree` shows `expo.modules.updates.ENABLED` false. And `apksigner verify --print-certs` gives the same certificate as the installed build, so Android updates the app in place and Carl keeps his pairing. If the certificate differs, say so before he installs; he would have to remove the app first.
+
+## 6. Verification
+
+Agents cannot run the mobile app: device access is off for this environment, and this server has no emulator. So each PR is proved in two tiers.
+
+<Columns>
+  <Card heading="What agents prove before asking Carl" tone="info" badge="BOTH PRS">
+    **The page, in Chromium at 390 × 844.** Android's WebView is Chromium, so a browser test (`*.browser.test.tsx`) that plays the app's side of the bridge exercises the real page. PR 1: after `init` with `plans/sqlite-read-lane-v2/plan.mdx`, the six tables and the callouts are in the DOM, the page does not scroll sideways, a link click posts `link`, and a message without the token changes nothing. PR 2: tapping an option posts a `comment-upsert` whose record decodes as `ReviewCommentContextRecord`, and clearing it posts `comment-remove`.
+
+    **The app's logic, as unit tests.** The bridge decoder, the token rule, and in PR 2 the two draft helpers: upserting twice leaves one reference and the latest record; removing leaves neither.
+
+    **The gates.** `vp check`, `vp run typecheck`, `vp run lint:mobile`, and the APK builds.
+
+    **Size.** The PR states the viewer entry's gzipped size from the build manifest. Expect about 1 MB. If the image block's imports drag the chat bundle in, load that path lazily.
+  </Card>
+  <Card heading="What Carl does, about five minutes per PR" tone="warning" badge="ON HIS PHONE">
+    The coder runs the branch as a dev instance shared over the tailnet (`vp run dev --share`), checks that the shared origin serves the viewer page at `/document-viewer.html`, and posts two things: the APK's path, and a link that pairs the phone to that instance. The link is `t3code-preview://connections/new?pairingUrl=…&autoConnect=1`, with the pairing URL minted the way `.agents/skills/test-t3-mobile/scripts/pair-client.sh` mints one.
+
+    Carl installs the APK over the app, taps the link, and tries the brief's checks in a seeded Loom thread. He replies pass or fail per check, or sends a screenshot.
+
+    His real server is untouched until he says ship it. After the merge and his deploy, the same APK works against it.
+  </Card>
+</Columns>
+
+**The checks, as the user journey.** These are the brief's, in the order he would meet them.
+
+<Table
+  density="compact"
+  columns={["Check on the phone", "PR", "Passes when"]}
+  rows={[
+    ["Tap the `plans/sqlite-read-lane-v2/plan.mdx` chip in a chat", "1", "Six tables, decision boxes, cards and code show; a wide table scrolls sideways inside itself"],
+    ["Open the same file from the Files browser", "1", "Same view"],
+    ["Open `plans/open-pr-keeps-thread-active/intent.mdx`", "1", "The question, its options and the recommended one show; the reply-in-chat line shows"],
+    ["Turn Wi-Fi off and open a document on mobile data", "1", "It opens; note roughly how long the first open takes"],
+    ["Open a `.md` file, a PDF and an image", "1", "Unchanged"],
+    ["File menu, Source", "1", "The raw text shows; Preview returns to the document"],
+    ["Tap Yes, go, then Back to chat", "2", "The option shows chosen; the chip is in the message box"],
+    ["Remove the chip, reopen the document", "2", "The question shows unanswered"],
+    ["Answer again and send", "2", "The agent's turn shows the answer text web would send: Q: Build it as the pick above? → chose: \"Yes, go\" (the recommended option)"],
+    ["Open a recap with accept / reject items, tap a verdict", "2", "Same round trip as an answer"],
+  ]}
+/>
+
+The brief's remaining check, a new block reaching the phone without a new APK, holds by construction once the page is served. It is confirmed the first time a block ships after PR 1.
+
+## 7. Risks
+
+<Table
+  density="compact"
+  columns={["Risk", "How likely", "What the plan does"]}
+  rows={[
+    { tone: "warning", cells: ["The served page does not load in the WebView on Carl's phone", "Unknown. The HTML failure he saw is a different step: the app could not get a link for the file, before any WebView load. The page load needs no link. But the cause is undiagnosed.", "Step 7 of PR 1 turns it into a visible notice, not a blank screen. If it happens on the first try, switch to the fallback: pack the built page into the app and load it locally. The bridge is unchanged. The cost is a new APK per block change."] },
+    ["A wide block reads badly at 390 px", "Likely for design boards and annotated code", "Fix in the page, which needs no new APK. Check three real documents on the phone: the plan above, `recaps/issue-280-fan-in-deadlock-v2/recap.mdx`, `plans/agent-started-thread-cue-v2/plan.mdx`."],
+    ["A multi-megabyte document is slow to hand to the page", "Low; typical plans are 25 to 70 KB", "Measure with the largest real document to hand. If slow, send the source in chunks; the contract allows another message."],
+    ["The viewer bundle pulls app state in through block imports", "Possible via `blocks/image.tsx`", "Harmless at run time (the lint script and the preview harness import the same graph with no backend). Size is measured; lazy-load if large."],
+    ["The keyboard covers a write-in field", "Possible on Android", "PR 2 checks one write-in answer on the phone; the viewer keeps `interactive-widget=resizes-content` in its viewport meta."],
+    ["An upstream pull drops unmarked hunks", "Certain if unmarked", "New code lives in `*.loom.tsx` and `apps/web/src/loom/`. Every hunk in an upstream file carries `// loom:`."],
+  ]}
+/>
+
+The HTML defect's fix may touch `ThreadFilesRouteScreen.tsx` or `WorkspaceFileWebPreview.tsx`. PR 1 edits `FileContent` in the first, so it starts after that fix lands in this worktree. If that fix needs its own APK, hand Carl one APK carrying both.
+
+<Details summary="All touched files, by PR">
+
+<FileTree
+  title="PR 1: reading"
+  entries={[
+    { path: "packages/shared/src/documentViewerBridge.ts", change: "added", note: "messages, viewer path, protocol number, read budget" },
+    { path: "packages/shared/package.json", change: "modified", note: "subpath export" },
+    { path: "apps/web/document-viewer.html", change: "added", note: "second HTML entry" },
+    { path: "apps/web/src/loom/documentViewer/main.tsx", change: "added", note: "mounts the viewer" },
+    { path: "apps/web/src/loom/documentViewer/DocumentViewerApp.tsx", change: "added", note: "bridge client, theme, renderer, link interception" },
+    { path: "apps/web/vite.config.ts", change: "modified", note: "second build input" },
+    { path: "knip.jsonc", change: "modified", note: "the new entry" },
+    { path: "apps/web/src/components/files/mdx-plan/planDocument.ts", change: "modified", note: "optional resolveImageUrl" },
+    { path: "apps/web/src/components/files/mdx-plan/blocks/image.tsx", change: "modified", note: "use it when there is no threadRef" },
+    { path: "apps/web/src/index.css", change: "modified", note: "no sideways page scroll at phone width" },
+    { path: "apps/mobile/src/features/files/MdxDocumentView.loom.tsx", change: "added", note: "the WebView host" },
+    { path: "apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx", change: "modified", note: "FileContent branch, read budget, Refresh" },
+    { path: "apps/mobile/src/features/files/filePath.ts", change: "modified", note: "isMdxDocumentFile" },
+    { path: "apps/mobile/src/features/files/preload-workspace-file.ts", change: "modified", note: "same read input for .mdx" },
+    { path: "apps/mobile/src/features/files/AttachmentDocumentBody.tsx", change: "modified", note: "attached .mdx" },
+    { path: "docs/operations/loom-android-apk.md", change: "added", note: "how the APK is built and why updates are off" },
+  ]}
+/>
+
+<FileTree
+  title="PR 2: tapping answers"
+  entries={[
+    { path: "packages/shared/src/documentViewerBridge.ts", change: "modified", note: "the three answer messages, init.answers" },
+    { path: "apps/web/src/components/files/mdx-plan/questionAnswers.ts", change: "modified", note: "questionAnswerComment builder" },
+    { path: "apps/web/src/components/files/mdx-plan/reviewChoices.ts", change: "modified", note: "reviewChoiceComment builder" },
+    { path: "apps/web/src/components/files/mdx-plan/annotation/MdxPlanAnnotationLayer.tsx", change: "modified", note: "calls the builders; no behaviour change" },
+    { path: "apps/web/src/loom/documentViewer/answers.ts", change: "added", note: "the viewer's two context providers" },
+    { path: "apps/web/src/loom/documentViewer/DocumentViewerApp.tsx", change: "modified", note: "mounts them when init carries answers" },
+    { path: "apps/mobile/src/state/use-composer-drafts.ts", change: "modified", note: "upsert and remove a context record" },
+    { path: "apps/mobile/src/features/files/MdxDocumentView.loom.tsx", change: "modified", note: "answer messages, present set, the ready-to-send bar" },
+    { path: "apps/mobile/src/components/ComposerContextSheet.tsx", change: "modified", note: "fields for a document answer" },
+    { path: "apps/mobile/src/features/review/reviewCommentSelection.ts", change: "modified", note: "skip mdxAnchor records" },
+  ]}
+/>
+
+</Details>
