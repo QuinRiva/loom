@@ -104,6 +104,7 @@ vi.mock("react-native", () => ({
     ),
 }));
 vi.mock("../components/PierreEntryIcon", () => ({ PierreEntryIcon: () => null }));
+vi.mock("../components/ui/Toast", () => ({ Toast: () => null })); // loom: lookup notice
 vi.mock("../components/ui/AppText", () => ({
   AppText: ({ children }: { children?: ReactNode }) => createElement("span", null, children),
 }));
@@ -166,6 +167,7 @@ vi.mock("../state/projects", () => ({
   projectEnvironment: {
     searchEntries: (input: unknown) => input,
     fileMetadata: (input: unknown) => input,
+    locateFiles: (input: unknown) => input,
   },
 }));
 vi.mock("../state/server", () => ({ serverEnvironment: {} }));
@@ -441,8 +443,14 @@ describe("ThreadInlineFilePreview playback", () => {
       const lookup = new Promise((resolve) => {
         finishLookup = resolve;
       });
+      // loom: the tap's lookup: the root stat (held open below) misses, and the index finds the file.
       audio.query
-        .mockResolvedValue({ _tag: "Success", value: { kind: "file" } })
+        .mockImplementation(
+          async (_registry: unknown, atom: { input: { references?: unknown } }) =>
+            atom.input.references
+              ? { _tag: "Success", value: { entries: [{ path: "/repo/src/target.ts" }] } }
+              : { _tag: "Success", value: { kind: "file" } },
+        )
         .mockReturnValueOnce(lookup);
       audio.refresh.mockResolvedValue(uri);
       const container = document.createElement("div");
@@ -514,12 +522,7 @@ describe("ThreadInlineFilePreview playback", () => {
       });
       expect(kind === "audio" ? audio.played : audio.video.play).toHaveBeenCalled();
       expect(audio.sessionOwned).toBe(true);
-      await act(async () =>
-        finishLookup({
-          _tag: "Success",
-          value: { entries: [{ path: "src/target.ts", kind: "file" }] },
-        }),
-      );
+      await act(async () => finishLookup({ _tag: "Success", value: null }));
       if (playback === "continued playback") {
         expect(audio.navigate).toHaveBeenCalledExactlyOnceWith("ThreadFile", {
           environmentId,

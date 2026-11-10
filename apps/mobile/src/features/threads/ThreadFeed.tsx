@@ -249,10 +249,11 @@ import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { readEnvironmentScope, usePreparedConnection } from "../../state/session";
 import { projectEnvironment } from "../../state/projects";
 import {
-  needsWorkspaceBasenameLookup,
-  pickWorkspaceBasenameMatch,
-  WORKSPACE_BASENAME_LOOKUP_LIMIT,
-} from "@t3tools/client-runtime/workspace-basename-lookup";
+  LinkLookupFeedbackOverlay,
+  lookUpMessageFile,
+  useLinkLookupFeedback,
+} from "./messageFileLookup.loom"; // loom
+import { unanchoredFileLink } from "./messageFileLinks.loom"; // loom
 import {
   resolveThreadLink,
   useLiveThreadLinkLabels,
@@ -273,7 +274,6 @@ import {
   fileRoutePathSegments,
   isAbsolutePath,
   resolveFileLinkPath,
-  resolveWorkspaceFilePath,
   resolveWorkspaceRelativeFilePath,
 } from "../files/filePath";
 import { waitForThreadShell } from "./threadForkNavigation";
@@ -1101,7 +1101,7 @@ function ThreadMediaVisibility(props: { readonly children: ReactNode }) {
 }
 
 interface MarkdownLinkHandlers {
-  readonly onLinkPress: (href: string) => void;
+  readonly onLinkPress: (href: string, messageMarkdown?: string) => void; // loom: messageMarkdown
   readonly fileContextMenu: (href: string) => MarkdownFileContextMenu | undefined;
   readonly onFileContextMenuAction: (href: string, actionId: string) => void;
   readonly onImagePress?: (href: string) => void;
@@ -1190,6 +1190,7 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   const threadIcons = useThreadChipIcons(props.environmentId, liveMarkdown);
   const linkHandlers: MarkdownLinkHandlers = {
     ...props.linkHandlers,
+    onLinkPress: (href) => props.linkHandlers.onLinkPress(href, props.markdown), // loom: its folders
     linkCustomization: (href) =>
       withChipIcon(props.linkHandlers.linkCustomization?.(href), threadIcons.get(href)),
   };
@@ -2404,7 +2405,7 @@ function UserMessageContent(props: UserMessageContentProps) {
   });
   const onLinkPress = (href: string) => {
     const reference = parseComposerContextHref(href);
-    if (!reference) return props.linkHandlers.onLinkPress?.(href);
+    if (!reference) return props.linkHandlers.onLinkPress?.(href, props.text); // loom: props.text
     const record = props.context?.records.find(
       (record) => record.contextId === reference.contextId,
     );
@@ -2779,6 +2780,7 @@ export const ThreadFeed = memo(function ThreadFeed({
   const { copiedRowId, expandedWorkGroups, expandedWorkRows, expandedTurnIds, revealedMessageId } =
     interactionState;
   const markdownLinkRequest = useRef<AbortController | null>(null);
+  const linkLookupFeedback = useLinkLookupFeedback(); // loom
   const onInlinePlaybackStart = () => {
     markdownLinkRequest.current?.abort();
   };
@@ -2882,10 +2884,51 @@ export const ThreadFeed = memo(function ThreadFeed({
     // A v1 link names no environment, so it falls back to this message's.
     return scopeThreadRef(props.environmentId, link.threadId);
   };
-  const onMarkdownLinkPress = (href: string, imageEmbed = false) => {
+  const onMarkdownLinkPress = (href: string, imageEmbed = false, messageMarkdown?: string) => {
     markdownLinkRequest.current?.abort();
     const request = new AbortController();
     markdownLinkRequest.current = request;
+    // loom: a relative path missing at the root is looked up as web does before anything opens.
+    const link =
+      imageEmbed || enrichedSkillReference(href, props.skills) || parseThreadLinkHref(href)
+        ? null
+        : unanchoredFileLink(href, props.workspaceRoot);
+    if (
+      link === null ||
+      !props.workspaceRoot ||
+      !readEnvironmentScope(props.environmentId, AuthFilesystemReadScope)
+    ) {
+      openMarkdownLink(href, imageEmbed, request);
+      return;
+    }
+    linkLookupFeedback.pending(link.reference, request.signal);
+    void lookUpMessageFile({
+      environmentId: props.environmentId,
+      workspaceRoot: props.workspaceRoot,
+      link,
+      markdown: messageMarkdown,
+      signal: request.signal,
+    }).then(
+      (result) => {
+        if (request.signal.aborted) return;
+        linkLookupFeedback.settle();
+        if (result._tag === "NotFound" && !result.rootIsDirectory) {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          linkLookupFeedback.notFound(link.reference);
+          return;
+        }
+        // Unverified opens the literal path, whose own screen reports a dropped connection.
+        const found = result._tag === "Found" && result.path !== link.rootPath;
+        openMarkdownLink(found ? `${result.path}${link.position}` : href, false, request);
+      },
+      () => {
+        if (request.signal.aborted) return;
+        linkLookupFeedback.settle();
+        openMarkdownLink(href, false, request);
+      },
+    );
+  };
+  const openMarkdownLink = (href: string, imageEmbed: boolean, request: AbortController) => {
     const skill = enrichedSkillReference(href, props.skills);
     if (skill) {
       const instructionsPath = enrichedSkillInstructionsPath(skill);
@@ -2962,57 +3005,7 @@ export const ThreadFeed = memo(function ThreadFeed({
           ...(isAbsolutePath(path) ? {} : { fromRelativeLink: "1" }),
         });
       };
-      if (
-        props.workspaceRoot &&
-        relativePath &&
-        !/[\\/]$/.test(presentation.path) &&
-        needsWorkspaceBasenameLookup(relativePath) &&
-        readEnvironmentScope(props.environmentId, AuthFilesystemReadScope)
-      ) {
-        const originalPath = resolveWorkspaceFilePath(props.workspaceRoot, relativePath);
-        void executeAtomQuery(
-          appAtomRegistry,
-          projectEnvironment.searchEntries({
-            environmentId: props.environmentId,
-            input: {
-              cwd: props.workspaceRoot,
-              query: relativePath,
-              kind: "file",
-              limit: WORKSPACE_BASENAME_LOOKUP_LIMIT,
-            },
-          }),
-          { signal: request.signal, reportFailure: false, reportDefect: false },
-        ).then(
-          (result) => {
-            const match =
-              result._tag === "Success"
-                ? pickWorkspaceBasenameMatch(relativePath, result.value.entries)
-                : null;
-            if (!match || match === relativePath) {
-              openAt(relativePath);
-              return;
-            }
-            if (request.signal.aborted) return;
-            void executeAtomQuery(
-              appAtomRegistry,
-              projectEnvironment.fileMetadata({
-                environmentId: props.environmentId,
-                input: { path: originalPath },
-              }),
-              { signal: request.signal, reportFailure: false, reportDefect: false },
-            ).then(
-              (metadata) =>
-                openAt(
-                  metadata._tag === "Success" && metadata.value?.kind !== "directory"
-                    ? match
-                    : relativePath,
-                ),
-              () => openAt(relativePath),
-            );
-          },
-          () => openAt(relativePath),
-        );
-      } else openAt(relativePath ?? path);
+      openAt(relativePath ?? path);
       return;
     }
 
@@ -3042,7 +3035,7 @@ export const ThreadFeed = memo(function ThreadFeed({
         },
         standalone,
       ),
-    onLinkPress: onMarkdownLinkPress,
+    onLinkPress: (href, messageMarkdown) => onMarkdownLinkPress(href, false, messageMarkdown),
     linkCustomization: enrichedThreadLinkCustomization,
     onImagePress: (href) => onMarkdownLinkPress(href, true),
     resolveImageSource,
@@ -4013,6 +4006,7 @@ export const ThreadFeed = memo(function ThreadFeed({
         ) : null}
         <VideoPreviewModal source={expandedVideo} onRequestClose={closeVideoPreview} />
         <FilePreviewModal source={expandedFile} onRequestClose={closeFilePreview} />
+        <LinkLookupFeedbackOverlay feedback={linkLookupFeedback} /> {/* loom */}
       </View>
     </PresentationSource>
   );
