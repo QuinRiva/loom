@@ -195,6 +195,14 @@ signals:
     origin: retro-redesign design scan (2026-10); narrowed to first-person objects by the scanner build (4 of 5 hits on a lease-review tree were subject matter)
     status: seed
 
+  - id: admits-destruction
+    kind: phrase
+    scope: assistant
+    pattern: '\bI (?:removed|deleted|overwrote|dropped|clobbered|wiped)\b[^.\n]{0,80}?\b(?:by mistake|accidentally|again)\b|\bI clobbered\b'
+    why: The agent says in its reply that it destroyed something by mistake. A first-person admission of a destructive tool call names a tool whose shape invites the error (here a whole-tree task rewrite given a partial tree). admits-mistake scans thinking only and misses it.
+    origin: retro 2026-11-10-e76-extraction-misses-explainer
+    status: seed
+
   - id: tool-unavailable
     kind: phrase
     scope: thinking
@@ -214,9 +222,9 @@ signals:
   - id: deferred-not-fixed
     kind: phrase
     scope: thinking
-    pattern: '\b(?:flag|note|mention) (?:it|this|that) in (?:the|my) report\b|\brather than fix(?:ing)? it\b'
+    pattern: '\brather than fix(?:ing)? it\b'
     why: A scope decision to report rather than fix — worth checking whether the issue was ever picked up.
-    origin: retro-redesign design scan (2026-10); "out of scope here" dropped by the scanner build (reviewers use it to bound their review, 21 hits in 15 threads on the Pull 9 tree)
+    origin: retro-redesign design scan (2026-10); "out of scope here" dropped by the scanner build (reviewers use it to bound their review, 21 hits in 15 threads on the Pull 9 tree); "flag/note/mention it in the report" dropped by retro 2026-11-10-e76-extraction-misses-explainer (15 hits in 12 threads, none fed an observation; an agent noting something in its report is what a report is for)
     status: seed
 
   - id: brief-mismatch
