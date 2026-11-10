@@ -183,7 +183,7 @@ V=0.99.2
 npm install -g "@earendil-works/pi-coding-agent@$V"     # not `pi update`
 pi --version                                             # → 0.99.2
 <loom worktree>/infra/pi-patches/apply.sh                # readable dist, then the bundle
-<loom worktree>/infra/pi-patches/apply.sh --check        # 0001: applied=yes  0002: applied=yes  chunk-…: already patched
+<loom worktree>/infra/pi-patches/apply.sh --check        # exit 0 = every patch in place
 ```
 
 `npm install -g` rather than `pi update` because it installs the **exact**
@@ -349,7 +349,7 @@ Each of these cost real time in the last two rounds.
 - **`/v1/models` lies.** The old proxy image advertised `claude-opus-5-5`
   while rejecting every request for it. Completion or nothing.
 - **`pi update` wipes patches** — the core patches on `pi update`/reinstall.
-  Re-run `apply.sh` and check the marker count afterwards.
+  Re-run `apply.sh`, then `apply.sh --check` (exit 0 = every patch in place).
 - **`pnpm patch --ignore-existing` and a stale editable dir.** It silently
   reuses `/tmp/pi-patch-<v>` from a previous attempt, baking old edits into
   what you think is the pristine base. `rm -rf` it first and `diff -r` against
