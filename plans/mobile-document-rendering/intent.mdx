@@ -1,0 +1,184 @@
+---
+reader:
+  who: Carl, who reported this and approves the intent before a plan or any code is written
+  knows: the MDX documents as a daily reader and reviewer on web, and the phone app as a user; nothing of how either one draws a file
+  after_first_screen: what his phone shows today when he opens one of these documents, what it would show after this work, and that he is choosing between reading only and also tapping answers
+kicker: "Intent brief · draft for your corrections · 10 Nov 2026"
+status: draft
+manager_sessions:
+  - id: 01a1c464-fb56-76bc-bb1d-ca559746cf02
+    name: "Mobile documents: findings and intent brief"
+    role: intent
+    authored_at: 2026-11-10T07:53:06.911Z
+---
+
+# Plans, recaps and explainers on the phone, looking as they do on web
+
+**Goal.** "Loom's MDX files (and presumably other artefacts like html) don't render in the mobile app". Today the phone treats an `.mdx` document as plain markdown. The prose and headings come through, and **every block is either dropped without a trace or printed as its raw source**. The proposal is to draw the document with **the same renderer web uses**, inside the browser view the app already has for HTML files and PDFs. HTML artefacts look like they **already work**, so that half may be no work at all.
+
+<Columns>
+  <Column label="Today">
+    <Screen
+      surface="mobile"
+      caption="Reconstructed, not a screenshot: the text the app hands its markdown view for plans/sqlite-read-lane-v2/plan.mdx. Both tables are gone, so a heading that promises four numbers is followed by none."
+      html={"<div style='box-sizing:border-box;height:100%;display:flex;flex-direction:column'><div style='display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;padding:10px 14px;border-bottom:1px solid var(--wf-line);white-space:nowrap'><span>&lsaquo;</span><div style='min-width:0'><div><strong>plan.mdx</strong></div><small class='wf-muted'>loom · plans/sqlite-read-lane-v2</small></div><div style='flex:1'></div><span>&middot;&middot;&middot;</span></div><div style='flex:1;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;gap:10px'><h2>1. The two defects and the fix for each</h2><p>Vocabulary used throughout, in plain words. The <strong>worker read lane</strong> is loom's second SQLite connection: it lives on a worker thread, is opened read-only, and exists so expensive reads do not block the writer.</p><h3>The four numbers that decide it</h3><p>The memoisation facts behind the fix (Effect 4.0.0-rc.115): the memo key is the layer <em>object</em>; a provided layer re-runs its build with the same memo map.</p></div></div>"}
+    />
+  </Column>
+  <Column label="After">
+    <Image
+      src="shots/after-web-renderer-phone-width.jpg"
+      alt="The same section of the plan drawn by the web renderer at phone width: the heading followed by its four-column table"
+      caption="A real render: the web renderer's output for the same section at a phone's width (390 px), not yet inside the app. The fourth column is reached by scrolling the table sideways."
+      width={300}
+    />
+  </Column>
+</Columns>
+
+<Callout tone="decision" title="What you are choosing" focus>
+  Two questions at the end. The first is **how much the phone should let you do**. I recommend read only, roughly two to three days of agent work. Also tapping answers to questions and verdicts is roughly double. The second is **whether HTML artefacts need anything** beyond one check on a device.
+
+  Nothing here was seen on a real phone. Agents have no device access in this environment, so today's behaviour comes from running the app's own code on real files (§1).
+</Callout>
+
+**You'll know it works when.**
+
+- You tap the `plans/sqlite-read-lane-v2/plan.mdx` chip in a chat on the phone. Its six tables, decision boxes, cards and code show as on web, fitted to the phone's width. A table too wide for the screen scrolls sideways.
+- The same document opened from the Files browser looks the same.
+- A brief with questions shows each question, its options and the recommended one.
+- It works away from your desk on mobile data, over the tailnet or the tunnel, wherever chat works.
+- When a new block type is added to documents, the phone shows it once the server is updated, with no new build of the app.
+- A document that cannot be drawn says so and offers its source, instead of showing part of it as if it were whole.
+- **Must not:** change how plain `.md` files, HTML files, PDFs or images open. Slow the chat or app start: nothing of the document view loads until a document is opened. Ask you to sign in again inside the document view.
+
+**Approaches in play.**
+
+- **The web renderer, inside the app's built-in browser view.** The Loom server serves a small page holding only the document renderer. The app opens it in the embedded browser view it already uses for HTML files, and hands it the file's text. The page never signs in and fetches nothing private, so it works over every connection the app works over. Wins if it opens quickly over the tunnel and reads well at a phone's width. The picture above is the first evidence for the second. _My pick._
+- **The same renderer, packed inside the app instead of served.** Wins if serving it proves slow or unreliable away from home. It costs a new app build every time a block is added.
+- Dropped: **rebuilding the blocks as native app components.** About 40 block types and 11,700 lines of web code to mirror, then two renderers to keep in step for every block added. Wireframes, diagrams, prototypes and HTML figures are web content that would need the browser view regardless.
+- Dropped: **opening the whole Loom web app inside the phone app.** It needs its own sign-in inside the app, puts a desktop layout on a phone screen, and any answer would land in a second message box rather than the phone's.
+- Dropped: **the server flattens the document into a fixed HTML page.** No expanders, tabs or diagrams and no path to tapping answers later. The renderer lives in the web app, so the server would need its own build of it, and the saving over the pick is small.
+
+**Decided.** "Loom's MDX files (and presumably other artefacts like html) don't render in the mobile app" is all you have said, so the rest is assumed.
+
+- _Assumed:_ every `.mdx` file opens in the document view. Its raw source stays one tap away in the file menu, as it is for markdown today. Redirect if wrong.
+- _Assumed:_ the phone reads documents up to the same 8 MB as web. Today it cuts a file off at 1 MB. Redirect if wrong.
+- _Assumed:_ the change is shared code, so it lands on iOS and Android together. It is checked on whichever simulators agents can reach, iOS first. Redirect if only one matters to you.
+
+**Not doing.** Asking a question on a section (the side conversations web opens from a document). A document panel beside the chat, or a plan opening by itself when an agent writes one. Editing a document on the phone. Any change to web's document view.
+
+## 1. What the phone shows today
+
+Every way of opening a file on the phone ends at the same file screen. That covers a file chip or path in a chat message, the Files browser, and a file mentioned in the message box. It also covers the file pane on a tablet and a file attached to a message. Nothing on the phone opens a document by itself. So the answer is the same from each place, and for the example plan it is this:
+
+<Table
+  density="compact"
+  columns={["In plans/sqlite-read-lane-v2/plan.mdx", "How many", "On the phone today"]}
+  rows={[
+    { tone: "risk", cells: ["Tables", "6", { badge: { label: "gone", tone: "risk" }, md: "Nothing in their place, and nothing says one was there" }] },
+    ["Expanders and side-by-side columns", "3", { badge: { label: "gone", tone: "risk" }, md: "Frame and label dropped; loose text inside is kept" }],
+    ["Decision boxes", "3", { badge: { label: "flattened", tone: "warning" }, md: "The text stays as an ordinary paragraph; the box and its label go" }],
+    ["Cards for the rejected alternatives", "5", { badge: { label: "raw source", tone: "warning" }, md: "The opening tag is printed as text, `<Card heading=\"A pool of reader workers\" …>`, then the body" }],
+    ["File maps and annotated code", "3", { badge: { label: "raw source", tone: "warning" }, md: "Printed as the block's source" }],
+    ["Prose and headings", "all", { badge: { label: "fine", tone: "success" }, md: "A document with no blocks, such as `plans/intent-first-workflow/intent.mdx`, already reads correctly" }],
+  ]}
+/>
+
+**Question forms.** A form is printed as its source and cannot be tapped. This is what the phone gets for the one question in `plans/open-pr-keeps-thread-active/intent.mdx`:
+
+<Code
+  language="text"
+  wrap
+  code={"<QuestionForm\n  questions={[\n    {\n      id: \"go\",\n      title: \"Build it as the pick above?\",\n      mode: \"single\",\n      options: [\n        { id: \"yes\", label: \"Yes, go\", recommended: true },\n        { id: \"no\", label: \"No, annotate what to change\" },\n      ],\n    },\n  ]}\n/>\n"}
+/>
+
+**HTML artefacts.** By the code, an `.html` file under `.artifacts/` opens in the phone's built-in browser view with its scripts running and its sibling files loading. The phone asks the server for it the same way web does. The file menu also has an entry that opens it in the phone's own browser. Nobody has watched one open on a phone.
+
+**How this was established.** By reading the phone app's code and running the part of it that prepares a markdown file for display on the three real documents named above. The last step, the phone's own text view painting that result, was not observed. Agent device access is switched off for this environment, and the server has no emulator of its own.
+
+## 2. What each choice gives you
+
+<Columns columns={3}>
+  <Card heading="Read only" tone="success" badge="RECOMMENDED" meta={["2 to 3 days of agent work", "one PR"]}>
+    Every block as on web: expanders open, tabs switch, diagrams draw, pictures and links work.
+
+    Questions and accept / reject verdicts show their options and the recommended one. They are not tappable; you answer by typing.
+
+    Approving a brief or plan is a reply in chat on every device, so it works from the phone.
+  </Card>
+  <Card heading="Plus tapping answers" tone="neutral" badge="ABOUT DOUBLE" meta={["a second PR"]}>
+    Question options and verdicts are tappable. They join your next message as chips, as on web.
+
+    Cheaper than it sounds. The message format already carries a document answer from any client, and the phone's message box already holds comments on code changes. What is missing is the phone holding and showing a document answer.
+  </Card>
+  <Card heading="Plus commenting" tone="neutral" badge="ABOUT TRIPLE" meta={["least certain"]}>
+    You can comment on a block or on a highlighted passage.
+
+    It needs a touch design of its own. Web's commenting is built around hovering and dragging with a mouse.
+  </Card>
+</Columns>
+
+Not in any option: asking a question on a section, which on web opens a side conversation.
+
+## Questions for you
+
+<QuestionForm
+  questions={[
+    {
+      id: "scope",
+      title: "How much should the phone let you do with a document?",
+      subtitle: "Approving needs no button on any device: it is a reply in chat, and a bare \"go\" accepts every recommended answer. So reading alone already lets you approve from the phone.",
+      refs: [{ label: "2. What each choice gives you", anchor: "2-what-each-choice-gives-you" }],
+      mode: "single",
+      allowOther: true,
+      options: [
+        {
+          id: "read",
+          label: "Read only: every block shows as on web, and I answer by typing in chat",
+          recommended: true,
+          detail: "Roughly 2 to 3 days of agent work in one PR. Tapping answers can be added later, once you have used reading and know whether you miss it.",
+        },
+        {
+          id: "answer",
+          label: "Read, and tap answers to questions and accept / reject verdicts",
+          detail: "About double. Reading ships first as its own PR; tapping follows as a second.",
+        },
+        {
+          id: "annotate",
+          label: "All of that, plus commenting on a block or a highlighted passage",
+          detail: "About triple, and the least certain part: commenting on web is built around hovering and dragging with a mouse.",
+        },
+      ],
+    },
+    {
+      id: "html",
+      title: "HTML artefacts: do they need anything beyond one check on a device?",
+      subtitle: "By the code they already open on the phone with scripts and sibling files working, but nobody has watched one, and your message said \"presumably\".",
+      refs: [{ label: "1. What the phone shows today", anchor: "1-what-the-phone-shows-today" }],
+      mode: "single",
+      allowOther: true,
+      options: [
+        {
+          id: "check",
+          label: "Check one on a device as part of this work, and fix only what is broken",
+          recommended: true,
+          detail: "If it opens correctly, the HTML half is no work at all.",
+        },
+        {
+          id: "seen-fail",
+          label: "I have seen an HTML artefact fail on the phone",
+          detail: "Say which file and what you saw in the write-in box; that becomes a check in this brief.",
+        },
+        {
+          id: "out",
+          label: "Leave HTML out entirely, without a check",
+        },
+      ],
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- What a real phone shows, today and after. Agent device access is off in Settings, under Integrations, then Devices. Once it is on, the first step of the build repeats both checks on a simulator before anything is changed.
+- Whether the widest blocks (design boards, annotated code, three cards across) read at a phone's width. The render above reads well apart from wide tables. Opening two or three real documents on a device settles it.
+- How long the first open takes over the tunnel on mobile data. The renderer is roughly 1 MB to download once after each server update, then the phone keeps it. Measured on the first build; if it is too slow, the fallback is packing the renderer inside the app.
