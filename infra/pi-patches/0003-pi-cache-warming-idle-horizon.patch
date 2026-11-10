@@ -1,34 +1,38 @@
 --- a/dist/core/cache-warmer.js
 +++ b/dist/core/cache-warmer.js
-@@ -2,8 +2,11 @@
- import { getProviderEnvValue } from "@earendil-works/pi-ai/utils/provider-env";
- /** Streaming warming never continues past this long after the real request that started it. */
- const MAX_WARMING_AGE_MS = 60 * 60_000;
--/** Idle warming uses a shorter horizon because continuation estimates become less reliable with age. */
--const MAX_IDLE_WARMING_AGE_MS = 30 * 60_000;
+@@ -1,4 +1,11 @@
+ import { CACHE_WARMING_MAX_AGE_MS, CACHE_WARMING_MAX_IDLE_AGE_MS, CACHE_WARMING_MINIMUM_EXPECTED_SAVINGS, evaluateCacheWarming, getCacheWarmingDelayMs, getCacheWarmingRequestOptions, getPromptCacheTtlMs, isCacheWarmingReplayable, } from "@earendil-works/pi-ai";
 +/**
-+ * Idle warming uses a shorter horizon because continuation estimates become less reliable with age.
-+ * LOOM PATCH (0003): `PI_CACHE_WARMING_IDLE_MAX_MS` overrides it per process; unset keeps 30 minutes.
++ * Idle warming horizon. LOOM PATCH (0003): `PI_CACHE_WARMING_IDLE_MAX_MS` overrides pi-ai's
++ * `CACHE_WARMING_MAX_IDLE_AGE_MS` per process; unset, empty, 0 or non-numeric keep it (30 minutes).
 + */
-+const MAX_IDLE_WARMING_AGE_MS = Number(process.env.PI_CACHE_WARMING_IDLE_MAX_MS) || 30 * 60_000;
- /** A refresh is sent only when it is expected to save at least this many dollars. */
- const CACHE_WARMING_MINIMUM_EXPECTED_SAVINGS = 0.05;
- /**
-@@ -157,7 +160,7 @@
++function __loomIdleWarmingMaxMs() {
++    return Number(process.env.PI_CACHE_WARMING_IDLE_MAX_MS) || CACHE_WARMING_MAX_IDLE_AGE_MS;
++}
+ /** Prompt size of the most recent real request on the branch, as reported by the provider. */
+ function lastPromptTokens(entries) {
+     for (let index = entries.length - 1; index >= 0; index--) {
+@@ -99,9 +106,9 @@
+             return;
+         }
          run.phase = "idle";
-         const deadline = run.startedAt + MAX_IDLE_WARMING_AGE_MS;
+-        const deadline = run.startedAt + CACHE_WARMING_MAX_IDLE_AGE_MS;
++        const deadline = run.startedAt + __loomIdleWarmingMaxMs();
          if (run.nextWarmAt > deadline || Date.now() >= deadline) {
 -            this.stop("30-minute idle safety limit reached");
-+            this.stop(`${MAX_IDLE_WARMING_AGE_MS / 60_000}-minute idle safety limit reached`);
++            this.stop(`${__loomIdleWarmingMaxMs() / 60_000}-minute idle safety limit reached`);
          }
      }
      /** Reconcile an active run after the persisted warming mode changes. */
-@@ -194,7 +197,7 @@
+@@ -136,9 +143,9 @@
+         // the planned pre-expiry margin for that delay and request dispatch; a
+         // late refresh is likely a full-price cache write, not a cache warm.
          run.refreshDeadlineAt = run.nextWarmAt + Math.floor((run.ttlMs - run.delayMs) / 2);
-         const deadline = run.startedAt + (run.phase === "idle" ? MAX_IDLE_WARMING_AGE_MS : MAX_WARMING_AGE_MS);
+-        const deadline = run.startedAt + (run.phase === "idle" ? CACHE_WARMING_MAX_IDLE_AGE_MS : CACHE_WARMING_MAX_AGE_MS);
++        const deadline = run.startedAt + (run.phase === "idle" ? __loomIdleWarmingMaxMs() : CACHE_WARMING_MAX_AGE_MS);
          if (run.nextWarmAt > deadline || Date.now() >= deadline) {
 -            this.stop(run.phase === "idle" ? "30-minute idle safety limit reached" : "one-hour safety limit reached");
-+            this.stop(run.phase === "idle" ? `${MAX_IDLE_WARMING_AGE_MS / 60_000}-minute idle safety limit reached` : "one-hour safety limit reached");
++            this.stop(run.phase === "idle" ? `${__loomIdleWarmingMaxMs() / 60_000}-minute idle safety limit reached` : "one-hour safety limit reached");
              return;
          }
          run.timer = setTimeout(() => void this.refresh(run), Math.max(0, run.nextWarmAt - Date.now()));

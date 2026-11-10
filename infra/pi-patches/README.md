@@ -91,7 +91,7 @@ for this copy it runs unmodified. Running pi processes keep the old code;
 nothing needs killing.
 
 0001/0002 were authored against pi **0.82.1** and 0003/0004 against **1.1.0**; all
-four diffs apply to **1.3.0**
+four diffs apply to **1.5.1**
 (the currently bundled pin). If a patch stops applying cleanly, upstream has
 moved: re-derive it against the new dist rather than force-applying.
 
@@ -151,6 +151,15 @@ contract test against the stock 1.3.0 bundle fails the same 7 of 9. 0003:
 `MAX_IDLE_WARMING_AGE_MS`). 0004: `sdk.js` byte-identical (identity compare)
 and `_refreshFinalizedContext` unchanged; the 0004 harness on the 1.3.0 bundle
 with only 0004 reverted → repro no ping, `REPRO=off` control one ping at +54.0.
+
+**1.5.1 outcomes** (1.4.x skipped). All four still needed. 0002: both lock
+paths still `writeFileSync` with no `renameSync`. 0001: stock `args.js` has no
+`--cwd` and `rpc-mode.js` still calls `switchSession(command.sessionPath)`
+without a cwd. 0003: the idle horizon moved into pi-ai as the exported
+`CACHE_WARMING_MAX_IDLE_AGE_MS` (still a hard-coded 30 minutes, see 0003).
+0004: `cacheContextIsCurrent` still compares by identity and
+`_refreshFinalizedContext` is byte-identical; the 0004 harness on the 1.5.1
+bundle with only 0004 reverted → repro no ping, `REPRO=off` one ping at +54.0.
 
 ### 1. Move the version pins
 
@@ -356,6 +365,11 @@ line above the patched region, so hunks 5–6 moved three lines (re-derived);
 every other 0001 file is byte-identical to 1.1.0. Same chunk layout (`main()`
 and the RPC loop in `chunk-66G7ITPS.js`, auth storage in `chunk-5GTPJSRI.js`),
 all nine anchors matched first try, contract test 9 of 9.
+1.5.1 drift: only the `--session-id`/`--fork` help lines next to the `--cwd`
+help hunk were reworded (re-derived); `main.js` and `rpc-mode.js` hunks moved
+45–54 and 22 lines. `main()` and the RPC loop are in `chunk-ZKNSXGL5.js`, auth
+storage in `chunk-4KSTFUIK.js`; all nine anchors matched first try, contract
+test 9 of 9.
 
 ## 0002 — atomic `auth.json` write
 
@@ -415,6 +429,9 @@ good and zero of everything else per reader. 1.3.0: upstream added a
 Windows-only `EPERM` lock retry, shifting the hunks 5–12 lines (re-derived,
 content unchanged); auth chunk `chunk-5GTPJSRI.js`; the harness against the
 resolved 1.3.0 copy read ~6.9 k good and zero of everything else per reader.
+1.5.1: hunks moved one line (re-derived, content unchanged); auth chunk
+`chunk-4KSTFUIK.js`; the harness against the resolved 1.5.1 copy read ~9.9 k
+good and zero of everything else per reader.
 
 ## 0003 — configurable idle cache-warming horizon (`PI_CACHE_WARMING_IDLE_MAX_MS`)
 
@@ -425,8 +442,13 @@ refreshes at 54 minutes (90% of the TTL), so with stock pi it is **never**
 idle-warmed: the turn settles and the warmer stops at once with "30-minute idle
 safety limit reached". Loom wants 1-hour root threads kept warm past the hour.
 
-**Fix.** The constant becomes `Number(process.env.PI_CACHE_WARMING_IDLE_MAX_MS)
-|| 30 * 60_000`, read once at module load, so it is set per pi process. Unset,
+**Fix.** Since 1.5.1 the horizon is pi-ai's exported
+`CACHE_WARMING_MAX_IDLE_AGE_MS`; the patch leaves pi-ai alone and has its one
+consumer, `CacheWarmer`, read `__loomIdleWarmingMaxMs()` instead:
+`Number(process.env.PI_CACHE_WARMING_IDLE_MAX_MS) || CACHE_WARMING_MAX_IDLE_AGE_MS`,
+evaluated at each deadline check, so it is set per pi process. (A function,
+not a module constant, because in the bundle the default is an import from
+pi-ai's chunk that an esbuild chunk cycle could leave uninitialised.) Unset,
 empty, `0` or non-numeric all mean stock behaviour. The idle stop reason names
 the configured horizon (`"90-minute idle safety limit reached"`) instead of the
 hard-coded 30 minutes; unset, the text is unchanged. Loom's session composer
@@ -436,7 +458,7 @@ economics gate does too, except that Loom's extension (`cacheWarmingGate`)
 answers `warm` to a 1-hour root's idle decision: pi prices a miss at the
 5-minute write rate, which would skip the ~54-minute ping for most contexts.
 
-**How the horizon counts, in pi 1.1.0–1.3.0** (`dist/core/cache-warmer.js`, byte-identical across them):
+**How the horizon counts, in pi 1.1.0–1.5.1** (`dist/core/cache-warmer.js`; 1.5.1 moved the constants and delay helper into pi-ai unchanged):
 
 - Idle age is measured from `run.startedAt`, the moment the **last real
   session request was dispatched** (`CacheWarmer.start`, called from the
@@ -472,10 +494,11 @@ count the provider calls with `maxTokens: 1` (also visible as `cache_warm`
 the turn settles reads `Inactive (30-minute idle safety limit reached)` unset
 and `Decision in 54m (… -> warm)` with `5400000`.
 
-Files: `dist/core/cache-warmer.js` (plus the bundle: two anchors in the CLI
-chunk, `chunk-66G7ITPS.js` on 1.3.0 — the constant once, the stop reason twice).
-On 1.3.0 the 0004 harness's `REPRO=off` run doubles as the 0003 check: one
-ping at +54.0 with `5400000` on the patched bundle, none on stock.
+Files: `dist/core/cache-warmer.js` (plus the bundle: three anchors in the CLI
+chunk, `chunk-ZKNSXGL5.js` on 1.5.1 — each idle-deadline read once, the stop
+reason twice — and the `__loomIdleWarmingMaxMs` header). On 1.3.0 and 1.5.1 the
+0004 harness's `REPRO=off` run doubles as the 0003 check: one ping at +54.0
+with `5400000` on the patched bundle, none on stock.
 Upstreamable as a setting rather than an env var.
 
 ## 0004 — idle cache warming survives pi's post-turn message rebuild
@@ -511,11 +534,11 @@ message per turn; `PI_ROOT=<pi root> node run.mjs <label> [compactAtMin]`).
 minutes. On 1.1.0: without 0004, repro → no ping (control with `REPRO=off` →
 one ping at +54.0); with 0004, repro → one ping at +54.0 and a `cache_warm`
 entry; with 0004 and a compaction at +20 (`AGENT_DIR=agentdir-compact`) → no
-ping. 1.3.0 reproduces all four results (the "without 0004" runs on the
-patched 1.3.0 bundle with only the 0004 anchor reverted).
+ping. 1.3.0 and 1.5.1 reproduce all four results (the "without 0004" runs on
+the patched bundle with only the 0004 anchor reverted).
 
 Files: `dist/core/sdk.js` (plus the bundle: one anchor in the CLI chunk,
-`chunk-66G7ITPS.js` on 1.3.0, and the `__loomSameRequestMessage` header).
+`chunk-ZKNSXGL5.js` on 1.5.1, and the `__loomSameRequestMessage` header).
 Upstream issue drafted at `/home/Carl/scratch/prompt-cache-idle-gap/pi-upstream-issue.md`.
 
 > Note: `pnpm patch` byte-compares the whole package, so
