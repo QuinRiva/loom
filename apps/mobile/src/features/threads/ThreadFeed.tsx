@@ -271,6 +271,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { useV2ItemSupport } from "../../state/v2-item-support";
 import {
   fileRoutePathSegments,
+  isAbsolutePath,
   resolveFileLinkPath,
   resolveWorkspaceFilePath,
   resolveWorkspaceRelativeFilePath,
@@ -2957,6 +2958,8 @@ export const ThreadFeed = memo(function ThreadFeed({
           threadId: String(props.threadId),
           path: fileRoutePathSegments(target),
           ...(presentation.line ? { line: String(presentation.line) } : {}),
+          // loom: lets a not-found file screen say the path may be relative to another folder.
+          ...(isAbsolutePath(path) ? {} : { fromRelativeLink: "1" }),
         });
       };
       if (

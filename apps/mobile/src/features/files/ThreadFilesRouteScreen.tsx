@@ -213,6 +213,7 @@ function FileContent(props: {
   readonly relativePath: string;
   readonly threadId: ThreadId | null;
   readonly initialLine: number | null;
+  readonly fromRelativeLink: boolean; // loom
   readonly truncated: boolean;
   readonly onRefresh?: () => Promise<void> | void;
 }) {
@@ -237,6 +238,7 @@ function FileContent(props: {
         environmentId={props.environmentId}
         reason={props.previewFailure}
         path={resolveWorkspaceFilePath(props.cwd, props.relativePath)} // loom
+        fromRelativeLink={props.fromRelativeLink} // loom
         onRetry={props.onRetryPreview}
       />
     );
@@ -336,6 +338,7 @@ type ThreadFileRouteScreenProps = StaticScreenProps<{
   readonly line?: string;
   readonly cwd?: string;
   readonly projectName?: string;
+  readonly fromRelativeLink?: string; // loom: "1" when a message wrote the path relative
 }>;
 
 function useThreadFilesWorkspace(params: {
@@ -1007,6 +1010,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
           fileContents={fileData?.contents ?? null}
           fileError={fileQuery.error}
           initialLine={targetLine}
+          fromRelativeLink={firstRouteParam(params.fromRelativeLink) === "1"} // loom
           relativePath={relativePath}
           threadId={threadId}
           truncated={fileData?.truncated ?? false}
