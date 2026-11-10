@@ -122,6 +122,7 @@ const PRICES: Record<string, CacheModelPrice> = {
     write5m: 12.5,
     write1h: 20,
   },
+  "claude-fable-5-2": { label: "Fable 5.2", input: 8, cacheRead: 0.2, write5m: 10, write1h: 16 },
   "claude-sonnet-5-5": { label: "Sonnet 5.5", input: 2, cacheRead: 0.1, write5m: 2.5, write1h: 4 },
   "claude-opus-5": { label: "Opus 5", input: 5, cacheRead: 0.5, write5m: 6.25, write1h: 10 },
 };
