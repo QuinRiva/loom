@@ -4,7 +4,7 @@ reader:
   knows: the brief beside this plan; the repo in general; nothing of the investigation behind either document
   after_first_screen: the phone opens .mdx files in the web renderer hosted in the app's WebView, served by the Loom server and fed by the app; two PRs, reading then tapping answers; each needs a new APK that Carl installs once his server is deployed, then tries on his phone
 kicker: "Implementation plan · mobile document rendering · 10 Nov 2026"
-status: approved
+status: done
 intent: plans/mobile-document-rendering/intent.mdx
 manager_sessions:
   - id: 01a1c464-fb56-76bc-bb1d-ca559746cf02
@@ -321,3 +321,31 @@ That fix also measured something this plan does not solve. A path an agent cites
 />
 
 </Details>
+
+## As built
+
+Both PRs were built as planned in shape: a page served by the Loom server, drawn by web's renderer, loaded in the app's WebView and fed over a token-carrying message bridge. PR 1 merged as #542. Nothing was run on a phone before either PR's hand-back; the page was proved in Chromium at 390 px, and the device checks in §6 are Carl's after his deploy.
+
+**Outside the plan, on PR 1's branch.** The "Preview unavailable" Carl saw was not an HTML fault: the link was a relative path that did not exist at the worktree root. PR 1's branch therefore also carried file-link fixes the plan does not describe: the failure card names the path it checked, and a tapped relative path is looked up the way web does (the lookup order now lives in `packages/client-runtime/src/unanchoredFileReferences.loom.ts`, shared with web).
+
+**PR 1 departures.**
+
+- **A three-line change in `apps/web/src/themePalette.ts`, an upstream file.** Importing the theme hook made the viewer page start the app's connection layer and poll the server. Reserved theme ids now skip that lookup, so the page makes no request of its own; a browser test asserts no fetch and no socket while a plan draws.
+- **The phone-width pass was wider than §3 step 4 expected.** The sideways overflow came from long inline code, badges, card headings and prose tables, not from the plan's table blocks. One `@media (max-width: 640px)` rule in `apps/web/src/index.css` fixes them, which also applies to web in a window that narrow. Data-model relation rows and review-choice labels now wrap at every width. All 109 real documents in the repo were checked.
+- **No `topInset` in `init`.** Android draws the app bar in flow, and iOS uses the WebView's automatic inset as the other web previews do.
+- **The bridge module is `packages/shared/src/documentViewerBridge.loom.ts`,** following the fork's naming rule for shared Loom modules.
+- **Link handling in the document view is a compact second copy** on the same helpers as `FileMarkdownPreview`, because that file is upstream and extracting a shared hook from it would be a large unmarked refactor. It opens only `http(s)`, `mailto` and `tel` externally.
+- **From review:** a document that has answered `ready` is never swapped for the "Document view unavailable" notice.
+
+**PR 2 departures.**
+
+- **`comment-upsert` carries only the record.** The app builds the chip token from it with the shared formatter, so there is no `reference` field to validate, and the record is decoded inside the bridge schema.
+- **The draft helpers are in `apps/mobile/src/state/composerDraftContextRecord.loom.ts`,** not in upstream's `use-composer-drafts.ts`.
+- **`init.filePath` is the workspace-relative path,** so the record's `file:` line and chip id match web's for the same file.
+- **A tap shows as chosen at once;** the app's next `answers-present` confirms or undoes it.
+- **The "answered by replying in chat" line** shows only where there is no thread to answer into (an attached file, the new-task file browser, an older app).
+- **Back to chat uses `popTo("Thread")`,** so it returns to the chat under the file screen however the file was opened.
+
+**Verification as it went.** The "Before PR 1" check (Carl opening one `.html` file on his current app) had not been reported when the build started; the build went ahead because the page is needed under the fallback too. PR 1's APK was built from the branch just before the merge, not from main. PR 2's APK carries PR 1's app changes, so one install after a deploy holding both PRs covers both.
+
+**Left open.** An answer whose record fails the schema (a file path over about 250 characters) stays shown as chosen with no chip until the next `answers-present`. Back to chat drops other params on the Thread screen. Neither was fixed; both are for the device pass to judge.
