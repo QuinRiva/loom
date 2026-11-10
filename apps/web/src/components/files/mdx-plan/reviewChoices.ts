@@ -1,4 +1,9 @@
+import type { PlanCommentAnchor } from "@t3tools/contracts";
 import { createContext } from "react";
+
+import type { MdxAnchorReviewCommentContext } from "~/reviewCommentContext";
+
+import { planFileNameOf } from "./questionAnswers";
 
 /**
  * `<ReviewChoice>` verdicts and notes ride the annotation comment channel like
@@ -57,6 +62,31 @@ export function formatReviewChoiceText(label: string, choice: PlanReviewChoice):
   const verb = choice.verdict ?? "comment";
   const note = choice.note.trim();
   return `Review ${label} → ${verb}${note ? `: "${note}"` : ""}`;
+}
+
+/** The review comment a verdict rides in; shared by web's layer and the phone's viewer. */
+export function reviewChoiceComment(
+  filePath: string,
+  item: ReviewChoiceItem,
+  choice: PlanReviewChoice,
+  anchor: PlanCommentAnchor = {
+    anchorKind: "visual",
+    targetKind: "control",
+    blockType: "review-choice",
+  },
+): MdxAnchorReviewCommentContext {
+  const label = item.label ?? item.itemId;
+  return {
+    kind: "mdx-anchor",
+    id: reviewChoiceCommentId(filePath, item.itemId),
+    filePath,
+    sectionId: anchor.sectionId ?? `file:${filePath}`,
+    sectionTitle: anchor.sectionTitle ?? planFileNameOf(filePath),
+    rangeLabel: `review: ${item.itemId}`,
+    text: formatReviewChoiceText(label, choice),
+    anchor,
+    quotedText: label,
+  };
 }
 
 /** Parse a persisted choice draft, degrading to undecided on any malformation. */

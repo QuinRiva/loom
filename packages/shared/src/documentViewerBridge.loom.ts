@@ -3,6 +3,7 @@
  * app's channel to every frame, so page messages after `ready` carry the token from `init`,
  * which only the top frame receives. Fields are only ever added, as optional ones.
  */
+import { ComposerContextId, ReviewCommentContextRecord } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -33,11 +34,25 @@ const ImageRequestMessage = Schema.Struct({
   path: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1024)),
 });
 
+/** An answer or verdict the page built with web's own code, to hold in the thread's draft. */
+const CommentUpsertMessage = Schema.Struct({
+  type: Schema.Literal("comment-upsert"),
+  token: Token,
+  record: ReviewCommentContextRecord,
+});
+const CommentRemoveMessage = Schema.Struct({
+  type: Schema.Literal("comment-remove"),
+  token: Token,
+  contextId: ComposerContextId,
+});
+
 const DocumentViewerPageMessage = Schema.Union([
   ReadyMessage,
   RenderedMessage,
   LinkMessage,
   ImageRequestMessage,
+  CommentUpsertMessage,
+  CommentRemoveMessage,
 ]);
 export type DocumentViewerPageMessage = typeof DocumentViewerPageMessage.Type;
 
@@ -46,13 +61,26 @@ const InitMessage = Schema.Struct({
   protocol: Schema.Number,
   token: Token,
   source: Schema.String,
-  /** Workspace-relative (or absolute) path of the document, as the app opened it. */
+  /** Workspace-relative path of the document as web names it; absolute outside a workspace. */
   filePath: Schema.String,
   /** Absolute directory holding the document: the base for its relative image paths. */
   baseDir: Schema.String,
   /** Project root, for labels; absent for an attachment. */
   cwd: Schema.optionalKey(Schema.String),
   appearance: Schema.Literals(["light", "dark"]),
+  /**
+   * Present only for a document opened in a thread: its answers become tappable. `draftTarget`
+   * keys the stored selections (the scoped thread key); `present` lists the context ids of this
+   * file's answers now in that thread's draft.
+   */
+  answers: Schema.optionalKey(
+    Schema.Struct({ draftTarget: Schema.String, present: Schema.Array(Schema.String) }),
+  ),
+});
+/** The thread's draft changed: these of this file's answers are in it now. */
+const AnswersPresentMessage = Schema.Struct({
+  type: Schema.Literal("answers-present"),
+  present: Schema.Array(Schema.String),
 });
 /** `url` is null where the app cannot sign the path (an attached document has no workspace). */
 const ImageUrlMessage = Schema.Struct({
@@ -61,7 +89,11 @@ const ImageUrlMessage = Schema.Struct({
   url: Schema.NullOr(Schema.String),
 });
 
-const DocumentViewerAppMessage = Schema.Union([InitMessage, ImageUrlMessage]);
+const DocumentViewerAppMessage = Schema.Union([
+  InitMessage,
+  ImageUrlMessage,
+  AnswersPresentMessage,
+]);
 export type DocumentViewerAppMessage = typeof DocumentViewerAppMessage.Type;
 export type DocumentViewerInit = typeof InitMessage.Type;
 
