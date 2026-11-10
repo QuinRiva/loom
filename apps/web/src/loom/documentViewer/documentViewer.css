@@ -1,0 +1,7 @@
+/* loom: the document viewer scrolls the page itself; the app shell locks body and #root. */
+html body,
+html #root {
+  height: auto;
+  overflow: visible;
+  padding: 0;
+}

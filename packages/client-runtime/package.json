@@ -19,6 +19,10 @@
       "types": "./src/workspaceBasenameLookup.ts",
       "default": "./src/workspaceBasenameLookup.ts"
     },
+    "./unanchored-file-references": {
+      "types": "./src/unanchoredFileReferences.loom.ts",
+      "default": "./src/unanchoredFileReferences.loom.ts"
+    },
     "./composerThreadItems": {
       "types": "./src/composerThreadItems.ts",
       "default": "./src/composerThreadItems.ts"

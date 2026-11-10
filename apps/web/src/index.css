@@ -3690,6 +3690,26 @@ code {
 .plan-mdx > table[data-plan-bleed] {
   width: max-content;
 }
+/* loom: a phone (the mobile document viewer) must never scroll the page sideways. A prose
+   table's width ignores max-width, so it scrolls inside itself; a long identifier, path or
+   badge breaks (break-word keeps min-content, so table columns keep their widths). */
+@media (max-width: 640px) {
+  .plan-mdx > table[data-plan-bleed] {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .plan-mdx {
+    overflow-wrap: break-word;
+  }
+  .plan-mdx .plan-badge {
+    max-width: 100%;
+    white-space: normal;
+  }
+  .plan-mdx .plan-card-head {
+    flex-wrap: wrap;
+  }
+}
 .plan-mdx thead th:not([data-plan-block-type] *),
 .prose-plan thead th:not(.prose-plan [data-plan-block-type] *) {
   background: color-mix(in srgb, var(--muted) 40%, transparent);

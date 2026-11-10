@@ -1,4 +1,11 @@
 import { splitFilePathPosition } from "@t3tools/shared/fileLinks";
+import {
+  directoryBasesFromPaths,
+  isAnchoredFileReference,
+  selectUnanchoredPath,
+  unanchoredCandidatePaths,
+  unanchoredLocateReference,
+} from "@t3tools/client-runtime/unanchored-file-references";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 
@@ -10,49 +17,38 @@ import { projectEnvironment } from "~/state/projects";
 import { createBatchedLookupStore } from "./batchedLookupStore";
 
 /**
- * Unanchored inline-code file references (a bare `prices.json`) are relative to wherever the agent
- * last `cd`'d, so a failed guess is not evidence the file is gone: plain code until confirmed, never
- * "missing?". Tried in order: the base directory, each directory the message names, then the path
- * index if exactly one file matches. Anchored ones (absolute, `~/`, `./`, `../`) keep "missing?".
+ * Web's adapter over the shared lookup order (`@t3tools/client-runtime/unanchored-file-references`),
+ * which the phone also runs on tap: unanchored inline-code references stay plain code until a
+ * candidate or the index confirms a file, never "missing?".
  */
-export function isAnchoredFileReference(text: string): boolean {
-  const normalized = text.trim().replaceAll("\\", "/");
-  return /^(?:\/|[A-Za-z]:\/|~\/|\.{1,2}\/|[A-Za-z][\w+.-]*:\/\/)/.test(normalized);
-}
+export { isAnchoredFileReference, unanchoredLocateReference };
 
-/**
- * Directories a message names by an explicit directory reference — a trailing
- * separator (`~/reports/gold/`, `[out](/abs/_findings/)`) — in the order given,
- * so a bare `verdict.md` beside a named `_findings/` folder resolves there. An
- * extensionless `README` is a plausible file, never guessed to be a directory.
- */
 export function collectMessageDirectoryBases(
   messageFileLinkMetas: Iterable<MarkdownFileLinkMeta>,
 ): string[] {
-  return [
-    ...new Set(
-      [...messageFileLinkMetas].flatMap(({ filePath }) =>
-        /[\\/]$/.test(filePath) ? [filePath.replace(/[\\/]+$/, "")].filter(Boolean) : [],
-      ),
-    ),
-  ];
+  return directoryBasesFromPaths([...messageFileLinkMetas].map(({ filePath }) => filePath));
 }
 
-/**
- * Ordered stat candidates for an unanchored span: `rootMeta` (its resolution
- * against the base directory) first, then the span under each message
- * directory.
- */
+function positionSuffix(span: string): string {
+  const { line, column } = splitFilePathPosition(span.trim());
+  return line === undefined ? "" : `:${line}${column === undefined ? "" : `:${column}`}`;
+}
+
+/** Ordered stat candidates for an unanchored span, as metas: `rootMeta` first. */
 export function unanchoredCandidates(
   span: string,
   rootMeta: MarkdownFileLinkMeta,
   directoryBases: readonly string[],
   cwd: string | undefined,
 ): MarkdownFileLinkMeta[] {
-  const text = span.trim().replaceAll("\\", "/");
+  const position = positionSuffix(span);
   const candidates = [rootMeta];
-  for (const directory of directoryBases) {
-    const meta = resolveMarkdownFileLinkMeta(`${directory}/${text}`, cwd);
+  for (const path of unanchoredCandidatePaths(
+    rootMeta.filePath,
+    unanchoredLocateReference(span),
+    directoryBases,
+  ).slice(1)) {
+    const meta = resolveMarkdownFileLinkMeta(`${path}${position}`, cwd);
     if (meta && !candidates.some((candidate) => candidate.filePath === meta.filePath)) {
       candidates.push(meta);
     }
@@ -60,17 +56,7 @@ export function unanchoredCandidates(
   return candidates;
 }
 
-/** The span's path without its `:line[:col]` suffix — what the index matches. */
-export function unanchoredLocateReference(span: string): string {
-  return splitFilePathPosition(span.trim().replaceAll("\\", "/")).path;
-}
-
-/**
- * The chip target for an unanchored span, or null for plain code. Candidates bind in priority order
- * to the first confirmed regular file, and an unverified one blocks the rest so the choice never
- * flips upward; past them the index's unique match binds unless a stat found it gone. `located` is
- * undefined while the index is unanswered, null when it matched none or several.
- */
+/** The chip target for an unanchored span, or null for plain code; see `selectUnanchoredPath`. */
 export function selectUnanchoredBinding(input: {
   candidates: readonly MarkdownFileLinkMeta[];
   lookupExistence: (filePath: string) => PathExistence | undefined;
@@ -78,15 +64,15 @@ export function selectUnanchoredBinding(input: {
   span: string;
   cwd: string | undefined;
 }): MarkdownFileLinkMeta | null {
-  for (const meta of input.candidates) {
-    const existence = input.lookupExistence(meta.filePath);
-    if (existence === undefined) return null;
-    if (existence.exists && !existence.isDirectory) return meta;
-  }
-  if (!input.located || input.lookupExistence(input.located)?.exists === false) return null;
-  const { line, column } = splitFilePathPosition(input.span.trim());
-  const position = line === undefined ? "" : `:${line}${column === undefined ? "" : `:${column}`}`;
-  return resolveMarkdownFileLinkMeta(`${input.located}${position}`, input.cwd);
+  const path = selectUnanchoredPath({
+    candidates: input.candidates.map((meta) => meta.filePath),
+    lookupExistence: input.lookupExistence,
+    located: input.located,
+  });
+  if (path === null) return null;
+  const candidate = input.candidates.find((meta) => meta.filePath === path);
+  if (candidate) return candidate;
+  return resolveMarkdownFileLinkMeta(`${path}${positionSuffix(input.span)}`, input.cwd);
 }
 
 // "\n" cannot appear in a path, so it separates the workspace from the reference.

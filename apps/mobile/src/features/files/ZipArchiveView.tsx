@@ -793,6 +793,7 @@ function ZipEntryView(props: {
           htmlRender={false}
           nativeViewer={viewerKind ? (uri ? "open" : "pending") : null}
           nativeError={null}
+          onViewSource={() => setRendered(false)} // loom
           onOpenNative={openViewer}
         />
       )}

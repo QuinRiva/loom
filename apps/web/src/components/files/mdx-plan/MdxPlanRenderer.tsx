@@ -4,6 +4,7 @@ import {
   type ReactNode,
   type RefObject,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -126,6 +127,8 @@ interface MdxPlanRendererProps {
   /** Rendered at the end of the sticky header row the outline lives in (the
    * annotation layer's "n of m decided" pill), so the two never overlap. */
   stickyEnd?: ReactNode;
+  /** Called when the document has drawn (`null`) or failed to (the error text). */
+  onSettled?: (error: string | null) => void;
 }
 
 /** A document with at least this many top-level sections gets an outline. */
@@ -253,7 +256,7 @@ function PlanErrorNotice({ message }: { message: string }) {
   );
 }
 
-export function MdxPlanRenderer({ source, className, stickyEnd }: MdxPlanRendererProps) {
+export function MdxPlanRenderer({ source, className, stickyEnd, onSettled }: MdxPlanRendererProps) {
   const [content, setContent] = useState<{
     Component: PlanMdxComponent;
     sections: PlanSections;
@@ -308,6 +311,13 @@ export function MdxPlanRenderer({ source, className, stickyEnd }: MdxPlanRendere
     if (containerRef.current) setOutline(readOutline(containerRef.current));
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- The outline is read from the DOM the new content rendered.
   }, [content]);
+
+  const reportSettled = useEffectEvent((settledError: string | null) => onSettled?.(settledError));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tells a host outside React (the mobile document viewer) the drawn result
+  useEffect(() => {
+    if (error !== null) reportSettled(error);
+    else if (content !== null) reportSettled(null);
+  }, [content, error]);
 
   if (error !== null) {
     return <PlanErrorNotice message={error} />;

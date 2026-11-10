@@ -397,7 +397,7 @@ function DataModelRead({ data, blockId }: PlanBlockReadProps<DataModelData>) {
                 <button
                   key={`${relation.from}-${relation.to}-${relation.label ?? ""}`}
                   type="button"
-                  className="group flex w-fit items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors hover:bg-accent/60"
+                  className="group flex w-fit max-w-full flex-wrap items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-accent/60"
                   onMouseEnter={() => focusEntity(toEntity?.id, false)}
                   onMouseLeave={() => focusEntity(undefined, false)}
                   onClick={() => focusEntity(toEntity?.id, true)}

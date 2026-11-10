@@ -18,6 +18,9 @@ export interface PlanDocumentLocation {
   /** Thread the preview belongs to; absent outside the app, where an image
    * falls back to a plain `file://` src that only a local viewer can load. */
   threadRef?: ScopedThreadRef | undefined;
+  /** Signs a host image path where there is no thread to sign against (the mobile
+   * document viewer asks its app); null means the image cannot be shown. */
+  resolveImageUrl?: ((absolutePath: string) => Promise<string | null>) | undefined;
 }
 
 export const PlanDocumentContext = createContext<PlanDocumentLocation | null>(null);

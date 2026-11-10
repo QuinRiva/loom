@@ -70,7 +70,7 @@ export function ReviewChoiceRead({ data, blockId }: PlanBlockReadProps<ReviewCho
       data-plan-block-type="review-choice"
       className="my-4 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
     >
-      <span className="shrink-0 text-xs font-semibold text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-xs font-semibold text-muted-foreground">{label}</span>
       <div className="flex shrink-0 divide-x divide-border overflow-hidden rounded-md border border-border">
         {VERDICTS.map((verdict) => {
           const selected = choice.verdict === verdict.id;

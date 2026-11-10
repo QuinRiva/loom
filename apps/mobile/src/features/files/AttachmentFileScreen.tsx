@@ -250,6 +250,7 @@ export function AttachmentFileScreen(props: AttachmentFileScreenProps) {
         htmlRender={params.htmlRender === "1"}
         nativeViewer={nativeViewer}
         nativeError={nativeError}
+        onViewSource={() => setRendered(false)} // loom
         onOpenNative={() => {
           setNativeViewer((current) => (current === null ? null : "open"));
           setNativeOpen(true);
