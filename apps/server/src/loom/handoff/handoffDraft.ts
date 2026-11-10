@@ -13,7 +13,7 @@ import {
   type OrchestrationV2ThreadShell,
   ThreadId,
 } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
@@ -242,7 +242,7 @@ export const launchDraftFork = Effect.fn("handoffDraft.launchDraftFork")(
       );
     }
     const drafterThreadId =
-      input.drafterThreadId ?? ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4());
+      input.drafterThreadId ?? ThreadId.make(yield* (yield* SecureRandom.SecureRandom).uuidV4());
     const launch = yield* dispatchDraftFork(
       input.build(
         {

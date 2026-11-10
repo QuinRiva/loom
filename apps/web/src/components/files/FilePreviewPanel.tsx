@@ -5,6 +5,7 @@ import {
   AuthPreviewOperateScope,
   type EditorId,
   type EnvironmentId,
+  type ProjectId,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
@@ -118,10 +119,10 @@ import {
   isMarkdownPreviewFile,
   isMdxPreviewFile, // loom: MDX preview
   resolveFilePreviewPath,
-  setMarkdownTaskChecked,
   shouldShowFileExplorer,
   workspaceAssetResource,
 } from "./filePreviewMode";
+import { setMarkdownTaskChecked } from "@t3tools/shared/markdownTaskList";
 // loom: line virtualization cannot bound a file whose individual lines are huge.
 import {
   elideLongLines,
@@ -160,6 +161,7 @@ interface FilePreviewPanelProps {
   environmentId: EnvironmentId;
   cwd: string;
   projectName: string;
+  projectId?: ProjectId | undefined;
   // loom: absolute paths (out-of-workspace file chips) and directory reveal.
   /**
    * Workspace-relative, or an absolute path for a file outside the workspace
@@ -743,6 +745,7 @@ function useEditableAfterHighlight(file: FileContents) {
 
 interface EditableFileSurfaceProps {
   environmentId: EnvironmentId;
+  projectId?: ProjectId | undefined;
   cwd: string;
   relativePath: string;
   composerDraftTarget: ScopedThreadRef | DraftId;
@@ -762,6 +765,7 @@ interface FileSelectionOverride {
 
 function EditableFileSurface({
   environmentId,
+  projectId,
   cwd,
   relativePath,
   composerDraftTarget,
@@ -999,6 +1003,14 @@ function EditableFileSurface({
                 {annotation.metadata.entries.map((entry) => (
                   <DiffCommentAnnotation
                     key={entry.id}
+                    environmentId={environmentId}
+                    projectId={projectId}
+                    ownerKey={JSON.stringify([
+                      environmentId,
+                      composerDraftTarget,
+                      relativePath,
+                      entry.id,
+                    ])}
                     kind={entry.kind}
                     rangeLabel={formatFileCommentRange(entry.startLine, entry.endLine)}
                     text={entry.text}
@@ -1163,6 +1175,7 @@ export default function FilePreviewPanel({
   environmentId,
   cwd,
   projectName,
+  projectId,
   relativePath: requestedPath,
   attachment,
   threadRef,
@@ -1811,6 +1824,7 @@ export default function FilePreviewPanel({
                 <EditableFileSurface
                   key={`${relativePath}:${resolvedTheme}`}
                   environmentId={environmentId}
+                  projectId={projectId}
                   cwd={cwd}
                   relativePath={relativePath}
                   composerDraftTarget={composerDraftTarget}

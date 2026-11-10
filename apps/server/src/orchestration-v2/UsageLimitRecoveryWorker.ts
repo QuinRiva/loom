@@ -73,7 +73,7 @@ export function limitRecoveryCommand(
     text: "Continue where you left off.",
     attachments: [],
     dispatchMode: { type: "start_immediately" },
-    createdBy: "agent", // loom: an automated resume, not the human (the UI showed it as "You")
+    createdBy: "agent",
     creationSource: "server",
   };
 }

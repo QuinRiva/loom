@@ -6,8 +6,8 @@
  * @module LoomMigrations
  */
 
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as Migrator from "effect/sql/Migrator";
 import * as SqlClient from "effect/sql/SqlClient";
 
@@ -188,9 +188,10 @@ const historicalLedgerTail: ReadonlyArray<readonly [id: number, name: string]> =
   [66, "ProjectionThreadsSnoozed"],
 ];
 
-class LoomLedgerReconciliationError extends Data.TaggedError("LoomLedgerReconciliationError")<{
-  readonly message: string;
-}> {}
+class LoomLedgerReconciliationError extends Schema.TaggedError<LoomLedgerReconciliationError>()(
+  "LoomLedgerReconciliationError",
+  { message: Schema.String },
+) {}
 
 /**
  * One-time move of applied fork migrations out of the shared ledger, before either lane, in one

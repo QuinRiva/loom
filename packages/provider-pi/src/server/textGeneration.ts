@@ -47,6 +47,7 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
         mcpSession: undefined,
         extensionPath: undefined,
         ephemeral: true,
+        shortLived: true,
         // loom: extensions stay on — extension-registered providers (cliproxy)
         // carry PI_DEFAULT_MODEL, which fails `set_model` under --no-extensions.
         // Tools stay off and the session is ephemeral, so nothing mutates the

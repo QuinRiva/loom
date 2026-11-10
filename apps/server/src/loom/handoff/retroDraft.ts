@@ -17,7 +17,7 @@ import {
   type WorkOutcomeCounts,
 } from "@t3tools/contracts";
 import { slugify } from "@t3tools/shared/String";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -316,11 +316,11 @@ export const launchRetro = Effect.fn("retroDraft.launchRetro")(
     };
     yield* fileSystem.writeFileString(
       NodePath.join(runDir, "manifest.json"),
-      // @effect-diagnostics-next-line preferSchemaOverJson:off -- a plain record, pretty-printed for the scanner and a human.
+      // @effect-diagnostics-next-line globalJsonInEffect:off -- a plain record, pretty-printed for the scanner and a human.
       `${JSON.stringify(manifest, null, 2)}\n`,
     );
 
-    const reviewerThreadId = ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4());
+    const reviewerThreadId = ThreadId.make(yield* (yield* SecureRandom.SecureRandom).uuidV4());
     const kickoff = buildRetroKickoffPrompt(manifest, RETRO_SKILL_PATH);
     for (const command of buildRetroCommands({
       source,

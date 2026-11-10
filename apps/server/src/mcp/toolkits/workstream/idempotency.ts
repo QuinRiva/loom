@@ -7,17 +7,14 @@
 import * as NodeCrypto from "node:crypto";
 
 import { CommandId, ThreadId } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 
 import type { WorkstreamCaller } from "./authorisation.ts";
 
 export const requestKey = (clientRequestId: string | undefined) =>
   clientRequestId === undefined
-    ? Crypto.Crypto.pipe(
-        Effect.flatMap((crypto) => crypto.randomUUIDv4()),
-        Effect.orDie,
-      )
+    ? Effect.flatMap(SecureRandom.SecureRandom, (random) => random.uuidV4())
     : Effect.succeed(clientRequestId);
 
 const stableId = (

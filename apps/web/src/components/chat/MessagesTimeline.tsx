@@ -84,6 +84,7 @@ import {
   resolveTimelineMinimapVisibleRange,
   resolveTimelineMinimapHitStripWidth,
   timelineTurnFoldRunIdsByEntryId,
+  liveAnswerPreview,
   type MessagesTimelineRow,
   type TimelineLatestRun,
 } from "./MessagesTimeline.logic";
@@ -102,18 +103,17 @@ import {
   TIMELINE_ROW_CLASS_NAME,
   timelineContentWidth,
 } from "./timelineLayout";
-// loom: 3d-3 — control cards, handoff receipts, model-change dividers, conversation jumps.
+// loom: 3d-3 — control cards, handoff receipts, conversation jumps.
 import { ControlDigestRow } from "../../loom/ControlDigestRow";
 import { KICKOFF_BUBBLE } from "@t3tools/client-runtime/state/loom/controlBubble"; // loom: query threads
 import { splitDocumentQueryKickoff } from "@t3tools/shared/documentQuery.loom"; // loom: query threads
 import { LoomTimelineRow } from "../../loom/LoomTimelineRow";
 import { insertLoomTimelineRows, useLoomTimelineRows } from "../../loom/loomTimelineRows";
-import { ModelChangeDivider } from "../../loom/ModelChangeDivider"; // loom: model-change divider
-import { insertModelChangeRows, type ModelChangeRun } from "../../loom/modelChangeRows"; // loom: model-change divider
 import { useConversationJump } from "../../loom/conversationJump"; // loom: W3
 import { TimelineHost } from "../../loom/context-viz/timeline/TimelineHost"; // loom: context-viz
 import { publishVisibleRows } from "../../loom/context-viz/timeline/visibleRows"; // loom: context-viz
 import { TurnHeaderFigure } from "../../loom/context-viz/timeline/TurnHeaderFigure"; // loom: context-viz
+import { type HandoffTimelineRun } from "./V2LifecycleRow";
 import { TimelineSystemDivider } from "./TimelineSystemDivider";
 
 import { forwardWheelToTimeline } from "./timelineMinimapWheel";
@@ -153,6 +153,7 @@ import {
 import { useThreadFindPositionReader } from "./useThreadFindPositionReader";
 import { ThreadActivityAnnouncer } from "./ThreadActivityAnnouncer";
 import { useStableHandoffRuns, useIncrementalTimelineRows, useStableRows } from "./useTimelineRows";
+import { useClientSettings } from "../../hooks/useSettings";
 
 function timelineListStateFor(identity: string): {
   readonly identity: string;
@@ -309,7 +310,7 @@ interface MessagesTimelineProps {
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
   skills?: ReadonlyArray<ServerProviderSkill>;
-  runs: ReadonlyArray<ModelChangeRun>; // loom: model-change divider (a superset of HandoffTimelineRun)
+  runs: ReadonlyArray<HandoffTimelineRun>;
   anchorMessageId: MessageId | null;
   onAnchorReady: (messageId: MessageId, anchorIndex: number) => void;
   onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
@@ -488,13 +489,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const normalizedFindQuery = findQuery.trim();
   const findActive = findExpanded;
 
-  const disclosurePinsEndRef = useRef(false);
-  const pinDisclosureToEnd = () => {
-    if (!disclosurePinsEndRef.current) return;
-    const element = listRef.current?.getScrollableNode();
-    if (element) element.scrollTop = element.scrollHeight;
-  };
-
   const scheduleDisclosureSettle = () => {
     if (disclosureSettleFrameRef.current !== null) {
       cancelAnimationFrame(disclosureSettleFrameRef.current);
@@ -503,10 +497,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
     }
     disclosureSettleFrameRef.current = requestAnimationFrame(() => {
-      pinDisclosureToEnd();
       disclosureSettleSecondFrameRef.current = requestAnimationFrame(() => {
-        pinDisclosureToEnd();
-        disclosurePinsEndRef.current = false;
         disclosureAnchorKeyRef.current = null;
         setDisclosureToggleSettling(false);
         disclosureSettleFrameRef.current = null;
@@ -517,13 +508,11 @@ const ConversationTimeline = memo(function ConversationTimeline({
 
   const suspendEndScrollMaintenanceForDisclosure = (anchorKey: string) => {
     disclosureAnchorKeyRef.current = anchorKey;
-    disclosurePinsEndRef.current = resolveTimelineIsAtEnd(listRef.current?.getState()) === true;
     setDisclosureToggleSettling(true);
     scheduleDisclosureSettle();
   };
 
   const shouldRestoreVisibleContentPosition = (row: MessagesTimelineRow) => {
-    if (disclosurePinsEndRef.current) return false;
     const disclosureAnchorKey = disclosureAnchorKeyRef.current;
     return disclosureAnchorKey === null || row.id === disclosureAnchorKey;
   };
@@ -602,6 +591,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
     }
   }
 
+  const preferredToolCallVisibility = useClientSettings((settings) => settings.toolCallVisibility);
+  const toolCallVisibility =
+    findActive && preferredToolCallVisibility === "zen" ? "hideAll" : preferredToolCallVisibility;
+  const revealedMessageId = citationRequest?.citation.messageId ?? null;
   // Imported turns and post-steer work fold under synthetic keys, not the entries' run ids.
   const findFoldRunIds = findActive
     ? timelineTurnFoldRunIdsByEntryId({
@@ -610,6 +603,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
         runningRunId,
         isWorking,
         runlessWorkActive,
+        toolCallVisibility,
+        revealedMessageId,
       })
     : null;
   const activeFindRunId =
@@ -651,6 +646,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
         runningRunId,
         isWorking,
         runlessWorkActive,
+        toolCallVisibility,
+        revealedMessageId,
       })
     ).get(citedEntry.id);
     setCitationExpandedFor(citationRequest.key);
@@ -709,12 +706,14 @@ const ConversationTimeline = memo(function ConversationTimeline({
     threadStartCheckpointReady,
     availableRevertTurnCounts,
     worktreeSetup,
+    toolCallVisibility,
+    revealedMessageId,
   });
   // loom: 3d-3 — handoff and promotion receipts, spliced in by time.
   const loomRows = useLoomTimelineRows(listIdentityKey);
   const rows = useStableRows(
-    // loom: 3d-3 handoff receipts + "Model: A → B" dividers (the compiler caches the splice)
-    insertLoomTimelineRows(insertModelChangeRows(rawRows, runsProp), loomRows),
+    // loom: 3d-3 handoff receipts (the compiler caches the splice)
+    insertLoomTimelineRows(rawRows, loomRows),
     listIdentityKey,
   );
   const matchedApprovalRequestIds = new Set<string>();
@@ -998,8 +997,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   };
 
   const handleItemSizeChanged = () => {
-    if (disclosurePinsEndRef.current) {
-      queueMicrotask(pinDisclosureToEnd);
+    if (disclosureAnchorKeyRef.current !== null) {
       scheduleDisclosureSettle();
     }
     scheduleMinimapRefresh();
@@ -1139,6 +1137,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
     awaitingUser: awaitingUser !== null,
     isPreparingWorktree,
     latestRunId: latestRun?.runId ?? null,
+    liveAnswerPreview:
+      isWorking && toolCallVisibility === "zen" ? liveAnswerPreview(timelineEntries) : null,
   };
   // Mounted in both the empty and filled timeline so a thread's first turn
   // starts from a baseline instead of a fresh, silent region.
@@ -1244,6 +1244,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     runningRunId,
     isWorking,
     runlessWorkActive,
+    toolCallVisibility,
     rows,
     contentInsetEndAdjustment,
   });
@@ -1521,8 +1522,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
                   row.kind === "event" ||
                   row.kind === "attempt-fold" ||
                   row.kind === "html-render" ||
-                  row.kind === "mcp-app" ||
-                  row.kind === "loom-model-change" // loom: model-change divider
+                  row.kind === "mcp-app"
                 ? "pb-2"
                 : "pb-4",
         (row.kind === "message" && row.message.role === "assistant") ||
@@ -1589,9 +1589,6 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       ) : null}
       {row.kind === "loom-handoff" || row.kind === "loom-promotion" ? (
         <LoomTimelineRow row={row} /> // loom: 3d-3 handoff + promotion receipts
-      ) : null}
-      {row.kind === "loom-model-change" ? (
-        <ModelChangeDivider row={row} /> // loom: model-change divider
       ) : null}
       {row.kind === "message" && row.message.role === "assistant" ? (
         <AssistantTimelineRow row={row} />

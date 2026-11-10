@@ -2,6 +2,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
@@ -12,12 +13,13 @@ import { agentGitEnv, materializeGitShim } from "./agentGitIdentity.ts";
 
 it.effect("the git shim signs agent commits with their thread and session, and nothing else", () =>
   Effect.gen(function* () {
+    const hostPath = (yield* HostProcess.Environment).PATH;
     const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "loom-git-shim-"));
     const shimDir = yield* materializeGitShim(NodePath.join(root, "bin"));
     const repo = NodePath.join(root, "repo");
     NodeFS.mkdirSync(repo);
     const env = (ids: boolean) => ({
-      PATH: `${shimDir}:${process.env.PATH}`,
+      PATH: `${shimDir}:${hostPath}`,
       HOME: root,
       GIT_CONFIG_NOSYSTEM: "1",
       ...(ids
@@ -57,7 +59,7 @@ it.effect("the git shim signs agent commits with their thread and session, and n
     // Any spelling of its own directory on PATH (here a trailing slash) is dropped, not re-entered.
     const trailing = NodeChildProcess.execFileSync("git", ["log", "-1", "--format=%s"], {
       cwd: repo,
-      env: { ...env(true), PATH: `${shimDir}/:${process.env.PATH}` },
+      env: { ...env(true), PATH: `${shimDir}/:${hostPath}` },
       encoding: "utf8",
       timeout: 10_000,
     });

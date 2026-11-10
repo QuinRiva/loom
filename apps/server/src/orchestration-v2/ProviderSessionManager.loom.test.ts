@@ -1,6 +1,7 @@
 // loom: the open-session composer hook (driver plan §4, DR-6/DR-7): ProviderSessionManager.open
 // asks LoomSessionComposer for the thread's fields before the MCP credential exists, hands them
 // to the adapter as `loom`, and maps a composer failure to ProviderSessionOpenError.
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -147,8 +148,7 @@ const openWith = (
       Layer.provide(
         Layer.mergeAll(
           Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
-            // @effect-diagnostics-next-line effectSucceedWithVoid:off - Optional instances require undefined rather than void.
-            getInstance: () => Effect.succeed(undefined),
+            getInstance: () => Effect.undefined,
           }),
           eventSink,
           IdAllocator.layer,
@@ -241,7 +241,7 @@ const openWith = (
           IdAllocator.layer,
           mcpRegistry,
           McpProviderSessions.layer,
-        ).pipe(Layer.provideMerge(NodeServices.layer)),
+        ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
       ),
       Effect.exit,
     );

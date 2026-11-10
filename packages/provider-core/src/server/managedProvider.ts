@@ -26,6 +26,8 @@ import type { ManagedServerProvider } from "./snapshot.ts";
 interface ProviderSnapshotState {
   readonly snapshot: ServerProvider;
   readonly enrichmentGeneration: number;
+  // loom: the published limits came from a feeder (`applyUsageLimits`/`retractUsageLimits`), not a probe.
+  readonly usageLimitsFed: boolean;
 }
 
 function withUsageLimits(
@@ -112,6 +114,7 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
   const snapshotStateRef = yield* Ref.make<ProviderSnapshotState>({
     snapshot: initialSnapshot,
     enrichmentGeneration: 0,
+    usageLimitsFed: false, // loom:
   });
   const settingsRef = yield* Ref.make(initialSettings);
   const enrichmentFiberRef = yield* Ref.make<Fiber.Fiber<void, unknown> | null>(null);
@@ -212,7 +215,8 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
               probed: probedSnapshot.usageLimits,
               // loom: pi's probe reports no limits at all; only a signed-out
               // probe may clear what the usage poller published.
-              probedAuthStatus: probedSnapshot.auth.status,
+              keepOnSilentProbe:
+                state.usageLimitsFed && probedSnapshot.auth.status !== "unauthenticated",
             });
         const workspaceId =
           usageLimits === probedSnapshot.usageLimits ? undefined : state.snapshot.auth.workspaceId;
@@ -230,7 +234,11 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
         );
         return [
           { snapshot, generation },
-          { snapshot, enrichmentGeneration: generation },
+          {
+            snapshot,
+            enrichmentGeneration: generation,
+            usageLimitsFed: usageLimits === state.snapshot.usageLimits && state.usageLimitsFed, // loom:
+          },
         ] as const;
       },
     );
@@ -254,7 +262,7 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
         return [null, state] as const;
       }
       const snapshot = withUsageLimits(state.snapshot, usageLimits);
-      return [snapshot, { ...state, snapshot }] as const;
+      return [snapshot, { ...state, snapshot, usageLimitsFed: true }] as const;
     });
     if (snapshotToPublish !== null) {
       yield* PubSub.publish(changesPubSub, snapshotToPublish);
@@ -333,9 +341,11 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
       const usageLimits = resolveUsageLimitsAfterProbe({
         published: state.snapshot.usageLimits,
         probed,
+        keepOnSilentProbe: state.usageLimitsFed, // loom: a silent probe keeps what a feeder published
       });
       const snapshot = withUsageLimits(state.snapshot, usageLimits);
-      return [snapshot, { ...state, snapshot }] as const;
+      const usageLimitsFed = usageLimits === state.snapshot.usageLimits && state.usageLimitsFed; // loom:
+      return [snapshot, { ...state, snapshot, usageLimitsFed }] as const;
     });
     yield* PubSub.publish(changesPubSub, next);
   });

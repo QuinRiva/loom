@@ -4,7 +4,7 @@
  * both scopes and by upstream's trigram `search` and `searchThreads`. Usage: `--help`.
  */
 // Dev-only harness (not shipped): plain Node/JSON/Date keep it legible, matching `scripts/*.ts`.
-// @effect-diagnostics nodeBuiltinImport:off globalDateInEffect:off globalDate:off preferSchemaOverJson:off globalConsoleInEffect:off globalConsole:off
+// @effect-diagnostics nodeBuiltinImport:off globalDateInEffect:off globalDate:off globalJsonInEffect:off globalConsoleInEffect:off globalConsole:off
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";

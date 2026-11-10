@@ -4,6 +4,7 @@
  * originals are `quarantine/apps/server/src/project/ProjectSetupScriptRunner.test.ts` at tag
  * `loom-quarantine-final`.
  */
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it, vi } from "@effect/vitest";
 import { ProjectId, type ProjectScript, type TerminalEvent } from "@t3tools/contracts";
@@ -14,6 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
@@ -21,10 +23,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as ProjectService from "./ProjectService.ts";
 import * as ProjectSetupScriptRunner from "./ProjectSetupScriptRunner.ts";
-import {
-  WORKTREE_SETUP_STATE_FILE,
-  type WorktreeSetupState,
-} from "./ProjectSetupScriptRunner.loom.ts";
+import { WORKTREE_SETUP_STATE_FILE, WorktreeSetupState } from "./ProjectSetupScriptRunner.loom.ts";
 
 const makeProject = (
   command: string,
@@ -89,6 +88,7 @@ const runWith = <A, E, R>(
             }),
             ServerSettings.layerTest(),
             NodeServices.layer,
+            NodeCrypto.layer,
             fileSystem,
           ),
         ),
@@ -156,7 +156,9 @@ describe("ProjectSetupScriptRunner (loom)", () => {
       yield* fs.writeFileString(path.join(worktreePath, ".git"), `gitdir: ${gitDir}\n`);
       const readState = fs
         .readFileString(path.join(gitDir, WORKTREE_SETUP_STATE_FILE))
-        .pipe(Effect.flatMap((raw) => Effect.try(() => JSON.parse(raw) as WorktreeSetupState)));
+        .pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(WorktreeSetupState))),
+        );
       // A detached fiber writes the settled breadcrumb, so each state write is signalled.
       const stateWrites = yield* Queue.unbounded<void>();
       const signallingFileSystem = Layer.succeed(FileSystem.FileSystem, {

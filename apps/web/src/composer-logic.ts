@@ -26,6 +26,7 @@ export type ComposerSlashCommand =
   | "default"
   | "side"
   | "btw"
+  | "clear"
   | "handoff"
   | "retro";
 export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
@@ -351,14 +352,10 @@ export function composerStateAtPromptEnd(
   };
 }
 
-/** `/side [prompt]`, or its alias `/btw [prompt]`, as the whole message. */
-export function parseSideChatCommand(text: string): { prompt: string } | null {
-  const match = /^\/(?:side|btw)(?:\s+([\s\S]*))?$/i.exec(text.trim());
-  return match ? { prompt: match[1]?.trim() ?? "" } : null;
-}
-
-export function parseStandaloneComposerSlashCommand(text: string): "plan" | "default" | null {
-  // loom: explicit — `handoff`/`retro` have their own recognisers.
+// loom: `handoff`/`retro` have their own recognisers, so they are excluded here too.
+export function parseStandaloneComposerSlashCommand(
+  text: string,
+): Exclude<ComposerSlashCommand, "model" | "side" | "btw" | "clear" | "handoff" | "retro"> | null {
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;

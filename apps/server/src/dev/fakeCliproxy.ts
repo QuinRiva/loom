@@ -5,7 +5,7 @@
  * point a scratch instance's `usageLimitSources` at it with `"managementKey": "fake"`.
  */
 // Dev-only fixture tooling (not shipped): plain node http, Date and JSON keep it legible.
-// @effect-diagnostics nodeBuiltinImport:off globalDate:off globalConsole:off preferSchemaOverJson:off
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off globalConsole:off globalJsonInEffect:off
 import * as NodeCrypto from "node:crypto";
 import * as NodeHttp from "node:http";
 

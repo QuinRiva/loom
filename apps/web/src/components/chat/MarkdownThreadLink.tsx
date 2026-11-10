@@ -1,14 +1,18 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts"; // loom: ScopedThreadRef
 import {
+  formatHostedThreadLink,
   guessThreadLinkRef,
-  percentDecodedThreadLinkId,
+  threadLinkCandidates,
   type ThreadLink,
   unknownThreadLinkLabel,
 } from "@t3tools/shared/threadLinks";
 
+import { configuredHostedAppUrl } from "../../hostedPairing";
 import { useThreadRefs, useThreadShell } from "../../state/entities";
+import { orchestrationEnvironment } from "../../state/orchestration";
+import { useEnvironmentQuery } from "../../state/query";
 import { UnresolvedChip } from "../contextChipParts";
+import { ThreadContextChip } from "../ThreadContextChip";
 import { ThreadMention } from "../../loom/ThreadMention"; // loom: status-led mention
 
 // loom: `ThreadMention` leads with the thread's live state instead of upstream's context chip,
@@ -20,29 +24,69 @@ export function MarkdownThreadLink(props: {
   readonly label: string | null;
   readonly fromThreadRef?: ScopedThreadRef | undefined; // loom: the message's own thread
 }) {
-  const environmentId = props.link.environmentId ?? props.environmentId;
-  const decodedId = percentDecodedThreadLinkId(props.link.threadId);
-  const written = useThreadShell(scopeThreadRef(environmentId, props.link.threadId));
-  const decoded = useThreadShell(
-    written === null && decodedId !== null ? scopeThreadRef(environmentId, decodedId) : null,
+  const candidates = threadLinkCandidates(props.link, props.environmentId);
+  const writtenRef = candidates[0]!;
+  const written = useThreadShell(writtenRef);
+  // loom: a percent-encoded link to a thread this client holds still reads its shell (DL-1818).
+  const decodedRef = candidates[1] ?? null;
+  const decoded = useThreadShell(written === null ? decodedRef : null);
+  const held =
+    written !== null
+      ? { ref: writtenRef, metadata: written }
+      : decodedRef && decoded
+        ? { ref: decodedRef, metadata: decoded }
+        : null;
+  const lookup = useEnvironmentQuery(
+    held === null // loom: no metadata query for a thread whose shell the client holds
+      ? orchestrationEnvironment.threadLinkMetadata({
+          environmentId: writtenRef.environmentId,
+          input: { threadIds: candidates.map((ref) => ref.threadId) },
+        })
+      : null,
   );
-  const local = written ?? decoded;
-  const guess = local === null && props.link.environmentId === null;
+  const settled = lookup.isSuccess && !lookup.isPending;
+  const target =
+    held ?? // loom: written or decoded shell
+    candidates.flatMap((ref) => {
+      const metadata = lookup.data?.[ref.threadId];
+      return metadata ? [{ ref, metadata }] : [];
+    })[0] ??
+    null;
+  const missing = target === null && settled;
+  const guess = missing && props.link.environmentId === null;
   const refs = useThreadRefs(guess);
-  const remote = useThreadShell(guess ? guessThreadLinkRef(props.link, refs) : null);
-  const thread = local ?? remote;
-  if (thread === null) {
+  const remoteRef = guess
+    ? guessThreadLinkRef(
+        props.link,
+        refs.filter((ref) => ref.environmentId !== writtenRef.environmentId),
+      )
+    : null;
+  const remote = useThreadShell(remoteRef);
+  const resolved = target ?? (remoteRef && remote ? { ref: remoteRef, metadata: remote } : null);
+  if (missing && resolved === null) {
     const unknown = unknownThreadLinkLabel(props.link, props.environmentId);
     return <UnresolvedChip label={props.label ?? unknown} tooltip={unknown} />;
   }
-  const title = thread.title.trim() || props.label || "Untitled thread";
+  const ref = resolved?.ref ?? writtenRef;
+  const title = resolved?.metadata.title.trim() || props.label || "Thread";
+  // loom: a thread this client holds a shell for reads as Loom's status-led mention.
+  const shell = held?.metadata ?? remote;
+  if (shell !== null) {
+    return (
+      <ThreadMention
+        environmentId={shell.environmentId}
+        threadId={shell.id}
+        title={title}
+        thread={shell}
+        fromThreadRef={props.fromThreadRef}
+      />
+    );
+  }
   return (
-    <ThreadMention
-      environmentId={thread.environmentId}
-      threadId={thread.id}
-      title={title}
-      thread={thread}
-      fromThreadRef={props.fromThreadRef}
+    <ThreadContextChip
+      record={{ ...ref, title }}
+      projectId={resolved?.metadata.projectId ?? null}
+      copyMarkdown={formatHostedThreadLink(ref, title, configuredHostedAppUrl())}
     />
   );
 }

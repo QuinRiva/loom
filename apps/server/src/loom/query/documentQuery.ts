@@ -30,7 +30,7 @@ import {
   sanitizeComposerContextLabel,
   toKindScopedComposerContextId,
 } from "@t3tools/shared/composerContextReferences";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -264,7 +264,7 @@ export const askDocumentQuery = Effect.fn("documentQuery.askDocumentQuery")(
       });
     let queryThreadId: ThreadId;
     if (reuse === null) {
-      queryThreadId = ThreadId.make(yield* (yield* Crypto.Crypto).randomUUIDv4());
+      queryThreadId = ThreadId.make(yield* (yield* SecureRandom.SecureRandom).uuidV4());
       const kickoffBriefPath = yield* writeWorkstreamBrief(
         queryThreadId,
         buildDocumentQueryBrief(buildDocumentQueryOverlay({ filePath, authorThreadId }), question),
@@ -341,7 +341,7 @@ export const promoteDocumentQuery = Effect.fn("documentQuery.promoteDocumentQuer
       });
     const id = documentQueryPromoteId(
       input.queryThreadId,
-      yield* (yield* Crypto.Crypto).randomUUIDv4(),
+      yield* (yield* SecureRandom.SecureRandom).uuidV4(),
     );
     yield* (yield* OrchestratorV2).dispatch({
       type: "message.dispatch",

@@ -1,4 +1,4 @@
-// @effect-diagnostics preferSchemaOverJson:off - id arrays are passed to SQLite as json_each() parameters.
+// @effect-diagnostics globalJsonInEffect:off - id arrays are passed to SQLite as json_each() parameters.
 /**
  * Thread content search over `loom_thread_search` (+ the embedder's nearest roots, fused by RRF),
  * credited to roots; `scope: "roots"` (default, the human surfaces) reads a root's own text and
@@ -173,8 +173,7 @@ export const makeThreadSearch = Effect.gen(function* () {
   /** Out-of-scope roots leave the candidate set before the top-k cut, not after it. */
   const semantic = (query: string, scope: SearchScope) =>
     Option.isNone(embedder)
-      ? // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
-        Effect.succeed(undefined)
+      ? Effect.undefined
       : scope.includeArchived !== false && scope.projectId === undefined
         ? embedder.value.nearest(query, CANDIDATES)
         : read(sql<{ readonly threadId: string }>`

@@ -4,6 +4,7 @@
  * Loom child has `subagent` lineage, which upstream refuses PR watches for, so a Loom sidecar row
  * exempts it; an upstream subagent with no row is still refused.
  */
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -15,11 +16,11 @@ import {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 
 import * as GitManager from "../git/GitManager.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -64,11 +65,8 @@ const TestLayer = Layer.mergeAll(
           runForThread: () => Effect.succeed({ status: "no-script" } as const),
         }),
         Layer.succeed(
-          Crypto.Crypto,
-          Crypto.make({
-            randomBytes: (size) => new Uint8Array(size).fill(1),
-            digest: (_algorithm, data) => Effect.succeed(data),
-          }),
+          SecureRandom.SecureRandom,
+          SecureRandom.make((size) => new Uint8Array(size).fill(1)),
         ),
       ),
     ),
@@ -76,7 +74,7 @@ const TestLayer = Layer.mergeAll(
 ).pipe(
   Layer.provideMerge(Layer.mergeAll(ProjectionStore.layer, ProjectStore.layer)),
   Layer.provideMerge(LoomOrchestratorTestLayer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 const createdAt = "2026-01-01T00:00:00.000Z";

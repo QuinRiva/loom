@@ -260,15 +260,17 @@ export const makeLoomSessionComposer = Effect.gen(function* () {
     // loom: a composed (not replayed) identity's provenance; never worth failing a launch over.
     if (Option.isNone(source)) {
       const launchedAt = DateTime.formatIso(yield* DateTime.now);
-      yield* Effect.try(() =>
-        launchStamp({
-          threadId: thread.id,
-          launchedAt,
-          role: workstream?.role ?? null,
-          projectRoot,
-          identity: record,
-        }),
-      ).pipe(Effect.flatMap(loomStore.launchStamps.record), Effect.ignore({ log: true }));
+      yield* Effect.try({
+        try: () =>
+          launchStamp({
+            threadId: thread.id,
+            launchedAt,
+            role: workstream?.role ?? null,
+            projectRoot,
+            identity: record,
+          }),
+        catch: (cause) => new LoomSessionComposerError({ threadId: thread.id, cause }),
+      }).pipe(Effect.flatMap(loomStore.launchStamps.record), Effect.ignore({ log: true }));
     }
     return record;
   });

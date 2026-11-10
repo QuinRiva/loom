@@ -32,7 +32,7 @@ import {
   type UsageLimitSourceLoginFinishInput,
   type UsageLimitSourceLoginStartInput,
 } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import type * as Path from "effect/Path";
@@ -127,18 +127,20 @@ const flattenTree = (
 export const makeLoomWsHandlers = Effect.gen(function* () {
   const loomStore = yield* LoomStoreV2;
   const broadcast = yield* LoomGoalBroadcast;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const usageLedger = yield* LoomUsageLedger;
   const consult = yield* LoomThreadConsult;
   const usageLimitSources = yield* UsageLimitSources;
   const reviewSnapshots = yield* ReviewSnapshotService;
   const orchestrator = yield* OrchestratorV2;
   const deployNotices = yield* LoomDeployNotices;
-  const draftServices = yield* Effect.context<OrchestratorV2 | LoomStoreV2 | Crypto.Crypto>();
+  const draftServices = yield* Effect.context<
+    OrchestratorV2 | LoomStoreV2 | SecureRandom.SecureRandom
+  >();
   const queryServices = yield* Effect.context<
     | OrchestratorV2
     | LoomStoreV2
-    | Crypto.Crypto
+    | SecureRandom.SecureRandom
     | ProjectStoreV2
     | WorkspaceFileSystem
     | ServerConfig
@@ -210,9 +212,9 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
         Effect.gen(function* () {
           const tree = resolveTaskRewrite(goal, input);
           if (typeof tree === "string") return yield* fail(LOOM_WS_METHODS.goalTaskRewrite, tree);
-          const fresh = (yield* Effect.forEach(idlessNodes(tree), () =>
-            crypto.randomUUIDv4().pipe(Effect.orDie),
-          ))[Symbol.iterator]();
+          const fresh = (yield* Effect.forEach(idlessNodes(tree), () => random.uuidV4()))[
+            Symbol.iterator
+          ]();
           return yield* loomStore.tasks.replaceTree(
             goal.id,
             flattenTree(tree, null, () => GoalTaskId.make(fresh.next().value!)),

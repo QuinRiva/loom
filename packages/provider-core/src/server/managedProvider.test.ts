@@ -809,6 +809,41 @@ describe("makeManagedServerProvider", () => {
     ).pipe(Effect.provide(layerAlwaysRunTest)),
   );
 
+  // loom: pi's probe never reads quota; the usage poller feeds its card through applyUsageLimits.
+  it.effect("keeps fed usage windows through a silent probe until the probe signs out", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const probeSnapshot = yield* Ref.make<ServerProvider>(refreshedSnapshot);
+        const provider = yield* makeManagedServerProvider<TestSettings>({
+          resolveMaintenance: () => Effect.succeed(maintenanceCapabilities),
+          getSettings: Effect.succeed({ enabled: true }),
+          streamSettings: Stream.empty,
+          haveSettingsChanged: (previous, next) => previous.enabled !== next.enabled,
+          initialSnapshot: () => Effect.succeed(initialSnapshot),
+          checkProvider: Ref.get(probeSnapshot),
+          refreshOnInterval: false,
+        });
+        yield* Stream.take(provider.streamChanges, 1).pipe(Stream.runDrain);
+        const weekly = {
+          id: "seven_day",
+          kind: "weekly",
+          label: "Weekly",
+          usedPercent: 20,
+        } as const;
+        yield* provider.applyUsageLimits({
+          checkedAt: "2026-04-10T00:00:02.000Z",
+          windows: [weekly],
+        });
+        assert.deepStrictEqual((yield* provider.refresh).usageLimits?.windows, [weekly]);
+        yield* Ref.set(probeSnapshot, {
+          ...refreshedSnapshot,
+          auth: { status: "unauthenticated" },
+        });
+        assert.strictEqual((yield* provider.refresh).usageLimits, undefined);
+      }),
+    ).pipe(Effect.provide(layerAlwaysRunTest)),
+  );
+
   it.effect("keeps sparse usage unavailable after probe failure until a full probe recovers", () =>
     Effect.scoped(
       Effect.gen(function* () {

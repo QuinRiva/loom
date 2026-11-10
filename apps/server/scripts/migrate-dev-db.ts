@@ -5,6 +5,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeOS from "node:os";
 import * as NodeURL from "node:url";
 import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
+import * as HostProcess from "@t3tools/shared/HostProcess"; // loom: $T3CODE_HOME default
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -376,7 +377,8 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
   // loom: the live install is $T3CODE_HOME (the cockpit sets it for every agent), so the default
   // source and the shared-home refusal both follow it rather than the bare ~/.t3.
   const sharedHome = path.resolve(
-    options.sharedHome ?? (process.env.T3CODE_HOME || path.join(NodeOS.homedir(), ".t3")),
+    options.sharedHome ??
+      ((yield* HostProcess.Environment).T3CODE_HOME || path.join(NodeOS.homedir(), ".t3")),
   );
   const sourcePath = path.resolve(
     input.source ?? path.join(sharedHome, "userdata", "statev2.sqlite"),

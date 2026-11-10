@@ -29,7 +29,7 @@ const spawnedArgs: Array<ReadonlyArray<string>> = [];
 /** `pi --version` prints a version; `pi --mode rpc` answers the three discovery requests. */
 const fakePiSpawner = ChildProcessSpawner.make((command) =>
   Effect.gen(function* () {
-    const args = ChildProcess.isStandardCommand(command) ? command.args : [];
+    const args = ChildProcess.isStandardCommand(command) ? command.args.map(String) : [];
     spawnedArgs.push(args);
     const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
     if (args.includes("--version")) {

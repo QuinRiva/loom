@@ -1321,8 +1321,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
                   (error) =>
                     error._tag === "OrchestratorDispatchError" ||
                     error._tag === "OrchestratorProviderAdapterError",
-                  // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
-                  () => Effect.succeed(undefined),
+                  () => Effect.undefined,
                 ),
               );
       for (const queued of runs.filter((candidate) => candidate.status === "queued")) {

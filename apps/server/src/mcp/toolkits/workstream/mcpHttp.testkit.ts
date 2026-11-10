@@ -4,6 +4,7 @@
  * Services the toolkits need are stubbed by the caller.
  */
 import { NodeHttpServer } from "@effect/platform-node";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -15,6 +16,7 @@ import * as Path from "effect/Path";
 import { ChildProcessSpawner } from "effect/process";
 import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 
+import * as AssetSigner from "../../../assets/AssetSigner.ts";
 import * as ServerSecretStore from "../../../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../../../config.ts";
 import * as DeviceService from "../../../device/DeviceService.ts";
@@ -80,6 +82,7 @@ export interface McpServiceStubs {
 
 const stubServices = (stubs: McpServiceStubs) =>
   Layer.mergeAll(
+    Layer.mock(AssetSigner.AssetSigner)({}),
     Layer.mock(Orchestrator.OrchestratorV2)(stubs.orchestrator ?? {}),
     Layer.mock(ProjectService.ProjectService)(stubs.projects ?? {}),
     Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
@@ -228,6 +231,7 @@ export const mcpTestLayer = Layer.mergeAll(
     Layer.provide(NodeServices.layer),
   ),
   NodeServices.layer,
+  NodeCrypto.layer,
 );
 
 export const LOOM_TEST_THREAD = ThreadId.make("thread-loom-caller");

@@ -11,6 +11,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeSqlite from "node:sqlite";
 
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@t3tools/contracts";
@@ -25,7 +26,7 @@ import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 
 const runCli = (args: ReadonlyArray<string>) =>
   Command.runWith(cli, { version: "0.0.0" })(args).pipe(
-    Effect.provide(Layer.mergeAll(NodeServices.layer, NetService.layer)),
+    Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer)),
   );
 
 const git = (cwd: string, ...args: ReadonlyArray<string>) =>

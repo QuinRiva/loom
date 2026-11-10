@@ -10,7 +10,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- loom: loomBaselineRef needs a sync digest.
 import * as NodeCrypto from "node:crypto"; // loom: loomBaselineRef (sync digest)
 import * as DateTime from "effect/DateTime";
@@ -121,6 +121,9 @@ export interface CheckpointServiceV2Shape {
   readonly materializeBaselineCheckpoint: (input: {
     readonly scope: OrchestrationV2CheckpointScope;
     readonly ordinalWithinScope: number;
+    /** The run materializing the baseline: its root node, and when it was requested. */
+    readonly nodeId: NodeId;
+    readonly capturedAt: DateTime.Utc;
     /** Records a missing checkpoint without touching git, for side chats sharing a parent's worktree. */
     readonly forceMissing?: boolean;
   }) => Effect.Effect<OrchestrationV2Checkpoint, CheckpointServiceV2Error>;
@@ -150,9 +153,9 @@ export class CheckpointServiceV2 extends Context.Service<
 
 export const checkpointRefForScopeOrdinal = Effect.fn("checkpointRefForScopeOrdinal")(
   function* (input: { readonly scopeId: CheckpointScopeId; readonly ordinalWithinScope: number }) {
-    const crypto = yield* Crypto.Crypto;
+    const crypto = yield* Digest.Digest;
     const digest = yield* crypto
-      .digest("SHA-256", new TextEncoder().encode(input.scopeId))
+      .digest(Digest.sha256, new TextEncoder().encode(input.scopeId))
       .pipe(Effect.orDie);
     const scopeKey = Hex.encode(digest).slice(0, 32);
     return CheckpointRef.make(
@@ -249,14 +252,14 @@ function makeCheckpoint(input: {
 export const layer: Layer.Layer<
   CheckpointServiceV2,
   never,
-  CheckpointStore.CheckpointStore | Crypto.Crypto | IdAllocator.IdAllocatorV2 | LoomStoreV2 // loom:
+  CheckpointStore.CheckpointStore | Digest.Digest | IdAllocator.IdAllocatorV2 | LoomStoreV2 // loom:
 > = Layer.effect(
   CheckpointServiceV2,
   Effect.gen(function* () {
     const checkpointStore = yield* CheckpointStore.CheckpointStore;
-    const crypto = yield* Crypto.Crypto;
+    const crypto = yield* Digest.Digest;
     const checkpointRefFor = (input: Parameters<typeof checkpointRefForScopeOrdinal>[0]) =>
-      checkpointRefForScopeOrdinal(input).pipe(Effect.provideService(Crypto.Crypto, crypto));
+      checkpointRefForScopeOrdinal(input).pipe(Effect.provideService(Digest.Digest, crypto));
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const loomStore = yield* LoomStoreV2; // loom:
     const workspaceLocks = yield* KeyedLock.make<string>();
@@ -357,14 +360,14 @@ export const layer: Layer.Layer<
               id: checkpointId,
               scope: input.scope,
               runId: null,
-              nodeId: input.scope.nodeId,
+              nodeId: input.nodeId,
               parentCheckpointId: null,
               ordinalWithinScope: input.ordinalWithinScope,
               appRunOrdinal: null,
               ref: checkpointRef,
               status: available ? "ready" : "missing",
               files: [],
-              capturedAt: input.scope.createdAt,
+              capturedAt: input.capturedAt,
             });
           }),
         ).pipe(

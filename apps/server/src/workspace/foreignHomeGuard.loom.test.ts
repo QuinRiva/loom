@@ -7,6 +7,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as NodePath from "node:path";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import { ServerConfig } from "../config.ts";
@@ -22,7 +23,7 @@ const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
 });
 const TestLayer = GitVcsDriver.layer.pipe(
   Layer.provideMerge(ServerConfigLayer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 const initRepoWithCommit = (cwd: string) =>

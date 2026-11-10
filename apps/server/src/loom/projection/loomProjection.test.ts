@@ -17,7 +17,9 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
-import * as ProjectionMaintenance from "../../orchestration-v2/ProjectionMaintenance.ts";
+import * as EventStore from "../../orchestration-v2/EventStore.ts";
+import * as ProjectionStore from "../../orchestration-v2/ProjectionStore.ts";
+import * as ProjectionReplay from "../../orchestration-v2/testkit/ProjectionReplay.ts";
 import {
   LoomOrchestratorTestLayer,
   loomEvent,
@@ -650,17 +652,23 @@ it.layer(TestLayer)("Loom projector", (it) => {
   it.effect("a full projection rebuild replays the log over the Loom tables without drift", () =>
     Effect.gen(function* () {
       const store = yield* LoomStoreV2;
-      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const replay = yield* ProjectionReplay.ProjectionReplay;
       const before = yield* store.listPassInput({ newsSince: EPOCH, threadIds: [] });
       const goalsBefore = yield* store.goals.listByProject(projectId, { includeDeleted: true });
-      const verification = yield* maintenance.rebuild;
+      const verification = yield* replay.rebuild;
       assert.isTrue(verification.valid);
       assert.deepEqual(yield* store.listPassInput({ newsSince: EPOCH, threadIds: [] }), before);
       assert.deepEqual(
         yield* store.goals.listByProject(projectId, { includeDeleted: true }),
         goalsBefore,
       );
-    }),
+    }).pipe(
+      Effect.provide(
+        ProjectionReplay.layer.pipe(
+          Layer.provide(Layer.merge(EventStore.layer, ProjectionStore.layer)),
+        ),
+      ),
+    ),
   );
 
   it.effect("goal surface: nothing without loom: true; snapshot goals and items with it", () =>

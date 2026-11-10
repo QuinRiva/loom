@@ -1,4 +1,4 @@
-// @effect-diagnostics preferSchemaOverJson:off nodeBuiltinImport:off - settings are compared by a JSON key, never parsed; sha1 of a root document is a sync hash.
+// @effect-diagnostics globalJsonInEffect:off nodeBuiltinImport:off - settings are compared by a JSON key, never parsed; sha1 of a root document is a sync hash.
 /**
  * The semantic half of thread search: keeps `loom_thread_embeddings` (one vector per root, identity
  * `<provider>/<model>/<dim>`) in step with the root documents by a hash sweep at startup, every two
@@ -289,8 +289,7 @@ export const makeThreadEmbedder = Effect.fn("ThreadEmbedder.make")(function* (
     Effect.map(Option.getOrUndefined),
     Effect.catch((error) =>
       queryWarned
-        ? // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
-          Effect.succeed(undefined)
+        ? Effect.undefined
         : Effect.sync(() => (queryWarned = true)).pipe(
             Effect.andThen(
               Effect.logWarning("thread-search.embedder.query-failed", {

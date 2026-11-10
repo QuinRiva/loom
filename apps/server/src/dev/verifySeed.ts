@@ -6,7 +6,7 @@
  * @module dev/verifySeed
  */
 // Dev-only fixture tooling (not shipped); see seedWorkstream.ts.
-// @effect-diagnostics nodeBuiltinImport:off globalErrorInEffectFailure:off preferSchemaOverJson:off globalDateInEffect:off globalDate:off
+// @effect-diagnostics nodeBuiltinImport:off globalErrorInEffectFailure:off globalJsonInEffect:off globalDateInEffect:off globalDate:off
 import * as NodeChildProcess from "node:child_process";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";

@@ -4,10 +4,16 @@
  */
 import type { LoomContextReport, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 import { piSessionPathOf } from "../prompt/childPrompt.ts";
 import { contextFindings } from "./findings.ts";
 import { readPiSessionContext } from "./piSessionContext.ts";
+
+export class ContextUsageReadError extends Schema.TaggedError<ContextUsageReadError>()(
+  "ContextUsageReadError",
+  { path: Schema.String, cause: Schema.Defect() },
+) {}
 
 export const reportFromSession = async (path: string): Promise<LoomContextReport | null> => {
   const session = await readPiSessionContext(path);
@@ -28,5 +34,8 @@ export const contextUsageReport = Effect.fn("ContextUsage.report")(function* (th
   yield* Effect.annotateCurrentSpan("threadId", threadId);
   const path = yield* piSessionPathOf(threadId);
   if (path === null) return null;
-  return yield* Effect.tryPromise(() => reportFromSession(path));
+  return yield* Effect.tryPromise({
+    try: () => reportFromSession(path),
+    catch: (cause) => new ContextUsageReadError({ path, cause }),
+  });
 });

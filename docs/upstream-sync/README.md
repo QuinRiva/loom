@@ -17,7 +17,7 @@ are numbered in the order they were written.
 ## A pull's runbook
 
 From pull 12 (`37-…`) on, a runbook is a directory, not a file. The latest is
-[`39-cadence-pull-14-20261101/`](39-cadence-pull-14-20261101/); a new pull's S0
+[`40-cadence-pull-15-20261108/`](40-cadence-pull-15-20261108/); a new pull's S0
 starts from its shape:
 
 ```

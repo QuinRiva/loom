@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { Link as LinkIconNode } from "lucide";
 import { Button, InlineButton } from "../ui/button";
+import { FreshSessionRow, ModelSwitchRow } from "./V2LifecycleRow";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
 import { AttachmentImage } from "../media/AttachmentImage";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
@@ -256,6 +257,27 @@ export function UserMessageRow({
   loomBubble?: ControlBubble | null; // loom:
 }) {
   const ctx = use(TimelineRowCtx);
+  const item = row.projectedItem?.item;
+  const modelSwitch = item?.type === "user_message" ? item.modelSwitch : undefined;
+  return (
+    <>
+      {item?.type === "user_message" && item.freshContext ? <FreshSessionRow /> : null}
+      {modelSwitch ? (
+        <ModelSwitchRow environmentId={ctx.activeThreadEnvironmentId} modelSwitch={modelSwitch} />
+      ) : null}
+      <UserMessageContent row={row} loomBubble={loomBubble ?? null} />
+    </>
+  );
+}
+
+function UserMessageContent({
+  row,
+  loomBubble, // loom: forwarded to UserTimelineRow
+}: {
+  row: Extract<TimelineRow, { kind: "message" }>;
+  loomBubble: ControlBubble | null; // loom:
+}) {
+  const ctx = use(TimelineRowCtx);
   return ctx.workflowOpening?.messageId === row.message.id ? (
     <WorkflowOpeningBlock
       opening={ctx.workflowOpening}
@@ -265,7 +287,7 @@ export function UserMessageRow({
   ) : resolveUserMessagePresentation(row.message).attribution === "automation" ? (
     <AutomationMessageRow row={row} />
   ) : (
-    <UserTimelineRow row={row} loomBubble={loomBubble ?? null} /> // loom: loomBubble
+    <UserTimelineRow row={row} loomBubble={loomBubble} /> // loom: loomBubble
   );
 }
 

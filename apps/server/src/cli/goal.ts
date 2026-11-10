@@ -5,7 +5,7 @@
  */
 import { GoalId, GoalTaskId, type LoomGoal } from "@t3tools/contracts";
 import * as Console from "effect/Console";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -24,7 +24,6 @@ import {
 import { renderTasks } from "../loom/goals/goalTaskRender.ts";
 import { findGoalTask, flattenGoalTasks } from "../loom/goals/goalTaskTree.ts";
 import * as LoomStore from "../loom/projection/LoomStore.ts";
-import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts"; // loom: autoPull project settings
@@ -42,7 +41,7 @@ export class GoalCliError extends Schema.TaggedError<GoalCliError>()("GoalCliErr
 }) {}
 
 const fail = (message: string) => Effect.fail(new GoalCliError({ message }));
-const uuid = Effect.flatMap(Crypto.Crypto, (crypto) => crypto.randomUUIDv4());
+const uuid = Effect.flatMap(SecureRandom.SecureRandom, (random) => random.uuidV4());
 
 const store = LoomStore.LoomStoreV2;
 
@@ -56,11 +55,15 @@ const runGoalCommand = Effect.fn("runGoalCommand")(function* <E>(
     | ProjectService.ProjectService
     | WorkspacePaths.WorkspacePaths
     | FileSystem.FileSystem
-    | Crypto.Crypto
+    | SecureRandom.SecureRandom
   >,
 ) {
   const config = yield* resolveCliAuthConfig(flags, yield* GlobalFlag.LogLevel);
-  const runtime = Layer.mergeAll(LoomStore.layer, RuntimeLayer.layerProjectService).pipe(
+  // Deferred like `t3 project`'s: `t3 --version` must not load the orchestration runtime.
+  const { layerProjectService } = yield* Effect.promise(
+    () => import("../orchestration-v2/runtimeLayer.ts"),
+  );
+  const runtime = Layer.mergeAll(LoomStore.layer, layerProjectService).pipe(
     Layer.provideMerge(ProjectEnrichmentService.layer),
     Layer.provideMerge(RepositoryIdentityResolver.layer),
     Layer.provideMerge(
