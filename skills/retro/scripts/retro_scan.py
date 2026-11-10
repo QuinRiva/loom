@@ -24,7 +24,7 @@ CATALOGUE = Path(__file__).resolve().parent.parent / "signals.yaml"
 CONTROL = ("[T3 Workstream control plane", "[T3 Code control plane")  # the second: RerouteSweep.ts resumes, older retries
 AGENT_LABEL = re.compile(r"^\[(?:From your parent|From another agent|Brief from another agent|Automated resume|Sent by automation|Scheduled[- ]task)")
 # An agent's relay, delivered bare as a user turn (render.ts composeNotifyFramedText; consult.ts for a consult fork).
-NOTIFY = re.compile(r"(?:Notification|Consult) from (.+?), (?:sent )?via \S*(?:notify|consult)_thread[:.]")
+NOTIFY = re.compile(r"(?:Notification|Consult) from (.+?), (?:sent )?via \S*(?:notify|consult)_thread[:.]", re.S)  # a title may span lines
 # The loom server's pi prompt templates (CATCHUP_TEMPLATE_PATH): pi records only the expansion, never the slash command.
 PROMPTS = Path(__file__).resolve().parents[3] / "prompts"
 PLACEHOLDER = re.compile(r"\$\{@(?::-([^}]*))?[^}]*\}|\$@|\$ARGUMENTS|\$\d+")
@@ -141,10 +141,12 @@ def human_text(kind, text, asked):
 
 def notification(text, label):
     """An agent's relay → (sender, its message without the platform's framing and footer)."""
-    who = NOTIFY.match(text).group(1)
-    sid, title = re.search(r"thread:[\w:-]+", who), re.search(r"\u00ab(.*?)\u00bb", who)
-    sender = label.get(sid and sid.group(0)) or (f"\u00ab{title.group(1)}\u00bb (outside this tree)" if title else who)
-    return sender, text.split("\n\n", 1)[-1].rsplit("\n\nNo reply is owed.", 1)[0]
+    m = NOTIFY.match(text)
+    who = m.group(1)
+    # describeSender: thread «title» (role, <id>; relationship); a UI-created root's id is a bare UUID
+    sid, title = re.search(r", (\S+); [^;]*\)\Z", who), re.search(r"\u00ab(.*)\u00bb", who, re.S)
+    sender = label.get(sid and sid.group(1)) or (f"\u00ab{one_line(title.group(1), 60)}\u00bb (outside this tree)" if title else one_line(who, 80))
+    return sender, text[m.end():].strip("\n").rsplit("\n\nNo reply is owed.", 1)[0]
 
 
 def notice_kind(text):
