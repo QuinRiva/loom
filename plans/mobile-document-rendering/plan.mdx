@@ -42,7 +42,9 @@ It makes two bets. First, that a page served by the server loads in the WebView 
 
   **Every app change is a new APK that Carl installs by hand** (§5). So the app side is kept thin and the page fat: after these two installs, later renderer changes reach the phone with a server deploy alone.
 
-  **Done** is the brief's checks passing on Carl's phone. Agents have no device, so §6 says what agents prove before merge and what each PR asks of him after his deploy. No open questions for Carl.
+  **Done** is the brief's checks passing on Carl's phone. Agents have no device, so §6 says what agents prove before merge and what each PR asks of him after his deploy.
+
+  **One departure from the brief.** The brief says "each PR is tried on your phone before it ships". This plan merges and deploys first, so his first look on the phone comes after. The reason is in §6. At each PR's ship hand-back the choice is his: ship it and check after the deploy, or ask for the test APK first.
 </Callout>
 
 ## 1. How it fits together
@@ -123,7 +125,7 @@ Rules that hold for both PRs:
     At 390 px the page must not scroll sideways; a wide table scrolls inside its own wrapper. Today the real plan measures 453 px wide because a top-level table's bleed width follows its content. Fix in the `.plan-mdx` rules of `apps/web/src/index.css` without changing what a desktop-width panel shows.
   </Step>
   <Step at="5" title="Mobile: the document view">
-    Add `apps/mobile/src/features/files/MdxDocumentView.loom.tsx`: a `react-native-webview` on the connection's `httpBaseUrl` (from `usePreparedConnection`) plus `DOCUMENT_VIEWER_PATH`. It sends `init` on `ready` and again when the source changes, answers `image-request` with `refreshAssetUrl` for a `media-file` resource (the resource web's `<Image>` uses), and routes `link` through the same logic as `onLinkPress` in `FileMarkdownPreview.tsx`. It follows `HtmlRenderWebView.tsx` on the Android lifecycle. `onShouldStartLoadWithRequest` allows sub-frames (`isTopFrame === false`) and refuses any top-frame navigation away from the viewer URL, so a document's `<Prototype>` and `<HtmlBlock>` frames still load. `onOpenWindow` sends an `https` target to the phone's browser. `onRenderProcessGone` and `onContentProcessDidTerminate` restart the view, because Android kills a backgrounded app's renderer and the view would otherwise go blank. `setSupportMultipleWindows` is false, as in `WorkspaceFileWebPreview.tsx`.
+    Add `apps/mobile/src/features/files/MdxDocumentView.loom.tsx`: a `react-native-webview` on the connection's `httpBaseUrl` (from `usePreparedConnection`) plus `DOCUMENT_VIEWER_PATH`. It sends `init` on `ready` and again when the source changes, answers `image-request` with `refreshAssetUrl` for a `media-file` resource (the resource web's `<Image>` uses), and routes `link` through the same logic as `onLinkPress` in `FileMarkdownPreview.tsx`. It follows `HtmlRenderWebView.tsx` on the Android lifecycle. `onShouldStartLoadWithRequest` allows sub-frames (`isTopFrame === false`) and refuses any top-frame navigation away from the viewer URL, so a document's `<Prototype>` and `<HtmlBlock>` frames still load. `onRenderProcessGone` and `onContentProcessDidTerminate` restart the view, because Android kills a backgrounded app's renderer and the view would otherwise go blank. `setSupportMultipleWindows` is false, as in `WorkspaceFileWebPreview.tsx`.
   </Step>
   <Step at="6" title="Mobile: route .mdx to it">
     In `ThreadFilesRouteScreen.tsx`, `FileContent` renders `MdxDocumentView` for an `.mdx` path in preview mode; `.md` keeps `FileMarkdownPreview`. Add `isMdxDocumentFile` beside `isMarkdownPreviewFile` in `filePath.ts`. The `readFile` query passes `maxBytes: DOCUMENT_READ_MAX_BYTES` for `.mdx`, and `preload-workspace-file.ts` passes the same input so the preloaded read is the one the screen uses. The file menu's Preview / Source toggle already covers `.mdx`; add Refresh. `AttachmentDocumentBody.tsx` uses the same view for an attached `.mdx`, with no image resolution.
@@ -219,14 +221,14 @@ Agents cannot run the mobile app: device access is off for this environment, and
     **The PR carries** phone-size screenshots of the page on the three documents in §7, and the viewer entry's gzipped size from the build manifest. Expect about 1 MB. If the image block's imports drag the chat bundle in, load that path lazily.
   </Step>
   <Step at="Ship" title="Carl says ship it, the PR merges, and he deploys the server">
-    The server half is additive: a static page nothing else links to. Web and the installed app behave as before.
+    The hand-back that asks for his word offers both: ship it and check after the deploy, or the test APK first (below). The server half is additive: a static page nothing else links to. Web and the installed app behave as before.
   </Step>
   <Step at="After deploy" title="Carl installs the APK built from main and tries the checks" badge="about 5 minutes">
     On his real server, in his real threads, over his real connection. He replies pass or fail per check, or sends a screenshot. A fault in the page is fixed with another deploy and no install. A fault in the app needs a fixed APK.
   </Step>
 </Steps>
 
-This ships each PR before Carl has seen it on the phone. What makes that acceptable: the document is drawn by the page, which agents can prove in the engine his phone uses; the app half reaches his phone only when he installs it; and the old APK is one install away.
+**This departs from the brief**, whose Still unknown section says "each PR is tried on your phone before it ships". Here each PR ships before Carl has seen it on the phone, because the only way to show it to him earlier is an APK that degrades his daily app or a second test app. What makes that acceptable: the document is drawn by the page, which agents can prove in the engine his phone uses; the app half reaches his phone only when he installs it; and the old APK is one install away.
 
 <Details summary="If Carl wants to try a PR before it merges">
 
