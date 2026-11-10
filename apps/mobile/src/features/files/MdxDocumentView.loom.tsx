@@ -59,6 +59,8 @@ export function MdxDocumentView(props: {
   const webView = useRef<WebView<object>>(null);
   const token = useRef(uuidv4());
   const readyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A ref, not state: `ready` and the load end can arrive in one native batch, before a re-render.
+  const answered = useRef(false);
   const viewerUrl =
     connection._tag === "Some"
       ? new URL(DOCUMENT_VIEWER_PATH, connection.value.httpBaseUrl).toString()
@@ -89,6 +91,7 @@ export function MdxDocumentView(props: {
   const restart = () => {
     clearReadyTimer();
     token.current = uuidv4();
+    answered.current = false;
     setState("loading");
     setGeneration((value) => value + 1);
   };
@@ -156,8 +159,11 @@ export function MdxDocumentView(props: {
     if (message === null) return;
     switch (message.type) {
       case "ready":
+        // Once per load: a document's own frame can post `ready` too, and need not get the text again.
+        if (answered.current) return;
+        answered.current = true;
         clearReadyTimer();
-        if (state === "loading" || state === "unavailable") setState("ready");
+        setState("ready");
         sentInit.current = { source: props.source, appearance: themeAppearance };
         sendInit();
         return;
@@ -210,7 +216,8 @@ export function MdxDocumentView(props: {
         key={generation}
         ref={webView}
         source={{ uri: viewerUrl }}
-        style={{ flex: 1, backgroundColor: "transparent" }}
+        // Hidden until the viewer answers, so a server without it never shows its app shell here.
+        style={{ flex: 1, backgroundColor: "transparent", opacity: state === "loading" ? 0 : 1 }}
         // Starts the page below a translucent iOS bar, as the file screen's other web previews do.
         contentInsetAdjustmentBehavior="automatic"
         originWhitelist={["*"]}
@@ -223,10 +230,10 @@ export function MdxDocumentView(props: {
         }
         onMessage={handleMessage}
         onLoadEnd={() => {
-          if (state !== "loading" || readyTimer.current !== null) return;
+          if (answered.current || readyTimer.current !== null) return;
           readyTimer.current = setTimeout(() => {
             readyTimer.current = null;
-            setState("unavailable");
+            if (!answered.current) setState("unavailable");
           }, READY_TIMEOUT_MS);
         }}
         onError={() => setState("unavailable")}
