@@ -3541,6 +3541,14 @@ code {
 .plan-code--bare:is(:hover, :focus-within) > .plan-code-tools {
   opacity: 1;
 }
+/* A rendered markdown snippet is quoted material: its headings read as bold labels,
+   never as sections of the host document. */
+.plan-code-markdown.chat-markdown :is(h1, h2, h3, h4, h5, h6) {
+  font-size: 0.875rem;
+}
+.plan-code-markdown.chat-markdown h1 {
+  font-size: 0.9375rem;
+}
 
 /* MDX vocabulary v2: Columns — `columns={n}` caps the row at n across (the min
    track never drops below 1/n of the row) while still collapsing on a narrow

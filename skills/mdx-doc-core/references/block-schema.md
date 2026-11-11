@@ -39,6 +39,7 @@ Props:
 - `caption`: `string` _(optional)_
 - `maxLines`: `integer` _(optional)_
 - `wrap`: `boolean` _(optional)_
+- `view`: `"rendered" | "source"` _(optional)_
 
 ## `<DataModel>`: `data-model`
 

@@ -124,9 +124,12 @@ later entries under that path nest inside it.
 
 ### `<Code>` — one syntax-highlighted snippet
 
-`code` is required; `language`, `filename`, `caption`, `maxLines`, `wrap` are
-optional. Multiline code is written as a JSON string expression. Set `wrap` to
-ship it soft-wrapped (the header gains a wrap toggle either way).
+`code` is required; `language`, `filename`, `caption`, `maxLines`, `wrap`, `view`
+are optional. Multiline code is written as a JSON string expression. Set `wrap` to
+ship it soft-wrapped (the header gains a wrap toggle either way). A `markdown`
+snippet shows rendered, with a header switch that flips every markdown block in
+the document between rendered and source; set `view="source"` when the syntax
+itself is the point (a prompt template, text to paste verbatim).
 
 ```mdx
 <Code
