@@ -1,0 +1,108 @@
+---
+reader:
+  who: Carl, who deploys Loom about six times a week and approves what its deployment should become before anything is built
+  knows: his own answers so far in this effort; not the research behind them, the code, or the names the code uses
+  after_first_screen: he can say what deploying Loom will be like, which lines are his own words and which are guesses he can redirect, and either correct a line or answer the three questions
+kicker: "Intent brief · draft for your corrections · 11 Nov 2026"
+status: draft
+manager_sessions:
+  - id: 01a1c7f0-4819-776d-9749-aaa17e26b66a
+    name: Loom deployment redesign (wayfinder)
+    role: intent
+    authored_at: 2026-11-11T04:05:39.660Z
+---
+
+# Deploying Loom is something you do from Loom, with a proper path for the deploys you expect to break
+
+**Goal.** "The 'deployment' framework for loom probably has very little to do with the slack bridge, and only happens to be built there due to the happenstance of that was the original ask." Today's deploy works ("By and large it works just fine"), so this keeps what works and changes four things:
+
+1. You start a deploy from Loom itself.
+2. A deploy you expect to break gets its own path.
+3. The wait before Loom goes down is explained up front.
+4. None of it lives in the Slack bridge's repository any more.
+
+**You'll know it works when.**
+
+- You press Deploy in Loom, at your desk or on your phone, and everyone using Loom at once sees a warning with a rough time until it goes down.
+- Loom comes back on the new release and tells you what happened: live and being watched for five minutes, or put back, and why.
+- A release that cannot read your real settings file is refused before Loom is stopped, with no downtime.
+- You start a deploy you expect to break as that kind. When it fails it stays where it is for a fix instead of being put back, and going back is one deliberate step.
+- With Loom down you can still see what state it is in, go back to the previous release and start a deploy, over SSH and from Slack.
+- A Loom deploy runs nothing from the Slack bridge's repository, and deploying the bridge no longer changes how Loom is deployed.
+- **Must not** lose the five-minute watch, or the automatic return to the old release and database when Loom itself fails.
+- **Must not** edit upstream's own updater files, or let any app install upstream's T3 Code over Loom.
+- **Must not** break the feed Jacob's instance follows, or deploy without you asking.
+
+**Approaches in play.**
+
+- Upstream T3 Code's launcher does the switch (database backup, trial start, return on failure) and Loom adds its own parts around it. _Your pick._ Rehearsed on a scratch copy: about 175 lines of Loom-only code, no edits to upstream's files.
+- Today's mechanism, moved out of the bridge's repository, with upstream's good ideas copied. Wins if the launcher gives trouble in use; you decide then.
+- Dropped: editing upstream's launcher to add what it lacks (collides with upstream at every weekly pull, in the code that performs recovery). Dropped: upstream's updater as it ships (no watch, no path that holds).
+
+**Decided.** Your words.
+
+- Purpose: "Routine deploys come first". Size: "Keep the core, change those four".
+- The watch: "I don't think we should drop that - it doesn't really cost us anything and has occasionally resulted in a rollback when something unstable has shown up post deploy."
+- The warning: "it'd be more useful if the toast was sent immediately on start, with a rough *estimate* of when loom will go down."
+- A Slack fault after a deploy: "If we do the deployment via slack, then I think a rollback is important - otherwise we just need to resolve the issue post loom deploy."
+- The trial start before the switch: "Real settings and a small slice".
+- Upstream's launcher: "let's just plan on upstream, and if I encounter issues, I'll make a decision in the future whether to keep that approach or re-consider the other approach."
+
+_Assumed_, each a low-stakes pick; redirect any that is wrong.
+
+- Loom's parts live in the Loom repository as Loom-only files and ship inside each release, with the service files and operating notes versioned beside them. Picked over a repository of their own because the part the launcher starts has to travel with the release it starts.
+- The bridge keeps today's tool for its own deploys, since it is rarely used; only Loom's deploy changes.
+- Releases are numbered `100.<date>.<n>`, stamped in when a release is built. It is the one scheme the rehearsal found that the launcher accepts and that stops upstream's apps offering upstream's T3 Code.
+- Any device paired with your Loom can press Deploy, which is the permission upstream already uses for this.
+- The ways back in when Loom is down are a command over SSH, and Slack running that same command.
+
+**Not doing.** Changing how the bridge borrows code from the running Loom release. Changing how Jacob's instance takes releases. Bringing pi, pi-craft, the Node runtime or the secrets files into the deploy. Changing the rule that deploying is your act.
+
+**Questions for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "risky-deploy",
+      title: "What should a deploy you expect to break do when it fails?",
+      subtitle: "Your complaint was fighting the automatic return to the old release while trying to fix a big deploy. In the deploys you supervised by hand, the return also restored the database (up to 12.5 minutes of work lost) and marked the release as failed, so each retry meant a rebuild.",
+      mode: "single",
+      options: [
+        { id: "hold", label: "Rehearse on a full copy of real data first, then hold on failure", detail: "You tick 'expected to break' when starting. The release is first started against a full copy of the database while live Loom keeps running. If it then fails after the switch it stays in place, with Loom down, for you or an agent over SSH to fix. Going back is one command.", recommended: true },
+        { id: "rehearse-only", label: "Rehearse on the full copy, but still put the old release back on failure", detail: "Loom is never left down. A failure after the switch still restores the database, and you retry from the old release." },
+      ],
+      allowOther: true,
+    },
+    {
+      id: "build-ahead",
+      title: "Should a release be built before you press Deploy?",
+      subtitle: "The wait you asked about is the build: a median of about 2.5 minutes between pressing and Loom going down. The warning with an estimate is being added either way.",
+      mode: "single",
+      options: [
+        { id: "at-deploy", label: "Build when you press, with the estimate shown", detail: "As today, about 200 seconds from pressing to Loom being back. Nothing extra runs on the machine.", recommended: true },
+        { id: "at-merge", label: "Build every time work merges", detail: "Loom is back about 52 seconds after pressing. Costs about six times as many builds on the machine your agents use; a press within about 4 minutes of a merge still waits." },
+      ],
+    },
+    {
+      id: "agent-deploy",
+      title: "Should an agent you have told to deploy get a proper tool for it?",
+      subtitle: "Today such an agent runs the command-line tool from its shell. The standing rule that an agent never deploys unasked stays either way; it came from an agent deploying unprompted on 1 Aug.",
+      mode: "single",
+      options: [
+        { id: "cli-only", label: "No tool; it uses the command line when told", detail: "Nothing new for an agent to reach for by mistake.", recommended: true },
+        { id: "tool", label: "Yes, a tool that asks you to confirm in Loom", detail: "Tidier for 'ship and deploy' requests, and every agent deploy passes a confirmation you see." },
+      ],
+    },
+  ]}
+  submitLabel="Send answers"
+/>
+
+**Still unknown.** None of these gate approval.
+
+- Is the 5 seconds the launcher gives Loom to stop enough when agent turns are running? Today's deploy gives 30. A deploy on a scratch copy with the free replay provider's turns in flight settles it.
+- How long the switch and a return take on a properly built release and the real database. The rehearsal ran from source on an empty one; the first full run on a copy settles it.
+- What the Deploy control looks like and where it sits. A mock in the plan settles it.
+- How Loom finds out, at a weekly pull, that upstream has changed the parts of the launcher its code relies on, instead of at the next deploy. The plan names the check.
+- How to move from today's setup to this one without a moment where neither can put Loom back, and what Jacob's feed needs afterwards. The plan sets the order.
+
+The decisions behind this brief, with the research each rests on, are indexed at [Loom deployment redesign](https://github.com/QuinRiva/loom/issues/546).
