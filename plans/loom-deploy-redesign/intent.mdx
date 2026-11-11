@@ -24,11 +24,11 @@ manager_sessions:
 
 **You'll know it works when.**
 
-- You press Deploy in Loom, at your desk or on your phone, and everyone using Loom at once sees a warning with a rough time until it goes down.
+- You press Deploy in Loom's web page or desktop app, and everyone using Loom at once sees a warning with a rough time until it goes down.
 - Loom comes back on the new release and tells you what happened: live and being watched for five minutes, or put back, and why.
 - A release that cannot read your real settings file is refused before Loom is stopped, with no downtime.
 - A pi thread you have asked to run a big deploy runs it with a flag that turns off the automatic return. When that deploy fails it stays where it is for a fix, and going back is one deliberate step.
-- With Loom down you can still see what state it is in, go back to the previous release and start a deploy, over SSH and from Slack.
+- With Loom down you can still see what state it is in, go back to the previous release and start a deploy, over SSH.
 - A Loom deploy runs nothing from the Slack bridge's repository, and deploying the bridge no longer changes how Loom is deployed.
 - **Must not** lose the five-minute watch, or the automatic return to the old release and database when Loom itself fails.
 - **Must not** edit upstream's own updater files, or let any app install upstream's T3 Code over Loom.
@@ -51,6 +51,8 @@ manager_sessions:
 - Deploys likely to break: "Normally I just get a pi thread to run the deploy, the problem I was encountering was that it would just 'run the deploy' script, which kept auto-rolling back in the event of an error. We should have a method of running the deploy (a flag or something) that doesn't auto rollback."
 - When a release is built: "Build when you press, with the estimate shown".
 - Agents: "No tool; it uses the command line when told".
+- Getting back in: "SSH only when Loom is down". Slack can still start a deploy while Loom is up.
+- The phone: "Leave the phone app out for now".
 
 _Assumed_, each a low-stakes pick; redirect any that is wrong.
 
@@ -58,13 +60,12 @@ _Assumed_, each a low-stakes pick; redirect any that is wrong.
 - The bridge keeps today's tool for its own deploys, since it is rarely used; only Loom's deploy changes.
 - Releases are numbered `100.<date>.<n>`, stamped in when a release is built. It is the one scheme the rehearsal found that the launcher accepts and that stops upstream's apps offering upstream's T3 Code.
 - Any device paired with your Loom can press Deploy, which is the permission upstream already uses for this.
-- The ways back in when Loom is down are a command over SSH, and Slack running that same command.
 - The flag that turns off the automatic return is on the command line, where your pi threads run deploys; the Deploy control in Loom does not carry it at first.
 - With that flag the checks still run and report, and the database copy from before the switch is kept. A failed release is not marked as failed, so a retry needs no rebuild.
 - The flag only changes what happens after the switch. A release that fails to build or fails its trial start is still called off before Loom is stopped, in both kinds of deploy.
 - Today's tool stops deploying Loom in the same sitting as the move to the new mechanism, right after your first deploy on it goes live, with a written way back.
 
-**Not doing.** Changing how the bridge borrows code from the running Loom release. Changing how Jacob's instance takes releases. Bringing pi, pi-craft, the Node runtime or the secrets files into the deploy. Changing the rule that deploying is your act.
+**Not doing.** A Deploy row in the phone app. New work in the bridge so Slack can act while Loom is down. Changing how the bridge borrows code from the running Loom release. Changing how Jacob's instance takes releases. Bringing pi, pi-craft, the Node runtime or the secrets files into the deploy. Changing the rule that deploying is your act.
 
 **Still unknown.** The plan settles each.
 
