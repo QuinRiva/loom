@@ -12,8 +12,9 @@ Write or run an eval when a change affects what a model sees or does: agent inst
 | [voice-cleanup](voice-cleanup/)         | Whether optional dictation cleanup edits only the spoken text and preserves its meaning.             |
 | [test-signal](test-signal/)             | Whether a cheap model running the test-signal check flags low-signal tests.                          |
 | [explainer-density](explainer-density/) | How dense the prose is that an agent writes under the MDX document skills at a git ref.              |
+| [loom-handback](loom-handback/)         | Whether Loom threads hand back, hold and tell their parent as the control plane expects.             |
 
-<!-- loom: the explainer-density row is Loom's eval (822db4a19e) -->
+<!-- loom: the explainer-density and loom-handback rows are Loom's evals (822db4a19e) -->
 
 ## Run an eval
 
