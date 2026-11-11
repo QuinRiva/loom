@@ -1,0 +1,225 @@
+---
+reader:
+  who: Carl, Loom's owner and daily user, who asked whether a document link should open in the thread that wrote the document, and now corrects and approves what this change is for before anything is built
+  knows: Loom as its user; his own question; the approved brief on talking inside a child thread. Not the document-panel code
+  after_first_screen: he can say what happens the next time he clicks a document link in a parent's thread and comments on it, and that the choice in front of him is being moved to the author or staying put while his comments travel
+kicker: "Intent brief · draft for your corrections · 11 Nov 2026"
+status: draft
+manager_sessions:
+  - id: 01a1c87d-e4fa-7188-bc86-8cfc39a765ce
+    name: Document comments reach the author
+    role: intent
+    authored_at: 2026-11-11T02:59:39.579Z
+---
+
+# A link to a document opens the thread that wrote it, so your comments land with the author
+
+Today a comment on a document goes to whichever thread you opened it from. In the five weeks to 11 Nov, **55 of your 101 review messages went to a thread that had not written the document**, nearly always an orchestrator receiving comments on its planner's work.
+
+The recommendation is your proposal: **a link to a document another thread wrote opens that thread beside the one you are in, with the document open**. You comment there and the reply arrives in front of you. Your choice is between that and three ways of leaving you where you are. It is the first question at the end.
+
+<Stats
+  items={[
+    {
+      value: "101",
+      label: "messages of yours that carried comments on a document",
+      detail: "7 Oct to 11 Nov: 544 annotations, form answers and review verdicts. Questions put to an author's read-only fork (12) are not counted",
+    },
+    {
+      value: "55",
+      label: "of those were sent in a thread that did not write it",
+      tone: "warning",
+      detail: "all 55 in a top-level thread; in 54 of 56 cases the author was its direct child; 41 were on a plan or an intent brief",
+    },
+    {
+      value: "45 of 49",
+      label: "authors of those documents never heard from you at all",
+      tone: "warning",
+      detail: "everything you said about their document reached them second-hand or not at all",
+    },
+    {
+      value: "9",
+      label: "times the receiving thread then edited the child's document itself",
+      detail: "the author revised it in 9 more; in 36 nobody changed the document and the receiving thread acted on your answers",
+    },
+  ]}
+/>
+
+<Columns columns={2}>
+  <Column label="Today">
+    <Screen
+      surface="panel"
+      caption="You click the link in the orchestrator. The brief opens there and your comments wait in the orchestrator's composer."
+      html={"<div style='display:flex;flex-direction:column;gap:10px;padding:14px;height:100%;box-sizing:border-box'><div style='display:flex;gap:6px;white-space:nowrap;align-items:center'><span class='wf-pill accent'>Orchestrator</span><div style='flex:1'></div></div><div class='wf-card' style='padding:8px 10px;font-size:12px'>The planner's brief is ready: <a>intent.mdx</a></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:6px;font-size:12px'><div style='display:flex;white-space:nowrap;gap:6px;align-items:center'><strong>intent.mdx</strong><div style='flex:1'></div><small>2 comments</small></div><hr /><div>You'll know it works when <span style='background:var(--wf-accent-soft)'>the list never freezes</span> on a page of a thousand contacts.</div><small>Questions for you</small><div style='display:flex;white-space:nowrap'><span class='wf-pill'>Undo lasts until the toast closes</span></div></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:8px'><small>Message to Orchestrator</small><div style='display:flex;flex-wrap:wrap;gap:4px'><span class='wf-pill' style='font-size:10.5px;border-color:var(--wf-warn)'>intent.mdx · annotation ×</span><span class='wf-pill' style='font-size:10.5px;border-color:var(--wf-warn)'>answer: undo ×</span></div><div style='display:flex;justify-content:flex-end'><button class='primary'>Send</button></div></div></div>"}
+    />
+  </Column>
+  <Column label="Recommended">
+    <Screen
+      surface="panel"
+      caption="The same click opens the planner beside the orchestrator. The same comments wait in the planner's composer."
+      html={"<div style='display:flex;flex-direction:column;gap:10px;padding:14px;height:100%;box-sizing:border-box'><div style='display:flex;gap:6px;white-space:nowrap;align-items:center'><span class='wf-pill'>Orchestrator</span><span class='wf-pill accent'>Planner: intent brief</span><div style='flex:1'></div></div><div class='wf-card' style='padding:8px 10px;font-size:12px'>Brief drafted. Held for your approval.</div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:6px;font-size:12px'><div style='display:flex;white-space:nowrap;gap:6px;align-items:center'><strong>intent.mdx</strong><small>written by this thread</small><div style='flex:1'></div><small>2 comments</small></div><hr /><div>You'll know it works when <span style='background:var(--wf-accent-soft)'>the list never freezes</span> on a page of a thousand contacts.</div><small>Questions for you</small><div style='display:flex;white-space:nowrap'><span class='wf-pill'>Undo lasts until the toast closes</span></div></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:8px'><small>Message to Planner: intent brief</small><div style='display:flex;flex-wrap:wrap;gap:4px'><span class='wf-pill' style='font-size:10.5px;border-color:var(--wf-ok)'>intent.mdx · annotation ×</span><span class='wf-pill' style='font-size:10.5px;border-color:var(--wf-ok)'>answer: undo ×</span></div><div style='display:flex;justify-content:flex-end'><button class='primary'>Send</button></div></div></div>"}
+    />
+  </Column>
+</Columns>
+
+<Callout tone="info" title="What the parent is told" focus>
+  Nothing new. What you write lands in the author as any message you type there does, so the approved brief on talking inside a child thread already covers it: the parent hears from the child only when your decision changes what the parent would do, and a child holding work for your approval hands back once, quoting what you changed. A correction you type into the parent's chat is still passed on once.
+</Callout>
+
+**Goal.** "Isn't the reason I'm opening and responding to the parent, because that's where I see and am presented the mdx file link? If clicking on that link defaulted to opening it within the author, wouldn't that simplify me responding to the author of that document?" Commenting on a document should reach the thread that wrote it without you first having to find that thread.
+
+**You'll know it works when.**
+
+- An orchestrator tells you its planner's brief is ready and links it. You click the link. The planner's thread opens in a tab beside the orchestrator with the brief in its panel. You annotate two passages, answer the form and send. The planner replies in front of you, and the orchestrator's thread shows nothing new.
+- The orchestrator's tab is still open, and one click puts you back where you were.
+- A link in a control-plane notice or in a child's report behaves the same way as a link in a message.
+- You click a link to a document in the thread that wrote it. Nothing differs from today.
+- You open a child's document from the file explorer or search in the parent's thread, where nobody presented a link. It opens there, and its header names the thread that wrote it with a button that takes you to it.
+- The author is finished. You land in it all the same. It acts on your comments as the approved brief says a finished child does: it stays finished, adds to its report, and tells its parent when the change is material.
+- The author was deleted or archived, or the document carries no signature. It opens where you are, as today, and the header says your comments go to this thread.
+- **Must not:**
+  - make a document slower to appear after the click, including over the relay;
+  - move or drop comments already waiting in a composer;
+  - tell the parent about the review beyond what the approved brief allows;
+  - change where the Query button's question goes (it already asks a fork of the signer);
+  - move you for a file that is not a signed document: code, a diff, a report.
+
+**Approaches in play.**
+
+<Columns columns={2}>
+  <Column>
+    <Card heading="The link opens the author's thread" tone="success" badge="RECOMMENDED" meta={["your proposal"]}>
+      You click, land in the author with the document open, comment, send and read the reply. One place for the whole round.
+
+      **Costs you.** A link you only wanted to read moves you too. The tab you came from stays open, one click back.
+
+      **Wins if** most of the times you open another thread's document, it is to review it.
+    </Card>
+  </Column>
+  <Column>
+    <Card heading="The document opens where you are; your comments wait in the author's composer" tone="neutral" meta={["as Promote does today"]}>
+      You read and comment in place. The panel says "3 comments waiting in the composer of Planner". You open the planner when you are done and send there.
+
+      **Costs you.** Your comments are not in the composer in front of you. Every review gains a second step, and a comment can sit unsent in a composer you never opened.
+
+      **Wins if** you mostly open to read and comment only now and then.
+    </Card>
+  </Column>
+</Columns>
+
+<Columns columns={2}>
+  <Column>
+    <Card heading="The document opens where you are; a Send button on it delivers your comments to the author" tone="neutral">
+      You read, comment and send without leaving the parent.
+
+      **Costs you.** The reply arrives in a thread you are not looking at, so you go there anyway to read it and approve. Words for the parent and comments for the author leave from two places on one screen.
+
+      **Wins if** you want to fire off comments and not follow them.
+    </Card>
+  </Column>
+  <Column>
+    <Card heading="The document opens where you are, as now, and names its author with a button to go there" tone="neutral">
+      You notice the header and click through before commenting.
+
+      **Costs you.** You have to notice, every time, and not noticing is today's miss. Comments made without clicking through still go to the thread you are in.
+
+      **Wins if** being moved proves more annoying than the relay it removes.
+    </Card>
+  </Column>
+</Columns>
+
+Every round of review ends in the author's thread whichever you pick. The reply arrives there, and the approved brief has you approve there. The approaches differ in when you are moved: at the click, when you send, or when you choose. The first also needs no new way of sending anything, so a busy, finished or held author behaves exactly as it does when you type to it. The first three also put the author between your answer and the parent: a "go" on a plan reaches the orchestrator through the planner, one hop later than today.
+
+**Decided.**
+
+- The proposal on the table is yours, 11 Nov: "If clicking on that link defaulted to opening it within the author, wouldn't that simplify me responding to the author of that document?"
+- You talk to the thread that did the work: "shouldn't I just be communicating directly with the planner in these situations? Why should I be engaging with the orchestrator to have it just relay messages to the planner?" 10 Nov.
+- A correction you type into the parent's chat is passed on once: "The parent passes it on once". 11 Nov. Not reopened here.
+- The parent is not told about the review round by round: "I don't want the result being instead of a control plane message, we get a notify_thread from the child on *every* interaction instead (that would be worse)." 23 Oct.
+- On promoted comments, which already wait in the author's composer, you chose not to be moved: "No, just the link; I open it when I'm done promoting". 4 Nov. That was about Promote. It is the precedent for the second approach, not a ruling on this one.
+- _Assumed:_ this applies to documents an agent signed as its own (plans, intent briefs, recaps, explainers). 50 of the 55 messages were on signed documents. An unsigned document opens where you are, as today.
+- _Assumed:_ you are moved only while the author thread exists and is not archived. An old plan whose planner was archived weeks ago opens where you are, with the author named.
+- _Assumed:_ a busy author queues your message as it does when you type to it mid-turn. A finished author acts on it as the approved brief says. Nothing new is built for either.
+- _Assumed:_ a thread that takes over another's document signs it and becomes its author from then on. In three of the eight cases where a second thread had changed the document, it was a second planner that revised without signing.
+- _Assumed:_ web and desktop. Mobile shows these documents as plain text with no way to comment, so there is nothing to route.
+- _Assumed:_ the orchestrator still tells you which child is waiting, as the approved brief has it. The document link in that message now lands in the child too.
+
+**Not doing.** Changing what the parent is told. Sending your comments to anyone automatically. Comments on code and diffs. Workstream reports, which are not signed. Commenting on mobile. Moving comments already sent.
+
+**Questions for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "link-behaviour",
+      title: "What should clicking a link to a document another thread wrote do?",
+      subtitle: "Decides whether you are moved to the author at the click, or stay where you are while your comments travel. The four cards under Approaches in play give each one's cost.",
+      mode: "single",
+      options: [
+        {
+          id: "open-author",
+          label: "Open the author's thread beside the one I am in, with the document open; I comment and read the reply there",
+          detail: "Your proposal. A link you only wanted to read moves you as well.",
+          recommended: true,
+        },
+        {
+          id: "wait-in-author-composer",
+          label: "Open the document where I am; my comments wait in the author's composer and I go there to send them",
+          detail: "As a promoted answer does today. A second step on every review.",
+        },
+        {
+          id: "send-from-panel",
+          label: "Open the document where I am; a Send button on the document delivers my comments to the author and I stay put",
+          detail: "The reply arrives in a thread you are not looking at.",
+        },
+        {
+          id: "name-author-only",
+          label: "Open it where I am as now; show me who wrote it and a button to go there",
+          detail: "Comments still go to the thread you are in unless you click through first.",
+        },
+      ],
+      allowOther: true,
+    },
+    {
+      id: "author-when-several",
+      title: "When more than one thread has changed a document, which one gets your comments?",
+      subtitle: "On this goal's own brief the planner signed and the orchestrator then edited it three times. Across the five weeks, the thread that signed and the thread that last changed the file differed in 8 of 69 cases: four times a reviewer had fixed something, three times a second planner had revised, once the parent had edited.",
+      mode: "single",
+      options: [
+        {
+          id: "signer",
+          label: "The thread that signed it; the document's header names any other thread that has changed it since, with a link",
+          detail: "One stable owner. A reviewer's inline fix does not make the reviewer the author. Your comment on a parent's edit reaches the planner unless you follow the link.",
+          recommended: true,
+        },
+        {
+          id: "last-editor",
+          label: "The thread that last changed it",
+          detail: "Your comment on a parent's edit reaches the parent. In four of the eight cases your comments on a planner's reasoning would have gone to a reviewer.",
+        },
+        {
+          id: "ask",
+          label: "Ask me each time the two differ",
+        },
+      ],
+      allowOther: true,
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- How often you open another thread's document only to read it. Nothing records a document being opened, so there is no figure. Your reaction when you try it settles this, and if being moved grates, the second or fourth approach is a small step from the first.
+- Whether a finished planner reliably hands your answers up. Half of the 55 were form answers or verdicts with no annotation, and today the receiving thread simply acts on them. Once they go to the author, the author has to tell its parent. An eval case on the planner role settles it, alongside the one the plan for talking inside a child thread already calls for.
+- Which copy you see when the author is not a child of the thread you are in and may sit in another worktree (2 of 56 cases). Reading how the panel resolves the file settles it in the plan.
+- Whether a cancelled author can act on a message. Reading the server build now in flight settles it.
+
+<Details summary="How the figures were counted">
+
+Source: the live database, read-only, every message you wrote from 7 Oct to 11 Nov that carried at least one comment anchored to a rendered document (an annotation, a question-form answer or a review verdict). That is 113 messages. 12 were questions sent to a read-only fork of the author and are left out, which leaves 101.
+
+The author of a document is the thread whose session signed it. Where a document had no signature, it is the first thread recorded writing the file in the same workstream. On that basis 55 messages were sent in a thread that was not the author, 38 in the author, and for 8 no author could be found. One of the 55 covered two documents, so the per-document counts are out of 56.
+
+After a message landed in a thread that was not the author, the next recorded edit to the document was by the author in 9 cases, by the receiving thread in 9 and by a third thread in 2. There was none in 36. "Who edited next" and "who last changed it" come from the file edits recorded in each thread. Those include an agent's write and edit tool calls but not a file changed from a shell command. The 69 cases are the comments on a signed document with at least one recorded edit.
+
+</Details>
