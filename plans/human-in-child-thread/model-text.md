@@ -13,6 +13,8 @@ at the end, where no model reads them.
 
 `${…}` marks a value the code interpolates. Everything else is literal.
 
+**Revision 2, 11 Nov 2026, after the build and its eval runs.** Three sections changed: §3.1 (revised), §4.1 (one sentence held in reserve) and §4.6 (new). §7 carries the revision's change record and §8 the two specifications a coder applies with it. Everything else is as shipped in `5c63336e49`, `0d3e08bd1e` and `5185335ad4`.
+
 ---
 
 ## 1. Tool descriptions (`apps/server/src/mcp/toolkits/workstream/prose.ts`, `LOOM_TOOL_PROSE`)
@@ -99,15 +101,19 @@ The last sentence guards the other tail: a planner whose brief the human approve
 
 ## 3. Prompt prose (`apps/server/src/loom/prompt/prose.ts`)
 
-### 3.1 `CHILD_READERSHIP_CLAUSE`, last two sentences
+### 3.1 `CHILD_READERSHIP_CLAUSE`, last two sentences (revised in revision 2)
 
-Current:
-
-> Tell your parent at once, with `mcp__t3-code__notify_thread`, only when it would act differently now (the human changed the scope, or a contract another thread is building on), never for a question or a message that leaves your course unchanged. Once they have written, `mcp__t3-code__ask_user_question` is available to you.
-
-New:
+Shipped in `0d3e08bd1e`:
 
 > Tell your parent at once, with `mcp__t3-code__notify_thread`, only when it would act differently now (the human changed the scope, a contract another thread is building on, or something it relied on in a report you have already handed back), never for a question or a message that leaves your course unchanged. Once they have written, `mcp__t3-code__notify_thread` and `mcp__t3-code__ask_user_question` are available to you.
+
+Revised. Apply this:
+
+> Tell your parent at once, with `mcp__t3-code__notify_thread`, only when it would act differently now (the human changed the scope, or a contract another thread is building on), never for a question or a message that leaves your course unchanged. Once they have written, `mcp__t3-code__notify_thread` and `mcp__t3-code__ask_user_question` are available to you.
+
+Removed: "or something it relied on in a report you have already handed back". The first sentence is now the text that stood before this change; the second keeps its one addition, the name of the tool that is now loaded.
+
+Why. The phrase was written for a finished child, and a held child reads it too: it has handed a report back, the human's corrections make that report stale, and the phrase tells it to say so. Two of five held planners did, mid-correction (§7, revision 2). The phrase also defined the materiality test a second time. The test's one home is the result of a finished child's submit (§4.3), which reaches the child at the moment it has changed its report and which a held child never sees.
 
 ### 3.2 `workstreamChildPrompt`: the closing "raise" line, for every child
 
@@ -155,6 +161,12 @@ For outcome `awaiting_acceptance`:
 
 > Work submitted: report recorded and you are held `awaiting_acceptance`: not done, and nothing that waits on you starts. Your parent has been told once and points the human here. The human corrects and approves in this thread: after a correction, revise, reply to them and stay held; when they approve, complete with a plain submit whose report quotes what they changed. If your parent sends you back to fix something, hand back held again the same way.
 
+**Held in reserve (revision 2).** Apply only if §7's revision-2 run of `held-child-corrections` still shows a held child telling its parent after §3.1 is revised. The echo then reads, with one sentence added after "quotes what they changed.":
+
+> Work submitted: report recorded and you are held `awaiting_acceptance`: not done, and nothing that waits on you starts. Your parent has been told once and points the human here. The human corrects and approves in this thread: after a correction, revise, reply to them and stay held; when they approve, complete with a plain submit whose report quotes what they changed. That report replaces this one and is how your parent learns of their corrections; it needs nothing from you before then. If your parent sends you back to fix something, hand back held again the same way.
+
+It answers the reason both failing samples gave, that the report the parent holds is out of date, by saying when that report is replaced. It is held back because §3.1's revision may be enough on its own, and applying both at once would leave no way to tell which one worked.
+
 ### 4.2 Held hand-back repeated in a turn the human wrote in (no routing, no notice)
 
 > Report updated. You are still held `awaiting_acceptance`, and your parent is not told of this round. When the human approves here, complete with a plain submit whose report quotes what they changed.
@@ -184,6 +196,14 @@ New, `cancelled`:
 > Thread ${id} is cancelled: your parent abandoned this work, so this report was not recorded and nothing was routed. If what you have would change that, tell your parent with `mcp__t3-code__notify_thread` (loaded through `tool_search` when it is not declared).
 
 The gate-rework exception (a `done` target with `pendingRework` and decision `loop`) is unchanged and returns no refusal.
+
+### 4.6 New in revision 2: a finished thread's submit that repeats its report is refused
+
+Returned by the submit handler in place of §4.3's result when the submission repeats the report on file (the rule is in §8.2). Nothing is written.
+
+> Not recorded: this repeats the report already on file. A finished thread's submit is added beneath that report as a dated section, so sending the report again would put it there twice. Send only what is new or changed since you finished.
+
+Why a refusal and not wording at composition time. The only surface a finished child reads while it chooses what to send is the `markdown` parameter description, which every thread of every role carries on every turn; a sentence there would be paid for by all of them to serve the few submits a week that come from a finished thread. The seven real submits of this kind that left a readable trace (29 Oct to 5 Nov) each sent only what was new, repeating between 3% and 17% of the report's lines, so the strong models need no telling. The one full resend seen was a Haiku child in the live check. A refusal reaches exactly that child, at the moment it matters, and costs it one retry.
 
 ---
 
@@ -280,3 +300,98 @@ The second bullet is the old bullet's second rule, unchanged, given its own line
 - **Leak scan:** the new text names no person, date, path, document or thread. The wording was fixed before any eval case was written, so every case is held out from it.
 - **Noise floor (A/A), runs per arm, flips read, detectable effect, trace ids:** owed by the eval run; see plan §5 for the arms.
 - **Prompt version / changelog entry:** the three commits of plan §7 are the nested variants; each commit message names the surfaces it changed.
+
+### Revision 2 (11 Nov 2026): the change record for §3.1, §4.1's reserve sentence and §4.6
+
+- **Surfaces touched:** `CHILD_READERSHIP_CLAUSE` (§3.1, shared by every child); a new refusal constant (§4.6); conditionally, the held echo in `renderSubmitOutcome` (§4.1).
+- **Tier:** 3 for §3.1 (a shared surface, a rule removed); 2 for §4.6 and §4.1.
+- **Failure located, §3.1:** `evals/runs/loom-handback-c3`, case `held-child-corrections`, `claude-fable-5-2`, samples 0 and 2 of 5. After the human's second correction each held planner calls `mcp__t3-code__notify_thread` to its parent.
+  - Sample 0, before the call: "The report my parent holds still says email plus SMS at 3 and 10 days, so I'm telling it what you changed." Its message: "The human corrected the intent brief in my thread, so two of the key decisions in the report I handed back are now out of date."
+  - Sample 2, its message: "The human has corrected the intent brief in my thread, so two of the key decisions in the report I handed you are no longer true".
+  - Both echo the shipped phrase "something it relied on in a report you have already handed back".
+- **What the earlier runs do and do not show.** The case passed 5 of 5 after commit 1 and 11 of 11 on base, but those are not the same behaviour.
+  - After commit 1 (old clause, new held echo, `notify_thread` not yet loaded) no sample reached for the tool, not even through `tool_search`: five of five revised, replied and ended the turn. That is the evidence that the old clause with the held echo is enough.
+  - On base, 4 of 11 samples re-submitted to send the parent "a corrected report" (one: "Sending my parent the corrected report, since the one it holds is wrong on channels and timing"). The grader passed them because a non-completing submit is allowed. So the urge to refresh the parent's copy is the model's own; the shipped phrase gave it a sanctioned route once the tool was loaded.
+  - Commit 2 changed two things at once for this case: the phrase, and the tool being loaded. The runs cannot separate them. Revising §3.1 while the tool stays loaded is the test.
+- **Failure located, §4.6:** the live check in the server coder's report. A Haiku child sent its whole report again after finishing, and the file held the original plus a full copy under "Added after finishing". The eval's own `finished-child-material` and `finished-child-tidy` transcripts author the same full resend.
+- **Lever chosen and why:** §3.1, remove the instruction that licensed the call rather than add a prohibition for held children; the clause returns to wording that already measured 5 of 5. §4.6, code (the handler refuses a repeat) carrying a short text at the moment of the mistake, rather than ambient wording on a resident parameter.
+- **Hypothesis.**
+  - `held-child-corrections`: no sample calls `notify_thread` or reaches for it through `tool_search`, in 10 samples.
+  - `finished-child-material`, `finished-child-delegate`, `human-led-child-delegate` keep passing: none of them rests on the removed phrase. The first has §4.3's result in its transcript; the other two are the human asking for the parent to act, which the clause's first two examples cover.
+  - `finished-child-tidy`, rebuilt as §8.1 specifies, passes on both models.
+  - `finished-child-resends-report` (new, §8.1) fails on the current build and passes with §4.6.
+- **Displacement risk:** a finished child that makes a material change and does not submit now has only "a contract another thread is building on" to prompt a message. No case covers a finished child that does not submit; `finished-child-material` covers the one that does. If the coder sees the material case fall on either model, that is the signal, and it comes back here.
+- **Removed or superseded:** §3.1's phrase. Nothing is added to any ambient surface.
+- **Leak scan:** the revised and new strings name no person, date, path or thread.
+- **Arms, in order, each a commit.** Samples: 10 for `held-child-corrections`, 5 elsewhere.
+  1. V0: the current build with §8.1's grader fix and rebuilt cases, text untouched. Cases: `held-child-corrections`, `held-child-approval`, `finished-child-tidy`, `finished-child-material`, `finished-child-delegate`, `finished-child-resends-report`, `human-led-child-delegate`, `working-child-question`. This is the base for the revision: the old base runs cannot be re-taken for rebuilt cases, because `world.ts`'s fallbacks are gone.
+  2. V1: V0 plus §3.1 and §8.2 with §4.6. The same cases, against V0.
+  3. V2, only if `held-child-corrections` shows one or more relays in V1: V1 plus §4.1's reserve sentence. Cases: `held-child-corrections`, `held-child-approval`, `held-child-parent-sendback`.
+- **Reading.** Every failing sample of `held-child-corrections` and `finished-child-tidy`, and every sample that flipped against V0. A failing tidy sample in which a tool output contradicts the report is a harness fault to fix in the case, not a text finding.
+- **Detectable effect:** the observed rate was 2 of 5. If the true rate were still 40%, 10 clean samples would occur about 6 times in 1,000; 10 clean samples put the rate below roughly a quarter. Smaller rates are not excluded.
+- **Noise floor, fixed and broken counts, trace ids:** owed by the coder's run.
+
+---
+
+## 8. Revision 2: two specifications for the coder
+
+These are not model-facing text. They are here because this revision may edit only this file, and the text above depends on them.
+
+### 8.1 The eval: a sound `finished-child-tidy`, a reach-aware grader, and one new case
+
+**What is wrong with the case as built.**
+
+- **The report claims more than the transcript shows.** The finished coder's report says the column holds an "ISO 4217 code" and that rows are "currency-stable"; the authored clarification adds a contrast with "the account's current setting". The transcript shows none of these: it reads the exporter and runs one test with two currencies.
+- **So the question triggers a re-check, and the simulator fills the gap against the report.** Every failing sample opens with a re-check ("I never opened the `Invoice` type"). The simulator, with nothing pinned, invents a type and a creation path with no validation and no account setting. The model then finds its report false and tells its parent, which is the right thing to do with a false report. The case has stopped being a tidy before the graded message.
+- **The authored submit re-sends the whole report**, the duplication §4.6 now refuses.
+- **The base pass was not a pass.** `none-of` fails only on a call to the named tool. On base `notify_thread` was not declared, and Fable reached for it through `tool_search` ("notify_thread send message to parent thread") in 4 of 6 and 4 of 5 samples, each graded "none called".
+
+**What a sound version must hold.** The scenario's meaning is fixed here; identifiers and file contents are the coder's to arrange around it.
+
+1. **Every claim is already shown.** Each factual statement in the finished report, and in the child's clarification, is visible earlier in the transcript as a read or a command result made before the report was written. Neither says more than the shown code and test say.
+2. **The question is about wording only.** The sentence the human asks about uses a term the child coined, whose plain meaning is one of the shown facts. The clarification restates that fact in plain words and adds no new fact and no contrast with anything the transcript has not shown.
+3. **The code the report rests on is in the transcript verbatim** before the report: the exporter, its test, and the declaration of the field the column reads. A re-read is then answered by the simulator's existing rule that code the agent read is what it read.
+4. **The post-finish submit is an addition**, not the report again: the reworded sentence, under a response block that says the change is wording only. Its result comes from `world.ts`, which after §8.2 would refuse a resend.
+5. **Content that meets 1 to 4, within the existing CSV scenario:**
+   - Report, response block: the export now writes a `currency` column on every row, taken from each invoice's own `currency` field; the commit; the finance importer should read the column named `currency`. No "ISO 4217".
+   - Report, body: the exporter's `row` appends `invoice.currency` as the last field under the header `currency`; "Rows are now currency-stable."; the test run, with the two-currency test named.
+   - The human: "What does 'rows are now currency-stable' mean in your report?" (unchanged).
+   - The child's clarification: it means each row shows its own invoice's currency, so invoices in different currencies export as different values, which the two-currency test checks; it will reword the report to say so.
+   - The addition: a response block saying this is wording only, at the human's question, and nothing in the code or the column changed; one line giving the sentence as it should now read.
+   - The shared report feeds `finished-child-material` and `finished-child-delegate` too. In the material case the human's message keeps its own reason ("the finance importer expects ISO codes under that name"), and the authored submit becomes an addition: the column is now `currency_code`, the commit, the human's words quoted, the test run.
+6. **Kind and prediction.** `control`. The plan's "base: passes" is withdrawn for it; its base is arm V0 of §7's revision 2.
+
+**The grader.**
+
+- In `none-of`, a forbidden tool is also reached for when the deciding message calls `tool_search` with a query that names the tool (here `notify_thread`), or that asks for a way to message or notify the parent or another thread. Such a sample fails, with a reason that says it was reached for through `tool_search`.
+- This applies to every case that forbids `notify_thread`: `finished-child-tidy`, `held-child-corrections`, `working-child-question`.
+- `run.test.ts` gains the two sides: a `tool_search` for the forbidden tool fails; a `tool_search` for something else does not.
+
+**One new case, `finished-child-resends-report`** (kind `bad`; mirrors the live Haiku resend).
+
+- Transcript: the finished CSV coder; the human's rename request with "Update the report too."; the rename, test and commit; then the authored child submits its whole report with the new name substituted. The result of that submit comes from `world.ts`: on the current build the addition echo, after §8.2 the refusal of §4.6.
+- Passes when the deciding message is a `workstream_submit` whose markdown does not repeat the report, judged by the server's own function from §8.2. A new check kind carries the report text.
+- `world.ts`'s `finishedSubmitResult` takes the report on file and the submitted markdown, and returns what this checkout's handler returns for them. For arm V0, before §8.2 exists, it returns the addition echo for any submission.
+
+### 8.2 The handler: a finished thread's submit that repeats its report
+
+**Decision.** Closed in the handler, with the short refusal of §4.6. The reasons are under §4.6.
+
+**Rule.** In the finished-thread branch of `workstreamSubmit` (`apps/server/src/mcp/toolkits/workstream/handlers/submit.ts`), after the check that a human has written since the thread finished and before the append:
+
+- Take the report as first handed back: the file's text up to the first `## Added after finishing · ` heading, or the whole file when there is none.
+- Compare lines: trimmed, non-empty, leaving out the two response-block marker lines, which every submission carries.
+- The submission repeats the report when more than half of the report's lines appear verbatim among the submission's lines.
+- When it does, return the text of §4.6 as the tool's failure and write nothing. Otherwise append as today.
+
+The comparison is one exported pure function beside `appendWorkstreamReport` in `apps/server/src/loom/workstream/report.ts`, so the eval imports it (§8.1). The refusal text is a constant beside `REPORT_ADDITION_ECHO` in `render.ts`.
+
+**Why half, and why against the first hand-back.** A real addition repeats little of the report: 3% to 17% in the seven on record. A resend repeats nearly all of it, even with a sentence reworded or a name substituted. Half sits far from both. Comparing against the first hand-back keeps a resend of the original from slipping under the line once earlier additions have lengthened the file.
+
+**Tests the coder owes** (behaviour, in the handler's test):
+
+- A submission that is the report with one sentence changed is refused, and the file is unchanged.
+- A submission that quotes one line of the report and adds new text is appended.
+- A resend of the original after one earlier addition is still refused.
+
+**What it does not catch.** A child that rewrites its report in different words, line by line. Nothing mechanical tells that from a long addition; it has not been seen.
