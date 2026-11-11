@@ -41,15 +41,15 @@ Why it happens today: the puck is exactly as tall as the tokens of the rows in v
 
 **Decided.** "we decided to take over the scroll bar". "I think there's an over emphasis on 'precision' over usability." On the puck: "It can still have _some_ transparency". On scope, from this brief's form, 11 Nov 2026: "Both: the puck, and a minimum height per turn so the puck moves as I read". This replaces two decisions of the earlier rail plan, `plans/context-viz-rail/plan.mdx`. One is the puck being exactly the tokens in view, 4 px at least, outlined, on an 8 px track. The other is height on the track being strictly tokens. The rest of that plan stands.
 
-- _Assumed:_ the puck is at least about 28 px tall, in the text colour with a thin edge in the background colour, and a few pixels wider than the track. It is see-through enough that the colours under it show faintly, and no more. Redirect if wrong.
-- _Assumed:_ the track goes from 8 to 12 px, and the pointer catches it from about 16 px out.
-- _Assumed:_ at its minimum size the puck is centred on the true position and stops at the track's ends.
-- _Assumed:_ the minimum height applies to each item of the conversation, not strictly to each turn, so a one-turn child gets the same help. The colours and the puck stay in the one bent map, so the puck still points at what its colours say.
+- _Assumed:_ the puck is at least 28 px tall, in the text colour at 65% with an edge in the background colour, and 16 px wide on a 12 px track. The colours under it show faintly. Redirect if wrong.
+- _Assumed:_ the pointer catches the track from 24 px out. Under a 640 px window the track stays 8 px and the catch zone 12, so nothing covers the prose.
+- _Assumed:_ at its minimum size the puck is centred on the true position and stops at the track's ends. A press on the puck let go without moving does nothing.
+- _Assumed:_ half of each item's room on the track is its tokens and half is its share of the prose you read (the assistant's text and your messages). A minimum per item was tried first and dropped: with 442 items it gave each about 1 px, so prose still crawled. The colours and the puck stay in the one bent map, so the puck still points at what its colours say.
 
 **Not doing.** The left minimap. Touch and mobile. The segment colours, the merging of small items and the hover label. The Context tab's Growth chart.
 
 **Still unknown.**
 
-- Does a 12 px track with a wider catch zone clear the details card and the prose at every width, with the right panel open? The coder's live pass settles it; the track narrows back if not.
-- How much room should light stretches get? Too little and the puck still crawls; too much and a heavy turn no longer stands out. The coder tunes it on a long thread with a before and after, and you judge at near-done.
-- How see-through should the puck be? The coder picks the most transparent version that is still found at a glance on every track colour, and you judge at near-done.
+- Is half the track for prose the right split? On the long thread it cut the scroll steps where the puck barely moves from 57 of 115 to 21. The largest single jump only fell from 47 to 38 px, because a folded heavy turn is one short row holding its whole share. You judge in use.
+- Is 65% the right opacity for the puck? You judge in use.
+- Reading a finished one-turn child's final answer does not move the puck: no later call has measured that answer, so it has no place on the track. The puck stays visible at the bottom. A separate task holds this.
