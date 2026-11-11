@@ -55,6 +55,7 @@ const foldWorkstream = (
         at,
       }),
       ...payload,
+      humanLed: payload.humanLed ?? false,
       heldSince: payload.held ? at : null,
       dependenciesSince: payload.blockedBy.length > 0 ? at : null,
     };

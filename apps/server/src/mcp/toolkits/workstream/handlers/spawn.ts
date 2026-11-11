@@ -111,6 +111,7 @@ export const workstreamSpawn = Effect.fn("LoomToolkit.workstreamSpawn")(function
     // Siblings spawned in one parent turn share a generation (the join barrier key).
     spawnGeneration: parent.activeRunId ?? threadId,
     ...(forkFrom === undefined ? {} : { forkFromThreadId: forkFrom }),
+    ...(input.humanLed === true ? { humanLed: true } : {}),
   });
   return appendWarnings(`Spawned Workstream sub-thread ${threadId}: ${title}`, [
     ...edges.warnings,

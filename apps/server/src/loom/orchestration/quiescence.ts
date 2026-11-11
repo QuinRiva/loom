@@ -40,7 +40,8 @@ export const quiescenceCandidate = (input: {
     ws === undefined ||
     ws.parentThreadId === null ||
     ws.kickoffAt === null ||
-    ws.outcome !== null
+    ws.outcome !== null ||
+    ws.humanLed // the human talks to it at their own pace, whatever the graces
   )
     return false;
   if (isParked(ws.attention) || input.shell.pendingRuntimeRequest !== null) return false;

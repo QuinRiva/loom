@@ -199,6 +199,12 @@ const LOOM_TOOL_SPECS = {
           `The child's first-turn assignment; the contract is ${t("workstream_brief")}'s \`markdown\`. Omitted, the purpose serves as the brief.`,
         ),
       ),
+      humanLed: Schema.optionalKey(
+        described(
+          Schema.Boolean,
+          "true when the human asked for this thread so they can work in it themselves, turn by turn (walking through results, talking a design over): the child waits for the human between turns, is never reported to you as gone quiet, and finishes when the human says so. Leave it out for a child that works from its brief, including one whose deliverable the human will approve afterwards.",
+        ),
+      ),
       clientRequestId,
     }),
     "throw",

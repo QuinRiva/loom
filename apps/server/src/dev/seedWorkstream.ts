@@ -740,8 +740,7 @@ const seedProgram = Effect.gen(function* () {
   }
   // The one notice owed: the held planner's, through the real dispatcher pass.
   yield* Effect.flatMap(WorkstreamDispatcher, (dispatcher) => dispatcher.runPass).pipe(
-    Effect.provide(WorkstreamDispatcherLive),
-    Effect.provide(ServerSettings.layerTest()),
+    Effect.provide(WorkstreamDispatcherLive.pipe(Layer.provide(ServerSettings.layerTest()))),
   );
   for (const threadId of Object.values(SEED).filter((id) => id.startsWith("seed-thread-"))) {
     yield* settle(threadId as ThreadId);

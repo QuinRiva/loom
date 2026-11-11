@@ -1196,6 +1196,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
         spawnGeneration: command.spawnGeneration ?? null,
         forkFromThreadId: command.forkFromThreadId ?? null,
         continuesThreadId: command.continuesThreadId ?? null,
+        ...(command.humanLed === true ? { humanLed: true } : {}),
       });
       return {};
     }

@@ -638,7 +638,7 @@ const csvCoderFinished: ReadonlyArray<Message> = [
   said("Done: the CSV export carries a `currency` column on every row."),
 ];
 const finishedSubmit = (markdown: string): ToolCall => {
-  const { text, isError } = finishedSubmitResult(CSV_CODER, reportPathOf(CSV_CODER));
+  const { text, isError } = finishedSubmitResult(reportPathOf(CSV_CODER));
   return { name: t("workstream_submit"), input: { markdown }, result: text, isError };
 };
 

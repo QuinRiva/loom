@@ -57,6 +57,15 @@ it.layer(HandlerTestLayer)("workstream spawn, scaffold and brief", (it) => {
         assert.isNull(row.kickoffAt);
         const brief = yield* (yield* FileSystem.FileSystem).readFileString(row.kickoffBriefPath!);
         assert.equal(brief, "Make receipts idempotent.");
+        assert.isFalse(row.humanLed);
+
+        const declared = spawnedId(
+          (yield* callAs(parent, "workstream_spawn", {
+            ...spawnNode("Results walk-through"),
+            humanLed: true,
+          })).text,
+        );
+        assert.isTrue((yield* store.getWorkstream(declared))!.humanLed);
       }),
   );
 

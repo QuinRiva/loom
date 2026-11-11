@@ -445,6 +445,8 @@ export const LoomThreadWorkstream = Schema.Struct({
   kickoffOrigin: Schema.NullOr(LoomKickoffOrigin).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /** Spawned for the human to work in turn by turn; never reported as gone quiet. Set at spawn only. */
+  humanLed: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   attention: Schema.Array(LoomAttentionReason),
   /**
    * The `thread.attention-raised` event id per standing reason — the attention
@@ -844,6 +846,7 @@ export const makeLoomInternalCommandMembers = <
       forkFromThreadId: Schema.optional(Schema.NullOr(ThreadId)),
       continuesThreadId: Schema.optional(Schema.NullOr(ThreadId)),
       graphKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+      humanLed: Schema.optionalKey(Schema.Boolean),
     }),
     /** Creates a whole child graph atomically; `threadId` is the parent (the lock). */
     Schema.Struct({
@@ -991,6 +994,7 @@ export const LoomWorkstreamCreatedPayload = Schema.Struct({
   spawnGeneration: Schema.NullOr(TrimmedNonEmptyString),
   forkFromThreadId: Schema.NullOr(ThreadId),
   continuesThreadId: Schema.NullOr(ThreadId),
+  humanLed: Schema.optionalKey(Schema.Boolean),
 });
 
 export const LoomOutcomeSetCause = Schema.Literals([

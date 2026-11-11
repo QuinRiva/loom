@@ -392,6 +392,46 @@ it.layer(LoomOrchestratorTestLayer)("Loom quiescence", (it) => {
   );
 
   it.effect(
+    "quiescenceCandidate: a human-led child is never a candidate, whoever started its turn and whatever the graces",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const candidates = Effect.fn("test.candidates")(function* (humanLed: boolean) {
+          const threadId = ThreadId.make(`quiet-led-${humanLed}`);
+          yield* spawnChild({
+            parentThreadId: parent,
+            threadId,
+            graphKey: `led-${humanLed}`,
+            humanLed,
+          });
+          const ids = yield* seedRunningRun({ threadId });
+          yield* writeEvents([
+            yield* loomEvent("thread.kickoff-recorded", threadId, {
+              kickoffAt: createdAt,
+              messageId: ids.messageId,
+              origin: "kickoff",
+            }),
+          ]);
+          yield* completeSeededRun({ threadId });
+          const shell = (yield* orchestrator.getThreadShell(threadId))!;
+          const runs = (yield* orchestrator.getThreadProjection(threadId)).runs;
+          return (["kickoff", "orchestrator", "control_notice"] as const).map((origin) =>
+            quiescenceCandidate({
+              shell,
+              runs,
+              userMessages: [{ id: ids.messageId, runId: ids.runId, loom: { origin } }],
+              children: [],
+              now: DateTime.add(runs[0]!.completedAt!, { days: 2 }),
+              grace: { controlStartedMs: 0, humanStartedMs: 0 },
+            }),
+          );
+        });
+        assert.deepEqual(yield* candidates(true), [false, false, false]);
+        assert.deepEqual(yield* candidates(false), [true, true, true]);
+      }),
+  );
+
+  it.effect(
     "t-quiescence: a human-started last turn is never a candidate under a null human grace",
     () =>
       Effect.gen(function* () {
