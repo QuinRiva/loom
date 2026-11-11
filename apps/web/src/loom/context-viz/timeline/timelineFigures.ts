@@ -1,6 +1,7 @@
 // loom: the timeline view's shared state (plan §4). `TimelineHost` publishes one thread's join here;
 // each row selects only its own item, so a join rebuilt by a projection change re-renders nothing
 // whose figure did not change. Jumps read the latest rows and handlers the host saw.
+import type { LegendListRef } from "@legendapp/list/react";
 import type { LoomContextItem, RunId } from "@t3tools/contracts";
 import { create } from "zustand";
 
@@ -253,6 +254,24 @@ export function rowStartOffset(key: string): number {
 }
 
 /**
+ * A row's height, or 0 for one LegendList has not measured: `sizeAtIndex` is typed a number but
+ * returns undefined for a row far from any it has rendered, which made a drag there scroll to NaN.
+ */
+const rowSize = (state: ReturnType<LegendListRef["getState"]>, index: number) =>
+  state.sizeAtIndex(index) || 0;
+
+/** The point `within` (0 to 1) of row `index`'s height, in the scroller's offsets, given `startOffset`. */
+export function rowPoint(
+  key: string,
+  index: number,
+  within: number,
+  startOffset: number,
+): number | null {
+  const state = navigation.get(key)?.shared.listRef.current?.getState();
+  return state ? startOffset + state.positionAtIndex(index) + within * rowSize(state, index) : null;
+}
+
+/**
  * Hold row `index` at `viewPosition` of the viewport, as `scrollToIndex` places it, given the
  * list's `startOffset`. By offset: in a drag `scrollToIndex`'s settle retries kept scrolling after
  * release and could stop short of the row. The trailing inset is left out: it is zero here outside
@@ -270,7 +289,7 @@ export function scrollToRow(
   const offset =
     startOffset +
     state.positionAtIndex(index) -
-    viewPosition * (state.scrollLength - state.sizeAtIndex(index));
+    viewPosition * (state.scrollLength - rowSize(state, index));
   void list.scrollToOffset({ offset: Math.max(0, offset), animated: false });
 }
 

@@ -113,30 +113,28 @@ function rowItems(row: MessagesTimelineRow, join: ContextJoin) {
   );
 }
 
-/** The token span of the rows `start … end`, or null when none of them holds an item in the window. */
-function rowsSpan(
-  rows: ReadonlyArray<MessagesTimelineRow>,
-  start: number,
-  end: number,
+/** The token span of a row's items, or null when it holds no item in the window. */
+export function rowSpan(
+  row: MessagesTimelineRow | undefined,
   join: ContextJoin,
   layout: RailLayout,
 ): readonly [number, number] | null {
   let top = Infinity;
   let bottom = -Infinity;
-  for (const row of rows.slice(start, end + 1)) {
-    for (const item of rowItems(row, join)) {
-      const span = layout.span.get(item.id);
-      if (!span) continue;
-      top = Math.min(top, span[0]);
-      bottom = Math.max(bottom, span[1]);
-    }
+  for (const item of row ? rowItems(row, join) : []) {
+    const span = layout.span.get(item.id);
+    if (!span) continue;
+    top = Math.min(top, span[0]);
+    bottom = Math.max(bottom, span[1]);
   }
   return top < bottom ? [top, bottom] : null;
 }
 
 /**
- * The thumb's span for the rows in view. Rows past the report's last item (the latest answer, which
- * no later call has measured yet) pin a zero-height thumb to the end of the nearest row above.
+ * The puck's span for the rows in view: each row's span cut to the part of the row that shows, as
+ * `shown` gives it, so the puck moves as a tall row scrolls by. Rows past the report's last item
+ * (the latest answer, which no later call has measured yet) pin a zero-height span to the end of
+ * the nearest row above.
  */
 export function thumbSpan(
   rows: ReadonlyArray<MessagesTimelineRow>,
@@ -144,11 +142,20 @@ export function thumbSpan(
   end: number,
   join: ContextJoin,
   layout: RailLayout,
+  shown: (index: number) => readonly [number, number],
 ): readonly [number, number] | null {
-  const span = rowsSpan(rows, start, end, join, layout);
-  if (span) return span;
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (let index = start; index <= end; index += 1) {
+    const span = rowSpan(rows[index], join, layout);
+    if (!span) continue;
+    const [from, to] = shown(index);
+    top = Math.min(top, span[0] + from * (span[1] - span[0]));
+    bottom = Math.max(bottom, span[0] + to * (span[1] - span[0]));
+  }
+  if (top <= bottom) return [top, bottom];
   for (let index = start - 1; index >= 0; index -= 1) {
-    const above = rowsSpan(rows, index, index, join, layout);
+    const above = rowSpan(rows[index], join, layout);
     if (above) return [above[1], above[1]];
   }
   return null;
