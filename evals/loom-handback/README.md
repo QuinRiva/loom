@@ -24,7 +24,7 @@ pnpm loom-handback --out runs/<name> --case planner-holds-brief,coder-holds-prot
 - Flags: `--samples <n>` decided samples per case and model (default 5), `--case <ids>` (comma-separated or repeated), `--baseline <run dir>` to add the earlier verdict and a fixed/broken column, `--concurrency <n>` cases in flight (default 4). Each attempt starts its system prompt with a fresh session line, so no cache serves an earlier one.
 - Output: `requests/<case>.json` (the system prompt, tool names and transcript the model saw), `samples/<model>-<case>-<n>.json` (what the model and the simulator added), `results.ndjson` (one graded row per attempt) and `summary.md`.
 - A case passes when more than half its samples pass. Five samples a case can only show a large effect; run the same commit twice for the noise floor.
-- Cost: proxy quota only. A full run is about 13M input and 0.4M output tokens, almost all of it the cached-prefix-free system prompt and tools, plus about 1M for the simulator.
+- Cost: proxy quota only. A full run is about 140 attempts and 30 minutes: 8 to 10M input and 0.4M output tokens (the fresh session line keeps every system prompt uncached), plus about 0.4M for the simulator.
 
 ## Reading a run
 
