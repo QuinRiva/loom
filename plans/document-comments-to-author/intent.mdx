@@ -14,7 +14,7 @@ manager_sessions:
 
 # A link to a document opens the thread that wrote it, so your comments land with the author
 
-Today a comment on a document goes to whichever thread you opened it from. In the five weeks to 11 Nov, **55 of your 101 review messages went to a thread that had not written the document**, nearly always an orchestrator receiving comments on its planner's work.
+Today a comment on a document goes to whichever thread you opened it from. In the five weeks to 11 Nov, **55 of the 101 review messages a person wrote went to a thread that had not written the document**, nearly always an orchestrator receiving comments on its planner's work.
 
 The recommendation is your proposal: **a link to a document another thread wrote opens that thread beside the one you are in, with the document open**. You comment there and the reply arrives in front of you. Your choice is between that and three ways of leaving you where you are. It is the first question at the end.
 
@@ -22,7 +22,7 @@ The recommendation is your proposal: **a link to a document another thread wrote
   items={[
     {
       value: "101",
-      label: "messages of yours that carried comments on a document",
+      label: "messages a person wrote that carried comments on a document",
       detail: "7 Oct to 11 Nov: 544 annotations, form answers and review verdicts. Questions put to an author's read-only fork (12) are not counted",
     },
     {
@@ -33,14 +33,14 @@ The recommendation is your proposal: **a link to a document another thread wrote
     },
     {
       value: "45 of 49",
-      label: "authors of those documents never heard from you at all",
+      label: "authors of those documents never had a message from a person",
       tone: "warning",
-      detail: "everything you said about their document reached them second-hand or not at all",
+      detail: "everything said about their document reached them second-hand or not at all",
     },
     {
       value: "9",
       label: "times the receiving thread then edited the child's document itself",
-      detail: "the author revised it in 9 more; in 36 nobody changed the document and the receiving thread acted on your answers",
+      detail: "the author revised it in 9 more; in 36 nobody changed the document and the receiving thread acted on the answers",
     },
   ]}
 />
@@ -134,9 +134,9 @@ Every round of review ends in the author's thread whichever you pick. The reply 
 
 - The proposal on the table is yours, 11 Nov: "If clicking on that link defaulted to opening it within the author, wouldn't that simplify me responding to the author of that document?"
 - You talk to the thread that did the work: "shouldn't I just be communicating directly with the planner in these situations? Why should I be engaging with the orchestrator to have it just relay messages to the planner?" 10 Nov.
-- A correction you type into the parent's chat is passed on once: "The parent passes it on once". 11 Nov. Not reopened here.
+- Asked on 11 Nov what a parent should do with a correction you type into its chat instead of the child holding the work, you picked the recommended option, labelled "The parent passes it on once". The label is an agent's wording and the choice is yours. Not reopened here.
 - The parent is not told about the review round by round: "I don't want the result being instead of a control plane message, we get a notify_thread from the child on *every* interaction instead (that would be worse)." 23 Oct.
-- On promoted comments, which already wait in the author's composer, you chose not to be moved: "No, just the link; I open it when I'm done promoting". 4 Nov. That was about Promote. It is the precedent for the second approach, not a ruling on this one.
+- Asked on 4 Nov whether a Promote should also open the author thread, you picked the recommended option, labelled "No, just the link; I open it when I'm done promoting". The label is an agent's wording and the choice is yours. It was about Promote, where comments already wait in the author's composer. It is the precedent for the second approach, not a ruling on this one.
 - _Assumed:_ this applies to documents an agent signed as its own (plans, intent briefs, recaps, explainers). 50 of the 55 messages were on signed documents. An unsigned document opens where you are, as today.
 - _Assumed:_ you are moved only while the author thread exists and is not archived. An old plan whose planner was archived weeks ago opens where you are, with the author named.
 - _Assumed:_ a busy author queues your message as it does when you type to it mid-turn. A finished author acts on it as the approved brief says. Nothing new is built for either.
@@ -195,7 +195,7 @@ Every round of review ends in the author's thread whichever you pick. The reply 
         {
           id: "last-editor",
           label: "The thread that last changed it",
-          detail: "Your comment on a parent's edit reaches the parent. In four of the eight cases your comments on a planner's reasoning would have gone to a reviewer.",
+          detail: "Your comment on a parent's edit reaches the parent. In four of the eight cases comments on a planner's reasoning would have gone to a reviewer.",
         },
         {
           id: "ask",
@@ -216,7 +216,9 @@ Every round of review ends in the author's thread whichever you pick. The reply 
 
 <Details summary="How the figures were counted">
 
-Source: the live database, read-only, every message you wrote from 7 Oct to 11 Nov that carried at least one comment anchored to a rendered document (an annotation, a question-form answer or a review verdict). That is 113 messages. 12 were questions sent to a read-only fork of the author and are left out, which leaves 101.
+Source: the live database, read-only, every message a person wrote from 7 Oct to 11 Nov that carried at least one comment anchored to a rendered document (an annotation, a question-form answer or a review verdict). That is 113 messages. 12 were questions sent to a read-only fork of the author and are left out, which leaves 101.
+
+The database does not record which person typed a message, and Jacob has an account too. The signals used to find his threads for his own account (`plans/jacob-loom-account/jacob-thread-candidates.sql`) show any sign of him in the workstreams behind at most 7 of the 101: 4 of the 55 sent outside the author and 3 of the 38 sent in it. Leaving all 7 out gives 51 of 94, so the share does not move.
 
 The author of a document is the thread whose session signed it. Where a document had no signature, it is the first thread recorded writing the file in the same workstream. On that basis 55 messages were sent in a thread that was not the author, 38 in the author, and for 8 no author could be found. One of the 55 covered two documents, so the per-document counts are out of 56.
 
