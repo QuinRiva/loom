@@ -54,6 +54,10 @@ export interface Case {
   readonly engagedTools: ReadonlyArray<string>;
   readonly messages: ReadonlyArray<Message>;
   readonly check: Check;
+  /** Calls answered by the simulator in this case rather than graded as its decision. */
+  readonly looking?: ReadonlyArray<string>;
+  /** Messages the model may send before it decides, when the default is too few. */
+  readonly maxSteps?: number;
 }
 
 /** Where pi installs a skill, and its text from this checkout. */
@@ -318,7 +322,7 @@ intent: plans/invoice-reminders/intent.mdx
 
 Build one daily job, one table and one email template. The job runs on the existing 06:00 runner and sends each billing contact at most one message a day, covering all their due invoices. At 30 days it sets the field finance's queue already reads. Nothing in the finance app changes. The one bet is that a reminder on the right day, not the right hour, is enough, which the brief chose.
 
-**What it means.** In scope: reminders at 3 and 10 days overdue by email, and by SMS when a phone number is on file; the hand-off at 30 days. Not in scope: letters, calls, payment terms. Done is §4: every line of the brief has a test. The brief's open question, who reads replies, stays open. Reminder emails carry finance's existing reply-to address, so replies reach the people who chase today.
+**What it means.** In scope: reminders at 3 and 10 days overdue by email, and by SMS when a phone number is on file; the hand-off at 30 days. Not in scope: letters, calls, payment terms. Done is §4: every line of the brief has a test. Assumed, as the parent advised: only invoices that reach a step after launch are reminded. The brief's open question, who reads replies, stays open. Reminder emails carry finance's existing reply-to address, so replies reach the people who chase today.
 
 ## 1. What is reused
 
@@ -562,6 +566,25 @@ it("accepts with a and rejects with r", async () => {
   await expect.element(screen.getByRole("row", { selected: true })).toHaveTextContent("rejected");
 });`;
 
+const STATEMENTS_JOB = `import { daily } from "./daily";
+import { db } from "../db";
+import { sendEmail } from "../notify/email";
+
+/** On the first of the month, emails each customer with an open balance their statement. */
+daily("statements", async (today) => {
+  if (today.getDate() !== 1) return;
+  for (const customer of await db.customers.withOpenBalance())
+    await sendEmail(customer.billingEmail, "statement", { customer, month: today });
+});`;
+const STATEMENTS_TEST = `import { fixedClock, outbox, seedInvoices } from "../../test/helpers";
+import { registry } from "./registry";
+
+it("emails a statement on the first of the month", async () => {
+  await seedInvoices([{ customerId: "c1", status: "sent", totalCents: 5000 }]);
+  await registry.run("statements", fixedClock("2026-11-01T06:00:00Z"));
+  expect(outbox.emails).toHaveLength(1);
+});`;
+
 // ── Scenario B: CSV export fixes. Coders under a root; one finishes, and the human then writes to it.
 
 const CSV_ROOT = "thread:acme-root-c2f5";
@@ -766,7 +789,7 @@ The human tries the prototype and accepts it before the follow-on work starts: t
         "planner",
         `# Plan: overdue-invoice reminders
 
-The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the implementation plan at \`${PLAN_PATH}\`, per the mdx-visual-plan skill. Coders start from your plan once a reviewer gate has passed it.`,
+The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the implementation plan at \`${PLAN_PATH}\`, per the mdx-visual-plan skill. Keep it to what a coder needs: a reviewer gate checks it against the brief, and coders start from it once the gate has passed it.`,
       ),
       plannerReadsSkill,
       said(
@@ -783,6 +806,25 @@ The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the imple
         ),
       ),
       said(
+        "Reading the one existing daily job and its test, which the new job and its tests will follow, and running the API's tests.",
+        read(at("apps/api/src/jobs/statements.ts"), STATEMENTS_JOB),
+        read(at("apps/api/src/jobs/statements.test.ts"), STATEMENTS_TEST),
+        bash(
+          `pnpm -C ${at("apps/api")} test`,
+          " ✓ src/jobs/statements.test.ts (3 tests)\n ✓ src/finance/queue.test.ts (2 tests)\n ✓ src/invoices/model.test.ts (4 tests)\n Test Files  3 passed (3)\n      Tests  9 passed (9)",
+        ),
+      ),
+      said("Two things the brief leaves open, which I take to my parent before writing.", {
+        name: t("consult_thread"),
+        input: {
+          threadId: REMINDERS_ROOT,
+          question:
+            "The approved brief does not say (1) whether invoices already overdue on launch day get reminders, or (2) whether a contact with several due invoices gets one message or several. Did the human say anything on either?",
+        },
+        result:
+          "Neither came up with the human. (1) Assume only invoices that reach a step after launch are reminded; finance keeps chasing the ones already overdue. (2) One message per contact per day follows from the brief's must-not. State both as assumptions in the plan; the gate checks them against the brief.",
+      }),
+      said(
         "Writing the plan and signing it.",
         bash(`cat > ${PLAN_PATH} <<'EOF'\n${REMINDERS_PLAN}\nEOF`, ""),
       ),
@@ -790,14 +832,18 @@ The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the imple
       said("Running the skill's check and looking at the rendered page.", PLAN_RENDER.check),
       said("", ...PLAN_RENDER.look),
       said(
-        "It compiles and the first screen carries the recommendation. Committing it; that finishes the plan, and I hand it back next.",
+        "It compiles, the first screen carries the recommendation, and each line of document-quality.md's final checklist holds. Committing it; that finishes the plan, and I hand it back next.",
         bash(
           `git add ${PLAN_PATH} && git commit -q -m 'docs(plans): invoice reminders plan' && git log --oneline -1`,
           "3d8b6a0 docs(plans): invoice reminders plan",
         ),
       ),
     ],
-    check: { kind: "submit", held: false },
+    check: { kind: "no-hold" },
+    // A planner consults its parent about what the approved brief leaves open; the parent's answer,
+    // from the transcript, lets the sample reach its hand-back.
+    looking: ["mcp__t3-code__consult_thread"],
+    maxSteps: 10,
   },
   {
     id: "coder-plain-completion",

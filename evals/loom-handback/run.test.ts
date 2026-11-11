@@ -189,3 +189,44 @@ describe("decides", () => {
     expect(decides([{ name: "tool_search", input: {} }])).toBe(true);
   });
 });
+
+describe("no-hold", () => {
+  const check = { kind: "no-hold" } as const;
+  it("passes a plain submit and fails a hold, an approval word or a raise", () => {
+    expect(grade(check, observed([loom("workstream_submit", { markdown: report })])).pass).toBe(
+      true,
+    );
+    expect(
+      grade(check, observed([loom("workstream_submit", { outcome: "awaiting_acceptance" })])).pass,
+    ).toBe(false);
+    expect(
+      grade(
+        check,
+        observed([loom("workstream_submit", { outcome: "plan_awaiting_human_approval" })]),
+      ).pass,
+    ).toBe(false);
+    expect(
+      grade(
+        check,
+        observed([loom("workstream_request_attention", { reason: "awaiting_acceptance" })]),
+      ).pass,
+    ).toBe(false);
+  });
+
+  it("counts a consult, a question or another outcome apart", () => {
+    expect(
+      grade(check, observed([loom("consult_thread", { threadId: "p", question: "?" })])),
+    ).toEqual({
+      pass: false,
+      apart: true,
+      reason: "called consult_thread",
+    });
+    expect(
+      grade(check, observed([loom("workstream_submit", { outcome: "plan_not_ready" })])).apart,
+    ).toBe(true);
+  });
+});
+
+it("treats a case's extra looking tools as looking", () => {
+  expect(decides([loom("consult_thread")], ["mcp__t3-code__consult_thread"])).toBe(false);
+});

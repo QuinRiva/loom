@@ -39,8 +39,9 @@ export const LOOKING: ReadonlySet<string> = new Set([
 ]);
 
 /** Whether a message decides: it ends the turn, or makes a call that is not looking around. */
-export const decides = (calls: ReadonlyArray<Call>) =>
-  calls.length === 0 || calls.some((call) => !LOOKING.has(call.name));
+export const decides = (calls: ReadonlyArray<Call>, looking: ReadonlyArray<string> = []) =>
+  calls.length === 0 ||
+  calls.some((call) => !LOOKING.has(call.name) && !looking.includes(call.name));
 
 /** Lower-case, one space, straight quotes: a quote survives re-wrapping and typographic quotes. */
 const normalise = (text: string) =>
@@ -88,6 +89,11 @@ export type Check =
     }
   /** A child created (spawn or scaffold), with `humanLed: true` on a spawn, or on none. */
   | { readonly kind: "spawn"; readonly humanLed: boolean }
+  /**
+   * No hold on work no human must approve: a plain submit passes; a held submit, an approval word
+   * or an `awaiting_acceptance` raise fails; anything else (a consult, a question) is counted apart.
+   */
+  | { readonly kind: "no-hold" }
   /** The first deciding Loom call is notify_thread to the parent, quoting one of the fragments. */
   | {
       readonly kind: "notifies";
@@ -98,7 +104,12 @@ export type Check =
 export interface Grade {
   readonly pass: boolean;
   readonly reason: string;
+  /** Decided, but neither way: left out of the verdict and counted apart. */
+  readonly apart?: true;
 }
+
+/** An outcome word that reads as "held for a human's approval". */
+const APPROVAL_WORD = /accept|approv|sign.?off|human/i;
 
 const verdict = (pass: boolean, reason: string): Grade => ({ pass, reason });
 
@@ -167,6 +178,26 @@ export const grade = (check: Check, { calls, text, ended }: Observed): Grade => 
       return led === check.humanLed
         ? verdict(true, led ? "spawned humanLed" : "spawned without humanLed")
         : verdict(false, led ? "spawned humanLed" : "spawned without humanLed");
+    }
+    case "no-hold": {
+      const held = submits.find(
+        (call) => isHeldSubmit(call) || APPROVAL_WORD.test(outcomeOf(call)),
+      );
+      if (held !== undefined) return verdict(false, `held: submit outcome '${outcomeOf(held)}'`);
+      if (raises.some((call) => call.input.reason === "awaiting_acceptance"))
+        return verdict(false, "raised awaiting_acceptance");
+      if (submits.some(isPlainSubmit)) return verdict(true, "plain submit");
+      const other = submits[0] ?? raises[0] ?? calls.find((call) => !LOOKING.has(call.name));
+      return {
+        pass: false,
+        apart: true,
+        reason:
+          other === undefined
+            ? "ended the turn"
+            : isSubmit(other)
+              ? `submit outcome '${outcomeOf(other)}'`
+              : `called ${other.name.replace(LOOM, "")}`,
+      };
     }
     case "notifies": {
       const first = calls.find((call) => call.name.startsWith(LOOM) && !LOOKING.has(call.name));

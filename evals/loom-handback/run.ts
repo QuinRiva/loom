@@ -358,7 +358,8 @@ const SIMULATOR_SYSTEM = `You produce tool output in a replay of a coding agent'
 - Agree with everything the session shows. The work in it is complete and correct as described: files the agent wrote hold exactly what it wrote, checks that passed still pass, commits exist with the agent as author, and code it read is what it read. git status lists only files the agent changed and has not committed; generated render files are gitignored.
 - For anything the session has not shown, answer as a small, ordinary, well-kept app would (tests beside the code, a seeds directory, imports that resolve), briefly, agreeing with the session and adding nothing that bears on the agent's task.
 - Introduce nothing the agent would have to act on: no new requirements, settings, columns, migrations, TODOs, other authors' changes, failing or skipped tests, empty files, or contradictions.
-- A command that prints nothing on success: reply with an empty line.
+- A command that prints nothing on success: reply with an empty line. Its echo lines and section labels always print.
+- mcp__t3-code__consult_thread is answered as the thread it names would answer from a frozen copy of its session. The parent orchestrator knows only what the session shows of its brief and of the approved intent brief: it quotes what they settle, says plainly what they do not, and tells the planner to state its own assumption in the plan for anything unsettled, since the reviewer gate checks the plan against the brief.
 - An mcp__t3-code__ goal tool reports that the thread has no goal attached; workstream_list lists the threads the session names; set_thread_title confirms the rename.`;
 
 const clip = (text: string) =>
@@ -398,7 +399,7 @@ const simulate = Effect.fn("loomHandback.simulate")(function* (
     return { text: `Signed ${String(call.input.path)}.`, tokens: 0 };
   const response = yield* post({
     model: values["simulator-model"],
-    max_tokens: 3000,
+    max_tokens: 8000,
     system: SIMULATOR_SYSTEM,
     messages: [
       {
@@ -455,7 +456,7 @@ const attempt = Effect.fn("loomHandback.attempt")(function* (
   let calls: ReadonlyArray<Call> = [];
   let text = "";
   let decided = false;
-  for (let step = 0; step < MAX_STEPS && !decided; step++) {
+  for (let step = 0; step < (entry.maxSteps ?? MAX_STEPS) && !decided; step++) {
     const response = yield* post({
       model,
       max_tokens: 32000,
@@ -480,7 +481,7 @@ const attempt = Effect.fn("loomHandback.attempt")(function* (
       .map((part) => part.text ?? "")
       .join("");
     messages.push({ role: "assistant", content: response.content.flatMap(replayable) });
-    decided = decides(calls);
+    decided = decides(calls, entry.looking);
     if (decided) break;
     const results: Array<Block> = [];
     for (const [index, call] of calls.entries()) {
@@ -528,6 +529,8 @@ type Row = Effect.Success<ReturnType<typeof tryAttempt>>;
 type Graded = Extract<Row, { pass: boolean }>;
 /** A sample: a call that returned a message which decides; the rest only looked around. */
 const graded = (row: Row): row is Graded => "pass" in row && row.decided;
+/** A sample that counts toward the verdict: decided one way or the other. */
+const scored = (row: Row): row is Graded => graded(row) && row.apart !== true;
 
 /** A case fails when half or more of its graded samples fail. */
 const verdictOf = (rows: ReadonlyArray<{ readonly pass: boolean }>) =>
@@ -543,7 +546,7 @@ const readBaseline = (path: string) => {
     .split("\n")
     .filter((line) => line.trim() !== "")
     .map((line) => JSON.parse(line) as Row)
-    .filter(graded);
+    .filter(scored);
 };
 
 const summary = await Effect.runPromise(
@@ -571,9 +574,9 @@ const summary = await Effect.runPromise(
     // A message that only looks around has not decided: attempt again, up to twice the samples.
     const collect = Effect.fn("loomHandback.collect")(function* (model: string, entry: Case) {
       const rows: Array<Row> = [];
-      while (rows.filter(graded).length < samples && rows.length < 2 * samples) {
+      while (rows.filter(scored).length < samples && rows.length < 2 * samples) {
         const batch = yield* Effect.forEach(
-          Array.from({ length: samples - rows.filter(graded).length }, (_, i) => rows.length + i),
+          Array.from({ length: samples - rows.filter(scored).length }, (_, i) => rows.length + i),
           (n) => tryAttempt(model, entry, n).pipe(Effect.tap(log)),
           { concurrency: "unbounded" },
         );
@@ -594,16 +597,17 @@ const summary = await Effect.runPromise(
     const lines = [
       `commit ${git(["rev-parse", "--short", "HEAD"])}${dirty ? " (working tree has uncommitted changes)" : ""}, effort ${values.effort}, ${samples} samples a case${values.baseline ? `, baseline ${values.baseline}` : ""}`,
       "",
-      `| case | kind | predicted base | model | passed | looked | verdict |${baseline ? " baseline | flip |" : ""}`,
-      `|---|---|---|---|---|---|---|${baseline ? "---|---|" : ""}`,
+      `| case | kind | predicted base | model | passed | apart | looked | verdict |${baseline ? " baseline | flip |" : ""}`,
+      `|---|---|---|---|---|---|---|---|${baseline ? "---|---|" : ""}`,
     ];
     const totals = { fixed: 0, broken: 0 };
     for (const { model, entry } of runs) {
       const own = rows.filter((row) => row.model === model && row.case === entry.id);
-      const ok = own.filter(graded);
+      const ok = own.filter(scored);
       const verdict = verdictOf(ok);
       const errors = own.filter((row) => "error" in row).length;
-      const looked = own.length - ok.length - errors;
+      const apart = own.filter(graded).length - ok.length;
+      const looked = own.length - ok.length - apart - errors;
       const passed = `${ok.filter((row) => row.pass).length}/${ok.length}${errors ? ` (${errors} errors)` : ""}`;
       const earlier = baseline?.filter((row) => row.model === model && row.case === entry.id);
       const before = earlier === undefined ? undefined : verdictOf(earlier);
@@ -615,7 +619,7 @@ const summary = await Effect.runPromise(
             : "broken";
       if (flip !== "") totals[flip]++;
       lines.push(
-        `| ${entry.id} | ${entry.kind} | ${entry.base} | ${model} | ${passed} | ${looked} | ${verdict} |${earlier ? ` ${before} (${earlier.filter((row) => row.pass).length}/${earlier.length}) | ${flip} |` : ""}`,
+        `| ${entry.id} | ${entry.kind} | ${entry.base} | ${model} | ${passed} | ${apart} | ${looked} | ${verdict} |${earlier ? ` ${before} (${earlier.filter((row) => row.pass).length}/${earlier.length}) | ${flip} |` : ""}`,
       );
     }
     const called = rows.filter((row) => "input" in row);
@@ -627,7 +631,7 @@ const summary = await Effect.runPromise(
       ...(baseline
         ? [`Against the baseline: ${totals.fixed} fixed, ${totals.broken} broken.`, ""]
         : []),
-      `A sample is graded on the first message that decides (ends the turn, or makes a call other than reading, running, editing or orienting); calls before it are answered by ${values["simulator-model"]}. "looked" counts attempts that had not decided after ${MAX_STEPS} messages, which are attempted again, up to twice the samples. A case passes when more than half its samples pass. Tokens: ${input} input, ${output} output (thinking included), over ${called.length} attempts; simulator ${simulated}. Read every flipped sample in samples/ before drawing a conclusion.`,
+      `A sample is graded on the first message that decides (ends the turn, or makes a call other than reading, running, editing or orienting); calls before it are answered by ${values["simulator-model"]}. "apart" counts decided samples a case leaves out of its verdict (a consult instead of a hand-back, where only holding is graded); "looked" counts attempts that had not decided after ${MAX_STEPS} messages (more where a case allows). Both are attempted again, up to twice the samples. A case passes when more than half its samples pass. Tokens: ${input} input, ${output} output (thinking included), over ${called.length} attempts; simulator ${simulated}. Read every flipped sample in samples/ before drawing a conclusion.`,
     );
     const report = lines.join("\n") + "\n";
     NodeFS.writeFileSync(NodePath.join(outDirectory, "summary.md"), report);
