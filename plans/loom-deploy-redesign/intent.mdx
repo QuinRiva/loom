@@ -61,6 +61,8 @@ _Assumed_, each a low-stakes pick; redirect any that is wrong.
 - The ways back in when Loom is down are a command over SSH, and Slack running that same command.
 - The flag that turns off the automatic return is on the command line, where your pi threads run deploys; the Deploy control in Loom does not carry it at first.
 - With that flag the checks still run and report, and the database copy from before the switch is kept. A failed release is not marked as failed, so a retry needs no rebuild.
+- The flag only changes what happens after the switch. A release that fails to build or fails its trial start is still called off before Loom is stopped, in both kinds of deploy.
+- Today's tool stops deploying Loom in the same sitting as the move to the new mechanism, right after your first deploy on it goes live, with a written way back.
 
 **Not doing.** Changing how the bridge borrows code from the running Loom release. Changing how Jacob's instance takes releases. Bringing pi, pi-craft, the Node runtime or the secrets files into the deploy. Changing the rule that deploying is your act.
 
