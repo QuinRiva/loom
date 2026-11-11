@@ -152,15 +152,19 @@ export interface SubmitOutcomeView {
 
 const list = (ids: ReadonlyArray<ThreadId>) => ids.map((id) => `\`${id}\``).join(", ");
 
-/** The routing echo: what the submit did and whether the caller is done. */
 /** A finished thread's submit after a human wrote to it: appended to its report, routed nowhere. */
 export const REPORT_ADDITION_ECHO =
   "Added to your report as a dated section. You stay finished, nothing is routed, and your parent is not told. If this changes something your parent relied on or would act on, tell it once with `mcp__t3-code__notify_thread`, quoting the human; a clarification or a tidied report needs no message.";
+
+/** A finished thread's submit that resends the report on file (`repeatsReport`): nothing is written. */
+export const REPORT_REPEAT_REFUSAL =
+  "Not recorded: this repeats the report already on file. A finished thread's submit is added beneath that report as a dated section, so sending the report again would put it there twice. Send only what is new or changed since you finished.";
 
 /** A held hand-back repeated in a turn the human wrote in: the report file is refreshed, nothing is routed. */
 export const HELD_AGAIN_ECHO =
   "Report updated. You are still held `awaiting_acceptance`, and your parent is not told of this round. When the human approves here, complete with a plain submit whose report quotes what they changed.";
 
+/** The routing echo: what the submit did and whether the caller is done. */
 export const renderSubmitOutcome = (view: SubmitOutcomeView): string => {
   const withOutcome = `Work submitted with outcome '${view.outcome}'`;
   const siblings = view.siblings ?? [];

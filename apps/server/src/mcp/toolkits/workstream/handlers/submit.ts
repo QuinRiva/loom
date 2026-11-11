@@ -12,6 +12,7 @@ import {
 } from "@t3tools/shared/workstreamGraph";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 
 import { renderOpenBranch } from "../../../../loom/goals/goalTaskRender.ts";
 import { resolveThreadAnchor } from "../../../../loom/goals/goalTaskTree.ts";
@@ -25,6 +26,8 @@ import {
 import { formatWakeTimestamp } from "../../../../loom/orchestration/dispatcher/wakes.ts";
 import {
   appendWorkstreamReport,
+  REPORT_ADDITION_HEADING,
+  repeatsReport,
   reportResponse,
   writeWorkstreamReport,
 } from "../../../../loom/workstream/report.ts";
@@ -33,7 +36,12 @@ import * as Orchestrator from "../../../../orchestration-v2/Orchestrator.ts";
 import type { WorkstreamCaller } from "../authorisation.ts";
 import type { LoomToolInput } from "../defs.ts";
 import { requestKey, stableCommandId } from "../idempotency.ts";
-import { HELD_AGAIN_ECHO, renderSubmitOutcome, REPORT_ADDITION_ECHO } from "../render.ts";
+import {
+  HELD_AGAIN_ECHO,
+  renderSubmitOutcome,
+  REPORT_ADDITION_ECHO,
+  REPORT_REPEAT_REFUSAL,
+} from "../render.ts";
 import { asToolError, committed, dispatch, fail, nowIso } from "./shared.ts";
 
 export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(function* (
@@ -83,7 +91,10 @@ export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(functi
           DateTime.toEpochMillis(message.createdAt) > finishedAt,
       )
     ) {
-      const section = `\n\n## Added after finishing · ${formatWakeTimestamp(yield* nowIso)}\n\n${input.markdown}`;
+      const fs = yield* FileSystem.FileSystem;
+      const report = yield* asToolError(fs.readFileString(row.reportPath));
+      if (repeatsReport(report, input.markdown)) return yield* fail(REPORT_REPEAT_REFUSAL);
+      const section = `\n\n${REPORT_ADDITION_HEADING}${formatWakeTimestamp(yield* nowIso)}\n\n${input.markdown}`;
       yield* asToolError(appendWorkstreamReport(caller.threadId, row.reportPath, section));
       return `${REPORT_ADDITION_ECHO}\nReport: ${row.reportPath}`;
     }
@@ -122,8 +133,8 @@ export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(functi
   // A held hand-back repeated in a round the human is correcting: the record is refreshed, and the
   // parent, already pointed at this thread, is told nothing.
   if (held && outcome === "awaiting_acceptance" && humanInTurn) {
-    const reportPath = yield* asToolError(writeWorkstreamReport(caller.threadId, input.markdown));
-    return `${HELD_AGAIN_ECHO}\nReport: ${reportPath}`;
+    yield* asToolError(writeWorkstreamReport(caller.threadId, input.markdown));
+    return HELD_AGAIN_ECHO;
   }
 
   const reportPath = yield* asToolError(

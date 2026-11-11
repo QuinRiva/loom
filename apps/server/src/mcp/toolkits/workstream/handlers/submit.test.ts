@@ -24,6 +24,7 @@ import {
   writeEvents,
 } from "../../../../loom/testkit/loomOrchestratorLayer.ts";
 import * as Orchestrator from "../../../../orchestration-v2/Orchestrator.ts";
+import { REPORT_REPEAT_REFUSAL } from "../render.ts";
 import { callAs, HandlerTestLayer, spawnedId } from "./handlers.testkit.ts";
 
 const spawn = (parent: ThreadId, title: string, extra: Record<string, unknown> = {}) =>
@@ -368,7 +369,8 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
         const root = ThreadId.make("addition-root");
         yield* seedThread({ threadId: root });
         const finished = yield* spawn(root, "Finished");
-        yield* callAs(finished, "workstream_submit", { markdown: report("original") });
+        const original = `${report("CSV rows carry their currency.")}\n\n- The column reads \`invoice.currency\`.\n- Tests: 15 passed.\n- Commit 4be19c2.`;
+        yield* callAs(finished, "workstream_submit", { markdown: original });
         const done = (yield* store.getWorkstream(finished))!;
 
         // Nobody has written since it finished: refused, with what to do instead.
@@ -377,7 +379,7 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
         });
         assert.isTrue(unwritten.isError);
         assert.include(unwritten.text, "its hand-back is closed");
-        assert.equal(yield* fs.readFileString(done.reportPath!), report("original"));
+        assert.equal(yield* fs.readFileString(done.reportPath!), original);
 
         yield* TestClock.adjust("1 minute");
         yield* (yield* Orchestrator.OrchestratorV2).dispatch({
@@ -391,18 +393,31 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
           creationSource: "web",
           dispatchMode: { type: "queue_after_active" },
         });
+        // The report again with one sentence changed is a resend: refused, nothing written.
+        const resent = yield* callAs(finished, "workstream_submit", {
+          markdown: original.replace("Tests: 15 passed.", "Tests: 16 passed."),
+        });
+        assert.isTrue(resent.isError);
+        assert.equal(resent.text, REPORT_REPEAT_REFUSAL);
+        assert.equal(yield* fs.readFileString(done.reportPath!), original);
+
+        // Quoting one line of it beside what is new is an addition.
         const added = yield* callAs(finished, "workstream_submit", {
-          markdown: report("retry path covered"),
+          markdown: `${report("retry path covered")}\n\n- The column reads \`invoice.currency\`.\n- Retries back off for 30 s.`,
         });
         assert.isFalse(added.isError, added.text);
         assert.include(added.text, "Added to your report as a dated section");
         assert.include(added.text, `Report: ${done.reportPath}`);
         const file = yield* fs.readFileString(done.reportPath!);
-        assert.isTrue(file.startsWith(report("original")));
+        assert.isTrue(file.startsWith(original));
         assert.match(
           file,
           /\n## Added after finishing · .+\n\n<!-- response -->\nretry path covered/,
         );
+        // The original resent after an addition is still a resend.
+        const again = yield* callAs(finished, "workstream_submit", { markdown: original });
+        assert.equal(again.text, REPORT_REPEAT_REFUSAL);
+        assert.equal(yield* fs.readFileString(done.reportPath!), file);
         // No event: the row, its outcome and the work behind it are untouched.
         const after = (yield* store.getWorkstream(finished))!;
         assert.deepEqual(
