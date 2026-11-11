@@ -99,7 +99,7 @@ _Assumed_, each a low-stakes pick; redirect any that is wrong.
 
 **Still unknown.** None of these gate approval.
 
-- Is the 5 seconds the launcher gives Loom to stop enough when agent turns are running? Today's deploy gives 30. A deploy on a scratch copy with the free replay provider's turns in flight settles it.
+- Is the 5 seconds the launcher gives Loom to stop enough when agent turns are running? Today's deploy gives 30. One run on a scratch copy says yes: with 10 agent turns in flight the server stopped in 1.2 seconds and the new release resumed all 10. Production logs add a wrinkle: in 9 of the last 18 stops the server finished shutting down within 4 seconds and then hung idle until the 30-second limit. The first deploys on the real machine settle whether cutting that hang at 5 seconds is harmless.
 - How long the switch and a return take on a properly built release and the real database. The rehearsal ran from source on an empty one; the first full run on a copy settles it.
 - What the Deploy control looks like and where it sits. A mock in the plan settles it.
 - How Loom finds out, at a weekly pull, that upstream has changed the parts of the launcher its code relies on, instead of at the next deploy. The plan names the check.
