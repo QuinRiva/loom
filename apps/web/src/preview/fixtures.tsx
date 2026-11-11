@@ -1307,6 +1307,64 @@ const mdxMarkdownFixture: PreviewFixture = {
   ),
 };
 
+/** loom: a recap's one-card-per-item batch, where only the cards holding a comparison widen. */
+const MDX_CARD_COMPARISON = [
+  "<Columns>",
+  '  <Column label="What the agent wrote">',
+  `    <Code language="markdown" code={${JSON.stringify(MDX_MARKDOWN_AGENT)}} />`,
+  "  </Column>",
+  '  <Column label="Written with the skill">',
+  "    <TabsBlock>",
+  '      <Tab label="Version 1">',
+  `        <Code language="markdown" code={${JSON.stringify(MDX_MARKDOWN_V1)}} />`,
+  "      </Tab>",
+  '      <Tab label="Version 2">',
+  `        <Code language="md" code={${JSON.stringify(MDX_MARKDOWN_V2)}} />`,
+  "      </Tab>",
+  "    </TabsBlock>",
+  "  </Column>",
+  "</Columns>",
+].join("\n");
+const MDX_CARD_BLEED_FIXTURE_SOURCE = [
+  "## Tickets",
+  "",
+  "Each ticket is one card. The ones holding a comparison take the width the panel offers; their heading and intro stay at reading width.",
+  "",
+  '<Card eyebrow="Ticket 1 of 3" heading="Prose only: this card must look exactly as it did before" meta={["no comparison"]}>',
+  "Bug for the AIT backlog, 5 Nov: a citation can open the wrong document when two files in a building share a name. Nothing in this card is wide, so it keeps the reading column like every card before this change.",
+  "</Card>",
+  "",
+  '<Card eyebrow="Ticket 1b" heading="A fact table only: also keeps the reading column">',
+  '<Table columns={["Fact", "Detail"]} rows={[["Screen", "A staged root at 1440 by 900 with the right panel closed, the floating card dismissed so the framing matches round one"], ["Remaining option", "Hide or move the floating card while a staged kickoff is on screen"]]} />',
+  "</Card>",
+  "",
+  '<Card eyebrow="Ticket 2 of 3" heading="Lease-audit fields with no value" badges={[{ label: "comparison", tone: "info" }]} meta={["505 words as the agent wrote it", "written with the skill: 530 and 484 words"]}>',
+  "The most-repeated complaint about the audit. Version 1 and Version 2 are the same skill with one difference: one is told to add a few plain headings, the other to use none of its own. This intro paragraph must stay at reading width, not run the full width of the widened card.",
+  "",
+  MDX_CARD_COMPARISON,
+  "</Card>",
+  "",
+  '<Details summary="Ticket 3 of 3: the same comparison inside a Details" open={true}>',
+  "The intro inside the Details also stays at reading width while the columns widen.",
+  "",
+  MDX_CARD_COMPARISON,
+  "</Details>",
+  "",
+  "## A bare comparison",
+  "",
+  "The same columns at the top level, for reference:",
+  "",
+  MDX_CARD_COMPARISON,
+].join("\n");
+
+const mdxCardBleedFixture: PreviewFixture = {
+  id: "mdx-card-bleed",
+  title: "Cards holding a comparison (bleed)",
+  description:
+    "A top-level <Card> or <Details> holding <Columns> takes the whole bleed budget, while its intro stays at the reading measure. The prose-only card and the card holding only a table must keep the reading column. At a narrow panel everything collapses to the measure with no horizontal page scrollbar.",
+  render: () => <PlanPanelPreview key="mdx-card-bleed" source={MDX_CARD_BLEED_FIXTURE_SOURCE} />,
+};
+
 /**
  * loom: word-level emphasis in `<Diff>` — one sentence rewritten inside a long
  * prose paragraph, a one-token code change, and a rewritten line sharing too
@@ -1557,6 +1615,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
     title: "MDX plan document",
     fixtures: [
       mdxMarkdownFixture,
+      mdxCardBleedFixture,
       mdxGlossaryFixture,
       mdxQuestionRefsFixture,
       mdxWideBlockFixture,
