@@ -22,7 +22,7 @@ Build the brief's three fixes as **three server commits by one coder**, after **
     { value: "1", label: "new outcome word", detail: "`awaiting_acceptance` on `workstream_submit`; no new routing decision, no new flag" },
     { value: "1", label: "new column", detail: "`human_led` on `loom_thread_workstream`, set at spawn, never changed" },
     { value: "0", label: "client behaviour changes", detail: "web and mobile already label the hold; the notice wording comes from the server; two fixture files gain a field" },
-    { value: "18", label: "eval cases", tone: "info", detail: "8 fail on today's text by design; 10 are controls and guards against overcorrection" },
+    { value: "19", label: "eval cases", tone: "info", detail: "9 fail on today's text by design; 10 are controls and guards against overcorrection" },
   ]}
 />
 
@@ -45,7 +45,7 @@ Build the brief's three fixes as **three server commits by one coder**, after **
     ],
     [
       "A child launched for the human to talk to",
-      "The parent declares it at spawn; the quiet check skips it under the same grace a human-started turn gets (never, by default).",
+      "The parent declares it at spawn; the quiet check never considers it.",
       "`workstream_spawn`, one column, `quiescenceCandidate`, the kickoff wrapper",
     ],
     [
@@ -84,7 +84,7 @@ Build the brief's three fixes as **three server commits by one coder**, after **
   <Step title="The control plane sends the parent one notice.">
     Keyed on the hand-back, not on the flag, so each held hand-back to the parent is one notice and there is no second "matched no route" notice.
 
-    > **Parent receives:** "… has finished its work and handed it back held `awaiting_acceptance` … This is a hand-back, not a fault. … Read what it handed back against your brief. If something is plainly wrong, send it back … Otherwise tell the human it is waiting for them, with this link: [title](t3-thread://v1/id). …"
+    > **Parent receives:** "… has finished its work and handed it back held `awaiting_acceptance` … Read what it handed back against your brief. If something is plainly wrong, send it back … Otherwise tell the human it is waiting for them, with this link: [title](t3-thread://v1/id). …"
   </Step>
   <Step title="The parent reads it against its brief, and may send it back." badge="hold stands">
     `workstream_prompt` no longer clears the hold. The child fixes the defect and hands back held again: one more notice, because the parent asked for this round.
@@ -107,12 +107,18 @@ Build the brief's three fixes as **three server commits by one coder**, after **
 3. **`apps/server/src/orchestration-v2/Orchestrator.loom.ts`.**
    - Turn-start rule 4 in `loomTurnStartRules`, and `loomQueuedTurnAttentionClear`. When `awaiting_acceptance` stands, emit one `thread.attention-cleared` per other standing reason. When it does not, emit today's single clear-all event.
    - `workSubmit`: for decision `attention`, raise `awaiting_acceptance` when the outcome is that word (else `needs_guidance`, as today), only if not already standing. Before refusing a completion over a hold, read the thread's runs and user messages and pass `humanInTurn` to `holdErasedByCompletion`; the read happens only when `awaiting_acceptance` stands and the decision completes.
+   - The decider's own refusal of a completion over a hold still ends "Yield with a non-done outcome instead." The handler's mirror normally answers first, but in a race this text would teach the old pattern. For `awaiting_acceptance` it returns `SUBMIT_REFUSED_WHILE_HELD`; for `needs_guidance`, `SUBMIT_REFUSED_WHILE_RAISED`, which the handler already returns.
    - `loomContinuationVetoed`: drop the `awaiting_acceptance` clause. A held thread now runs turns (correction rounds), and one cut by a restart or a usage limit must be continued.
-4. **`apps/server/src/loom/orchestration/liveness/errorResume.ts`** and **`apps/server/src/loom/economics/RerouteSweep.ts`:** replace `attention.length === 0` with `!isParked(attention)`, for the same reason. The liveness sweep's "a flagged thread is never nudged" stays as it is.
-5. **`apps/server/src/loom/orchestration/dispatcher/rails.ts`, `attentionRail`.** For `awaiting_acceptance`, the notice's episode is `lastOutcome.eventId` when `lastOutcome.outcome` is `awaiting_acceptance`. Otherwise there is no notice, so a parent that raised the flag on a child itself is not told. A new builder in `wakes.ts` writes the text, which is model-text §5.1. It needs the child's title from `ctx.shells`. The card item omits `documents`; §1.5 says why.
-6. **`apps/server/src/mcp/toolkits/workstream/handlers/submit.ts`.** Mirror the completion rule before writing the report (it already mirrors the arm's refusals), returning `SUBMIT_REFUSED_WHILE_HELD` (model-text §3.3). Add the silent branch: outcome `awaiting_acceptance`, the flag already standing, and `humanSpokeInTurn` true: write the report file and return the echo of model-text §4.2 without dispatching. `handlers/attention.ts` refuses a thread raising `awaiting_acceptance` on itself (model-text §4.4); a parent raising it on a child is unchanged.
-7. **`render.ts`:** the `attention` echo takes the outcome and returns model-text §4.1 for the new word.
-8. **Seed and its doc.** `apps/server/src/dev/seedWorkstream.ts` gains one child handed back held under the seeded root, so the live pass has a fixture; `docs/dev-site-testing.md`'s list of what the seed writes gains it.
+4. **`apps/server/src/loom/economics/RerouteSweep.ts`:** replace `attention.length === 0` with `!isParked(attention)`, so a held thread whose turn hit a usage limit is resumed like any other. The liveness sweep is not changed: it returns early for any flagged thread, so a held child's failed turn gets neither a nudge nor the one automatic resume. In a correction round the human is in the thread and sees the failure. After a parent's send-back, the quiet check of step 5 reports it.
+5. **The quiet check keeps covering a held child its parent sent back** (`quiescence.ts`, `quiescenceRail.ts`). Today any flagged thread is excluded, which was safe while a prompt cleared the hold. With the hold standing, a child that its parent sent back and that ends the turn without handing back would be reported to nobody, which the brief's must-not forbids.
+   - Exclude a thread when `isParked(attention)`. A thread whose only flag is `awaiting_acceptance` stays a candidate only when its latest turn was started by its parent's prompt and no human-authored message joined it (`humanSpokeInTurn` is false). The first half is a new predicate, `turnStartedByParent`: the twin of `turnStartedByHuman`, reading `loom.origin === "orchestrator"` and following continuation runs the same way.
+   - Everything after that line is unchanged. A held child at rest after its own hand-back is still not quiet, by the existing rule that a run the thread submitted from did not go quiet. Turns started by the human, or by a notice, on a held child are never reported.
+   - The rail's two cheap pre-checks (`row.attention.length > 0` and `fresh.attention.length > 0`) become `isParked(…)`.
+   - The synthesised hand-back yields as today, and the yield notice already carries the clause for a child that also holds the approval flag (model-text §5.3).
+6. **`apps/server/src/loom/orchestration/dispatcher/rails.ts`, `attentionRail`.** For `awaiting_acceptance`, the notice's episode is `lastOutcome.eventId` when `lastOutcome.outcome` is `awaiting_acceptance`. Otherwise there is no notice, so a parent that raised the flag on a child itself is not told. A new builder in `wakes.ts` writes the text, which is model-text §5.1. It needs the child's title from `ctx.shells`. The card item omits `documents`; §1.5 says why.
+7. **`apps/server/src/mcp/toolkits/workstream/handlers/submit.ts`.** Mirror the completion rule before writing the report (it already mirrors the arm's refusals), returning `SUBMIT_REFUSED_WHILE_HELD` (model-text §3.4). Add the silent branch: outcome `awaiting_acceptance`, the flag already standing, and `humanSpokeInTurn` true: write the report file and return the echo of model-text §4.2 without dispatching. `handlers/attention.ts` refuses a thread raising `awaiting_acceptance` on itself (model-text §4.4); a parent raising it on a child is unchanged.
+8. **`render.ts`:** the `attention` echo takes the outcome and returns model-text §4.1 for the new word.
+9. **Seed and its doc.** `apps/server/src/dev/seedWorkstream.ts` gains one child handed back held under the seeded root, so the live pass has a fixture; `docs/dev-site-testing.md`'s list of what the seed writes gains it.
 
 ### 1.4 Why the notice is keyed on the hand-back
 
@@ -124,7 +130,7 @@ The projection ignores a second raise of a flag that already stands. A notice ke
 
 **The link.** The notice gives the parent the finished link, so pointing the human at the child is a copy, not a composition.
 
-**The seam.** Review comments on a document land in the composer of the thread the document was opened from. A document opened from the parent's notice card would send the human's corrections to the parent. So the held notice's card carries the report but no document chips, and the role text has the parent link the child, not the document.
+**The seam.** Review comments on a document land in the composer of the thread the document was opened from. A document opened from the parent's notice card would send the human's corrections to the parent. So the held notice's card carries the report but no document chips, and the link the notice hands the parent is to the child, not the document.
 
 **If the human writes to the parent anyway.** The role has the parent pass a correction on once, or accept the child on an approval. That text is model-text §6.3, and §8 names it as a departure from the brief's letter.
 
@@ -134,9 +140,9 @@ The projection ignores a second raise of a flag that already stands. A notice ke
    - `humanLed: boolean` on `LoomThreadWorkstream`, with a decoding default of false. It is optional on the `thread.spawn` command and on the `thread.workstream-created` payload. All three are in `packages/contracts/src/orchestrationV2.loom.ts`.
    - Migration `1070` adds `human_led INTEGER NOT NULL DEFAULT 0`. Register it in `apps/server/src/persistence/LoomMigrations.ts`; `LoomStore.ts` maps the column.
    - The pattern is migration `1058`, which added `kickoff_origin`, without its backfill. `1070` is free on this branch and on `main` today; take the next free number at build time.
-2. **Tool.** `workstream_spawn` gains the optional `humanLed` (model-text §2.2); `handlers/spawn.ts` passes it; the spawn arm writes it. It is refused with `forkFrom` in `nodeShapeError`, like the other launch-identity fields. Scaffold nodes do not get it: every observed case was a single spawn made at the human's request.
-3. **Quiet check.** In `quiescenceCandidate`, a `humanLed` thread takes `grace.humanStartedMs`, whoever started its latest turn. That grace is `null` by default, so the thread is never a candidate. If `quiescenceHumanGraceMs` is ever set, the thread follows it, as a human-started turn does. The synthesised report's line about a turn "started by a message from the human" still reads `turnStartedByHuman`.
-4. **Kickoff.** `workstreamChildPrompt` takes `humanLed` and swaps its three closing lines for the four of model-text §3.2; `kickoffText` and the dispatcher's promotion step pass the row's value.
+2. **Tool.** `workstream_spawn` gains the optional `humanLed` (model-text §2.2); `handlers/spawn.ts` passes it; the spawn arm writes it. It combines with `forkFrom`: it is not inherited launch identity, and forking a thread so the human can talk to the fork is a plausible request. Scaffold nodes do not get it: every observed case was a single spawn made at the human's request.
+3. **Quiet check.** `quiescenceCandidate` returns false for a `humanLed` thread, before any grace is read. The brief says "never reported as quiet … however long you take", so the `quiescenceHumanGraceMs` setting does not apply to it, and the rail needs no change for it.
+4. **Kickoff.** `workstreamChildPrompt` takes `humanLed` and swaps its three closing lines for the three of model-text §3.3; `kickoffText` and the dispatcher's promotion step pass the row's value.
 5. **Fixtures.** The row's type gains a field, so `packages/client-runtime/src/state/loom/loomTestFixtures.ts` and `apps/web/src/preview/loomFixtures.ts` gain `humanLed: false`. No client reads it.
 
 ## 3. A finished child the human keeps talking to
@@ -159,12 +165,13 @@ All of it is in `plans/human-in-child-thread/model-text.md`, authored on the pla
   density="compact"
   columns={["Surface", "Change", "Commit"]}
   rows={[
-    ["`workstream_submit` description and `outcome` parameter", "names `awaiting_acceptance` and the finished-thread addition; drops the 'pass another token' sentence", "1 and 2"],
+    ["`workstream_submit` description and `outcome` parameter", "names `awaiting_acceptance`; drops the 'pass another token' sentence", "1"],
     ["`workstream_request_attention` description", "`awaiting_acceptance` is for a parent holding a child; a thread's own hold is the submit", "1"],
     ["`workstream_prompt` description", "a prompt clears `needs_guidance` only", "1"],
     ["`roles/planner.md`, `roles/reviewer.md`", "one call instead of raise-then-submit; the human answers in the child", "1"],
-    ["`roles/orchestrator.md`", "read, send back if plainly wrong, link the child, relay nothing; the old bullet split in two", "1"],
-    ["Held hand-back notice; attention tail; yield clause", "one notice with the link; two stale sentences removed", "1"],
+    ["`roles/orchestrator.md`", "what the notice cannot carry: the human answers in the child, no approval asked in the parent's thread, a stray correction passed on once; the old bullet split in two", "1"],
+    ["Held hand-back notice; attention tail; yield clause", "one notice with the procedure and the link; two stale sentences removed", "1"],
+    ["Every child's kickoff, the closing \"raise\" line", "names `needs_guidance` only; a hold is no longer something a thread raises on itself", "1"],
     ["Submit echoes and two refusals", "held, silent re-hold, completion-over-hold refusal, self-raise refusal", "1"],
     ["`CHILD_READERSHIP_CLAUSE`", "a report already handed back joins the test; the message tool is named as available", "2"],
     ["Addition echo; finished-thread refusal", "what was recorded, who is not told, when to message the parent", "2"],
@@ -214,6 +221,7 @@ None of the six evals in `evals/README.md` covers this text. `mcp-tool-use` repl
     ["`orchestrator-ordinary-spawn`", "control", "The human asks the root to get a fix built", "spawn without `humanLed`", "passes"],
     ["`orchestrator-approval-is-not-human-led`", "control", "The human asks the root for an intent brief he will approve", "spawn without `humanLed`", "passes"],
     ["`human-led-child-waits`", "bad", "A child with the human-led kickoff has prepared and has nothing to ask", "ends the turn with no `workstream_submit` and no `workstream_request_attention`", { badge: { label: "fails", tone: "warning" } }],
+    ["`human-led-child-delegate`", "bad", "A human-led coder mid-conversation; the human says to get the parent to delegate a follow-on", "first Loom call is `notify_thread` to the parent, quoting the human", { badge: { label: "fails", tone: "warning" } }],
     ["`finished-child-material`", "bad", "Finished coder; the human had it change an interface its report documents; the transcript ends after its submit and this checkout's result", "`notify_thread` to the parent, quoting the human", { badge: { label: "fails", tone: "warning" } }],
     ["`finished-child-tidy`", "control", "Finished coder; the human asked what a sentence of the report meant and it reworded the report", "no `notify_thread`", "passes"],
     ["`finished-child-delegate`", "bad", "Finished coder; the human says to get the parent to delegate a follow-on", "first Loom call is `notify_thread` to the parent, quoting the human", { badge: { label: "fails", tone: "warning" } }],
@@ -224,7 +232,7 @@ None of the six evals in `evals/README.md` covers this text. `mcp-tool-use` repl
 **Protocol.** This is the tier-3 bar of `llm-instruction-change`. The hypothesis is pre-registered in model-text §7.
 
 1. On the commit that adds the eval, run it twice in full. The two runs are the base and the A/A noise floor.
-2. After each server commit, run the cases that commit owns against the base with `--baseline`. After commit 3, run all 18.
+2. After each server commit, run the cases that commit owns against the base with `--baseline`. After commit 3, run all 19.
 3. Five samples a case per arm. A case fails when half or more of its samples fail.
 4. Read every sample that flipped, in either direction. Read every final text of the orchestrator cases that end in prose: whether a parent asked for approval in its own thread is not something a pattern can grade.
 5. The change record states the floor and the fixed and broken counts, and says that five samples a case can only show a large effect.
@@ -236,23 +244,23 @@ None of the six evals in `evals/README.md` covers this text. `mcp-tool-use` repl
   density="compact"
   columns={["Brief line", "Met by", "Checked by"]}
   rows={[
-    ["Child shows Awaiting acceptance; parent gets one notice; nothing queued has started", "§1.3 steps 1, 3, 5", "Dispatcher test: held submit, one pass, one notice, no yield notice, blocked sibling not promoted. Live pass on the seeded held child"],
-    ["Parent tells you which child is waiting, with a link", "notice text §5.1; orchestrator role", "Eval `orchestrator-points-at-held-child`; live pass opens the link"],
-    ["You correct in the child; it revises and is still held; the parent hears nothing", "§1.3 steps 3 and 6", "Decider test: a human message leaves the hold and clears `needs_guidance`. Handler test: a held re-hand-back in that turn dispatches nothing. Eval `held-child-corrections`"],
+    ["Child shows Awaiting acceptance; parent gets one notice; nothing queued has started", "§1.3 steps 1, 3, 6", "Dispatcher test: held submit, one pass, one notice, no yield notice, blocked sibling not promoted. Live pass on the seeded held child"],
+    ["Parent tells you which child is waiting, with a link", "notice text §5.1", "Eval `orchestrator-points-at-held-child`; live pass opens the link"],
+    ["You correct in the child; it revises and is still held; the parent hears nothing", "§1.3 steps 3 and 7", "Decider test: a human message leaves the hold and clears `needs_guidance`. Handler test: a held re-hand-back in that turn dispatches nothing. Eval `held-child-corrections`"],
     ["You write approved; it completes; its report quotes you; the ordinary finished notice", "§1.3 steps 1 to 3", "Decider test: completion over the hold refused in a parent-started turn, accepted in a human-started or human-steered turn, including through a restart continuation. Eval `held-child-approval`"],
     ["The parent never asks for approval in its thread or passes your words on", "notice and role text; §1.5", "Evals `orchestrator-points-at-held-child` and `orchestrator-human-corrects-in-parent`, final texts read"],
-    ["A child launched for you to talk to never shows Yielded; parent never hears went quiet", "§2", "`quiescence.test.ts`: a `humanLed` thread whose latest turn was a kickoff, a parent prompt or a child-finished notice is not a candidate under the default grace; a thread without it still is. Eval `human-led-child-waits`"],
+    ["A child launched for you to talk to never shows Yielded; parent never hears went quiet", "§2", "`quiescence.test.ts`: a `humanLed` thread whose latest turn was a kickoff, a parent prompt or a child-finished notice is never a candidate, whatever the graces are set to; a thread without it still is. Eval `human-led-child-waits`"],
     ["Finished child does more work: stays finished, hand-back adds a dated section, dependents untouched", "§3 step 1", "Handler test: file gains the section, nothing is dispatched, the row is unchanged"],
     ["The parent gets one message when the change is material; nothing for a tidied report", "§3 step 4; echo §4.3", "Evals `finished-child-material` and `finished-child-tidy`"],
-    ["Get the parent to delegate this: one message, first attempt", "§3 step 3", "Profile test: the tool is active for a child once a person has written, absent before. Eval `finished-child-delegate`"],
+    ["Get the parent to delegate this: one message, first attempt", "§3 step 3", "Profile test: the tool is active for a child once a person has written, absent before. Evals `finished-child-delegate` and `human-led-child-delegate`"],
     ["Must not wake the parent because you asked a child a question", "nothing new is sent on a human message; readership clause", "Eval `working-child-question`; the dispatcher tests above assert no notice on a human turn"],
     ["Must not reopen a finished child or re-block work behind it", "§3 step 1 emits no event", "Handler test as above"],
-    ["Must not stop reporting a child nobody is talking to", "§2 step 3 touches only `humanLed` threads", "Existing quiet tests unchanged and passing"],
+    ["Must not stop reporting a child nobody is talking to", "§1.3 step 5; §2 step 3 touches only `humanLed` threads", "`quiescence.test.ts`: a held child whose parent-started turn ended without a hand-back is a candidate after the ordinary grace; a held child at rest after its own hand-back, after a human-started or notice-started turn, or after a parent-started turn the human steered into, is not. Existing quiet tests unchanged and passing"],
     ["Must not let queued work start before you approve", "§1.1; §1.3 step 3", "Decider test: a plain submit after a parent's prompt on a held child is refused"],
     ["Must not break the child's message to its parent", "`notify_thread` untouched; loaded earlier", "Existing `notifyConsult.test.ts`; eval `finished-child-delegate`"],
     ["Decided: no notify on every interaction", "the clause's existing rule; the echo's last clause", "Evals `working-child-question`, `finished-child-tidy`"],
     ["Assumed: the child judges what is material", "§3 step 4", "the two finished-child evals"],
-    ["Assumed: the parent reads a held deliverable against its brief first", "notice text; role", "Eval `orchestrator-sends-back-plain-defect`"],
+    ["Assumed: the parent reads a held deliverable against its brief first", "notice text §5.1", "Eval `orchestrator-sends-back-plain-defect`"],
     ["Assumed: the hold blocks queued work", "unchanged: an unset outcome never satisfies `blockedBy`", "Dispatcher test above"],
     ["Assumed: the message tool loads once a person has written", "§3 step 3", "Profile test"],
     ["Assumed: a finished child nobody has written to is refused, with what to do", "§3 step 2; refusal §4.5", "Handler test"],
@@ -297,10 +305,10 @@ Then run one real journey on the cheapest pi model:
   density="compact"
   columns={["Item", "Coder", "Files", "After"]}
   rows={[
-    ["Eval harness, 18 cases, two base runs", "eval coder", "`evals/loom-handback/**`, `evals/package.json`, `evals/README.md` only (the README row loom-marked, as the `explainer-density` row is)", "nothing"],
-    ["Commit 1: approval hold (§1) and its text", "server coder", "`workstreamGraph.ts`, `quiescence.ts`, `Orchestrator.loom.ts`, `errorResume.ts`, `RerouteSweep.ts`, `rails.ts`, `wakes.ts`, `yield.ts`, `handlers/submit.ts`, `handlers/attention.ts`, `render.ts`, both `prose.ts`, `defs.ts`, three role files, seed and its doc", "the eval's base runs"],
+    ["Eval harness, 19 cases, two base runs", "eval coder", "`evals/loom-handback/**`, `evals/package.json`, `evals/README.md` only (the README row loom-marked, as the `explainer-density` row is)", "nothing"],
+    ["Commit 1: approval hold (§1) and its text", "server coder", "`workstreamGraph.ts`, `quiescence.ts`, `quiescenceRail.ts`, `Orchestrator.loom.ts`, `RerouteSweep.ts`, `rails.ts`, `wakes.ts`, `yield.ts`, `handlers/submit.ts`, `handlers/attention.ts`, `render.ts`, both `prose.ts`, `defs.ts`, three role files, seed and its doc", "the eval's base runs"],
     ["Commit 2: finished child (§3) and its text", "server coder", "`handlers/submit.ts`, `report.ts`, `workstreamGraph.ts`, `loomAgentRoutes.ts`, both `prose.ts`", "commit 1"],
-    ["Commit 3: human-led child (§2) and its text; delete the eval adapter's fallback", "server coder", "contracts, migration, `LoomMigrations.ts`, `LoomStore.ts`, `Orchestrator.loom.ts`, `defs.ts`, `handlers/spawn.ts`, `childNode.ts`, `quiescence.ts`, `quiescenceRail.ts`, loom `prose.ts`, `childPrompt.ts`, `WorkstreamDispatcher.ts`, two fixture files", "commit 2"],
+    ["Commit 3: human-led child (§2) and its text; delete the eval adapter's fallback", "server coder", "contracts, migration, `LoomMigrations.ts`, `LoomStore.ts`, `Orchestrator.loom.ts`, `defs.ts`, `handlers/spawn.ts`, `quiescence.ts`, loom `prose.ts`, `childPrompt.ts`, `WorkstreamDispatcher.ts`, two fixture files", "commit 2"],
     ["Eval after each commit; full run and change record after commit 3; live pass", "server coder", "`evals/runs/**` (gitignored); the change record in the PR body", "each commit"],
   ]}
 />
@@ -313,9 +321,8 @@ Then run one real journey on the cheapest pi model:
 
 - **A parent's message no longer clears the approval hold.** The brief does not say this, but its must-not on queued work and its "sends the child back … before it points you at the child" need it. `workstream_prompt`'s description says so.
 - **"At no point does the parent … pass your words on."** Met for the designed route. If the human writes a correction or approval to the parent anyway, the plan has the parent pass it on once or accept the child rather than drop his word. The planner's report puts this to Carl.
-- **A held child that its parent sent back, and that ends its turn without handing back, is not reported.** Today the prompt clears the flag, so the quiet check catches it after ten minutes. With the hold standing, a flagged thread is never a quiet candidate. The symptom is soft: the child still shows "Accept?", and the human can open it and approve.
-  - It should be rare. In the five weeks behind the brief, 24 of 2,074 children ended a turn without submitting, and a parent sending a held child back is itself occasional.
-  - Closing the hole would make held children quiet candidates again, which risks new false "went quiet" notices. The plan accepts it.
+- **A plain submit by mistake in a correction round still completes the child.** In a turn the human wrote in, the control plane cannot tell a correction from an approval; only the model can. A slip there releases the work behind the child, which is the same slip the rejected option exposed after a parent's send-back. The guard is the eval case `held-child-corrections`.
+- **A held child's failed turn is not resumed automatically.** The liveness sweep skips flagged threads, and the plan leaves that alone. The human sees the failure in a correction round; after a parent's send-back the quiet check reports it, or the sweep's error flag does once failures repeat.
 - **Approval that arrives outside the completing turn.** If the human approves, the child starts a background job, and the job's exit starts the turn that submits, the completion is refused (no human message in that turn). The refusal tells the child to hand back held; the human approves again. Rare, and it fails safe.
 - **"A finished child nobody has written to" is read as "since it finished".** A child the human wrote to while it worked, and whose parent later prompts it without reopening it, is refused as today.
 - **A finished child with no report on file, or a cancelled child, cannot add.** Both are refused with the new text. Giving them a report would need an event, and neither occurred in the nine refusals behind the brief.
@@ -335,10 +342,9 @@ Then run one real journey on the cheapest pi model:
   title="Server coder"
   entries={[
     { path: "packages/shared/src/workstreamGraph.ts", change: "modified", note: "routeWorkSubmit word; holdErasedByCompletion humanInTurn; isParked; refusal text" },
-    { path: "apps/server/src/loom/orchestration/quiescence.ts", change: "modified", note: "humanSpokeInTurn; humanLed takes the human grace" },
-    { path: "apps/server/src/loom/orchestration/dispatcher/quiescenceRail.ts", change: "modified", note: "grace wording for a humanLed thread" },
-    { path: "apps/server/src/orchestration-v2/Orchestrator.loom.ts", change: "modified", note: "turn-start clear keeps the hold; workSubmit; continuation veto; spawn writes humanLed" },
-    { path: "apps/server/src/loom/orchestration/liveness/errorResume.ts", change: "modified", note: "isParked" },
+    { path: "apps/server/src/loom/orchestration/quiescence.ts", change: "modified", note: "humanSpokeInTurn; turnStartedByParent; held-only threads; humanLed never a candidate" },
+    { path: "apps/server/src/loom/orchestration/dispatcher/quiescenceRail.ts", change: "modified", note: "pre-checks use isParked" },
+    { path: "apps/server/src/orchestration-v2/Orchestrator.loom.ts", change: "modified", note: "turn-start clear keeps the hold; workSubmit and its refusal text; continuation veto; spawn writes humanLed" },
     { path: "apps/server/src/loom/economics/RerouteSweep.ts", change: "modified", note: "isParked" },
     { path: "apps/server/src/loom/orchestration/dispatcher/rails.ts", change: "modified", note: "held notice keyed on the hand-back" },
     { path: "apps/server/src/loom/orchestration/dispatcher/wakes.ts", change: "modified", note: "held notice builder; attention tail" },
@@ -347,7 +353,6 @@ Then run one real journey on the cheapest pi model:
     { path: "apps/server/src/mcp/toolkits/workstream/handlers/submit.ts", change: "modified", note: "completion mirror; silent re-hold; finished-thread addition" },
     { path: "apps/server/src/mcp/toolkits/workstream/handlers/attention.ts", change: "modified", note: "self-raise refused" },
     { path: "apps/server/src/mcp/toolkits/workstream/handlers/spawn.ts", change: "modified", note: "humanLed" },
-    { path: "apps/server/src/mcp/toolkits/workstream/handlers/childNode.ts", change: "modified", note: "humanLed refused with forkFrom" },
     { path: "apps/server/src/mcp/toolkits/workstream/render.ts", change: "modified", note: "held echo" },
     { path: "apps/server/src/mcp/toolkits/workstream/prose.ts", change: "modified", note: "three descriptions, three snippets" },
     { path: "apps/server/src/mcp/toolkits/workstream/defs.ts", change: "modified", note: "outcome text; humanLed" },
@@ -373,7 +378,7 @@ Then run one real journey on the cheapest pi model:
   title="Eval coder"
   entries={[
     { path: "evals/loom-handback/run.ts", change: "added", note: "assemble, call, grade, summarise" },
-    { path: "evals/loom-handback/cases.ts", change: "added", note: "18 authored cases with sources" },
+    { path: "evals/loom-handback/cases.ts", change: "added", note: "19 authored cases with sources" },
     { path: "evals/loom-handback/grade.ts", change: "added", note: "tool-call and final-text checks" },
     { path: "evals/loom-handback/run.test.ts", change: "added", note: "the grader's unit tests, which CI runs" },
     { path: "evals/loom-handback/README.md", change: "added" },

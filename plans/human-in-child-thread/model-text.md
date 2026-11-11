@@ -25,9 +25,11 @@ Current:
 
 New:
 
-> Your terminal call: hand back your markdown report with an outcome, and the control plane routes it; you never set your own outcome at completion. Omitted or 'done' completes you and releases your dependents. 'awaiting_acceptance' hands back finished work that a human must accept before anything builds on it: you are held, not done, your dependents wait, and the hold ends when the human approves in this thread or your parent accepts you. 'needs_human' records the report and raises needs_guidance. A review-gate verdict ('clean', 'fixed_inline', 'needs_rework') routes the gate; in a rework round every outcome but 'needs_human' and 'awaiting_acceptance' routes back to the reviewer; any other token yields you to your parent, and you are not done. On a finished thread a human has since written to, the report is added to your earlier one and nothing is routed. A turn that ends without submitting is, after a grace, treated as gone quiet: the control plane synthesises a report from your last message and yields that instead.
+> Your terminal call: hand back your markdown report with an outcome, and the control plane routes it; you never set your own outcome at completion. Omitted or 'done' completes you and releases your dependents. 'awaiting_acceptance' hands back finished work that a human must accept before anything builds on it: you are held, not done, your dependents wait, and the hold ends when the human approves in this thread or your parent accepts you. 'needs_human' records the report and raises needs_guidance. A review-gate verdict ('clean', 'fixed_inline', 'needs_rework') routes the gate; in a rework round every outcome but 'needs_human' and 'awaiting_acceptance' routes back to the reviewer; any other token yields you to your parent, and you are not done. A turn that ends without submitting is, after a grace, treated as gone quiet: the control plane synthesises a report from your last message and yields that instead.
 
 Removed: "it is refused while an attention flag you raised stands (pass another token and you yield with the flag intact)". The refusal still exists and its own text says what stands; the sentence is what taught threads to invent a token for "finished, flag standing".
+
+Not added: a sentence about a finished thread's later submit. Finished children already submit after doing more work (nine did), the result of that call (4.3) says what happened, and the refusal (4.5) tells a child no human has written to. A sentence here would be read by every role on every turn and change none of those decisions.
 
 ### 1.2 `workstream_submit.promptSnippet` (inert under Loom's preamble; kept truthful for the bridge)
 
@@ -107,23 +109,37 @@ New:
 
 > Tell your parent at once, with `mcp__t3-code__notify_thread`, only when it would act differently now (the human changed the scope, a contract another thread is building on, or something it relied on in a report you have already handed back), never for a question or a message that leaves your course unchanged. Once they have written, `mcp__t3-code__notify_thread` and `mcp__t3-code__ask_user_question` are available to you.
 
-### 3.2 `workstreamChildPrompt`: closing lines for a child spawned with `humanLed`
+### 3.2 `workstreamChildPrompt`: the closing "raise" line, for every child
 
-The function gains `readonly humanLed?: boolean`. Without it the three closing lines are unchanged. With it they are replaced by these four, in this order, after `KICKOFF_CLOSING`:
+Current (the last of the three closing lines):
 
-> The human asked for this thread so they can work in it with you, and they write to you here. Answer them turn by turn and end your turn to wait for their next message: in this thread that wait is expected, however long it lasts, and the usual rule that a turn ending without a submit reads as gone quiet does not apply. Their word outranks this brief.
+> If a HUMAN is needed, raise it with `mcp__t3-code__workstream_request_attention`: its description covers the two reasons and why a raise HOLDS your work rather than labelling your report. Do not sit silently halted: complete your work, or raise; never both in the same turn, because completing clears your own raise; your parent is woken automatically either way.
+
+New:
+
+> If you cannot proceed without a human, raise `needs_guidance` with `mcp__t3-code__workstream_request_attention`, whose description covers when. Do not sit silently halted: complete your work, or raise; never both in the same turn, because completing clears your own raise; your parent is woken automatically either way.
+
+Removed: "the two reasons" and "why a raise HOLDS your work rather than labelling your report". A thread no longer raises `awaiting_acceptance` on itself (4.4 refuses it), and a hold now is an outcome on the report. Finished work that needs acceptance is covered by the line above this one, which already sends the child to the submit description for outcomes.
+
+### 3.3 `workstreamChildPrompt`: closing lines for a child spawned with `humanLed`
+
+The function gains `readonly humanLed?: boolean`. Without it the three closing lines are as above. With it they are replaced by these three, in this order, after `KICKOFF_CLOSING`:
+
+> The human asked for this thread so they can work in it with you, and they write to you here. Answer them turn by turn and end your turn to wait for their next message: in this thread that wait is expected, however long it lasts, and the usual rule that a turn ending without a submit reads as gone quiet does not apply.
 
 > Run anything you expect to take more than a couple of minutes with bg_start and wait on it with bg_wait: a foreground command holds the turn, and the human cannot reach you until it ends. A long command that must run in the foreground carries an inline `# eta: <n>m` comment so your parent is not sent slow-tool notices before then.
 
-> Your parent hears nothing of the conversation. Tell it with `mcp__t3-code__notify_thread`, quoting the human, when they decide something it would act on, such as work for it to delegate; the rest goes in your report.
-
 > Finish with ONE call, `mcp__t3-code__workstream_submit`, when the human says the work here is finished: its description is the contract for outcomes and routing. Write the report as a concise handoff for your parent orchestrator, opening with the response block its markdown description asks for: what the human decided, in their words, what was done about each decision, and anything the parent must act on.
 
-Dropped for such a child, with reasons: "a running job blocks your submit, and a turn that ends without submitting reads as gone quiet" and "Ending a turn without submitting hands your parent a report the control plane reconstructs from your last message instead" (false for it); "If a HUMAN is needed, raise it … Do not sit silently halted" (waiting for the human is its normal state, and a raise would send the parent a pause notice every round).
+Dropped for such a child, with reasons: "a running job blocks your submit, and a turn that ends without submitting reads as gone quiet" and "Ending a turn without submitting hands your parent a report the control plane reconstructs from your last message instead" (false for it); the closing "raise" line (waiting for the human is its normal state, and a raise would send the parent a pause notice every round).
 
-### 3.3 New constant `SUBMIT_REFUSED_WHILE_HELD`
+Not added, because `CHILD_READERSHIP_CLAUSE` already says it to every child: that the human's word outranks the brief, that the parent is not told of the conversation, and when to tell it with `mcp__t3-code__notify_thread`. The eval case `human-led-child-delegate` measures whether the clause alone carries the relay for such a child.
+
+### 3.4 New constant `SUBMIT_REFUSED_WHILE_HELD`
 
 Returned when a completing submit would erase a standing `awaiting_acceptance` and no human-authored message started or was steered into the current turn. `SUBMIT_REFUSED_WHILE_RAISED` is unchanged and still answers a standing `needs_guidance`.
+
+The decider (`workSubmit` in `Orchestrator.loom.ts`) returns the same two constants in place of its own "Thread ${id} holds '${reason}'; completing would erase the hold. Yield with a non-done outcome instead.", so no path still teaches the invented-token pattern.
 
 > Refused: this thread is held `awaiting_acceptance`, and completing now would release the work that waits on it before a human has accepted it. The hold ends when the human approves in this thread, or when your parent accepts you. If you have revised the work, hand it back held again: `mcp__t3-code__workstream_submit` with outcome `awaiting_acceptance`.
 
@@ -178,7 +194,7 @@ The gate-rework exception (a `done` target with `pendingRework` and decision `lo
 ```
 ${WORKSTREAM_CONTROL_PLANE_MARKER}
 
-Your Workstream sub-thread ${role ?? "sub-thread"} `${id}` has finished its work and handed it back held `awaiting_acceptance`: a human must accept it before it is done, and its dependents stay gated until then. This is a hand-back, not a fault.
+Your Workstream sub-thread ${role ?? "sub-thread"} `${id}` has finished its work and handed it back held `awaiting_acceptance`: a human must accept it before it is done, and its dependents stay gated until then.
 
 Report reference: `${reportPath}` (read the full report on demand).${formatReportExcerpt(report)}
 
@@ -241,8 +257,10 @@ Current (one bullet):
 
 New (two bullets, in the same position):
 
-> - **A child held `awaiting_acceptance` waits for the human, who answers it in that child.** Read what it handed back against your brief and send it back yourself if something is plainly wrong; then tell the human which child is waiting, with its thread link, and leave the corrections and the approval to them there. You hear nothing of their rounds, and the ordinary finished notice when they approve. Do not ask for the approval in your own thread or carry their words to the child as a matter of course; if they give you a correction or an approval here anyway, their word stands wherever they write it: pass the correction on once, or accept the child. Never accept a held child to unblock its dependents; if the wait is unaffordable, re-scope the approval rather than accept on their behalf.
+> - **A child held `awaiting_acceptance` waits for the human, who corrects and approves it in that child, not through you.** Do not ask for the approval in your own thread, and do not brief a child to complete so that you can carry the approval yourself. If the human gives you a correction or an approval here anyway, their word stands wherever they write it: pass the correction on once, or accept the child. Never accept a held child to unblock its dependents; if the wait is unaffordable, re-scope the approval rather than accept on their behalf.
 > - Put decisions to the human, never mistakes: fix plainly wrong behaviour (regressions, lost defaults) via a coder, unasked; theirs are product trade-offs, irreversible deletion of data or artefacts, and overriding a design document.
+
+The first bullet carries only what the held notice (5.1) cannot: the notice arrives after the child has handed back, and these bind earlier (how the orchestrator briefs the child) or outside it (the human writing to the orchestrator; the temptation to unblock dependents). Reading the hand-back against the brief, sending it back, the link, and what the orchestrator will and will not hear are in the notice, at the moment they apply, and are not repeated here. Both prohibitions answer observed behaviour: an orchestrator relaying the human's corrections to a held planner three times on 3 Nov, and one briefing its planner to complete so it could put the brief to the human itself on 10 Nov.
 
 The second bullet is the old bullet's second rule, unchanged, given its own line (the doctrine's "multi-rule mega-bullet" smell). No overlay line is added for `humanLed`: the spawn parameter carries its own trigger at composition time, and an eval case measures whether that is enough.
 
@@ -252,7 +270,7 @@ The second bullet is the old bullet's second rule, unchanged, given its own line
 
 ## 7. Instruction change record (pre-registered; the run fields are filled by the coder who runs the eval)
 
-- **Surfaces touched:** every heading above. Shared surfaces: `CHILD_READERSHIP_CLAUSE` (every child), `workstream_submit` and `workstream_request_attention` descriptions (every role, resident), `workstreamChildPrompt` (every child's kickoff).
+- **Surfaces touched:** every heading above. Shared surfaces: `CHILD_READERSHIP_CLAUSE` (every child), `workstream_submit` and `workstream_request_attention` descriptions (every role, resident), and the closing "raise" line of `workstreamChildPrompt` (every child's kickoff).
 - **Tier:** 3. New outcome word, new parameter, changed rules, and three shared surfaces.
 - **Failure located:** live database, children created 7 Oct to 10 Nov 2026. 87 hand-backs with an outcome the control plane did not know; 44 of them were a child saying "finished, waiting for approval" in its own word (34 children), 22 with the formal hold raised as a second call. 9 finished children refused a submit in a turn a person started; 4 children failed a first `notify_thread` as "Tool not found". One planner's reasoning before its two calls: "the role's rule says an intent brief waits for the human, so I'd submit the report with a non-done outcome". One finished coder after its refusal: "I'm not notifying the parent, since the thread is finished".
 - **Lever chosen and why:** schema shape first (a named outcome; a spawn parameter), then code (the hold outlives messages; the addition is accepted; the tool is loaded), then instruction text only where a model must choose (hold or complete; material or not; link or relay).
