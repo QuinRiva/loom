@@ -86,8 +86,8 @@ def main():
     projects = {r[0]: dict(title=r[1], root=r[2]) for r in q("select project_id, title, workspace_root from projection_projects")}
     snapshot_dirs = q("select distinct t.project_id, s.git_common_dir from loom_review_snapshots s join orchestration_v2_projection_threads t using (thread_id)")
     first_verdict = {}
-    for stream, at, payload in q("select stream_id, occurred_at, payload_json from orchestration_events where event_type = 'thread.outcome-recorded' "
-                                 "and application_event_version = 2 order by sequence"):
+    for stream, at, payload in q("select thread_id, occurred_at, payload_json from loom_thread_history where event_type = 'thread.outcome-recorded' "
+                                 "and event_version = 2 order by thread_id, stream_version"):
         p = json.loads(payload)
         if p.get("outcome") in ("clean", "fixed_inline", "needs_rework"):
             first_verdict.setdefault(stream, (ts(at), p["outcome"], (p.get("counts") or {}).get("mustFix") or 0))

@@ -199,6 +199,33 @@ it.layer(TestLayer)("Loom projector", (it) => {
       }),
   );
 
+  it.effect("copies a dispatched history event's log row into loom_thread_history", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.make("history-write");
+      yield* seedThread({ threadId });
+      yield* writeEvents([yield* created(threadId, ThreadId.make("fold-parent"))]);
+      yield* dispatch({
+        type: "thread.outcome.set",
+        commandId: CommandId.make("command:mcp:cancel-1"),
+        threadId,
+        createdAt: DateTime.formatIso(yield* DateTime.now),
+        outcome: "cancelled",
+      });
+      assert.deepEqual(
+        yield* sql`SELECT event_type, command_id, event_version FROM loom_thread_history
+          WHERE thread_id = ${threadId}`,
+        [
+          {
+            event_type: "thread.outcome-set",
+            command_id: "command:mcp:cancel-1",
+            event_version: 2,
+          },
+        ],
+      );
+    }),
+  );
+
   it.effect("records consult and peer-message edges and appends the send log once", () =>
     Effect.gen(function* () {
       const store = yield* LoomStoreV2;
@@ -655,9 +682,12 @@ it.layer(TestLayer)("Loom projector", (it) => {
       const replay = yield* ProjectionReplay.ProjectionReplay;
       const before = yield* store.listPassInput({ newsSince: EPOCH, threadIds: [] });
       const goalsBefore = yield* store.goals.listByProject(projectId, { includeDeleted: true });
+      const historyBefore = yield* store.history(ThreadId.make("fold-child"));
+      assert.isNotEmpty(historyBefore);
       const verification = yield* replay.rebuild;
       assert.isTrue(verification.valid);
       assert.deepEqual(yield* store.listPassInput({ newsSince: EPOCH, threadIds: [] }), before);
+      assert.deepEqual(yield* store.history(ThreadId.make("fold-child")), historyBefore);
       assert.deepEqual(
         yield* store.goals.listByProject(projectId, { includeDeleted: true }),
         goalsBefore,

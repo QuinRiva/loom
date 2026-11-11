@@ -1,0 +1,207 @@
+---
+reader:
+  who: the reviewer gating this plan, then Carl, who approves the one question it leaves him; a coder builds from it cold
+  knows: Loom's sidecar tables and the pull-15 runbook by name; not the fold in LoomStore.history, the evals scripts' queries or the cockpit row counts
+  after_first_screen: Loom's workstream history moves into its own table, written when the event commits and filled once from the log; the table keeps the raw event rows; the prune guard then goes; Carl ruled history only, no archive, with gate warnings carried too
+kicker: "Implementation plan · approved 10 Nov 2026 · built the same day"
+status: done
+manager_sessions:
+  - id: 01a1c2c5-cced-7067-a34c-2ba9fe55a7c3
+    name: History-projection plan
+    role: plan
+    authored_at: 2026-11-10T00:21:57.861Z
+---
+
+# Loom's workstream history becomes its own table
+
+Loom's workstream Timeline tab, `/retro` and the weekly evals dashboard read Loom's past events (outcomes, flags, gate routes, rework rounds) back out of the orchestration event log. Since pull 15 that log is a one-day replay buffer; those rows survive only because of two marked SQL clauses inside upstream's prune passes. **Replace the read with a sidecar table, `loom_thread_history`, written in the commit transaction beside `loom_thread_workstream`, filled once by fork migration 1070 from the rows the guard has kept alive, and delete the guard.** The table stores the **raw event rows** and the existing fold runs over them unchanged: the one hard-to-reverse bet, taken on its reversible side. Nothing visible changes; about a day of coder work.
+
+<Stats
+  items={[
+    { value: "42,342", label: "rows to carry over", detail: "33,696 V1-imported and 8,507 V2 history rows plus 139 gate warnings on the cockpit at 10 Nov, 5.2 MB of payload", tone: "info" },
+    { value: "1.2 s", label: "backfill scan", detail: "the nine-type filter over 1.49 M log rows on the live database, read-only, warm cache", tone: "success" },
+    { value: "3 hunks", label: "guard deleted", detail: "`ProjectionMaintenance.ts` returns to upstream-verbatim; its Loom test file goes", tone: "success" },
+    { value: "0", label: "contract changes", detail: "`loom.threadHistory` and `LoomThreadHistoryEntry` are untouched; web and mobile see nothing", tone: "neutral" },
+  ]}
+/>
+
+<Callout tone="decision" title="What is being approved" focus>
+  One PR: the table and its migration, the projector's write, three readers moved (`LoomStore.history`, `dashboard.py`, `gate_escapes.py`), the guard and its tests removed. It lands before pull 16: the backfill is only correct while the guard is in the tree it runs on (§2). Carl's ruling (10 Nov): **history table only, no archive of the non-Loom events**, and `thread.gate-warning` joins the carried set (§1).
+</Callout>
+
+**Scope.** Out: any change to what the Timeline shows, any new reader, and archiving upstream's events (ruled out; see the end). **Done means:** on a copy of the cockpit database the migration carries every history row across, and after a forced prune pass deletes the log rows the Timeline, `/retro` and the dashboard read the same entries as before. `git diff upstream/main -- apps/server/src/orchestration-v2/ProjectionMaintenance.ts` is empty.
+
+## 1. Raw rows, folded on read
+
+The fold in `LoomStore.history` turns eight event types into the six-member `LoomThreadHistoryEntry` union the UI renders. <Sidenote>`apps/server/src/loom/projection/LoomStore.ts` l.945.</Sidenote> It carries a `thread.report-set` onto the `thread.outcome-recorded` that follows it, and gives a V1 `thread.route-taken` (which had no kind) the kind `loop`. It turns V1's `thread.plan-lane-set` into synthetic entries: `yielded` is a raise of `awaiting_orchestrator`, `done` and `cancelled` are outcome sets. The table could store either side of that fold.
+
+A ninth type, `thread.gate-warning` (139 rows on the cockpit since 7 Oct: a thread reopened after its dependents had started, and the like), lands in no table today and has no Timeline entry. It is carried as a stored row only: it joins `HISTORY_EVENT_TYPES` and the `HistoryEventRow` union (payload `kind`, `detail`, `threadIds`, per `packages/contracts/src/orchestrationV2.loom.ts`), and the fold returns nothing for it, as it does for an orphan `report-set`. Showing it is a later contract change, not this PR.
+
+<Callout tone="decision" title="Store the raw rows; keep folding on read">
+  The table is a filtered copy of the log's Loom rows: `event_type`, `payload_json`, `command_id`, `stream_version`, the event version. The fold moves its `FROM` and nothing else.
+</Callout>
+
+<Columns>
+  <Card heading="Raw rows" tone="success" badge="Chosen" meta={["fold unchanged", "scripts keep their fields", "reversible"]}>
+    Raw to folded is a pure function that already exists and is tested (`LoomStore.test.ts` "folds the thread's history across V1 and V2 events"). The fold is presentation. When the Timeline wants to show something it drops today (a `report-set` with no outcome, a V1 lane value), that is a code change, not a re-migration. The dashboard reads two fields the folded contract does not carry: `cause` on `thread.outcome-set`, and the event's `command_id`, which says who cancelled a thread (`command:mcp:` the parent, `server:` the server, else the UI; `dashboard.py` l.202). Raw rows keep both without a hybrid schema.
+  </Card>
+  <Card heading="Folded entries" tone="neutral" badge="Rejected" meta={["lossy", "contract baked into storage"]}>
+    Storing `LoomThreadHistoryEntry` rows ties the table to today's UI contract: every change to what an entry carries is a migration over 42k rows. The information the fold discards (`cause`, `command_id`, the V1 lane, orphan `report-set` rows) is gone for good, and the dashboard would need extra columns beside the folded shape anyway. Folded to raw is impossible; raw to folded is the fold.
+  </Card>
+</Columns>
+
+## 2. The table and migration 1070
+
+<DataModel
+  entities={[
+    {
+      id: "history",
+      name: "loom_thread_history",
+      change: "added",
+      note: "one row per Loom history event, V1-imported and V2 alike; never updated or deleted by Loom code",
+      fields: [
+        { name: "event_id", type: "TEXT", pk: true, note: "the log's event_id; the idempotency key for replay" },
+        { name: "thread_id", type: "TEXT", note: "the log's stream_id; the column loom-migrate and migrate-dev-db slice by" },
+        { name: "stream_version", type: "INTEGER", note: "the thread's per-stream order; V1 and V2 share one version space per thread" },
+        { name: "event_type", type: "TEXT", note: "one of the nine types in HISTORY_EVENT_TYPES" },
+        { name: "occurred_at", type: "TEXT" },
+        { name: "command_id", type: "TEXT", nullable: true, note: "dashboard.py's canceller classification" },
+        { name: "event_version", type: "INTEGER", note: "the log's application_event_version: 1 imported legacy, 2 live" },
+        { name: "payload_json", type: "TEXT", note: "the log row's payload, byte for byte" },
+      ],
+    },
+  ]}
+/>
+
+**Why `stream_version` and not `sequence`.** `history(threadId)` orders one thread's rows, and `stream_version` is unique and monotone per thread across both event versions. <Sidenote>0 inversions against `sequence` over all 42,203 rows on the cockpit, 10 Nov.</Sidenote> The log's `sequence` is renumbered when `loom-migrate` moves a tree into another database, so a table keyed on it would need the remap the tool already does for `loom_thread_peer_messages.seq`. <Sidenote>`apps/server/src/cli/loomMigrate.loom.ts` l.1221, "Source order, fresh sequence numbers".</Sidenote> `stream_version` is copied as is. Both tools discover tables by their `thread_id` column, so neither needs a change for the new table. <Sidenote>`loomMigrate.loom.ts` `threadIdNullable`; `apps/server/scripts/migrate-dev-db.ts` l.317.</Sidenote> The index is `(thread_id, stream_version)`.
+
+**Why `event_version`.** `dashboard.py` and `gate_escapes.py` filter `application_event_version = 2`, and pull 15's gate proved their output row-for-row identical before and after a prune. <Sidenote>Pull 15 decision log, DL-1898.</Sidenote> Keeping the column keeps that proof: the scripts change two table names and two column names and produce the same JSON. Dropping it would fold 4,324 V1 outcome rows into `first_verdict` and `finished` for imported threads, moving numbers nobody asked to move.
+
+<Code
+  filename="apps/server/src/persistence/Migrations/1070_LoomThreadHistory.ts"
+  language="ts"
+  code={"// loom_thread_history: the workstream Timeline's record of past states (outcomes, flags, routes, gate\n// rounds), written by the Loom projector at commit time from this migration on. Backfilled once from the\n// log rows pull 15's prune guard kept alive. This is the LAST fork migration that may read old\n// orchestration_events rows (pull 15 §4.4): after the guard goes, the log is a day deep.\nexport default Effect.gen(function* () {\n  const sql = yield* SqlClient.SqlClient;\n  yield* sql`\n    CREATE TABLE loom_thread_history (\n      event_id TEXT PRIMARY KEY,\n      thread_id TEXT NOT NULL,\n      stream_version INTEGER NOT NULL,\n      event_type TEXT NOT NULL,\n      occurred_at TEXT NOT NULL,\n      command_id TEXT,\n      event_version INTEGER NOT NULL,\n      payload_json TEXT NOT NULL\n    )\n  `;\n  yield* sql`CREATE INDEX idx_loom_history_thread ON loom_thread_history(thread_id, stream_version)`;\n  yield* sql`\n    INSERT INTO loom_thread_history\n      (event_id, thread_id, stream_version, event_type, occurred_at, command_id, event_version, payload_json)\n    SELECT event_id, stream_id, stream_version, event_type, occurred_at, command_id,\n      application_event_version, payload_json\n    FROM orchestration_events\n    WHERE aggregate_kind = 'thread' AND event_type IN (\n      'thread.report-set', 'thread.outcome-recorded', 'thread.attention-raised',\n      'thread.attention-cleared', 'thread.route-taken', 'thread.gate-rework-accepted',\n      'thread.outcome-set', 'thread.plan-lane-set', 'thread.gate-warning')\n    ORDER BY sequence\n  `;\n});\n"}
+/>
+
+The type list is a literal, not an import of `HISTORY_EVENT_TYPES`: a migration is frozen at the schema it created. The migration is registered as `[1070, "LoomThreadHistory", Migration1070]` in `apps/server/src/persistence/LoomMigrations.ts` (fork lane, never `Migrations.ts`), and `LoomMigrations.v1copy.test.ts`'s ten-row ledger-tail window shifts to end at 1070. On the cockpit the backfill is one scan of the log: 1.2 s warm, bounded by a cold read of the 7.3 GB file (pull 15's `VACUUM INTO` read it in 32 s), so boot is a minute slower once.
+
+**The ordering constraint.** The backfill is only correct on a database where the guard has protected the rows until the moment it runs. That is every Loom database that exists: the guard shipped in the same pull as the prune. It stops being true the day after any deploy without the guard, so this PR carries the guard's removal and the migration together, and lands before pull 16. The live cockpit has no prune mark yet, so at 10 Nov nothing has been pruned there at all. <Sidenote>`orchestration_v2_projection_metadata` holds only `thread-projections`.</Sidenote> A restore from the kept pre-promotion snapshot re-runs 1070 on boot and backfills again from the full log.
+
+## 3. Writing at commit time
+
+`applyLoomProjectionEvent` in `apps/server/src/loom/projection/loomProjection.ts` runs inside V2's commit transaction, after `EventSink` has appended the events to the log and before upstream's projection applies. <Sidenote>`apps/server/src/orchestration-v2/EventSink.ts` l.475–479: `eventStore.append`, then `applyStoredEvents`.</Sidenote> The domain event it receives has no `stream_version` or `command_id`, but the log row it was just written as does, under a UNIQUE index on `event_id`. So the write is one `INSERT … SELECT` from that row:
+
+<AnnotatedCode
+  filename="apps/server/src/loom/projection/loomProjection.ts"
+  language="ts"
+  code={"const HISTORY_TYPES: ReadonlySet<string> = new Set(HISTORY_EVENT_TYPES);\n\n// Copies the event's own log row, written earlier in this transaction, so the history outlives the log.\nconst recordHistory = (sql: SqlClient.SqlClient, event: LoomDomainEvent) =>\n  HISTORY_TYPES.has(event.type)\n    ? sql`INSERT INTO loom_thread_history\n          (event_id, thread_id, stream_version, event_type, occurred_at, command_id, event_version, payload_json)\n        SELECT event_id, stream_id, stream_version, event_type, occurred_at, command_id,\n          application_event_version, payload_json\n        FROM orchestration_events WHERE event_id = ${event.id}\n        ON CONFLICT (event_id) DO NOTHING`\n    : Effect.void;\n\n// in applyLoomProjectionEvent, after isLoomDomainEvent(event):\n//   yield* recordHistory(sql, event);\n//   yield* applyEdgeTables(sql, event);\n"}
+  annotations={[
+    { lines: "1", note: "a Set<string>: `HISTORY_EVENT_TYPES` is a narrower literal union than `event.type`, so `.includes` would not compile" },
+    { lines: "10", label: "same transaction", note: "reads the row this commit wrote a moment ago, not old events; the doctrine forbids backfilling from history, not this" },
+    { lines: "11", label: "replay-safe", note: "ProjectionReplay.rebuild re-applies the log over Loom's tables; the file's rule is set, first-write-wins or idempotent append" },
+    { lines: "14-15", note: "unconditional on the sidecar row: today's reader folds the log for any thread, and `thread.plan-lane-set` is V1-only so never arrives here" },
+  ]}
+/>
+
+Eight of the nine types are live V2 events; the ninth, `thread.plan-lane-set`, exists only as imported V1 rows and arrives through the backfill alone. `HISTORY_EVENT_TYPES` moves from `LoomStore.ts` to this file as the projector's filter; `LoomHistoryEvents.ts` stays as the row schema (`HistoryEventRow`, which `decodeHistoryRow` already applies) with its doc comment rewritten: the rows live in `loom_thread_history`, written here, and the prune passes are no longer its concern.
+
+## 4. The readers move
+
+**`LoomStore.history`.** The query becomes `SELECT event_id AS "eventId", event_type AS "type", occurred_at AS "at", payload_json AS "payload" FROM loom_thread_history WHERE thread_id = ${threadId} ORDER BY stream_version`. The fold under it does not change. Its interface comment says the sidecar table instead of "Read from the event log". <Sidenote>`LoomStore.ts` l.375–380.</Sidenote> `loom.threadHistory` and `/retro`'s attention count call `history` and need nothing. <Sidenote>`apps/server/src/loom/wsMethods.ts` l.261; `apps/server/src/loom/handoff/retroDraft.ts` l.285.</Sidenote>
+
+**The two evals scripts.** Each has one SQL string that names the log; each changes table, id column and version column and nothing else. `order by sequence` becomes `order by thread_id, stream_version`. Both scripts only ever take the first row per thread, through `setdefault`, so per-thread order is all they relied on.
+
+<Diff
+  filename="scripts/loom-evals/dashboard.py (l.134–136)"
+  language="python"
+  mode="unified"
+  before={"\"select stream_id, event_type, occurred_at, command_id, payload_json from orchestration_events \"\n\"where application_event_version = 2 and event_type in ('thread.outcome-recorded', 'thread.outcome-set') \"\n\"and occurred_at < ? and stream_id not in (:excluded) order by sequence\",\n"}
+  after={"\"select thread_id, event_type, occurred_at, command_id, payload_json from loom_thread_history \"\n\"where event_version = 2 and event_type in ('thread.outcome-recorded', 'thread.outcome-set') \"\n\"and occurred_at < ? and thread_id not in (:excluded) order by thread_id, stream_version\",\n"}
+/>
+
+<Diff
+  filename="scripts/loom-evals/gate_escapes.py (l.89–90)"
+  language="python"
+  mode="unified"
+  before={"q(\"select stream_id, occurred_at, payload_json from orchestration_events where event_type = 'thread.outcome-recorded' \"\n  \"and application_event_version = 2 order by sequence\")\n"}
+  after={"q(\"select thread_id, occurred_at, payload_json from loom_thread_history where event_type = 'thread.outcome-recorded' \"\n  \"and event_version = 2 order by thread_id, stream_version\")\n"}
+/>
+
+`scripts/loom-evals/README.md` l.63 names the `thread.outcome-set` event and its `command_id`; the sentence gains "in `loom_thread_history`". `render.py`'s metric caption (l.35) names the event type, which is still what the row is, so it stands.
+
+## 5. Deleting the guard
+
+Three hunks in `apps/server/src/orchestration-v2/ProjectionMaintenance.ts`, each marked `// loom:` or `-- loom:`: the import at l.10, the `WHEN event.aggregate_kind = 'thread' AND event.event_type IN … THEN 0` arm at l.129–130, and the `AND event.event_type NOT IN …` conjunct at l.206 (which also restores upstream's `) AS imported` on one line). `git diff upstream/main -- <file>` today shows exactly these three and must show nothing after.
+
+`apps/server/src/orchestration-v2/ProjectionMaintenance.loom.test.ts` is deleted whole. Both its cases ("keeps an imported V1 thread's workstream history", "keeps V2 workstream history through a due prune pass") exist to prove the guard. With the history in its own table, a "survives the prune" test would prove that a `DELETE FROM orchestration_events` leaves another table alone, which is SQLite, not Loom. What replaces it as proof is in §7.
+
+## 6. Change map
+
+<Details summary="Every file the coder touches">
+  <FileTree
+    title="One PR, in build order"
+    entries={[
+      { path: "apps/server/src/persistence/Migrations/1070_LoomThreadHistory.ts", change: "added", note: "table, index, one-off backfill (§2)" },
+      { path: "apps/server/src/persistence/Migrations/1070_LoomThreadHistory.test.ts", change: "added", note: "backfill from a seeded log; fold reads the table (§7)" },
+      { path: "apps/server/src/persistence/LoomMigrations.ts", change: "modified", note: "import and `[1070, \"LoomThreadHistory\", …]` entry" },
+      { path: "apps/server/src/persistence/LoomMigrations.v1copy.test.ts", change: "modified", note: "ledger-tail window ends at 1070" },
+      { path: "apps/server/src/loom/projection/loomProjection.ts", change: "modified", note: "`recordHistory` before `applyEdgeTables` (§3)" },
+      { path: "apps/server/src/loom/projection/LoomHistoryEvents.ts", change: "modified", note: "doc comment: the table's row schema, not the log's" },
+      { path: "apps/server/src/loom/projection/LoomStore.ts", change: "modified", note: "`history` reads `loom_thread_history`; `HISTORY_EVENT_TYPES` import goes; interface comment" },
+      { path: "apps/server/src/loom/projection/LoomStore.test.ts", change: "modified", note: "the history fixture inserts into the table instead of the log; assertions unchanged" },
+      { path: "apps/server/src/loom/projection/loomProjection.test.ts", change: "modified", note: "one case: a dispatched outcome lands in the table with its command id; rebuild test compares `history` too" },
+      { path: "apps/server/src/orchestration-v2/ProjectionMaintenance.ts", change: "modified", note: "three Loom hunks removed; upstream-verbatim" },
+      { path: "apps/server/src/orchestration-v2/ProjectionMaintenance.loom.test.ts", change: "removed", note: "both cases proved the guard" },
+      { path: "scripts/loom-evals/dashboard.py", change: "modified", note: "one query (§4)" },
+      { path: "scripts/loom-evals/gate_escapes.py", change: "modified", note: "one query (§4)" },
+      { path: "scripts/loom-evals/README.md", change: "modified", note: "names the table on the canceller line" },
+    ]}
+  />
+</Details>
+
+Untouched, checked:
+
+- `packages/contracts`: no wire change. `apps/web` and `apps/mobile` consume `LoomThreadHistoryEntry` as before.
+- `apps/server/src/cli/loomMigrate.loom.ts` and `apps/server/scripts/migrate-dev-db.ts`: both slice by the `thread_id` column they find in the schema.
+- `apps/server/src/dev/seedWorkstream.ts`: dispatches through the orchestrator, so its rows arrive via §3.
+- `Orchestrator.loom.submit.test.ts` l.396: already reads `history` after a real submit, so it exercises §3 for free.
+
+## 7. Verification
+
+**Focused tests** (`vp test run <path>`, never after `--`):
+
+- `1070_LoomThreadHistory.test.ts`, on 1041's pattern. `runAllMigrations({ toLoomMigrationInclusive: 1069 })`, then insert the `LoomStore.test.ts` history fixture into `orchestration_events`: five V1 rows with `threadId`/`updatedAt` in the payload, one V2 `thread.title-set` as noise, five V2 history rows, one with a `command_id`. Then `runAllMigrations({ toLoomMigrationInclusive: 1070 })`. Assert ten rows in `loom_thread_history` in `stream_version` order, `event_version` 1 then 2, the `command_id` carried; and that `LoomStore.history` returns the fixture's eight folded entries (`outcome`, `route-taken`, `attention-raised`, `attention-cleared`, `attention-raised`, `attention-cleared`, `outcome`, `outcome-set`). It fails without the backfill (empty table) and without the move (the fold would still read the log).
+- `LoomStore.test.ts` "folds the thread's history": the same assertions over rows inserted into the table.
+- `loomProjection.test.ts`: dispatch a `thread.outcome.set` with `commandId: "command:mcp:cancel-1"` and assert the table holds one `thread.outcome-set` row for it with that `command_id` and `event_version` 2. The existing rebuild case adds `store.history(threadId)` to its before/after comparison.
+- Then `vp run check:changed`, `vp check`, `vp run typecheck`.
+
+**On real data**, the way pull 15's gate did it. <Sidenote>Pull 15 decision log, DL-1898.</Sidenote> `sqlite3 -readonly "$T3CODE_HOME/userdata/statev2.sqlite" "VACUUM INTO '<scratch>/statev2.sqlite'"` in the background (32 s; deleted afterwards), `settings.json` copied beside it, `env -i … node apps/server/src/bin.ts serve --base-dir <scratch>`, stopped by its PID. Expect:
+
+1. After boot: `loom_sql_migrations` max is 1070. `SELECT event_version, COUNT(*) FROM loom_thread_history GROUP BY 1` gives **33,696** for 1. For 2 it gives exactly `SELECT COUNT(*) FROM orchestration_events WHERE aggregate_kind = 'thread' AND application_event_version = 2 AND event_type IN (…)` on the same copy (8,507 at 10 Nov; it grows daily).
+2. Force a due pass: backdate `event-log-prune-mark` by a day in `orchestration_v2_projection_metadata`, re-boot, wait about 24 min. The log's history rows are gone with the rest (the V1 rows on the first pass, the V2 rows older than the mark on the forced one); `loom_thread_history` counts are unchanged.
+3. In the browser against that server, the Timeline tab of a workstream from October shows its outcomes with report paths, flags and rework rounds, and `/retro` on it still counts flags. The dev-verify recipe gives the same check: its first `vp run dev` seeds from live data and runs 1070 on the seed.
+4. `python3 scripts/loom-evals/dashboard.py --db <copy>` and `gate_escapes.py --db <copy>` for one week, with `HOME` pointed at a scratch directory so `~/loom-evals` is untouched. `metrics.json` and `escapes.json` rows are identical to the pre-change scripts run against the live database for the same week (1,347 and 162 rows for 2026-W45).
+5. `git diff upstream/main -- apps/server/src/orchestration-v2/ProjectionMaintenance.ts` is empty, and `docs/upstream-sync/pull7-tools/unmarkedsweep.sh` (the `pnpm ship` gate) is clean.
+
+## 8. Risks
+
+- **A path that applies a Loom event without a log row in the same transaction** would insert nothing (the `SELECT` finds no row), and the Timeline would silently miss that entry. Every V2 write goes through `EventSink` (`eventStore.append` then `applyStoredEvents`), and `ProjectionReplay.rebuild` reads the log it replays. No such path exists today; the `loomProjection.test.ts` case in §7 is the tripwire if one appears.
+- **Pull 16 rewrites the prune SQL.** With the guard gone that is upstream's file verbatim and conflicts nowhere; this is the point.
+- **The backfill runs on a database that was pruned without the guard.** Not possible for any database Loom has booted, and the ordering constraint in §2 keeps it so. The one gap: `t3 doctor compact` (`DatabaseMaintenance.ts`) opens the database without running migrations, so running the new build's `doctor compact` before its first boot would delete the V1 rows unguarded; the deploy notes say not to; the kept pre-promotion snapshot is the recovery if a cockpit database ever loses rows before 1070 runs on it.
+- **Boot time.** One cold scan of the 7.3 GB file, under a minute, once.
+
+## Decided
+
+<Callout tone="decision" title="History table only; no archive of upstream's events">
+  Carl, 10 Nov, asked what the prune would delete and whether it mattered for his intermittent self-analytics. Of the 1.49 M log rows, 1.36 M are streaming deltas (`turn-item.updated`, `node.updated`, `message.updated`, `provider-turn.updated`, `run.updated`) whose final state the projections keep with timestamps; his trace checks read the pi session files, which the prune never touches; and the kept pre-promotion snapshot archives everything to deploy day. The only Loom signal that fell through was `thread.gate-warning`, so it is carried. His words: "Yes proceed on that basis."
+</Callout>
+
+## As built
+
+Commit `a6981233c2` delivers §§1–8 as written. Three test-only departures:
+
+- `1070_LoomThreadHistory.test.ts` asserts only what the migration alone can get wrong (row count, column mapping, `stream_version` order) and seeds a gate warning and a non-thread row to cover the ninth type and the `aggregate_kind` filter; the fold assertions stay in `LoomStore.test.ts` (reviewer's note N6).
+- `LoomStore.test.ts`'s noise row is a `thread.gate-warning` instead of `thread.title-set`, since only history types can exist in the table; it proves the fold returns nothing for a gate warning.
+- `HISTORY_EVENT_TYPES` is no longer exported from `LoomHistoryEvents.ts`; `loomProjection.ts` derives its filter set from `HistoryEventRow`, the only remaining caller.
+
+On the cockpit copy: 33,696 V1 and 8,701 V2 rows carried (the V2 count had grown from 8,507 by build time); after both prune passes the log held 24 of them and the table all of them plus 7 live writes. `dashboard.py` and `gate_escapes.py` output for 2026-W45 was byte-identical before and after (1,347 and 162 rows).

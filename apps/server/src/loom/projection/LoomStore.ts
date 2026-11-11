@@ -37,7 +37,7 @@ import * as Struct from "effect/Struct";
 import * as SqlClient from "effect/sql/SqlClient";
 import type * as Statement from "effect/sql/Statement";
 
-import { HISTORY_EVENT_TYPES, HistoryEventRow } from "./LoomHistoryEvents.ts";
+import { HistoryEventRow } from "./LoomHistoryEvents.ts";
 
 export class LoomStoreError extends Schema.TaggedError<LoomStoreError>()("LoomStoreError", {
   operation: Schema.String,
@@ -375,8 +375,8 @@ export interface LoomStoreV2Shape {
   /**
    * The thread's event history, oldest first (`LoomThreadHistoryEntry`): each
    * outcome with the report its submit set, flags, gate routes and plan
-   * outcomes. Read from the event log, V1-imported and V2 events alike: the
-   * sidecar keeps only the latest of each.
+   * outcomes. Read from `loom_thread_history`, V1-imported and V2 events alike:
+   * the sidecar row keeps only the latest of each.
    */
   readonly history: (threadId: ThreadId) => Op<ReadonlyArray<LoomThreadHistoryEntry>>;
   readonly consults: {
@@ -942,13 +942,13 @@ const make = Effect.gen(function* () {
         }),
       );
     }, run("shellFields")),
+    // stream_version order holds because upstream's prune never deletes a stream's newest row.
     history: (threadId) =>
       sql`SELECT event_id AS "eventId", event_type AS "type", occurred_at AS "at",
             payload_json AS "payload"
-          FROM orchestration_events
-          WHERE aggregate_kind = 'thread' AND stream_id = ${threadId}
-            AND event_type IN ${sql.in(HISTORY_EVENT_TYPES)}
-          ORDER BY sequence`.pipe(
+          FROM loom_thread_history
+          WHERE thread_id = ${threadId}
+          ORDER BY stream_version`.pipe(
         Effect.map((rows) => {
           // A submit's `report-set` precedes its `outcome-recorded`: carry it onto that outcome.
           let reportPath: string | null = null;
@@ -1000,6 +1000,8 @@ const make = Effect.gen(function* () {
                   return [{ type: "outcome-set", ...event, outcome: null }];
                 return [];
               }
+              case "thread.gate-warning":
+                return [];
             }
           });
         }),
