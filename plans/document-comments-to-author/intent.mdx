@@ -218,7 +218,7 @@ Every round of review ends in the author's thread whichever you pick. The reply 
 
 Source: the live database, read-only, every message a person wrote from 7 Oct to 11 Nov that carried at least one comment anchored to a rendered document (an annotation, a question-form answer or a review verdict). That is 113 messages. 12 were questions sent to a read-only fork of the author and are left out, which leaves 101.
 
-The database does not record which person typed a message, and Jacob has an account too. The signals used to find his threads for his own account (`plans/jacob-loom-account/jacob-thread-candidates.sql`) show any sign of him in the workstreams behind at most 7 of the 101: 4 of the 55 sent outside the author and 3 of the 38 sent in it. Leaving all 7 out gives 51 of 94, so the share does not move.
+The database does not record which person typed a message, and Jacob has an account too. The signals used to find his threads for his own account show any sign of him in the workstreams behind at most 7 of the 101. Those are 4 of the 55 sent outside the author and 3 of the 38 sent in it. Leaving all 7 out gives 51 of 94, so the share does not move. The query is `plans/jacob-loom-account/jacob-thread-candidates.sql`.
 
 The author of a document is the thread whose session signed it. Where a document had no signature, it is the first thread recorded writing the file in the same workstream. On that basis 55 messages were sent in a thread that was not the author, 38 in the author, and for 8 no author could be found. One of the 55 covered two documents, so the per-document counts are out of 56.
 
