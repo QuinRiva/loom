@@ -1,0 +1,149 @@
+---
+kicker: "Explainer · Why upstream's mobile app shows what it shows · upstream main as of 9 Nov 2026"
+reader:
+  who: Carl, Loom's maintainer, who has just used the Android build on a Z Fold 7 after months on web
+  knows: the web app well, and which Loom-only features reached the phone (the earlier coverage explainer); not upstream's reasoning about mobile
+  after_first_screen: "Upstream doesn't keep things off the phone on purpose, apart from running the agents. It aims for the phone to do almost everything web does, treats a gap as a bug, ships on web first and brings the 'answer the agent' part to the phone first. Interactions that need a mouse or keyboard wait until someone builds a touch version, and the phone gets extras web can't have. Only the first two are stated outright."
+---
+
+# Upstream has no "keep it off the phone" list: the phone is a remote, and gaps are bugs
+
+T3 Code's maintainers have written down one hard limit on mobile: **the phone is a remote and never runs the agents**. Everything else points the other way. They sell the app as "pretty much the full power of the desktop app". Their contributor rules call a feature missing from one client a defect. In practice a mobile gap gets filed as a bug ("expected: same as web") and fixed within weeks.
+
+So most of what feels constrained on your phone is not a decision upstream made. It is one of three things:
+
+- Loom's own features that were never ported (covered in the earlier explainer).
+- Upstream features that shipped on web first and haven't reached mobile yet.
+- Interactions that need a mouse or keyboard and have no touch version yet.
+
+<Columns columns={3}>
+  <Card heading="1. The phone is a remote" tone="success" badge="stated">
+    Your computer runs the agents and must stay on. The phone connects to it. This is the only hard boundary upstream states.
+  </Card>
+  <Card heading="2. Parity is the default; a gap is a bug" tone="success" badge="stated">
+    Their contributor rules list mobile as a client every change must cover. Users report gaps as bugs and maintainers merge the fixes.
+  </Card>
+  <Card heading="3. Web first, and the phone first gets what unblocks an agent" tone="info" badge="stated, for now">
+    New features land on web. The phone first gets what lets you answer an agent (approvals, questions); starting the feature from the phone comes later.
+  </Card>
+  <Card heading="4. Gestures are translated, not dropped" tone="warning" badge="inferred">
+    Right-click becomes long-press, the command palette becomes list search. Where nobody has built a touch version (selecting text to quote, Shift-click), the feature isn't there yet.
+  </Card>
+  <Card heading="5. Native app, plus what only a phone can do" tone="info" badge="partly stated">
+    A native app, not a shrunk web page, with push alerts, lock-screen activity, widgets, share-into-app and offline queueing that web can't offer.
+  </Card>
+  <Card heading="Not found: a list of things ruled out" tone="neutral" badge="absent">
+    No doc, PR or talk I found says a feature is web-only by design, except running agents. Where a setting stays on web (model prices, load balancing), no reason is given.
+  </Card>
+</Columns>
+
+**Stated** below means a maintainer wrote or said it, quoted with its source. **Inferred** means I read it from what is present and absent in the code and docs. Theo's spoken remarks come from a transcript or a third-party summary of his streams, and each is marked as one or the other.
+
+## 1. The phone is a remote for a machine that does the work
+
+**What it is.** The phone never hosts T3 Code or runs an agent. It pairs with a server on another machine and drives it. That machine also holds the provider logins and command-line tools.
+
+**What it explains.** Why the install guide says to set up the computer first and to sign providers in "in the web or desktop app", and why the FAQ's answer to "my provider is missing" is "(Not your phone. The computer.)". <Sidenote>Upstream `docs/user/install.md` (Mobile app, Providers) and `docs/user/faq.md`. The phone can now sign some providers in under Settings → Providers, so even this has softened.</Sidenote>
+
+**Justification (stated).** The FAQ: "The phone is a remote. Your computer does the work and needs to stay on." <Sidenote>`docs/user/faq.md`, "How do I use T3 Code on my phone?" on [GitHub](https://github.com/pingdotgg/t3code/blob/main/docs/user/faq.md).</Sidenote> Theo gave the reason in May, before the native app existed: "the problem we're trying to solve with remote control is what happens when I shut my laptop and an agent is running. I want to open and see the result. I don't want it to get stopped." He framed the alternative, a terminal over SSH on a phone, as the thing to beat: no worktrees without hand-written git, no image pasting. <Sidenote>Theo, "How I code with AI changed a lot", 27 May 2026, [transcript](https://rosetta.to/u/t3dotgg/how-i-code-with-ai-changed-a-lot).</Sidenote> That is why the phone app has a terminal, worktrees and image attachments rather than a slimmed-down chat.
+
+## 2. Parity is the default, and a gap is a bug
+
+**What it is.** A feature on web is expected on mobile too. When it's missing, that is treated as a defect, not a product choice.
+
+**Example.** On the phone, a thread waiting on background work showed only "Waiting on 4 monitors"; tapping did nothing. A user filed it as "web lists each item"; a core contributor's fix added a sheet listing each item and a Stop button. <Sidenote>Issue [#21342](https://github.com/pingdotgg/t3code/issues/21342), fixed by [#21395](https://github.com/pingdotgg/t3code/pull/21395) ("fix(mobile): expose background work and thread status actions").</Sidenote> The same batch includes "fix(mobile): bring model controls in line with web" and "show plans and fold settled progress notes" (the phone had been showing proposed plans as raw JSON). <Sidenote>[#21406](https://github.com/pingdotgg/t3code/pull/21406), [#21393](https://github.com/pingdotgg/t3code/pull/21393). Bug reports use an "Area: apps/mobile" field and typically state "Expected: the same as web", for example [#15380](https://github.com/pingdotgg/t3code/issues/15380).</Sidenote>
+
+**Justification (stated).**
+
+<Table
+  density="compact"
+  columns={["Who says it", "What they say", "Source"]}
+  rows={[
+    ["Contributor rules", "\"The most common defect in this repo is a change that works on the path you tested and is missing everywhere else.\" The checklist under it lists \"Clients. Web, desktop … and mobile\".", "Upstream `AGENTS.md`, Hit every surface (Loom's `AGENTS.md` carries the same rule)"],
+    ["App Store listing", "\"Once connected, you have pretty much the full power of the desktop app right in your hands. You can kick off agent runs, browse files, perform version control actions, review diffs, even use the terminal.\"", "[App Store](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824)"],
+    ["README and FAQ", "\"Best in class mobile app.\"", "Upstream `README.md`, `docs/user/faq.md`"],
+    ["Commit volume", "Since 9 Sep 2026, 1,220 upstream commits touched the mobile app against 2,506 touching web. About 650 are titled as mobile fixes, features or speed-ups.", "`git log upstream/main --since=2026-09-09 -- apps/mobile` and `apps/web`"],
+  ]}
+/>
+
+The commit counts are mine, not a maintainer's, but they show the phone is getting about half web's engineering attention, not maintenance scraps.
+
+## 3. Web ships first; the phone first gets what lets you answer an agent
+
+**What it is.** New features are built on web and reach mobile later, sometimes days later, sometimes about two months. When a feature arrives on the phone in part, the part that arrives first is the one that stops an agent waiting on you.
+
+**Example.** Side chats (ask a side question without derailing a running thread) shipped on web on 31 Oct. Its PR says: "Mobile: the parent's thread screen lists its side chats, so you can answer their approvals from a phone. Starting one is web and desktop only for now." Starting one from the phone followed five days later. <Sidenote>[#26901](https://github.com/pingdotgg/t3code/pull/26901), then "feat(mobile): start side chats with /side" [#31709](https://github.com/pingdotgg/t3code/pull/31709).</Sidenote> The same ordering shows elsewhere: alerts go out when an agent finishes, fails, needs approval or asks for input, and approvals, questions (with attachments), secret requests and guest messages can all be answered from the phone. <Sidenote>Upstream `docs/user/mobile-notifications.md`, `question-attachments.md`, `secrets.md`, `guest-links.md`.</Sidenote>
+
+**Two more lags, both since closed.** Linking a pull request to a thread shipped on web on 24 Aug and reached mobile on 18 Oct; the user guide still says it is web and desktop only, so the docs lag the code. <Sidenote>[#8160](https://github.com/pingdotgg/t3code/pull/8160) (web), [#20394](https://github.com/pingdotgg/t3code/pull/20394) (mobile); `docs/user/source-control.md` still reads "Linking and unlinking are available in the web and desktop clients."</Sidenote> At the store launch, Theo said subagent views were not built yet; the phone now has an Agents view. <Sidenote>Third-party summary of the launch stream, ["Big launch today"](https://www.youtube.com/watch?v=x_xJMlt_2Hc); current state in `docs/user/thread-sidebar.md`.</Sidenote>
+
+**Justification.** The "for now" is **stated**. The reason for building web first is not stated anywhere I found. The obvious reading (**inferred**) is cost: web and desktop are one codebase, the phone is a second one, and the maintainers try features on web where they work all day.
+
+## 4. Mouse and keyboard interactions get a touch version, or wait for one
+
+**What it is.** Where web relies on right-click, hover, drag, a modifier key or a keyboard shortcut, the phone gets a touch equivalent. Where nobody has designed one, the feature is missing. Nobody upstream states this as a rule; it is the pattern in their own user guide.
+
+<Table
+  density="compact"
+  columns={["On web", "On the phone", "Status"]}
+  rows={[
+    ["Right-click a thread or link for actions", "Long-press menu (Copy thread, Arrange threads, PR actions)", { badge: { label: "Translated", tone: "success" } }],
+    ["Command palette, Cmd+K", "Search box on the thread list, also matching message text; Cmd+K returns on an iPad with a keyboard", { badge: { label: "Translated", tone: "success" } }],
+    ["Drag threads to reorder or change section", "Arrange threads mode with drag handles", { badge: { label: "Translated", tone: "success" } }],
+    ["Select text in a reply, then Cite in composer", "Shows quotes made on web; can't create one", { badge: { label: "Missing", tone: "warning" } }],
+    ["Shift-click several models to send one prompt to each", "One model per new thread", { badge: { label: "Missing", tone: "warning" } }],
+    ["Drag files from your computer onto a thread row", "Share sheet from another app into a draft instead", { badge: { label: "Different route", tone: "info" } }],
+    ["Customisable keybindings, F6 focus cycling, Usage page letter shortcuts", "None on a phone; an iPad with a hardware keyboard gets a fixed set (Cmd+1 to 9, Cmd+K)", { badge: { label: "Keyboard only", tone: "neutral" } }],
+  ]}
+/>
+
+The citation PR is the clearest case: it says mobile "renders sent quotes as readable blockquotes with the comment below; it doesn't create citations", and gives no reason. <Sidenote>[#9146](https://github.com/pingdotgg/t3code/pull/9146). Other rows: upstream `docs/user/thread-sidebar.md`, `composer.md`, `keybindings.md`.</Sidenote> The **inferred** reason is that selecting a range of text inside a scrolling, natively rendered chat is hard to do well on touch. That is my reading, not theirs.
+
+**Not every gap is a touch problem.** **Edit from here** (rewind the conversation to an earlier message) is a button under a message, which works on touch. Its absence looks like unfinished work, not a decision.
+
+## 5. A native app, plus what only a phone can do
+
+**What it is.** Upstream chose a native app over the mobile web page it already had, and it uses the phone's own facilities rather than imitating web.
+
+**Justification (partly stated).** In May, Theo: "We do have mobile web, and it works better than I would have expected. Julius is cooking a React Native app now." <Sidenote>Same May transcript as section 1.</Sidenote> The app has its own native terminal and diff renderer, and per platform look: "Mobile has its own themes and text, code, and terminal preferences. It does not follow environment themes or defaults," with Material You on Android. <Sidenote>Upstream `docs/user/appearance.md`; native terminal and diff surfaces arrived in the first mobile PR, [#2013](https://github.com/pingdotgg/t3code/pull/2013).</Sidenote> Why native beats a web page is not argued at length anywhere. Theo's demo post for the native build stressed "Running on awful 15mbps WiFi" and "Working in hell threads with 0 latency", which suggests responsiveness on poor connections is the point (**inferred**, from a post seen only via a [mirror site](https://www.24vids.com/video/real-world-demo-of-the-new-t3-code-mobile-build-running-on-awful-15mbps-wifi-p-tw-2085608364223172903)).
+
+**Layout follows the window, not the device.** One app serves phones, foldables, tablets and resizable iPad windows. Under 600 points wide, the list is the root and pages push over it. Between 600 and 720, the list floats over the page. From 720 up, the list sits beside the page, with an optional third column. "A feature screen never asks which platform or window width it is on." <Sidenote>Upstream `docs/internals/mobile-layout.md`, added 3 Nov 2026. Theo reportedly uses a Samsung Z Fold unfolded for T3 Code (third-party summary of ["So my workflow has changed a lot"](https://finance.biggo.com/podcast/edd2a2fc77a07445)).</Sidenote> So on your Fold, folded is the phone layout, and unfolded should be wide enough for the side-by-side one (my estimate from the screen's size, not measured). Nothing is hidden because the screen is small; it is arranged differently.
+
+**What the phone has that web doesn't.** This shows what upstream thinks the phone is for: being pulled back in when an agent needs you, and capturing things while away from the desk.
+
+<Table
+  density="compact"
+  columns={["Phone-only feature", "What it does"]}
+  rows={[
+    ["Push alerts", "Finished, failed, needs approval, asks for input. Needs T3 Connect (upstream's hosted tunnel and sign-in service); quiet while the app is open."],
+    ["Live activity / ongoing card", "A lock-screen (iOS) or ongoing-notification (Android) card following working threads, up to five on Android; finished results stay 15 minutes."],
+    ["Home-screen usage widget", "Remaining Codex and Claude quota at a glance."],
+    ["Share into T3", "Send text, a link or an image from any app into a new draft."],
+    ["App-icon shortcuts", "New task, plus your three most recent threads."],
+    ["Offline queue and offline reading", "Write and queue messages with no connection; previously loaded pull request reviews stay readable."],
+    ["On-device dictation by default", "Speech stays on the phone unless you choose an environment."],
+  ]}
+/>
+
+Sources: upstream `docs/user/mobile-notifications.md`, `usage.md`, `composer.md`, `source-control.md`, `voice-input.md`; `apps/mobile/src/features/sharing`, `features/shortcuts`, `widgets`.
+
+## 6. What upstream hasn't said
+
+- **No list of features ruled out for mobile**, apart from running agents. I checked the user and internals docs, the contributor rules, the mobile PRs and the store copy.
+- **A few settings stay on web with no reason given**: adding custom models, setting model prices, machine load balancing ("Mobile keeps its manual environment selection"), and turning on webhook signature checks ("mobile keeps an existing signature check but can't turn one on"). <Sidenote>Upstream `docs/user/composer.md`, `usage.md`, `remote-access.md`, `project-settings.md`.</Sidenote> They are all one-off setup you'd do at a desk, which is a plausible reason, but it is **inferred**. Provider sign-in was in the same bucket and has since come to mobile, so treat these as not yet ported rather than ruled out.
+- **Find within an open thread, Edit from here, the Commits view in the diff pane, and the local servers list** are web-only with no stated reason and no touch obstacle. They read as unfinished.
+
+## 7. What carries over to Loom's own features
+
+Context for a later decision, not a recommendation:
+
+- **The remote principle cuts against Loom today.** The phone is for being called back when an agent needs you. Loom's Needs-you and Accept? flags never push, so the phone misses the one job upstream built it for.
+- **Answer-first ordering fits Loom well.** Following upstream, the first Loom pieces to bring across are the ones that unblock an agent (answering a carried-past question, accepting a child, clearing a flag), before the panels for building a workstream (goal editing, the graph).
+- **"A gap is a bug" is already Loom's rule on paper.** Loom's `AGENTS.md` lists mobile under Hit every surface, and Loom's web-only features break it. Either the rule gets a Loom exception or the gap is debt.
+- **Comments on plan documents hit the same wall as citations.** They depend on selecting text, which upstream hasn't solved on touch either. Expect that one to be hardest.
+- **Every Loom change to the mobile app has to be re-merged at each upstream pull.** Upstream changed the mobile app 137 times in the eight days after Loom's last merge, so each Loom hunk there is likely to collide again.
+
+## 8. Open edges
+
+- **Spoken sources are second-hand.** The May quotes are from a caption transcript. The launch-stream and Z Fold remarks come from third-party summaries, not a transcript I checked.
+- **Your build lags upstream.** Loom last merged upstream on 1 Nov. The three-way layout (list floats at medium widths, third panel becomes a sheet) landed upstream on 3 Nov, so your Fold shows the older two-step split for now. <Sidenote>Loom's `apps/mobile/src/lib/layout.ts` splits at 720 points wide and 600 tall; upstream's adds the 600–720 medium class.</Sidenote>
+- **Upstream's docs trail the code.** The pull-request-linking line is stale, and other "web and desktop only" lines may be too. The code is the safer guide.

@@ -1,0 +1,81 @@
+---
+reader:
+  who: Carl, Loom's maintainer, approving what the phone's workstream view is for before anything is built
+  knows: the web workstream panel from daily use, the three mockup directions, and his own pick ("B with A's cards on top"); not the mobile codebase
+  after_first_screen: "On my phone I'll get the lane graph with my needs-you cards on top, reached from the root's badge, the thread header or a child's breadcrumb; I can accept, answer, stop and open reports from it; the goal view, push alerts and MDX rendering are deliberately not in it."
+kicker: "Intent brief · approved 9 Nov 2026"
+status: approved
+plan: plans/mobile-workstream-view/plan.mdx
+manager_sessions:
+  - id: 01a1bea8-0a84-7147-8082-70e206504b94
+    name: Mobile workstream view intent brief
+    role: intent
+    authored_at: 2026-11-09T04:58:14.200Z
+---
+
+# The workstream on your phone: needs-you cards above a lane graph
+
+**Goal.** "The biggest gap that I see so far is not having a workstreams view", and from the sprint: "B with A's cards on top". A workstream screen in the Android build that answers the phone's questions in order: who needs me, what is running, who waits on whom. Accept, answer, stop and open-report are one tap away. The graph stays, drawn as lanes beside readable rows, because that is the only form of it that reads at 412 dp.
+
+<Columns columns={2}>
+  <Image src="shots/cover-combined.png" alt="The chosen screen on the cover display: two needs-you cards with Accept done and Answer buttons, then the lane graph with the newest wave first" caption="Cover screen, as chosen; the mockup links are under this figure." width={412} />
+  <Card heading="What you get, where from, what you can do" tone="info">
+    **One screen per workstream.** At the top, every sub-thread that needs you, as a card with its one-tap action: **Accept done** on a reviewer awaiting acceptance; **Answer** on a question an agent asked and carried on past, with the question text on the card.
+
+    **Below it the lane graph.** The root's spine runs down the left, with one square per wave and a branch to each wave's children. Dashed arrows show who waits on whom; blue loop arrows show a review gate, with its round badge. Beside the lanes, rows read like the thread list: title, role, state or current step, age, flag. Newest wave first. Settled waves collapse to one row each. A sub-orchestrator indents its children one lane.
+
+    **Reached from** three places: the root row's `44/51 · 2!` badge on Home, which becomes tappable; a header button beside Files on any thread; and a breadcrumb bar inside a child (`↑ in Mirvac audit via graphtus · 2 flagged`). The breadcrumb is also the way back to a parent, which the phone lacks today.
+
+    **From it you can** tap a row to open the child, or long-press (⋯ on a card) for web's whole node menu: Open thread, Show where it was dispatched, Open report, Accept done, Cancel, Reopen, Clear flags, Stop. Reports open in the phone's markdown viewer. Unfolded, the graph takes the left pane; the child you tap opens beside it with its row highlighted.
+  </Card>
+</Columns>
+
+Mockups from the sprint, gitignored under the worktree: [the comparison of the three directions](../../.artifacts/mobile-workstreams/index.html) and [this direction at both screen sizes, with the long-press sheet](../../.artifacts/mobile-workstreams/b-lane-graph.html).
+
+**You'll know it works when.**
+
+- On Home, you tap the badge on a root with flagged children and land on this screen with the cards on top and the latest wave under them, without opening the thread first.
+- You tap **Accept done** on a card. Within a couple of seconds the child reads done on the phone and on web, the card is gone and its row's dot is green. **Answer** sends your reply into that child.
+- You tap a row, read the child, and Back or the breadcrumb returns you to the workstream at the same scroll position. From a child reached through a chat link, the breadcrumb still takes you to its workstream.
+- You long-press a running coder and Stop it from the sheet; you long-press a done row and open its report, which renders as markdown.
+- A gate on its second round reads as such on the reviewer's row and the loop arrow carries `⟲2/3`; a blocked child's row names what it waits on and the dashed arrow points at it.
+- Unfolded, the lane graph sits in the left pane and the open child on the right; folding and unfolding keeps both.
+- **Must not:** slow the Home list or the thread screen. The screen reads the workstream atom the badge already derives from, not every child's stream. Must not change web. Must not add a server method or a field on the wire. Must not ship with over-the-air updates on: the build that reaches your phone keeps `T3CODE_MOBILE_UPDATES_ENABLED=0`.
+
+**Approaches in play.**
+
+- **Your pick.** Direction B's lane graph with direction A's needs-you cards pinned above it, as web pins its Active strip above its graph. Wins because at 412 dp a one-dimensional graph is the only readable one. The cards make the phone's main job one tap.
+- Dropped: A alone (inbox and outline, no graph). Cheapest, but you cannot see that one child waits on another or that a gate is looping except as a sentence.
+- Dropped: C, the web fork-join graph on a pinch-zoom canvas. Your workstreams run 20 to 78 threads; on the cover screen one fits only as coloured slivers, and every job begins with a pan. Its layout code is pure and could serve an unfolded-only view later.
+
+**Decided.** "Launch a design sprint to mockup how we could implement the workstreams graph, as not having that is a pretty big gap." "B with A's cards on top." Production code in the Loom fork: mobile code lands in `*.loom.ts(x)` modules or `// loom:`-marked hunks, so it survives upstream pulls. Nothing new from the server. The phone already receives the workstream sidecar on every thread shell, and the actions dispatch the V2 commands web dispatches. It reaches your phone as a rebuilt APK from the VM toolchain, updates off.
+
+_Assumed_ (redirect if wrong):
+
+- Tap on a row opens the child; long-press opens the sheet. Web's click opens the thread, so the phone's tap does too.
+- The cards include a child's carried-past question, the Needs you an orchestrator raises when it asks and continues, showing the question's title and how long ago it was asked. **Answer** opens that child with its question card docked above the composer, and your reply goes into the child from there. Answering on the workstream screen itself would mean reading every child's stream and rebuilding the phone's answer form.
+- Opening a report needs no file-viewer change: the phone's file route already opens absolute paths, so reports under the T3 home folder open as they are.
+- "Must not change web" means web's behaviour and UI. About 300 lines of pure row logic move from web into the shared client package so both clients read one definition; web renders identically and only its imports change.
+- Collapsed settled waves expand in place; the lanes continue through them. Cancelled children recede like done ones.
+- Android only is verified. The code is shared React Native, so iOS gets it for free but is not checked.
+
+**Not doing.**
+
+- The goal view. It comes next as a **Tasks** segment beside Graph at the top of this same screen, as web keeps workstream and goal as sibling panels. The segment slot is reserved and empty in this cut.
+- Push alerts for Needs you and Accept? flags. Loom's flag events never reach the alert feed and T3 Connect is off in our builds; a separate piece of work.
+- Rendering MDX plans and recaps on the phone. Reports are markdown and render; a plan's blocks still will not.
+- Spend and cost on rows or in the sheet (web-only queries). The timeline drawer. Editing dependencies, spawning or re-briefing from the phone. The 2D graph.
+
+**Your answers** (9 Nov 2026, each the recommended option).
+
+- Rail item: "Not in this cut; the three entry points are enough. Revisit with the goal view".
+- Ordering: "Newest first".
+- Swipes: "No swipes; tap the card button or use the sheet".
+- Spend: "Leave it out; add with the usage work later".
+- Timeline: "Defer; the sheet's last-round line is enough for now".
+
+**Still unknown.**
+
+- Whether a wave with many cross-wave dependencies, such as a Phase 4 that waits on four earlier threads, stays readable in a four-lane gutter or needs the gutter to widen for that wave. The plan measures its lane layout against the 51-thread Mirvac and 78-thread audit workstreams.
+- The exact unfolded width of the Fold 7 in dp (somewhere between 750 and 830). The app splits at 720 either way, so it changes the pane's width, not the design.
+- Whether the first APK's absolute-path file open also works over the tunnel, where the file read goes through the relay. Checked on the device with the installed build.

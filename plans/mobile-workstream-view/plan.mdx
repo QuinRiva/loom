@@ -1,0 +1,714 @@
+---
+reader:
+  who: the review gate checking this plan against the approved intent brief, then the coders who build from it with none of the planning context
+  knows: the intent brief beside this file and the web workstream panel; not the mobile codebase, the measurements, or that no agent can run the Android app
+  after_first_screen: "Three coder pieces and a delivery step build the brief's screen with nothing new from the server. The plan changes two of the brief's Assumed lines and reads one must-not as being about web's behaviour. No agent can run the app, so every on-screen check is Carl's, on his phone, from the rebuilt APK."
+kicker: "Implementation plan · mobile workstream view · 11 Nov 2026"
+status: approved
+intent: plans/mobile-workstream-view/intent.mdx
+manager_sessions:
+  - id: 01a1c8f1-c556-7277-a6f3-d7d599cacb2d
+    name: Mobile workstream view plan
+    role: plan
+    authored_at: 2026-11-11T05:29:24.123Z
+---
+
+# Build the phone's workstream screen in three pieces; its first run is on Carl's phone
+
+Build the brief's screen, needs-you cards above a lane graph, as **three coder pieces and one delivery step**. The code lands in Loom-owned mobile files plus **small marked hunks in seven upstream mobile files**. Nothing is added to the server or the wire. The logic that decides what a row says is **moved** out of web into the shared package, so both clients read one definition.
+
+The lane layout is new, pure and already measured on **49 real workstreams** of 20 or more sub-threads. A gutter capped at **4 arc slots** draws every arrow in all 49, as stored and with the newest two waves forced live. In the two heavier states measured, one workstream wants 6, and its arrows past the cap are left undrawn.
+
+<Stats
+  items={[
+    { value: "3 + 1", label: "Coder pieces + delivery", tone: "info", detail: "Logic first, then the screen and the ways in side by side, then one PR and one APK" },
+    { value: "0", label: "New wire fields or server methods", tone: "success", detail: "The thread shell already carries everything the screen draws" },
+    { value: "49 of 49", label: "Real workstreams fit a 4-slot gutter", tone: "success", detail: "As stored and with the newest two waves forced live; Mirvac needs 2, the audit 0" },
+    { value: "0", label: "Devices an agent can drive", tone: "risk", detail: "No emulator can run on this VM and device access is off: Carl's phone is the first run" },
+  ]}
+/>
+
+<Callout tone="decision" title="What the gate should check first" focus>
+  **Three places this plan touches the brief**, each argued in §2. Opening a report needs **no file-viewer change**: the phone already opens absolute paths, so that Assumed line is dropped. **Answer** opens the child's own question card, and the card on the workstream screen shows the question's title, not its body: a change to an Assumed line. **"Must not change web"** is read as web's behaviour and UI: about 300 lines of pure logic move to the shared package and web imports them from there.
+
+  **One fact that changes how the work is verified.** Agents can typecheck, test the pure logic, render the lanes from real data and build the APK. They cannot open the app. Every check in the brief is tried by Carl on his phone, and a second APK round should be expected.
+
+  <Badge tone="warning">2 Assumed lines changed</Badge> <Badge tone="info">1 must-not wording tightened</Badge> <Badge tone="risk">on-screen checks: Carl only</Badge>
+</Callout>
+
+<Columns columns={2}>
+  <Image src="shots/cover-combined.png" alt="The approved screen on the cover display: two needs-you cards with Accept done and Answer buttons, then the lane graph with the newest wave first" caption="The approved design, unchanged by this plan." width={360} />
+  <Card heading="Scope, and what done means" tone="info">
+    **In:** the screen, its cards, the lane graph, the long-press sheet with web's node menu (less the timeline), three ways in, the breadcrumb, the unfolded split, report open, Stop, Accept, Cancel, Reopen, Clear flags.
+
+    **Out, as the brief says:** the goal view (its segment slot stays empty), push alerts, MDX rendering, spend, the timeline, a rail item, swipes. Also not drawn in this cut: query-thread satellites and consult edges, which are web graph overlays the brief does not mention.
+
+    **Done means:** the static checks, the lane layout's tests and its real-data render pass. One PR is open. An APK with updates off is built and checked. Carl has tried the brief's six checks on his phone. One open question at the end: whether agents should get a way to run the app first.
+  </Card>
+</Columns>
+
+## 1. The build at a glance
+
+<Mermaid
+  caption="Build order. Read left to right: the logic piece gates the other two, which touch different files and can run at the same time."
+  legend={[{ tone: "warning", label: "the only place the app is run" }]}
+  source={
+    'flowchart LR\n  A["Logic<br/>shared rules, lanes, data"]\n  B["Screen<br/>cards, lanes, sheet"]\n  C["Ways in<br/>badge, header, breadcrumb"]\n  D["Delivery<br/>one PR, one APK"]\n  E["Carl on his phone<br/>the six checks"]:::tone-warning\n  A --> B\n  A --> C\n  B --> D\n  C --> D\n  D --> E\n'
+  }
+/>
+
+<Table
+  density="compact"
+  columns={["Piece", "What it delivers", "Builds on", "What an agent can verify"]}
+  rows={[
+    [
+      { badge: { label: "1 · Logic", tone: "info" }, md: "first, alone" },
+      "One shared definition of a workstream row; the lane layout; the data the screen and breadcrumb read; navigation and commands as functions",
+      "Web's `workstreamPresentation.ts` (moved, not copied), `rollup.ts`, `workstream.ts`, the badge's snapshot atom",
+      "Moved and new tests pass; web typechecks and its preview fixtures render identically; lanes rendered to HTML from the real Mirvac and audit workstreams"
+    ],
+    [
+      { badge: { label: "2 · Screen", tone: "info" }, md: "after 1" },
+      "The workstream route, cards, lane list, long-press sheet, and the left pane when unfolded",
+      "`AppBar`, the routed form-sheet pattern, `react-native-svg`, `WorkspaceEmptyDetail`; hunks in `Stack.tsx` and `AdaptiveWorkspaceLayout.tsx`",
+      "Typecheck, lint, bundle. Nothing on screen"
+    ],
+    [
+      { badge: { label: "3 · Ways in", tone: "info" }, md: "after 1, beside 2" },
+      "Tappable Home badge, header button, child breadcrumb, Back returning to the workstream, the dispatch jump",
+      "`rootNavigationRef`, `ThreadHeader`'s action list, the existing message jump; hunks in five upstream files",
+      "Typecheck, lint, one added navigation test case. Nothing on screen"
+    ],
+    {
+      tone: "warning",
+      cells: [
+        { badge: { label: "Delivery", tone: "warning" }, md: "after 2 and 3" },
+        "One feature PR; an APK with over-the-air updates off; the checks handed to Carl",
+        "The rebuild recipe that produced the first APK",
+        "The four static gates; the APK's manifest shows updates off"
+      ]
+    }
+  ]}
+/>
+
+What each piece reuses, adds and how it is verified is in §8. Pieces 2 and 3 share one worktree and no files. The one file both would want, `WorkstreamBadge.loom.tsx`, is split by time: piece 1 changes its atoms, piece 3 its view.
+
+Rough size: 1,500 to 2,000 new lines under `apps/mobile`, and about 300 lines moved (not added) from `apps/web` to `packages/client-runtime`. There is no new dependency and no native change, so the APK is the same build as before with new JavaScript.
+
+No earlier plan is replaced. The phone's only workstream surface so far is the Home badge, added under `plans/upstream-pull9-phase3-tracks/plan.mdx`; this builds on it.
+
+## 2. Where the plan touches the brief
+
+Three lines of the brief are changed or pinned. Seven more are answered, kept or refined without changing what Carl approved; they follow in a table.
+
+<Card heading="Opening a report needs no change to the file viewer" tone="warning" badge="ASSUMED LINE · DROPPED" meta={["less work than the brief expected", "verified in the code, not on a device"]}>
+
+> "Opening a report needs the phone's file viewer to accept an absolute path, because reports live under the T3 home folder, outside any project. That change is in scope"
+
+The file route already accepts one. `fileRoutePathSegments` keeps the leading slash, `resolveWorkspaceFilePath` returns an absolute path unchanged, and the server's `readFile` reads a host file in place. <Sidenote>The phone's `files/filePath.ts` and its test; the server's `WorkspaceFileSystem` test "reads host files outside the workspace root by absolute path".</Sidenote> A chat link to a file outside the workspace opens this way today. <Sidenote>`onMarkdownLinkPress` in `ThreadFeed.tsx` ends in `openAt(relativePath ?? path)`.</Sidenote> So Open report is one navigation call, and the brief's still-unknown about the tunnel stays as written.
+
+</Card>
+
+<Card heading="Answer opens the child's own question card; the workstream card shows the question's title" tone="warning" badge="ASSUMED LINE · CHANGED" meta={["one more tap than the mockup implied", "no child stream is read"]}>
+
+> "The cards include a child's carried-past question ... with the question text." Check: "**Answer** sends your reply into that child."
+
+The shell carries only the question's `header`, which the ask tool defines as a "Short decision title, understandable alone". That is what the card shows, with how long ago it was asked. The question's body is a multi-paragraph brief with two to four options. It lives in the child's own stream, which the brief forbids the screen from reading.
+
+**Answer** therefore opens that child. The phone's existing question card is docked above the composer there and takes the reply, so the reply still goes into that child. Answering in place would also mean rebuilding the phone's answer form: drafts, custom answers and attachments are about 450 lines in `use-selected-thread-requests.ts`.
+
+</Card>
+
+<Card heading="“Must not change web” is read as web's behaviour and UI" tone="info" badge="MUST-NOT · WORDING" meta={["web renders identically", "web source: imports change"]}>
+
+> "Must not change web."
+
+About 300 lines of pure logic move from web to the shared package and web imports them from there (§5). What web draws and does is unchanged. The orchestrator confirmed Carl did not write this line, and that the behaviour reading is the one it stands behind. Every web file touched is Loom-only, so no upstream hunk is created. The alternative, a second copy of the rules in mobile, is weighed in §5.
+
+</Card>
+
+<Table
+  density="compact"
+  columns={["", "The brief says", "This plan", "Why"]}
+  rows={[
+    [
+      { badge: { label: "settled", tone: "success" } },
+      "Still unknown: does a wave with many cross-wave dependencies stay readable in a four-lane gutter?",
+      "Yes. The gutter is sized once per workstream, not per wave, and capped at four lanes and four arc slots.",
+      "Measured on 49 real workstreams (§3)."
+    ],
+    [
+      { badge: "carried" },
+      "Still unknown: the Fold 7's unfolded width; report open over the tunnel",
+      "Both stay Carl's to see on the device.",
+      "The app splits at 720 dp wide and 600 dp high whatever the width. The report read is the request every file open makes."
+    ],
+    [
+      { badge: { label: "refined", tone: "info" } },
+      "“Dashed arrows show who waits on whom”",
+      "A dashed arrow is drawn while the wait is live: from each unfinished dependency to the thread it holds.",
+      "Drawing every recorded dependency needs 5 slots on Mirvac and up to 95 on the worst real workstream. The row's text names what a thread waits on either way."
+    ],
+    [
+      { badge: "kept" },
+      "“Settled waves collapse to one row each”",
+      "One row per settled wave, as written. The mockup merged a run of seven into one row; the brief's words win.",
+      "No run-merging logic, and each row keeps its own time. The default view is 12 rows at the median."
+    ],
+    [
+      { badge: "kept" },
+      "“The segment slot is reserved and empty in this cut”",
+      "No Tasks control is shown. The body is one Graph component under the header, so a segment row drops in above it later.",
+      "A greyed-out Tasks tab is a control that does nothing."
+    ],
+    [
+      { badge: { label: "approximated", tone: "info" } },
+      "“Show where it was dispatched”",
+      "Opens the dispatching thread at the last message at or before the child was spawned.",
+      "Web lands on the exact tool row using a timeline the phone lacks. The phone's existing jump takes a message id (§7)."
+    ],
+    [
+      { badge: "kept" },
+      "“iOS gets it for free but is not checked”",
+      "True for everything but the unfolded left pane, which is wired into the Android layout only.",
+      "The iOS sidebar lives in a separate navigation tree; the brief verifies Android only."
+    ]
+  ]}
+/>
+
+## 3. The lane layout
+
+The graph is a list of rows. Each row draws its own slice of the lanes in a narrow SVG at its left edge, the way `git log --graph` does. Rows can therefore be windowed, and can grow with the system font size without the lines coming apart.
+
+```text
+lane 0  1  2   slots    row text
+     ■                  23:35 · 1 thread
+     │  ●               Two rulings: fitout cap           coder · bash · 4m
+     ■                  23:05 · 1 thread
+     │  ■               Phase 5: updates from new docs    orchestrator · 2 running   Needs you
+     │  │  ◎ ─╮ ⟲2/3    Phase 5 plan review               reviewer · gate · round 2 of 3
+     │  │  ● ◀╯         Phase 5 updates plan for Jacob    planner · rework round 2 · edit · 1m
+     │  │  ∶            ▸ 2 settled
+     ■                  21:32 · 10 threads
+     │  ◎ ◀┄╮           Held-out tenants: no tuning test  coder · waits on Live page read…
+     │  ● ┄┄╯           Live page read as the client      reviewer · awaiting acceptance   Accept?
+     │  ●               Republish the seeds               coder · done · report
+     ■                  ▸ 13:46 · 12 settled
+     ■                  ▸ 08:47 · 6 settled · 1 cancelled
+```
+
+Read it top down. Each `■` on lane 0 is a wave on the root's spine, newest first. Phase 5 is a sub-orchestrator, so its children sit one lane in, and its two settled children are one folded row. The solid arrow with `⟲2/3` is a review gate on its second round of three. The dashed arrow is a live wait. The last two rows are whole settled waves, one row each.
+
+### The rules
+
+A **wave** is the children one parent spawned in one turn: same parent, same `spawnGeneration`; a child spawned outside a turn is a wave of one. That is web's rule (`layoutOrchestrator` in `apps/web/src/lib/forkJoinLayout.ts`), restated here in ten lines because web's copy is tangled into its 2D geometry.
+
+1. **Waves newest first**, by their earliest child's creation time. The root's waves each get a caption row with a square on lane 0, the spine.
+2. **Inside a wave, a thread sits above what it waits on.** Take each thread nothing else in the wave waits on, newest first, and follow it with the threads it waits on (its `blockedBy` and its gate's rework target), depth first. A reviewer therefore sits directly above the coder it gates, and their arrow is one row long.
+3. **A settled wave is one row.** Settled means every member and every descendant has an outcome. The row expands in place when tapped and collapses from its caption. Cancelled threads count as settled and recede like done ones.
+4. **A sub-orchestrator indents its children one lane**, without caption rows; its settled waves fold the same way. A settled sub-orchestrator with only settled descendants shows no nested rows until its chevron is tapped. Lanes cap at four; deeper nesting shares the last lane.
+5. **A gate arrow** (solid, primary colour, with the round badge) runs from the reviewer to its rework target while the gate is unresolved or once it has looped at least once. A gate that passed clean first time reads `gate · clean` in its row and draws no arrow.
+6. **A waits-on arrow** (dashed) is one trunk per waiting thread, joining it to each dependency that is not yet done, with the arrowhead at the waiter. A thread that waits on four others takes one slot, not four. The gate arrow stands in for the dependency between a reviewer and its coder.
+7. **An arrow to a folded thread ends at the folded row**, so the lanes continue through collapsed history.
+8. **Slots:** shortest arrow first, each takes the first slot free across its rows. Arrows that would need a fifth slot are not drawn; the waiting row still names what it waits on.
+
+### What the real data needs
+
+<Table
+  density="compact"
+  align={["left", "left", "left", "left"]}
+  columns={["State of the 49 workstreams", "Arc slots needed", "Lanes", "Rows on screen"]}
+  rows={[
+    ["As stored today, settled waves folded", "0 in 39, 1 in 7, 2 in 2, 4 in 1", "2 in 48, 3 in 1", "median 12, 90th percentile 21, most 34"],
+    ["Newest two waves forced back to live", "at most 2 in 44; 3 in 2; 4 in 3", "2 in 44, 3 in 5", "median 16, most 35"],
+    ["Newest four waves forced back to live", "at most 4 in 48; 6 in 1", "2 in 40, 3 in 9", "median 21, most 46"],
+    ["As stored, every fold expanded", "at most 2 in 47; 4 in 1; 6 in 1", "2 in 28, 3 in 20, 5 in 1", "median 41, 90th percentile 67, most 131"],
+    { tone: "neutral", cells: ["Mirvac execution, 51 threads", "2 in every state above", "3", "34 to 38 folded, 67 expanded"] },
+    { tone: "neutral", cells: ["Codebase audit, 77 threads", "0 to 1", "2", "14 to 20 folded, 91 expanded"] }
+  ]}
+/>
+
+The population is every workstream in the live database with 20 or more non-archived sub-threads, read in place and read-only. Most are finished, so the two "forced live" rows re-open the newest waves to approximate mid-flight. Under the rejected rule that draws every recorded dependency, the same data needs 5 slots on Mirvac folded, 6 expanded, and 95 on the largest.
+
+**Gutter width.** Lane `n` is at `20 + 24n` dp. Slot `s` is at the last lane's x plus `22 + 9s`. The gutter ends 12 dp past the last slot, or 18 dp past the last lane when there are no arrows. Two lanes and no arrows is 62 dp; Mirvac is 111 dp; the cap (four lanes, four slots) is 153 dp. The layout takes a slot limit so the gutter never exceeds 40% of the list's width, which matters in the 280 dp unfolded pane.
+
+**How a row draws its slice.**
+
+- Vertical runs are lines from the row's top, or from its dot, to the row's bottom. They are given in percentages, so they stretch with the row.
+- Bends and arrowheads are paths in the fixed band around the dot, which sits a fixed distance from the row's top.
+- Glyphs follow web's shapes with the phone list's colours. A filled dot is running or done, a ring not started, a ring around a dot waiting. A rounded square is an orchestrator and two small dots a fold.
+- Settled rows draw at reduced opacity. Nothing animates.
+
+### The contract
+
+```ts
+// apps/mobile/src/features/workstream/laneLayout.loom.ts
+type LaneNode = Pick<WorkstreamNode,
+  "id" | "parentThreadId" | "spawnGeneration" | "createdAt" | "outcome" | "blockedBy" | "routes" | "gateRounds">;
+
+type LaneRow =
+  | { kind: "wave"; key: string; at: string; count: number; gutter: RowGutter }           // caption, square on the spine
+  | { kind: "thread"; key: ThreadId; lane: number; orchestrator: boolean; gutter: RowGutter }
+  | { kind: "fold"; key: string; lane: number; threadIds: ReadonlyArray<ThreadId>;        // a settled wave or sub-tree
+      at: string; settled: number; cancelled: number; gutter: RowGutter };
+
+interface RowGutter {
+  lanes: ReadonlyArray<{ lane: number; above: boolean; below: boolean }>;  // which halves carry the lane's line
+  forkTo: number | null;                                                   // a branch from this glyph to the next lane
+  arcs: ReadonlyArray<{ slot: number; kind: "waits" | "gate"; above: boolean; below: boolean;
+                        joins: "none" | "source" | "target"; sourceId: ThreadId }>;
+}
+
+interface LaneLayout {
+  rows: ReadonlyArray<LaneRow>;
+  laneCount: number;
+  slotCount: number;
+  undrawn: ReadonlySet<ThreadId>;   // waiters whose arrow found no slot
+}
+
+function layoutLanes(nodes: ReadonlyArray<LaneNode>, rootId: ThreadId,
+  expanded: ReadonlySet<string>, maxSlots: number): LaneLayout
+```
+
+The layout reads structure and outcomes only. Activity, steps, flags and round counts are read at render from the node, so a running thread's step ticking over never re-runs it. The round badge resolves `gateRounds` and the cap from `sourceId` at render, as web's graph does.
+
+<Details summary="The measurement script: the rules above as 90 lines of Python, for the coder to check the TypeScript against">
+
+Save it as `lanes.py` and run it from anywhere on the cockpit VM. It opens the live database read-only and prints the totals, then the Mirvac and audit workstreams on their own lines. `python3 lanes.py` is the first table row; `python3 lanes.py 2` forces the newest two waves live; `--expand` unfolds everything.
+
+```python
+import collections, json, os, sqlite3, sys
+
+con = sqlite3.connect(f"file:{os.path.expanduser('~')}/.t3/cockpit/userdata/statev2.sqlite?mode=ro", uri=True)
+con.row_factory = sqlite3.Row
+LIVE_WAVES = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 0
+EXPAND = "--expand" in sys.argv
+
+def load(root):
+    out = {}
+    for r in con.execute("""select thread_id id, parent_thread_id parent, spawn_generation gen, created_at created, outcome,
+            blocked_by, routes, gate_rounds from loom_thread_workstream
+            where root_thread_id = ? and deleted_at is null and archived_at is null""", (root,)):
+        n = dict(r)
+        n["blocked_by"] = json.loads(n["blocked_by"])
+        n["loop_to"] = [x["to"] for x in json.loads(n["routes"]) if x.get("kind") == "loop" and x.get("to")]
+        out[n["id"]] = n
+    return out
+
+def layout(nodes, root):
+    kids = collections.defaultdict(list)
+    for n in nodes.values():
+        kids[n["parent"]].append(n)
+    def waves(parent):  # newest wave first
+        groups = collections.defaultdict(list)
+        for c in kids[parent]:
+            groups[c["gen"] or f"solo:{c['id']}"].append(c)
+        return sorted(groups.values(), key=lambda g: min(m["created"] for m in g), reverse=True)
+    if LIVE_WAVES:
+        def unsettle(n):
+            n["outcome"] = None
+            for c in kids[n["id"]]: unsettle(c)
+        for g in waves(root)[:LIVE_WAVES]:
+            for m in g: unsettle(m)
+    def settled(n):
+        return n["outcome"] is not None and all(settled(c) for c in kids[n["id"]])
+    def chain(members):  # each thread nothing waits on, newest first, followed by what it waits on
+        ids = {m["id"]: m for m in members}
+        deps = lambda m: [ids[d] for d in {*m["blocked_by"], *m["loop_to"]} if d in ids and d != m["id"]]
+        waited_on = {d["id"] for m in members for d in deps(m)}
+        out, seen = [], set()
+        def visit(m):
+            if m["id"] in seen: return
+            seen.add(m["id"]); out.append(m)
+            for d in sorted(deps(m), key=lambda x: x["created"], reverse=True): visit(d)
+        newest = sorted(members, key=lambda x: x["created"], reverse=True)
+        for m in [m for m in newest if m["id"] not in waited_on] + newest: visit(m)
+        return out
+    rows, row_of = [], {}
+    def fold(n, idx):
+        row_of[n["id"]] = idx
+        for c in kids[n["id"]]: fold(c, idx)
+    def emit(parent, lane):
+        for members in waves(parent):
+            if not EXPAND and all(settled(m) for m in members):
+                rows.append(lane)
+                for m in members: fold(m, len(rows) - 1)
+                continue
+            if lane == 1: rows.append(0)  # the wave's square on the spine
+            for m in chain(members):
+                rows.append(lane); row_of[m["id"]] = len(rows) - 1
+                if kids[m["id"]]:
+                    if not EXPAND and settled(m):
+                        for c in kids[m["id"]]: fold(c, len(rows) - 1)
+                    else: emit(m["id"], lane + 1)
+    emit(root, 1)
+    spans = []
+    for n in nodes.values():
+        if n["id"] not in row_of: continue
+        here = row_of[n["id"]]
+        for target in n["loop_to"]:  # a gate arrow: unresolved, or it has looped
+            if target in row_of and row_of[target] != here and (n["outcome"] is None or n["gate_rounds"] > 0):
+                spans.append(sorted((here, row_of[target])))
+        if n["outcome"] is None:  # one waits-on trunk per waiting thread, to its unfinished dependencies
+            held_by = {row_of[d] for d in n["blocked_by"]
+                       if d in row_of and row_of[d] != here and d not in n["loop_to"] and nodes[d]["outcome"] != "done"}
+            if held_by: spans.append([min(held_by | {here}), max(held_by | {here})])
+    slots = []
+    for lo, hi in sorted(spans, key=lambda s: s[1] - s[0]):  # shortest first, first free slot
+        for used in slots:
+            if all(hi < a or lo > b for a, b in used): used.append((lo, hi)); break
+        else: slots.append([(lo, hi)])
+    return dict(rows=len(rows), lanes=max(rows, default=0) + 1, arcs=len(spans), slots=len(slots))
+
+roots = [r[0] for r in con.execute("""select root_thread_id from loom_thread_workstream
+    where deleted_at is null and archived_at is null and parent_thread_id is not null
+    group by root_thread_id having count(*) >= 20""")]
+results = {root: layout(load(root), root) for root in roots}
+print(f"{len(roots)} workstreams of 20+ live sub-threads; live_waves={LIVE_WAVES} expand={EXPAND}")
+for key in ("slots", "lanes"):
+    print(f"  {key}:", dict(sorted(collections.Counter(r[key] for r in results.values()).items())))
+rows = sorted(r["rows"] for r in results.values())
+print(f"  rows: median={rows[len(rows)//2]} p90={rows[int(len(rows)*0.9)]} max={rows[-1]}")
+for title in ("Mirvac audit via graphtus: execution", "Loom Codebase Audit and Cleanup"):
+    root = con.execute("select thread_id from orchestration_v2_projection_threads where title = ?", (title,)).fetchone()[0]
+    if root in results: print(f"  {title}: {results[root]}")
+```
+
+</Details>
+
+## 4. What the screen reads, and what it costs Home and the thread screen
+
+The brief's must-not: do not slow the Home list or the thread screen, and read the workstream atom the badge already derives from, not every child's stream.
+
+**One source.** Everything new derives from `threadEnvironment.snapshotAtom(environmentId)`, the shell snapshot the Home list and the badge already hold. No thread detail, no stream, no new query. The screen therefore agrees with the badge by construction. It also shares the badge's one known gap. The phone's snapshot holds live shells only, so a dependency archived while unfinished does not gate on the phone, on the badge today or on this screen.
+
+<Table
+  density="compact"
+  columns={["Surface", "Subscribes to", "Recomputes when", "Re-renders"]}
+  rows={[
+    ["Home badge (exists)", "`badgeAtom` per root, over a per-environment index", "Any shell in the environment changes; the index is built once per change and now shared with the two atoms below", "A row only when its own badge's four numbers change (unchanged)"],
+    ["Workstream screen, or the unfolded left pane", "One `workstreamViewAtom` for this environment and root", "Any shell in the environment changes. Cost is one walk of this root's sub-tree: 20 to 78 nodes", "The row whose node changed. Nodes keep their identity across recomputes when their fields are equal, so a step ticking on one thread repaints one row"],
+    ["Lane layout", "The view's nodes, behind a structure key", "A thread appears, an outcome changes, a dependency or gate route changes, a fold is tapped", "The list's row set; not on activity, step, flag or age changes"],
+    ["Breadcrumb and header button, on the thread screen", "One `workstreamCrumbAtom` for this thread", "Any shell in the environment changes; a walk up the lineage plus a lookup in the badge map", "Only when the root's title or its flagged count changes"],
+    ["Ages (`4m`, `asked 14m ago`)", "The thread list's minute clock, `useNowMinuteMs`", "Once a minute while the screen is in front", "Row text only"]
+  ]}
+/>
+
+**What Home gains:** a press target on a badge that is already drawn, and nothing else. **What the thread screen gains:** one derived atom that changes a few times an hour, and one optional header action. **What neither gains:** a subscription to any child's messages. The Answer and approval cards do not read the child's pending requests either; they show what the shell carries and send you to the child.
+
+The workstream route stays mounted under a child you open from it, which is what keeps its scroll position. While covered it recomputes its atom on shell changes but does not paint.
+
+## 5. Shared logic: moved, not copied
+
+<Callout tone="decision" title="Move the pure rules to the shared package; web imports them from there">
+  The phone needs the same answers web already computes: which column a thread is in, what its gate leg reads, what it is doing now, which menu items apply. That is about 300 lines of `apps/web/src/lib/workstreamPresentation.ts` with no JSX and no CSS in them. They move to `packages/client-runtime/src/state/loom/workstreamNodes.ts`, beside `rollup.ts` and `workstream.ts`, which both clients already import.
+</Callout>
+
+<Columns columns={2}>
+  <Card heading="Move, and web imports from the shared module" tone="success" badge="CHOSEN" meta={["web renders identically", "at most 19 web files, all Loom-only", "no upstream hunk"]}>
+    One definition of `gate · round 2 of 3 · waiting on rework`. A fix to a gate label lands on both clients. Web's importers change one import line each; the moved functions' tests move with them. Web's module keeps what is web's: colours, the 2D graph's label fitting, the timeline rows.
+  </Card>
+  <Card heading="Copy the 300 lines into mobile" tone="neutral" badge="REJECTED" meta={["web untouched byte for byte", "two definitions to keep in step"]}>
+    Satisfies the strictest reading of "must not change web". Costs a second copy of rules that are still moving (25 commits to that file in the last two months), on the client no agent can run.
+  </Card>
+</Columns>
+
+<Table
+  density="compact"
+  columns={["Moves to the shared workstreamNodes.ts", "Stays in web's workstreamPresentation.ts"]}
+  rows={[
+    ["`WorkstreamNode`, `buildWorkstreamNodes`, `liveNodes`, `isReceded`, `isRunning`", "`COLUMN_STYLES`, `nodeStyleOf`, `ATTENTION_COLORS`, `TONE_COLORS`, `TONE_DOT_CLASSES`, `legibleHue`"],
+    ["Column and attention labels; `describeOutcomeVerdict`, `getVerdictChip`, `getGateLoopCap`, `getGateWaitLabel`", "`wrapLabel`, `truncateLabel`, `getNodeStateWord`, `getNodeStripLabel` (pixel budgets of the 2D card)"],
+    ["`getRoleLabel`, `getPurpose`, `getActivity`, `getStep`, `formatStepAge`, `formatCompactAge`, `formatRelativeAge`, `LONG_STEP_MS`", "Provider pill parts and tints"],
+    ["`buildNodeContextMenuItems`, `dispatchAnchorOf`, `ConversationAnchor`", "`buildTimelineRows`, `describeRoute` (the timeline is deferred on the phone)"]
+  ]}
+/>
+
+Two functions are split rather than moved, because they return CSS colour strings today. The shared half returns a tone; web's half adds its colour, and web's callers do not change:
+
+- `nodeAttentionOf` becomes a shared function returning the label, short label and a tone of `error` or `warning`; web's `nodeAttentionOf` wraps it and adds `TONE_COLORS[tone]`.
+- `nodeStyleOf` keeps its body in web but reads a shared `displayColumnOf(node, byId)`, the one-line rule that a gate party parked on the other leg shows as blocked.
+
+Two things are deliberately **not** shared. Web's `useWorkstreamCommands` is 25 lines bound to web's own atoms; the phone gets the same three dispatches in its own hook. The lane layout has one consumer, so it lives in mobile.
+
+## 6. Navigation: one route, the same stack folded or unfolded
+
+The workstream is a route, `Workstream`, with the environment and the root thread's id. It stays on the navigation stack in both postures; posture decides only **where it is drawn**. That is what makes "folding and unfolding keeps both" true without any state to synchronise.
+
+- **Cover screen:** the route is a full screen. A child opens on top of it; Back returns to it.
+- **Unfolded:** whenever a `Workstream` route is anywhere on the stack, the left pane shows its cards and lanes in place of the thread list, which stays mounted underneath. The route's own screen shows the "Select a thread" placeholder when nothing is open over it. The pane's header has a close button that takes the route off the stack and gives the thread list back.
+
+<Table
+  density="compact"
+  columns={["You do", "Cover screen: stack becomes", "Unfolded: stack becomes"]}
+  rows={[
+    ["Tap the badge on Home", "Home, Workstream", "Home, Workstream, then whatever page was open. Left pane: the workstream. Right: unchanged"],
+    ["Tap the header button or breadcrumb in thread X, with this workstream directly under X", "Pop back to the workstream; scroll position kept", "Nothing moves; the left pane is revealed if hidden"],
+    ["Tap the header button or breadcrumb in thread X otherwise (X came from a chat link or the list)", "…, X, Workstream", "…, Workstream, X: the route is slipped in under X, which keeps its key and does not remount"],
+    ["Tap a row for child C", "…, Workstream, C", "…, Workstream, C, reusing the page already open over the workstream, so the right pane changes in place"],
+    ["Back from C", "…, Workstream", "…, Workstream: the right pane shows the placeholder; Back again leaves the workstream"],
+    ["Close the left pane", "not applicable", "The route is removed; the open thread stays"]
+  ]}
+/>
+
+At most one `Workstream` route is on the stack; opening another replaces it. Picking a thread from the Home list, a notification or a deep link goes through upstream's `selectWorkspaceDetail`. That rebuilds the stack as Home plus that thread, and so leaves the workstream, which is the right behaviour.
+
+These are three pure functions over navigation state in `workstreamNavigation.loom.ts` (`withWorkstream`, `withWorkstreamChild`, `withoutWorkstream`), dispatched as a root-stack reset through `rootNavigationRef`, the way `openWorkspaceTab` already replaces the stack. Dispatching through the root reference means the badge, header, breadcrumb and rows need no callback threaded through upstream components.
+
+The same module owns the one-shot **dispatch-jump request**: `requestDispatchJump(threadKey, at)` to park it, and a read, finish and subscribe trio shaped like `threadMessageJump.ts`. The sheet writes it and the parent's thread screen consumes it, and those are built by different pieces, so the store sits in the piece both depend on.
+
+<Callout tone="risk" title="The trap: on Android, Back from a thread goes Home unless told otherwise">
+  `ThreadRouteScreen` installs `useAndroidWorkspaceBack`, which sends both the system Back and the header arrow to `returnToAndroidWorkspaceList`. That pops only when the route underneath is another thread. Otherwise it resets the stack to Home, so Back from a child opened from the workstream would skip the workstream.
+
+  The fix is one marked line in `androidWorkspaceBackReturnsToThread`: also go back when the route underneath is `Workstream`. <Sidenote>`apps/mobile/src/lib/android-workspace-navigation.ts`, which has a test file beside it.</Sidenote> One case is added beside the existing ones.
+</Callout>
+
+**View state.** Which folds are expanded and the scroll offset live in an in-memory map keyed by environment and root, in `workstreamView.loom.ts`. That is the same class as the chat timeline's remembered scroll in `docs/architecture/loom-ui-state-tiers.md`. It survives remounts and the swap between the full screen and the left pane, and resets on reload.
+
+## 7. What is on the screen
+
+**Header.** Title: the root's title. Subtitle: `Workstream · 44/51 settled · 3 running · 2 flagged`, with `deadlocked` when the rollup says so. One action opens the root thread itself, which is otherwise unreachable from here because the root is the spine, not a row.
+
+**Cards.** One card per sub-thread that needs a person. That is every flagged sub-thread whose flag is not still in agent hands, the set behind the badge's `2!`, plus any sub-thread with a pending question or approval of its own. Highest priority first, in the rollup's order. The primary button is the first that applies:
+
+<Table
+  density="compact"
+  columns={["The sub-thread", "Card text, from the shell", "Primary button", "What it does"]}
+  rows={[
+    ["Has the Accept? flag", "Role, `awaiting your acceptance`, last outcome and its age", { badge: { label: "Accept done", tone: "warning" } }, "Dispatches `thread.outcome.set` with `done`, as web does. The button shows it is working until the shell confirms; a failure is an alert"],
+    ["Has a question, blocking or carried past", "The question's title and `asked 14m ago`", { badge: { label: "Answer", tone: "accent" } }, "Opens the child; its question card is docked above the composer"],
+    ["Has a pending approval", "`approval required` and its age", { badge: "Review" }, "Opens the child, where the approval card is"],
+    ["Anything else flagged (stuck, error, a yield nobody is answering)", "The activity line web shows", { badge: "Open" }, "Opens the child"]
+  ]}
+/>
+
+Every card also has **Report** when a report exists, and **⋯** for the sheet. A carried-past question comes from the shell's `openQuestions`; a blocking one from `pendingRuntimeRequest`. Buttons that change state are disabled without the operate permission, read from the command's own permission atom.
+
+**Rows.** The first line is the title, with the flag chip or the age at the right. The second line is the role and one state. The first of these that applies wins:
+
+1. A flag: its activity line, such as `awaiting your acceptance`.
+2. A gate leg: `gate · round 2 of 3 · waiting on rework` for the reviewer; `rework round 2` and the current step for the thread doing the rework.
+3. A running step and its age, amber from five minutes as on web.
+4. Blocked: `waits on` and the first unfinished dependency's title, with `+2` when there are more.
+5. Settled: `done` or `cancelled`, the gate verdict, and `report` when one exists.
+6. Otherwise web's activity phrase.
+
+A sub-orchestrator's row adds `N running · M settled`. Tap opens the thread. Long-press opens the sheet.
+
+**Sheet.** A routed form sheet, the pattern `ThreadAgentsSheet` uses. Title, purpose, the state line, the gate line, the last round's outcome with its must-fix and nice-to-have counts, the model and tool-call count. Then web's menu from `buildNodeContextMenuItems`, less the timeline: Open thread; Show where it was dispatched; Open report; Accept done and Cancel, or Reopen; Clear flags; Stop. Items that cannot act are left out, as on web. No confirmation dialogs: the sheet is already the deliberate step, and each outcome has its reverse in the same menu.
+
+**Show where it was dispatched.** The sheet calls `requestDispatchJump` from `workstreamNavigation.loom.ts` with the parent thread and the child's creation time, and opens the parent. In the parent's thread screen a Loom hook resolves that time to the last loaded message at or before it. While the oldest loaded entry is still newer, it asks for earlier history, 20 pages at most. It then hands the message id to the phone's existing `requestThreadMessageJump`. If nothing is found the thread simply opens at its end.
+
+**Open report.** `navigate("ThreadFile", …)` with the sub-thread's own id and `fileRoutePathSegments(reportPath)`. Markdown opens rendered, which is already Loom's default on the phone.
+
+## 8. The pieces, as work orders
+
+<Card heading="Piece 1 · Logic: shared rules, the lane layout, data, navigation and commands" tone="info" eyebrow="FIRST, ALONE" meta={["no UI", "touches web imports", "tests: lane layout, stack transforms"]}>
+
+**Reuses.** `packages/client-runtime/src/state/loom/rollup.ts` and `workstream.ts`; `packages/shared/src/workstreamGraph.ts`; mobile's `threadEnvironment.snapshotAtom`, `orchestrationEnvironment.v2.dispatchCommand`, `threadEnvironment.interruptTurn`, `rootNavigationRef`.
+
+**Adds, in order.**
+
+1. `packages/client-runtime/src/state/loom/workstreamNodes.ts`: the moved functions of §5, with the tone-returning attention function and `displayColumnOf`. Add the `./state/loom/workstreamNodes` export to `packages/client-runtime/package.json`. Move the matching cases of `apps/web/src/lib/workstreamPresentation.test.ts` beside it. Update web's importers (17 files, plus the module's own test) to import the moved names from the shared module; no re-export from web's file.
+2. `apps/mobile/src/features/workstream/laneLayout.loom.ts`: `layoutLanes` per §3, with `laneLayout.loom.test.ts`.
+3. `apps/mobile/src/features/workstream/workstreamView.loom.ts`, holding four things:
+   - a per-environment index atom (the shells, `workstreamIndexOf`, `rollupIndexOf`), which `WorkstreamBadge.loom.tsx` now reads instead of building its own;
+   - `workstreamViewAtom`: the root's title and rollup, the identity-stable nodes of its sub-tree, and the needs-you list with each card's kind and question title;
+   - `workstreamCrumbAtom`: the root's id, title and flagged count, or null;
+   - the in-memory fold and scroll map.
+4. `apps/mobile/src/features/workstream/workstreamCopy.loom.ts`: the row's second line, the caption and fold text, the card text, as pure functions over a node.
+5. `apps/mobile/src/features/workstream/workstreamNavigation.loom.ts`: the three stack transforms of §6 and the functions that dispatch them, open-report, and the dispatch-jump request store of §6. Pieces 2 and 3 both import from this file and neither edits it. `workstreamNavigation.loom.test.ts` covers the table in §6 row by row.
+6. `apps/mobile/src/features/workstream/workstreamCommands.loom.ts`: `useWorkstreamCommands(environmentId)` with `setOutcome`, `clearAttention`, `stop`, each returning the command's result so a button can show progress and failure.
+
+**Tests, and why these.** The lane layout and the stack transforms are pure and intricate, and nobody but Carl can watch them on a device, so a mistake costs him an APK round. Nothing else in this piece gets a test. The lane cases, one behaviour each:
+
+- newest wave first, and a settled wave folds to one row;
+- a reviewer sits above its coder with one gate arrow, drawn only while unresolved or looped;
+- a waiter of four unfinished dependencies takes one slot, and loses its arrow when they finish;
+- an arrow to a folded thread ends at the fold;
+- a sub-orchestrator indents one lane, and the fifth level shares the fourth;
+- a fifth slot is not drawn and its waiter is reported.
+
+**Verified by.**
+
+- `vp test run` on the two new test files and the moved one; `vp run typecheck`.
+- Web renders identically: screenshot the preview harness's workstream fixtures before and after the move and compare by eye. <Sidenote>`apps/web/src/preview/workstreamFixtures.tsx`; the harness is described in `docs/web-component-preview.md`.</Sidenote>
+- The real-data run, which needs no server and no seeded database. `layoutLanes` takes exactly the sidecar columns the Python in §3 reads, so a scratch script reads them from the live database in place and read-only, as `AGENTS.md` allows:
+
+```bash
+sqlite3 -json "file:$T3CODE_HOME/userdata/statev2.sqlite?mode=ro" "
+  select w.thread_id id, w.parent_thread_id parentThreadId, w.spawn_generation spawnGeneration,
+         w.created_at createdAt, w.outcome, w.blocked_by blockedBy, w.routes, w.gate_rounds gateRounds,
+         w.role, t.title
+  from loom_thread_workstream w
+  join orchestration_v2_projection_threads t on t.thread_id = w.thread_id
+  where w.deleted_at is null and w.archived_at is null
+    and w.root_thread_id = (select thread_id from orchestration_v2_projection_threads
+                            where title = 'Mirvac audit via graphtus: execution')" > mirvac.json
+```
+
+  Run it again with the title `Loom Codebase Audit and Cleanup`. `blockedBy` and `routes` arrive as JSON strings; parse them. The root's own row is in the result with a null parent; pass its id as `rootId`.
+
+- A scratch `lane-check.ts` under `.artifacts/mobile-workstreams/lane-check/` imports `layoutLanes` by relative path and is run with plain `node lane-check.ts`. Node here is v26 and runs TypeScript directly, provided `laneLayout.loom.ts` keeps its imports type-only, which a pure layout can. It writes one HTML page per workstream: each row's gutter as the same SVG lines and paths the phone will draw, beside the title, role and outcome.
+- Look at each page at 412 and 300 px wide with the browser screenshot tool. Check the row count, lane count and slot count against `python3 lanes.py` for the same workstream: Mirvac should be about 34 rows, 3 lanes and 2 slots; the audit about 14 rows, 2 lanes and no slots. Both are live data, so allow for a wave or two of drift.
+
+</Card>
+
+<Card heading="Piece 2 · Screen: the route, cards, lanes, sheet and the unfolded left pane" tone="info" eyebrow="AFTER PIECE 1" meta={["owns Stack.tsx and AdaptiveWorkspaceLayout.tsx", "no tests"]}>
+
+**Reuses.**
+
+- `AppBar` and its Android back handling; `WorkspaceEmptyDetail`; `RenderErrorBoundary`; `Dialog.alert` for a failed command.
+- `FlatList`. The folded list is at most 46 rows and the fully expanded one 131, so the thread list's recycler is not needed.
+- `react-native-svg`, with colours resolved by `useResolveClassNames` from the status classes the thread list and `SubagentStatusDot` use.
+- `HORIZONTAL_FORM_SHEET_OPTIONS` and `formSheetDetents` for the sheet.
+
+**Adds.**
+
+1. `WorkstreamScreen.loom.tsx`: the route. Header per §7. Body is `WorkstreamBody` on the cover screen and `WorkspaceEmptyDetail` when the layout is split. It does not install `useAndroidWorkspaceBack`, so Back pops normally.
+2. `WorkstreamBody.loom.tsx`: the cards, then the lane list; takes the selected thread for the highlight and the available width for the slot limit. Used by the screen and the pane.
+3. `WorkstreamCards.loom.tsx` and `WorkstreamLaneRow.loom.tsx`: per §7 and §3.
+4. `WorkstreamNodeSheet.loom.tsx`: the routed sheet.
+5. `WorkstreamSidebarPane.loom.tsx`: reads the root stack through `rootNavigationRef`. The ref is not reactive, so it subscribes with `rootNavigationRef.addListener("state", …)` behind `useSyncExternalStore`, as `ShowcaseCaptureCoordinator.tsx` listens today, with a snapshot that is a stable string. When the layout is split and a `Workstream` route is on the stack, it draws an opaque `WorkstreamBody` with a close button over the thread list.
+6. Marked hunks: in `apps/mobile/src/Stack.tsx`, the `Workstream` screen (linking `threads/:environmentId/:threadId/workstream`, `DETAIL_HEADER_OPTIONS`) and the `WorkstreamNode` sheet (options as `ThreadAgents`). In `apps/mobile/src/features/layout/AdaptiveWorkspaceLayout.tsx`, one element beside `ThreadNavigationSidebar` inside the threads tab's slot, wrapped in its own `RenderErrorBoundary`.
+
+**Verified by.** `vp check`, `vp run typecheck`, `vp run lint:mobile`. A release bundle builds (the delivery step's Gradle build is the proof; this piece may run the Metro export alone if it is quicker). On screen: nothing, by any agent.
+
+</Card>
+
+<Card heading="Piece 3 · Ways in: badge, header button, breadcrumb, Back, the dispatch jump" tone="info" eyebrow="AFTER PIECE 1, BESIDE PIECE 2" meta={["hunks in five upstream files", "one added test case"]}>
+
+**Reuses.**
+
+- The PR badge's press pattern in `thread-list-v2-items.tsx`: padding cancelled by negative margin, and a no-op long-press so the row's menu does not also fire.
+- `ThreadHeader`'s `androidHeaderActions`, which `AppBar` draws on both platforms.
+- `ThreadScreenOutlet`, which lays the header out above the thread canvas.
+- `requestThreadMessageJump` and the feed's history controls.
+
+**Adds.**
+
+1. `WorkstreamBadge.loom.tsx`: the badge view becomes pressable and opens the workstream. Its existing marked call site in `thread-list-v2-items.tsx` passes the environment and thread ids.
+2. `WorkstreamBreadcrumb.loom.tsx`: `↑ in <root title> · 2 flagged`, shown for a thread with a workstream parent, behind its own error boundary that renders nothing on failure.
+3. `ThreadRouteScreen.tsx`: read the crumb, pass `onOpenWorkstream` to `ThreadHeader`, and render the breadcrumb after `ThreadHeader` inside the existing `header` prop. `ThreadHeader.tsx`: an "Open workstream" action after Files when the prop is set, for a thread that has a workstream parent or sub-threads of its own.
+4. `apps/mobile/src/lib/android-workspace-navigation.ts`: the Back line of §6, and its test case.
+5. `dispatchJump.loom.ts`: the hook that consumes piece 1's dispatch-jump request in the parent's thread screen, per §7. It defines no store of its own. One marked call in `ThreadDetailScreen.tsx`.
+
+**Verified by.** `vp check`, `vp run typecheck`, `vp run lint:mobile`, `vp test run apps/mobile/src/lib/android-workspace-navigation.test.ts`. On screen: nothing, by any agent.
+
+</Card>
+
+<Card heading="Delivery: one PR, one APK, the checks to Carl" tone="warning" eyebrow="AFTER PIECES 2 AND 3" meta={["shipping waits for Carl's word", "APK: updates off"]}>
+
+1. Read the whole diff once for what only a device would have shown. Every new surface inside an existing screen is behind an error boundary. No effect is without its stated reason. Every hunk in an upstream file carries `// loom:`.
+2. `vp check`, `vp run typecheck`, `vp run lint:mobile`, `vp run check:changed`.
+3. Build the APK with the recipe that built the first one, from `apps/mobile`:
+
+```bash
+. /etc/profile.d/android-sdk.sh
+export JAVA_HOME=$ANDROID_JAVA_HOME APP_VARIANT=preview T3CODE_MOBILE_UPDATES_ENABLED=0
+EXPO_NO_GIT_STATUS=1 CI=1 npx expo prebuild --clean --platform android
+cd android && NODE_ENV=production ./gradlew assembleRelease \
+  -PreactNativeArchitectures=arm64-v8a "-Dorg.gradle.jvmargs=-Xmx8g -XX:MaxMetaspaceSize=2g"
+```
+
+   About six minutes with warm caches; run it as a background job. Confirm with `aapt2 dump xmltree` that `expo.modules.updates.ENABLED` is `false`, as was done for the first APK. Copy it to `.artifacts/loom-android/` under a new name; do not overwrite the one Carl has.
+
+4. One PR from a feature branch: `feat(mobile): workstream screen with needs-you cards and a lane graph`. It carries the brief, this plan and the cover shot. The lane-check page's screenshots go in the PR body as the only pictures an agent could make. It is not merged until Carl says so.
+5. Hand Carl the APK and the list in §9. The hand-back says in plain words what differs from the brief he approved: a question's card shows its title, not its text, and Answer opens the child; opening a report needed no file-viewer work.
+
+</Card>
+
+## 9. Verification: who can check what
+
+<Table
+  columns={["The brief's check", "What an agent has shown before the APK", "What Carl does on the phone"]}
+  rows={[
+    ["Badge on Home lands on the screen, cards on top, latest wave under them", "The stack transform for the badge is tested; the lanes for Mirvac render newest wave first in the lane-check page", "Tap the badge on the Mirvac root"],
+    ["Accept done: the child reads done within seconds, the card goes, the dot is green. Answer sends the reply into the child", "The command is the one web dispatches; the card list derives from the same rollup as the badge", "Accept one reviewer; watch web agree. Tap Answer: the child opens with its question card showing without scrolling; answer it there"],
+    ["Tap a row, read, Back or breadcrumb returns to the same scroll position. From a chat link, the breadcrumb still reaches the workstream", "Stack transforms and the Back rule are tested", "Scroll down, open a child, come back both ways. Open a child from a link in chat and use its breadcrumb"],
+    ["Long-press a running coder and Stop it; long-press a done row and open its report as markdown", "`interruptTurn` and the file route are existing paths; a report path opens through the same route chat links use", "Do both"],
+    ["A gate on its second round reads so on the reviewer's row, the loop arrow carries the round badge; a blocked child names what it waits on and the dashed arrow points at it", "Lane tests; the lane-check page shows both on real data", "Find one of each"],
+    { tone: "warning", cells: ["Unfolded: lanes left, child right; folding and unfolding keeps both", "Stack transforms are tested for the split posture. The pane's layout is unseen by anyone until then", "**Phone only.** Unfold on the workstream, open a child, fold, Back, unfold. Watch the hinge edge and the navigation rail"] },
+    { tone: "warning", cells: ["Report open over the tunnel", "Not checkable here", "**Phone only.** Open a report while off the tailnet"] },
+    ["Must not slow Home or the thread screen", "§4: no new subscription on either beyond one derived atom; one index build per shell change, shared", "Scroll Home and a long thread with a busy workstream running"],
+    ["Must not change web; nothing new on the wire; updates off", "Web fixtures identical; no diff under `packages/contracts` or `apps/server`; the APK manifest", "Nothing"]
+  ]}
+/>
+
+## 10. Risks
+
+- **The first run is on Carl's phone.** A defect a five-second look would catch reaches him as an installed APK. Three things reduce that. The two intricate parts are pure and tested. The lanes are rendered from real data where an agent can see them. Each surface added to Home, the thread screen and the workspace layout sits behind its own error boundary, so a crash in new code shows a failure view instead of taking the screen down. The route itself is already behind upstream's per-screen boundary. Nothing makes the layout, the touch targets or the sheet visible before he sees them.
+- **The unfolded pane is one element in a 1,080-line upstream layout file** with hinge alignment and pane animations around it. It draws only when the layout is split and a workstream is on the stack, so the cover-screen path cannot be affected by it.
+- **Seven upstream mobile files gain or change a marked hunk** (`Stack.tsx`, `AdaptiveWorkspaceLayout.tsx`, `android-workspace-navigation.ts`, `ThreadHeader.tsx`, `ThreadRouteScreen.tsx`, `ThreadDetailScreen.tsx`, `thread-list-v2-items.tsx`). Each is a call or a prop; the code is in Loom files.
+- **Shell changes arrive several times a second while agents run.** The view recomputes on each. It is a walk of one sub-tree and a field comparison per node. If it shows on the phone, the remedy is to compare the sub-tree's shells by identity before rebuilding.
+- **The dispatch jump is approximate** and bounded. A spawn far back in a long orchestrator thread may not be reached in 20 pages; the thread then opens at its end.
+- **The move in web is behaviour-neutral by intent, not by proof.** The moved tests, the typecheck and the fixture comparison are the evidence.
+
+<Details summary="All touched files">
+
+<FileTree
+  title="By piece"
+  entries={[
+    { path: "packages/client-runtime/src/state/loom/workstreamNodes.ts", change: "added", note: "Piece 1. The rules moved from web" },
+    { path: "packages/client-runtime/src/state/loom/workstreamNodes.test.ts", change: "added", note: "Piece 1. The moved test cases" },
+    { path: "packages/client-runtime/package.json", change: "modified", note: "Piece 1. One export" },
+    { path: "apps/web/src/lib/workstreamPresentation.ts", change: "modified", note: "Piece 1. Keeps colours, 2D label fitting, timeline" },
+    { path: "apps/web/src/lib/workstreamPresentation.test.ts", change: "modified", note: "Piece 1. Keeps the cases for what stayed" },
+    { path: "apps/web/src/", note: "Piece 1. Import lines in up to 17 more Loom-only files: the Workstream components, loom/ helpers, preview fixtures, forkJoinLayout" },
+    { path: "apps/mobile/src/features/workstream/laneLayout.loom.ts", change: "added", note: "Piece 1" },
+    { path: "apps/mobile/src/features/workstream/laneLayout.loom.test.ts", change: "added", note: "Piece 1" },
+    { path: "apps/mobile/src/features/workstream/workstreamView.loom.ts", change: "added", note: "Piece 1. Atoms and view state" },
+    { path: "apps/mobile/src/features/workstream/workstreamCopy.loom.ts", change: "added", note: "Piece 1. Row, caption and card text" },
+    { path: "apps/mobile/src/features/workstream/workstreamNavigation.loom.ts", change: "added", note: "Piece 1. Stack transforms, open-report, the dispatch-jump request store" },
+    { path: "apps/mobile/src/features/workstream/workstreamNavigation.loom.test.ts", change: "added", note: "Piece 1" },
+    { path: "apps/mobile/src/features/workstream/workstreamCommands.loom.ts", change: "added", note: "Piece 1" },
+    { path: "apps/mobile/src/features/threads/WorkstreamBadge.loom.tsx", change: "modified", note: "Piece 1: reads the shared index. Piece 3: pressable" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamScreen.loom.tsx", change: "added", note: "Piece 2" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamBody.loom.tsx", change: "added", note: "Piece 2" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamCards.loom.tsx", change: "added", note: "Piece 2" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamLaneRow.loom.tsx", change: "added", note: "Piece 2" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamNodeSheet.loom.tsx", change: "added", note: "Piece 2" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamSidebarPane.loom.tsx", change: "added", note: "Piece 2" },
+    { path: "apps/mobile/src/Stack.tsx", change: "modified", note: "Piece 2. Two marked screens" },
+    { path: "apps/mobile/src/features/layout/AdaptiveWorkspaceLayout.tsx", change: "modified", note: "Piece 2. One marked element" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamBreadcrumb.loom.tsx", change: "added", note: "Piece 3" },
+    { path: "apps/mobile/src/features/workstream/dispatchJump.loom.ts", change: "added", note: "Piece 3. Consumes the request; no store" },
+    { path: "apps/mobile/src/features/threads/thread-list-v2-items.tsx", change: "modified", note: "Piece 3. The existing marked badge call passes two ids" },
+    { path: "apps/mobile/src/features/threads/ThreadHeader.tsx", change: "modified", note: "Piece 3. One prop, one action" },
+    { path: "apps/mobile/src/features/threads/ThreadRouteScreen.tsx", change: "modified", note: "Piece 3. Crumb, header prop, breadcrumb" },
+    { path: "apps/mobile/src/features/threads/ThreadDetailScreen.tsx", change: "modified", note: "Piece 3. One marked hook call" },
+    { path: "apps/mobile/src/lib/android-workspace-navigation.ts", change: "modified", note: "Piece 3. One marked line" },
+    { path: "apps/mobile/src/lib/android-workspace-navigation.test.ts", change: "modified", note: "Piece 3. One case" }
+  ]}
+/>
+
+</Details>
+
+## 11. One open question
+
+It does not block the build. It is Carl's because it means changing a setting on his environment or putting a machine of his to work.
+
+<QuestionForm
+  questions={[
+    {
+      id: "agent-device",
+      title: "Should an agent be able to run the Android app before the APK reaches your phone?",
+      subtitle: "Today no agent can: this VM has no hardware virtualisation, so it cannot run an emulator, and Agent device access is off in Settings > Integrations > Devices. Your phone would be the first place the new screen is ever drawn.",
+      refs: [{ label: "9. Verification: who can check what", anchor: "9-verification-who-can-check-what" }],
+      mode: "single",
+      options: [
+        {
+          id: "phone-only",
+          label: "No: build it, hand me the APK, and expect a second round",
+          recommended: true,
+          detail: "Costs you one or two extra install-and-try rounds. Needs nothing set up. The pure logic is tested and the lanes are rendered from real data first."
+        },
+        {
+          id: "device-host",
+          label: "Yes: I will turn on Agent device access and name a machine that can run an Android emulator",
+          detail: "Agents could then tap through the cover-screen checks themselves before you see it. Needs a machine with virtualisation (a laptop or desktop, not this VM) registered as a device host. The Fold's unfolded split would still be yours to check."
+        }
+      ]
+    }
+  ]}
+/>
