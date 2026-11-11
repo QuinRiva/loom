@@ -263,3 +263,21 @@ describe("no-repeat", () => {
     expect(grade(check, observed([], "Done.", true)).reason).toBe("no submit");
   });
 });
+
+it("counts a notify with no submit apart in a no-repeat case", () => {
+  const check = { kind: "no-repeat", repeats: () => false } as const;
+  const notify = loom("notify_thread", { threadId: "p", message: "renamed" });
+  expect(
+    grade(check, { calls: [], text: "Told my parent.", ended: true, prior: [notify] }),
+  ).toEqual({
+    pass: false,
+    apart: true,
+    reason: "notified the parent, no submit",
+  });
+  expect(
+    grade(check, {
+      ...observed([loom("workstream_submit", { markdown: "the rename" })]),
+      prior: [notify],
+    }).pass,
+  ).toBe(true);
+});

@@ -20,6 +20,7 @@ import {
   HUMAN_INPUT,
 } from "../../apps/server/src/mcp/toolkits/workstream/families.ts";
 import { LOOM_TOOL_PROSE } from "../../apps/server/src/mcp/toolkits/workstream/prose.ts";
+import { renderNotifyDisposition } from "../../apps/server/src/mcp/toolkits/workstream/render.ts";
 import { ASK_USER_QUESTION_PARAMETERS } from "../../apps/server/src/provider/Drivers/Pi/loomExtension.ts";
 import {
   BG_START_PARAMETERS,
@@ -397,6 +398,15 @@ const simulate = Effect.fn("loomHandback.simulate")(function* (
   }
   if (call.name === "sign_document")
     return { text: `Signed ${String(call.input.path)}.`, tokens: 0 };
+  if (call.name === agentToolName("notify_thread")) {
+    const target = String(call.input.threadId ?? call.input.name ?? "");
+    const text = renderNotifyDisposition({
+      disposition: "started",
+      targetThreadId: target,
+      targetTitle: target,
+    });
+    return { text, tokens: 0 };
+  }
   const response = yield* post({
     model: values["simulator-model"],
     max_tokens: 8000,
@@ -454,6 +464,7 @@ const attempt = Effect.fn("loomHandback.attempt")(function* (
   let output = 0;
   let simulated = 0;
   let calls: ReadonlyArray<Call> = [];
+  const prior: Array<Call> = [];
   let text = "";
   let decided = false;
   for (let step = 0; step < (entry.maxSteps ?? MAX_STEPS) && !decided; step++) {
@@ -483,6 +494,7 @@ const attempt = Effect.fn("loomHandback.attempt")(function* (
     messages.push({ role: "assistant", content: response.content.flatMap(replayable) });
     decided = decides(calls, entry.looking);
     if (decided) break;
+    prior.push(...calls);
     const results: Array<Block> = [];
     for (const [index, call] of calls.entries()) {
       const answer = yield* simulate(messages, call);
@@ -508,7 +520,7 @@ const attempt = Effect.fn("loomHandback.attempt")(function* (
     attempt: n,
     file,
     decided,
-    ...grade(entry.check, { calls, text, ended: calls.length === 0 }),
+    ...grade(entry.check, { calls, text, ended: calls.length === 0, prior }),
     calls: calls.map((call) => call.name),
     text,
     steps: messages.length - authored.length,

@@ -16,6 +16,8 @@ export interface Observed {
   readonly text: string;
   /** The message called no tool: the turn ended. */
   readonly ended: boolean;
+  /** Calls made before the deciding message, which a case answered rather than graded. */
+  readonly prior?: ReadonlyArray<Call>;
 }
 
 /**
@@ -94,7 +96,7 @@ export type Check =
    * or an `awaiting_acceptance` raise fails; anything else (a consult, a question) is counted apart.
    */
   | { readonly kind: "no-hold" }
-  /** A submit, none of whose markdown repeats the report on file. */
+  /** A submit, none of whose markdown repeats the report on file; a notify and no submit is apart. */
   | { readonly kind: "no-repeat"; readonly repeats: (markdown: string) => boolean }
   /** The first deciding Loom call is notify_thread to the parent, quoting one of the fragments. */
   | {
@@ -118,7 +120,7 @@ const APPROVAL_WORD = /accept|approv|sign.?off|human/i;
 
 const verdict = (pass: boolean, reason: string): Grade => ({ pass, reason });
 
-export const grade = (check: Check, { calls, text, ended }: Observed): Grade => {
+export const grade = (check: Check, { calls, text, ended, prior = [] }: Observed): Grade => {
   const submits = calls.filter(isSubmit);
   const raises = named(calls, "workstream_request_attention");
   switch (check.kind) {
@@ -213,7 +215,11 @@ export const grade = (check: Check, { calls, text, ended }: Observed): Grade => 
       };
     }
     case "no-repeat": {
-      if (submits.length === 0) return verdict(false, "no submit");
+      // A child that tells its parent of the change and never submits is counted apart, not failed.
+      if (submits.length === 0)
+        return [...prior, ...calls].some((call) => call.name === loom("notify_thread"))
+          ? { pass: false, apart: true, reason: "notified the parent, no submit" }
+          : verdict(false, "no submit");
       return submits.some((call) => check.repeats(String(call.input.markdown ?? "")))
         ? verdict(false, "repeated the report")
         : verdict(true, "submitted only what changed");

@@ -1299,6 +1299,8 @@ Wording only, at the human's question: nothing in the code or the column changed
       ),
     ],
     check: { kind: "no-repeat", repeats: (markdown) => repeatsReport(CSV_REPORT, markdown) },
+    // A rename is a contract change, so telling the parent first is right; the submit is graded.
+    looking: ["mcp__t3-code__notify_thread", "notify_thread"],
   },
   {
     id: "finished-child-delegate",
