@@ -77,7 +77,7 @@ export function Rail({
   const puck = useRef<HTMLSpanElement | null>(null);
   if (layout.total === 0) return null;
 
-  const labelAt = (segment: LaidSegment) => (segment.start + segment.tokens / 2) / layout.total;
+  const labelAt = (segment: LaidSegment) => (segment.start + segment.size / 2) / layout.total;
   const fractionOf = (track: HTMLElement, clientY: number) => {
     const box = track.getBoundingClientRect();
     return Math.min(1, Math.max(0, (clientY - box.top) / box.height));
@@ -250,7 +250,7 @@ export function Rail({
             className={cn("absolute inset-x-0 min-h-px", segment.className)}
             style={{
               top: `${(segment.start / layout.total) * 100}%`,
-              height: `${(segment.tokens / layout.total) * 100}%`,
+              height: `${(segment.size / layout.total) * 100}%`,
             }}
           />
         ))}

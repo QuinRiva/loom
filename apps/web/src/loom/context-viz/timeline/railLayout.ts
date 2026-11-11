@@ -1,5 +1,5 @@
-// loom: context-viz, the scrollbar's token-space map: the window's items in session order, each
-// item's [start, end) in tokens from the top, and the two lookups between the track and the rows.
+// loom: context-viz, the scrollbar's map: the window's items in session order, each item's
+// [start, end) on the track, and the two lookups between the track and the rows.
 import type { LoomContextItem, LoomContextReport } from "@t3tools/contracts";
 
 import type { MessagesTimelineRow } from "../../../components/chat/MessagesTimeline.logic";
@@ -12,23 +12,38 @@ import { AMBER_BAR, byCategory, CATEGORY_BAR, rowKeys } from "./timelineFigures"
  * coloured by the category that holds most of its tokens; amber items always stand alone.
  */
 const MERGE_SHARE = 0.004;
+/**
+ * The share of the track laid out by the prose you read (the assistant's text and your own
+ * messages, by characters) rather than by tokens, so the puck moves as you read and a heavy turn is
+ * not a leap. The rest stays tokens, so heavy turns still read as the big blocks. Notices and
+ * briefs are left out: their rows are cards far shorter than their text.
+ */
+const READING_SHARE = 0.5;
+const read = (item: LoomContextItem) =>
+  item.kind === "assistant_text" || (item.kind === "user_message" && item.userKind === "human")
+    ? item.chars
+    : 0;
 
 interface RailSegment {
   readonly items: ReadonlyArray<LoomContextItem>;
+  /** Its true tokens, which the label names; `size` is its room on the track. */
   readonly tokens: number;
+  readonly size: number;
   readonly amber: boolean;
 }
 
 export type LaidSegment = RailSegment & { readonly className: string; readonly start: number };
 
+/** Places on the track are in tokens, each item's bent toward its share of the prose read. */
 export interface RailLayout {
+  /** The window's tokens, which is also the track's length. */
   readonly total: number;
   readonly segments: ReadonlyArray<LaidSegment>;
   readonly segmentStarts: ReadonlyArray<number>;
-  /** The window's items in session order, and each one's start in tokens from the top. */
+  /** The window's items in session order, and each one's start on the track. */
   readonly items: ReadonlyArray<LoomContextItem>;
   readonly starts: ReadonlyArray<number>;
-  /** Each item's [start, end) in tokens from the top. */
+  /** Each item's [start, end) on the track. */
   readonly span: ReadonlyMap<string, readonly [number, number]>;
 }
 
@@ -39,25 +54,29 @@ export function railLayout(report: LoomContextReport, amber: ReadonlySet<string>
   if (cached) return cached;
   const items = report.items.filter((item) => item.inWindow && item.tokens > 0);
   const total = items.reduce((sum, item) => sum + item.tokens, 0);
+  const chars = items.reduce((sum, item) => sum + read(item), 0);
+  const share = chars > 0 ? READING_SHARE : 0;
   const segments: Array<RailSegment> = [];
   const span = new Map<string, readonly [number, number]>();
   const starts: Array<number> = [];
   let at = 0;
   for (const item of items) {
-    span.set(item.id, [at, at + item.tokens]);
+    const size = (1 - share) * item.tokens + (share * total * read(item)) / (chars || 1);
+    span.set(item.id, [at, at + size]);
     starts.push(at);
-    at += item.tokens;
+    at += size;
     const amberItem = amber.has(item.id);
     const last = segments.at(-1);
-    const small = !amberItem && item.tokens < total * MERGE_SHARE;
-    if (small && last && !last.amber && last.tokens < total * MERGE_SHARE) {
+    const small = !amberItem && size < total * MERGE_SHARE;
+    if (small && last && !last.amber && last.size < total * MERGE_SHARE) {
       segments[segments.length - 1] = {
         items: [...last.items, item],
         tokens: last.tokens + item.tokens,
+        size: last.size + size,
         amber: false,
       };
     } else {
-      segments.push({ items: [item], tokens: item.tokens, amber: amberItem });
+      segments.push({ items: [item], tokens: item.tokens, size, amber: amberItem });
     }
   }
   const laid = segments.map((segment) => ({
@@ -113,7 +132,7 @@ function rowItems(row: MessagesTimelineRow, join: ContextJoin) {
   );
 }
 
-/** The token span of a row's items, or null when it holds no item in the window. */
+/** The span of a row's items on the track, or null when it holds no item in the window. */
 export function rowSpan(
   row: MessagesTimelineRow | undefined,
   join: ContextJoin,
