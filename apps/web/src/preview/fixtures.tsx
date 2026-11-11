@@ -786,8 +786,8 @@ const MDX_ANNOTATION_FIXTURE_SOURCE = [
 
 /**
  * Expected: the top-level diff bleeds past the `max-w-4xl` measure up to the panel budget;
- * prose, the narrow table and the short code block stay at the measure; the diff nested in
- * `<Columns>` stays inside its column, scrolling internally; the top-level `<Details>` widens to its diff.
+ * prose, the narrow table and the short code block stay at the measure; the diffs nested in
+ * `<Columns>` and `<Details>` stay inside their container, scrolling internally.
  */
 const MDX_WIDE_BLOCK_FIXTURE_SOURCE = [
   "# Wide-block bleed in a plan document",
@@ -848,7 +848,7 @@ const MDX_WIDE_BLOCK_FIXTURE_SOURCE = [
   "",
   "</Columns>",
   "",
-  '<Details summary="A diff inside a disclosure: opened, the disclosure widens to the diff">',
+  '<Details summary="A diff inside a disclosure">',
   "",
   `<Diff filename="nested-in-details.ts" mode="split" before={${JSON.stringify(
     "const gutterLeft = rootRect.right - wrapperRect.left + 6; // badges parked at the prose column edge",
@@ -1210,7 +1210,7 @@ const mdxWideBlockFixture: PreviewFixture = {
   id: "mdx-wide-blocks",
   title: "Wide blocks (bleed)",
   description:
-    "Non-prose blocks use the width the panel offers. The top-level split diff must bleed past the max-w-4xl measure and become readable; prose and the short code block must keep the measure; the diff inside <Columns> must stay in its column, while the opened <Details> widens to its diff. Comment on a bled diff: its badge must sit in the gutter beside the block, never on top of it. Then hit 'Narrow panel': the bleed must collapse cleanly with no horizontal page scrollbar.",
+    "Non-prose blocks use the width the panel offers. The top-level split diff must bleed past the max-w-4xl measure and become readable; prose and the short code block must keep the measure; the diffs inside <Columns> and <Details> must stay in their container. Comment on a bled diff: its badge must sit in the gutter beside the block, never on top of it. Then hit 'Narrow panel': the bleed must collapse cleanly with no horizontal page scrollbar.",
   render: () => <PlanPanelPreview key="mdx-wide-blocks" source={MDX_WIDE_BLOCK_FIXTURE_SOURCE} />,
 };
 
@@ -1307,7 +1307,7 @@ const mdxMarkdownFixture: PreviewFixture = {
   ),
 };
 
-/** loom: a recap's one-card-per-item batch, where the cards holding a comparison widen. */
+/** loom: a recap's one-card-per-item batch, where only the cards holding a comparison widen. */
 const MDX_CARD_COMPARISON = [
   "<Columns>",
   '  <Column label="What the agent wrote">',
@@ -1334,6 +1334,10 @@ const MDX_CARD_BLEED_FIXTURE_SOURCE = [
   "Bug for the AIT backlog, 5 Nov: a citation can open the wrong document when two files in a building share a name. Nothing in this card is wide, so it keeps the reading column like every card before this change.",
   "</Card>",
   "",
+  '<Card eyebrow="Ticket 1b" heading="A fact table only: also keeps the reading column">',
+  '<Table columns={["Fact", "Detail"]} rows={[["Screen", "A staged root at 1440 by 900 with the right panel closed, the floating card dismissed so the framing matches round one"], ["Remaining option", "Hide or move the floating card while a staged kickoff is on screen"]]} />',
+  "</Card>",
+  "",
   '<Card eyebrow="Ticket 2 of 3" heading="Lease-audit fields with no value" badges={[{ label: "comparison", tone: "info" }]} meta={["505 words as the agent wrote it", "written with the skill: 530 and 484 words"]}>',
   "The most-repeated complaint about the audit. Version 1 and Version 2 are the same skill with one difference: one is told to add a few plain headings, the other to use none of its own. This intro paragraph must stay at reading width, not run the full width of the widened card.",
   "",
@@ -1357,7 +1361,7 @@ const mdxCardBleedFixture: PreviewFixture = {
   id: "mdx-card-bleed",
   title: "Cards holding a comparison (bleed)",
   description:
-    "A top-level <Card> or <Details> holding <Columns> widens to the bleed budget like a bare <Columns>, while its heading and intro stay at the reading measure. The prose-only card must keep the reading column. At a narrow panel everything collapses to the measure with no horizontal page scrollbar.",
+    "A top-level <Card> or <Details> holding <Columns> takes the whole bleed budget, while its intro stays at the reading measure. The prose-only card and the card holding only a table must keep the reading column. At a narrow panel everything collapses to the measure with no horizontal page scrollbar.",
   render: () => <PlanPanelPreview key="mdx-card-bleed" source={MDX_CARD_BLEED_FIXTURE_SOURCE} />,
 };
 

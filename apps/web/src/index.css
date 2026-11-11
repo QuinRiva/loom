@@ -1957,26 +1957,23 @@ code {
   width: max(100%, var(--bleed-target));
 }
 
-/* loom: a top-level Card/Details/Tabs hugs only the wide blocks directly in its
-   body, so a card with a comparison widens and a prose-only one stays at the
-   measure. `contain: inline-size` takes everything else out of its max-content;
-   the body's other children are capped at the reading column (max-w-4xl less px-6). */
+/* loom: a top-level Card/Details/Tabs keeps the measure unless a <Columns> sits
+   directly in its body; then it takes the whole budget, so a batch of cards has
+   exactly two widths. The body's other children stay at the reading column
+   (max-w-4xl less px-6). */
+.plan-mdx > [data-plan-bleed="container"] {
+  width: 100%;
+}
 .plan-mdx
-  > [data-plan-bleed="container"]
-  > :not(.plan-card-body, .plan-details-body, .plan-tab-panel) {
-  contain: inline-size;
+  > [data-plan-bleed="container"]:not(details:not([open])):has(
+    > :is(.plan-card-body, .plan-details-body, .plan-tab-panel) > [data-plan-block-type="columns"]
+  ) {
+  width: max(100%, var(--bleed-target));
 }
 .plan-mdx
   > [data-plan-bleed="container"]
   > :is(.plan-card-body, .plan-details-body, .plan-tab-panel)
-  > :not(
-    [data-plan-block-type="columns"],
-    [data-plan-block-type="table"],
-    [data-plan-block-type="code"]:not([data-plan-code-prose]),
-    [data-plan-block-type="diff"],
-    table
-  ) {
-  contain: inline-size;
+  > :not([data-plan-block-type="columns"]) {
   max-width: 53rem;
 }
 

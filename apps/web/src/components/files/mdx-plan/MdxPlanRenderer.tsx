@@ -98,7 +98,7 @@ const BLEED_MODE_BY_BLOCK_TYPE: Record<string, "hug" | "stretch" | "container"> 
   // vocabulary v2: stats — a strip of short tiles has no useful max-content;
   // it takes the budget and the tiles share it, so four sit on one line.
   stats: "stretch",
-  // A container hugs only the wide blocks directly in its body; the rest stays at the measure.
+  // A container takes the budget only when a <Columns> sits directly in its body.
   card: "container",
   details: "container",
   tabs: "container",
