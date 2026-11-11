@@ -1590,6 +1590,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         )}
         {workstreamBadge ? ( // loom: 3d-3 sub-thread rollup
           <WorkstreamBadgeView
+            environmentId={thread.environmentId}
+            threadId={thread.id}
             badge={workstreamBadge}
             selected={selected}
             mutedTextClassName={rowAppearance.mutedForegroundClassName}

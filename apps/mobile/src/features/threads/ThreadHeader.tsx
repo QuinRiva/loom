@@ -13,6 +13,11 @@ import {
   useThreadGitMenuDefinition,
   type ThreadGitControlsProps,
 } from "./ThreadGitControls";
+import {
+  WorkstreamBreadcrumb,
+  workstreamAppBarAction,
+  type WorkstreamEntry,
+} from "../workstream/WorkstreamBreadcrumb.loom"; // loom: workstream view
 
 export function ThreadHeader(props: {
   readonly title: string;
@@ -23,6 +28,7 @@ export function ThreadHeader(props: {
   readonly hasThreadCwd: boolean;
   readonly inspectorMode: ThreadInspectorMode | null;
   readonly onOpenFilesInspector: () => void;
+  readonly workstream?: WorkstreamEntry | null; // loom: workstream view
 }) {
   const gt = useGT();
   const m = useMessages();
@@ -32,8 +38,9 @@ export function ThreadHeader(props: {
   const gitMenu = useThreadGitMenuDefinition(props.gitControls);
   const terminalMenu = threadTerminalMenu(props.gitControls, m);
   const filesVisible = props.inspectorMode === "files" && panes.auxiliaryPaneVisible;
-  const actions: AppBarAction[] = props.hasThreadCwd
-    ? [
+  const actions: AppBarAction[] = [
+    ...(props.hasThreadCwd
+      ? [
         {
           accessibilityLabel: filesVisible ? gt("Close files") : gt("Open files"),
           icon: "folder",
@@ -43,11 +50,14 @@ export function ThreadHeader(props: {
           onPress: filesVisible ? toggleAuxiliaryPane : props.onOpenFilesInspector,
         },
       ]
-    : [];
+      : []),
+    ...(props.workstream ? [workstreamAppBarAction(props.workstream)] : []), // loom: workstream view
+  ];
   const menus = [gitMenu, terminalMenu].filter((menu): menu is AppBarMenu => menu !== null);
 
   return (
-    <AppBar
+    <>
+      <AppBar
       title={props.title}
       subtitle={props.subtitle}
       onBackToList={goBack}
@@ -64,6 +74,9 @@ export function ThreadHeader(props: {
       actions={actions}
       menus={menus}
       hideBottomBorder
-    />
+      />
+      {/* loom: workstream view */}
+      <WorkstreamBreadcrumb entry={props.workstream ?? null} />
+    </>
   );
 }
