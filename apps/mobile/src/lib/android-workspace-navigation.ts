@@ -71,7 +71,8 @@ export function returnToAndroidWorkspaceList(
 // In the split view these destinations swap the detail pane beside the sidebar instead of
 // stacking over Home, so the default slide-in would show a layer that is not there.
 export function androidWorkspaceDestinationAnimation(routeName: string, usesSplitView: boolean) {
-  return usesSplitView && (routeName === "Thread" || routeName === "PullRequest")
+  return usesSplitView &&
+    (routeName === "Thread" || routeName === "PullRequest" || routeName === "Workstream") // loom: the workstream route swaps the detail pane too
     ? ("none" as const)
     : undefined;
 }
