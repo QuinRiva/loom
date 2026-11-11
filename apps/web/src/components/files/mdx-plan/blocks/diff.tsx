@@ -6,7 +6,7 @@ import { cn } from "~/lib/utils";
 
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../../ui/tooltip";
 import type { BlockMdxConfig, PlanBlock, PlanBlockReadProps } from "../blockTypes";
-import { WrapToggle } from "./wrapToggle";
+import { ModeButton, WrapToggle } from "./wrapToggle";
 
 /**
  * `<Diff>`: a before/after line diff, unified or split, using a small self-contained
@@ -452,33 +452,6 @@ function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
         </div>
       )}
     </figure>
-  );
-}
-
-function ModeButton({
-  active,
-  onClick,
-  icon,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "flex items-center gap-1 px-1.5 py-0.5 text-3xs font-medium transition-colors",
-        active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted/80",
-      )}
-    >
-      {icon}
-      {label}
-    </button>
   );
 }
 

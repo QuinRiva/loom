@@ -1214,6 +1214,99 @@ const mdxWideBlockFixture: PreviewFixture = {
   render: () => <PlanPanelPreview key="mdx-wide-blocks" source={MDX_WIDE_BLOCK_FIXTURE_SOURCE} />,
 };
 
+/** loom: markdown quoted in a document reads rendered, with one switch for every markdown block. */
+const MDX_MARKDOWN_AGENT = [
+  "## Goal",
+  "",
+  "When a lease-audit field has no value, the reviewer sees **why**, and **the document location behind it**. No field is marked ACCEPTABLE with nothing to review.",
+  "",
+  "## Value",
+  "",
+  "The most-repeated complaint about the audit from Knight Frank (CSM-404). On three buildings, **674 of 5,124 tenant-field verdicts (13.2%) are ACCEPTABLE with nothing to review**.",
+  "",
+  "## Done when",
+  "",
+  "- A re-run on 002771, 002336 and 002335 shows no such verdicts",
+  "- Every absent or N/A side cites at least one document location",
+].join("\n");
+const MDX_MARKDOWN_V1 = [
+  "## What the reviewer should see",
+  "",
+  "For every field with no value: *why* it is empty, and the document location behind that.",
+  "",
+  "## Done when",
+  "",
+  "A re-run on 002771, 002336 and 002335 shows **no** ACCEPTABLE verdicts with nothing to review.",
+].join("\n");
+const MDX_MARKDOWN_V2 = [
+  "When a lease-audit field has no value, the reviewer gets an ACCEPTABLE verdict with nothing to review. The field can be empty because the lease grants none, or the document was never supplied.",
+  "",
+  "## What the reviewer should see",
+  "",
+  "For every field with no value: why it is empty, and the document location behind that. See `apps/web/src/audit.ts`.",
+  "",
+  "| Field | Reason |",
+  "| --- | --- |",
+  "| Break date | No break clause |",
+  "",
+  "```ts",
+  'const reason = field.reason ?? "not supplied";',
+  "```",
+].join("\n");
+const MDX_MARKDOWN_FIXTURE_SOURCE = [
+  "## Ticket 2 of 3",
+  "",
+  "Version 1 and Version 2 are the same skill with one difference.",
+  "",
+  "<Columns>",
+  '  <Column label="What the agent wrote">',
+  `    <Code language="markdown" code={${JSON.stringify(MDX_MARKDOWN_AGENT)}} />`,
+  "  </Column>",
+  '  <Column label="Written with the skill">',
+  "    <TabsBlock>",
+  '      <Tab label="Version 1">',
+  `        <Code language="markdown" code={${JSON.stringify(MDX_MARKDOWN_V1)}} />`,
+  "      </Tab>",
+  '      <Tab label="Version 2">',
+  `        <Code language="md" code={${JSON.stringify(MDX_MARKDOWN_V2)}} />`,
+  "      </Tab>",
+  "    </TabsBlock>",
+  "  </Column>",
+  "</Columns>",
+  "",
+  "## The prompt template",
+  "",
+  "The syntax is the point here, so this block starts as source:",
+  "",
+  `<Code language="markdown" view="source" code={${JSON.stringify("## Goal\n\n{{goal}}\n\n**Done when:** {{done_when}}")}} />`,
+  "",
+  "## A fence",
+  "",
+  "A markdown fence renders too:",
+  "",
+  "```markdown",
+  "### Fenced heading",
+  "",
+  "Some **bold** text and a [link](https://example.com).",
+  "```",
+  "",
+  "## A long snippet",
+  "",
+  "It collapses at a blank line:",
+  "",
+  `<Code language="markdown" maxLines={6} code={${JSON.stringify(Array.from({ length: 6 }, (_, i) => `### Part ${i + 1}\n\nParagraph ${i + 1} with **bold** text.`).join("\n\n"))}} />`,
+].join("\n");
+
+const mdxMarkdownFixture: PreviewFixture = {
+  id: "mdx-markdown-rendered",
+  title: "Markdown blocks (rendered/source)",
+  description:
+    'Markdown <Code> blocks and ```markdown fences read rendered, headings demoted inside the card and absent from the outline. Flipping Rendered/Source on any block flips every markdown block, including the hidden Version tab; the view="source" template starts as source until the first flip. Wrap shows only in source view.',
+  render: () => (
+    <PlanPanelPreview key="mdx-markdown-rendered" source={MDX_MARKDOWN_FIXTURE_SOURCE} />
+  ),
+};
+
 /**
  * loom: word-level emphasis in `<Diff>` — one sentence rewritten inside a long
  * prose paragraph, a one-token code change, and a rewritten line sharing too
@@ -1463,6 +1556,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
     id: "mdx-annotation",
     title: "MDX plan document",
     fixtures: [
+      mdxMarkdownFixture,
       mdxGlossaryFixture,
       mdxQuestionRefsFixture,
       mdxWideBlockFixture,

@@ -18,6 +18,7 @@ import { useReferenceLinkRules } from "~/loom/referenceLinks";
 import { PlanPeekContext } from "./blocks/questionRefs";
 import type { PlanSections } from "./headingAnchors";
 import type { PlanMdxComponent } from "./mdxCompileOptions";
+import { type MarkdownView, PlanMarkdownViewContext } from "./markdownView";
 import { loadPlanDocument } from "./planCompileClient";
 import { PLAN_BLOCK_COMPONENTS } from "./registry";
 
@@ -264,6 +265,7 @@ export function MdxPlanRenderer({ source, className, stickyEnd, onSettled }: Mdx
   const [error, setError] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(true);
   const [outline, setOutline] = useState<OutlineItem[]>([]);
+  const [markdownView, setMarkdownView] = useState<MarkdownView | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const referenceLinks = useReferenceLinkRules();
   const peekDocument = {
@@ -338,7 +340,11 @@ export function MdxPlanRenderer({ source, className, stickyEnd, onSettled }: Mdx
         <PlanRenderErrorBoundary key={source} onError={(cause) => setError(cause.message)}>
           {/* The source + registry a question's "peek" re-renders one section with. */}
           <PlanPeekContext.Provider value={peekDocument}>
-            <MdxContent components={PLAN_BLOCK_COMPONENTS} />
+            <PlanMarkdownViewContext.Provider
+              value={{ view: markdownView, setView: setMarkdownView }}
+            >
+              <MdxContent components={PLAN_BLOCK_COMPONENTS} />
+            </PlanMarkdownViewContext.Provider>
           </PlanPeekContext.Provider>
         </PlanRenderErrorBoundary>
       </div>
