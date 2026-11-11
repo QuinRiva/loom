@@ -76,7 +76,12 @@ export function androidWorkspaceDestinationAnimation(
   usesSplitView: boolean,
 ) {
   if (!usesSplitView) return undefined;
-  if (route.name === "Thread" || route.name === "PullRequest" || route.name === "Issue")
+  if (
+    route.name === "Thread" ||
+    route.name === "PullRequest" ||
+    route.name === "Issue" ||
+    route.name === "Workstream" // loom: the workstream route swaps the detail pane too
+  )
     return "none" as const;
   if (route.name === "Settings" || !isSettingsRoute(route.name)) return undefined;
   const below = routes[routes.findIndex((candidate) => candidate.key === route.key) - 1];
