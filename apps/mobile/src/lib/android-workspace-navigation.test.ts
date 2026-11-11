@@ -41,6 +41,7 @@ const options = {
     "SettingsOpenSourceLicenses",
     "SettingsUsage",
     "SettingsUsageAccount",
+    "Workstream", // loom: workstream view
   ],
   routeParamList: {},
   routeGetIdList: {},
@@ -134,6 +135,34 @@ describe("Android workspace navigation", () => {
       routes: ["Home"],
       index: 0,
       listSelected: true,
+    });
+  });
+
+  // loom: workstream view — a child opened from the workstream screen goes Back to it, not Home.
+  it("returns from a thread to the workstream screen under it", () => {
+    let state = apply(
+      apply(router.getInitialState(options), StackActions.push("Workstream", thread.params)),
+      StackActions.push("Thread", { ...thread.params, threadId: "child-a" }),
+    );
+    let listSelected = false;
+    returnToAndroidWorkspaceList(
+      {
+        dispatch: (action: RootStackResetAction) => {
+          state = apply(state, action);
+        },
+        getParent: () => undefined,
+        getState: () => state,
+        goBack: () => {
+          state = apply(state, StackActions.pop());
+        },
+      },
+      () => {
+        listSelected = true;
+      },
+    );
+    expect({ routes: names(state), listSelected }).toEqual({
+      routes: ["Home", "Workstream"],
+      listSelected: false,
     });
   });
 

@@ -7,6 +7,10 @@ import type { ThreadInspectorMode } from "./thread-inspector-content-stack";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
 import { useWorkspaceBackNavigation } from "../workspace/useAndroidWorkspaceNavigation";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
+import {
+  WorkstreamBreadcrumb,
+  type WorkstreamEntry,
+} from "../workstream/WorkstreamBreadcrumb.loom"; // loom: workstream view
 
 export function ThreadHeader(
   props: Parameters<typeof useThreadHeaderOptions>[0] & {
@@ -17,6 +21,7 @@ export function ThreadHeader(
     readonly onToggleInspector: () => void;
     readonly onOpenGitInspector: () => void;
     readonly onOpenFilesInspector: () => void;
+    readonly workstream?: WorkstreamEntry | null; // loom: workstream view
   },
 ) {
   const goBack = useWorkspaceBackNavigation("threads");
@@ -40,6 +45,14 @@ export function ThreadHeader(
         selected: filesVisible,
         icon: "folder",
         onPress: filesVisible ? toggleAuxiliaryPane : props.onOpenFilesInspector,
+      });
+    }
+    // loom: workstream view — a thread with a workstream parent or sub-threads of its own.
+    if (props.workstream) {
+      actions.push({
+        accessibilityLabel: "Open workstream",
+        icon: "point.3.connected.trianglepath.dotted",
+        onPress: props.workstream.open,
       });
     }
     if (props.hasWorkspaceRoot && props.gitControls.canOpenTerminal) {
@@ -66,6 +79,7 @@ export function ThreadHeader(
     props.inspectorMode,
     panes.auxiliaryPaneVisible,
     props.onOpenFilesInspector,
+    props.workstream, // loom: workstream view
     onOpenTerminal,
     onMergeBack,
     props.onOpenGitInspector,
@@ -103,6 +117,8 @@ export function ThreadHeader(
         hideBottomBorder
         compact={composerKeyboardActive}
       />
+      {/* loom: workstream view */}
+      <WorkstreamBreadcrumb entry={props.workstream ?? null} />
       {native.fallback}
     </>
   );

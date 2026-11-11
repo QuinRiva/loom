@@ -6,9 +6,10 @@ function androidWorkspaceBackReturnsToThread(state: NavigationState) {
   const params = current?.params as ReactNavigation.RootParamList["Thread"] | undefined;
   return (
     current?.name === "Thread" &&
-    state.routes[state.index - 1]?.name === "Thread" &&
-    params !== undefined &&
-    !parentThreadIsBelow(state, params)
+    (state.routes[state.index - 1]?.name === "Workstream" || // loom: Back from a child returns to its workstream
+      (state.routes[state.index - 1]?.name === "Thread" &&
+        params !== undefined &&
+        !parentThreadIsBelow(state, params)))
   );
 }
 
