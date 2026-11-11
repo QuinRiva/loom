@@ -49,8 +49,10 @@ project, an orchestrator root anchored to it; a done coder with a report; a
 reviewer gating two coders mid-round (it looped findings to one, which holds
 rework round 1; the other stays done and untouched); a quiescent researcher (synthesised report, attention
 `awaiting_orchestrator`) with a blocked dependent; an unbriefed child; a
-cancelled lead with its own cancelled grandchild; a root holding a stored
-`needs_guidance`; and a staged (`held`) root with a kickoff brief. The done
+cancelled lead with its own cancelled grandchild; a planner that handed its
+brief back held `awaiting_acceptance` (its notice on the root is sent by the
+real attention rail); a root holding a stored `needs_guidance`; and a staged
+(`held`) root with a kickoff brief. The done
 coder consults the root and the out-of-graph `needs_guidance` root (the card's
 consult badge) and the researcher consults the coder (a consult edge), each a
 consult card mid-thread for the graph's click-through to land on. The root

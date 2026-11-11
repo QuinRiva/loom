@@ -360,7 +360,8 @@ export const routeWorkSubmit = <T extends GateNode>(
 ): WorkSubmitRouting => {
   const base = { round: thread.gateRounds, routeTo: [], resolveWith: [] };
   if (outcome === "quiescent") return { ...base, decision: "yield" };
-  if (outcome === "needs_human") return { ...base, decision: "attention" };
+  if (outcome === "needs_human" || outcome === "awaiting_acceptance")
+    return { ...base, decision: "attention" };
   const live = (id: ThreadId, alive: (outcome: LoomOutcome | null) => boolean) => {
     const target = threads.find((entry) => entry.id === id);
     return target !== undefined && alive(target.outcome);
@@ -412,18 +413,26 @@ const RAISABLE_ATTENTION_REASONS: ReadonlySet<LoomAttentionReason> = new Set([
 ]);
 
 /**
- * The standing attention reason a COMPLETING submit (`terminal`/`resolve`, landing in `done`) would
- * erase, or null. Keyed on standing attention, not this turn's raise: only a human or the parent
- * clears a hold, whoever raised it. Raisers erasing their own `awaiting_acceptance` seconds later
- * released the very work the sign-off was meant to gate.
+ * The standing attention reason a COMPLETING submit (`terminal`/`resolve`) would erase, or null:
+ * raisers erasing their own hold released the work it gated. `awaiting_acceptance` outlives
+ * messages, so only a human-authored message in the completing turn (`humanInTurn`) releases it.
  */
 export const holdErasedByCompletion = (input: {
   readonly attention: ReadonlyArray<LoomAttentionReason>;
   readonly decision: WorkOutcomeDecision;
+  readonly humanInTurn: boolean;
 }): LoomAttentionReason | null =>
   input.decision === "terminal" || input.decision === "resolve"
-    ? (input.attention.find((reason) => RAISABLE_ATTENTION_REASONS.has(reason)) ?? null)
+    ? (input.attention.find(
+        (reason) =>
+          RAISABLE_ATTENTION_REASONS.has(reason) &&
+          !(reason === "awaiting_acceptance" && input.humanInTurn),
+      ) ?? null)
     : null;
+
+/** A flag other than `awaiting_acceptance` stands: the thread is not running turns of its own. */
+export const isParked = (attention: ReadonlyArray<LoomAttentionReason>): boolean =>
+  attention.some((reason) => reason !== "awaiting_acceptance");
 
 /**
  * Why the arm refuses a `thread.work.submit` outright, or null: an agent claiming a reserved

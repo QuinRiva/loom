@@ -5,14 +5,18 @@
  * arm's warning.
  */
 import { assert, it } from "@effect/vitest";
-import { CommandId, GoalId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { CommandId, GoalId, MessageId, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { LoomStoreV2 } from "../../../../loom/projection/LoomStore.ts";
-import { NO_RESPONSE_BLOCK, SUBMIT_REFUSED_WHILE_RAISED } from "../../../../loom/prompt/prose.ts";
+import {
+  NO_RESPONSE_BLOCK,
+  SUBMIT_REFUSED_WHILE_HELD,
+  SUBMIT_REFUSED_WHILE_RAISED,
+} from "../../../../loom/prompt/prose.ts";
 import {
   loomEvent,
   seedThread,
@@ -277,23 +281,80 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
         const store = yield* LoomStoreV2;
         const root = ThreadId.make("d19-root");
         yield* seedThread({ threadId: root });
-        const child = yield* spawn(root, "Held");
-        const raised = yield* callAs(child, "workstream_request_attention", {
-          reason: "awaiting_acceptance",
+        const child = yield* spawn(root, "Stuck");
+        yield* callAs(root, "workstream_request_attention", {
+          threadId: child,
+          reason: "needs_guidance",
         });
-        assert.isFalse(raised.isError, raised.text);
-
         const refused = yield* callAs(child, "workstream_submit", { markdown: report("done!") });
         assert.isTrue(refused.isError);
         assert.equal(refused.text, SUBMIT_REFUSED_WHILE_RAISED);
         assert.isNull((yield* store.getWorkstream(child))!.reportPath);
+      }),
+  );
 
-        const yielded = yield* callAs(child, "workstream_submit", {
-          markdown: report("please accept"),
-          outcome: "blocked",
+  it.effect(
+    "a held hand-back: one call holds; a plain submit is refused until the human writes; their round dispatches nothing",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* LoomStoreV2;
+        const fs = yield* FileSystem.FileSystem;
+        const root = ThreadId.make("held-root");
+        yield* seedThread({ threadId: root });
+        const child = yield* spawn(root, "Brief");
+
+        const selfRaise = yield* callAs(child, "workstream_request_attention", {
+          reason: "awaiting_acceptance",
         });
-        assert.include(yielded.text, "YIELDED");
-        assert.include((yield* store.getWorkstream(child))!.attention, "awaiting_acceptance");
+        assert.isTrue(selfRaise.isError);
+        assert.deepEqual((yield* store.getWorkstream(child))!.attention, []);
+
+        const held = yield* callAs(child, "workstream_submit", {
+          markdown: report("brief v1"),
+          outcome: "awaiting_acceptance",
+        });
+        assert.isFalse(held.isError, held.text);
+        assert.include(held.text, "you are held `awaiting_acceptance`");
+        const first = (yield* store.getWorkstream(child))!;
+        assert.deepEqual(first.attention, ["awaiting_acceptance"]);
+        assert.isNull(first.outcome);
+        assert.equal(first.lastOutcome?.outcome, "awaiting_acceptance");
+
+        // No human in this turn: completing would release the work behind the hold.
+        const early = yield* callAs(child, "workstream_submit", { markdown: report("all done") });
+        assert.isTrue(early.isError);
+        assert.equal(early.text, SUBMIT_REFUSED_WHILE_HELD);
+        assert.equal(yield* fs.readFileString(first.reportPath!), report("brief v1"));
+
+        // The human corrects in the child: the hold stands, and a held re-hand-back only rewrites the report.
+        yield* (yield* Orchestrator.OrchestratorV2).dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("held-human-correction"),
+          threadId: child,
+          messageId: MessageId.make("message:held-human-correction"),
+          text: "Rename the second section.",
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+          dispatchMode: { type: "queue_after_active" },
+        });
+        assert.deepEqual((yield* store.getWorkstream(child))!.attention, ["awaiting_acceptance"]);
+        const again = yield* callAs(child, "workstream_submit", {
+          markdown: report("brief v2"),
+          outcome: "awaiting_acceptance",
+        });
+        assert.isFalse(again.isError, again.text);
+        assert.include(again.text, "your parent is not told of this round");
+        const silent = (yield* store.getWorkstream(child))!;
+        assert.deepEqual(silent.lastOutcome, first.lastOutcome);
+        assert.equal(yield* fs.readFileString(silent.reportPath!), report("brief v2"));
+
+        // The human approves in the same thread: the plain submit completes and clears the hold.
+        const approved = yield* callAs(child, "workstream_submit", { markdown: report("final") });
+        assert.isFalse(approved.isError, approved.text);
+        const done = (yield* store.getWorkstream(child))!;
+        assert.equal(done.outcome, "done");
+        assert.deepEqual(done.attention, []);
       }),
   );
 
@@ -348,10 +409,9 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
       yield* seedThread({ threadId: root });
       const held = yield* spawn(root, "Held");
       const plain = yield* spawn(root, "Plain");
-      yield* callAs(held, "workstream_request_attention", { reason: "awaiting_acceptance" });
       yield* callAs(held, "workstream_submit", {
         markdown: report("please accept"),
-        outcome: "blocked",
+        outcome: "awaiting_acceptance",
       });
 
       const accepted = yield* callAs(root, "workstream_set_outcome", {

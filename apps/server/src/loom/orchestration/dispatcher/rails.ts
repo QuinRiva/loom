@@ -60,7 +60,12 @@ import {
   renderRecoveredDigestLine,
   terminalEpisodeKey,
 } from "./digest.ts";
-import { buildChildWakeMessage, reportItemFields, workstreamLane } from "./wakes.ts";
+import {
+  buildChildWakeMessage,
+  buildHeldHandbackMessage,
+  reportItemFields,
+  workstreamLane,
+} from "./wakes.ts";
 import {
   type DeliveredItem,
   landed,
@@ -325,6 +330,10 @@ const sendAttentionNotice = Effect.fn("loom.dispatcher.attentionNotice")(functio
   if (yield* ctx.sent(id)) return;
   const report = yield* readReport(child.reportPath);
   const piggyback = piggybackFor(ctx, parentId);
+  const held = reason === "awaiting_acceptance";
+  // The held card carries no document chips: review comments on a document opened from it would
+  // land in the parent's composer, and the human corrects a held deliverable in the child.
+  const { documents: _documents, ...heldFields } = reportItemFields(child.reportPath, report);
   const outcome = yield* ctx.dispatch(
     "attention",
     controlMessage({
@@ -333,32 +342,51 @@ const sendAttentionNotice = Effect.fn("loom.dispatcher.attentionNotice")(functio
       tier: "steered",
       origin: "control_notice",
       text:
-        buildChildWakeMessage(
-          {
-            ...child,
-            id: child.threadId,
-            lane: workstreamLane(nodeOf(ctx, child), ctx.nodesById),
-          },
-          reason === "error" ? "error" : "attention",
-          report,
-          wedgedSince,
-        ) + piggyback.text,
+        (held
+          ? buildHeldHandbackMessage(
+              {
+                id: child.threadId,
+                role: child.role,
+                title: ctx.shells.get(child.threadId)?.title ?? "",
+                reportPath: child.reportPath,
+              },
+              report,
+            )
+          : buildChildWakeMessage(
+              {
+                ...child,
+                id: child.threadId,
+                lane: workstreamLane(nodeOf(ctx, child), ctx.nodesById),
+              },
+              reason === "error" ? "error" : "attention",
+              report,
+              wedgedSince,
+            )) + piggyback.text,
       payload: {
         kind: "notice",
         notice: "attention",
-        heading:
-          wedgedSince === undefined
+        heading: held
+          ? "A sub-thread finished and is held for the human's acceptance."
+          : wedgedSince === undefined
             ? `A sub-thread needs attention (${reason}).`
             : "A sub-thread looks wedged (needs_guidance raised by the control plane).",
         items: [
-          childItem(
-            child,
-            report,
-            wedgedSince === undefined
-              ? `Needs attention: \`${reason}\``
-              : "Wedged: reads busy but silent",
-            reason,
-          ),
+          held
+            ? {
+                threadId: child.threadId,
+                ...(child.role !== null ? { role: child.role } : {}),
+                title: "Finished: held for acceptance",
+                status: reason,
+                ...heldFields,
+              }
+            : childItem(
+                child,
+                report,
+                wedgedSince === undefined
+                  ? `Needs attention: \`${reason}\``
+                  : "Wedged: reads busy but silent",
+                reason,
+              ),
           ...piggyback.items,
         ],
       },
@@ -368,9 +396,9 @@ const sendAttentionNotice = Effect.fn("loom.dispatcher.attentionNotice")(functio
 });
 
 /**
- * The attention rail: one steered notice to the parent per raise episode of
- * `needs_guidance`, `awaiting_acceptance` or `error` on a child, keyed on
- * `attentionEpisodes[reason]` (no stamp — an imported row — no notice).
+ * The attention rail: one steered notice to the parent per raise episode of `needs_guidance` or
+ * `error` on a child, keyed on `attentionEpisodes[reason]` (no stamp — an imported row — no
+ * notice), and one per held hand-back (`awaiting_acceptance`), keyed on `lastOutcome.eventId`.
  */
 export const attentionRail: PassStep = {
   name: "attention",
@@ -379,9 +407,15 @@ export const attentionRail: PassStep = {
       const parentId = child.parentThreadId;
       if (parentId === null || !ctx.shells.has(parentId)) continue;
       for (const reason of ATTENTION_NOTICE_REASONS) {
-        const episode = child.attention.includes(reason)
-          ? child.attentionEpisodes[reason]
-          : undefined;
+        // A hold is told once per held hand-back, never on a raise: the projection ignores a re-raise,
+        // and a parent's own raise on its child is not news to it.
+        const episode = !child.attention.includes(reason)
+          ? undefined
+          : reason !== "awaiting_acceptance"
+            ? child.attentionEpisodes[reason]
+            : child.lastOutcome?.outcome === reason
+              ? (child.lastOutcome.eventId ?? undefined)
+              : undefined;
         if (episode !== undefined)
           yield* sendAttentionNotice(ctx, child, parentId, reason, episode);
       }

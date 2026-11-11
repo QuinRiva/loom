@@ -153,6 +153,10 @@ export interface SubmitOutcomeView {
 const list = (ids: ReadonlyArray<ThreadId>) => ids.map((id) => `\`${id}\``).join(", ");
 
 /** The routing echo: what the submit did and whether the caller is done. */
+/** A held hand-back repeated in a turn the human wrote in: the report file is refreshed, nothing is routed. */
+export const HELD_AGAIN_ECHO =
+  "Report updated. You are still held `awaiting_acceptance`, and your parent is not told of this round. When the human approves here, complete with a plain submit whose report quotes what they changed.";
+
 export const renderSubmitOutcome = (view: SubmitOutcomeView): string => {
   const withOutcome = `Work submitted with outcome '${view.outcome}'`;
   const siblings = view.siblings ?? [];
@@ -162,7 +166,9 @@ export const renderSubmitOutcome = (view: SubmitOutcomeView): string => {
     case "terminal":
       return "Work submitted: report recorded, outcome done (dependents released).";
     case "attention":
-      return "Work submitted: report recorded and needs_guidance raised: a human has been flagged; you are not done.";
+      return view.outcome === "awaiting_acceptance"
+        ? "Work submitted: report recorded and you are held `awaiting_acceptance`: not done, and nothing that waits on you starts. Your parent has been told once and points the human here. The human corrects and approves in this thread: after a correction, revise, reply to them and stay held; when they approve, complete with a plain submit whose report quotes what they changed. If your parent sends you back to fix something, hand back held again the same way."
+        : "Work submitted: report recorded and needs_guidance raised: a human has been flagged; you are not done.";
     case "resolve":
       return siblings.length > 1
         ? `${withOutcome}: the review gate RESOLVED: you and every sibling it covers that was still open are done (dependents released).`

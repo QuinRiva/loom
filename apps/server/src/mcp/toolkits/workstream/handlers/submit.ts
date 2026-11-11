@@ -15,13 +15,19 @@ import * as Effect from "effect/Effect";
 import { renderOpenBranch } from "../../../../loom/goals/goalTaskRender.ts";
 import { resolveThreadAnchor } from "../../../../loom/goals/goalTaskTree.ts";
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
-import { NO_RESPONSE_BLOCK, SUBMIT_REFUSED_WHILE_RAISED } from "../../../../loom/prompt/prose.ts";
+import { humanSpokeInTurn } from "../../../../loom/orchestration/turns.ts";
+import {
+  NO_RESPONSE_BLOCK,
+  SUBMIT_REFUSED_WHILE_HELD,
+  SUBMIT_REFUSED_WHILE_RAISED,
+} from "../../../../loom/prompt/prose.ts";
 import { reportResponse, writeWorkstreamReport } from "../../../../loom/workstream/report.ts";
 import { resolveThreadRef } from "../../../../loom/workstream/threadResolve.ts";
+import * as Orchestrator from "../../../../orchestration-v2/Orchestrator.ts";
 import type { WorkstreamCaller } from "../authorisation.ts";
 import type { LoomToolInput } from "../defs.ts";
 import { requestKey, stableCommandId } from "../idempotency.ts";
-import { renderSubmitOutcome } from "../render.ts";
+import { HELD_AGAIN_ECHO, renderSubmitOutcome } from "../render.ts";
 import { asToolError, committed, dispatch, fail, nowIso } from "./shared.ts";
 
 export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(function* (
@@ -58,8 +64,35 @@ export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(functi
     rework,
   );
   if (refusal !== null) return yield* fail(refusal);
-  if (holdErasedByCompletion({ attention: row.attention, decision: routing.decision }) !== null)
-    return yield* fail(SUBMIT_REFUSED_WHILE_RAISED);
+  const held = row.attention.includes("awaiting_acceptance");
+  const completes = routing.decision === "terminal" || routing.decision === "resolve";
+  const humanInTurn =
+    held && (completes || outcome === "awaiting_acceptance")
+      ? yield* Orchestrator.OrchestratorV2.pipe(
+          Effect.flatMap((orchestrator) =>
+            orchestrator.getThreadRecords(caller.threadId, ["runs", "messages"], {
+              messageRoles: ["user"],
+            }),
+          ),
+          Effect.map(({ runs, messages }) => humanSpokeInTurn(runs, messages)),
+          asToolError,
+        )
+      : false;
+  const erased = holdErasedByCompletion({
+    attention: row.attention,
+    decision: routing.decision,
+    humanInTurn,
+  });
+  if (erased !== null)
+    return yield* fail(
+      erased === "awaiting_acceptance" ? SUBMIT_REFUSED_WHILE_HELD : SUBMIT_REFUSED_WHILE_RAISED,
+    );
+  // A held hand-back repeated in a round the human is correcting: the record is refreshed, and the
+  // parent, already pointed at this thread, is told nothing.
+  if (held && outcome === "awaiting_acceptance" && humanInTurn) {
+    const reportPath = yield* asToolError(writeWorkstreamReport(caller.threadId, input.markdown));
+    return `${HELD_AGAIN_ECHO}\nReport: ${reportPath}`;
+  }
 
   const reportPath = yield* asToolError(
     writeWorkstreamReport(

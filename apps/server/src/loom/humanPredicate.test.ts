@@ -15,7 +15,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
-import { quiescenceCandidate, turnStartedByHuman } from "./orchestration/quiescence.ts";
+import { quiescenceCandidate } from "./orchestration/quiescence.ts";
+import { turnStartedByHuman } from "./orchestration/turns.ts";
 import { LoomStoreV2 } from "./projection/LoomStore.ts";
 import {
   completeSeededRun,
@@ -113,7 +114,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom human predicate (seam 14)", (it) => {
         ),
       );
 
-      // On a thread holding awaiting_acceptance the hold stands (rule 0 makes the resume a no-op).
+      // On a thread flagged needs_guidance the flag stands (rule 0 makes the resume a no-op).
       const holding = ThreadId.make("human-limit-holding");
       yield* spawnChild({ parentThreadId: parent, threadId: holding, graphKey: "limit-holding" });
       const held = yield* seedUsageLimitedRun({ threadId: holding });
@@ -122,7 +123,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom human predicate (seam 14)", (it) => {
         commandId: CommandId.make("human-limit-holding-raise"),
         threadId: holding,
         createdAt,
-        reason: "awaiting_acceptance",
+        reason: "needs_guidance",
       });
       const noOp = yield* limitResume(holding, held.runId);
       assert.deepEqual(
@@ -130,7 +131,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom human predicate (seam 14)", (it) => {
         ["thread.metadata-updated"],
       );
       assert.isUndefined(yield* storedMessage(holding, `message:limit-resume:${holding}`));
-      assert.deepEqual((yield* store.getWorkstream(holding))!.attention, ["awaiting_acceptance"]);
+      assert.deepEqual((yield* store.getWorkstream(holding))!.attention, ["needs_guidance"]);
 
       // A composer message is human: the null human grace means never a candidate.
       const composer = ThreadId.make("human-composer");

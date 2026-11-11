@@ -752,6 +752,64 @@ it.layer(TestLayer)("WorkstreamDispatcher pass", (it) => {
   );
 
   it.effect(
+    "held hand-back: one notice with the child's link, no yield, its dependent stays gated",
+    () =>
+      Effect.gen(function* () {
+        const [root, held, dependent, raised] = [
+          "held-root",
+          "held-child",
+          "held-dependent",
+          "held-raised",
+        ].map((id) => ThreadId.make(id));
+        yield* seedThread({ threadId: root! });
+        yield* spawnChild({ parentThreadId: root!, threadId: held!, graphKey: "held" });
+        yield* spawnChild({ parentThreadId: root!, threadId: raised!, graphKey: "raised" });
+        yield* spawnChild({
+          parentThreadId: root!,
+          threadId: dependent!,
+          graphKey: "dependent",
+          blockedBy: [held!],
+        });
+        yield* setBrief(dependent!, writeFile("held-dependent.md", "Build on the brief."));
+        // A parent's own hold on a child is not news to it.
+        yield* dispatch({
+          type: "thread.attention.raise",
+          commandId: CommandId.make("held-parent-raise"),
+          threadId: raised!,
+          createdAt,
+          reason: "awaiting_acceptance",
+        });
+        yield* submit(held!, "awaiting_acceptance", writeFile("held-report.md", "HELD_EXCERPT"));
+        const lastOutcome = (yield* row(held!)).lastOutcome!;
+
+        yield* runPass;
+        yield* runPass;
+        const notices = yield* withPayload(root!, "notice", "attention");
+        assert.lengthOf(notices, 1);
+        const [notice] = notices;
+        assert.equal(
+          notice?.id,
+          MessageId.make(
+            `message:${attentionCommandId(held!, "awaiting_acceptance", lastOutcome.eventId!)}`,
+          ),
+        );
+        assert.include(notice?.text ?? "", "HELD_EXCERPT");
+        assert.include(notice?.text ?? "", `(t3-thread://v1/${held!})`);
+        const [item] = notice!.loom!.controlPayload!.items;
+        assert.equal(item?.status, "awaiting_acceptance");
+        assert.isUndefined(item?.documents);
+        assert.isEmpty(yield* withPayload(root!, "yield"));
+        assert.isNull((yield* row(dependent!)).kickoffAt);
+
+        // Sent back by its parent, it hands back held again: one more notice for that round.
+        yield* submit(held!, "awaiting_acceptance", writeFile("held-report-2.md", "HELD_AGAIN"));
+        yield* runPass;
+        assert.lengthOf(yield* withPayload(root!, "notice", "attention"), 2);
+        assert.isNull((yield* row(dependent!)).kickoffAt);
+      }),
+  );
+
+  it.effect(
     "recovered: a done child the parent last heard of as `error` digests once as recovered",
     () =>
       Effect.gen(function* () {

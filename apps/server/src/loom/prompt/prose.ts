@@ -158,7 +158,7 @@ export const workstreamChildPrompt = (input: {
     KICKOFF_CLOSING,
     "Run anything you expect to take more than a couple of minutes with bg_start and wait on it with bg_wait rather than ending your turn: a running job blocks your submit, and a turn that ends without submitting reads as gone quiet. A long command that must run in the foreground carries an inline `# eta: <n>m` comment so your parent is not sent slow-tool notices before then.",
     "Finish with ONE call: `mcp__t3-code__workstream_submit`: its description is the contract for outcomes and routing, and its result names where your report went. Write the report as a concise handoff for your parent orchestrator, not a transcript dump, opening with the response block its markdown description asks for: lead with the value you delivered and what it enables or unblocks, then the key results/decisions, where you departed from the brief and why, what the human changed if they wrote to you (quoted), and anything the parent must act on. Ending a turn without submitting hands your parent a report the control plane reconstructs from your last message instead.",
-    "If a HUMAN is needed, raise it with `mcp__t3-code__workstream_request_attention`: its description covers the two reasons and why a raise HOLDS your work rather than labelling your report. Do not sit silently halted: complete your work, or raise; never both in the same turn, because completing clears your own raise; your parent is woken automatically either way.",
+    "If you cannot proceed without a human, raise `needs_guidance` with `mcp__t3-code__workstream_request_attention`, whose description covers when. Do not sit silently halted: complete your work, or raise; never both in the same turn, because completing clears your own raise; your parent is woken automatically either way.",
   ].join("\n");
 
 /**
@@ -175,6 +175,10 @@ export const NO_RESPONSE_BLOCK =
 /** A plain-completion submit while a flag the thread raised still stands (D19). */
 export const SUBMIT_REFUSED_WHILE_RAISED =
   "Refused: an attention flag you raised is still standing, and a plain completion would clear it and release your dependents. The hold clears only when a human writes to you or your parent prompts you. To hand your report back now with the hold intact, submit again with a short non-'done' outcome (e.g. 'blocked'): the report is recorded and you yield to your parent, flag standing.";
+
+/** A completing submit over a standing `awaiting_acceptance` with no human message in the turn. */
+export const SUBMIT_REFUSED_WHILE_HELD =
+  "Refused: this thread is held `awaiting_acceptance`, and completing now would release the work that waits on it before a human has accepted it. The hold ends when the human approves in this thread, or when your parent accepts you. If you have revised the work, hand it back held again: `mcp__t3-code__workstream_submit` with outcome `awaiting_acceptance`.";
 
 /**
  * The header of a report the control plane synthesises for a thread that

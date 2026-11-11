@@ -207,10 +207,15 @@ describe("routeWorkSubmit", () => {
     expect(routeWorkSubmit(t, [t], "rework_approach")).toMatchObject({ decision: "yield" });
   });
 
-  it("routes needs_human to attention even for a gate source (reserved token wins)", () => {
+  it("routes needs_human and awaiting_acceptance to attention, even in a rework round", () => {
     const coder = gnode({ id: "coder", outcome: "done" });
     const reviewer = gnode({ id: "reviewer", routes: loopRoutes("coder") });
     expect(routeWorkSubmit(reviewer, [reviewer, coder], "needs_human")).toMatchObject({
+      decision: "attention",
+    });
+    const reworking = gnode({ id: "coder", pendingRework: true });
+    const source = gnode({ id: "reviewer", routes: loopRoutes("coder") });
+    expect(routeWorkSubmit(reworking, [source, reworking], "awaiting_acceptance")).toMatchObject({
       decision: "attention",
     });
   });
@@ -697,8 +702,11 @@ describe("isMemberOfUnresolvedGate (generation-join gating)", () => {
 });
 
 describe("holdErasedByCompletion (raise-then-complete guard predicate)", () => {
-  const held = (attention: ReadonlyArray<LoomAttentionReason>, decision: WorkOutcomeDecision) =>
-    holdErasedByCompletion({ attention, decision });
+  const held = (
+    attention: ReadonlyArray<LoomAttentionReason>,
+    decision: WorkOutcomeDecision,
+    humanInTurn = false,
+  ) => holdErasedByCompletion({ attention, decision, humanInTurn });
 
   it("names the raised reason a completing submit would erase", () => {
     expect(held(["awaiting_acceptance"], "terminal")).toBe("awaiting_acceptance");
@@ -711,6 +719,11 @@ describe("holdErasedByCompletion (raise-then-complete guard predicate)", () => {
     for (const decision of ["loop", "yield", "cap-breach", "attention"] as const) {
       expect(held(["awaiting_acceptance"], decision)).toBeNull();
     }
+  });
+
+  it("lets the human's approval in the completing turn release awaiting_acceptance, not needs_guidance", () => {
+    expect(held(["awaiting_acceptance"], "terminal", true)).toBeNull();
+    expect(held(["needs_guidance"], "terminal", true)).toBe("needs_guidance");
   });
 
   it("ignores flags an agent cannot raise, so a liveness `error` never blocks a completion", () => {

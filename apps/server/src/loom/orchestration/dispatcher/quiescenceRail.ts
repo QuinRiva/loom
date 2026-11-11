@@ -4,7 +4,7 @@
  * interception so a quiet gate coder is parked, never looped to its reviewer.
  */
 import { CommandId } from "@t3tools/contracts";
-import { isWaitingInGate } from "@t3tools/shared/workstreamGraph";
+import { isParked, isWaitingInGate } from "@t3tools/shared/workstreamGraph";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -12,7 +12,8 @@ import * as Option from "effect/Option";
 import { OrchestratorV2 } from "../../../orchestration-v2/Orchestrator.ts";
 import { LoomStoreV2 } from "../../projection/LoomStore.ts";
 import { writeSynthesisedReport } from "../../workstream/report.ts";
-import { latestUnheldRun, quiescenceCandidate, turnStartedByHuman } from "../quiescence.ts";
+import { latestUnheldRun, quiescenceCandidate } from "../quiescence.ts";
+import { turnStartedByHuman } from "../turns.ts";
 import { quiescentSubmitCommandId } from "./controlMessage.ts";
 import { type PassContext, type PassStep, perThread } from "./WorkstreamDispatcher.ts";
 
@@ -36,7 +37,7 @@ export const quiescenceRail: PassStep = {
         parentId === null ||
         row.kickoffAt === null ||
         row.outcome !== null ||
-        row.attention.length > 0 ||
+        isParked(row.attention) ||
         shell.activityRunStatus != null ||
         shell.pendingRuntimeRequest !== null
       )
@@ -71,7 +72,7 @@ export const quiescenceRail: PassStep = {
           const fresh = siblings.get(row.threadId)!;
           if (
             fresh.outcome !== null ||
-            fresh.attention.length > 0 ||
+            isParked(fresh.attention) ||
             isWaitingInGate(fresh, siblings)
           )
             return;
