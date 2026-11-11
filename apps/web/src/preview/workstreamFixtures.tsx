@@ -24,7 +24,10 @@ import WorkstreamGraph from "../components/WorkstreamGraph";
 import { WorkstreamActiveStrip } from "../components/WorkstreamActiveStrip";
 import { WorkstreamQuickFacts } from "../components/WorkstreamQuickFacts";
 import { WorkstreamTimelineDrawer } from "../components/WorkstreamTimeline";
-import { buildWorkstreamNodes, liveNodes } from "../lib/workstreamPresentation";
+import {
+  buildWorkstreamNodes,
+  liveNodes,
+} from "@t3tools/client-runtime/state/loom/workstreamNodes";
 import { LoomRollupPill } from "../loom/LoomRollupBadge";
 import type { PreviewGroup } from "./fixtures";
 import {

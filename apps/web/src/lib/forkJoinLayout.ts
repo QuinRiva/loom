@@ -5,7 +5,7 @@
 
 import type { ThreadId } from "@t3tools/contracts";
 
-import type { WorkstreamNode } from "./workstreamPresentation";
+import type { WorkstreamNode } from "@t3tools/client-runtime/state/loom/workstreamNodes";
 
 const BRIDGE_W = 150;
 const BRIDGE_H = 46;

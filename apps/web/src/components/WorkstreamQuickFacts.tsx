@@ -11,12 +11,10 @@ import {
   getPurpose,
   getStep,
   getVerdictChip,
-  legibleHue,
-  nodeAttentionOf,
-  nodeStyleOf,
   type WorkstreamNode,
   type WorkstreamNodeIndex,
-} from "../lib/workstreamPresentation";
+} from "@t3tools/client-runtime/state/loom/workstreamNodes";
+import { legibleHue, nodeAttentionOf, nodeStyleOf } from "../lib/workstreamPresentation";
 import { formatCostUsd } from "../loom/costFormat";
 import { StatusDot } from "../loom/StatusDot";
 import { StepElapsed } from "../loom/StepElapsed";

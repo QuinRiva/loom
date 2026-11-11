@@ -11,7 +11,7 @@ import {
   dispatchAnchorOf,
   liveNodes,
   type WorkstreamNode,
-} from "../lib/workstreamPresentation";
+} from "@t3tools/client-runtime/state/loom/workstreamNodes";
 import { readLocalApi } from "../localApi";
 import { useConversationJumpStore } from "../loom/conversationJump";
 import { PromptCaptureMenu } from "../loom/PromptCaptureMenu";

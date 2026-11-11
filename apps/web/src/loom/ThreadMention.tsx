@@ -34,10 +34,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip"
 import {
   ATTENTION_LABELS,
   COLUMN_LABELS,
-  COLUMN_STYLES,
   isRunning,
   PENDING_REQUEST_LABELS,
-} from "../lib/workstreamPresentation";
+} from "@t3tools/client-runtime/state/loom/workstreamNodes";
+import { COLUMN_STYLES } from "../lib/workstreamPresentation";
 import { cn } from "../lib/utils";
 import { StatusDot } from "./StatusDot";
 import { useProject } from "../state/entities";

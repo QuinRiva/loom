@@ -19,7 +19,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import { Atom } from "effect/reactivity";
 
-import { isRunning } from "../lib/workstreamPresentation";
+import { isRunning } from "@t3tools/client-runtime/state/loom/workstreamNodes";
 import { loomEnvironmentSnapshotAtom } from "../state/threads";
 
 export interface SideThreadRowModel {

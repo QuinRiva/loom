@@ -251,6 +251,10 @@
       "types": "./src/state/loom/workstream.ts",
       "default": "./src/state/loom/workstream.ts"
     },
+    "./state/loom/workstreamNodes": {
+      "types": "./src/state/loom/workstreamNodes.ts",
+      "default": "./src/state/loom/workstreamNodes.ts"
+    },
     "./state/models": {
       "types": "./src/state/models.ts",
       "default": "./src/state/models.ts"

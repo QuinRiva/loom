@@ -3,16 +3,15 @@ import type { ThreadId } from "@t3tools/contracts";
 import { useContext } from "react";
 
 import {
-  COLUMN_STYLES,
   formatRelativeAge,
   formatStepAge,
   getActivity,
   getRoleLabel,
   getStep,
   isRunning,
-  nodeAttentionOf,
   type WorkstreamNode,
-} from "../lib/workstreamPresentation";
+} from "@t3tools/client-runtime/state/loom/workstreamNodes";
+import { COLUMN_STYLES, nodeAttentionOf } from "../lib/workstreamPresentation";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { formatCostUsd } from "../loom/costFormat";
 import { StatusDot } from "../loom/StatusDot";
