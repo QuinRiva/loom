@@ -909,7 +909,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
           firstBufferedRow.getBoundingClientRect().top
         : state.scroll;
     const visibleRange = resolveTimelineMinimapVisibleRange({ ...state, scroll });
-    publishVisibleRows(routeThreadKey, visibleRange, rows); // loom: context-viz
+    publishVisibleRows(routeThreadKey, { ...visibleRange, scroll }, rows); // loom: context-viz
     for (const item of minimapItems) {
       const strip = minimapStripMap.get(item.id);
       const inView = isTimelineMinimapRowVisible(

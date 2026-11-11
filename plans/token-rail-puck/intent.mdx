@@ -1,0 +1,54 @@
+---
+reader:
+  who: Carl, who reported that the token rail's scroll puck is too hard to see and grab, approving what "fixed" means before anything is built
+  knows: the token rail and that it replaced the scrollbar; his own screenshot; not the rail's code or how the puck's size is computed
+  after_first_screen: he can say "go" or correct a line, and has answered whether the fix is the puck alone or the track's proportions too
+kicker: "Intent brief · done 11 Nov 2026 · built and accepted"
+status: done
+manager_sessions:
+  - id: 01a1c7ea-ca3c-76bf-8bb7-8c733c7cab26
+    name: Improve token rail scrollbar visibility
+    role: intent
+    authored_at: 2026-11-11T00:08:11.866Z
+---
+
+# A scroll puck you can see and grab on the token rail
+
+**Goal.** "The current implementation is _way_ too hard to see where we are currently scrolled to or select the scroll puck." In large conversations "the puck effectively disappears, because the current scroll to section has very few tokens". Make the rail work as a scrollbar first and a token map second: you always see where you are and can always grab it.
+
+Why it happens today: the puck is exactly as tall as the tokens of the rows in view, with a minimum of 4 px. It is drawn as a 1 px outline on an 8 px track. In a long thread a screen of prose is a fraction of a percent of the window, so the puck sits at 4 px. It also cannot be grabbed as such: a press anywhere on the track jumps the chat to that point.
+
+<HtmlBlock
+  height={340}
+  caption="Actual size, drawn, not built. Left: today, with a screen of prose in view in a long thread; the puck is the 4 px outline two thirds of the way down. Middle: the proposal at the same spot. Right: the proposal with a folded heavy turn in view, where the puck still grows to that turn's real share."
+  html={"<style>.row{display:flex;gap:28px;align-items:flex-start;font:12px/1.4 system-ui,sans-serif;color:var(--muted-foreground,#a1a1aa)}.col{width:180px}.pane{position:relative;height:300px;background:#0b0b0c;border:1px solid #27272a;border-radius:6px;overflow:hidden;margin-bottom:6px}.l{height:6px;border-radius:3px;background:#27272a;margin:14px 40px 0 14px}.t{position:absolute;top:0;bottom:0;right:0;background:linear-gradient(to bottom,rgba(161,161,170,.3) 0 14px,rgba(14,165,233,.7) 14px 22px,rgba(167,139,250,.7) 22px 40px,rgba(161,161,170,.5) 40px 71px,#f59e0b 71px 89px,rgba(129,140,248,.7) 89px 104px,rgba(20,184,166,.7) 104px 111px,rgba(161,161,170,.5) 111px 150px,rgba(167,139,250,.7) 150px 163px,#f59e0b 163px 188px,rgba(129,140,248,.7) 188px 199px,rgba(161,161,170,.5) 199px 228px,rgba(20,184,166,.7) 228px 236px,rgba(129,140,248,.7) 236px 251px,rgba(161,161,170,.5) 251px 279px,#f59e0b 279px 291px,rgba(167,139,250,.7) 291px 300px)}.old{width:8px;opacity:.6}.new{width:12px}.thumb{position:absolute;right:0;top:230px;width:8px;height:4px;box-sizing:border-box;border:1px solid #fafafa;opacity:.7}.puck{position:absolute;right:0;width:16px;border-radius:4px;background:#fafafa;box-shadow:0 0 0 1.5px #0b0b0c}</style><div class='row'><div class='col'><div class='pane'><div class='l'></div><div class='l'></div><div class='l' style='margin-right:80px'></div><div class='l'></div><div class='l' style='margin-right:60px'></div><div class='t old'></div><div class='thumb'></div></div>Today</div><div class='col'><div class='pane'><div class='l'></div><div class='l'></div><div class='l' style='margin-right:80px'></div><div class='l'></div><div class='l' style='margin-right:60px'></div><div class='t new'></div><div class='puck' style='top:218px;height:28px'></div></div>Proposed, reading prose</div><div class='col'><div class='pane'><div class='l'></div><div class='l'></div><div class='l' style='margin-right:80px'></div><div class='l'></div><div class='l' style='margin-right:60px'></div><div class='t new'></div><div class='puck' style='top:111px;height:77px'></div></div>Proposed, heavy turn in view</div></div>"}
+/>
+
+**You'll know it works when.**
+
+- On the thread in your screenshot, wherever you are scrolled, you can point to the puck at a glance: on any colour of the track, in light and dark, without hovering.
+- In a long conversation it never drops below a size you hit first try. With a folded heavy turn in view it is still as tall as that turn's share.
+- You press on the puck and drag: the chat follows from where it was, with no jump at the press. Pressing elsewhere on the track and dragging, clicking a segment and hovering for its name all work as they do today.
+- You catch the track without pixel-hunting: the pointer does not have to be on the strip of colour itself.
+- As you read through a long thread the puck moves with you, and passing one heavy tool result no longer throws it across the track. Heavy turns still read as the big blocks, and the hover label still gives the true tokens.
+- **Must not:** animate; cost a frame on scroll; cover the prose or the details card; change anything with Timeline off or on touch; send anything new over the socket.
+
+**Approaches in play.**
+
+- **A bigger, mostly opaque puck, and a wider track.** Built first, as its own step. _Chosen._
+- **Light stretches get more room on the track.** Every stretch of the conversation gets a minimum height, so the puck moves visibly as you read prose. Today it crawls through prose and leaps past heavy turns. Costs the track's exactness: colour areas stop being strictly proportional to tokens. Built second, as its own step, with a before and after on your thread. _Chosen._
+- Dropped: the native scrollbar back beside the rail. It reopens "The rail becomes the timeline's scrollbar" (3 Nov) and brings back two maps that disagree.
+
+**Decided.** "we decided to take over the scroll bar". "I think there's an over emphasis on 'precision' over usability." On the puck: "It can still have _some_ transparency". On scope, from this brief's form, 11 Nov 2026: "Both: the puck, and a minimum height per turn so the puck moves as I read". This replaces two decisions of the earlier rail plan, `plans/context-viz-rail/plan.mdx`. One is the puck being exactly the tokens in view, 4 px at least, outlined, on an 8 px track. The other is height on the track being strictly tokens. The rest of that plan stands.
+
+- _Assumed:_ the puck is at least 28 px tall, in the text colour at 65% with an edge in the background colour, and 16 px wide on a 12 px track. The colours under it show faintly. Redirect if wrong.
+- _Assumed:_ the pointer catches the track from 24 px out. Under a 640 px window the track stays 8 px and the catch zone 12, so nothing covers the prose.
+- _Assumed:_ at its minimum size the puck is centred on the true position and stops at the track's ends. A press on the puck let go without moving does nothing.
+- _Assumed:_ half of each item's room on the track is its tokens and half is its share of the prose you read (the assistant's text and your messages). A minimum per item was tried first and dropped: with 442 items it gave each about 1 px, so prose still crawled. The colours and the puck stay in the one bent map, so the puck still points at what its colours say.
+
+**Not doing.** The left minimap. Touch and mobile. The segment colours, the merging of small items and the hover label. The Context tab's Growth chart.
+
+**Settled at near-done.**
+
+- Carl tried the build on a seeded copy of his 338K-token thread and said "ship it" (11 Nov 2026). That accepts half the track for prose and the puck at 65%. On that thread the split cut the scroll steps where the puck barely moves from 57 of 115 to 21. The largest single jump only fell from 47 to 38 px, because a folded heavy turn is one short row holding its whole share.
+- Still open: reading a finished one-turn child's final answer does not move the puck. No later call has measured that answer, so it has no place on the track, and the puck stays visible at the bottom. A separate task holds this.

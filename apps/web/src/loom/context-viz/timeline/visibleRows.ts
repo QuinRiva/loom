@@ -7,6 +7,8 @@ import { KEPT_THREADS } from "./timelineFigures";
 export interface VisibleRows {
   readonly start: number | null;
   readonly end: number | null;
+  /** The list's scroll in its rows' positions (no header), which places the edge rows. */
+  readonly scroll: number;
   /** The rows `start` and `end` index. */
   readonly rows: ReadonlyArray<MessagesTimelineRow>;
 }
@@ -16,12 +18,13 @@ const listeners = new Map<string, Set<(range: VisibleRows) => void>>();
 
 export function publishVisibleRows(
   key: string,
-  { start, end }: Pick<VisibleRows, "start" | "end">,
+  { start, end, scroll }: Pick<VisibleRows, "start" | "end" | "scroll">,
   rows: ReadonlyArray<MessagesTimelineRow>,
 ) {
   const last = ranges.get(key);
-  if (last?.start === start && last.end === end && last.rows === rows) return;
-  const range = { start, end, rows };
+  if (last?.start === start && last.end === end && last.scroll === scroll && last.rows === rows)
+    return;
+  const range = { start, end, scroll, rows };
   ranges.delete(key);
   ranges.set(key, range);
   if (ranges.size > KEPT_THREADS) ranges.delete(ranges.keys().next().value!);

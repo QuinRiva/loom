@@ -221,7 +221,8 @@ const railRows = thread.runs.slice(10).map((run) => ({
 })) as unknown as ReadonlyArray<MessagesTimelineRow>;
 
 const RAIL_KEY = "preview-context-viz-rail";
-const readRow = (row: number) => publishVisibleRows(RAIL_KEY, { start: row, end: row }, railRows);
+const readRow = (row: number) =>
+  publishVisibleRows(RAIL_KEY, { start: row, end: row, scroll: 0 }, railRows);
 readRow(19);
 
 /** Steps the row in view, as scrolling would publish it, so the thumb's two style writes show. */
