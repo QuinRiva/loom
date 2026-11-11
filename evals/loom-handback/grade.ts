@@ -138,6 +138,14 @@ export const grade = (check: Check, { calls, text, ended }: Observed): Grade => 
     case "none-of": {
       if (check.plainSubmit && submits.some(isPlainSubmit))
         return verdict(false, "completing submit");
+      // Reaching for notify_thread through tool_search is an attempted notify where it is not loaded.
+      if (
+        check.tools.includes("notify_thread") &&
+        calls.some(
+          (call) => call.name === "tool_search" && /notify/i.test(String(call.input.query)),
+        )
+      )
+        return verdict(false, "searched for notify_thread");
       const called = check.tools.find((tool) => named(calls, tool).length > 0);
       if (called !== undefined) return verdict(false, `called ${called}`);
       return !check.endsTurn || ended

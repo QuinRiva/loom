@@ -230,3 +230,12 @@ describe("no-hold", () => {
 it("treats a case's extra looking tools as looking", () => {
   expect(decides([loom("consult_thread")], ["mcp__t3-code__consult_thread"])).toBe(false);
 });
+
+it("counts a tool search for notify_thread as an attempted notify", () => {
+  const check = { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] } as const;
+  const search = (query: string) => observed([{ name: "tool_search", input: { query } }]);
+  expect(grade(check, search("notify_thread send message to parent thread")).reason).toBe(
+    "searched for notify_thread",
+  );
+  expect(grade(check, search("browser screenshot")).pass).toBe(true);
+});

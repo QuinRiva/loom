@@ -600,14 +600,27 @@ CSV export now writes a \`currency\` column (ISO 4217 code) on every row, so mix
 - Changed \`${CSV_PATH}\`: the column comes from \`invoice.currency\`.
 - Rows are now currency-stable: a re-export never changes a row's currency.
 - Verified: \`pnpm test apps/api/src/export\` (15 passed, one new test for a two-currency invoice).`;
-const csvCoderFinished: ReadonlyArray<Message> = [
+/** The invoice type, read in the tidy case so every claim its report makes is checked in the transcript. */
+const INVOICE_TYPE = `import type { CurrencyCode } from "../money";
+
+export interface Invoice {
+  id: string;
+  customerName: string;
+  dueDate: string;
+  totalCents: number;
+  /** ISO 4217 code, set when the invoice is issued and never changed afterwards. */
+  currency: CurrencyCode;
+}`;
+/** `grounded`: the coder also reads the invoice type, which backs the report's currency claims. */
+const csvCoderFinished = (grounded = false): ReadonlyArray<Message> => [
   kickoff("coder", CSV_BRIEF),
   said(
-    "Reading the exporter.",
+    grounded ? "Reading the exporter and the invoice type." : "Reading the exporter.",
     read(
       CSV_PATH,
       `const COLUMNS = ["invoice_id", "customer", "due_date", "total"] as const;\n\nexport const row = (invoice: Invoice) => [invoice.id, invoice.customerName, invoice.dueDate, formatCents(invoice.totalCents)];`,
     ),
+    ...(grounded ? [read(at("apps/api/src/invoices/model.ts"), INVOICE_TYPE)] : []),
   ),
   said(
     "Adding the column and a test for a two-currency invoice.",
@@ -1189,7 +1202,7 @@ The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the imple
     parentId: CSV_ROOT,
     engagedTools: engagedChildTools(),
     messages: [
-      ...csvCoderFinished,
+      ...csvCoderFinished(),
       humanInChild(
         "Call the column `currency_code`, not `currency`: the finance importer expects ISO codes under that name. Update the report too.",
       ),
@@ -1230,14 +1243,14 @@ The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the imple
     parentId: CSV_ROOT,
     engagedTools: engagedChildTools(),
     messages: [
-      ...csvCoderFinished,
+      ...csvCoderFinished(true),
       humanInChild("What does 'rows are now currency-stable' mean in your report?"),
       said(
-        "It means re-exporting the same invoice always gives each row the same currency, because the column comes from the invoice rather than the account's current setting. I'll reword the report to say that plainly.",
+        "It means re-exporting the same invoice always gives each row the same currency: the column is the invoice's own `currency`, an ISO 4217 code set when the invoice is issued and never changed afterwards. I'll reword the report to say that plainly.",
         finishedSubmit(
           CSV_REPORT.replace(
             "Rows are now currency-stable: a re-export never changes a row's currency.",
-            "A row's currency comes from the invoice, not the account's current setting, so re-exporting an invoice never changes it.",
+            "Each row's currency is the invoice's own ISO 4217 code, set when the invoice is issued, so re-exporting an invoice never changes it.",
           ),
         ),
       ),
@@ -1254,7 +1267,7 @@ The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the imple
     parentId: CSV_ROOT,
     engagedTools: engagedChildTools(),
     messages: [
-      ...csvCoderFinished,
+      ...csvCoderFinished(),
       humanInChild(
         "The PDF export has the same currency bug. Get the parent to delegate that out as its own fix.",
       ),
