@@ -16,7 +16,7 @@ manager_sessions:
 
 Today a comment on a document goes to whichever thread you opened it from. In the five weeks to 11 Nov, **55 of the 101 review messages a person wrote went to a thread that had not written the document**, nearly always an orchestrator receiving comments on its planner's work.
 
-The recommendation is your proposal: **a link to a document another thread wrote opens that thread beside the one you are in, with the document open**. You comment there and the reply arrives in front of you. Your choice is between that and three ways of leaving you where you are. It is the first question at the end.
+The recommendation is your proposal: **a link to a document another thread wrote opens that thread beside the one you are in, with the document open**. You comment there and the reply arrives in front of you. Your choice is between that and three ways of leaving you where you are. It is the first question at the end. The third asks whether the phone does the same.
 
 <Stats
   items={[
@@ -77,6 +77,7 @@ The recommendation is your proposal: **a link to a document another thread wrote
 - You open a child's document from the file explorer or search in the parent's thread, where nobody presented a link. It opens there, and its header names the thread that wrote it with a button that takes you to it.
 - The author is finished. You land in it all the same. It acts on your comments as the approved brief says a finished child does: it stays finished, adds to its report, and tells its parent when the change is material.
 - The author was deleted or archived, or the document carries no signature. It opens where you are, as today, and the header says your comments go to this thread.
+- If you include the phone (the third question): in the orchestrator's chat on the phone you tap the brief's link and tap two answers. The bar under the document reads "2 answers ready to send to Planner: intent brief", and its button opens the planner's chat with both in the message box. Back returns you to the orchestrator's chat.
 - **Must not:**
   - make a document slower to appear after the click, including over the relay;
   - move or drop comments already waiting in a composer;
@@ -130,6 +131,8 @@ The recommendation is your proposal: **a link to a document another thread wrote
 
 Every round of review ends in the author's thread whichever you pick. The reply arrives there, and the approved brief has you approve there. The approaches differ in when you are moved: at the click, when you send, or when you choose. The first also needs no new way of sending anything, so a busy, finished or held author behaves exactly as it does when you type to it. The first three also put the author between your answer and the parent: a "go" on a plan reaches the orchestrator through the planner, one hop later than today.
 
+**On the phone.** Since 11 Nov the phone draws these documents and lets you tap answers and verdicts, though not annotate a passage. A tapped answer joins the message box of the chat you opened the document from, so the phone sends answers to the wrong thread the same way web does. A document already fills the screen there. Opening it against its author would change only where your answers go and which chat the bar's button opens. Whether the phone is part of this work is the third question.
+
 **Decided.**
 
 - The proposal on the table is yours, 11 Nov: "If clicking on that link defaulted to opening it within the author, wouldn't that simplify me responding to the author of that document?"
@@ -141,10 +144,10 @@ Every round of review ends in the author's thread whichever you pick. The reply 
 - _Assumed:_ you are moved only while the author thread exists and is not archived. An old plan whose planner was archived weeks ago opens where you are, with the author named.
 - _Assumed:_ a busy author queues your message as it does when you type to it mid-turn. A finished author acts on it as the approved brief says. Nothing new is built for either.
 - _Assumed:_ a thread that takes over another's document signs it and becomes its author from then on. In three of the eight cases where a second thread had changed the document, it was a second planner that revised without signing.
-- _Assumed:_ web and desktop. Mobile shows these documents as plain text with no way to comment, so there is nothing to route.
+- _Assumed:_ the desktop app follows web, since it shows the same document panel. The phone is the third question.
 - _Assumed:_ the orchestrator still tells you which child is waiting, as the approved brief has it. The document link in that message now lands in the child too.
 
-**Not doing.** Changing what the parent is told. Sending your comments to anyone automatically. Comments on code and diffs. Workstream reports, which are not signed. Commenting on mobile. Moving comments already sent.
+**Not doing.** Changing what the parent is told. Sending your comments to anyone automatically. Comments on code and diffs. Workstream reports, which are not signed. Annotating a passage on the phone, which the phone does not offer. Moving comments already sent.
 
 **Questions for you.**
 
@@ -204,6 +207,26 @@ Every round of review ends in the author's thread whichever you pick. The reply 
       ],
       allowOther: true,
     },
+    {
+      id: "phone",
+      title: "Should the phone do the same as part of this work?",
+      subtitle: "Decides whether an answer tapped on the phone goes to the author too, or keeps going to the chat you opened the document from. 5 of about 970 messages a person wrote since 1 Nov came from the phone.",
+      mode: "single",
+      options: [
+        {
+          id: "phone-second-pr",
+          label: "Yes, as a second PR after web: on the phone, tapped answers join the author's message box and the bar's button opens the author's chat",
+          detail: "Both apps send the same tap to the same thread. Costs a second, smaller build and a check on your Android phone.",
+          recommended: true,
+        },
+        {
+          id: "phone-later",
+          label: "Not yet: web only for now; on the phone answers keep joining the chat I opened the document from",
+          detail: "Nothing to build or check on the phone. An answer tapped from a parent's chat lands in the parent, and the two apps disagree until this is picked up again.",
+        },
+      ],
+      allowOther: true,
+    },
   ]}
 />
 
@@ -213,6 +236,7 @@ Every round of review ends in the author's thread whichever you pick. The reply 
 - Whether a finished planner reliably hands your answers up. Half of the 55 were form answers or verdicts with no annotation, and today the receiving thread simply acts on them. Once they go to the author, the author has to tell its parent. An eval case on the planner role settles it, alongside the one the plan for talking inside a child thread already calls for.
 - Which copy you see when the author is not a child of the thread you are in and may sit in another worktree (2 of 56 cases). Reading how the panel resolves the file settles it in the plan.
 - Whether a cancelled author can act on a message. Reading the server build now in flight settles it.
+- How much you will answer documents from the phone. Tapping answers there merged on 11 Nov, so there is no history. Using it settles this.
 
 <Details summary="How the figures were counted">
 
