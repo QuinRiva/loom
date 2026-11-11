@@ -2,9 +2,9 @@
 reader:
   who: Carl, who deploys Loom about six times a week and approves what its deployment should become before anything is built
   knows: his own answers so far in this effort; not the research behind them, the code, or the names the code uses
-  after_first_screen: he can say what deploying Loom will be like, which lines are his own words and which are guesses he can redirect, and either correct a line or answer the three questions
-kicker: "Intent brief · draft for your corrections · 11 Nov 2026"
-status: draft
+  after_first_screen: he can say what deploying Loom will be like and which lines are his own words and which are picks made for him that he can still redirect
+kicker: "Intent brief · approved 11 Nov 2026"
+status: approved
 manager_sessions:
   - id: 01a1c7f0-4819-776d-9749-aaa17e26b66a
     name: Loom deployment redesign (wayfinder)
@@ -12,12 +12,12 @@ manager_sessions:
     authored_at: 2026-11-11T04:05:39.660Z
 ---
 
-# Deploying Loom is something you do from Loom, with a proper path for the deploys you expect to break
+# Deploying Loom is something you do from Loom, with a way to run a deploy that does not put itself back
 
 **Goal.** "The 'deployment' framework for loom probably has very little to do with the slack bridge, and only happens to be built there due to the happenstance of that was the original ask." Today's deploy works ("By and large it works just fine"), so this keeps what works and changes four things:
 
 1. You start a deploy from Loom itself.
-2. A deploy you expect to break gets its own path.
+2. A deploy can be run so that it does not put the old release back by itself.
 3. The wait before Loom goes down is explained up front.
 4. None of it lives in the Slack bridge's repository any more.
 
@@ -26,7 +26,7 @@ manager_sessions:
 - You press Deploy in Loom, at your desk or on your phone, and everyone using Loom at once sees a warning with a rough time until it goes down.
 - Loom comes back on the new release and tells you what happened: live and being watched for five minutes, or put back, and why.
 - A release that cannot read your real settings file is refused before Loom is stopped, with no downtime.
-- You start a deploy you expect to break as that kind. When it fails it stays where it is for a fix instead of being put back, and going back is one deliberate step.
+- A pi thread you have asked to run a big deploy runs it with a flag that turns off the automatic return. When that deploy fails it stays where it is for a fix, and going back is one deliberate step.
 - With Loom down you can still see what state it is in, go back to the previous release and start a deploy, over SSH and from Slack.
 - A Loom deploy runs nothing from the Slack bridge's repository, and deploying the bridge no longer changes how Loom is deployed.
 - **Must not** lose the five-minute watch, or the automatic return to the old release and database when Loom itself fails.
@@ -47,6 +47,9 @@ manager_sessions:
 - A Slack fault after a deploy: "If we do the deployment via slack, then I think a rollback is important - otherwise we just need to resolve the issue post loom deploy."
 - The trial start before the switch: "Real settings and a small slice".
 - Upstream's launcher: "let's just plan on upstream, and if I encounter issues, I'll make a decision in the future whether to keep that approach or re-consider the other approach."
+- Deploys likely to break: "Normally I just get a pi thread to run the deploy, the problem I was encountering was that it would just 'run the deploy' script, which kept auto-rolling back in the event of an error. We should have a method of running the deploy (a flag or something) that doesn't auto rollback."
+- When a release is built: "Build when you press, with the estimate shown".
+- Agents: "No tool; it uses the command line when told".
 
 _Assumed_, each a low-stakes pick; redirect any that is wrong.
 
@@ -55,49 +58,12 @@ _Assumed_, each a low-stakes pick; redirect any that is wrong.
 - Releases are numbered `100.<date>.<n>`, stamped in when a release is built. It is the one scheme the rehearsal found that the launcher accepts and that stops upstream's apps offering upstream's T3 Code.
 - Any device paired with your Loom can press Deploy, which is the permission upstream already uses for this.
 - The ways back in when Loom is down are a command over SSH, and Slack running that same command.
+- The flag that turns off the automatic return is on the command line, where your pi threads run deploys; the Deploy control in Loom does not carry it at first.
+- With that flag the checks still run and report, and the database copy from before the switch is kept. A failed release is not marked as failed, so a retry needs no rebuild.
 
 **Not doing.** Changing how the bridge borrows code from the running Loom release. Changing how Jacob's instance takes releases. Bringing pi, pi-craft, the Node runtime or the secrets files into the deploy. Changing the rule that deploying is your act.
 
-**Questions for you.**
-
-<QuestionForm
-  questions={[
-    {
-      id: "risky-deploy",
-      title: "What should a deploy you expect to break do when it fails?",
-      subtitle: "Your complaint was fighting the automatic return to the old release while trying to fix a big deploy. In the deploys you supervised by hand, the return also restored the database (up to 12.5 minutes of work lost) and marked the release as failed, so each retry meant a rebuild.",
-      mode: "single",
-      options: [
-        { id: "hold", label: "Rehearse on a full copy of real data first, then hold on failure", detail: "You tick 'expected to break' when starting. The release is first started against a full copy of the database while live Loom keeps running. If it then fails after the switch it stays in place, with Loom down, for you or an agent over SSH to fix. Going back is one command.", recommended: true },
-        { id: "rehearse-only", label: "Rehearse on the full copy, but still put the old release back on failure", detail: "Loom is never left down. A failure after the switch still restores the database, and you retry from the old release." },
-      ],
-      allowOther: true,
-    },
-    {
-      id: "build-ahead",
-      title: "Should a release be built before you press Deploy?",
-      subtitle: "The wait you asked about is the build: a median of about 2.5 minutes between pressing and Loom going down. The warning with an estimate is being added either way.",
-      mode: "single",
-      options: [
-        { id: "at-deploy", label: "Build when you press, with the estimate shown", detail: "As today, about 200 seconds from pressing to Loom being back. Nothing extra runs on the machine.", recommended: true },
-        { id: "at-merge", label: "Build every time work merges", detail: "Loom is back about 52 seconds after pressing. Costs about six times as many builds on the machine your agents use; a press within about 4 minutes of a merge still waits." },
-      ],
-    },
-    {
-      id: "agent-deploy",
-      title: "Should an agent you have told to deploy get a proper tool for it?",
-      subtitle: "Today such an agent runs the command-line tool from its shell. The standing rule that an agent never deploys unasked stays either way; it came from an agent deploying unprompted on 1 Aug.",
-      mode: "single",
-      options: [
-        { id: "cli-only", label: "No tool; it uses the command line when told", detail: "Nothing new for an agent to reach for by mistake.", recommended: true },
-        { id: "tool", label: "Yes, a tool that asks you to confirm in Loom", detail: "Tidier for 'ship and deploy' requests, and every agent deploy passes a confirmation you see." },
-      ],
-    },
-  ]}
-  submitLabel="Send answers"
-/>
-
-**Still unknown.** None of these gate approval.
+**Still unknown.** The plan settles each.
 
 - Is the 5 seconds the launcher gives Loom to stop enough when agent turns are running? Today's deploy gives 30. One run on a scratch copy says yes: with 10 agent turns in flight the server stopped in 1.2 seconds and the new release resumed all 10. Production logs add a wrinkle: in 9 of the last 18 stops the server finished shutting down within 4 seconds and then hung idle until the 30-second limit. The first deploys on the real machine settle whether cutting that hang at 5 seconds is harmless.
 - How long the switch and a return take on a properly built release and the real database. The rehearsal ran from source on an empty one; the first full run on a copy settles it.
