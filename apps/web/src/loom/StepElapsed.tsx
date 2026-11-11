@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 
-import { LONG_STEP_MS } from "../lib/workstreamPresentation";
+import { LONG_STEP_MS } from "@t3tools/client-runtime/state/loom/workstreamNodes";
 
 const LONG_CLASS = "text-warning-foreground";
 

@@ -14,7 +14,7 @@ import { workstreamIndexOf } from "@t3tools/client-runtime/state/loom/workstream
 
 import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
 import { randomUUID } from "../lib/utils";
-import { buildWorkstreamNodes } from "../lib/workstreamPresentation";
+import { buildWorkstreamNodes } from "@t3tools/client-runtime/state/loom/workstreamNodes";
 import { useThreadShells } from "../state/entities";
 import { orchestrationEnvironment } from "../state/orchestration";
 import { threadEnvironment } from "../state/threads";

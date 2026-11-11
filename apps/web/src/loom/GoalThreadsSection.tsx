@@ -11,12 +11,8 @@ import { useNavigate } from "@tanstack/react-router";
 
 import { resolveSidebarThreadStatus } from "../components/Sidebar.logic";
 import { Badge } from "../components/ui/badge";
-import {
-  ATTENTION_COLORS,
-  COLUMN_LABELS,
-  COLUMN_STYLES,
-  type StatusShape,
-} from "../lib/workstreamPresentation";
+import { COLUMN_LABELS } from "@t3tools/client-runtime/state/loom/workstreamNodes";
+import { ATTENTION_COLORS, COLUMN_STYLES, type StatusShape } from "../lib/workstreamPresentation";
 import { cn } from "../lib/utils";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { orderGoalThreadsByHandoff } from "./goalThreadChain";

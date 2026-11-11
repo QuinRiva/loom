@@ -3,15 +3,13 @@ import { ExternalLinkIcon, FileTextIcon, LocateFixedIcon, XIcon } from "lucide-r
 import { useEffect, useRef, useState } from "react";
 
 import {
-  buildTimelineRows,
   type ConversationAnchor,
-  describeRoute,
   formatRelativeAge,
   getGateLoopCap,
   getRoleLabel,
-  TONE_DOT_CLASSES,
   type WorkstreamNode,
-} from "../lib/workstreamPresentation";
+} from "@t3tools/client-runtime/state/loom/workstreamNodes";
+import { buildTimelineRows, describeRoute, TONE_DOT_CLASSES } from "../lib/workstreamPresentation";
 import { loomCommands } from "../loom/loomGoalState";
 import { PromptCaptureMenu } from "../loom/PromptCaptureMenu";
 import { LoomContextChip, WorkstreamSpendSlot } from "../loom/WorkstreamSpendSlot";
