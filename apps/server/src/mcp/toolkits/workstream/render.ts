@@ -175,7 +175,7 @@ export const renderSubmitOutcome = (view: SubmitOutcomeView): string => {
       return "Work submitted: report recorded, outcome done (dependents released).";
     case "attention":
       return view.outcome === "awaiting_acceptance"
-        ? "Work submitted: report recorded and you are held `awaiting_acceptance`: not done, and nothing that waits on you starts. Your parent has been told once and points the human here. The human corrects and approves in this thread: after a correction, revise, reply to them and stay held; when they approve, complete with a plain submit whose report quotes what they changed. If your parent sends you back to fix something, hand back held again the same way."
+        ? "Work submitted: report recorded and you are held `awaiting_acceptance`: not done, and nothing that waits on you starts. Your parent has been told once and points the human here. The human corrects and approves in this thread: after a correction, revise, reply to them and stay held; when they approve, complete with a plain submit whose report quotes what they changed. That report replaces this one and is how your parent learns of their corrections; it needs nothing from you before then. If your parent sends you back to fix something, hand back held again the same way."
         : "Work submitted: report recorded and needs_guidance raised: a human has been flagged; you are not done.";
     case "resolve":
       return siblings.length > 1
