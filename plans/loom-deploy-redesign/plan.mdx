@@ -1,10 +1,10 @@
 ---
 reader:
-  who: the plan-review gate judging this against the approved brief beside it, then coders building each phase with no other context
+  who: coders building each phase with no other context, and the orchestrator briefing them; the review gate has passed it against the approved brief beside it
   knows: the brief; not the research behind it, upstream's updater code, today's deploy tool, or how the production machine is laid out
   after_first_screen: Loom's own small program inside each release makes upstream's launcher wait out the five-minute watch and keep the database copy; one command builds and asks for the switch; the server starts that command from a Deploy control and tells every client the stage; production moves over in one ordinary restart with a three-command way back
-kicker: "Implementation plan · draft for the review gate · 11 Nov 2026"
-status: draft
+kicker: "Implementation plan · approved 11 Nov 2026"
+status: approved
 intent: plans/loom-deploy-redesign/intent.mdx
 manager_sessions:
   - id: 01a1c8ea-e1cd-704e-8305-6160612f0521
@@ -17,25 +17,23 @@ manager_sessions:
 
 Every Loom release carries a small Loom-only program, the **release runner**, which upstream's launcher starts in place of the server. The launcher keeps doing what it ships to do: copy the database, start the new release, and put the old one back if it fails. The runner makes the launcher wait out the **five-minute watch** before it accepts. It keeps the database copy the launcher would delete, and it holds a broken release in place when the deploy was run with `--no-return`. One command, `loom-deploy`, builds a release, trial-starts it on real settings and asks for the switch. Loom's server starts that command from a **Deploy control** and tells every open client what stage the deploy is at. **No upstream updater file is edited.**
 
-Cost: about 1,800 lines of Loom-only code plus tests, a third of it ported from today's tool. About a week of agent work across this repository and the bridge's. One ordinary restart of about 30 seconds at cut-over.
+Cost: about 1,650 lines of Loom-only code plus tests, a third of it ported from today's tool. About a week of agent work across this repository and the bridge's. One ordinary restart of about 30 seconds at cut-over.
 
 <Stats
   items={[
     { value: "0", label: "Upstream updater files edited", tone: "success", detail: "Loom imports upstream's launcher types and its state writer; it changes none of them" },
-    { value: "~1,800", label: "Lines of Loom-only code", tone: "info", detail: "Runner, command, server service, clients; about 600 ported from the bridge repository's tool" },
+    { value: "~1,650", label: "Lines of Loom-only code", tone: "info", detail: "Runner, command, server service, web client; about 600 ported from the bridge repository's tool" },
     { value: "1 restart", label: "Cut-over on the production machine", tone: "info", detail: "About 30 s, same release, same database; Carl starts it" },
     { value: "3 commands", label: "Way back to today's mechanism", tone: "neutral", detail: "Restore the old service file, put the bridge's previous release back, restart its worker" },
   ]}
 />
 
-<Callout tone="decision" title="What the gate is approving" focus>
+<Callout tone="decision" title="What this plan fixes in place" focus>
   **Three contracts.** What Loom's code relies on inside upstream's launcher (§2). The status file and events every client reads (§4). The release store's layout that Jacob's instance follows (§7).
 
   **The order.** Every phase leaves production deployable by today's tool until the cut-over (§11). The cut-over has a written way back (§8). Each "You'll know it works when" line of the brief maps to a verification step (§12).
 
   **Two bets.** Loom's code leans on launcher internals that upstream owns, so a test runs upstream's real launcher against Loom's runner and fails at the weekly pull when they move (§9). A routine switch asks the running server and never writes the launcher's state file, so a refusal leaves Loom running (§2).
-
-  Two questions at the end; an unanswered one takes its recommended answer.
 </Callout>
 
 <Columns>
@@ -57,11 +55,10 @@ Cost: about 1,800 lines of Loom-only code plus tests, a third of it ported from 
 
 ## What it means
 
-- **In the first cut:** the four changes of the brief. A deploy can be started from Loom (web, desktop and the phone app), from the command line, or from Slack. Everyone is warned at the start with a rough time until Loom goes down. A deploy can be run with `--no-return`. Nothing of Loom's deploy is left in the bridge's repository.
-- **Not doing,** beyond the brief's own list: a preview of what a deploy would contain before it is pressed; the no-return flag in the Deploy control; going back from the interface.
+- **In the first cut:** the four changes of the brief. A deploy can be started from Loom's web page and desktop app, from the command line, or from Slack while Loom is up. Everyone is warned at the start with a rough time until Loom goes down. A deploy can be run with `--no-return`. Nothing of Loom's deploy is left in the bridge's repository.
+- **Not doing,** beyond the brief's own list: a preview of what a deploy would contain before it is pressed; the no-return flag in the Deploy control; going back from the interface. From the brief's list, in Carl's words: "Leave the phone app out for now", so the phone app shows nothing new; and "SSH only when Loom is down", so Slack gains no way to act without a running Loom.
 - **Nothing is deleted** by this plan. The old store's history and database snapshots stay where they are (§8).
 - **Done means** §12's end-to-end run passes on a scratch home, and Carl's first deploy on the production machine goes live through the watch.
-- **Two open questions** at the end: what a failed pre-switch check does under `--no-return`, and when the bridge's tool loses its Loom target.
 
 <Table
   density="compact"
@@ -85,7 +82,7 @@ Three programs take turns. The **engine** is the `loom-deploy` command doing a d
 
 <Steps>
   <Step at="0 s" title="Someone starts it." aside="engine">
-    The Deploy control, `loom-deploy deploy` over SSH, or a Slack message the bridge turns into that same command. All three start the same engine unit; a second start while one runs is refused. The status file says `building`, and every open client shows the warning with a rough time until Loom goes down.
+    The Deploy control, `loom-deploy deploy` over SSH, or, while Loom is up, a Slack message whose Loom thread runs that same command. All three start the same engine unit; a second start while one runs is refused. The status file says `building`, and every open client shows the warning with a rough time until Loom goes down.
   </Step>
   <Step at="~2 min" title="The engine builds a release beside the running one." aside="engine">
     Fetch the store's git mirror, check the commit out into a new release folder, stamp the version, `pnpm install --frozen-lockfile`, `pnpm build`. The estimate is refreshed when the install finishes, which is the step whose length varies most.
@@ -111,7 +108,7 @@ Three programs take turns. The **engine** is the `loom-deploy` command doing a d
   caption="Who starts whom, and who writes what. The two toned boxes are the new Loom parts; the launcher is upstream's, unchanged."
   legend={[{ tone: "accent", label: "new, Loom-only" }]}
   source={
-    'flowchart TB\n  U["loom-cockpit.service<br/>systemd"] --> L["launcher<br/>upstream, unchanged"]\n  L -->|starts as a release| R["release runner<br/>one per release"]:::tone-accent\n  R -->|child| S["Loom server"]\n  E["engine<br/>loom-deploy unit"]:::tone-accent -->|asks for the switch| S\n  E -->|writes| F["deploy status file"]\n  R -->|writes| F\n  S -->|reads and pushes| C["web, desktop, phone"]\n'
+    'flowchart TB\n  U["loom-cockpit.service<br/>systemd"] --> L["launcher<br/>upstream, unchanged"]\n  L -->|starts as a release| R["release runner<br/>one per release"]:::tone-accent\n  R -->|child| S["Loom server"]\n  E["engine<br/>loom-deploy unit"]:::tone-accent -->|asks for the switch| S\n  E -->|writes| F["deploy status file"]\n  R -->|writes| F\n  S -->|reads and pushes| C["web and desktop"]\n'
   }
 />
 
@@ -203,7 +200,7 @@ Logic lives in `apps/server/src/loom/deploy/`, a Loom-only folder that is alread
   density="compact"
   columns={["Verb", "What it does", "Needs Loom up"]}
   rows={[
-    ["`deploy [ref] [--no-return] [--release <id>] [--origin cli|slack] [--who <name>]`", "Starts the engine in the transient unit `loom-deploy.service` and follows the status file to the end, printing one line per stage; exits 0 when live. `--release` skips the build and deploys a release already in the store, which is how a held or called-off release is retried without a rebuild. `--origin` defaults to `cli`; the bridge passes `slack`, and the server's own start passes `loom`. Origin is what decides whether a bridge fault puts the release back, so it is recorded in the deploy record and the status.", "no"],
+    ["`deploy [ref] [--no-return] [--release <id>] [--wait] [--origin cli|slack] [--who <name>]`", "Starts the engine in the transient unit `loom-deploy.service` and returns once it has started. With `--wait` it follows the status file to the end, printing one line per stage, and exits 0 when live. Returning at once is the default because a thread inside Loom that is still running the command at the switch is interrupted and resumed, and a resumed agent must not be left holding a half-finished deploy command it might run again. `--release` skips the build and deploys a release already in the store, which is how a held or called-off release is retried without a rebuild. `--origin` defaults to `cli`; a thread started from Slack passes `slack`, and the server's own start passes `loom`. Origin is what decides whether a bridge fault puts the release back, so it is recorded in the deploy record and the status.", "no"],
     ["`status [--wait] [--json]`", "One screen: is the service running, which release and version, is a deploy building, being watched or held, the last outcome and its reason, the kept copies. Writes nothing. `--wait` blocks until the current deploy ends.", "no"],
     ["`back`", "The one deliberate step back. It uses the kept copy made when the running release was switched to, which names the release that ran before it; if no kept copy matches the running release it refuses and says so. It prints the time after which work is lost, sends the restart warning if Loom is up, stops the service and copies that kept copy over the live database. It then runs the previous release's own `adopt`, which records the return in the launcher's state, and starts the service. Once Loom answers it marks the returned-to release `current` in `manifest.json`, which is what moves Jacob's instance back.", "no"],
     ["`retry`", "Sends `SIGHUP` to a held runner, which runs the fixed release again.", "no"],
@@ -332,7 +329,7 @@ No client goes through upstream's own update button. That button's "finished" ar
     [{ badge: { label: "building", tone: "warning" } }, "Warning toast, stays up: \"Loom is being updated. It goes down for about 40 seconds at around 2:32 pm. Running agent turns are interrupted and resume when it is back. Started by Carl from Loom.\" The time moves when the estimate is refreshed.", "\"Building d8e999a. Down at around 2:32 pm.\" Button: Cancel"],
     [{ badge: { label: "checking", tone: "warning" } }, "The same toast.", "\"Checking the new release on your settings.\" Button: Cancel"],
     [{ badge: { label: "called-off", tone: "risk" } }, "The warning is replaced: \"The update was called off: the new release could not read settings.json. Loom was not stopped.\"", "The reason; button: Deploy"],
-    [{ badge: { label: "switching", tone: "warning" } }, "Today's \"Loom is about to restart\" toast, now sent 2 s before the stop instead of half a second; then the disconnect. A client that saw this and has had no answer for 3 minutes says \"Loom has not come back. `loom-deploy status` over SSH, or 'loom status' in Slack, shows why.\"", "\"Switching now.\""],
+    [{ badge: { label: "switching", tone: "warning" } }, "Today's \"Loom is about to restart\" toast, now sent 2 s before the stop instead of half a second; then the disconnect. A client that saw this and has had no answer for 3 minutes says \"Loom has not come back. `loom-deploy status` over SSH shows why.\"", "\"Switching now.\""],
     [{ badge: { label: "watching", tone: "info" } }, "Today's \"Loom updated\" toast with the pull-request list, plus one line: \"Being watched until 2:38 pm; it goes back by itself if Loom fails.\"", "\"On the new release since 2:33 pm. Watched until 2:38 pm.\""],
     [{ badge: { label: "live", tone: "success" } }, "The line on the toast, if still open, becomes \"Live.\" Nothing new appears.", "\"Running ab12cd3 since 2:33 pm.\" Button: Deploy"],
     [{ badge: { label: "put-back", tone: "risk" } }, "Today's sticky \"Loom rolled back\" toast, with the runner's reason and the time after which work was lost.", "The reason; button: Deploy"],
@@ -341,7 +338,7 @@ No client goes through upstream's own update button. That button's "finished" ar
   ]}
 />
 
-The words for each status come from one pure function in `packages/client-runtime/src/state/loom/`. The web toasts, the web row and the phone all use it, so the three cannot drift. When the restart warning arrives, a client also runs upstream's existing reconnect nudge for three minutes. It then reconnects within about a second of Loom answering, where today it waits out its back-off. <Sidenote>`nudgeReconnectDuringUpdateRestart` in `packages/client-runtime/src/state/server.ts`.</Sidenote>
+The words for each status come from one pure function in `packages/client-runtime/src/state/loom/`. The web toasts and the web row both use it, so the two cannot drift, and it sits in the shared client package so that a phone row can reuse it later. When the restart warning arrives, a client also runs upstream's existing reconnect nudge for three minutes. It then reconnects within about a second of Loom answering, where today it waits out its back-off. <Sidenote>`nudgeReconnectDuringUpdateRestart` in `packages/client-runtime/src/state/server.ts`.</Sidenote>
 
 <Columns>
   <Column label="The row while a deploy runs">
@@ -360,12 +357,6 @@ The words for each status come from one pure function in `packages/client-runtim
   </Column>
 </Columns>
 
-<Screen
-  surface="mobile"
-  caption="The phone app: one new row on the environment's settings screen, above upstream's 'Check for updates'; the status line under it uses the same words as the web row"
-  html={'<div style="box-sizing:border-box;height:100%;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.4"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="wf-muted">&#8249; Settings</span><div style="flex:1"></div><strong>carl-dev</strong><div style="flex:1"></div></div><div class="wf-card" style="padding:10px 12px"><strong>Server</strong><br /><small>Version 100.20261111.2 · connected over the tailnet</small></div><div class="wf-card" style="display:flex;flex-direction:column;gap:0;padding:0"><div style="display:flex;align-items:center;gap:10px;padding:11px 12px;border-bottom:1.4px solid var(--wf-line)"><div style="flex:1;min-width:0"><strong>Deploy Loom</strong><br /><small>Running d8e999a since 11 Nov, 11:55 am</small></div><span class="wf-muted">&#8250;</span></div><div style="display:flex;align-items:center;gap:10px;padding:11px 12px"><div style="flex:1">Check for updates</div><span class="wf-muted">&#8250;</span></div></div><div style="flex:1"></div><small class="wf-muted">Pressing Deploy asks first: it interrupts running agent turns on this server.</small></div>'}
-/>
-
 **Placement.** The row sits in Settings, Maintenance, Updates, the section that already holds Loom's update switches and is already scoped to one server. It is one Loom-owned component, `apps/web/src/loom/LoomDeployRow.tsx`, mounted with one marked line, so moving it later is a one-line change. Carl judges the placement in the running software, as the brief says.
 
 ### 4.4 Every surface
@@ -375,11 +366,11 @@ The words for each status come from one pure function in `packages/client-runtim
   columns={["Surface", "How it is met, or why it is left"]}
   rows={[
     ["Entry points", "The Settings row; a command palette action \"Deploy Loom\" that opens the same confirmation (a marked hunk in `CommandPalette.tsx`, as Loom's \"dismiss all toasts\" is); Settings search finds the row (a marked entry in `settingsSearch.ts`). No keybinding and nothing in the chat view: a deploy interrupts every running turn and should not be one keystroke away."],
-    ["Clients", "Web: row, palette, toasts. Desktop: wraps web, so the same; a desktop app whose bundled web predates this cannot decode the two new event members and shows no deploy toasts until it is updated. Phone app: a row on `SettingsEnvironmentDetailRouteScreen` in a `.loom.tsx` component, and a small coordinator that shows the status as the app's toast; the phone has no deploy toasts at all today."],
+    ["Clients", "Web: row, palette, toasts. Desktop: wraps web, so the same; a desktop app whose bundled web predates this cannot decode the two new event members and shows no deploy toasts until it is updated. Phone app: nothing new (Carl: \"Leave the phone app out for now\"). It has no deploy toasts today and does not subscribe to deploy events, so no phone build, old or new, meets the new ones."],
     ["Providers", "Not provider-shaped."],
     ["Agents", "Deliberately no tool (Carl: \"No tool; it uses the command line when told\"). The command line is the agent's route; no scheduled task starts a deploy."],
     ["Contracts", "`LoomDeployStatus`, the two event members and the two methods in `packages/contracts/src/rpc.loom.ts`."],
-    ["Reverse states", "Start has Cancel until the switch. A deploy that went live has `back`, on the command line and from Slack, not in the interface (the brief's Assumed line). A hold has `retry` and `back`. The start warning has its retraction (`called-off`). The watch ends in `live` or `put-back`, both shown."],
+    ["Reverse states", "Start has Cancel until the switch. A deploy that went live has `back`, on the command line, not in the interface. A hold has `retry` and `back`. The start warning has its retraction (`called-off`). The watch ends in `live` or `put-back`, both shown."],
     ["Connection modes", "Status and both methods ride the WebSocket, which is the same over local, relay and tunnel. The engine's call to the server is loopback on the server's machine and crosses no client route."],
     ["More than one server", "The subscription, the row and the toasts are per server. Only a server that says it can deploy itself shows the control, so a client connected to production and to a dev server or Jacob's shows it once."],
     ["Docs", "§8's last step."],
@@ -390,11 +381,13 @@ The words for each status come from one pure function in `packages/client-runtim
 
 `loom-deploy deploy --no-return` changes one thing: nothing puts the old release back by itself. The flag travels in the deploy record the runner reads. No shared settings file is edited and no worker is restarted, which is what operators had to do on 7 and 12 October.
 
+The flag only changes what happens after the switch. A release that fails to build or fails its trial start is called off before Loom is stopped, in both kinds of deploy. That keeps the brief's check true in every mode: a release that cannot read the real settings is refused with no downtime. The release is kept, so after a fix `deploy --release` retries it without a rebuild.
+
 <Table
   density="compact"
   columns={["What happens", "Routine deploy", "With --no-return"]}
   rows={[
-    ["Build fails, or the trial start fails", "Called off; Loom untouched", "The same (the first question at the end)"],
+    ["Build fails, or the trial start fails", "Called off; Loom untouched", "The same"],
     ["The new release cannot start, or takes longer than 240 s", { badge: { label: "put back", tone: "risk" }, md: "old release and database, by the launcher" }, { badge: { label: "held", tone: "warning" }, md: "release stays in place, Loom down, no time limit" }],
     ["Loom fails its check during the watch", { badge: { label: "put back", tone: "risk" } }, { badge: { label: "reported", tone: "warning" }, md: "written to the status; nothing is put back" }],
     ["The Slack bridge is not connected afterwards", "Reported; put back only if the deploy came from Slack", "Reported"],
@@ -408,24 +401,27 @@ While held, Loom is down and the fixing happens over SSH: edit the release in pl
 
 `back` works the same way in every state after a switch: during the watch, after it, and during a hold. It needs the kept copy that belongs to the running release and the folder of the release before it, which retention guarantees for the last deploy. After an automatic return the newest kept copy belongs to the release that was put back, not to the one running, so `back` does not use it. A second `back` goes one release further only if that release's own kept copy and the folder before it still exist. It always restores the database copy, because nothing has shown that an older release can run on a database a newer one has migrated. Before it acts it prints the time of the switch, which is the point after which work is lost.
 
-## 6. The ways in when Loom is down
+## 6. The way in when Loom is down, and the bridge's part
 
-**SSH.** `loom-deploy status`, `back` and `deploy` need nothing from a running Loom: they read the launcher's state file and the status file, and act through `systemctl --user`. When Loom is down `deploy` takes the second route of §2.
+**When Loom is down, the way in is SSH** (Carl: "SSH only when Loom is down"). `loom-deploy status`, `back` and `deploy` need nothing from a running Loom: they read the launcher's state file and the status file, and act through `systemctl --user`. When Loom is down `deploy` takes the second route of §2.
 
-**Slack, and what the brief's line needs that does not exist today.** Today a Slack message reaches the deploy tool only through a Loom thread: the bridge opens an inbox thread and that thread's agent runs the tool. With Loom down there is no thread, so Slack cannot do anything. For the brief's "over SSH and from Slack" to hold, the bridge itself has to run the command. That is new work in the bridge's repository, stated here as the contract between the two:
+**Slack can start a deploy while Loom is up, the way it does today.** The bridge opens a thread in Loom, and that thread's agent runs the command from its shell: `loom-deploy deploy --origin slack --who <sender>`. The command returns once the engine has started, so the thread replies and ends its turn before Loom restarts. The origin is what makes a bridge fault put the old release back (§3.1 step 7). With Loom down there is no thread, so Slack can do nothing, and no new bridge work changes that.
+
+One thing Slack loses. Today's worker posts each deploy's progress and outcome to Slack by itself, and it no longer deploys Loom. The outcome of a Slack-started deploy now reaches Slack when the thread is asked, or when its instructions have it run `loom-deploy status --wait`, which is safe to run again after the restart. Which of the two is the bridge repository's choice.
+
+What the bridge's repository still has to do because Loom's deploy changes:
 
 <Table
   density="compact"
   columns={["The bridge's repository", "Change"]}
   rows={[
-    [{ badge: { label: "gains", tone: "accent" } }, "Three admin-only messages the bridge daemon answers itself, without Loom: status, back and deploy. It runs `~/.local/bin/loom-deploy <verb> --origin slack --who <sender>` and replies with the output; for a deploy it posts the outcome when the status reaches an end, including after the deploy has restarted the bridge itself."],
     [{ badge: { label: "keeps", tone: "neutral" } }, "Its own tool and worker for deploying the bridge. Its two links to `~/loom-releases/current/packages/contracts`. Its `/healthz` answer, which Loom's runner reads."],
     [{ badge: { label: "sheds", tone: "risk" } }, "The Loom target of its tool and everything only that target used: the start on an empty home, the two health stages and the watch for Loom, the bridge restart after a Loom switch, the notice writer and change list, skill linking, the `~/loom` fast-forward, the Loom service file, the Loom cut-over scripts and self-test. Its worker's queue and log move out of `~/loom-releases` into the bridge's own store."],
-    [{ badge: { label: "rewrites", tone: "info" } }, "The `deploy-loom` skill and the line in the `slack-inbox` role, to name `loom-deploy`. Its `docs/self-update-plan.md` and `plans/deploy-toasts/plan.mdx` are marked as replaced for Loom by this plan (§13)."],
+    [{ badge: { label: "rewrites", tone: "info" } }, "The `deploy-loom` skill and the line in the `slack-inbox` role, to name `loom-deploy` with `--origin slack --who <sender>` in place of `deployctl`. Its `docs/self-update-plan.md` and `plans/deploy-toasts/plan.mdx` are marked as replaced for Loom by this plan (§13)."],
   ]}
 />
 
-That work needs its own short plan in that repository, written from this table. It is built in parallel with phases 2 to 4 and promoted at the cut-over (§8).
+That is a small change in that repository, briefed from this table. It is built in parallel with phases 2 and 3 and switched to at the cut-over (§8).
 
 ## 7. The production machine
 
@@ -480,7 +476,7 @@ He gains an atomic manifest write, which removes the torn read his script works 
 
 ## 8. The cut-over, and the way back to today's mechanism
 
-Three things are true before it starts. Phases 1 to 4 are merged and have been deployed by today's tool, so the running release already carries the new parts, dormant. §12's scratch run has passed on this machine. The bridge's change (§6) is merged and built as a bridge release with today's tool's build-only option, not yet switched to.
+Three things are true before it starts. Phases 1 to 3 are merged and have been deployed by today's tool, so the running release already carries the new parts, dormant. §12's scratch run has passed on this machine. The bridge's change (§6) is merged and built as a bridge release with today's tool's build-only option, not yet switched to.
 
 Carl says go. A pi session over SSH, outside Loom, runs the steps.
 
@@ -495,12 +491,14 @@ Carl says go. A pi session over SSH, outside Loom, runs the steps.
     Expected: the warning with a time, the switch, "being watched", then "live" five minutes later, and Jacob's instance following within a minute of that. Record stop-to-answering. If this deploy is called off or put back, the cut-over stops here: copy the saved service file back, restart Loom, start the worker again, and the result goes to Carl. Today's tool is then the one mechanism again.
   </Step>
   <Step title="Switch the bridge to its prepared release, then start its worker." aside="today's tool, bridge target only">
-    The worker is still stopped, so the switch is run in the caller's own process with the tool's inline option. The worker then starts on the new bridge release. From here today's tool has no Loom target, so nothing but `loom-deploy` can act on Loom. Check the bridge's status message in Slack.
+    The worker is still stopped, so the switch is run in the caller's own process with the tool's inline option. The worker then starts on the new bridge release. From here today's tool has no Loom target, so nothing but `loom-deploy` can act on Loom. Check that the bridge reports itself connected, and that asking in Slack what is deployed is answered from `loom-deploy status`.
   </Step>
   <Step title="Merge the documentation change." aside="this repository">
     `AGENTS.md`, under "Shipping changes", points at `deploy/README.md` and names `loom-deploy`. The glossary's "Loom deploys" rows are rewritten and gain the terms in the table under "What it means". Four other places stop naming `deployctl`: `docs/operations/shipping.md`, `docs/operations/platform-update.md`, the comment in `scripts/ship.ts`, and the `cockpit` label text in the `report-loom-issue` skill.
   </Step>
 </Steps>
+
+**Today's tool loses its Loom target in this same sitting,** right after Carl's first deploy goes live, not after a settling period. A week with both in place would be a week in which an old habit or the old Slack instructions could act on Loom behind the launcher's back.
 
 **There is no moment where neither mechanism can put Loom back.** Until the restart, today's tool is intact with its snapshots; its worker is stopped, and starting it is one command. The restart itself changes neither the release nor the database, so there is nothing to put back. If the new arrangement does not start, the old service file is one copy away. From the restart on, every deploy has the launcher's return and `back`.
 
@@ -572,9 +570,8 @@ Every phase before the cut-over merges to `main` and is deployed by today's tool
     ["1. Loom's deploy parts", "this repository", "§3: the two shell files, the runner, the command and engine, the store code with its ported tests, the service file, the operating notes, the seam test. Verified by the seam test and by §12's scratch run driven from the command line.", "Unchanged; deployed by today's tool"],
     ["2. Server and contract", "this repository", "§4.1 and §4.2: the service, the two methods, the switch route, the status events.", "Unchanged; the control is absent because the server was not started by the launcher"],
     ["3. Web and desktop", "this repository", "§4.3: the row, the palette action, the toasts, the shared wording, the reconnect nudge. Verified live on the scratch instance.", "Unchanged"],
-    ["4. Phone app", "this repository", "The row and the status toast. Can run beside phase 3 once phase 2 has merged. Reaches Carl's phone as an app build, not a deploy.", "Unchanged"],
-    ["The bridge's change", "the bridge's repository", "§6's table, under its own plan there. Built, not switched to.", "Unchanged"],
-    ["5. Cut-over", "the production machine", "§8, started by Carl.", "Under the new mechanism, with the way back"],
+    ["The bridge's change", "the bridge's repository", "§6's table. Built, not switched to.", "Unchanged"],
+    ["4. Cut-over", "the production machine", "§8, started by Carl.", "Under the new mechanism, with the way back"],
   ]}
 />
 
@@ -591,7 +588,7 @@ Phases 1 and 2 are the order that matters: the seam with the launcher is proven 
     ["The launcher keeps working after its own release folder is pruned", "§12.2", "Retention also keeps the release the running launcher was started from."],
     ["Five seconds is enough for production's server to stop", "§12.3, first five deploys", "The runner starts the server's shutdown at the launcher's acceptance, about 7 s in all."],
     ["A release whose launcher is broken is met at the next service restart, not at its own deploy", "The seam test runs each release's launcher before it merges", "Loom is down after a reboot; the way out over SSH is the previous release's own `loom-deploy adopt`."],
-    ["An old desktop app or phone build meets the new events", "Not tested", "It shows no deploy toasts and no control until it is updated; nothing else is affected."],
+    ["An old desktop app build meets the new events", "Not tested", "It shows no deploy toasts and no control until it is updated; nothing else is affected."],
   ]}
 />
 
@@ -635,13 +632,13 @@ Never against production. The run uses a scratch store and home under this workt
 
 The timed pass decides one thing. Today's median outage is 38 s. If the switch on the full copy takes **more than 60 s** from stop to answering, the number goes to Carl before the cut-over instead of the cut-over going ahead.
 
-The bridge's three Slack messages are verified in the bridge's repository against the scratch store, with Loom's scratch service stopped.
+The bridge's rewritten Slack instructions are checked in the bridge's repository: a deploy asked for in Slack while Loom is up runs `loom-deploy deploy --origin slack`.
 
 ### 12.3 On the production machine
 
 - At the cut-over: §8's checks.
 - **After each of the first five deploys**, for the brief's unknown about the 5-second stop, read three things. From `journalctl --user -u loom-cockpit`: whether the runner had to kill the server at 4.5 s, and what the server last logged before it. Whether every interrupted agent turn resumed. Whether any agent process of the old server was left. A lost turn that coincides with a kill switches on the fallback in §9.2.
-- Carl's own checks from the brief, tried by him at near-done. Deploy from the desk and from the phone. A pi thread told to run a no-return deploy. Status, back and deploy from Slack with Loom stopped.
+- Carl's own checks from the brief, tried by him at near-done. Deploy from the web page and from the desktop app. A pi thread told to run a no-return deploy. Status, back and deploy over SSH with Loom stopped.
 
 ## 13. Earlier plans, and where each open item is settled
 
@@ -705,8 +702,6 @@ The bridge's three Slack messages are verified in the bridge's repository agains
       { path: "apps/web/src/components/settings/SettingsPanels.tsx", change: "modified", note: "one marked line mounting the row" },
       { path: "apps/web/src/components/settings/settingsSearch.ts", change: "modified", note: "one marked entry" },
       { path: "apps/web/src/components/CommandPalette.tsx", change: "modified", note: "one marked action" },
-      { path: "apps/mobile/src/features/settings/LoomDeployRow.loom.tsx", change: "added" },
-      { path: "apps/mobile/src/features/settings/SettingsEnvironmentDetailRouteScreen.tsx", change: "modified", note: "one marked line" },
       { path: "knip.jsonc", change: "modified", note: "marked entries for runner.ts and cli.ts, which nothing imports" },
       { path: "docs/upstream-sync/README.md", change: "modified", note: "the line naming the seam test" },
       { path: "AGENTS.md, docs/internals/glossary.md, docs/operations/", change: "modified", note: "at the cut-over (§8)" },
@@ -715,54 +710,3 @@ The bridge's three Slack messages are verified in the bridge's repository agains
 
   Ported code keeps to this repository's rules: the four-line comment cap means the bridge tool's long explanatory comments are cut down, and no hunk in an upstream-owned file goes unmarked.
 </Details>
-
-## Open questions
-
-<QuestionForm
-  questions={[
-    {
-      id: "no-return-before-switch",
-      title: "Under --no-return, should a failed check before the switch still call the deploy off?",
-      subtitle:
-        "The brief's Assumed line says that with the flag 'the checks still run and report'. Before the switch Loom is still up, so there is nothing to hold; the question is whether a release that fails its trial start should be switched to anyway because the operator asked for no automatic return.",
-      mode: "single",
-      refs: [{ label: "5. No-return deploys, and going back on purpose", anchor: "5-no-return-deploys-and-going-back-on-purpose" }],
-      options: [
-        {
-          id: "refuse",
-          label: "Yes: a failed build or trial start calls the deploy off in both modes; the flag only changes what happens after the switch",
-          recommended: true,
-          detail:
-            "Keeps the brief's check that a release which cannot read the real settings is refused with no downtime true in every mode. The release is kept, so after a fix it is retried without a rebuild.",
-        },
-        {
-          id: "push-through",
-          label: "No: with the flag, a failed trial start is reported and the switch goes ahead, and the release is held if it then cannot start",
-          detail:
-            "For a pull where the trial start itself is what broke. Costs downtime that the refusal would have avoided, and Loom may come up on default settings.",
-        },
-      ],
-    },
-    {
-      id: "bridge-sheds-when",
-      title: "When does the bridge's tool lose its Loom target: in the same sitting as the cut-over, or after a settling period?",
-      subtitle:
-        "Until it does, two mechanisms can act on Loom, and the old tool's 'roll back with snapshot restore' would restore a database copy from before the cut-over. After it does, going back to today's mechanism means putting the bridge's previous release back first.",
-      mode: "single",
-      refs: [{ label: "8. The cut-over, and the way back to today's mechanism", anchor: "8-the-cut-over-and-the-way-back-to-today-s-mechanism" }],
-      options: [
-        {
-          id: "same-sitting",
-          label: "In the same sitting, right after Carl's first deploy goes live; the way back is three commands",
-          recommended: true,
-          detail: "No period in which an old habit or the old Slack skill can act on Loom behind the launcher's back.",
-        },
-        {
-          id: "settle-first",
-          label: "After about a week of routine deploys, with the old tool's Loom target left in place and unused by instruction",
-          detail: "The way back is one command shorter, at the price of a week in which the old tool can still restore a stale database copy.",
-        },
-      ],
-    },
-  ]}
-/>
