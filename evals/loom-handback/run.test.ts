@@ -235,7 +235,31 @@ it("counts a tool search for notify_thread as an attempted notify", () => {
   const check = { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] } as const;
   const search = (query: string) => observed([{ name: "tool_search", input: { query } }]);
   expect(grade(check, search("notify_thread send message to parent thread")).reason).toBe(
-    "searched for notify_thread",
+    "reached for notify_thread through tool_search",
   );
   expect(grade(check, search("browser screenshot")).pass).toBe(true);
+});
+
+it("reaches for notify_thread through a search for a way to message the parent", () => {
+  const check = { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] } as const;
+  const search = (query: string) =>
+    grade(check, observed([{ name: "tool_search", input: { query } }]));
+  expect(search("send a message to my parent thread").pass).toBe(false);
+  expect(search("read a pdf").pass).toBe(true);
+});
+
+describe("no-repeat", () => {
+  const check = {
+    kind: "no-repeat",
+    repeats: (markdown: string) => markdown.includes("whole report"),
+  } as const;
+  it("passes a submit of only what changed and fails a resend or no submit", () => {
+    expect(
+      grade(check, observed([loom("workstream_submit", { markdown: "the rename" })])).pass,
+    ).toBe(true);
+    expect(
+      grade(check, observed([loom("workstream_submit", { markdown: "the whole report" })])).pass,
+    ).toBe(false);
+    expect(grade(check, observed([], "Done.", true)).reason).toBe("no submit");
+  });
 });

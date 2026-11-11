@@ -564,7 +564,7 @@ const summary = await Effect.runPromise(
         }) + "\n",
       );
     }
-    const samples = Number(values.samples);
+    const defaultSamples = Number(values.samples);
     const log = (row: Row) =>
       Effect.sync(() =>
         process.stderr.write(
@@ -573,6 +573,7 @@ const summary = await Effect.runPromise(
       );
     // A message that only looks around has not decided: attempt again, up to twice the samples.
     const collect = Effect.fn("loomHandback.collect")(function* (model: string, entry: Case) {
+      const samples = entry.samples ?? defaultSamples;
       const rows: Array<Row> = [];
       while (rows.filter(scored).length < samples && rows.length < 2 * samples) {
         const batch = yield* Effect.forEach(
@@ -595,7 +596,7 @@ const summary = await Effect.runPromise(
     const baseline = values.baseline === undefined ? undefined : readBaseline(values.baseline);
     const dirty = git(["status", "--porcelain", "--", ".", ":!evals/runs"]) !== "";
     const lines = [
-      `commit ${git(["rev-parse", "--short", "HEAD"])}${dirty ? " (working tree has uncommitted changes)" : ""}, effort ${values.effort}, ${samples} samples a case${values.baseline ? `, baseline ${values.baseline}` : ""}`,
+      `commit ${git(["rev-parse", "--short", "HEAD"])}${dirty ? " (working tree has uncommitted changes)" : ""}, effort ${values.effort}, ${defaultSamples} samples a case unless the case sets its own${values.baseline ? `, baseline ${values.baseline}` : ""}`,
       "",
       `| case | kind | predicted base | model | passed | apart | looked | verdict |${baseline ? " baseline | flip |" : ""}`,
       `|---|---|---|---|---|---|---|---|${baseline ? "---|---|" : ""}`,

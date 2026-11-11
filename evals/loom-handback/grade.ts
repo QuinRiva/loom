@@ -94,6 +94,8 @@ export type Check =
    * or an `awaiting_acceptance` raise fails; anything else (a consult, a question) is counted apart.
    */
   | { readonly kind: "no-hold" }
+  /** A submit, none of whose markdown repeats the report on file. */
+  | { readonly kind: "no-repeat"; readonly repeats: (markdown: string) => boolean }
   /** The first deciding Loom call is notify_thread to the parent, quoting one of the fragments. */
   | {
       readonly kind: "notifies";
@@ -107,6 +109,9 @@ export interface Grade {
   /** Decided, but neither way: left out of the verdict and counted apart. */
   readonly apart?: true;
 }
+
+/** A tool search for notify_thread, or for a way to message or notify a parent or another thread. */
+const REACHES_NOTIFY = /notify|messag\w*|\bsend\w*\b.*\b(parent|orchestrator|thread)\b/i;
 
 /** An outcome word that reads as "held for a human's approval". */
 const APPROVAL_WORD = /accept|approv|sign.?off|human/i;
@@ -138,14 +143,14 @@ export const grade = (check: Check, { calls, text, ended }: Observed): Grade => 
     case "none-of": {
       if (check.plainSubmit && submits.some(isPlainSubmit))
         return verdict(false, "completing submit");
-      // Reaching for notify_thread through tool_search is an attempted notify where it is not loaded.
+      // Reaching for notify_thread through tool_search is an attempted notify (model-text §8.1).
       if (
         check.tools.includes("notify_thread") &&
         calls.some(
-          (call) => call.name === "tool_search" && /notify/i.test(String(call.input.query)),
+          (call) => call.name === "tool_search" && REACHES_NOTIFY.test(String(call.input.query)),
         )
       )
-        return verdict(false, "searched for notify_thread");
+        return verdict(false, "reached for notify_thread through tool_search");
       const called = check.tools.find((tool) => named(calls, tool).length > 0);
       if (called !== undefined) return verdict(false, `called ${called}`);
       return !check.endsTurn || ended
@@ -206,6 +211,12 @@ export const grade = (check: Check, { calls, text, ended }: Observed): Grade => 
               ? `submit outcome '${outcomeOf(other)}'`
               : `called ${other.name.replace(LOOM, "")}`,
       };
+    }
+    case "no-repeat": {
+      if (submits.length === 0) return verdict(false, "no submit");
+      return submits.some((call) => check.repeats(String(call.input.markdown ?? "")))
+        ? verdict(false, "repeated the report")
+        : verdict(true, "submitted only what changed");
     }
     case "notifies": {
       const first = calls.find((call) => call.name.startsWith(LOOM) && !LOOKING.has(call.name));

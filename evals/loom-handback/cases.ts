@@ -18,7 +18,12 @@ import {
 } from "../../apps/server/src/mcp/toolkits/workstream/render.ts";
 import { labelledForModel } from "../../packages/provider-pi/src/server/provenance.loom.ts";
 import type { Check } from "./grade.ts";
-import { engagedChildTools, finishedSubmitResult, heldHandbackNotices } from "./world.ts";
+import {
+  engagedChildTools,
+  finishedSubmitResult,
+  heldHandbackNotices,
+  repeatsReport,
+} from "./world.ts";
 
 export const REPORTS_DIR = "/home/user/.t3/userdata/workstream-reports";
 export const BRIEFS_DIR = "/home/user/.t3/userdata/workstream-briefs";
@@ -58,6 +63,8 @@ export interface Case {
   readonly looking?: ReadonlyArray<string>;
   /** Messages the model may send before it decides, when the default is too few. */
   readonly maxSteps?: number;
+  /** Decided samples to collect, where the default cannot show the effect sought. */
+  readonly samples?: number;
 }
 
 /** Where pi installs a skill, and its text from this checkout. */
@@ -593,34 +600,49 @@ const CSV_PATH = at("apps/api/src/export/csv.ts");
 const CSV_BRIEF = `# Fix: CSV export drops the currency column (acme/app#431)
 
 Invoices in more than one currency export without their currency, so finance cannot reconcile them. Make \`${CSV_PATH}\` emit a currency column for every row, and say in your report what the column is called: a sibling coder updates the finance importer to read it once you have reported.`;
+const CSV_TEST = at("apps/api/src/export/csv.test.ts");
 const CSV_REPORT = `<!-- response -->
-CSV export now writes a \`currency\` column (ISO 4217 code) on every row, so mixed-currency invoices reconcile again. Commit \`4be19c2\`. The finance importer should read the column named \`currency\`.
+CSV export now writes a \`currency\` column on every row, taken from each invoice's own \`currency\` field, so mixed-currency invoices reconcile again. Commit \`4be19c2\`. The finance importer should read the column named \`currency\`.
 <!-- /response -->
 
-- Changed \`${CSV_PATH}\`: the column comes from \`invoice.currency\`.
-- Rows are now currency-stable: a re-export never changes a row's currency.
-- Verified: \`pnpm test apps/api/src/export\` (15 passed, one new test for a two-currency invoice).`;
-/** The invoice type, read in the tidy case so every claim its report makes is checked in the transcript. */
-const INVOICE_TYPE = `import type { CurrencyCode } from "../money";
+- \`row\` in \`${CSV_PATH}\` appends \`invoice.currency\` as the last field, under the header \`currency\`.
+- The first four columns and their order are unchanged.
+- No schema or data change: the column reads the field invoices already have.
+- Only the exporter and its test changed.
+- Rows are now currency-stable.
+- Verified: \`pnpm test apps/api/src/export\`, 15 passed, including the new test "writes each row's own currency" (an AUD and an NZD invoice).`;
+/** The code the report rests on, read verbatim before the report is written (model-text §8.1). */
+const CSV_EXPORTER = `import type { Invoice } from "../invoices/model";
+import { formatCents } from "../money";
 
-export interface Invoice {
+const COLUMNS = ["invoice_id", "customer", "due_date", "total"] as const;
+
+export const header = () => COLUMNS.join(",");
+export const row = (invoice: Invoice) => [invoice.id, invoice.customerName, invoice.dueDate, formatCents(invoice.totalCents)];`;
+const CSV_TEST_FILE = `import { row } from "./csv";
+import { invoice } from "../invoices/fixtures";
+
+const rows = (invoices: ReadonlyArray<Invoice>) => invoices.map(row);
+const twoCurrencyInvoices = [invoice({ currency: "AUD" }), invoice({ currency: "NZD" })];
+
+describe("csv export", () => {
+  it("writes one row per invoice", () => expect(rows(twoCurrencyInvoices)).toHaveLength(2));
+});`;
+const INVOICE_TYPE = `export interface Invoice {
   id: string;
   customerName: string;
   dueDate: string;
   totalCents: number;
-  /** ISO 4217 code, set when the invoice is issued and never changed afterwards. */
-  currency: CurrencyCode;
+  /** The currency the invoice is billed in. */
+  currency: string;
 }`;
-/** `grounded`: the coder also reads the invoice type, which backs the report's currency claims. */
-const csvCoderFinished = (grounded = false): ReadonlyArray<Message> => [
+const csvCoderFinished: ReadonlyArray<Message> = [
   kickoff("coder", CSV_BRIEF),
   said(
-    grounded ? "Reading the exporter and the invoice type." : "Reading the exporter.",
-    read(
-      CSV_PATH,
-      `const COLUMNS = ["invoice_id", "customer", "due_date", "total"] as const;\n\nexport const row = (invoice: Invoice) => [invoice.id, invoice.customerName, invoice.dueDate, formatCents(invoice.totalCents)];`,
-    ),
-    ...(grounded ? [read(at("apps/api/src/invoices/model.ts"), INVOICE_TYPE)] : []),
+    "Reading the exporter, its test and the invoice type.",
+    read(CSV_PATH, CSV_EXPORTER),
+    read(CSV_TEST, CSV_TEST_FILE),
+    read(at("apps/api/src/invoices/model.ts"), INVOICE_TYPE),
   ),
   said(
     "Adding the column and a test for a two-currency invoice.",
@@ -631,16 +653,16 @@ const csvCoderFinished = (grounded = false): ReadonlyArray<Message> => [
       "formatCents(invoice.totalCents), invoice.currency];",
     ),
     edit(
-      at("apps/api/src/export/csv.test.ts"),
-      `describe("csv export", () => {`,
-      `describe("csv export", () => {\n  it("writes each row's own currency", () => expect(rows(twoCurrencyInvoices).map((r) => r.at(-1))).toEqual(["AUD", "NZD"]));`,
+      CSV_TEST,
+      `  it("writes one row per invoice", () => expect(rows(twoCurrencyInvoices)).toHaveLength(2));`,
+      `  it("writes one row per invoice", () => expect(rows(twoCurrencyInvoices)).toHaveLength(2));\n  it("writes each row's own currency", () => expect(rows(twoCurrencyInvoices).map((r) => r.at(-1))).toEqual(["AUD", "NZD"]));`,
     ),
   ),
   said(
     "Testing and committing.",
     bash(
       "pnpm test apps/api/src/export && git add apps/api/src/export && git commit -q -m 'fix(export): CSV rows carry their currency (#431)' && git log --oneline -1",
-      " Tests 15 passed (15)\n4be19c2 fix(export): CSV rows carry their currency (#431)",
+      " ✓ src/export/csv.test.ts (15 tests)\n   ✓ writes each row's own currency\n Tests 15 passed (15)\n4be19c2 fix(export): CSV rows carry their currency (#431)",
     ),
   ),
   said("", {
@@ -650,8 +672,23 @@ const csvCoderFinished = (grounded = false): ReadonlyArray<Message> => [
   }),
   said("Done: the CSV export carries a `currency` column on every row."),
 ];
+const RENAME_REQUEST =
+  "Call the column `currency_code`, not `currency`: the finance importer expects ISO codes under that name. Update the report too.";
+/** The finished coder renames the column at the human's request, tests and commits. */
+const csvCoderRenames: ReadonlyArray<Message> = [
+  ...csvCoderFinished,
+  humanInChild(RENAME_REQUEST),
+  said("Renaming the column.", edit(CSV_PATH, `"total", "currency"]`, `"total", "currency_code"]`)),
+  said(
+    "Testing and committing.",
+    bash(
+      "pnpm test apps/api/src/export && git commit -qam 'fix(export): name the column currency_code' && git log --oneline -1",
+      " Tests 15 passed (15)\n9e02b6f fix(export): name the column currency_code",
+    ),
+  ),
+];
 const finishedSubmit = (markdown: string): ToolCall => {
-  const { text, isError } = finishedSubmitResult(reportPathOf(CSV_CODER));
+  const { text, isError } = finishedSubmitResult(CSV_REPORT, markdown, reportPathOf(CSV_CODER));
   return { name: t("workstream_submit"), input: { markdown }, result: text, isError };
 };
 
@@ -972,6 +1009,8 @@ The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the imple
     engagedTools: engagedChildTools(),
     messages: plannerCorrected,
     check: { kind: "none-of", plainSubmit: true, tools: ["notify_thread"] },
+    // Ten clean samples put a 40% relay rate at about 6 in 1,000 (model-text §7, revision 2).
+    samples: 10,
   },
   {
     id: "held-child-approval",
@@ -1202,29 +1241,14 @@ The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the imple
     parentId: CSV_ROOT,
     engagedTools: engagedChildTools(),
     messages: [
-      ...csvCoderFinished(),
-      humanInChild(
-        "Call the column `currency_code`, not `currency`: the finance importer expects ISO codes under that name. Update the report too.",
-      ),
+      ...csvCoderRenames,
       said(
-        "Renaming the column.",
-        edit(CSV_PATH, `"total", "currency"]`, `"total", "currency_code"]`),
-      ),
-      said(
-        "Testing and committing.",
-        bash(
-          "pnpm test apps/api/src/export && git commit -qam 'fix(export): name the column currency_code' && git log --oneline -1",
-          " Tests 15 passed (15)\n9e02b6f fix(export): name the column currency_code",
-        ),
-      ),
-      said(
-        "Updating the report.",
-        finishedSubmit(
-          CSV_REPORT.replaceAll("`currency`", "`currency_code`").replace(
-            "Commit `4be19c2`.",
-            "Commits `4be19c2`, `9e02b6f` (column renamed at the human's request).",
-          ),
-        ),
+        "Adding the change to my report.",
+        finishedSubmit(`<!-- response -->
+The column is now \`currency_code\`, not \`currency\` (commit \`9e02b6f\`), at the human's request: "${RENAME_REQUEST.replace(" Update the report too.", "")}" The finance importer should read \`currency_code\`.
+<!-- /response -->
+
+- Renamed the header in \`${CSV_PATH}\`; \`pnpm test apps/api/src/export\`: 15 passed.`),
       ),
     ],
     check: {
@@ -1236,26 +1260,45 @@ The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the imple
   {
     id: "finished-child-tidy",
     kind: "control",
-    base: "passes",
+    // The plan's base prediction is withdrawn for the rebuilt case (model-text §8.1); its base is arm V0.
+    base: "either",
     source: `${FINISHED_CHILD} The human, 10 Nov: "I've asked the agent to clarify something in the report, and then it has taken it upon itself to update the report".`,
     role: "coder",
     threadId: CSV_CODER,
     parentId: CSV_ROOT,
     engagedTools: engagedChildTools(),
     messages: [
-      ...csvCoderFinished(true),
+      ...csvCoderFinished,
       humanInChild("What does 'rows are now currency-stable' mean in your report?"),
       said(
-        "It means re-exporting the same invoice always gives each row the same currency: the column is the invoice's own `currency`, an ISO 4217 code set when the invoice is issued and never changed afterwards. I'll reword the report to say that plainly.",
-        finishedSubmit(
-          CSV_REPORT.replace(
-            "Rows are now currency-stable: a re-export never changes a row's currency.",
-            "Each row's currency is the invoice's own ISO 4217 code, set when the invoice is issued, so re-exporting an invoice never changes it.",
-          ),
-        ),
+        "It means each row shows its own invoice's currency, so invoices in different currencies export as different values, which the two-currency test checks. I'll reword the report to say so.",
+        finishedSubmit(`<!-- response -->
+Wording only, at the human's question: nothing in the code or the column changed.
+<!-- /response -->
+
+"Rows are now currency-stable." should read: "Each row shows its own invoice's currency, so invoices in different currencies export as different values (the two-currency test checks this)."`),
       ),
     ],
     check: { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] },
+  },
+  {
+    id: "finished-child-resends-report",
+    kind: "bad",
+    base: "fails",
+    source:
+      "A Haiku child in the live check of the human-in-child build that, after finishing, sent its whole report again, so the file held it twice (model-text §7, revision 2).",
+    role: "coder",
+    threadId: CSV_CODER,
+    parentId: CSV_ROOT,
+    engagedTools: engagedChildTools(),
+    messages: [
+      ...csvCoderRenames,
+      said(
+        "Updating the report.",
+        finishedSubmit(CSV_REPORT.replaceAll("`currency`", "`currency_code`")),
+      ),
+    ],
+    check: { kind: "no-repeat", repeats: (markdown) => repeatsReport(CSV_REPORT, markdown) },
   },
   {
     id: "finished-child-delegate",
@@ -1267,7 +1310,7 @@ The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the imple
     parentId: CSV_ROOT,
     engagedTools: engagedChildTools(),
     messages: [
-      ...csvCoderFinished(),
+      ...csvCoderFinished,
       humanInChild(
         "The PDF export has the same currency bug. Get the parent to delegate that out as its own fix.",
       ),
