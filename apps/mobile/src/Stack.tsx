@@ -148,6 +148,9 @@ import { useNativeLayoutMetrics } from "./native/native-layout-metrics";
 import { nativeHeaderScrollEdgeEffects } from "./native/StackHeader";
 import { HORIZONTAL_FORM_SHEET_OPTIONS, formSheetDetents } from "./native/sheet-surface";
 import { workspaceDetailRouter } from "./features/workspace/workspace-detail-selection";
+// loom: the workstream screen and its long-press sheet (plans/mobile-workstream-view).
+import { WorkstreamScreen } from "./features/workstream/WorkstreamScreen.loom";
+import { WorkstreamNodeSheet } from "./features/workstream/WorkstreamNodeSheet.loom";
 
 const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 
@@ -904,6 +907,21 @@ const RootStackConfig = createWorkspaceStackNavigator({
     }),
     ThreadAgents: createNativeStackScreen({
       screen: ThreadAgentsSheet,
+      options: {
+        ...HORIZONTAL_FORM_SHEET_OPTIONS,
+        headerShown: false,
+        sheetAllowedDetents: formSheetDetents(0.5, 0.9),
+        sheetGrabberVisible: true,
+      },
+    }),
+    // loom: the workstream screen and its node sheet, which closes when a child opens from it.
+    Workstream: createNativeStackScreen({
+      screen: WorkstreamScreen,
+      linking: `${THREAD_LINKING_PREFIX}/workstream`,
+      options: DETAIL_HEADER_OPTIONS,
+    }),
+    WorkstreamNode: createNativeStackScreen({
+      screen: WorkstreamNodeSheet,
       options: {
         ...HORIZONTAL_FORM_SHEET_OPTIONS,
         headerShown: false,

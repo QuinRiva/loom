@@ -82,6 +82,8 @@ import { HomeListOptionsProvider } from "../home/home-list-options";
 import { newTaskDestination } from "../threads/new-task-project-selection";
 import { usePendingTaskListActions } from "../home/usePendingTaskListActions";
 import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
+// loom: the unfolded workstream pane.
+import { WorkstreamSidebarPane } from "../workstream/WorkstreamSidebarPane.loom";
 import { useOpenThreadPullRequests } from "../threads/use-open-thread-pull-requests";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
@@ -953,6 +955,11 @@ function AdaptiveWorkspaceLayoutContent(
                     onOpenThreadPullRequests={handleOpenThreadPullRequests}
                     onSearchQueryChange={setPrimarySidebarSearchQuery}
                     searchQuery={primarySidebarSearchQuery}
+                  />
+                  {/* loom: the workstream takes this pane while its route is on the stack. */}
+                  <WorkstreamSidebarPane
+                    width={layout.listPaneWidth}
+                    onReveal={revealPrimarySidebar}
                   />
                 </AndroidHomeFabLayout>
               </AndroidWorkspaceSidebar>
