@@ -3,8 +3,8 @@ reader:
   who: the review gate (an agent) judging this plan against the approved intent brief, then the coders who build from it with nothing but this folder
   knows: the brief at plans/human-in-child-thread/intent.mdx and Loom's work model (threads, briefs, reports, gates); not the dispatcher, the decider or the investigation behind the brief
   after_first_screen: can say the one rule behind each of the three fixes, that no new state or screen is added, that model-facing text is fixed in a sibling file and measured by a new eval that lands first, and that one coder builds the server after one coder builds the eval
-kicker: "Implementation plan · approved 11 Nov 2026 · under plans/human-in-child-thread/intent.mdx"
-status: approved
+kicker: "Implementation plan · built 11 Nov 2026 · under plans/human-in-child-thread/intent.mdx"
+status: done
 intent: plans/human-in-child-thread/intent.mdx
 manager_sessions:
   - id: 01a1c813-f9f2-7393-aa59-9a2f42f62394
@@ -390,3 +390,23 @@ Then run one real journey on the cheapest pi model:
 </Details>
 
 **Open questions.** None for the gate.
+
+## As built
+
+The three fixes were built as planned, in the planned order. Where the build departed:
+
+- **The model-facing text was revised once after the eval ran.** `model-text.md` is at revision 2, and the shipped strings match it.
+  - The phrase this plan added to the readership clause, "or something it relied on in a report you have already handed back", is removed. A held child read it as a reason to message its parent during the human's correction rounds, which the brief rules out.
+  - Removing it did not stop the relay (8 of 10 samples before and after). One sentence added to the result a held child sees when it hands back did: "That report replaces this one and is how your parent learns of their corrections; it needs nothing from you before then." With it, `held-child-corrections` is 10 of 10.
+- **A finished child's resent report is refused.** Not in the plan. In the live pass a child sent its whole report again as an addition and the file held it twice. An addition that repeats more than half the lines of the report as first handed back is now refused and nothing is written (`repeatsReport` in `apps/server/src/loom/workstream/report.ts`; text in model-text §4.6).
+- **The eval does not make one model call per sample.** The model usually reads or searches before it hands back, so the harness grades the first message that decides and answers look-around calls from a simulator held to the transcript. Three cases changed for the same reason of soundness, none to fit a result:
+  - `planner-plan-under-approved-brief` grades holding, not completing, because on the base text the planner never reached a hand-back;
+  - `finished-child-tidy` was rebuilt so every claim in its report is shown in the transcript, and a search for the message-the-parent tool now counts as using it;
+  - `finished-child-resends-report` is new, 20 cases in all, and has no base comparison.
+- **`planner-holds-brief` rests on few samples** (5 of 6 decided samples pass across runs). `coder-holds-prototype`, 10 of 10, supports the same text.
+- **The turn predicates live in `apps/server/src/loom/orchestration/turns.ts`**, not `quiescence.ts`: importing the latter from the decider made an import cycle.
+- **The migration is `1071_LoomHumanLed.ts`.** `origin/main` took 1070 while the plan was in review.
+- **The finished-thread refusal text shipped with the second fix**, not the first, since its last sentence promises the addition the second fix builds.
+- **The dev seed sends the held notice by running the real dispatcher pass**, not a hand-written card.
+- **The first server commit does not typecheck on its own**; the one-line seed fix is in the third.
+- **Not checked live:** a journey started from the root (the seed's stub sessions cannot run a root turn), a human-led child, and mobile. Tests and the eval cover the first two.
