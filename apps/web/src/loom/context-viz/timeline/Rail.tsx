@@ -98,6 +98,7 @@ export function Rail({
     if (f >= 1) {
       if (drag.commanded !== Infinity) void listRef.current?.scrollToEnd({ animated: false });
       drag.commanded = Infinity;
+      drag.at = 1;
       return;
     }
     if (drag.grab !== null) {
@@ -232,7 +233,10 @@ export function Rail({
           drag.frame = requestAnimationFrame(() => scrollFrame(track, drag));
       }}
       onPointerUp={(event) => {
-        if (gesture.current?.dragging === false) click(event.currentTarget, event.clientY);
+        // A press on the puck let go without moving is a grab abandoned, not a click.
+        const drag = gesture.current;
+        if (drag?.dragging === false && drag.grab === null)
+          click(event.currentTarget, event.clientY);
         gesture.current = null;
       }}
       onPointerCancel={() => {
