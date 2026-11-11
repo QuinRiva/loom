@@ -10,6 +10,7 @@ import {
   routeWorkSubmit,
   workSubmitRefusal,
 } from "@t3tools/shared/workstreamGraph";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
 import { renderOpenBranch } from "../../../../loom/goals/goalTaskRender.ts";
@@ -21,13 +22,18 @@ import {
   SUBMIT_REFUSED_WHILE_HELD,
   SUBMIT_REFUSED_WHILE_RAISED,
 } from "../../../../loom/prompt/prose.ts";
-import { reportResponse, writeWorkstreamReport } from "../../../../loom/workstream/report.ts";
+import { formatWakeTimestamp } from "../../../../loom/orchestration/dispatcher/wakes.ts";
+import {
+  appendWorkstreamReport,
+  reportResponse,
+  writeWorkstreamReport,
+} from "../../../../loom/workstream/report.ts";
 import { resolveThreadRef } from "../../../../loom/workstream/threadResolve.ts";
 import * as Orchestrator from "../../../../orchestration-v2/Orchestrator.ts";
 import type { WorkstreamCaller } from "../authorisation.ts";
 import type { LoomToolInput } from "../defs.ts";
 import { requestKey, stableCommandId } from "../idempotency.ts";
-import { HELD_AGAIN_ECHO, renderSubmitOutcome } from "../render.ts";
+import { HELD_AGAIN_ECHO, renderSubmitOutcome, REPORT_ADDITION_ECHO } from "../render.ts";
 import { asToolError, committed, dispatch, fail, nowIso } from "./shared.ts";
 
 export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(function* (
@@ -56,6 +62,32 @@ export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(functi
   const siblings = gateLoopTargetsOf(row);
   const rework = input.rework?.map((ref) => resolveThreadRef(ref, new Set(siblings)));
   const routing = routeWorkSubmit(asNode(row), tree.map(asNode), outcome ?? "done", rework);
+  // A finished thread a human has written to since it finished adds to its report: no event, so
+  // nothing behind it moves and its parent is not told (a gate rework round still routes).
+  if (
+    row.outcome === "done" &&
+    row.reportPath !== null &&
+    row.outcomeAt !== null &&
+    !(row.pendingRework && routing.decision === "loop")
+  ) {
+    const finishedAt = Date.parse(row.outcomeAt);
+    const { messages } = yield* asToolError(
+      Effect.flatMap(Orchestrator.OrchestratorV2, (orchestrator) =>
+        orchestrator.getThreadRecords(caller.threadId, ["messages"], { messageRoles: ["user"] }),
+      ),
+    );
+    if (
+      messages.some(
+        (message) =>
+          message.loom?.humanAuthored === true &&
+          DateTime.toEpochMillis(message.createdAt) > finishedAt,
+      )
+    ) {
+      const section = `\n\n## Added after finishing · ${formatWakeTimestamp(yield* nowIso)}\n\n${input.markdown}`;
+      yield* asToolError(appendWorkstreamReport(caller.threadId, row.reportPath, section));
+      return `${REPORT_ADDITION_ECHO}\nReport: ${row.reportPath}`;
+    }
+  }
   const refusal = workSubmitRefusal(
     asNode(row),
     outcome ?? "done",

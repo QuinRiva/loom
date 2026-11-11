@@ -453,7 +453,9 @@ export const workSubmitRefusal = (
     thread.outcome !== null &&
     !(thread.outcome === "done" && thread.pendingRework && decision === "loop")
   )
-    return `Thread ${thread.id} is ${thread.outcome}; mcp__t3-code__workstream_submit cannot act on a terminal thread.`;
+    return thread.outcome === "done"
+      ? `Thread ${thread.id} is done: its hand-back is closed, so this report was not recorded and nothing was routed. If your parent has sent you more work, it reopens you before you hand back; say so to it with \`mcp__t3-code__notify_thread\` (loaded through \`tool_search\` when it is not declared). If a human writes to you here, a submit after that is added to your report.`
+      : `Thread ${thread.id} is cancelled: your parent abandoned this work, so this report was not recorded and nothing was routed. If what you have would change that, tell your parent with \`mcp__t3-code__notify_thread\` (loaded through \`tool_search\` when it is not declared).`;
   const targets = loopTargetsOn(thread.routes, outcome);
   const listed = targets.join(", ");
   if (rework?.length && targets.length === 0)

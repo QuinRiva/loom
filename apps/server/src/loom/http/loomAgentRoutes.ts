@@ -24,7 +24,11 @@ import {
   isReadOnlyCaller,
   type WorkstreamCaller,
 } from "../../mcp/toolkits/workstream/authorisation.ts";
-import { HUMAN_INPUT, withheldFrom } from "../../mcp/toolkits/workstream/families.ts";
+import {
+  ENGAGED_CHILD_TOOLS,
+  HUMAN_INPUT,
+  withheldFrom,
+} from "../../mcp/toolkits/workstream/families.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { isContinueLaunch } from "../../orchestration-v2/Orchestrator.loom.ts";
 import type { LoomSessionProfile } from "../../provider/Drivers/Pi/loomExtension.ts";
@@ -92,10 +96,9 @@ const readership = Effect.fn("loom.sessionReadership")(function* (threadId: Thre
 });
 
 /**
- * The thread's profile. `humanEngaged` is seam 14's stamp on any user-role
- * message (or the human's Launch of a staged continuation) — never the shell's
- * `latestUserAuthoredMessageAt`, which counts a human-created scheduled task's fire. A child nobody has written to does not keep
- * `mcp__t3-code__ask_user_question` resident whatever its role says.
+ * The thread's profile. `humanEngaged` is seam 14's stamp on any user-role message (or the human's
+ * Launch of a staged continuation), never a scheduled fire. An unengaged child loses
+ * `mcp__t3-code__ask_user_question`; an engaged one also gets `mcp__t3-code__notify_thread`.
  */
 export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (
   threadId: ThreadId,
@@ -126,10 +129,11 @@ export const sessionProfile = Effect.fn("loom.sessionProfile")(function* (
         projectRoot: thread.worktreePath ?? process.cwd(),
       }).tools;
   return {
-    activeTools:
-      hasParent && !humanEngaged
-        ? activeTools.filter((name) => !HUMAN_INPUT.includes(name as never))
-        : activeTools,
+    activeTools: !hasParent
+      ? activeTools
+      : humanEngaged
+        ? [...new Set([...activeTools, ...ENGAGED_CHILD_TOOLS])]
+        : activeTools.filter((name) => !HUMAN_INPUT.includes(name as never)),
     humanEngaged,
     hasParent,
     denyList: withheldFrom(activeTools),

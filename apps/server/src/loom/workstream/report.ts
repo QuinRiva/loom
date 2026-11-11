@@ -77,6 +77,18 @@ export const writeWorkstreamReport = (threadId: ThreadId, markdown: string, roun
     markdown,
   );
 
+/** Appends a section to a report file and re-indexes the whole file for thread search. */
+export const appendWorkstreamReport = Effect.fn("loom.appendWorkstreamReport")(function* (
+  threadId: ThreadId,
+  filePath: string,
+  section: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const markdown = `${yield* fs.readFileString(filePath)}${section}`;
+  yield* fs.writeFileString(filePath, markdown);
+  yield* upsertThreadSearchReport(threadId, markdown);
+});
+
 /**
  * `<threadId>.quiescent-<run>.md`, where `<run>` is the run id minus the thread id
  * it embeds: a V2 run id is `run:thread:<URI-encoded threadId>:ordinal:<n>`, and a

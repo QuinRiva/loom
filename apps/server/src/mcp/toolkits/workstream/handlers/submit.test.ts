@@ -10,6 +10,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as TestClock from "effect/testing/TestClock";
 
 import { LoomStoreV2 } from "../../../../loom/projection/LoomStore.ts";
 import {
@@ -258,7 +259,7 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
 
       const terminal = yield* callAs(done, "workstream_submit", { markdown: report("revised") });
       assert.isTrue(terminal.isError);
-      assert.include(terminal.text, "cannot act on a terminal thread");
+      assert.include(terminal.text, "its hand-back is closed");
       assert.equal(yield* fs.readFileString(reportPath), report("original"));
       assert.deepEqual(yield* indexed(done), [report("original")]);
 
@@ -355,6 +356,68 @@ it.layer(HandlerTestLayer)("workstream submit and set_outcome", (it) => {
         const done = (yield* store.getWorkstream(child))!;
         assert.equal(done.outcome, "done");
         assert.deepEqual(done.attention, []);
+      }),
+  );
+
+  it.effect(
+    "a finished child the human wrote to adds a dated section; one nobody wrote to is refused",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* LoomStoreV2;
+        const fs = yield* FileSystem.FileSystem;
+        const root = ThreadId.make("addition-root");
+        yield* seedThread({ threadId: root });
+        const finished = yield* spawn(root, "Finished");
+        yield* callAs(finished, "workstream_submit", { markdown: report("original") });
+        const done = (yield* store.getWorkstream(finished))!;
+
+        // Nobody has written since it finished: refused, with what to do instead.
+        const unwritten = yield* callAs(finished, "workstream_submit", {
+          markdown: report("more"),
+        });
+        assert.isTrue(unwritten.isError);
+        assert.include(unwritten.text, "its hand-back is closed");
+        assert.equal(yield* fs.readFileString(done.reportPath!), report("original"));
+
+        yield* TestClock.adjust("1 minute");
+        yield* (yield* Orchestrator.OrchestratorV2).dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("addition-human"),
+          threadId: finished,
+          messageId: MessageId.make("message:addition-human"),
+          text: "Also cover the retry path.",
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+          dispatchMode: { type: "queue_after_active" },
+        });
+        const added = yield* callAs(finished, "workstream_submit", {
+          markdown: report("retry path covered"),
+        });
+        assert.isFalse(added.isError, added.text);
+        assert.include(added.text, "Added to your report as a dated section");
+        assert.include(added.text, `Report: ${done.reportPath}`);
+        const file = yield* fs.readFileString(done.reportPath!);
+        assert.isTrue(file.startsWith(report("original")));
+        assert.match(
+          file,
+          /\n## Added after finishing · .+\n\n<!-- response -->\nretry path covered/,
+        );
+        // No event: the row, its outcome and the work behind it are untouched.
+        const after = (yield* store.getWorkstream(finished))!;
+        assert.deepEqual(
+          [after.outcome, after.lastOutcome, after.reportPath, after.attention],
+          [done.outcome, done.lastOutcome, done.reportPath, done.attention],
+        );
+
+        const cancelled = yield* spawn(root, "Abandoned");
+        yield* callAs(root, "workstream_set_outcome", {
+          threadId: cancelled,
+          outcome: "cancelled",
+        });
+        const refused = yield* callAs(cancelled, "workstream_submit", { markdown: report("late") });
+        assert.isTrue(refused.isError);
+        assert.include(refused.text, "your parent abandoned this work");
       }),
   );
 
