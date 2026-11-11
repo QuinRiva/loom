@@ -56,7 +56,7 @@ export function DetailsRead({ data, blockId, children }: PlanBlockReadProps<Deta
         <IconChevronRight className="plan-details-chevron size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0">{data.summary}</span>
       </summary>
-      <div className="prose-plan border-t border-border/60 px-3 py-2 text-sm">
+      <div className="plan-details-body prose-plan border-t border-border/60 px-3 py-2 text-sm">
         {mounted ? (children as ReactNode) : null}
       </div>
     </details>

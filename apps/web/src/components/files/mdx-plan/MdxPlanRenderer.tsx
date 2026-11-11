@@ -80,7 +80,7 @@ export function assignBlockIds(root: HTMLElement): void {
  * capped at the bleed budget. `stretch`: absolutely positioned or `w-full` contents
  * report ~no max-content, so take the budget. Prose blocks and device-sized artboards are absent.
  */
-const BLEED_MODE_BY_BLOCK_TYPE: Record<string, "hug" | "stretch"> = {
+const BLEED_MODE_BY_BLOCK_TYPE: Record<string, "hug" | "stretch" | "container"> = {
   "annotated-code": "hug",
   code: "hug",
   columns: "hug",
@@ -98,6 +98,10 @@ const BLEED_MODE_BY_BLOCK_TYPE: Record<string, "hug" | "stretch"> = {
   // vocabulary v2: stats — a strip of short tiles has no useful max-content;
   // it takes the budget and the tiles share it, so four sit on one line.
   stats: "stretch",
+  // A container hugs only the wide blocks directly in its body; the rest stays at the measure.
+  card: "container",
+  details: "container",
+  tabs: "container",
 };
 
 /** The attribute {@link stampBleedingBlocks} writes; also the annotation
