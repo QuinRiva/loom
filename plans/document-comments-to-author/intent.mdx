@@ -3,7 +3,7 @@ reader:
   who: Carl, Loom's owner and daily user, who asked whether a document link should open in the thread that wrote the document, has commented on a first draft, and now corrects and approves what this change is for before anything is built
   knows: Loom as its user; his own question and comments; the approved brief on talking inside a child thread. Not the document-panel code
   after_first_screen: he can say where the thread and the document appear the next time he clicks a document link in a parent's thread, what the parent hears and when, and that the open choice is whether an unfinished review of a finished author's document is marked anywhere
-kicker: "Intent brief · draft for your corrections · 11 Nov 2026"
+kicker: "Intent brief · draft for your corrections · 12 Nov 2026"
 status: draft
 manager_sessions:
   - id: 01a1c87d-e4fa-7188-bc86-8cfc39a765ce
@@ -93,10 +93,20 @@ The proposal has two parts. **Clicking a link to a document another thread wrote
 
 ## How a review ends
 
+Which of the two columns below a document falls in depends on whether its author was told to wait for you.
+
+- **Held for you.** An intent brief. Its planner hands it back and shows **Awaiting acceptance** until you approve, and the work behind it waits.
+- **Already finished.** A plan written under a brief you have approved: its planner completes, because a reviewer reads the plan rather than you, and the thread shows **Done**. A recap or an explainer is normally the same, and so is any document you come back to after approving it. When you click the link of one of these you arrive in a thread that is done, not one that is awaiting acceptance. 26 of the 56 cases in the five weeks were like this.
+
 <Table
   density="compact"
   columns={["", "The author is holding the document for your approval", "The author has already finished"]}
   rows={[
+    [
+      "**On arrival it shows**",
+      "**Awaiting acceptance**",
+      "**Done**",
+    ],
     [
       "**While you review**",
       "Nothing reaches the parent.",
@@ -139,7 +149,7 @@ What the link does:
 How a review of a finished author's document ends:
 
 - **Your word ends it, and nothing new is added to the control plane.** _The pick._ The author holds everything until you say it is done, then hands over once. A review you walk away from is marked nowhere: the changes so far are in the document and in a dated note in the author's report, and the parent learns of them only if it reads one of those. Wins if you nearly always finish a review you start.
-- **The same, and the author shows Awaiting acceptance again while the review is open.** From your first comment that asks for a change until your word, the finished author carries the same marker a held document does, on the thread and in the sidebar. It stays finished and holds up nothing. The parent is told twice: once that the document is under your review, once with the hand-over. Wins if half-finished reviews get lost, or a parent keeps building on a document you are part-way through changing. Costs a new state on a finished thread.
+- **The same, and the author shows Awaiting acceptance while the review is open.** From your first comment that asks for a change until your word, the finished author swaps Done for the marker a held document carries, on the thread and in the sidebar. It stays finished and holds up nothing. The parent is told twice: once that the document is under your review, once with the hand-over. Wins if half-finished reviews get lost, or a parent keeps building on a document you are part-way through changing. Costs a new state on a finished thread.
 - A "Review done" button on the document, which sends your closing word for you. It can be added to either of the two above. Wins if the author misreads "okay" as the end, or misses it.
 - Dropped: the author messages the parent whenever it judges a change material, as built. It is the piecemeal feed you ruled out.
 - Dropped: the hand-over is sent by itself after a quiet period. It would call a review done that you had not.
@@ -148,10 +158,10 @@ How a review of a finished author's document ends:
 
 **Decided.**
 
-- The link: "Shouldn't the link just take me to the planners thread, and open the plan in the right pannel?" 11 Nov, on a draft that had described the layout badly. It restates your first proposal: "If clicking on that link defaulted to opening it within the author, wouldn't that simplify me responding to the author of that document?" You did not pick an option on that draft's form. Taking these two as your choice of the first approach is my reading, so say if it is wrong; the other three are still listed above.
+- The link: "Shouldn't the link just take me to the planners thread, and open the plan in the right pannel?" 12 Nov, on a draft that had described the layout badly. It restates your first proposal: "If clicking on that link defaulted to opening it within the author, wouldn't that simplify me responding to the author of that document?" You did not pick an option on that draft's form. Taking these two as your choice of the first approach is my reading, so say if it is wrong; the other three are still listed above.
 - You talk to the thread that did the work: "shouldn't I just be communicating directly with the planner in these situations? Why should I be engaging with the orchestrator to have it just relay messages to the planner?" 10 Nov.
-- The parent hears once, at the end: "The thing that I do want to avoid, though, is having the planner (or whichever thread that I'm directly communicating with) just relay every piece of information back to the orchestrator as it comes in." And: "if a plan is being held for me to review (or I'm reviewing a plan), we don't want this sort of piecemeal stuff fed back to the orchestrator. We want there to be some sort of line in the sand". 11 Nov.
-- Whether that needs anything new in the control plane is not decided: "I don't know if we need a new control plane state for that sort of thing". 11 Nov. It is the question at the end.
+- The parent hears once, at the end: "The thing that I do want to avoid, though, is having the planner (or whichever thread that I'm directly communicating with) just relay every piece of information back to the orchestrator as it comes in." And: "if a plan is being held for me to review (or I'm reviewing a plan), we don't want this sort of piecemeal stuff fed back to the orchestrator. We want there to be some sort of line in the sand". 12 Nov.
+- Whether that needs anything new in the control plane is not decided: "I don't know if we need a new control plane state for that sort of thing". 12 Nov. It is the question at the end.
 - Asked which thread gets your comments when more than one has changed a document, you picked the recommended option, labelled "The thread that signed it; the document's header names any other thread that has changed it since, with a link". The label is an agent's wording and the choice is yours. Your comment with it: "In general an orchestrator shouldn't be editing the plan as often if we go down this approach because I'm no longer chatting with the orchestrator about the plan."
 - Asked whether the phone should do the same as part of this work, you picked the recommended option, labelled "Yes, as a second PR after web: on the phone, tapped answers join the author's message box and the bar's button opens the author's chat". The label is an agent's wording and the choice is yours.
 - Asked on 11 Nov what a parent should do with a correction you type into its chat instead of the child holding the work, you picked the recommended option, labelled "The parent passes it on once". The label is an agent's wording and the choice is yours. Not reopened here.
@@ -171,20 +181,20 @@ How a review of a finished author's document ends:
   questions={[
     {
       id: "finished-author-review",
-      title: "While you are part-way through reviewing a document whose author has already finished, should anything show that the review is open?",
-      subtitle: "Either way the parent hears nothing round by round and gets one hand-over on your word. This decides what happens to a review you walk away from, and whether the control plane gains a state.",
+      title: "A finished author's thread shows Done when you arrive, not Awaiting acceptance. While you are part-way through reviewing its document, should that change?",
+      subtitle: "You picked the first option on 12 Nov, on wording that did not say this, and noted \"I assume that it is already in the \"awaiting acceptance\" state, when I start the review?\" For a finished author it is not, so the question is put again. Either way the parent hears nothing round by round and gets one hand-over on your word.",
       mode: "single",
       refs: [{ label: "How a review ends", anchor: "how-a-review-ends" }],
       options: [
         {
           id: "word-only",
-          label: "No: my closing word ends it and nothing marks an open review; a review I leave part-way reaches the parent only when I come back and finish",
+          label: "No: it keeps showing Done; my closing word ends the review, and a review I leave part-way reaches the parent only when I come back and finish",
           detail: "Nothing new in the control plane. The changes so far sit in the document and in a note in the author's report. The marker can be added later if reviews get lost.",
           recommended: true,
         },
         {
           id: "awaiting-acceptance-again",
-          label: "Yes: the finished author shows Awaiting acceptance again until my closing word, and the parent is told once that the document is under my review",
+          label: "Yes: it shows Awaiting acceptance from my first requested change until my closing word, and the parent is told once that the document is under my review",
           detail: "An open review is visible on the thread and in the sidebar. The author stays finished and holds up nothing. Two messages to the parent per review, and a new state to build.",
         },
       ],
