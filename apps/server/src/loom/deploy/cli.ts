@@ -12,6 +12,7 @@ import * as NodeFS from "node:fs";
 import * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeUtil from "node:util";
 
 import {
   decodeServiceState,
@@ -75,21 +76,26 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 class Refusal extends Error {}
 
-function parseFlags(args: ReadonlyArray<string>, valued: ReadonlyArray<string>) {
-  const flags = new Map<string, string | true>();
-  const positional: Array<string> = [];
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!;
-    if (!arg.startsWith("--")) positional.push(arg);
-    else if (valued.includes(arg)) {
-      const value = args[++index];
-      if (value === undefined) throw new Refusal(`${arg} needs a value.`);
-      flags.set(arg, value);
-    } else flags.set(arg, true);
+/** Every verb's flags; an unknown flag is an error, so a typo never starts anything. */
+function parseFlags(args: ReadonlyArray<string>) {
+  try {
+    const { values, positionals } = NodeUtil.parseArgs({
+      args: [...args],
+      allowPositionals: true,
+      options: {
+        "no-return": { type: "boolean" },
+        wait: { type: "boolean" },
+        json: { type: "boolean" },
+        release: { type: "string" },
+        origin: { type: "string" },
+        who: { type: "string" },
+        undo: { type: "string" },
+      },
+    });
+    return { ...values, positionals };
+  } catch (error) {
+    throw new Refusal(error instanceof Error ? error.message : String(error));
   }
-  const text = (name: string) =>
-    typeof flags.get(name) === "string" ? (flags.get(name) as string) : undefined;
-  return { flags, positional, text, has: (name: string) => flags.has(name) };
 }
 
 function readState(config: DeployConfig) {
@@ -201,18 +207,18 @@ function refuseIfBusy(config: DeployConfig) {
 }
 
 async function deploy(config: DeployConfig, releaseDir: string, args: ReadonlyArray<string>) {
-  const { positional, text, has } = parseFlags(args, ["--release", "--origin", "--who"]);
-  if (positional.length > 1) throw new Refusal(`Unexpected argument: ${positional[1]}`);
-  const origin = text("--origin") ?? "cli";
+  const flags = parseFlags(args);
+  if (flags.positionals.length > 1)
+    throw new Refusal(`Unexpected argument: ${flags.positionals[1]}`);
+  const origin = flags.origin ?? "cli";
   if (!["cli", "slack", "loom"].includes(origin)) throw new Refusal(`Unknown --origin ${origin}.`);
   refuseIfBusy(config);
   const thread = process.env.LOOM_THREAD_ID;
-  const who =
-    text("--who") ?? `${NodeOS.userInfo().username}${thread ? ` in thread ${thread}` : ""}`;
+  const who = flags.who ?? `${NodeOS.userInfo().username}${thread ? ` in thread ${thread}` : ""}`;
   const engineArgs = [
-    ...positional,
-    ...(has("--no-return") ? ["--no-return"] : []),
-    ...(text("--release") ? ["--release", text("--release")!] : []),
+    ...flags.positionals,
+    ...(flags["no-return"] ? ["--no-return"] : []),
+    ...(flags.release ? ["--release", flags.release] : []),
     "--origin",
     origin,
     "--who",
@@ -233,7 +239,7 @@ async function deploy(config: DeployConfig, releaseDir: string, args: ReadonlyAr
   ]);
   if (started.code !== 0) throw new Refusal(`Could not start the deploy: ${started.stderr.trim()}`);
   say(`Deploy started in ${config.engineUnit}.service. Follow it with: loom-deploy status --wait`);
-  return has("--wait") ? follow(config, startedAt) : 0;
+  return flags.wait ? follow(config, startedAt) : 0;
 }
 
 /** Print each stage of the deploy started at or after `since` until it ends; 0 when live. */
@@ -270,8 +276,8 @@ const describe = (status: LoomDeployStatus) =>
     .join("; ");
 
 async function engine(config: DeployConfig, releaseDir: string, args: ReadonlyArray<string>) {
-  const { positional, text, has } = parseFlags(args, ["--release", "--origin", "--who"]);
-  const noReturn = has("--no-return");
+  const flags = parseFlags(args);
+  const noReturn = flags["no-return"] === true;
   const paths = storePaths(config.root);
   const home = homePaths(config);
   const buildEnv = { HOME: NodeOS.homedir(), PATH: config.path };
@@ -341,7 +347,7 @@ async function engine(config: DeployConfig, releaseDir: string, args: ReadonlyAr
   const history = readHistory(config.root);
   let dir: string;
   let sha: string;
-  const release = text("--release");
+  const release = flags.release;
   if (release !== undefined) {
     dir = NodePath.join(paths.releases, release);
     if (!NodeFS.existsSync(releasePaths(dir).bin))
@@ -362,7 +368,7 @@ async function engine(config: DeployConfig, releaseDir: string, args: ReadonlyAr
       "+refs/heads/*:refs/heads/*",
     ]);
     if (fetched.code !== 0) return callOff(`Could not fetch: ${fetched.stderr.trim()}`, false);
-    const ref = positional[0] ?? config.defaultRef;
+    const ref = flags.positionals[0] ?? config.defaultRef;
     const resolved = run("git", [
       "-C",
       paths.mirror,
@@ -380,8 +386,8 @@ async function engine(config: DeployConfig, releaseDir: string, args: ReadonlyAr
     sha,
     version: release === undefined ? null : (releaseVersion(dir) ?? null),
     phase: "building",
-    origin: (text("--origin") ?? "cli") as DeployOrigin,
-    who: text("--who") ?? null,
+    origin: (flags.origin ?? "cli") as DeployOrigin,
+    who: flags.who ?? null,
     noReturn,
     startedAt,
     stopAt: estimateStopAt(history, startedAt),
@@ -402,7 +408,7 @@ async function engine(config: DeployConfig, releaseDir: string, args: ReadonlyAr
       state.activeVersion,
       ...staged,
     ]);
-    const ref = positional[0] ?? config.defaultRef;
+    const ref = flags.positionals[0] ?? config.defaultRef;
     const recordBuilt = () =>
       writeJsonAtomic(
         paths.manifest,
@@ -620,8 +626,8 @@ async function trialStart(config: DeployConfig, releaseDir: string): Promise<num
 }
 
 async function statusVerb(config: DeployConfig, args: ReadonlyArray<string>) {
-  const { has } = parseFlags(args, []);
-  if (has("--wait")) {
+  const flags = parseFlags(args);
+  if (flags.wait) {
     const status = readStatus(config);
     return status === undefined ? 0 : follow(config, status.startedAt);
   }
@@ -633,7 +639,7 @@ async function statusVerb(config: DeployConfig, args: ReadonlyArray<string>) {
   const copies = listKeptCopies(config);
   const status = readStatus(config);
   const service = systemctl("is-active", config.unit).stdout.trim() || "unknown";
-  if (has("--json")) {
+  if (flags.json) {
     say(
       JSON.stringify(
         {
@@ -699,12 +705,16 @@ export async function back(config: DeployConfig, service: ServiceControl = syste
     `Going back from ${runningId} to ${copy.fromRelease}. Work done in Loom since ${copy.at} is lost.`,
   );
   const token = (await answers(config.port)) ? mintSession(config, previous) : undefined;
-  if (token !== undefined) {
-    await postToLoom(config, token, "/loom/deploy/restarting", {
-      releaseId: copy.fromRelease,
-      reason: "rollback",
-    }).catch(() => undefined);
-  }
+  const warned =
+    token === undefined
+      ? undefined
+      : await postToLoom(config, token, "/loom/deploy/restarting", {
+          releaseId: copy.fromRelease,
+          reason: "rollback",
+        }).catch(() => undefined);
+  say(
+    `Restart warning: ${warned === undefined ? "not sent (Loom is not answering)" : `HTTP ${warned.status}`}.`,
+  );
   await service.stop();
   restoreCopy(NodePath.join(keptDir(config), copy.updateId), homePaths(config).database);
   // The release returned to records the return itself, so its own launcher code takes over.
@@ -734,7 +744,7 @@ export async function back(config: DeployConfig, service: ServiceControl = syste
   return 0;
 }
 
-function retry(config: DeployConfig) {
+async function retry(config: DeployConfig) {
   if (readStatus(config)?.phase !== "held")
     throw new Refusal("Nothing is held (loom-deploy status).");
   const launcher = systemctl("show", config.unit, "--property=MainPID", "--value").stdout.trim();
@@ -747,8 +757,10 @@ function retry(config: DeployConfig) {
   if (runner === undefined)
     throw new Refusal(`No release runner under ${config.unit} (pid ${launcher}).`);
   process.kill(Number(runner), "SIGHUP");
+  for (let waited = 0; waited < 10 && readStatus(config)?.phase === "held"; waited++)
+    await sleep(1_000);
   say(
-    `Asked the held release to run again (runner pid ${runner}). Follow it with: loom-deploy status --wait`,
+    `Asked the held release to run again (runner pid ${runner}). Follow it: loom-deploy status --wait`,
   );
   return 0;
 }
@@ -771,7 +783,7 @@ function cancel(config: DeployConfig) {
 }
 
 async function adopt(config: DeployConfig, releaseDir: string, args: ReadonlyArray<string>) {
-  const { text } = parseFlags(args, ["--undo"]);
+  const flags = parseFlags(args);
   const home = homePaths(config);
   const version = releaseVersion(releaseDir);
   if (version === undefined)
@@ -779,7 +791,7 @@ async function adopt(config: DeployConfig, releaseDir: string, args: ReadonlyArr
   if (NodeFS.existsSync(home.state) && serviceActive(config)) {
     throw new Refusal(`${config.unit} is running under the launcher; stop it before adopt.`);
   }
-  const [undoId, leftVersion] = (text("--undo") ?? "").split(":");
+  const [undoId, leftVersion] = (flags.undo ?? "").split(":");
   const next = decodeServiceState({
     protocol: SERVICE_LAUNCHER_PROTOCOL,
     activeVersion: version,

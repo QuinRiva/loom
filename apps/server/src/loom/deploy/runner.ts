@@ -160,6 +160,10 @@ function reportReturn(outcome: ServiceUpdateRecord) {
       id: leftId,
       sha: leftRecord?.sha ?? "",
       version: outcome.targetVersion,
+      origin: leftRecord?.origin ?? status.origin,
+      who: leftRecord?.who ?? null,
+      noReturn: leftRecord?.noReturn ?? false,
+      startedAt: leftRecord?.startedAt ?? status.startedAt,
     }),
     phase: "put-back",
     reason,
@@ -413,6 +417,7 @@ process.on("SIGHUP", () => {
     return log("SIGHUP ignored: nothing is held");
   }
   log("SIGHUP: running the held release again");
+  report({ phase: "switching", reason: null });
   runServer();
 });
 // While held, nothing else keeps the event loop alive.

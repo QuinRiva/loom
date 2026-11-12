@@ -391,6 +391,10 @@ seam(
     assert.equal(putBack.reason, "Loom exited during the watch (4).");
     assert.equal(readJson<{ kind: string }>(homePaths(scene.config).notice)?.kind, "rolled-back");
     assert.equal(NodeFS.realpathSync(storePaths(scene.store).current), scene.base);
+    const manifest = readJson<{ releases: Record<string, { status: string }> }>(
+      storePaths(scene.store).manifest,
+    );
+    assert.equal(manifest?.releases[NEXT.id]?.status, "failed");
 
     const refusal = await back(scene.config).then(
       () => "went back",
