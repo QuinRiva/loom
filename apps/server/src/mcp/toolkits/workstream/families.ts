@@ -68,6 +68,9 @@ export const DOCUMENT_QUERY = prefixed(["document_query_promote"] as const);
 /** The structured-question surface, registered by Loom's extension rather than /mcp. */
 export const HUMAN_INPUT = prefixed(["ask_user_question"] as const);
 
+/** What a child's profile adds once a person has written to it: a reader to ask, and its parent to tell. */
+export const ENGAGED_CHILD_TOOLS = [...HUMAN_INPUT, agentToolName("notify_thread")];
+
 /** Upstream's PR toolkit, resident for orchestrator and shipper (seam 13). */
 export const PULL_REQUESTS = namesOf(PullRequestsToolkit);
 

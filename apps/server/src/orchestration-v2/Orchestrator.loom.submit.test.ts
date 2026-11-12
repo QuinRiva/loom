@@ -94,7 +94,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom work.submit routing", (it) => {
         ["thread.outcome-set", "done"],
         ["thread.attention-cleared"],
       ]);
-      assert.include(causeOf(yield* Effect.flip(submit(finished))), "terminal thread");
+      assert.include(causeOf(yield* Effect.flip(submit(finished))), "its hand-back is closed");
 
       const holding = yield* spawn("holding");
       yield* raise(holding, "awaiting_acceptance");

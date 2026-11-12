@@ -54,6 +54,7 @@ import { reactToAskEvent } from "../userInput/askUserQuestion.ts";
 import { LoomAgentRoutesLive } from "./loomAgentRoutes.ts";
 
 const ASK = "mcp__t3-code__ask_user_question";
+const NOTIFY = "mcp__t3-code__notify_thread";
 
 /** Restart warnings land on a queue the test reads back as the event stream. */
 const DeployNoticesTestLayer = Layer.effect(
@@ -215,6 +216,26 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
         assert.isFalse(profile.humanEngaged);
         assert.notInclude(profile.activeTools, ASK);
         assert.include(profile.activeTools, "mcp__t3-code__workstream_spawn");
+      }),
+  );
+
+  it.effect(
+    "a coder child gets the parent-message tool once a person has written, not before",
+    () =>
+      Effect.gen(function* () {
+        const { threadId: parent } = yield* seedThread({
+          threadId: "routes-notify-parent" as ThreadId,
+        });
+        const child = "routes-notify-child" as ThreadId;
+        yield* spawnChild({ parentThreadId: parent, threadId: child, role: "coder" });
+        const auth = yield* credential(child, ["workstream"]);
+        const before = (yield* call(auth, "GET", "/session-profile")).body;
+        assert.notInclude(before.activeTools, NOTIFY);
+        yield* seedUserMessage(child, "routes-notify-human", true);
+        const after = (yield* call(auth, "GET", "/session-profile")).body;
+        assert.isTrue(after.humanEngaged);
+        assert.include(after.activeTools, NOTIFY);
+        assert.notInclude(after.denyList, NOTIFY);
       }),
   );
 

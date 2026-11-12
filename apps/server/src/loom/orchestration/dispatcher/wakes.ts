@@ -410,7 +410,7 @@ export const buildChildWakeMessage = (
       ? "Investigate via its report above (or `mcp__t3-code__consult_thread` for a read-only Q&A), then either set its outcome (`mcp__t3-code__workstream_set_outcome` done/cancelled) or re-dispatch it (`mcp__t3-code__workstream_prompt`). Its dependents stay gated until it reaches `done`; nothing was auto-cascaded."
       : wedgedSince !== undefined
         ? "Do not wait on it or treat its work as complete. A `mcp__t3-code__workstream_prompt` alone only queues behind the stuck turn. Close that turn with `mcp__t3-code__workstream_stop`, then `mcp__t3-code__workstream_prompt` it to resume; the prompt's turn also clears the flag. If the stop does not free it (it reports nothing was stopped, or the child stays silent after your prompt), cancel it (`mcp__t3-code__workstream_set_outcome` cancelled) and spawn a replacement for its work. A human has also been alerted on the board. Its dependents stay gated until it reaches `done`."
-        : "Do not treat its work as complete. If it is `awaiting_acceptance`, it stopped short of `done` on purpose because a human's word is owed on its output: accepting it yourself (`mcp__t3-code__workstream_set_outcome` done, which releases its dependents) IS giving that word, so do it only when you already hold the human's decision; otherwise leave the flag standing, put the decision to the human, and let the branch wait. If it is `needs_guidance` (e.g. a human stopped it, or it cannot proceed), a human is in the loop: plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`.";
+        : "Do not treat its work as complete. It is `needs_guidance` (a human stopped it, or it cannot proceed), so a human is in the loop: plan around the pause rather than resuming it yourself. Its dependents stay gated until it reaches `done`.";
   return [
     WORKSTREAM_CONTROL_PLANE_MARKER,
     "",
@@ -421,3 +421,27 @@ export const buildChildWakeMessage = (
     tail,
   ].join("\n");
 };
+
+/**
+ * The one notice a parent gets for a child's held hand-back (`awaiting_acceptance`): what it holds,
+ * the read against the brief, and the link that points the human at the child, who corrects and
+ * approves it there.
+ */
+export const buildHeldHandbackMessage = (
+  child: {
+    readonly id: string;
+    readonly role: string | null;
+    readonly title: string;
+    readonly reportPath: string | null;
+  },
+  report: string | null,
+): string =>
+  [
+    WORKSTREAM_CONTROL_PLANE_MARKER,
+    "",
+    `Your Workstream sub-thread ${child.role ?? "sub-thread"} \`${child.id}\` has finished its work and handed it back held \`awaiting_acceptance\`: a human must accept it before it is done, and its dependents stay gated until then.`,
+    "",
+    `Report reference: \`${child.reportPath}\` (read the full report on demand).${formatReportExcerpt(report)}`,
+    "",
+    `Read what it handed back against your brief. If something is plainly wrong, send it back with \`mcp__t3-code__workstream_prompt\`: it stays held and hands back again. Otherwise tell the human it is waiting for them, with this link: [${child.title}](t3-thread://v1/${child.id}). They correct and approve it in that thread, not in yours: you hear nothing of their rounds, and the ordinary finished notice when they approve. Setting it done yourself (\`mcp__t3-code__workstream_set_outcome\`) gives the human's word for them, so do it only when they have already given it to you.`,
+  ].join("\n");

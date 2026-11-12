@@ -10,18 +10,38 @@ import {
   routeWorkSubmit,
   workSubmitRefusal,
 } from "@t3tools/shared/workstreamGraph";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 
 import { renderOpenBranch } from "../../../../loom/goals/goalTaskRender.ts";
 import { resolveThreadAnchor } from "../../../../loom/goals/goalTaskTree.ts";
 import * as LoomStore from "../../../../loom/projection/LoomStore.ts";
-import { NO_RESPONSE_BLOCK, SUBMIT_REFUSED_WHILE_RAISED } from "../../../../loom/prompt/prose.ts";
-import { reportResponse, writeWorkstreamReport } from "../../../../loom/workstream/report.ts";
+import { humanSpokeInTurn } from "../../../../loom/orchestration/turns.ts";
+import {
+  NO_RESPONSE_BLOCK,
+  SUBMIT_REFUSED_WHILE_HELD,
+  SUBMIT_REFUSED_WHILE_RAISED,
+} from "../../../../loom/prompt/prose.ts";
+import { formatWakeTimestamp } from "../../../../loom/orchestration/dispatcher/wakes.ts";
+import {
+  appendWorkstreamReport,
+  REPORT_ADDITION_HEADING,
+  repeatsReport,
+  reportResponse,
+  writeWorkstreamReport,
+} from "../../../../loom/workstream/report.ts";
 import { resolveThreadRef } from "../../../../loom/workstream/threadResolve.ts";
+import * as Orchestrator from "../../../../orchestration-v2/Orchestrator.ts";
 import type { WorkstreamCaller } from "../authorisation.ts";
 import type { LoomToolInput } from "../defs.ts";
 import { requestKey, stableCommandId } from "../idempotency.ts";
-import { renderSubmitOutcome } from "../render.ts";
+import {
+  HELD_AGAIN_ECHO,
+  renderSubmitOutcome,
+  REPORT_ADDITION_ECHO,
+  REPORT_REPEAT_REFUSAL,
+} from "../render.ts";
 import { asToolError, committed, dispatch, fail, nowIso } from "./shared.ts";
 
 export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(function* (
@@ -50,6 +70,35 @@ export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(functi
   const siblings = gateLoopTargetsOf(row);
   const rework = input.rework?.map((ref) => resolveThreadRef(ref, new Set(siblings)));
   const routing = routeWorkSubmit(asNode(row), tree.map(asNode), outcome ?? "done", rework);
+  // A finished thread a human has written to since it finished adds to its report: no event, so
+  // nothing behind it moves and its parent is not told (a gate rework round still routes).
+  if (
+    row.outcome === "done" &&
+    row.reportPath !== null &&
+    row.outcomeAt !== null &&
+    !(row.pendingRework && routing.decision === "loop")
+  ) {
+    const finishedAt = Date.parse(row.outcomeAt);
+    const { messages } = yield* asToolError(
+      Effect.flatMap(Orchestrator.OrchestratorV2, (orchestrator) =>
+        orchestrator.getThreadRecords(caller.threadId, ["messages"], { messageRoles: ["user"] }),
+      ),
+    );
+    if (
+      messages.some(
+        (message) =>
+          message.loom?.humanAuthored === true &&
+          DateTime.toEpochMillis(message.createdAt) > finishedAt,
+      )
+    ) {
+      const fs = yield* FileSystem.FileSystem;
+      const report = yield* asToolError(fs.readFileString(row.reportPath));
+      if (repeatsReport(report, input.markdown)) return yield* fail(REPORT_REPEAT_REFUSAL);
+      const section = `\n\n${REPORT_ADDITION_HEADING}${formatWakeTimestamp(yield* nowIso)}\n\n${input.markdown}`;
+      yield* asToolError(appendWorkstreamReport(caller.threadId, row.reportPath, section));
+      return `${REPORT_ADDITION_ECHO}\nReport: ${row.reportPath}`;
+    }
+  }
   const refusal = workSubmitRefusal(
     asNode(row),
     outcome ?? "done",
@@ -58,8 +107,35 @@ export const workstreamSubmit = Effect.fn("LoomToolkit.workstreamSubmit")(functi
     rework,
   );
   if (refusal !== null) return yield* fail(refusal);
-  if (holdErasedByCompletion({ attention: row.attention, decision: routing.decision }) !== null)
-    return yield* fail(SUBMIT_REFUSED_WHILE_RAISED);
+  const held = row.attention.includes("awaiting_acceptance");
+  const completes = routing.decision === "terminal" || routing.decision === "resolve";
+  const humanInTurn =
+    held && (completes || outcome === "awaiting_acceptance")
+      ? yield* Orchestrator.OrchestratorV2.pipe(
+          Effect.flatMap((orchestrator) =>
+            orchestrator.getThreadRecords(caller.threadId, ["runs", "messages"], {
+              messageRoles: ["user"],
+            }),
+          ),
+          Effect.map(({ runs, messages }) => humanSpokeInTurn(runs, messages)),
+          asToolError,
+        )
+      : false;
+  const erased = holdErasedByCompletion({
+    attention: row.attention,
+    decision: routing.decision,
+    humanInTurn,
+  });
+  if (erased !== null)
+    return yield* fail(
+      erased === "awaiting_acceptance" ? SUBMIT_REFUSED_WHILE_HELD : SUBMIT_REFUSED_WHILE_RAISED,
+    );
+  // A held hand-back repeated in a round the human is correcting: the record is refreshed, and the
+  // parent, already pointed at this thread, is told nothing.
+  if (held && outcome === "awaiting_acceptance" && humanInTurn) {
+    yield* asToolError(writeWorkstreamReport(caller.threadId, input.markdown));
+    return HELD_AGAIN_ECHO;
+  }
 
   const reportPath = yield* asToolError(
     writeWorkstreamReport(

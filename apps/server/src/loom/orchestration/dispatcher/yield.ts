@@ -66,7 +66,7 @@ export const buildYieldWakeMessage = (
       ? " It is a member of an unresolved review gate, so the gate is parked until you act."
       : "";
   const held = flags.awaitingAcceptance
-    ? " It also holds an `awaiting_acceptance` flag: a human's sign-off on its output is still pending, and either prompting it or setting it done clears that hold; do so only once you hold the human's approval; otherwise escalate to the human."
+    ? " It also holds an `awaiting_acceptance` flag: a human's sign-off on its output is still pending. Prompting it leaves that hold standing; setting it done clears it, so do that only once you hold the human's approval, and otherwise escalate to the human."
     : "";
   const lead =
     (flags.synthesised

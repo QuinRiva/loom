@@ -12,6 +12,7 @@ import {
   type OrchestrationV2ThreadShell,
   ThreadId,
 } from "@t3tools/contracts";
+import { isParked } from "@t3tools/shared/workstreamGraph";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -188,7 +189,7 @@ export const runRerouteSweepPass = Effect.fn("loom.reroute.pass")(function* () {
     const resumable =
       limited &&
       (workstream === null ||
-        (!loomContinuationVetoed(workstream, false) && workstream.attention.length === 0));
+        (!loomContinuationVetoed(workstream, false) && !isParked(workstream.attention)));
 
     const ranUntil = DateTime.toEpochMillis(shell.latestRunCompletedAt ?? shell.updatedAt);
     if (reroute !== undefined) {

@@ -28,6 +28,7 @@ export const LOOM_SEED = {
     cancelledGrandchild: ThreadId.make("seed-thread-cancelled-grandchild"),
     needsGuidanceRoot: ThreadId.make("seed-thread-needs-guidance-root"),
     stagedRoot: ThreadId.make("seed-thread-staged-root"),
+    heldPlanner: ThreadId.make("seed-thread-held-planner"),
   },
 } as const;
 

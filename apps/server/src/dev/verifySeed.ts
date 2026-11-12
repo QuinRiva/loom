@@ -44,6 +44,7 @@ const EXPECTED: Record<string, { readonly column: string; readonly attention?: s
   [SEED.cancelledGrandchild]: { column: "cancelled" },
   [SEED.needsGuidanceRoot]: { column: "in_progress", attention: "needs_guidance" },
   [SEED.stagedRoot]: { column: "held" },
+  [SEED.heldPlanner]: { column: "in_progress", attention: "awaiting_acceptance" },
 };
 
 const startNode = (ws: LoomThreadShellFields): StartNode => ({ ...ws, id: ws.threadId });
@@ -157,6 +158,10 @@ const verifyProgram = Effect.gen(function* () {
   check(ws(SEED.quiescent)?.lastOutcome?.synthesised === true, "quiescent outcome not synthesised");
   check(ws(SEED.coderDone)?.reportPath != null, "done coder has no report");
   check(ws(SEED.stagedRoot)?.kickoffBriefPath != null, "staged root has no brief");
+  check(
+    ws(SEED.heldPlanner)?.lastOutcome?.outcome === "awaiting_acceptance",
+    "held planner did not hand back held",
+  );
 
   const goal = yield* loomStore.goals.get(SEED.goalId);
   check(goal !== null && goal.tasks.length > 0, "goal or its task tree is missing");
@@ -184,6 +189,16 @@ const verifyProgram = Effect.gen(function* () {
   ]) {
     check(cards.includes(notice), `missing ${notice} notice card`);
   }
+  check(
+    payloads.some(
+      (payload) =>
+        payload.notice === "attention" &&
+        payload.items.some(
+          (item) => item.threadId === SEED.heldPlanner && item.status === "awaiting_acceptance",
+        ),
+    ),
+    "missing the held planner's notice",
+  );
 
   // A real checkpoint ref per started thread (the Diff surface).
   const checkpoints: Record<string, number> = {};

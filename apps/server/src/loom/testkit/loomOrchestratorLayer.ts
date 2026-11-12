@@ -623,6 +623,7 @@ export const spawnChild = Effect.fn("loom.testkit.spawnChild")(function* (input:
   readonly role?: string;
   readonly forkFromThreadId?: ThreadId;
   readonly kickoffBriefPath?: string;
+  readonly humanLed?: boolean;
 }) {
   return yield* dispatch({
     type: "thread.spawn",
@@ -648,6 +649,7 @@ export const spawnChild = Effect.fn("loom.testkit.spawnChild")(function* (input:
     ...(input.held === undefined ? {} : { held: input.held }),
     ...(input.forkFromThreadId === undefined ? {} : { forkFromThreadId: input.forkFromThreadId }),
     ...(input.kickoffBriefPath === undefined ? {} : { kickoffBriefPath: input.kickoffBriefPath }),
+    ...(input.humanLed === undefined ? {} : { humanLed: input.humanLed }),
   });
 });
 

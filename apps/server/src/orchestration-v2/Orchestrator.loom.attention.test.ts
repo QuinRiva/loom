@@ -41,7 +41,7 @@ const child = Effect.fn("test.child")(function* (name: string) {
   yield* spawnChild({ parentThreadId: parent, threadId, graphKey: name });
   return threadId;
 });
-const raise = (threadId: ThreadId, reason: LoomAttentionReason = "awaiting_acceptance") =>
+const raise = (threadId: ThreadId, reason: LoomAttentionReason = "needs_guidance") =>
   dispatch({
     type: "thread.attention.raise",
     commandId: CommandId.make(`test-raise:${threadId}:${reason}`),
@@ -114,9 +114,9 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
         const held = yield* child("holds");
         yield* raise(held);
         yield* message(held, { loom: { origin: "notify" }, senderThreadId: parent });
-        assert.deepEqual(yield* attentionOf(held), ["awaiting_acceptance"]);
+        assert.deepEqual(yield* attentionOf(held), ["needs_guidance"]);
         yield* message(held, { loom: { origin: "control_notice" } }); // queued behind the notify turn
-        assert.deepEqual(yield* attentionOf(held), ["awaiting_acceptance"]);
+        assert.deepEqual(yield* attentionOf(held), ["needs_guidance"]);
 
         const prompted = yield* child("prompted");
         yield* raise(prompted);
@@ -136,7 +136,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
         yield* seedRunningRun({ threadId: queued });
         const messageId = MessageId.make("message:attention:queued-human");
         yield* message(queued, { createdBy: "user", creationSource: "web", messageId });
-        assert.deepEqual(yield* attentionOf(queued), ["awaiting_acceptance"]);
+        assert.deepEqual(yield* attentionOf(queued), ["needs_guidance"]);
         const queuedRun = (yield* orchestrator.getThreadProjection(queued)).runs.find(
           (run) => run.userMessageId === messageId,
         )!;
@@ -154,6 +154,101 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
           (run) => run.id === queuedRun.id,
         )!;
         assert.equal(started.status, "starting");
+      }),
+  );
+
+  it.effect(
+    "an approval hold outlives a human's and the parent's messages; needs_guidance beside it clears",
+    () =>
+      Effect.gen(function* () {
+        for (const [name, overrides] of [
+          ["human", { createdBy: "user", creationSource: "web" }],
+          ["parent", { loom: { origin: "orchestrator" }, senderThreadId: parent }],
+        ] as const) {
+          const held = yield* child(`held-${name}`);
+          yield* raise(held, "awaiting_acceptance");
+          yield* raise(held, "needs_guidance");
+          yield* message(held, overrides);
+          assert.deepEqual(yield* attentionOf(held), ["awaiting_acceptance"], name);
+        }
+      }),
+  );
+
+  it.effect(
+    "a completion over the hold is refused in a parent-started turn, accepted once the human starts or steers into it",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const submit = (threadId: ThreadId, id: string, outcome?: string) =>
+          dispatch({
+            type: "thread.work.submit",
+            commandId: CommandId.make(`test-submit:${id}`),
+            threadId,
+            createdAt,
+            reportPath: `/reports/${threadId}.md`,
+            ...(outcome === undefined ? {} : { outcome }),
+          });
+        const causeOf = (error: { readonly _tag: string }) =>
+          String((error as { cause?: unknown }).cause);
+        const handedBack = Effect.fn("test.handedBack")(function* (name: string) {
+          const held = yield* child(name);
+          const { storedEvents } = yield* submit(held, `${name}:held`, "awaiting_acceptance");
+          assert.deepEqual(
+            storedEvents.map(({ event }) =>
+              event.type === "thread.attention-raised" ? event.payload.reason : event.type,
+            ),
+            ["thread.report-set", "thread.outcome-recorded", "awaiting_acceptance"],
+          );
+          return held;
+        });
+
+        // The parent sends it back: the hold stands and a plain submit cannot release the work.
+        const sentBack = yield* handedBack("sent-back");
+        yield* message(sentBack, { loom: { origin: "orchestrator" }, senderThreadId: parent });
+        assert.include(
+          causeOf(yield* Effect.flip(submit(sentBack, "sent-back:plain"))),
+          "held `awaiting_acceptance`",
+        );
+        assert.isNull((yield* (yield* LoomStoreV2).getWorkstream(sentBack))!.outcome);
+
+        // The human approves in the child: completed, hold cleared.
+        const approved = yield* handedBack("approved");
+        yield* message(approved, { createdBy: "user", creationSource: "web" });
+        yield* submit(approved, "approved:plain");
+        const done = (yield* (yield* LoomStoreV2).getWorkstream(approved))!;
+        assert.equal(done.outcome, "done");
+        assert.deepEqual(done.attention, []);
+
+        // The human steers into a turn the parent started: their message joins that run.
+        const steered = yield* handedBack("steered");
+        yield* message(steered, { loom: { origin: "orchestrator" }, senderThreadId: parent });
+        const run = (yield* orchestrator.getThreadProjection(steered)).runs.at(-1)!;
+        yield* writeEvents([
+          {
+            id: EventId.make("event:test-steer:steered"),
+            type: "message.updated",
+            threadId: steered,
+            runId: run.id,
+            occurredAt: yield* DateTime.now,
+            payload: {
+              id: MessageId.make("message:test-steer:steered"),
+              threadId: steered,
+              runId: run.id,
+              nodeId: null,
+              role: "user",
+              text: "Approved.",
+              attachments: [],
+              streaming: false,
+              createdBy: "user",
+              creationSource: "web",
+              loom: { humanAuthored: true },
+              createdAt: yield* DateTime.now,
+              updatedAt: yield* DateTime.now,
+            },
+          },
+        ]);
+        yield* submit(steered, "steered:plain");
+        assert.equal((yield* (yield* LoomStoreV2).getWorkstream(steered))!.outcome, "done");
       }),
   );
 
@@ -226,7 +321,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
         yield* raise(forged);
         const messageId = MessageId.make("message:attention:forged");
         yield* message(forged, { loom: { humanAuthored: true }, messageId });
-        assert.deepEqual(yield* attentionOf(forged), ["awaiting_acceptance"]);
+        assert.deepEqual(yield* attentionOf(forged), ["needs_guidance"]);
         const stored = (yield* orchestrator.getThreadProjection(forged)).messages.find(
           (entry) => entry.id === messageId,
         )!;
@@ -254,7 +349,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
           accepted.storedEvents.map((stored) => stored.event.type),
           ["thread.metadata-updated"],
         );
-        assert.deepEqual(yield* attentionOf(holding), ["awaiting_acceptance"]);
+        assert.deepEqual(yield* attentionOf(holding), ["needs_guidance"]);
 
         const done = yield* child("limit-done");
         yield* dispatch({
@@ -315,6 +410,16 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
         const live = yield* child("restart-live");
         yield* cutTurn(live);
         assert.equal((yield* orchestrator.getThreadProjection(live)).runs.length, 2);
+
+        // A held thread runs correction rounds, so a cut one is continued; a stuck one is not.
+        const held = yield* child("restart-held");
+        yield* raise(held, "awaiting_acceptance");
+        yield* cutTurn(held);
+        assert.equal((yield* orchestrator.getThreadProjection(held)).runs.length, 2);
+        const stuck = yield* child("restart-stuck");
+        yield* raise(stuck, "needs_guidance");
+        yield* cutTurn(stuck);
+        assert.equal((yield* orchestrator.getThreadProjection(stuck)).runs.length, 1);
       }),
   );
   it.effect(
@@ -335,7 +440,7 @@ it.layer(LoomOrchestratorTestLayer)("Loom attention holds", (it) => {
           scheduledTaskId: ScheduledTaskId.make("scheduled-task:nightly"),
         });
         const row = (yield* (yield* LoomStoreV2).getWorkstream(scheduled))!;
-        assert.deepEqual(row.attention, ["awaiting_acceptance"]);
+        assert.deepEqual(row.attention, ["needs_guidance"]);
         assert.isTrue(row.held);
         const kickoff = fired.storedEvents.find(
           (stored) => stored.event.type === "thread.kickoff-recorded",

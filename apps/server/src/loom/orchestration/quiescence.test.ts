@@ -4,7 +4,7 @@
  * thread's shell, runs and latest user message.
  */
 import { assert, it } from "@effect/vitest";
-import { CommandId, EventId, MessageId, ThreadId } from "@t3tools/contracts";
+import { CommandId, EventId, MessageId, RunId, ThreadId } from "@t3tools/contracts";
 import type { OrchestrationV2Run } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -22,7 +22,8 @@ import {
   spawnChild,
   writeEvents,
 } from "../testkit/loomOrchestratorLayer.ts";
-import { quiescenceCandidate, turnStartedByHuman } from "./quiescence.ts";
+import { quiescenceCandidate } from "./quiescence.ts";
+import { humanSpokeInTurn, turnStartedByHuman } from "./turns.ts";
 
 const createdAt = "2026-01-01T00:00:00.000Z";
 const parent = ThreadId.make("quiet-parent");
@@ -327,6 +328,110 @@ it.layer(LoomOrchestratorTestLayer)("Loom quiescence", (it) => {
   );
 
   it.effect(
+    "quiescenceCandidate: a held child is watched only on a turn its parent started and no human joined",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const held = ThreadId.make("quiet-held-sendback");
+        yield* spawnChild({ parentThreadId: parent, threadId: held, graphKey: "held-sendback" });
+        const ids = yield* seedRunningRun({ threadId: held });
+        yield* writeEvents([
+          yield* loomEvent("thread.kickoff-recorded", held, {
+            kickoffAt: createdAt,
+            messageId: ids.messageId,
+            origin: "kickoff",
+          }),
+        ]);
+        yield* completeSeededRun({ threadId: held });
+        yield* writeEvents([
+          yield* loomEvent("thread.attention-raised", held, { reason: "awaiting_acceptance" }),
+        ]);
+        const runs = (yield* orchestrator.getThreadProjection(held)).runs;
+        const starter = (loom: {
+          readonly origin?: "orchestrator" | "control_notice";
+          readonly humanAuthored?: boolean;
+        }) => ({
+          id: ids.messageId,
+          runId: ids.runId,
+          loom,
+        });
+        const steer = {
+          id: MessageId.make("message:held-steer"),
+          runId: ids.runId,
+          loom: { humanAuthored: true },
+        };
+        const candidate = (
+          userMessages: Parameters<typeof quiescenceCandidate>[0]["userMessages"],
+        ) =>
+          Effect.gen(function* () {
+            return quiescenceCandidate({
+              shell: (yield* orchestrator.getThreadShell(held))!,
+              runs,
+              userMessages,
+              children: [],
+              now: DateTime.add(runs[0]!.completedAt!, { days: 1 }),
+              grace: minute,
+            });
+          });
+        const parentPrompt = starter({ origin: "orchestrator" });
+        assert.isTrue(yield* candidate([parentPrompt]));
+        assert.isFalse(yield* candidate([parentPrompt, steer]));
+        assert.isFalse(yield* candidate([starter({ humanAuthored: true })]));
+        assert.isFalse(yield* candidate([starter({ origin: "control_notice" })]));
+        // At rest after its own held hand-back: the hand-back stands.
+        yield* dispatch({
+          type: "thread.work.submit",
+          commandId: CommandId.make("quiet-held-handback"),
+          threadId: held,
+          createdAt,
+          reportPath: `/reports/${held}.md`,
+          outcome: "awaiting_acceptance",
+        });
+        assert.isFalse(yield* candidate([parentPrompt]));
+      }),
+  );
+
+  it.effect(
+    "quiescenceCandidate: a human-led child is never a candidate, whoever started its turn and whatever the graces",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const candidates = Effect.fn("test.candidates")(function* (humanLed: boolean) {
+          const threadId = ThreadId.make(`quiet-led-${humanLed}`);
+          yield* spawnChild({
+            parentThreadId: parent,
+            threadId,
+            graphKey: `led-${humanLed}`,
+            humanLed,
+          });
+          const ids = yield* seedRunningRun({ threadId });
+          yield* writeEvents([
+            yield* loomEvent("thread.kickoff-recorded", threadId, {
+              kickoffAt: createdAt,
+              messageId: ids.messageId,
+              origin: "kickoff",
+            }),
+          ]);
+          yield* completeSeededRun({ threadId });
+          const shell = (yield* orchestrator.getThreadShell(threadId))!;
+          const runs = (yield* orchestrator.getThreadProjection(threadId)).runs;
+          return (["kickoff", "orchestrator", "control_notice"] as const).map((origin) =>
+            quiescenceCandidate({
+              shell,
+              runs,
+              userMessages: [{ id: ids.messageId, runId: ids.runId, loom: { origin } }],
+              children: [],
+              now: DateTime.add(runs[0]!.completedAt!, { days: 2 }),
+              grace: { controlStartedMs: 0, humanStartedMs: 0 },
+            }),
+          );
+        });
+        assert.deepEqual(yield* candidates(true), [false, false, false]);
+        assert.deepEqual(yield* candidates(false), [true, true, true]);
+      }),
+  );
+
+  it.effect(
     "t-quiescence: a human-started last turn is never a candidate under a null human grace",
     () =>
       Effect.gen(function* () {
@@ -366,13 +471,15 @@ const turns = (...starters: ReadonlyArray<{ readonly id: string; readonly human:
   runs: starters.map(
     (starter, index) =>
       ({
+        id: RunId.make(`run-${index + 1}`),
         ordinal: index + 1,
         status: "completed",
         userMessageId: MessageId.make(starter.id),
-      }) satisfies Pick<OrchestrationV2Run, "ordinal" | "status" | "userMessageId">,
+      }) satisfies Pick<OrchestrationV2Run, "id" | "ordinal" | "status" | "userMessageId">,
   ),
-  messages: starters.map((starter) => ({
+  messages: starters.map((starter, index) => ({
     id: MessageId.make(starter.id),
+    runId: RunId.make(`run-${index + 1}`),
     loom: { humanAuthored: starter.human },
   })),
 });
@@ -408,4 +515,29 @@ it("turnStartedByHuman: a continuation inherits who started the turn it continue
       queued.messages,
     ),
   );
+});
+
+it("humanSpokeInTurn: a human message that started or was steered into the turn, continuations included", () => {
+  const human = { id: "composer-1", human: true };
+  const prompt = { id: "message:server:workstream-prompt:child", human: false };
+  const restart = { id: "message:restart-continuation:run:thread:child:ordinal:1", human: false };
+  const started = turns(human);
+  assert.isTrue(humanSpokeInTurn(started.runs, started.messages));
+  const parentOnly = turns(prompt);
+  assert.isFalse(humanSpokeInTurn(parentOnly.runs, parentOnly.messages));
+  // A steer carries the id of the run it joined.
+  const steer = {
+    id: MessageId.make("composer-steer"),
+    runId: RunId.make("run-1"),
+    loom: { humanAuthored: true },
+  };
+  assert.isTrue(humanSpokeInTurn(parentOnly.runs, [...parentOnly.messages, steer]));
+  // A restart continuation of a turn the human started or joined is still that turn.
+  const continued = turns(human, restart);
+  assert.isTrue(humanSpokeInTurn(continued.runs, continued.messages));
+  const steeredThenCut = turns(prompt, restart);
+  assert.isTrue(humanSpokeInTurn(steeredThenCut.runs, [...steeredThenCut.messages, steer]));
+  // A new turn after the human's is not the turn they spoke in.
+  const later = turns(human, prompt);
+  assert.isFalse(humanSpokeInTurn(later.runs, later.messages));
 });

@@ -1,0 +1,225 @@
+---
+reader:
+  who: Carl, Loom's owner and daily user, who asked whether a document link should open in the thread that wrote the document, has commented on a first draft, and now corrects and approves what this change is for before anything is built
+  knows: Loom as its user; his own question and comments; the approved brief on talking inside a child thread. Not the document-panel code
+  after_first_screen: he can say where the thread and the document appear the next time he clicks a document link in a parent's thread, what the parent hears and when, and that the open choice is whether an unfinished review of a finished author's document is marked anywhere
+kicker: "Intent brief · draft for your corrections · 12 Nov 2026"
+status: draft
+manager_sessions:
+  - id: 01a1c87d-e4fa-7188-bc86-8cfc39a765ce
+    name: Document comments reach the author
+    role: intent
+    authored_at: 2026-11-11T02:59:39.579Z
+---
+
+# A document link takes you to its author's thread, and the parent hears once, when you say the review is done
+
+Today a comment on a document goes to whichever thread you opened it from. In the five weeks to 11 Nov, **55 of the 101 review messages a person wrote went to a thread that had not written the document**, nearly always an orchestrator receiving comments on its planner's work.
+
+The proposal has two parts. **Clicking a link to a document another thread wrote takes you to that thread: it fills the centre panel, and the document opens in the right panel.** You talk the document over with its author there. **The parent hears nothing while you do, and gets one hand-over when you say the review is done.** For a document its author is holding for your approval, that second part is already built. For a document whose author has already finished it is not, and it carries the one open choice: the question at the end.
+
+<Stats
+  items={[
+    {
+      value: "101",
+      label: "messages a person wrote that carried comments on a document",
+      detail: "7 Oct to 11 Nov: 544 annotations, form answers and review verdicts. Questions put to an author's read-only fork (12) are not counted",
+    },
+    {
+      value: "55",
+      label: "of those were sent in a thread that did not write it",
+      tone: "warning",
+      detail: "all 55 in a top-level thread; in 54 of 56 cases the author was its direct child; 41 were on a plan or an intent brief",
+    },
+    {
+      value: "45 of 49",
+      label: "authors of those documents never had a message from a person",
+      tone: "warning",
+      detail: "everything said about their document reached them second-hand or not at all",
+    },
+    {
+      value: "26 of 56",
+      label: "times the author had already finished when the comments were sent",
+      detail: "the other 30 had not. A review of a finished author's document is the part not yet built",
+    },
+  ]}
+/>
+
+**Today**
+
+<Screen
+  surface="desktop"
+  caption="You click the link in the orchestrator's thread. The centre panel stays on the orchestrator, the brief opens in the right panel, and your comments wait in the orchestrator's message box."
+  html={"<div style='display:flex;flex-direction:column;gap:10px;padding:14px;height:100%;box-sizing:border-box'><div style='display:flex;gap:6px;white-space:nowrap;align-items:center'><span class='wf-pill accent'>Orchestrator</span><div style='flex:1'></div></div><div style='display:flex;gap:12px;flex:1;min-height:0'><div style='flex:1;min-width:0;display:flex;flex-direction:column;gap:8px'><div class='wf-card' style='padding:8px 10px;font-size:12px'>The planner's brief is ready: <a>intent.mdx</a></div><div style='flex:1'></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:8px'><small>Message to Orchestrator</small><div style='display:flex;flex-wrap:wrap;gap:4px'><span class='wf-pill' style='font-size:10.5px;border-color:var(--wf-warn)'>intent.mdx · annotation ×</span><span class='wf-pill' style='font-size:10.5px;border-color:var(--wf-warn)'>answer: undo ×</span></div><div style='display:flex;justify-content:flex-end'><button class='primary'>Send</button></div></div></div><div class='wf-card' style='flex:1;min-width:0;padding:10px;display:flex;flex-direction:column;gap:6px;font-size:12px'><div style='display:flex;white-space:nowrap;gap:6px;align-items:center'><strong>intent.mdx</strong><div style='flex:1'></div><small>2 comments</small></div><hr /><div>You'll know it works when <span style='background:var(--wf-accent-soft)'>the list never freezes</span> on a page of a thousand contacts.</div><small>Questions for you</small><div style='display:flex;white-space:nowrap'><span class='wf-pill'>Undo lasts until the toast closes</span></div></div></div></div>"}
+/>
+
+**After**
+
+<Screen
+  surface="desktop"
+  caption="The same click. The centre panel now shows the planner's thread and the brief opens in the right panel. Your comments wait in the planner's message box. The orchestrator is still a tab above the centre panel."
+  html={"<div style='display:flex;flex-direction:column;gap:10px;padding:14px;height:100%;box-sizing:border-box'><div style='display:flex;gap:6px;white-space:nowrap;align-items:center'><span class='wf-pill'>Orchestrator</span><span class='wf-pill accent'>Planner: intent brief</span><div style='flex:1'></div></div><div style='display:flex;gap:12px;flex:1;min-height:0'><div style='flex:1;min-width:0;display:flex;flex-direction:column;gap:8px'><div class='wf-card' style='padding:8px 10px;font-size:12px'>Brief drafted. Held for your approval.</div><div style='flex:1'></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:8px'><small>Message to Planner: intent brief</small><div style='display:flex;flex-wrap:wrap;gap:4px'><span class='wf-pill' style='font-size:10.5px;border-color:var(--wf-ok)'>intent.mdx · annotation ×</span><span class='wf-pill' style='font-size:10.5px;border-color:var(--wf-ok)'>answer: undo ×</span></div><div style='display:flex;justify-content:flex-end'><button class='primary'>Send</button></div></div></div><div class='wf-card' style='flex:1;min-width:0;padding:10px;display:flex;flex-direction:column;gap:6px;font-size:12px'><div style='display:flex;white-space:nowrap;gap:6px;align-items:center'><strong>intent.mdx</strong><small>written by this thread</small><div style='flex:1'></div><small>2 comments</small></div><hr /><div>You'll know it works when <span style='background:var(--wf-accent-soft)'>the list never freezes</span> on a page of a thousand contacts.</div><small>Questions for you</small><div style='display:flex;white-space:nowrap'><span class='wf-pill'>Undo lasts until the toast closes</span></div></div></div></div>"}
+/>
+
+<Callout tone="info" title="What the parent is told" focus>
+  Nothing while you review, whether you ask questions or ask for changes. When you say the review is done, it gets one hand-over: the document as it now stands is approved, what changed, and your decisions in your words. A correction you type into the parent's chat is still passed on once.
+</Callout>
+
+**Goal.** "If clicking on that link defaulted to opening it within the author, wouldn't that simplify me responding to the author of that document?" Two things follow from your comments on the first draft.
+
+- The author is the thread to talk to because it holds the context: "any questions or clarifications I have, they should be able to answer more readily". The orchestrator "has to go find out that information, which is a bit inefficient but also pollutes the context of the orchestrator".
+- The conversation reaches the parent once, at the end: "I can have a bit of a back-and-forward conversation, wrap up the plan, finalise it, and then go, "Okay yeah, let's move on." That entire package gets fed back to the orchestrator."
+
+**You'll know it works when.**
+
+- An orchestrator tells you its planner's brief is ready and links it. You click the link. The centre panel shows the planner's thread and the brief opens in the right panel. You annotate two passages, answer the form and send. The planner replies in front of you.
+- The orchestrator is still a tab above the centre panel, and one click puts you back in it. Its thread shows nothing new.
+- The planner was holding that brief for your approval. After three rounds you write "approved". The planner completes, and the orchestrator gets the ordinary finished notice with a report that quotes what you changed.
+- A planner finished its plan last week. You click the plan's link, go three rounds with the planner, and write "okay, we're done, let's move on". The planner tells you it has handed the plan over. The orchestrator gets one message: the plan is approved as it now stands, what changed, and your decisions in your words. It got nothing before that.
+- You ask a finished planner two questions about its plan and change nothing. The orchestrator hears nothing, then or later.
+- A link in a control-plane notice or in a child's report behaves the same way as a link in a message.
+- You click a link to a document in the thread that wrote it. Nothing differs from today.
+- You open a child's document from the file explorer or search, where nobody presented a link. It opens in the right panel of the thread you are in, and its header names the thread that wrote it with a button that takes you there.
+- The author was deleted or archived, or the document carries no signature. It opens where you are, as today, and the header says your comments go to this thread.
+- On the phone, in the orchestrator's chat, you tap the brief's link and tap two answers. The bar under the document reads "2 answers ready to send to Planner: intent brief", and its button opens the planner's chat with both in the message box. Back returns you to the orchestrator's chat.
+- **Must not:**
+  - send the parent anything about a review before you say it is done;
+  - call a review done that you have not;
+  - reopen a finished author, or hold up work that was waiting on it, because you reviewed its document;
+  - make a document slower to appear after the click, including over the relay;
+  - move or drop comments already waiting in a message box;
+  - change where the Query button's question goes (it already asks a fork of the signer);
+  - move you for a file that is not a signed document: code, a diff, a report.
+
+## How a review ends
+
+Which of the two columns below a document falls in depends on whether its author was told to wait for you.
+
+- **Held for you.** An intent brief. Its planner hands it back and shows **Awaiting acceptance** until you approve, and the work behind it waits.
+- **Already finished.** A plan written under a brief you have approved: its planner completes, because a reviewer reads the plan rather than you, and the thread shows **Done**. A recap or an explainer is normally the same, and so is any document you come back to after approving it. When you click the link of one of these you arrive in a thread that is done, not one that is awaiting acceptance. 26 of the 56 cases in the five weeks were like this.
+
+<Table
+  density="compact"
+  columns={["", "The author is holding the document for your approval", "The author has already finished"]}
+  rows={[
+    [
+      "**On arrival it shows**",
+      "**Awaiting acceptance**",
+      "**Done**",
+    ],
+    [
+      "**While you review**",
+      "Nothing reaches the parent.",
+      "Nothing reaches the parent. As built, the author instead messages the parent each time it judges a change material.",
+    ],
+    [
+      "**You say it is done**",
+      "The author completes. The parent gets the ordinary finished notice, with a report that quotes what you changed.",
+      "The author stays finished. It adds one dated section to its report and sends the parent one message: approved as it now stands, what changed, your decisions in your words.",
+    ],
+    [
+      "**You only asked questions**",
+      "Nothing reaches the parent.",
+      "Nothing reaches the parent.",
+    ],
+    [
+      "**You walk away part-way**",
+      "The author still shows **Awaiting acceptance** and the work behind it waits.",
+      "Open. It is the question at the end.",
+    ],
+    [
+      "**Status**",
+      { "badge": { "label": "BUILT", "tone": "success" }, "md": "PR #568, not yet merged" },
+      { "badge": { "label": "NEW HERE", "tone": "warning" }, "md": "changes what PR #568 does for a finished author" },
+    ],
+  ]}
+/>
+
+The held column is the line in the sand you described, and it exists. In the build's own test a held author sent its parent nothing across the correction rounds in 10 of 10 runs. The finished column is the gap. You agreed on 10 Nov that a finished child tells its parent when a change is material. For a review of a document this brief replaces that with one hand-over on your word.
+
+**Approaches in play.**
+
+What the link does:
+
+- **The link takes you to the author's thread in the centre panel, with the document in the right panel.** _Your pick, as you described it._ The cost: a link you only wanted to read moves you too, and the tab you came from is one click back.
+- The document opens where you are and your comments wait in the author's message box, as a promoted answer from a query thread does today. Wins if you mostly open to read. Costs a second step on every review, and a comment can sit unsent in a message box you never opened.
+- The document opens where you are and a Send button on it delivers your comments to the author. Wins if you want to fire off comments and not follow them. The reply arrives in a thread you are not looking at.
+- The document opens where you are, as now, and names its author with a button to go there. Wins if being moved proves more annoying than the relay it removes. You have to notice every time, and not noticing is today's miss.
+
+How a review of a finished author's document ends:
+
+- **Your word ends it, and nothing new is added to the control plane.** _The pick._ The author holds everything until you say it is done, then hands over once. A review you walk away from is marked nowhere: the changes so far are in the document and in a dated note in the author's report, and the parent learns of them only if it reads one of those. Wins if you nearly always finish a review you start.
+- **The same, and the author shows Awaiting acceptance while the review is open.** From your first comment that asks for a change until your word, the finished author swaps Done for the marker a held document carries, on the thread and in the sidebar. It stays finished and holds up nothing. The parent is told twice: once that the document is under your review, once with the hand-over. Wins if half-finished reviews get lost, or a parent keeps building on a document you are part-way through changing. Costs a new state on a finished thread.
+- A "Review done" button on the document, which sends your closing word for you. It can be added to either of the two above. Wins if the author misreads "okay" as the end, or misses it.
+- Dropped: the author messages the parent whenever it judges a change material, as built. It is the piecemeal feed you ruled out.
+- Dropped: the hand-over is sent by itself after a quiet period. It would call a review done that you had not.
+
+**On the phone.** Since 11 Nov the phone draws these documents and lets you tap answers and verdicts, though not annotate a passage. A tapped answer joins the message box of the chat you opened the document from, so the phone sends answers to the wrong thread the same way web does. A document already fills the screen there, so on the phone the change is where your answers go and which chat the bar's button opens.
+
+**Decided.**
+
+- The link: "Shouldn't the link just take me to the planners thread, and open the plan in the right pannel?" 12 Nov, on a draft that had described the layout badly. It restates your first proposal: "If clicking on that link defaulted to opening it within the author, wouldn't that simplify me responding to the author of that document?" You did not pick an option on that draft's form. Taking these two as your choice of the first approach is my reading, so say if it is wrong; the other three are still listed above.
+- You talk to the thread that did the work: "shouldn't I just be communicating directly with the planner in these situations? Why should I be engaging with the orchestrator to have it just relay messages to the planner?" 10 Nov.
+- The parent hears once, at the end: "The thing that I do want to avoid, though, is having the planner (or whichever thread that I'm directly communicating with) just relay every piece of information back to the orchestrator as it comes in." And: "if a plan is being held for me to review (or I'm reviewing a plan), we don't want this sort of piecemeal stuff fed back to the orchestrator. We want there to be some sort of line in the sand". 12 Nov.
+- Whether that needs anything new in the control plane is not decided: "I don't know if we need a new control plane state for that sort of thing". 12 Nov. It is the question at the end.
+- Asked which thread gets your comments when more than one has changed a document, you picked the recommended option, labelled "The thread that signed it; the document's header names any other thread that has changed it since, with a link". The label is an agent's wording and the choice is yours. Your comment with it: "In general an orchestrator shouldn't be editing the plan as often if we go down this approach because I'm no longer chatting with the orchestrator about the plan."
+- Asked whether the phone should do the same as part of this work, you picked the recommended option, labelled "Yes, as a second PR after web: on the phone, tapped answers join the author's message box and the bar's button opens the author's chat". The label is an agent's wording and the choice is yours.
+- Asked on 11 Nov what a parent should do with a correction you type into its chat instead of the child holding the work, you picked the recommended option, labelled "The parent passes it on once". The label is an agent's wording and the choice is yours. Not reopened here.
+- _Assumed:_ the one hand-over replaces "tell the parent when a change is material" only for a review of a document. Other work you do in a finished child stays as the brief on talking inside a child thread has it. Redirect if you want the same line in the sand there.
+- _Assumed:_ any plain closing word counts, such as "approved", "we're done" or "let's move on". The author says in its reply that it has handed over, so you can see it took your word as the end.
+- _Assumed:_ this applies to documents an agent signed as its own (plans, intent briefs, recaps, explainers). 50 of the 55 messages were on signed documents. An unsigned document opens where you are, as today.
+- _Assumed:_ you are moved only while the author thread exists and is not archived. An old plan whose planner was archived weeks ago opens where you are, with the author named.
+- _Assumed:_ a busy author queues your message as it does when you type to it mid-turn.
+- _Assumed:_ a thread that takes over another's document signs it and becomes its author from then on. In three of the eight cases where a second thread had changed the document, it was a second planner that revised without signing.
+- _Assumed:_ the desktop app follows web, since it shows the same document panel.
+
+**Not doing.** Telling the parent anything round by round. Sending your comments to anyone automatically. Comments on code and diffs. Workstream reports, which are not signed. Annotating a passage on the phone, which the phone does not offer. Moving comments already sent.
+
+**Question for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "finished-author-review",
+      title: "A finished author's thread shows Done when you arrive, not Awaiting acceptance. While you are part-way through reviewing its document, should that change?",
+      subtitle: "You picked the first option on 12 Nov, on wording that did not say this, and noted \"I assume that it is already in the \"awaiting acceptance\" state, when I start the review?\" For a finished author it is not, so the question is put again. Either way the parent hears nothing round by round and gets one hand-over on your word.",
+      mode: "single",
+      refs: [{ label: "How a review ends", anchor: "how-a-review-ends" }],
+      options: [
+        {
+          id: "word-only",
+          label: "No: it keeps showing Done; my closing word ends the review, and a review I leave part-way reaches the parent only when I come back and finish",
+          detail: "Nothing new in the control plane. The changes so far sit in the document and in a note in the author's report. The marker can be added later if reviews get lost.",
+          recommended: true,
+        },
+        {
+          id: "awaiting-acceptance-again",
+          label: "Yes: it shows Awaiting acceptance from my first requested change until my closing word, and the parent is told once that the document is under my review",
+          detail: "An open review is visible on the thread and in the sidebar. The author stays finished and holds up nothing. Two messages to the parent per review, and a new state to build.",
+        },
+      ],
+      allowOther: true,
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- How often you open another thread's document only to read it. Nothing records a document being opened, so there is no figure. Your reaction when you try it settles this.
+- Whether a finished author holds everything until your closing word and recognises that word. An eval case on the planner role settles it, built like the one that measured the held author at 10 of 10.
+- What a parent does with a hand-over that arrives after it has started building on the earlier version of a plan. An eval case on the orchestrator role settles it.
+- Which copy you see when the author is not a child of the thread you are in and may sit in another worktree (2 of 56 cases). Reading how the panel resolves the file settles it in the plan.
+- Whether a cancelled author can act on a message. Reading the build in PR #568 settles it.
+- How much you will answer documents from the phone. Tapping answers there merged on 11 Nov, so there is no history. Using it settles this.
+
+<Details summary="How the figures were counted">
+
+Source: the live database, read-only, every message a person wrote from 7 Oct to 11 Nov that carried at least one comment anchored to a rendered document (an annotation, a question-form answer or a review verdict). That is 113 messages. 12 were questions sent to a read-only fork of the author and are left out, which leaves 101.
+
+The database does not record which person typed a message, and Jacob has an account too. The signals used to find his threads for his own account show any sign of him in the workstreams behind at most 7 of the 101. Those are 4 of the 55 sent outside the author and 3 of the 38 sent in it. Leaving all 7 out gives 51 of 94, so the share does not move. The query is `plans/jacob-loom-account/jacob-thread-candidates.sql`.
+
+The author of a document is the thread whose session signed it. Where a document had no signature, it is the first thread recorded writing the file in the same workstream. On that basis 55 messages were sent in a thread that was not the author, 38 in the author, and for 8 no author could be found. One of the 55 covered two documents, so the per-document counts are out of 56.
+
+After a message landed in a thread that was not the author, the next recorded edit to the document was by the author in 9 cases, by the receiving thread in 9 and by a third thread in 2. There was none in 36. "Who edited next" and "who last changed it" come from the file edits recorded in each thread. Those include an agent's write and edit tool calls but not a file changed from a shell command. The 69 cases are the comments on a signed document with at least one recorded edit.
+
+</Details>

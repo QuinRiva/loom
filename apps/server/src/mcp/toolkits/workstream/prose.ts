@@ -42,9 +42,9 @@ export const LOOM_TOOL_PROSE = {
   },
   workstream_request_attention: {
     description:
-      "Raise an attention flag that holds this thread, or a child you spawned, for a human; make it your turn's last act, since completing clears it. 'awaiting_acceptance': a human (or your parent, holding the human's decision) must accept this thread's output before it can be done. 'needs_guidance': you cannot proceed without a human, including when what you need is answers. To hand back a report while the flag stands, submit with a short non-'done' outcome. A child consults its parent first (mcp__t3-code__consult_thread); usually no human reads a child thread. Write the report for someone who has read none of this thread.",
+      "Raise an attention flag that holds this thread, or a child you spawned, for a human. 'needs_guidance': you cannot proceed without a human, including when what you need is answers; make it your turn's last act, since completing clears it, and as a child consult your parent first (mcp__t3-code__consult_thread), since usually no human reads a child thread. 'awaiting_acceptance' is raised on a child only, to hold its output for a human's acceptance; your own finished work that needs acceptance is handed back with mcp__t3-code__workstream_submit outcome 'awaiting_acceptance', which records the report and holds you in one call.",
     promptSnippet:
-      "raise a hold for a human: 'awaiting_acceptance' (your output needs sign-off before it may be done) or 'needs_guidance' (you're stuck, or you need answers); the raise ends your turn, so don't complete yourself in the same turn.",
+      "raise a hold for a human: 'needs_guidance' (you're stuck, or you need answers; the raise ends your turn) or, on a child you spawned, 'awaiting_acceptance' (its output needs sign-off before it may be done).",
     promptGuidelines: "",
   },
   workstream_stop: {
@@ -56,9 +56,9 @@ export const LOOM_TOOL_PROSE = {
   },
   workstream_prompt: {
     description:
-      "Send a markdown message to a direct child you spawned, as its parent. It starts or steers the child's next turn; a child that has not launched yet reads it as part of its brief. A steer reaches a child waiting in bg_wait at once but waits out any other tool call in progress, so mcp__t3-code__workstream_stop a child stuck in one first. Prompting a child that holds an attention flag clears the hold when its turn starts: do it only when you hold what the child is waiting for. Reopen a finished child (mcp__t3-code__workstream_set_outcome 'none') before prompting it.",
+      "Send a markdown message to a direct child you spawned, as its parent. It starts or steers the child's next turn; a child that has not launched yet reads it as part of its brief. A steer reaches a child waiting in bg_wait at once but waits out any other tool call in progress, so mcp__t3-code__workstream_stop a child stuck in one first. Prompting a child flagged needs_guidance clears that flag when its turn starts: do it only when you hold what the child is waiting for. A child held awaiting_acceptance stays held through your prompt and hands back held again. Reopen a finished child (mcp__t3-code__workstream_set_outcome 'none') before prompting it.",
     promptSnippet:
-      "send a message to a direct child, labelled to it as its parent's: resumes an idle child or steers a busy one, and clears a hold the child raised (a steer won't penetrate a hung tool call: stop first, then prompt).",
+      "send a message to a direct child, labelled to it as its parent's: resumes an idle child or steers a busy one, and clears a needs_guidance flag the child raised (a steer won't penetrate a hung tool call: stop first, then prompt).",
     promptGuidelines: "",
   },
   workstream_set_dependencies: {
@@ -70,9 +70,9 @@ export const LOOM_TOOL_PROSE = {
   },
   workstream_submit: {
     description:
-      "Your terminal call: hand back your markdown report with an outcome, and the control plane routes it; you never set your own outcome at completion. Omitted or 'done' completes you and releases your dependents; it is refused while an attention flag you raised stands (pass another token and you yield with the flag intact). 'needs_human' records the report and raises needs_guidance. A review-gate verdict ('clean', 'fixed_inline', 'needs_rework') routes the gate; in a rework round every outcome but 'needs_human' routes back to the reviewer; any other token yields you to your parent, and you are not done. A turn that ends without submitting is, after a grace, treated as gone quiet: the control plane synthesises a report from your last message and yields that instead.",
+      "Your terminal call: hand back your markdown report with an outcome, and the control plane routes it; you never set your own outcome at completion. Omitted or 'done' completes you and releases your dependents. 'awaiting_acceptance' hands back finished work that a human must accept before anything builds on it: you are held, not done, your dependents wait, and the hold ends when the human approves in this thread or your parent accepts you. 'needs_human' records the report and raises needs_guidance. A review-gate verdict ('clean', 'fixed_inline', 'needs_rework') routes the gate; in a rework round every outcome but 'needs_human' and 'awaiting_acceptance' routes back to the reviewer; any other token yields you to your parent, and you are not done. A turn that ends without submitting is, after a grace, treated as gone quiet: the control plane synthesises a report from your last message and yields that instead.",
     promptSnippet:
-      "submit your report + outcome in one terminal call: plain completion → done; 'needs_human' → human flag; any other outcome → routed, with unmatched non-rework outcomes yielding to your orchestrator.",
+      "submit your report + outcome in one terminal call: plain completion → done; 'awaiting_acceptance' → held for a human's acceptance; 'needs_human' → human flag; any other outcome → routed, with unmatched non-rework outcomes yielding to your orchestrator.",
     promptGuidelines: "",
   },
   workstream_list: {

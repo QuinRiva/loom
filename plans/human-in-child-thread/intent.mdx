@@ -1,0 +1,158 @@
+---
+reader:
+  who: Carl, Loom's owner and daily user, who said the retro item should be acted on and now corrects and approves what the change is for, before anything is built
+  knows: Loom as its user and maintainer; his own verdict; the retro card. Not the control-plane code or its vocabulary
+  after_first_screen: he can say what changes the next time he talks inside a child (before it hands back, and after it is finished), what the parent orchestrator is and is not told, and that all three failures still happen on today's code
+kicker: "Intent brief · approved 10 Nov 2026"
+status: approved
+plan: plans/human-in-child-thread/plan.mdx
+manager_sessions:
+  - id: 01a1c4cb-e3d7-71b7-8a2d-06156eec5429
+    name: Human-in-child intent brief
+    role: intent
+    authored_at: 2026-11-10T09:52:52.094Z
+---
+
+# Talking inside a child thread: all three faults still happen, and each has a small fix of its own
+
+All three failures the retro reported **still happen on today's code**. None was fixed in the meantime and none is a regression. Each is the control plane doing what it was built to do, in a situation it was not built for. They do not share a cause, so the recommendation is **three small fixes and no new "in conversation" state**. The table shows what changes in each situation.
+
+<Stats
+  items={[
+    {
+      value: "132",
+      label: "messages a person wrote inside children",
+      detail: "7 Oct to 10 Nov: 39 children, 28 workstreams, 6% of all messages people wrote",
+    },
+    {
+      value: "56",
+      label: "of those, after the child had finished",
+      tone: "warning",
+      detail: "14 finished children; 9 of them tried to hand back and were refused",
+    },
+    {
+      value: "44",
+      label: "approval hand-backs that read as a fault",
+      tone: "warning",
+      detail: "34 children; the parent's notice said \"matched no route\" each time, and 22 came with a second notice",
+    },
+    {
+      value: "3",
+      label: "\"went quiet\" notices about a child mid-conversation",
+      detail: "one child, the card walk-through; 32 such notices in all",
+    },
+  ]}
+/>
+
+<Table
+  density="compact"
+  columns={["Situation", "Today", "After"]}
+  rows={[
+    [
+      "**A child finishes something that needs your approval** (an intent brief, a plan)",
+      "It makes two calls and its parent gets two notices. One says the child \"submitted its work with outcome `awaiting_carl_approval`, which matched no route\". Every round of corrections repeats both.",
+      "One call, one notice to the parent: finished, held for your approval. You see **Awaiting acceptance** on the child and correct or approve it there; the parent relays nothing. Work queued behind it still waits.",
+    ],
+    [
+      "**A child launched for you to talk to waits for your reply**",
+      "Ten minutes after any turn you did not start (its launch, a note from the parent, one of its own children finishing), the parent is told it \"went quiet\" and you see **Yielded** on it until you next write.",
+      "Never reported as quiet. No badge, no notice, however long you take.",
+    ],
+    [
+      "**You keep talking to a finished child**",
+      "It stays finished, as intended. Its hand-back is refused (\"cannot act on a terminal thread\"). The tool for messaging its parent is not loaded, so the first try fails (\"Tool not found\"). Some then tell the parent nothing.",
+      "It stays finished. The hand-back is accepted as an addition to its report, and the parent hears of it only when the change is material. The message to its parent works first time.",
+    ],
+  ]}
+/>
+
+<Callout tone="info" title="What the parent is told" focus>
+  Nothing about your conversation, as now. It hears from the child, in one message quoting you, when a decision of yours changes what it would do or a finished child's report changes materially. It gets one notice, not two, when a child's work is finished and waiting on your approval. Its part is then to point you at that child, not to carry your corrections to it. It stops getting "went quiet" notices about a child it launched for you to talk to.
+</Callout>
+
+**Goal.** "I do this occasionally, and there clearly isn't a compatible control plane state that supports it." Make it unremarkable to work directly inside a child. Nothing you, the child or its parent see should describe it as a fault. What you decide there should reach the parent when it matters, and the record when it does not.
+
+**You'll know it works when.**
+
+- A planner child finishes a brief that needs your approval. The child shows **Awaiting acceptance**, its parent gets one notice saying the work is finished and held for you, and nothing queued behind it has started. The parent tells you which child is waiting, with a link.
+- You write your corrections in that child. It revises and is still held; the parent hears nothing about the round. You write "approved" there. It completes, its report quotes what you changed, and the parent gets the ordinary finished notice.
+- The parent does not ask you to approve in its own thread, and does not carry your correction rounds to the child. If you write a correction to the parent anyway, it passes it to the child once; if you write an approval there, it accepts the child.
+- A parent launches a child for you to walk through results with. Over two days you reply at your own pace, the parent sends it a note, and one of its own children finishes. The child never shows **Yielded** and the parent never hears "went quiet".
+- You write to a finished child and it does more work for you. It stays finished, its hand-back succeeds and adds a dated section to its report, and work that depended on it is untouched. The parent gets one message from the child saying what changed.
+- You ask a finished child to clarify something in its report, and it tidies the report to match. The parent hears nothing.
+- In that child you say "get the parent to delegate this". The parent receives one message quoting you, on the child's first attempt.
+- **Must not:**
+  - wake the parent because you asked a child a question;
+  - reopen a finished child, or re-block work behind it, because you wrote to it;
+  - stop reporting a child nobody is talking to that ends its turn without handing back;
+  - let work queued behind a deliverable start before you approve it;
+  - break the child's message to its parent that quotes you.
+
+**Approaches in play.**
+
+The overall shape:
+
+- **Fix each where it happens, with no state that switches on and off.** _The pick._ The one fact the fixes share, "a person has written in this child", is already worked out by the server every turn; it is what unlocks the child's ask-you-a-question tool. Wins if the three stay as unrelated as they are in the code.
+- **One stored "in conversation with you" state on the child**, switched on by your first message, shown as a badge and to the parent, and driving all three behaviours. Wins if you want to see it on the board. Its cost: a state needs an end, and nothing marks when a conversation is over. The walk-through child sat three days between two of your messages.
+
+Finished, waiting on your approval:
+
+- **One hand-back that means "finished, held for approval", and you correct and approve in the child.** _The pick._ It mirrors the hand-back that already exists for "I need a person".
+- Dropped: the child simply completes and the parent holds the approval. It makes the parent the relay for your corrections, loses the **Awaiting acceptance** marker and lets queued work start before you approve.
+- Keep the two calls and merge the two notices. Leaves the child inventing a word for its state, as 44 did.
+
+Waiting for your reply:
+
+- **Only a child the parent declares, at launch, as one for you to talk to is never reported as quiet.** _Your pick._
+- Dropped: any child you have written to, until it next hands back. A working child you steered that later stalls would be reported to nobody; the cluster-review coder you steered nine times on 26 Oct would have been one.
+- Dropped: leave it as it is.
+
+After it is finished:
+
+- **The refused hand-back is accepted as an addition to the report. The parent is not woken for it, and the child tells the parent when the change is material.** _The pick._ Nine finished children tried exactly this. It is where your decisions go when the parent does not need them now.
+- Dropped: every addition appears in the parent's next routine digest. It wakes the parent for a tidied sentence.
+- Message the parent only, with no addition to the report. Fewest parts. Loses the record: 56 of the 132 messages came after the child finished.
+- Dropped: your message reopens the finished child. A question would un-finish work and re-block what was behind it.
+
+**Decided.**
+
+- "I think this is something that we should immediately act on."
+- The parent is not told about a conversation: "the entire reason I engaged with the subthread is that that was the thread that was doing the work and I didn't need to pollute the context of the parent with unnecessary details." And: "unless the parent thread would get value from immediately being made aware of my comment, it's usually sufficient for the child to simply include that information in its summary report." Both 23 Oct, when the automatic digest of your messages to the parent was removed.
+- The child does not message its parent every time you write: "I don't want the result being instead of a control plane message, we get a notify_thread from the child on *every* interaction instead (that would be worse)." Same day. Loading that tool for more children must not produce this.
+- The child's message to its parent, quoting you, is the supported way to hand a decision up: "Get the parent to delegate out this work, and we can continue going through the results."
+- A finished child you write to keeps its tools and stays finished. The 31 Jul plan that removed the read-only mode records this as your decision; it does not quote you.
+- You correct and approve a held deliverable in the child that made it: "shouldn't I just be communicating directly with the planner in these situations? Why should I be engaging with the orchestrator to have it just relay messages to the planner?" 10 Nov.
+- Only a child the parent launched for you to talk to, and declared so at launch, is never reported as gone quiet. Your answer of 10 Nov.
+- A correction or approval you write to the parent instead of the held child is not dropped or bounced. On 11 Nov, asked what the parent should do in that case, you picked the option "The parent passes it on once" over "The parent sends you back to the child".
+- A finished child's addition to its report does not wake the parent unless it is material: "we shouldn't be waking a parent for minor changes to a report", and "the parent probably *does* need to be informed, if the changes are material." 10 Nov. You also noted that some additions are not things you asked for: "I've asked the agent to clarify something in the report, and then it has taken it upon itself to update the report to carry those clarifications."
+- _Assumed:_ the child judges what is material, by the test it already applies before messaging its parent: the parent would act differently, or something the parent relied on in the report has changed.
+- _Assumed:_ the parent still reads a held deliverable against its brief, and sends the child back if something is plainly wrong, before it points you at the child. For this brief that check confirmed two quotes attributed to you and corrected one count. Redirect if you would rather be pointed at the child at once.
+- _Assumed:_ the approval hold stays as the thing that blocks queued work, rather than moving the wait to the parent; redirect if wrong.
+- _Assumed:_ the tool for messaging the parent loads for any child once a person has written to it, the same moment its question tool unlocks.
+- _Assumed:_ a finished child nobody has written to still has its hand-back refused, with a refusal that says what to do instead.
+
+**Not doing.** A badge or board state for "in conversation". Any automatic summary of your messages to the parent. Reopening finished children. The 43 other "matched no route" hand-backs that are not about approval (`merge_conflict`, `paused`). New screens: the visible changes are the wording of two notices in the parent's timeline and the parent's message pointing you at a held child.
+
+**Questions for you.** None open. Your answers of 10 Nov are under Decided.
+
+**Still unknown.**
+
+- Does a held child reach you without the parent's link, in the sidebar and on mobile? Reading how **Awaiting acceptance** on a child is surfaced settles it in the plan.
+- Will a child tell a material change to its report from a tidied one the way you would? An eval case with one of each settles it.
+- Will a child use the one approval hand-back rather than invent its own word for it? An eval case on the planner and coder roles settles it before this ships.
+- Will an orchestrator mark a child as launched for you to talk to without being told? An eval case on the orchestrator role, using your 5 Nov request ("launch a new sub-thread that I can walk through the remaining cards with"), settles it.
+- Does anything read the additions to finished children's reports? The next retro settles it by counting your post-finish decisions found in reports against those found only in conversations.
+
+<Details summary="Why each still happens: the cause in the reviewed run, and today's code">
+
+**Finished, waiting on approval.** The planner did what its instructions say. The planner role tells it to raise the approval hold "instead of completing" for an intent brief. The hold's tool description says "To hand back a report while the flag stands, submit with a short non-'done' outcome." It raised the hold, then submitted with a word it made up.
+
+Any word the control plane does not know is treated as an unplanned hand-back, and the hold and the hand-back each send their own notice. The parent then sent corrections twice. A parent's message clears the hold, so the child raised and submitted again each time. That is the three pairs of notices on 3 Nov. Nothing here has changed since.
+
+**Waiting for your reply.** The check for "gone quiet" exempts a turn only when your message started it. On 5 and 6 Nov the walk-through child ended three turns that something else had started. The first was its launch; your first message arrived 48 seconds in and joined that turn. The second was the parent's note telling it to ignore the first notice. The third was a notice that one of its own children had finished. Ten minutes after each, it was reported.
+
+The fix that landed on 5 Nov was for two other false reports (after a stop, and while a child's own child was finishing), not this one.
+
+**After it is finished.** A finished thread's hand-back is refused on purpose, so that a late hand-back cannot re-run finished work; the 31 Jul plan kept that guard. The refusal names no alternative. The child's standing instructions tell it to message its parent "only when it would act differently now". That tool is loaded only for orchestrators, so a coder's or planner's first call fails. Of the 9 refused children, some then messaged the parent. One reasoned "I'm not notifying the parent, since the thread is finished".
+
+</Details>

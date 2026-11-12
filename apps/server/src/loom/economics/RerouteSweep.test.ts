@@ -318,25 +318,36 @@ it.layer(Layer.merge(LoomOrchestratorTestLayer, FakePiProviders))("Loom reroute 
     }),
   );
 
-  it.effect("leaves a thread holding awaiting_acceptance alone", () =>
+  it.effect("reroutes a thread held awaiting_acceptance; leaves one flagged needs_guidance", () =>
     withHealth(
       Effect.gen(function* () {
         const parent = ThreadId.make("reroute-parent");
-        const threadId = ThreadId.make("reroute-accept");
         yield* seedThread({ threadId: parent });
         yield* exhaust(INTENDED);
-        yield* seedLimited(threadId, yield* inMs(3_600_000), parent);
-        yield* dispatch({
-          type: "thread.attention.raise",
-          commandId: CommandId.make("test:raise-accept"),
-          threadId,
-          createdAt: "1970-01-01T00:00:00.000Z",
-          reason: "awaiting_acceptance",
+        const flagged = Effect.fn("test.flagged")(function* (
+          threadId: ThreadId,
+          reason: "awaiting_acceptance" | "needs_guidance",
+        ) {
+          yield* seedLimited(threadId, yield* inMs(3_600_000), parent);
+          yield* dispatch({
+            type: "thread.attention.raise",
+            commandId: CommandId.make(`test:raise:${threadId}`),
+            threadId,
+            createdAt: "1970-01-01T00:00:00.000Z",
+            reason,
+          });
         });
+        // A held thread runs correction rounds, so a limit cuts one like any other turn.
+        const held = ThreadId.make("reroute-accept");
+        yield* flagged(held, "awaiting_acceptance");
+        const stuck = ThreadId.make("reroute-stuck");
+        yield* flagged(stuck, "needs_guidance");
         yield* pass;
-        assert.deepEqual((yield* shellOf(threadId)).modelSelection, INTENDED);
-        assert.deepEqual(yield* sweepMessages(threadId), []);
-        assert.isFalse((yield* listReroutes).some((entry) => entry.threadId === threadId));
+        assert.deepEqual((yield* shellOf(held)).modelSelection, FALLBACK);
+        assert.isTrue((yield* listReroutes).some((entry) => entry.threadId === held));
+        assert.deepEqual((yield* shellOf(stuck)).modelSelection, INTENDED);
+        assert.deepEqual(yield* sweepMessages(stuck), []);
+        assert.isFalse((yield* listReroutes).some((entry) => entry.threadId === stuck));
       }),
     ),
   );

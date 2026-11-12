@@ -46,7 +46,9 @@ import type * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { humanSpokeInTurn } from "../loom/orchestration/turns.ts";
 import type { LoomStoreV2 } from "../loom/projection/LoomStore.ts";
+import { SUBMIT_REFUSED_WHILE_HELD, SUBMIT_REFUSED_WHILE_RAISED } from "../loom/prompt/prose.ts";
 import { LoomAskWaiters } from "../loom/userInput/askWaiters.ts";
 import type { OrchestrationEffectRequestV2 } from "./EffectOutbox.ts";
 import type { IdAllocatorV2 } from "@t3tools/provider-core/server/IdAllocator";
@@ -278,8 +280,24 @@ export const loomContinuationVetoed = (
     workstream.archivedAt !== null ||
     workstream.deletedAt !== null ||
     workstream.attention.includes("needs_guidance") ||
-    workstream.attention.includes("awaiting_acceptance") ||
     blockingPendingRequest);
+
+/**
+ * Rule 4's clears: every standing flag, except that `awaiting_acceptance` outlives messages (the
+ * human corrects a held deliverable in rounds), so the others clear one by one around it.
+ */
+const turnStartClears = (
+  workstream: LoomThreadWorkstream,
+  threadId: ThreadId,
+  occurredAt: DateTime.Utc,
+) =>
+  !workstream.attention.includes("awaiting_acceptance")
+    ? workstream.attention.length === 0
+      ? []
+      : [loomEvent("thread.attention-cleared", threadId, occurredAt, {})]
+    : workstream.attention
+        .filter((reason) => reason !== "awaiting_acceptance")
+        .map((reason) => loomEvent("thread.attention-cleared", threadId, occurredAt, { reason }));
 
 /** The attention clear for a queued message whose turn starts now (startNextQueuedRun, promote-to-steer). */
 export const loomQueuedTurnAttentionClear = Effect.fn("Orchestrator.loomQueuedTurnAttentionClear")(
@@ -291,9 +309,7 @@ export const loomQueuedTurnAttentionClear = Effect.fn("Orchestrator.loomQueuedTu
   ) {
     if (!loomClearsAttention(loom)) return [];
     const workstream = yield* loomStore.getWorkstream(threadId);
-    return workstream === null || workstream.attention.length === 0
-      ? []
-      : [loomEvent("thread.attention-cleared", threadId, occurredAt, {})];
+    return workstream === null ? [] : turnStartClears(workstream, threadId, occurredAt);
   },
 );
 
@@ -348,8 +364,8 @@ export const loomTurnStartRules = Effect.fn("loom.turnStartRules")(function* (in
     }
   }
   // 4. Attention clears when a human's or the parent's turn starts or steers now.
-  if (input.startsNow && loomClearsAttention(loom) && workstream.attention.length > 0) {
-    yield* emit(loomEvent("thread.attention-cleared", command.threadId, now, {}));
+  if (input.startsNow && loomClearsAttention(loom)) {
+    for (const event of turnStartClears(workstream, command.threadId, now)) yield* emit(event);
   }
   // 5. The first turn by anyone is the start.
   if (workstream.kickoffAt === null) {
@@ -705,13 +721,24 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
       submit.rework,
     );
     if (refusal !== null) return yield* fail(refusal);
+    // Who spoke in this turn is read only when it decides: a completion over a standing hold.
+    const turn =
+      (routing.decision === "terminal" || routing.decision === "resolve") &&
+      row.attention.includes("awaiting_acceptance")
+        ? yield* read(
+            projectionStore.getThreadRecords(submit.threadId, ["runs", "messages"], {
+              messageRoles: ["user"],
+            }),
+          )
+        : null;
     const erased = holdErasedByCompletion({
       attention: row.attention,
       decision: routing.decision,
+      humanInTurn: turn !== null && humanSpokeInTurn(turn.runs, turn.messages),
     });
     if (erased !== null) {
       return yield* fail(
-        `Thread ${submit.threadId} holds '${erased}'; completing would erase the hold. Yield with a non-done outcome instead.`,
+        erased === "awaiting_acceptance" ? SUBMIT_REFUSED_WHILE_HELD : SUBMIT_REFUSED_WHILE_RAISED,
       );
     }
     yield* on("thread.report-set", submit.threadId, { reportPath: submit.reportPath });
@@ -750,11 +777,13 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
         }
         return;
       }
-      case "attention":
-        if (!row.attention.includes("needs_guidance")) {
-          yield* on("thread.attention-raised", submit.threadId, { reason: "needs_guidance" });
+      case "attention": {
+        const reason = outcome === "awaiting_acceptance" ? outcome : "needs_guidance";
+        if (!row.attention.includes(reason)) {
+          yield* on("thread.attention-raised", submit.threadId, { reason });
         }
         return;
+      }
       case "yield":
       case "cap-breach":
         if (!row.attention.includes("awaiting_orchestrator")) {
@@ -1167,6 +1196,7 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
         spawnGeneration: command.spawnGeneration ?? null,
         forkFromThreadId: command.forkFromThreadId ?? null,
         continuesThreadId: command.continuesThreadId ?? null,
+        ...(command.humanLed === true ? { humanLed: true } : {}),
       });
       return {};
     }

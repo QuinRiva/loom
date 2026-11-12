@@ -309,7 +309,12 @@ const promotion: PassStep = {
               origin: "kickoff",
               // DL-472: the brief inside its kickoff wrapper (role framing, gate membership and its
               // target's files, the dependencies' hand-backs, completion contract), not the bare brief.
-              text: kickoffText({ role: row.role, brief: text, ...context }),
+              text: kickoffText({
+                role: row.role,
+                brief: text,
+                ...context,
+                humanLed: row.humanLed,
+              }),
             }),
           ),
       });

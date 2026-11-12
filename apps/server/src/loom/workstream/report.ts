@@ -77,6 +77,38 @@ export const writeWorkstreamReport = (threadId: ThreadId, markdown: string, roun
     markdown,
   );
 
+/** Heads each section a finished thread adds to its report (`appendWorkstreamReport`). */
+export const REPORT_ADDITION_HEADING = "## Added after finishing · ";
+
+const comparedLines = (markdown: string) =>
+  markdown
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !/^<!--\s*\/?response\s*-->$/.test(line));
+
+/**
+ * Whether a finished thread's submission resends its report: more than half of the report's lines,
+ * as first handed back (before any added section), appear verbatim in the submission.
+ */
+export const repeatsReport = (report: string, submission: string): boolean => {
+  const cut = report.indexOf(REPORT_ADDITION_HEADING);
+  const original = comparedLines(cut === -1 ? report : report.slice(0, cut));
+  const submitted = new Set(comparedLines(submission));
+  return original.filter((line) => submitted.has(line)).length > original.length / 2;
+};
+
+/** Appends a section to a report file and re-indexes the whole file for thread search. */
+export const appendWorkstreamReport = Effect.fn("loom.appendWorkstreamReport")(function* (
+  threadId: ThreadId,
+  filePath: string,
+  section: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const markdown = `${yield* fs.readFileString(filePath)}${section}`;
+  yield* fs.writeFileString(filePath, markdown);
+  yield* upsertThreadSearchReport(threadId, markdown);
+});
+
 /**
  * `<threadId>.quiescent-<run>.md`, where `<run>` is the run id minus the thread id
  * it embeds: a V2 run id is `run:thread:<URI-encoded threadId>:ordinal:<n>`, and a

@@ -4,13 +4,19 @@
  */
 import type {
   LoomThreadWorkstream,
-  OrchestrationV2ConversationMessage,
   OrchestrationV2Run,
   OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
+import { isParked } from "@t3tools/shared/workstreamGraph";
 import * as DateTime from "effect/DateTime";
 
 import { awaitsErrorResume } from "./liveness/errorResume.ts";
+import {
+  humanSpokeInTurn,
+  type TurnMessage,
+  turnStartedByHuman,
+  turnStartedByParent,
+} from "./turns.ts";
 
 /** The latest run that is not queued (a queued run never started; a held queue is still queued). */
 export const latestUnheldRun = (runs: ReadonlyArray<OrchestrationV2Run>) =>
@@ -21,38 +27,10 @@ export const latestUnheldRun = (runs: ReadonlyArray<OrchestrationV2Run>) =>
       undefined,
     );
 
-/**
- * A message that continues the turn before it rather than starting one (DL-482): upstream's
- * restart continuation and limit-resume, and Loom's steer redelivery, reroute / reroute-back
- * resumes, no-reset limit resume and error resume (`message:<commandId>` of `controlMessage.ts`'s builders).
- */
-const CONTINUATION_MESSAGE_ID =
-  /^(message:restart-continuation:|limit-resume:|message:server:loom:(steer-redeliver|reroute|reroute-back|limit-resume|error-resume):)/;
-
-/**
- * Whether the latest started turn was started by a human: the message that started its run,
- * looking back through continuation runs to the turn they continue. DL-194: the server-stamped
- * `humanAuthored`, never `createdBy` (a schedule fire or limit-resume is `user` too).
- */
-export const turnStartedByHuman = (
-  runs: ReadonlyArray<Pick<OrchestrationV2Run, "ordinal" | "status" | "userMessageId">>,
-  userMessages: ReadonlyArray<Pick<OrchestrationV2ConversationMessage, "id" | "loom">>,
-): boolean => {
-  const byId = new Map(userMessages.map((message) => [message.id, message]));
-  return (
-    runs
-      .filter((run) => run.status !== "queued")
-      .toSorted((a, b) => b.ordinal - a.ordinal)
-      .map((run) => byId.get(run.userMessageId))
-      .find((message) => message === undefined || !CONTINUATION_MESSAGE_ID.test(message.id))?.loom
-      ?.humanAuthored === true
-  );
-};
-
 export const quiescenceCandidate = (input: {
   readonly shell: OrchestrationV2ThreadShell; // joined: shell.workstream present
   readonly runs: ReadonlyArray<OrchestrationV2Run>; // getThreadRecords(threadId, ["runs"]) for the few pre-filtered candidates
-  readonly userMessages: ReadonlyArray<Pick<OrchestrationV2ConversationMessage, "id" | "loom">>;
+  readonly userMessages: ReadonlyArray<TurnMessage>;
   readonly children: ReadonlyArray<LoomThreadWorkstream>;
   readonly now: DateTime.Utc;
   readonly grace: { readonly controlStartedMs: number; readonly humanStartedMs: number | null }; // null = never for human-started turns
@@ -62,10 +40,19 @@ export const quiescenceCandidate = (input: {
     ws === undefined ||
     ws.parentThreadId === null ||
     ws.kickoffAt === null ||
-    ws.outcome !== null
+    ws.outcome !== null ||
+    ws.humanLed // the human talks to it at their own pace, whatever the graces
   )
     return false;
-  if (ws.attention.length > 0 || input.shell.pendingRuntimeRequest !== null) return false;
+  if (isParked(ws.attention) || input.shell.pendingRuntimeRequest !== null) return false;
+  // A held child is watched only after its parent sent it back: a turn the parent started and no
+  // human joined must end in a hand-back. The human's rounds and notices are never reported.
+  if (
+    ws.attention.includes("awaiting_acceptance") &&
+    (!turnStartedByParent(input.runs, input.userMessages) ||
+      humanSpokeInTurn(input.runs, input.userMessages))
+  )
+    return false;
   if (
     input.shell.activityRunStatus != null ||
     (input.shell.pendingBackgroundTasks ?? []).length > 0

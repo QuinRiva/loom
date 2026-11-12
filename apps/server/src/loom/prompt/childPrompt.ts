@@ -56,6 +56,7 @@ type KickoffInput = {
   readonly gateTargets?: ReadonlyArray<KickoffHandback>;
   readonly dependencies?: ReadonlyArray<KickoffHandback>;
   readonly forkedFrom?: string | null;
+  readonly humanLed?: boolean;
 };
 
 export const kickoffText = (input: KickoffInput): string =>

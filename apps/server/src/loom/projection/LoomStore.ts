@@ -54,6 +54,7 @@ export class LoomStoreError extends Schema.TaggedError<LoomStoreError>()("LoomSt
 export const LoomThreadWorkstreamRow = LoomThreadWorkstream.mapFields((fields) => ({
   ...fields,
   held: Schema.BooleanFromBit,
+  humanLed: Schema.BooleanFromBit,
   pendingRework: Schema.BooleanFromBit,
   attention: Schema.fromJsonString(fields.attention),
   attentionEpisodes: Schema.fromJsonString(fields.attentionEpisodes),
@@ -85,6 +86,7 @@ const WORKSTREAM_COLUMNS = {
   outcome_event_id: "outcomeEventId",
   kickoff_at: "kickoffAt",
   kickoff_origin: "kickoffOrigin",
+  human_led: "humanLed",
   attention: "attention",
   attention_episodes: "attentionEpisodes",
   blocked_by: "blockedBy",
@@ -168,6 +170,7 @@ export const emptyWorkstream = (input: {
   outcomeEventId: null,
   kickoffAt: null,
   kickoffOrigin: null,
+  humanLed: false,
   attention: [],
   attentionEpisodes: {},
   blockedBy: [],

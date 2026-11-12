@@ -49,6 +49,10 @@ import {
 } from "../loom/orchestration/redrive.ts";
 import { wakeNotification } from "../loom/orchestration/dispatcher/controlMessage.ts";
 import { makeGateLegComposer } from "../loom/orchestration/dispatcher/gateLegs.ts";
+import {
+  WorkstreamDispatcher,
+  WorkstreamDispatcherLive,
+} from "../loom/orchestration/dispatcher/WorkstreamDispatcher.ts";
 import * as LoomStore from "../loom/projection/LoomStore.ts";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
@@ -636,6 +640,22 @@ const seedProgram = Effect.gen(function* () {
     createdAt: iso(),
     outcome: "cancelled",
   });
+  // a planner that handed its brief back held for the human's acceptance; the real attention
+  // rail sends the root its held notice at the end, once everything else is delivered
+  yield* spawn({
+    threadId: SEED.heldPlanner,
+    parent: SEED.root,
+    title: "Config intent brief",
+    role: "planner",
+    purpose:
+      "Write the intent brief for config reloading; the human approves it before coders start.",
+  });
+  yield* kickoff(SEED.heldPlanner);
+  yield* submit(
+    SEED.heldPlanner,
+    "awaiting_acceptance",
+    "<!-- response -->\nThe intent brief for config reloading is written and waits for the human's approval before any coder starts.\n<!-- /response -->\n\n# Config reloading: intent brief\n\nReload `paths.*` and `limits.*` on SIGHUP; the CLI flags stay fixed for the process.\n",
+  );
   yield* reDrive;
 
   // a root owed a human decision, and a staged (held) mcp__t3-code__goal_continue root
@@ -718,6 +738,10 @@ const seedProgram = Effect.gen(function* () {
       new Error(`Final re-drive pass was not empty: ${JSON.stringify(last)}`),
     );
   }
+  // The one notice owed: the held planner's, through the real dispatcher pass.
+  yield* Effect.flatMap(WorkstreamDispatcher, (dispatcher) => dispatcher.runPass).pipe(
+    Effect.provide(WorkstreamDispatcherLive.pipe(Layer.provide(ServerSettings.layerTest()))),
+  );
   for (const threadId of Object.values(SEED).filter((id) => id.startsWith("seed-thread-"))) {
     yield* settle(threadId as ThreadId);
   }
