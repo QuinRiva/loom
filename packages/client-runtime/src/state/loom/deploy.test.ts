@@ -71,6 +71,13 @@ describe("deployWords", () => {
     expect(words({ id: "", sha: "" }).row?.text).toBe(
       "Building. Down at around 03:17. Started by Carl from Loom.",
     );
+    expect(
+      words({ origin: "cli", who: "Carl in thread thread:mcp:239b53b3:workstream-scaffold:3" })
+        .toast?.description,
+    ).toMatch(/Started by Carl from a Loom thread\.$/);
+    expect(words({ origin: "cli", who: "Carl" }).toast?.description).toMatch(
+      /Started by Carl from the command line\.$/,
+    );
     const checking = words({ phase: "checking", origin: "slack", who: "Jacob" });
     expect(checking.row).toEqual({
       text: "Checking the new release on your settings.",

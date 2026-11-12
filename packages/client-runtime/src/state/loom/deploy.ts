@@ -80,10 +80,15 @@ export function roughDuration(seconds: number): string {
   return halves === 2 ? "about 1 minute" : `about ${whole}${halves % 2 === 1 ? "½" : ""} minutes`;
 }
 
-const startedBy = (status: LoomDeployStatus) =>
-  `Started ${status.who === null ? "" : `by ${status.who} `}from ${
-    { loom: "Loom", cli: "the command line", slack: "Slack" }[status.origin]
-  }.`;
+const startedBy = (status: LoomDeployStatus) => {
+  // `loom-deploy` records "<user> in thread <id>" from a Loom thread; the id stays in the status.
+  const thread = status.who?.match(/^(.*) in thread \S+$/);
+  const who = thread ? thread[1] : status.who;
+  const from = thread
+    ? "a Loom thread"
+    : { loom: "Loom", cli: "the command line", slack: "Slack" }[status.origin];
+  return `Started ${who == null ? "" : `by ${who} `}from ${from}.`;
+};
 
 /** A start warning, or the retraction that replaces it. */
 export interface DeployToastWords {

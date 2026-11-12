@@ -151,7 +151,8 @@ const make = Effect.gen(function* () {
       .run({
         command: node,
         args: [releasePaths(LOOM_REPO_ROOT).cli, LOOM_REPO_ROOT, ...args],
-        timeout: "1 minute",
+        // Above `deploy`'s own 60 s wait for the release id, so a slow fetch is not reported as a failure.
+        timeout: "2 minutes",
       })
       .pipe(
         Effect.mapError(

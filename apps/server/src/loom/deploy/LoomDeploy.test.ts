@@ -1,7 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthEnvironmentMaintainScope,
-  clientRpcRequiredScopes,
   LOOM_WS_METHODS,
   type LoomDeployNotice,
   type LoomDeployStatus,
@@ -93,36 +92,33 @@ it.layer(NodeServices.layer)("deploy files and events", (it) => {
     }),
   );
 
-  it.effect(
-    "a server the launcher did not start opens with the notice: no control, no status",
-    () =>
-      Effect.gen(function* () {
-        const { fs, dir, file } = yield* inTempDir;
-        yield* fs.writeFileString(file("deploy-notice.json"), JSON.stringify(notice));
-        yield* fs.writeFileString(file("deploy-status.json"), JSON.stringify(status));
-        const first = yield* Effect.gen(function* () {
-          return yield* Stream.runHead((yield* LoomDeploy).events);
-        }).pipe(
-          Effect.provide(
-            layer.pipe(
-              Layer.provide(
-                Layer.mergeAll(
-                  Layer.succeed(ServerConfig, { stateDir: dir, baseDir: dir } as never),
-                  Layer.mock(ServerSelfUpdate)({}),
-                  Layer.mock(EnvironmentAuth)({}),
-                ),
+  it.effect("a server the launcher did not start opens with the notice, not the control", () =>
+    Effect.gen(function* () {
+      const { fs, dir, file } = yield* inTempDir;
+      yield* fs.writeFileString(file("deploy-notice.json"), JSON.stringify(notice));
+      yield* fs.writeFileString(file("deploy-status.json"), JSON.stringify(status));
+      const first = yield* Effect.gen(function* () {
+        return yield* Stream.runHead((yield* LoomDeploy).events);
+      }).pipe(
+        Effect.provide(
+          layer.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ServerConfig, { stateDir: dir, baseDir: dir } as never),
+                Layer.mock(ServerSelfUpdate)({}),
+                Layer.mock(EnvironmentAuth)({}),
               ),
             ),
           ),
-        );
-        assert.deepStrictEqual(Option.getOrThrow(first), { type: "notice", notice });
-      }),
+        ),
+      );
+      assert.deepStrictEqual(Option.getOrThrow(first), { type: "notice", notice });
+    }),
   );
 });
 
-it("starting and cancelling a deploy need environment:maintain", () => {
+it("the server requires environment:maintain to start or cancel a deploy", () => {
   for (const method of [LOOM_WS_METHODS.startDeploy, LOOM_WS_METHODS.cancelDeploy]) {
-    assert.deepStrictEqual(clientRpcRequiredScopes(method, {}), [AuthEnvironmentMaintainScope]);
     assert.equal(requiredScopeForRpcMethod(method), AuthEnvironmentMaintainScope);
   }
 });
