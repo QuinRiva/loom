@@ -47,7 +47,7 @@ function EnvironmentDeployToasts({ environmentId }: { environmentId: Environment
   const state = useLoomDeploy(environmentId);
   const navigate = useNavigate();
   const shown = useRef<{
-    warning: { deployId: string; toastId: string } | null;
+    warning: { startedAt: string; toastId: string } | null;
     notice: { noticeId: string; toastId: string } | null;
     lastStatus: LoomDeployStatus | null;
   }>({ warning: null, notice: null, lastStatus: null });
@@ -85,14 +85,14 @@ function EnvironmentDeployToasts({ environmentId }: { environmentId: Environment
     const { warning, lastStatus } = shown.current;
     shown.current.lastStatus = status;
     if (words.toast?.kind === "warning") {
-      if (warning?.deployId === status.id)
+      if (warning?.startedAt === status.startedAt)
         toastManager.update(warning.toastId, startToast(words.toast));
       else
         shown.current.warning = {
-          deployId: status.id,
+          startedAt: status.startedAt,
           toastId: toastManager.add(startToast(words.toast)),
         };
-    } else if (warning?.deployId === status.id) {
+    } else if (warning?.startedAt === status.startedAt) {
       toastManager.close(warning.toastId);
       shown.current.warning = null;
       if (words.toast?.kind === "called-off") toastManager.add(startToast(words.toast));

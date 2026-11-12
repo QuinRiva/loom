@@ -16,7 +16,8 @@ operate it. Everything here runs as Carl on the production machine, usually over
   each release. It starts the server, keeps a hard-linked copy of the launcher's database copy
   (the kept copy), runs the five-minute watch before telling the launcher the release started,
   and holds a `--no-return` release that fails.
-- **The command** `loom-deploy` (`deploy/loom-deploy`, linked from `~/.local/bin`) runs the deploy
+- **The command** `loom-deploy` (`deploy/loom-deploy`, linked from `~/.local/bin` and on the
+  service's search path, so an agent shell in Loom finds it too) runs the deploy
   engine in its own transient unit, `loom-deploy.service`, so a restarting Loom or a dropped SSH
   session cannot kill a deploy half way.
 
@@ -55,6 +56,15 @@ the build. `<home>/runtime/versions/<version>` is a link to that release's `depl
 From a Loom thread, run `deploy` and `back` without `--wait` and follow them with `status`: Loom
 restarts under the command, and a turn resumed after the restart could otherwise run it a second
 time.
+
+`deploy` writes the new deploy's status before it returns, so a `status --wait` straight after it
+follows this deploy; a deploy that fails before it builds (a ref that names no commit, a failed
+fetch) is called off with its reason and `deploy` exits non-zero.
+
+Do not start a Loom deploy while a bridge deploy is running or being watched, or the reverse:
+nothing queues the two, and a Loom switch inside the bridge's watch makes the bridge roll itself
+back, which can in turn fail Loom's Slack check. Nothing in Loom's deploy writes
+`~/loom-releases/deploy-in-progress`.
 
 A deploy goes through these stages, each written to `<stateDir>/deploy-status.json`, which Loom
 pushes to every open client:

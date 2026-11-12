@@ -37,7 +37,7 @@ Environment=GOOGLE_CLOUD_LOCATION=global
 # (AIT-249), so agents never act as the scraper SA.
 Environment=GOOGLE_APPLICATION_CREDENTIALS=/home/Carl/.gcp/scraper-sa-key.json
 Environment=CLOUDSDK_CORE_ACCOUNT=loom-agents@test-ds-research.iam.gserviceaccount.com
-Environment=PATH=/home/Carl/loom-releases/current/node_modules/.bin:/home/Carl/.n/bin:/home/Carl/.local/share/pnpm:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/home/Carl/loom-releases/current/deploy:/home/Carl/loom-releases/current/node_modules/.bin:/home/Carl/.n/bin:/home/Carl/.local/share/pnpm:/usr/local/bin:/usr/bin:/bin
 
 # --- agent-process memory containment (see docs/memory-containment.md) ---
 # Terminals/agents are spawned through a PTY running $SHELL. This shim re-execs

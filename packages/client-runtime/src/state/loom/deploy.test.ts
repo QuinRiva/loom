@@ -68,6 +68,9 @@ describe("deployWords", () => {
       description:
         "It goes down for about 40 seconds at around 03:17. Running agent turns are interrupted and resume when it is back. Started by Carl from Loom.",
     });
+    expect(words({ id: "", sha: "" }).row?.text).toBe(
+      "Building. Down at around 03:17. Started by Carl from Loom.",
+    );
     const checking = words({ phase: "checking", origin: "slack", who: "Jacob" });
     expect(checking.row).toEqual({
       text: "Checking the new release on your settings.",

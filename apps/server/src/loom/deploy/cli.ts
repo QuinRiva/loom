@@ -240,6 +240,23 @@ async function deploy(config: DeployConfig, releaseDir: string, args: ReadonlyAr
     who,
   ];
   const startedAt = nowIso();
+  // The status is this deploy's before anything can wait on it; id and sha stay "" until the
+  // engine resolves the ref.
+  writeStatus(config, {
+    id: "",
+    sha: "",
+    version: null,
+    phase: "building",
+    origin: origin as DeployOrigin,
+    who,
+    noReturn: flags["no-return"] === true,
+    startedAt,
+    stopAt: estimateStopAt(readHistory(config.root), startedAt),
+    watchUntil: null,
+    reason: null,
+    bridge: null,
+    at: startedAt,
+  });
   const started = run("systemd-run", [
     "--user",
     `--unit=${config.engineUnit}`,
@@ -252,9 +269,21 @@ async function deploy(config: DeployConfig, releaseDir: string, args: ReadonlyAr
     "engine",
     ...engineArgs,
   ]);
-  if (started.code !== 0) throw new Refusal(`Could not start the deploy: ${started.stderr.trim()}`);
+  if (started.code !== 0) {
+    const reason = `Could not start the deploy: ${started.stderr.trim()}`;
+    writeStatus(config, { ...readStatus(config)!, phase: "called-off", reason });
+    throw new Refusal(reason);
+  }
+  if (flags.wait) return follow(config, startedAt);
+  // A deploy that fails before it builds fails here, not silently in the engine's journal.
+  for (let waited = 0; waited < 120; waited++) {
+    const status = readStatus(config);
+    if (status?.phase === "called-off") throw new Refusal(status.reason ?? "Called off.");
+    if (status?.id !== "") break;
+    await sleep(500);
+  }
   say(`Deploy started in ${config.engineUnit}.service. Follow it with: loom-deploy status --wait`);
-  return flags.wait ? follow(config, startedAt) : 0;
+  return 0;
 }
 
 /** Print each stage of the deploy started at or after `since` until it ends; 0 when live. */
@@ -290,7 +319,7 @@ async function follow(config: DeployConfig, since: string): Promise<number> {
 
 const describe = (status: LoomDeployStatus) =>
   [
-    `${status.phase}: ${status.id}${status.version ? ` (${status.version})` : ""}`,
+    `${status.phase}: ${status.id || "fetching"}${status.version ? ` (${status.version})` : ""}`,
     status.noReturn ? "no-return" : "",
     status.stopAt && ["building", "checking"].includes(status.phase)
       ? `down at about ${status.stopAt}`
@@ -307,9 +336,10 @@ async function engine(config: DeployConfig, releaseDir: string, args: ReadonlyAr
   const paths = storePaths(config.root);
   const home = homePaths(config);
   const buildEnv = { HOME: NodeOS.homedir(), PATH: config.path };
-  const startedAt = nowIso();
+  // `deploy` wrote this deploy's first status before it started the engine.
+  let status = readStatus(config);
+  const startedAt = status?.startedAt ?? nowIso();
   let installedAt: string | null = null;
-  let status: LoomDeployStatus | undefined;
   let built: string | undefined;
   let child: NodeChildProcess.ChildProcess | undefined;
   const report = (patch: Partial<LoomDeployStatus>) => {
@@ -402,6 +432,7 @@ async function engine(config: DeployConfig, releaseDir: string, args: ReadonlyAr
   }
   const id = NodePath.basename(dir);
   status = writeStatus(config, {
+    ...status,
     id,
     sha,
     version: release === undefined ? null : (releaseVersion(dir) ?? null),

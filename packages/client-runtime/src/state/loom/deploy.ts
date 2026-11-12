@@ -126,7 +126,7 @@ export function deployWords(state: LoomDeployState, clock: (iso: string) => stri
       case "live":
         return idle;
       case "building":
-        return `Building ${short(status.sha)}. Down ${downAt}. ${startedBy(status)}`;
+        return `Building${status.sha === "" ? "" : ` ${short(status.sha)}`}. Down ${downAt}. ${startedBy(status)}`;
       case "checking":
         return "Checking the new release on your settings.";
       case "switching":

@@ -110,7 +110,7 @@ function LoomDeployRow({ environmentId }: { environmentId: EnvironmentId }) {
     <SettingsRow
       {...searchableSetting("loom-deploy")}
       description={
-        <span className="block max-w-md">
+        <span className="block">
           {row.text}
           {bridgeFault === null ? null : <span className="mt-1 block">{bridgeFault}</span>}
         </span>
