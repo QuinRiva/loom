@@ -2,7 +2,7 @@
  * Loom ws-method commands: goal writes through `loom.goal.*`, the `/handoff` and `/retro` drafter
  * calls and the hub login dialog's two calls. Results also arrive on the shell's goal stream, so
  * callers never patch local state. The spend reads are query families: cost is a batched lookup,
- * never a shell field. `deploy` is the deploy-toast subscription (notice, then restart warnings).
+ * never a shell field. `deploy` is the deploy subscription folded into one state (`./deploy.ts`).
  */
 import { LOOM_WS_METHODS } from "@t3tools/contracts";
 import type { Atom } from "effect/reactivity";
@@ -13,6 +13,7 @@ import {
   createEnvironmentRpcQueryAtomFamily,
   createEnvironmentRpcSubscriptionAtomFamily,
 } from "../runtime.ts";
+import { foldDeployEvents } from "./deploy.ts";
 
 export function createLoomCommandAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
@@ -77,6 +78,9 @@ export function createLoomCommandAtoms<R, E>(
     deploy: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:loom:deploy",
       tag: LOOM_WS_METHODS.subscribeDeploy,
+      transform: foldDeployEvents,
     }),
+    startDeploy: command(LOOM_WS_METHODS.startDeploy),
+    cancelDeploy: command(LOOM_WS_METHODS.cancelDeploy),
   };
 }

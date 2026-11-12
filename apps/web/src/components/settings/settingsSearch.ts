@@ -707,6 +707,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/chat",
     searchTerms: ["queue steer running turn send default behavior composer"],
   },
+  // loom: the Deploy row (apps/web/src/loom/LoomDeployRow.tsx)
+  {
+    id: "loom-deploy",
+    title: "Deploy Loom",
+    to: "/settings/maintenance",
+    searchTerms: ["deploy release restart update build main loom"],
+    environmentOnly: true,
+  },
   {
     id: "provider-update-checks",
     title: "Provider update checks",

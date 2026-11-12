@@ -12,6 +12,7 @@ import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthPreviewOperateScope,
+  AuthEnvironmentMaintainScope, // loom
   AuthProvidersManageScope, // loom
   AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
@@ -210,6 +211,32 @@ describe("command permissions", () => {
         yield* login.authorize(registry, env);
       }),
     ),
+  );
+  // loom: Deploy and Cancel in Settings need the maintain grant upstream's server update uses.
+  it.effect.each([LOOM_WS_METHODS.startDeploy, LOOM_WS_METHODS.cancelDeploy])(
+    "requires the destination maintain grant for %s",
+    (method) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const registry = yield* setup;
+          const deploy = createCommandPermissions(runtime, method);
+          registry.set(sessions(env), AsyncResult.success(grant(true)));
+          expect(registry.get(deploy.permissionAtom(env))).toBe(false);
+          expect((yield* deploy.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+            "EnvironmentAuthorizationError",
+          );
+          registry.set(
+            sessions(env),
+            AsyncResult.success({
+              ...grant(false),
+              scopes: [AuthEnvironmentMaintainScope],
+              permissions: [AuthEnvironmentMaintainScope],
+            }),
+          );
+          expect(registry.get(deploy.permissionAtom(env))).toBe(true);
+          yield* deploy.authorize(registry, env);
+        }),
+      ),
   );
   it.effect("requires the destination settings grant to check OTLP endpoints", () =>
     Effect.scoped(

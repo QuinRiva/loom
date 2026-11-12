@@ -223,6 +223,10 @@
       "types": "./src/state/loom/controlBubble.ts",
       "default": "./src/state/loom/controlBubble.ts"
     },
+    "./state/loom/deploy": {
+      "types": "./src/state/loom/deploy.ts",
+      "default": "./src/state/loom/deploy.ts"
+    },
     "./state/loom/goalCommands": {
       "types": "./src/state/loom/goalCommands.ts",
       "default": "./src/state/loom/goalCommands.ts"
