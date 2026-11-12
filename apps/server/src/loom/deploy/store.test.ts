@@ -3,7 +3,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { composeHeadline, pickThread } from "./changes.ts";
 import {
-  checkoutFastForwardable,
   desiredManagedSkills,
   estimateStopAt,
   type HistoryLine,
@@ -144,6 +143,7 @@ const line = (startedAt: string, installedAt: string, switchedAt: string): Histo
   endedAt: switchedAt,
   outcome: "live",
   reason: null,
+  updateId: null,
 });
 
 describe("estimateStopAt", () => {
@@ -194,7 +194,7 @@ describe("the ported change list", () => {
   });
 });
 
-describe("the ported skill links and checkout refresh", () => {
+describe("the ported skill links", () => {
   it("reads pi_global and both list forms of pi_global_requires", () => {
     expect(
       parseSkillFlags("---\npi_global: true\npi_global_requires: [mdx-doc-core]\n---\n"),
@@ -225,12 +225,5 @@ describe("the ported skill links and checkout refresh", () => {
       "mdx-visual-recap",
     ]);
     expect(linkPlan(["mdx-visual-plan"], ["mdx-visual-plan"]).prune).toEqual([]);
-  });
-
-  it("fast-forwards a checkout only on a clean default branch", () => {
-    expect(checkoutFastForwardable("main\n", "main", "")).toBe(true);
-    expect(checkoutFastForwardable("feature/x", "main", "")).toBe(false);
-    expect(checkoutFastForwardable("HEAD", "main", "")).toBe(false);
-    expect(checkoutFastForwardable("main", "main", " M deploy/README.md\n")).toBe(false);
   });
 });

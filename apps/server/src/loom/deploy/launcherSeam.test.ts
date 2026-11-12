@@ -15,6 +15,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as TestClock from "effect/testing/TestClock";
+import { vi } from "vite-plus/test";
 
 import { prunePinnedRuntimes } from "../../cloud/pinnedRuntime.ts";
 import {
@@ -34,6 +35,20 @@ import {
   storePaths,
   writeJsonAtomic,
 } from "./store.ts";
+
+/** Each process the launcher spawns, so a test can see exactly when a runner exits. */
+const launcherSpawns = vi.hoisted(() => ({
+  hook: undefined as undefined | ((child: NodeChildProcess.ChildProcess) => void),
+}));
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof NodeChildProcess>();
+  const spawn = (...args: Parameters<typeof actual.spawn>) => {
+    const child = actual.spawn(...args);
+    launcherSpawns.hook?.(child);
+    return child;
+  };
+  return { ...actual, spawn: spawn as typeof actual.spawn };
+});
 
 const REPO = NodePath.resolve(import.meta.dirname, "../../../../..");
 const BASE = { id: "20261111-000000-base000", version: "0.1.7" };
@@ -55,7 +70,11 @@ const events = net.createConnection(stub.events);
 const emit = (event) => events.write(JSON.stringify({ release: stub.name, pid: process.pid, ppid: process.ppid, ...event }) + "\\n");
 emit({ type: "start", update: context?.update?.status ?? null, prevAlive, db: fs.readFileSync(stub.db, "utf8") });
 if (pending && stub.writeDb) fs.writeFileSync(stub.db, stub.writeDb);
-process.on("SIGTERM", () => (stub.ignoreTerm ? emit({ type: "term-ignored" }) : process.exit(0)));
+// Exits 300 ms after SIGTERM, so a runner that waits for its server exits after that.
+process.on("SIGTERM", () => {
+  emit({ type: stub.ignoreTerm ? "term-ignored" : "term" });
+  if (!stub.ignoreTerm) setTimeout(() => { emit({ type: "term-done" }); events.end(() => process.exit(0)); }, 300);
+});
 if (stub.exitUnless && !fs.existsSync(stub.exitUnless)) events.end(() => process.exit(3));
 else if (!stub.neverStart) {
   const server = http.createServer((_request, response) => response.end("{}"));
@@ -70,7 +89,14 @@ setInterval(() => {}, 1 << 30);
 `;
 
 interface StubEvent {
-  readonly type: "start" | "listening" | "term-ignored" | "gone";
+  readonly type:
+    | "start"
+    | "listening"
+    | "term"
+    | "term-done"
+    | "term-ignored"
+    | "gone"
+    | "runner-exit";
   readonly release: string;
   readonly pid: number;
   readonly ppid: number;
@@ -143,13 +169,20 @@ async function makeScene(options: { watchSeconds?: number; startTimeoutSeconds?:
   const events: Array<StubEvent> = [];
   const waiters = new Set<() => void>();
   const socket = NodePath.join(root, "events.sock");
+  const push = (event: StubEvent) => {
+    events.push(event);
+    for (const wake of waiters) wake();
+  };
+  launcherSpawns.hook = (child) => {
+    if (child.spawnargs[1] !== "serve") return;
+    const release = child.spawnargs[0]?.includes(NEXT.version) ? NEXT.id : BASE.id;
+    child.once("exit", () =>
+      push({ type: "runner-exit", release, pid: child.pid ?? 0, ppid: process.pid }),
+    );
+  };
   const listener = NodeNet.createServer((connection) => {
     let buffered = "";
     let first: StubEvent | undefined;
-    const push = (event: StubEvent) => {
-      events.push(event);
-      for (const wake of waiters) wake();
-    };
     connection.on("data", (chunk) => {
       buffered += chunk.toString();
       const lines = buffered.split("\n");
@@ -338,6 +371,14 @@ async function makeScene(options: { watchSeconds?: number; startTimeoutSeconds?:
   };
 }
 
+/** The new release's server finished its shutdown before its runner exited. */
+const assertRunnerWaited = (events: ReadonlyArray<StubEvent>) => {
+  const index = (type: StubEvent["type"]) =>
+    events.findIndex((event) => event.release === NEXT.id && event.type === type);
+  assert.isAtLeast(index("term-done"), 0);
+  assert.isBelow(index("term-done"), index("runner-exit"));
+};
+
 const seam = (name: string, body: () => Promise<void>) => it.live(name, () => Effect.promise(body));
 
 seam(
@@ -379,8 +420,8 @@ seam(
   async () => {
     await using scene = await makeScene({ watchSeconds: 30 });
     const next = scene.release(NEXT, { writeDb: "after", dieAfterMs: 200 });
-    await scene.switchTo(next, NEXT.version);
-    await scene.launch();
+    const updateId = await scene.switchTo(next, NEXT.version);
+    const { launcher } = await scene.launch();
 
     const returned = await scene.event(
       (event) => event.release === BASE.id && event.update === "rolled-back",
@@ -395,12 +436,28 @@ seam(
       storePaths(scene.store).manifest,
     );
     assert.equal(manifest?.releases[NEXT.id]?.status, "failed");
+    // The copy from before the failed release is the one the launcher just restored.
+    assert.isFalse(NodeFS.existsSync(NodePath.join(keptDir(scene.config), updateId)));
 
     const refusal = await back(scene.config).then(
       () => "went back",
       (error: Error) => error.message,
     );
     assert.include(refusal, `No kept database copy belongs to the running release ${BASE.id}`);
+
+    // A later restart on the same launcher state does not report the return again.
+    const notice = readJson<{ id: string }>(homePaths(scene.config).notice)?.id;
+    await launcher.stop("SIGTERM");
+    await scene.launch();
+    await scene.event(
+      (event) =>
+        event.release === BASE.id && event.type === "listening" && event.pid !== returned.pid,
+    );
+    assert.equal(readJson<{ id: string }>(homePaths(scene.config).notice)?.id, notice);
+    const putBacks = NodeFS.readFileSync(storePaths(scene.store).history, "utf8").match(
+      /"put-back"/g,
+    );
+    assert.equal(putBacks?.length, 1);
   },
 );
 
@@ -414,6 +471,7 @@ seam("a server that stops answering is killed and gone before the runner exits",
     (event) => event.release === BASE.id && event.update === "rolled-back",
   );
   assert.isFalse(returned.prevAlive);
+  assertRunnerWaited(scene.events);
   const putBack = await scene.statusWhen((status) => status.phase === "put-back");
   assert.equal(putBack.reason, "Loom stopped answering during the watch.");
 });
@@ -430,6 +488,7 @@ seam(
       (event) => event.release === BASE.id && event.update === "rolled-back",
     );
     assert.isFalse(returned.prevAlive);
+    assertRunnerWaited(scene.events);
     const putBack = await scene.statusWhen((status) => status.phase === "put-back");
     assert.equal(putBack.reason, "Loom did not finish starting within 1 s.");
   },

@@ -27,8 +27,8 @@ import {
   type LoomDeployStatus,
   isoAt,
   nowIso,
-  pruneKeptCopies,
   readConfig,
+  readHistory,
   readJson,
   readManifest,
   readRecord,
@@ -134,7 +134,7 @@ function keepBackup(update: Extract<ServiceUpdateRecord, { status: "pending" }>)
 
 /** This release started because the launcher or `back` returned to it: say so, once. */
 function reportReturn(outcome: ServiceUpdateRecord) {
-  if (startStatus?.phase === "put-back" && startStatus.version === outcome.targetVersion) return;
+  if (readHistory(store).some((line) => line.updateId === outcome.id)) return;
   const left = releaseOfVersion(config, outcome.targetVersion);
   const leftId = left === undefined ? outcome.targetVersion : NodePath.basename(left);
   const leftRecord = left === undefined ? undefined : readRecord(left);
@@ -168,18 +168,12 @@ function reportReturn(outcome: ServiceUpdateRecord) {
     phase: "put-back",
     reason,
   });
-  appendHistory(store, {
-    id: status.id,
-    version: outcome.targetVersion,
-    origin: status.origin,
-    who: status.who,
-    noReturn: status.noReturn,
-    startedAt: status.startedAt,
+  appendHistory(store, status, {
     installedAt: leftRecord?.installedAt ?? null,
     switchedAt: leftRecord?.switchedAt ?? null,
-    endedAt: status.at,
     outcome: manual ? "back" : "put-back",
     reason,
+    updateId: outcome.id,
   });
   const manifest = readManifest(storePaths(store).manifest);
   const failed = manifest.releases[leftId];
@@ -189,7 +183,8 @@ function reportReturn(outcome: ServiceUpdateRecord) {
       withRelease(manifest, { ...failed, status: "failed" }),
     );
   }
-  pruneKeptCopies(config);
+  // The copy from before the left release is what was just restored: it can never be used again.
+  NodeFS.rmSync(NodePath.join(keptDir(config), outcome.id), { recursive: true, force: true });
 }
 
 let told = pending === undefined;

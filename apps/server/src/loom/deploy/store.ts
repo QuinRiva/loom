@@ -289,7 +289,7 @@ export function listKeptCopies(config: DeployConfig): ReadonlyArray<KeptCopy> {
     .toSorted((left, right) => right.at.localeCompare(left.at));
 }
 
-/** Kept copies beyond the newest `keepCopies` go, after every accept and every return. */
+/** Kept copies beyond the newest `keepCopies` go, after every accept. */
 export function pruneKeptCopies(config: DeployConfig): void {
   for (const copy of listKeptCopies(config).slice(config.keepCopies)) {
     NodeFS.rmSync(NodePath.join(keptDir(config), copy.updateId), { recursive: true, force: true });
@@ -402,9 +402,30 @@ export interface HistoryLine {
   readonly endedAt: string;
   readonly outcome: "live" | "put-back" | "back" | "called-off";
   readonly reason: string | null;
+  /** Set on a return, so a later restart on the same launcher state does not report it again. */
+  readonly updateId: string | null;
 }
 
-export function appendHistory(root: string, line: HistoryLine): void {
+/** One line per deploy outcome; `deploy` is the status or record the deploy wrote. */
+export function appendHistory(
+  root: string,
+  deploy: Pick<LoomDeployStatus, "id" | "version" | "origin" | "who" | "noReturn" | "startedAt">,
+  outcome: Omit<
+    HistoryLine,
+    "id" | "version" | "origin" | "who" | "noReturn" | "startedAt" | "endedAt"
+  >,
+): void {
+  const { id, version, origin, who, noReturn, startedAt } = deploy;
+  const line: HistoryLine = {
+    id,
+    version,
+    origin,
+    who,
+    noReturn,
+    startedAt,
+    endedAt: nowIso(),
+    ...outcome,
+  };
   NodeFS.appendFileSync(storePaths(root).history, `${JSON.stringify(line)}\n`);
 }
 
@@ -515,9 +536,6 @@ export const linkPlan = (
   prune: previouslyManaged.filter((name) => !desired.includes(name)),
 });
 
-export const checkoutFastForwardable = (branch: string, defaultRef: string, porcelain: string) =>
-  branch.trim() === defaultRef && porcelain.trim() === "";
-
 const isSymlink = (path: string) => {
   try {
     return NodeFS.lstatSync(path).isSymbolicLink();
@@ -577,7 +595,7 @@ export function refreshCheckouts(config: DeployConfig, sha: string, log: (line: 
     }
     const branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout;
     const porcelain = git("status", "--porcelain", "--untracked-files=no").stdout;
-    if (!checkoutFastForwardable(branch, config.defaultRef, porcelain)) {
+    if (branch.trim() !== config.defaultRef || porcelain.trim() !== "") {
       log(`checkout-refresh: ${dir} skipped (not on a clean ${config.defaultRef})`);
       continue;
     }

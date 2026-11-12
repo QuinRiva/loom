@@ -65,7 +65,7 @@ import {
 const USAGE = `usage: loom-deploy <verb>
   deploy [ref] [--no-return] [--release <id>] [--wait] [--origin cli|slack|loom] [--who <name>]
   status [--wait] [--json]     what is running and what the last deploy did; writes nothing
-  back                         return to the release before this one, with its database copy
+  back [--wait]                return to the release before this one, with its database copy
   retry                        run a held release again after a fix
   cancel                       stop a deploy that has not asked for the switch yet
   adopt                        make this release the launcher's active version (cut-over, back)
@@ -114,10 +114,24 @@ export interface ServiceControl {
   readonly start: () => Promise<void>;
 }
 
-const systemdService = (config: DeployConfig): ServiceControl => ({
-  stop: async () => void systemctl("stop", config.unit),
-  start: async () => void systemctl("start", config.unit),
-});
+const systemdService = (config: DeployConfig): ServiceControl => {
+  const act = async (verb: "stop" | "start") => {
+    const done = systemctl(verb, config.unit);
+    if (done.code !== 0)
+      throw new Refusal(`systemctl --user ${verb} ${config.unit} failed: ${done.stderr.trim()}`);
+  };
+  return { stop: () => act("stop"), start: () => act("start") };
+};
+
+/** Nothing may write Loom's database or launcher state while anything still serves its port. */
+async function stopLoom(config: DeployConfig, service: ServiceControl) {
+  await service.stop();
+  if (await tcpAccepts(config.port)) {
+    throw new Refusal(
+      `Something still accepts connections on port ${config.port} after stopping ${config.unit}; nothing was written.`,
+    );
+  }
+}
 
 /** A short-lived bearer from this release's own `t3`, never stored. */
 function mintSession(config: DeployConfig, releaseDir: string): string | undefined {
@@ -254,6 +268,17 @@ async function follow(config: DeployConfig, since: string): Promise<number> {
     const engineGone = systemctl("is-active", config.engineUnit).stdout.trim() !== "active";
     if (ours && ENDED_PHASES.includes(status.phase)) return status.phase === "live" ? 0 : 1;
     if (ours && status.noReturn && status.phase === "watching" && status.reason !== null) return 1;
+    const quietFor = ours ? Date.parse(nowIso()) - Date.parse(status.at) : 0;
+    const overdue =
+      status?.phase === "watching"
+        ? Date.parse(nowIso()) > Date.parse(status.watchUntil ?? status.at) + 300_000
+        : quietFor > 600_000;
+    if (ours && engineGone && overdue) {
+      say(
+        `No progress since ${status.at}; loom-deploy status and journalctl --user -u ${config.unit} show why.`,
+      );
+      return 1;
+    }
     if (!ours && engineGone && Date.parse(nowIso()) - Date.parse(since) > 30_000) {
       say("The deploy ended without writing a status (journalctl --user -u loom-deploy).");
       return 1;
@@ -300,18 +325,12 @@ async function engine(config: DeployConfig, releaseDir: string, args: ReadonlyAr
       }
     }
     if (status !== undefined) {
-      appendHistory(config.root, {
-        id: status.id,
-        version: status.version,
-        origin: status.origin,
-        who: status.who,
-        noReturn,
-        startedAt,
+      appendHistory(config.root, status, {
         installedAt,
         switchedAt: null,
-        endedAt: nowIso(),
         outcome: "called-off",
         reason,
+        updateId: null,
       });
     }
     return 1;
@@ -329,7 +348,7 @@ async function engine(config: DeployConfig, releaseDir: string, args: ReadonlyAr
 
   // The newest failed release was kept for inspection until this deploy.
   const failed = Object.values(readManifest(paths.manifest).releases).filter(
-    (r) => r.status === "failed",
+    (r) => r.status === "failed" && r.id !== flags.release,
   );
   for (const record of failed) removeRelease(config, record.id);
   writeJsonAtomic(
@@ -517,7 +536,11 @@ async function engine(config: DeployConfig, releaseDir: string, args: ReadonlyAr
   if (next === undefined)
     return callOff(`${version} is not newer than the running ${state.activeVersion}.`, false);
   say("Loom is down: switching through the launcher's state file.");
-  systemctl("stop", config.unit);
+  const stopped = await stopLoom(config, systemdService(config)).then(
+    () => undefined,
+    (error: Error) => error.message,
+  );
+  if (stopped !== undefined) return callOff(stopped, false);
   await writeServiceState(home.state, next);
   const startedUnit = systemctl("start", config.unit);
   say(
@@ -679,7 +702,8 @@ async function statusVerb(config: DeployConfig, args: ReadonlyArray<string>) {
   return 0;
 }
 
-export async function back(config: DeployConfig, service: ServiceControl = systemdService(config)) {
+/** What `back` would do: the running release, its kept copy and the release before it. */
+function planBack(config: DeployConfig) {
   const state = readState(config);
   if (state === undefined)
     throw new Refusal("The launcher has no readable state; nothing to go back from.");
@@ -701,21 +725,62 @@ export async function back(config: DeployConfig, service: ServiceControl = syste
       `The release before this one, ${copy.fromRelease}, is no longer in the store.`,
     );
   }
+  return { runningVersion, running, runningId, copy, fromRelease: copy.fromRelease, previous };
+}
+
+/**
+ * `back` restarts the Loom an agent's thread runs in, so like `deploy` it runs in the engine's
+ * unit and returns before the stop: a resumed turn is never left holding a half-done `back`.
+ */
+async function backVerb(config: DeployConfig, releaseDir: string, args: ReadonlyArray<string>) {
+  const flags = parseFlags(args);
+  const { runningId, copy, fromRelease } = planBack(config);
+  const started = run("systemd-run", [
+    "--user",
+    `--unit=${config.engineUnit}`,
+    "--collect",
+    "--quiet",
+    `--working-directory=${config.root}`,
+    process.execPath,
+    releasePaths(releaseDir).cli,
+    releaseDir,
+    "back-run",
+  ]);
+  if (started.code !== 0) throw new Refusal(`Could not start back: ${started.stderr.trim()}`);
   say(
-    `Going back from ${runningId} to ${copy.fromRelease}. Work done in Loom since ${copy.at} is lost.`,
+    `Going back from ${runningId} to ${fromRelease} in ${config.engineUnit}.service. Work done in Loom since ${copy.at} is lost.`,
+  );
+  if (!flags.wait) return 0;
+  while (systemctl("is-active", config.engineUnit).stdout.trim() === "active") await sleep(2_000);
+  const done =
+    realpathOr(storePaths(config.root).current) ===
+      realpathOr(NodePath.join(storePaths(config.root).releases, fromRelease)) &&
+    (await answers(config.port));
+  say(
+    done
+      ? `Back on ${fromRelease}.`
+      : `back did not finish: journalctl --user -u ${config.engineUnit}`,
+  );
+  return done ? 0 : 1;
+}
+
+export async function back(config: DeployConfig, service: ServiceControl = systemdService(config)) {
+  const { runningVersion, running, runningId, copy, fromRelease, previous } = planBack(config);
+  say(
+    `Going back from ${runningId} to ${fromRelease}. Work done in Loom since ${copy.at} is lost.`,
   );
   const token = (await answers(config.port)) ? mintSession(config, previous) : undefined;
   const warned =
     token === undefined
       ? undefined
       : await postToLoom(config, token, "/loom/deploy/restarting", {
-          releaseId: copy.fromRelease,
+          releaseId: fromRelease,
           reason: "rollback",
         }).catch(() => undefined);
   say(
     `Restart warning: ${warned === undefined ? "not sent (Loom is not answering)" : `HTTP ${warned.status}`}.`,
   );
-  await service.stop();
+  await stopLoom(config, service);
   restoreCopy(NodePath.join(keptDir(config), copy.updateId), homePaths(config).database);
   // The release returned to records the return itself, so its own launcher code takes over.
   const adopted = NodeChildProcess.spawnSync(
@@ -729,18 +794,17 @@ export async function back(config: DeployConfig, service: ServiceControl = syste
       },
     },
   );
-  if (adopted.status !== 0)
-    throw new Refusal(`adopt in ${copy.fromRelease} failed; Loom is stopped.`);
+  if (adopted.status !== 0) throw new Refusal(`adopt in ${fromRelease} failed; Loom is stopped.`);
   await service.start();
   if (!(await waitAnswering(config, 300))) {
     say(`${config.unit} did not answer within 5 minutes; manifest.json was left as it was.`);
     return 1;
   }
   const paths = storePaths(config.root);
-  writeJsonAtomic(paths.manifest, markCurrent(readManifest(paths.manifest), copy.fromRelease));
+  writeJsonAtomic(paths.manifest, markCurrent(readManifest(paths.manifest), fromRelease));
   if (running !== undefined) atomicLink(paths.previous, running);
   if (config.bridge !== null) systemctl("restart", "--no-block", config.bridge.unit);
-  say(`Back on ${copy.fromRelease}.`);
+  say(`Back on ${fromRelease}.`);
   return 0;
 }
 
@@ -845,19 +909,24 @@ function afterAccept(config: DeployConfig, releaseDir: string) {
   );
   const before = record?.fromRelease && NodePath.join(paths.releases, record.fromRelease);
   if (before && NodeFS.existsSync(before)) atomicLink(paths.previous, before);
-  appendHistory(config.root, {
-    id,
-    version: record?.version ?? releaseVersion(releaseDir) ?? null,
-    origin: record?.origin ?? "cli",
-    who: record?.who ?? null,
-    noReturn: record?.noReturn ?? false,
-    startedAt: record?.startedAt ?? readStatus(config)?.startedAt ?? nowIso(),
-    installedAt: record?.installedAt ?? null,
-    switchedAt: record?.switchedAt ?? null,
-    endedAt: nowIso(),
-    outcome: "live",
-    reason: null,
-  });
+  appendHistory(
+    config.root,
+    {
+      id,
+      version: record?.version ?? releaseVersion(releaseDir) ?? null,
+      origin: record?.origin ?? "cli",
+      who: record?.who ?? null,
+      noReturn: record?.noReturn ?? false,
+      startedAt: record?.startedAt ?? readStatus(config)?.startedAt ?? nowIso(),
+    },
+    {
+      installedAt: record?.installedAt ?? null,
+      switchedAt: record?.switchedAt ?? null,
+      outcome: "live",
+      reason: null,
+      updateId: null,
+    },
+  );
   log(`current ${id}`);
 
   pruneKeptCopies(config);
@@ -901,6 +970,8 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     case "status":
       return statusVerb(config, args);
     case "back":
+      return backVerb(config, releaseDir, args);
+    case "back-run":
       return back(config);
     case "retry":
       return retry(config);
