@@ -56,6 +56,9 @@
         "src/provider/testFixtures/*.mjs",
         // loom: the thread-search ranker eval, run by hand.
         "src/dev/threadSearchEval.loom.ts",
+        // loom: the release runner and loom-deploy, run from source by deploy/runtime/t3 and deploy/loom-deploy.
+        "src/loom/deploy/runner.ts",
+        "src/loom/deploy/cli.ts",
         // graphqlgen reads its config.
         "graphql.config.ts",
       ],

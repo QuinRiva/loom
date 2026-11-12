@@ -1,0 +1,8 @@
+#!/bin/sh
+# The release as upstream's launcher runs it (deploy/README.md): its serve goes to Loom's runner.
+r=$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd -P)
+case "$1" in
+serve) [ -n "$T3_SERVICE_LAUNCHER_CONTEXT" ] && exec node "$r/apps/server/src/loom/deploy/runner.ts" "$r" "$@" ;;
+update | service) echo "t3 $1 would install upstream's T3 Code over Loom; use loom-deploy." >&2 && exit 2 ;;
+esac
+exec node "$r/apps/server/dist/bin.mjs" "$@"

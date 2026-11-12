@@ -1,7 +1,7 @@
 /**
- * The deploy notice (plans/deploy-toasts/plan.mdx §1, loom-slack-bridge repo): deployctl writes
- * `<stateDir>/deploy-notice.json` before it starts a release and POSTs `/loom/deploy/restarting`
- * before it stops one. The file is read once, at startup, since only a restart replaces it.
+ * The deploy notice: the release runner (runner.ts beside this file) writes
+ * `<stateDir>/deploy-notice.json` before it starts a server, and `loom-deploy back` POSTs
+ * `/loom/deploy/restarting` before it stops one. Read once, at startup: only a restart replaces it.
  */
 import {
   type LoomDeployEvent,
