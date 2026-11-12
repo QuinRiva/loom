@@ -84,7 +84,7 @@ const copy = (updateId: string, at: string, fromRelease: string, toRelease: stri
 
 describe("planRetention", () => {
   it("keeps the current, the previous and the newest other release", () => {
-    const plan = planRetention({
+    const removed = planRetention({
       manifest: manifestOf(
         record("r1", "ready"),
         record("r2", "ready"),
@@ -93,14 +93,13 @@ describe("planRetention", () => {
         record("r5", "current"),
       ),
       keepReleases: 3,
-      keepCopies: 3,
       copies: [],
     });
-    expect(plan.releases.toSorted()).toEqual(["r1", "r2"]);
+    expect(removed.toSorted()).toEqual(["r1", "r2"]);
   });
 
-  it("never removes a release a kept copy returns to, and drops copies beyond the newest three", () => {
-    const plan = planRetention({
+  it("never removes a release a kept copy returns to", () => {
+    const removed = planRetention({
       manifest: manifestOf(
         record("r1", "ready"),
         record("r2", "ready"),
@@ -109,20 +108,17 @@ describe("planRetention", () => {
         record("r5", "current"),
       ),
       keepReleases: 3,
-      keepCopies: 3,
       copies: [
-        copy("u1", "2026-11-01T00:00:00Z", "r0", "r1"),
         copy("u2", "2026-11-02T00:00:00Z", "r1", "r2"),
         copy("u4", "2026-11-04T00:00:00Z", "r3", "r4"),
         copy("u5", "2026-11-05T00:00:00Z", "r4", "r5"),
       ],
     });
-    expect(plan.copies).toEqual(["u1"]);
-    expect(plan.releases).toEqual([]);
+    expect(removed).toEqual([]);
   });
 
   it("never removes the current or previous release, however old", () => {
-    const plan = planRetention({
+    const removed = planRetention({
       manifest: manifestOf(
         record("old-current", "current", "2020"),
         record("old-previous", "previous", "2021"),
@@ -130,10 +126,9 @@ describe("planRetention", () => {
         record("n2", "ready", "2026-2"),
       ),
       keepReleases: 3,
-      keepCopies: 3,
       copies: [],
     });
-    expect(plan.releases).toEqual(["n1"]);
+    expect(removed).toEqual(["n1"]);
   });
 });
 

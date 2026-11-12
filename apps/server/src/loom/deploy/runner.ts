@@ -25,9 +25,12 @@ import {
   keptDir,
   type KeptCopy,
   type LoomDeployStatus,
+  isoAt,
   nowIso,
+  pruneKeptCopies,
   readConfig,
   readJson,
+  readManifest,
   readRecord,
   readStatus,
   realpathOr,
@@ -37,6 +40,7 @@ import {
   storeOfRelease,
   storePaths,
   systemctl,
+  withRelease,
   writeJsonAtomic,
   writeNotice,
   writeStatus,
@@ -173,6 +177,15 @@ function reportReturn(outcome: ServiceUpdateRecord) {
     outcome: manual ? "back" : "put-back",
     reason,
   });
+  const manifest = readManifest(storePaths(store).manifest);
+  const failed = manifest.releases[leftId];
+  if (!manual && failed !== undefined && failed.status === "ready") {
+    writeJsonAtomic(
+      storePaths(store).manifest,
+      withRelease(manifest, { ...failed, status: "failed" }),
+    );
+  }
+  pruneKeptCopies(config);
 }
 
 let told = pending === undefined;
@@ -288,7 +301,7 @@ function startWatch() {
   watching = true;
   report({
     phase: "watching",
-    watchUntil: new Date(started + watchMs).toISOString(),
+    watchUntil: isoAt(started + watchMs),
     reason: null,
   });
   const tick = async () => {

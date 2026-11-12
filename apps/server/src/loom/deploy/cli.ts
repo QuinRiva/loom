@@ -38,6 +38,7 @@ import {
   nextVersion,
   nowIso,
   planRetention,
+  pruneKeptCopies,
   readConfig,
   readHistory,
   readJson,
@@ -828,16 +829,14 @@ function afterAccept(config: DeployConfig, releaseDir: string) {
     ? NodePath.join(paths.releases, record.fromRelease)
     : undefined;
   if (before !== undefined && NodeFS.existsSync(before)) atomicLink(paths.previous, before);
-  const plan = planRetention({
+  pruneKeptCopies(config);
+  const removed = planRetention({
     manifest,
     keepReleases: config.keepReleases,
-    keepCopies: config.keepCopies,
     copies: listKeptCopies(config),
   });
-  for (const gone of plan.releases) removeRelease(config, gone);
-  for (const gone of plan.copies)
-    NodeFS.rmSync(NodePath.join(keptDir(config), gone), { recursive: true, force: true });
-  writeJsonAtomic(paths.manifest, withoutReleases(manifest, plan.releases));
+  for (const gone of removed) removeRelease(config, gone);
+  writeJsonAtomic(paths.manifest, withoutReleases(manifest, removed));
   run("git", ["-C", paths.mirror, "worktree", "prune"]);
   const state = readState(config);
   const versions = homePaths(config).versions;
@@ -852,9 +851,7 @@ function afterAccept(config: DeployConfig, releaseDir: string) {
       NodeFS.unlinkSync(link);
     }
   }
-  log(
-    `current ${id}; removed ${plan.releases.length} releases and ${plan.copies.length} kept copies`,
-  );
+  log(`current ${id}; removed ${removed.length === 0 ? "no releases" : removed.join(", ")}`);
   installPiSkills(config, log);
   refreshCheckouts(config, record?.sha ?? releaseSha(config.root, releaseDir), log);
   const status = readStatus(config);

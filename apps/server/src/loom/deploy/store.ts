@@ -159,7 +159,8 @@ export function realpathOr(path: string): string {
   }
 }
 
-export const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+export const isoAt = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+export const nowIso = () => isoAt(Date.now());
 
 export function run(command: string, args: ReadonlyArray<string>, cwd?: string) {
   const result = NodeChildProcess.spawnSync(command, args, {
@@ -288,20 +289,24 @@ export function listKeptCopies(config: DeployConfig): ReadonlyArray<KeptCopy> {
     .toSorted((left, right) => right.at.localeCompare(left.at));
 }
 
+/** Kept copies beyond the newest `keepCopies` go, after every accept and every return. */
+export function pruneKeptCopies(config: DeployConfig): void {
+  for (const copy of listKeptCopies(config).slice(config.keepCopies)) {
+    NodeFS.rmSync(NodePath.join(keptDir(config), copy.updateId), { recursive: true, force: true });
+  }
+}
+
 /**
- * What after-accept removes: release folders beyond the current, the previous and the newest
- * other, keeping any release a kept copy returns to; kept copies beyond the newest `keepCopies`.
+ * The release folders after-accept removes: all but the current, the previous and the newest
+ * other, keeping any release a kept copy returns to.
  */
 export function planRetention(input: {
   readonly manifest: Manifest;
   readonly keepReleases: number;
-  readonly keepCopies: number;
   readonly copies: ReadonlyArray<KeptCopy>;
-}): { readonly releases: ReadonlyArray<string>; readonly copies: ReadonlyArray<string> } {
-  const kept = input.copies.toSorted((left, right) => right.at.localeCompare(left.at));
-  const copies = kept.slice(input.keepCopies).map((copy) => copy.updateId);
+}): ReadonlyArray<string> {
   const protectedIds = new Set(
-    kept.slice(0, input.keepCopies).flatMap((copy) => [copy.fromRelease ?? "", copy.toRelease]),
+    input.copies.flatMap((copy) => [copy.fromRelease ?? "", copy.toRelease]),
   );
   const records = Object.values(input.manifest.releases).filter(
     (record) => record.status !== "failed",
@@ -315,10 +320,7 @@ export function planRetention(input: {
     ...pinned,
     ...others.slice(0, Math.max(0, input.keepReleases - pinned.length)),
   ]);
-  return {
-    releases: others.filter((id) => !keep.has(id) && !protectedIds.has(id)),
-    copies,
-  };
+  return others.filter((id) => !keep.has(id) && !protectedIds.has(id));
 }
 
 // Phase 2 moves this shape into packages/contracts as a schema and imports the type from there.
@@ -437,7 +439,10 @@ export function estimateStopAt(
   startedAt: string,
   installedAt?: string,
 ): string {
-  const recent = history.filter((line) => line.switchedAt !== null).slice(-10);
+  // Only deploys that built count; one of a release already built would shorten the estimate.
+  const recent = history
+    .filter((line) => line.switchedAt !== null && line.installedAt !== null)
+    .slice(-10);
   const seconds = (from: string | null, to: string | null) =>
     from === null || to === null ? [] : [(Date.parse(to) - Date.parse(from)) / 1000];
   const remaining = recent.flatMap((line) => seconds(line.installedAt, line.switchedAt));
