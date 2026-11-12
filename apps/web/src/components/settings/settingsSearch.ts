@@ -70,6 +70,7 @@ export interface SettingsSearchItem {
   readonly peerLinksOnly?: boolean;
   readonly secondary?: boolean;
   readonly requiresThreadAutoSettlement?: boolean;
+  readonly loomDeployOnly?: boolean; // loom: deploy row
 }
 
 export interface SettingsSearchAvailability {
@@ -82,6 +83,7 @@ export interface SettingsSearchAvailability {
   readonly hasThreadAutoSettlement: boolean;
   readonly managedTunnelActive?: boolean;
   readonly hasPeerLinkHost?: boolean;
+  readonly canDeployLoom?: boolean; // loom: deploy row
 }
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
@@ -713,7 +715,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Deploy Loom",
     to: "/settings/maintenance",
     searchTerms: ["deploy release restart update build main loom"],
-    environmentOnly: true,
+    loomDeployOnly: true,
   },
   {
     id: "provider-update-checks",
@@ -1452,7 +1454,8 @@ export function filterAvailableSettingsSearchItems(
       (!item.wslAvailableOnly || availability.isWslSettingsRowVisible) &&
       (!item.requiresThreadAutoSettlement || availability.hasThreadAutoSettlement) &&
       (!item.managedTunnelOnly || availability.managedTunnelActive === true) &&
-      (!item.peerLinksOnly || availability.hasPeerLinkHost === true),
+      (!item.peerLinksOnly || availability.hasPeerLinkHost === true) &&
+      (!item.loomDeployOnly || availability.canDeployLoom === true), // loom: deploy row
   );
 }
 

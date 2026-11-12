@@ -1,9 +1,11 @@
+import { useAtomValue } from "@effect/atom-react"; // loom: deploy row
 import { AuthEnvironmentMaintainScope } from "@t3tools/contracts";
 
 import { usePrimaryCloudLinkState } from "~/cloud/cloudLinkState";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { isElectron } from "~/env";
 import { isLocalEnvironmentDisabled } from "~/localEnvironment";
+import { deployableEnvironmentIdsAtom } from "~/loom/LoomDeployRow"; // loom: deploy row
 import { desktopWslStateAtom } from "~/state/desktopWslState";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { usePeerLinkHosts } from "~/state/peerLinks";
@@ -33,6 +35,7 @@ export function useAvailableSettingsSearchItems() {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const canMaintain = useEnvironmentScope(primaryEnvironmentId, AuthEnvironmentMaintainScope);
   const hasPeerLinkHost = usePeerLinkHosts().length > 0;
+  const canDeployLoom = useAtomValue(deployableEnvironmentIdsAtom).length > 0; // loom: deploy row
   const cloudLinkState = usePrimaryCloudLinkState().data;
   // Same fallback as the Connections row: older servers imply a tunnel from `linked`.
   const managedTunnelActive =
@@ -57,5 +60,6 @@ export function useAvailableSettingsSearchItems() {
     hasThreadAutoSettlement,
     managedTunnelActive,
     hasPeerLinkHost,
+    canDeployLoom, // loom: deploy row
   });
 }
