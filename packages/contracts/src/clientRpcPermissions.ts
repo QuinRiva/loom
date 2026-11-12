@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 import { GitPreparePullRequestThreadInput, GitRunStackedActionInput } from "./git.ts";
 import {
   AuthAccessWriteScope,
+  AuthEnvironmentMaintainScope, // loom
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthPreviewOperateScope,
@@ -76,6 +77,9 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   // loom: the hub login dialog signs an account in on the environment's hub.
   [LOOM_WS_METHODS.usageLimitSourceLoginStart]: AuthProvidersManageScope,
   [LOOM_WS_METHODS.usageLimitSourceLoginFinish]: AuthProvidersManageScope,
+  // loom: a deploy restarts this server, as upstream's server update does.
+  [LOOM_WS_METHODS.startDeploy]: AuthEnvironmentMaintainScope,
+  [LOOM_WS_METHODS.cancelDeploy]: AuthEnvironmentMaintainScope,
 } as const;
 export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;
 

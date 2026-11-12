@@ -190,6 +190,7 @@ import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import {
   LoomAgentHttpLive,
   LoomControlPlaneLive,
+  LoomDeployLive,
   LoomGoalBroadcastLive,
   LoomProviderHealthLive,
   LoomProviderRuntimeLive,
@@ -860,6 +861,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(CloudSpeech.layer.pipe(Layer.provide(SecretResolver.layer))),
   Layer.provide(layerServerSettings),
   Layer.provide(PreviewAutomationBroker.layer),
+  Layer.provide(LoomDeployLive), // loom: the ws deploy methods and /loom/deploy/*, over ServerSelfUpdate
   Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(layerDesktopAppUpdate))),
   Layer.provide(layerCommandReadiness),
   Layer.provide(ServerHttp.layerBrowserApiCors),

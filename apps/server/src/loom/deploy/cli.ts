@@ -156,7 +156,8 @@ async function postToLoom(config: DeployConfig, token: string, route: string, bo
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30_000),
+    // Upstream's request runs the staged release's preflight for up to 3 minutes before it answers.
+    signal: AbortSignal.timeout(300_000),
   });
 }
 
@@ -337,7 +338,7 @@ async function engine(config: DeployConfig, releaseDir: string, args: ReadonlyAr
   };
   process.on("SIGTERM", () => {
     child?.kill("SIGTERM");
-    process.exit(callOff("Cancelled with loom-deploy cancel.", true));
+    process.exit(callOff("Cancelled before the switch.", true));
   });
   const step = (command: string, stepArgs: ReadonlyArray<string>, cwd: string, env = buildEnv) =>
     new Promise<number>((resolve) => {
@@ -840,7 +841,7 @@ function cancel(config: DeployConfig) {
     writeStatus(config, {
       ...status,
       phase: "called-off",
-      reason: "Cancelled with loom-deploy cancel.",
+      reason: "Cancelled before the switch.",
     });
   say(`Cancelled ${status.id}; Loom was not stopped.`);
   return 0;

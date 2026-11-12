@@ -8,7 +8,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
-import type { LoomDeployChange, LoomDeployNotice } from "@t3tools/contracts";
+import type { LoomDeployChange, LoomDeployNotice, LoomDeployStatus } from "@t3tools/contracts";
 
 import { SERVICE_STATE_FILE } from "../../cloud/serviceProtocol.ts";
 
@@ -323,35 +323,15 @@ export function planRetention(input: {
   return others.filter((id) => !keep.has(id) && !protectedIds.has(id));
 }
 
-// Phase 2 moves this shape into packages/contracts as a schema and imports the type from there.
-export type DeployPhase =
-  | "building"
-  | "checking"
-  | "switching"
-  | "watching"
-  | "live"
-  | "put-back"
-  | "held"
-  | "called-off";
-export type DeployOrigin = "loom" | "cli" | "slack";
+export type { LoomDeployStatus };
+export type DeployOrigin = LoomDeployStatus["origin"];
 
-export interface LoomDeployStatus {
-  readonly id: string;
-  readonly sha: string;
-  readonly version: string | null;
-  readonly phase: DeployPhase;
-  readonly origin: DeployOrigin;
-  readonly who: string | null;
-  readonly noReturn: boolean;
-  readonly startedAt: string;
-  readonly stopAt: string | null;
-  readonly watchUntil: string | null;
-  readonly reason: string | null;
-  readonly bridge: "connected" | "fault" | null;
-  readonly at: string;
-}
-
-export const ENDED_PHASES: ReadonlyArray<DeployPhase> = ["live", "put-back", "held", "called-off"];
+export const ENDED_PHASES: ReadonlyArray<LoomDeployStatus["phase"]> = [
+  "live",
+  "put-back",
+  "held",
+  "called-off",
+];
 
 export const readStatus = (config: DeployConfig) =>
   readJson<LoomDeployStatus>(homePaths(config).status);

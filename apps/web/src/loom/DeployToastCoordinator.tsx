@@ -52,6 +52,7 @@ function EnvironmentDeployToasts({ environmentId }: { environmentId: Environment
       toastManager.add(restartingToast(event));
       return;
     }
+    if (event.type !== "notice") return;
     if (!claimDeployNotice(window.localStorage, environmentId, event.notice, Date.now())) return;
     const open: OpenThread = (threadId) =>
       void navigate({

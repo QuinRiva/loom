@@ -32,18 +32,20 @@ import {
   type UsageLimitSourceLoginFinishInput,
   type UsageLimitSourceLoginStartInput,
 } from "@t3tools/contracts";
+import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import type * as Path from "effect/Path";
 import * as Struct from "effect/Struct";
 
+import type { AuthenticatedSession } from "../auth/EnvironmentAuth.ts";
 import { ServerConfig } from "../config.ts";
 import { OrchestratorV2 } from "../orchestration-v2/Orchestrator.ts";
 import type { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
 import type { WorkspaceFileSystem } from "../workspace/WorkspaceFileSystem.ts";
 import { contextUsageReport } from "./context-viz/contextUsageReport.ts";
-import { LoomDeployNotices } from "./deploy/LoomDeployNotices.ts";
+import * as LoomDeploy from "./deploy/LoomDeploy.ts";
 import { lookupDocumentQueryAuthor } from "./query/documentAuthor.ts";
 import { askDocumentQuery, promoteDocumentQuery } from "./query/documentQuery.ts";
 import { LoomUsageLedger } from "./economics/LoomUsageLedger.ts";
@@ -124,6 +126,11 @@ const flattenTree = (
     ];
   });
 
+/** The connection's session, which `ws.ts` provides per connection for methods acting as the caller. */
+export class LoomWsSession extends Context.Service<LoomWsSession, AuthenticatedSession>()(
+  "t3/loom/wsMethods/LoomWsSession",
+) {}
+
 export const makeLoomWsHandlers = Effect.gen(function* () {
   const loomStore = yield* LoomStoreV2;
   const broadcast = yield* LoomGoalBroadcast;
@@ -133,7 +140,8 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
   const usageLimitSources = yield* UsageLimitSources;
   const reviewSnapshots = yield* ReviewSnapshotService;
   const orchestrator = yield* OrchestratorV2;
-  const deployNotices = yield* LoomDeployNotices;
+  const deploy = yield* LoomDeploy.LoomDeploy;
+  const session = yield* LoomWsSession;
   const draftServices = yield* Effect.context<
     OrchestratorV2 | LoomStoreV2 | SecureRandom.SecureRandom
   >();
@@ -311,8 +319,22 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
           fail(LOOM_WS_METHODS.contextUsage, `${LOOM_WS_METHODS.contextUsage} failed.`, cause),
         ),
       ),
-    // Deploy toasts: the startup notice, then each restart warning deployctl posts.
-    [LOOM_WS_METHODS.subscribeDeploy]: () => deployNotices.events,
+    // Loom deploys: the Deploy control, the toasts and every client's view of the stage.
+    [LOOM_WS_METHODS.subscribeDeploy]: () => deploy.events,
+    [LOOM_WS_METHODS.startDeploy]: () =>
+      deploy.start(session.sessionId).pipe(
+        Effect.catchTags({
+          LoomDeployRefusal: (cause) =>
+            Effect.fail(fail(LOOM_WS_METHODS.startDeploy, cause.reason, cause)),
+        }),
+      ),
+    [LOOM_WS_METHODS.cancelDeploy]: () =>
+      deploy.cancel.pipe(
+        Effect.catchTags({
+          LoomDeployRefusal: (cause) =>
+            Effect.fail(fail(LOOM_WS_METHODS.cancelDeploy, cause.reason, cause)),
+        }),
+      ),
   };
 });
 
