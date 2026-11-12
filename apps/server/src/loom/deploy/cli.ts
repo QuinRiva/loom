@@ -826,34 +826,56 @@ async function adopt(config: DeployConfig, releaseDir: string, args: ReadonlyArr
   return 0;
 }
 
+/** Records first and prunes last: a service stop that kills this half way only leaves pruning. */
 function afterAccept(config: DeployConfig, releaseDir: string) {
   const log = (line: string) => say(`[after-accept] ${line}`);
   const paths = storePaths(config.root);
   const id = NodePath.basename(releaseDir);
   const record = readRecord(releaseDir);
-  let manifest = readManifest(paths.manifest);
-  if (manifest.releases[id] === undefined) {
-    const sha = releaseSha(config.root, releaseDir);
-    manifest = withRelease(manifest, { id, ref: "", sha, builtAt: nowIso(), status: "ready" });
-  }
-  manifest = markCurrent(manifest, id);
-  const before = record?.fromRelease
-    ? NodePath.join(paths.releases, record.fromRelease)
-    : undefined;
-  if (before !== undefined && NodeFS.existsSync(before)) atomicLink(paths.previous, before);
+  const sha = record?.sha ?? releaseSha(config.root, releaseDir);
+  const manifest = readManifest(paths.manifest);
+  writeJsonAtomic(
+    paths.manifest,
+    markCurrent(
+      manifest.releases[id] === undefined
+        ? withRelease(manifest, { id, ref: "", sha, builtAt: nowIso(), status: "ready" })
+        : manifest,
+      id,
+    ),
+  );
+  const before = record?.fromRelease && NodePath.join(paths.releases, record.fromRelease);
+  if (before && NodeFS.existsSync(before)) atomicLink(paths.previous, before);
+  appendHistory(config.root, {
+    id,
+    version: record?.version ?? releaseVersion(releaseDir) ?? null,
+    origin: record?.origin ?? "cli",
+    who: record?.who ?? null,
+    noReturn: record?.noReturn ?? false,
+    startedAt: record?.startedAt ?? readStatus(config)?.startedAt ?? nowIso(),
+    installedAt: record?.installedAt ?? null,
+    switchedAt: record?.switchedAt ?? null,
+    endedAt: nowIso(),
+    outcome: "live",
+    reason: null,
+  });
+  log(`current ${id}`);
+
   pruneKeptCopies(config);
   const removed = planRetention({
-    manifest,
+    manifest: readManifest(paths.manifest),
     keepReleases: config.keepReleases,
     copies: listKeptCopies(config),
   });
-  for (const gone of removed) removeRelease(config, gone);
-  writeJsonAtomic(paths.manifest, withoutReleases(manifest, removed));
+  for (const gone of removed) {
+    removeRelease(config, gone);
+    writeJsonAtomic(paths.manifest, withoutReleases(readManifest(paths.manifest), [gone]));
+    log(`removed ${gone}`);
+  }
   run("git", ["-C", paths.mirror, "worktree", "prune"]);
   const state = readState(config);
+  const inUse = [state?.activeVersion, state?.update?.fromVersion, state?.update?.targetVersion];
   const versions = homePaths(config).versions;
   for (const name of NodeFS.existsSync(versions) ? NodeFS.readdirSync(versions) : []) {
-    const inUse = [state?.activeVersion, state?.update?.fromVersion, state?.update?.targetVersion];
     const link = NodePath.join(versions, name);
     if (
       !inUse.includes(name) &&
@@ -863,23 +885,8 @@ function afterAccept(config: DeployConfig, releaseDir: string) {
       NodeFS.unlinkSync(link);
     }
   }
-  log(`current ${id}; removed ${removed.length === 0 ? "no releases" : removed.join(", ")}`);
   installPiSkills(config, log);
-  refreshCheckouts(config, record?.sha ?? releaseSha(config.root, releaseDir), log);
-  const status = readStatus(config);
-  appendHistory(config.root, {
-    id,
-    version: record?.version ?? releaseVersion(releaseDir) ?? null,
-    origin: record?.origin ?? "cli",
-    who: record?.who ?? null,
-    noReturn: record?.noReturn ?? false,
-    startedAt: record?.startedAt ?? status?.startedAt ?? nowIso(),
-    installedAt: record?.installedAt ?? null,
-    switchedAt: record?.switchedAt ?? null,
-    endedAt: nowIso(),
-    outcome: "live",
-    reason: null,
-  });
+  refreshCheckouts(config, sha, log);
   return 0;
 }
 
