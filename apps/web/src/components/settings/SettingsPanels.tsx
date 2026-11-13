@@ -84,6 +84,7 @@ import {
   LoomAutoOpenSettingsRows,
   loomAutoOpenChangedLabels,
 } from "../../loom/LoomAutoOpenSettingsRows";
+import { LoomDeployRows } from "../../loom/LoomDeployRow"; // loom: deploy row
 import { ScopedSwitch } from "./ScopedSwitch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -1940,6 +1941,7 @@ export function MaintenanceSettingsPanel() {
   return (
     <SettingsPageContainer>
       <SettingsSection id="updates" title="Updates">
+        <LoomDeployRows environmentIds={scope.environmentIds} /> {/* loom: deploy row */}
         <SettingsRow
           serverScoped
           settingKeys={["enableProviderUpdateChecks"]}

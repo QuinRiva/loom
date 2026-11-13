@@ -31,7 +31,7 @@ import {
   EmergentGoalsLive,
 } from "./orchestration/EmergentGoalReactor.ts";
 import { WorkstreamLivenessSweepLive } from "./orchestration/liveness/WorkstreamLivenessSweep.ts";
-import * as LoomDeployNotices from "./deploy/LoomDeployNotices.ts";
+import * as LoomDeploy from "./deploy/LoomDeploy.ts";
 import * as LoomCacheBroadcast from "./projection/LoomCacheBroadcast.ts";
 import * as LoomGoalBroadcast from "./projection/LoomGoalBroadcast.ts";
 import * as LoomStore from "./projection/LoomStore.ts";
@@ -126,8 +126,7 @@ export const LoomProviderHealthLive = LoomPiAdapterHooksLive.pipe(
 /**
  * Loom's sidecar store, goal broadcast and cascade reactor for `ws.ts` and the handlers; also
  * `consult_thread`'s fork transport, the emergent-goal deriver, the `goal_handoff` duplicate
- * checker's model, the writer persisting cache touches, and the deploy notice the ws handlers and
- * `/loom/deploy/restarting` share.
+ * checker's model, and the writer persisting cache touches.
  */
 export const LoomGoalBroadcastLive = EmergentGoalsLive.pipe(
   Layer.provide(EmergentGoalGeneratorPiLive),
@@ -137,7 +136,6 @@ export const LoomGoalBroadcastLive = EmergentGoalsLive.pipe(
       LoomThreadConsult.layer,
       LoomCacheBroadcast.touchWriterLive,
       HandoffDuplicateJudgePiLive,
-      LoomDeployNotices.layer,
     ),
   ),
   Layer.provideMerge(LoomStore.layer),
@@ -176,3 +174,9 @@ export const LoomSessionComposerLive = LoomSessionComposerRealLive;
  * HTTP routes in `server.ts` (the router exists only there).
  */
 export const LoomAgentHttpLive = Layer.mergeAll(LoomAgentRoutesLive, LoomAskReactorLive);
+
+/**
+ * Loom deploys (plans/loom-deploy-redesign/plan.mdx §4.1), shared by the ws handlers and the
+ * `/loom/deploy/*` routes. Provided beside the routes, where upstream's `ServerSelfUpdate` is.
+ */
+export const LoomDeployLive = LoomDeploy.layer;

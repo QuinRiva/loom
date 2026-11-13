@@ -74,11 +74,13 @@ import {
   MonitorIcon,
   PinIcon,
   PinOffIcon,
+  RocketIcon, // loom:
   SquarePenIcon,
   TextSearchIcon,
   UserPlusIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
+import { confirmDeploy, deployableEnvironmentIdsAtom } from "../loom/LoomDeployRow"; // loom: deploy
 import {
   useDeferredValue,
   useEffect,
@@ -504,6 +506,7 @@ function OpenCommandPaletteDialog(props: {
   // Side chats and subagents open inside their parent, so opening a project never lands on one.
   const threads = useVisibleThreadShells().filter((thread) => !isSidebarHiddenThread(thread));
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const deployableEnvironmentIds = useAtomValue(deployableEnvironmentIdsAtom); // loom: deploy
   const providersByEnvironment = useEnvironmentProviders();
   const { changeThemeItem, changeAppearanceItem, themeEditorItem } = useCommandPaletteThemeItems();
   const currentView = viewStack.at(-1)?.view ?? null;
@@ -1620,6 +1623,17 @@ function OpenCommandPaletteDialog(props: {
       dismissAllToasts();
     },
   });
+  // loom: deploy, the same confirmation as the Settings row (plans/loom-deploy-redesign §4.4)
+  for (const environmentId of deployableEnvironmentIds) {
+    actionItems.push({
+      kind: "action",
+      value: `action:loom-deploy:${environmentId}`,
+      searchTerms: ["deploy", "release", "restart", "update", "loom"],
+      title: "Deploy Loom",
+      icon: <RocketIcon className={ITEM_ICON_CLASS} />,
+      run: () => confirmDeploy(environmentId),
+    });
+  }
   for (const direction of [1, -1] as const) {
     const title = direction === 1 ? "Focus Next Workspace Area" : "Focus Previous Workspace Area";
     actionItems.push({

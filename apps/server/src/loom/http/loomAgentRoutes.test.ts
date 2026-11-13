@@ -48,7 +48,7 @@ import {
   LoomCacheBroadcast,
   layer as LoomCacheBroadcastLayer,
 } from "../projection/LoomCacheBroadcast.ts";
-import { LoomDeployNotices } from "../deploy/LoomDeployNotices.ts";
+import { LoomDeploy } from "../deploy/LoomDeploy.ts";
 import { documentQueryClient } from "../query/queryPosture.ts";
 import { reactToAskEvent } from "../userInput/askUserQuestion.ts";
 import { LoomAgentRoutesLive } from "./loomAgentRoutes.ts";
@@ -57,13 +57,16 @@ const ASK = "mcp__t3-code__ask_user_question";
 const NOTIFY = "mcp__t3-code__notify_thread";
 
 /** Restart warnings land on a queue the test reads back as the event stream. */
-const DeployNoticesTestLayer = Layer.effect(
-  LoomDeployNotices,
-  Effect.map(Queue.unbounded<LoomDeployEvent>(), (queue) => ({
-    restarting: (releaseId: string, reason: LoomDeployRestartReason) =>
-      Queue.offer(queue, { type: "restarting", at: "now", reason, releaseId }).pipe(Effect.asVoid),
-    events: Stream.fromQueue(queue),
-  })),
+const DeployTestLayer = Layer.unwrap(
+  Effect.map(Queue.unbounded<LoomDeployEvent>(), (queue) =>
+    Layer.mock(LoomDeploy)({
+      restarting: (releaseId: string, reason: LoomDeployRestartReason) =>
+        Queue.offer(queue, { type: "restarting", at: "now", reason, releaseId }).pipe(
+          Effect.asVoid,
+        ),
+      events: Stream.fromQueue(queue),
+    }),
+  ),
 );
 
 /** `Bearer operate` and `Bearer read` are sessions with that scope; anything else is no credential. */
@@ -92,7 +95,7 @@ const TestLayer = HttpRouter.serve(LoomAgentRoutesLive, {
     Layer.mergeAll(
       McpSessionRegistry.layer,
       LoomCacheBroadcastLayer,
-      DeployNoticesTestLayer,
+      DeployTestLayer,
       EnvironmentAuthTestLayer,
     ),
   ),
@@ -483,7 +486,7 @@ it.layer(TestLayer)("Loom agent routes", (it) => {
       assert.equal(yield* post("Bearer read", body), 403);
       assert.equal(yield* post("Bearer operate", { releaseId: "x", reason: "reboot" }), 400);
       assert.equal(yield* post("Bearer operate", body), 204);
-      const event = yield* Stream.runHead((yield* LoomDeployNotices).events);
+      const event = yield* Stream.runHead((yield* LoomDeploy).events);
       assert.deepStrictEqual(Option.getOrThrow(event), { type: "restarting", at: "now", ...body });
     }),
   );

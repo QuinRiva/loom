@@ -77,8 +77,11 @@ export const LOOM_WS_METHODS = {
   reviewIntervals: "loom.review.intervals",
   reviewDiff: "loom.review.diff",
   reviewFileContents: "loom.review.fileContents",
-  // Deploy toasts (plans/deploy-toasts/plan.mdx in loom-slack-bridge): the notice, then restarts.
+  // Loom deploys (plans/loom-deploy-redesign/plan.mdx §4): the Deploy control and every client's
+  // view of a deploy's stage, beside the startup notice and the restart warning.
   subscribeDeploy: "loom.subscribeDeploy",
+  startDeploy: "loom.startDeploy",
+  cancelDeploy: "loom.cancelDeploy",
   // Context-viz experiment (plans/context-viz-experiment/plan.mdx §2.3): a pi thread's window, read from its jsonl.
   contextUsage: "loom.contextUsage",
 } as const;
@@ -414,7 +417,7 @@ export type LoomDeployChange = typeof LoomDeployChange.Type;
 const LoomDeployRelease = Schema.Struct({ id: Schema.String, sha: Schema.String });
 
 /**
- * `<stateDir>/deploy-notice.json`, written by deployctl before it starts a release; `id` is the
+ * `<stateDir>/deploy-notice.json`, written by the release runner before it starts a server; `id` is the
  * browser's once-only key. `reason`, `restored` and `lostSince` are set only on a rollback.
  */
 export const LoomDeployNotice = Schema.Struct({
@@ -433,8 +436,53 @@ export type LoomDeployNotice = typeof LoomDeployNotice.Type;
 export const LoomDeployRestartReason = Schema.Literals(["deploy", "rollback", "restart"]);
 export type LoomDeployRestartReason = typeof LoomDeployRestartReason.Type;
 
-/** `loom.subscribeDeploy`: the current notice first (when there is one), then each restart warning. */
+/**
+ * `<stateDir>/deploy-status.json`: the stage of the current or last deploy, written by `loom-deploy`'s
+ * engine before the switch and by the release runner after it. A release re-run by `retry` reports
+ * `switching`; a no-return deploy whose watch failed with Loom still up stays `watching` with `reason`.
+ */
+export const LoomDeployStatus = Schema.Struct({
+  id: Schema.String,
+  sha: Schema.String,
+  version: Schema.NullOr(Schema.String),
+  phase: Schema.Literals([
+    "building",
+    "checking",
+    "switching",
+    "watching",
+    "live",
+    "put-back",
+    "held",
+    "called-off",
+  ]),
+  origin: Schema.Literals(["loom", "cli", "slack"]),
+  /** Device label, Unix user and thread id, or Slack sender. */
+  who: Schema.NullOr(Schema.String),
+  noReturn: Schema.Boolean,
+  startedAt: IsoDateTime,
+  /** The estimate of when Loom goes down. */
+  stopAt: Schema.NullOr(IsoDateTime),
+  watchUntil: Schema.NullOr(IsoDateTime),
+  /** Plain words: why it was called off, put back or held. */
+  reason: Schema.NullOr(Schema.String),
+  bridge: Schema.NullOr(Schema.Literals(["connected", "fault"])),
+  at: IsoDateTime,
+});
+export type LoomDeployStatus = typeof LoomDeployStatus.Type;
+
+/**
+ * `loom.subscribeDeploy`: `available` first on a server that can deploy itself, then the startup
+ * notice (when there is one), the status (when it changed in the last 24 hours), then each restart
+ * warning and status change.
+ */
 export const LoomDeployEvent = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("available"),
+    release: LoomDeployRelease,
+    /** The median start-to-stop of recent deploys: Loom goes down this long after Deploy. */
+    stopAfterSeconds: Schema.Number,
+  }),
+  Schema.Struct({ type: Schema.Literal("status"), status: LoomDeployStatus }),
   Schema.Struct({ type: Schema.Literal("notice"), notice: LoomDeployNotice }),
   Schema.Struct({
     type: Schema.Literal("restarting"),
@@ -540,6 +588,9 @@ export const LoomWsRpcs = [
     error: LoomWsError,
     stream: true,
   }),
+  // No input: the control deploys the default branch and never carries --no-return.
+  Rpc.make(LOOM_WS_METHODS.startDeploy, { payload: Schema.Struct({}), error: LoomWsError }),
+  Rpc.make(LOOM_WS_METHODS.cancelDeploy, { payload: Schema.Struct({}), error: LoomWsError }),
   // The hub's own error text reaches the dialog, so these fail with the source's error.
   Rpc.make(LOOM_WS_METHODS.usageLimitSourceLoginStart, {
     payload: UsageLimitSourceLoginStartInput,

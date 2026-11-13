@@ -1,0 +1,4 @@
+#!/bin/sh
+# Loom's deploy command (deploy/README.md), run from the release it sits in.
+r=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd -P)
+exec node "$r/apps/server/src/loom/deploy/cli.ts" "$r" "$@"

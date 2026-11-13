@@ -277,7 +277,8 @@ import type { UsageLimitSourceSnapshot } from "@t3tools/contracts";
 import { overlayProviderExhaustion } from "./provider/providerExhaustionOverlay.ts";
 import { loadProjectReferenceLinks } from "./loom/referenceLinks.ts";
 import { loomShellGoals } from "./loom/projection/LoomGoalBroadcast.ts"; // loom: DL-200
-import { makeLoomWsHandlers } from "./loom/wsMethods.ts"; // loom: 3d-3 — seam 21
+import { LoomWsSession, makeLoomWsHandlers } from "./loom/wsMethods.ts"; // loom: 3d-3 — seam 21
+import { LoomDeploy } from "./loom/deploy/LoomDeploy.ts"; // loom: the deploy ws methods
 import * as RelayClient from "@t3tools/shared/relayClient";
 import {
   SOCKET_FRAME_PARTS_QUERY_PARAM,
@@ -3618,6 +3619,7 @@ export const layer = Layer.unwrap(
   Effect.gen(function* () {
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
+    const loomDeploy = yield* LoomDeploy; // loom: provided beside ServerSelfUpdate
     const npmRelease = yield* NpmRelease.NpmRelease;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
@@ -3693,7 +3695,13 @@ export const layer = Layer.unwrap(
               reportProfiles,
               readSettingsClient(url.value),
             ).pipe(
-              Layer.merge(layerLoomWsRpc), // loom: seam 21 Loom ws methods (loom/wsMethods.ts)
+              // loom: seam 21 Loom ws methods (loom/wsMethods.ts), with the connection's session
+              Layer.merge(
+                layerLoomWsRpc.pipe(
+                  Layer.provide(Layer.succeed(LoomWsSession, session)),
+                  Layer.provide(Layer.succeed(LoomDeploy, loomDeploy)),
+                ),
+              ),
               Layer.provideMerge(RpcSerialization.layerJson),
               // Handler-context reporters see only request defects, not server-wide defects.
               Layer.provide(DefectReporter.layer),

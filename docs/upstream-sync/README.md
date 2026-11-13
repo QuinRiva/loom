@@ -37,5 +37,10 @@ by number (`DL-1404`), never by path. Markdown here is excluded from `vp fmt`,
 which would pad every table column to its widest cell; keep table cells
 unpadded (`| a | b |`).
 
+A pull that touches `apps/server/src/serviceLauncher.ts`, `cloud/serviceProtocol.ts`,
+`cloud/selfUpdate.ts` or `cloud/pinnedRuntime.ts` runs
+`vp test run apps/server/src/loom/deploy/launcherSeam.test.ts`: Loom's deploy leans on those
+files without editing them (`deploy/README.md`).
+
 The history of a runbook from before it was split is under its old file name:
 `git log -- docs/upstream-sync/39-cadence-pull-14-20261101.md`.

@@ -1,0 +1,103 @@
+[Unit]
+# Loom's service under upstream's launcher (plans/loom-deploy-redesign §7.1, deploy/README.md):
+# the installed file of 11 Nov 2026 with the start line changed, three lines added and the
+# working directory moved off the release folder. Installed only at the cut-over.
+Description=loom cockpit server
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# The launcher lives for weeks and its release folder is pruned under it; the runner starts
+# each server from its own release.
+WorkingDirectory=%h
+Environment=T3CODE_HOME=/home/Carl/.t3/cockpit
+Environment=T3CODE_PORT=13900
+# Production runs from the release store; never auto-create a project for the
+# install directory (each promoted release has a new realpath → junk projects).
+Environment=T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD=false
+# Machine-local overrides (e.g. LOOM_ZED_SSH_HOST, whose value is an alias in the
+# *operator's* local ~/.ssh/config and so is not a property of this repo or host).
+# The leading `-` makes the file optional. Keeping operator-specific values here
+# rather than in this tracked unit means installing this file cannot strip them.
+EnvironmentFile=-/home/Carl/.config/loom-cockpit.env
+# Google Vertex auth for pi child sessions: pi's model registry only offers
+# vertex models when these are set (ADC alone is not enough), and pi children
+# inherit this server's environment. Without them, workstream children on
+# google-vertex models fail at set_model.
+Environment=GOOGLE_CLOUD_PROJECT=test-ds-research
+Environment=GOOGLE_CLOUD_LOCATION=global
+# Service-account key rather than user ADC: the unseen.id Workspace
+# session-control policy expires user credentials daily, which silently broke
+# GCS/Vertex/BigQuery access for long-running agents. Added live first; tracked
+# here so installing this file can never strip it again.
+# This key is the HARNESS identity (pi's own Vertex model calls). Agent shells
+# override it with loom-agents via shellCommandPrefix in ~/.pi/agent/settings.json
+# (AIT-249), so agents never act as the scraper SA.
+Environment=GOOGLE_APPLICATION_CREDENTIALS=/home/Carl/.gcp/scraper-sa-key.json
+Environment=CLOUDSDK_CORE_ACCOUNT=loom-agents@test-ds-research.iam.gserviceaccount.com
+Environment=PATH=/home/Carl/loom-releases/current/deploy:/home/Carl/loom-releases/current/node_modules/.bin:/home/Carl/.n/bin:/home/Carl/.local/share/pnpm:/usr/local/bin:/usr/bin:/bin
+
+# --- agent-process memory containment (see docs/memory-containment.md) ---
+# Terminals/agents are spawned through a PTY running $SHELL. This shim re-execs
+# each PTY shell into loom-agents.slice, whose own MemoryMax caps ALL agent
+# processes as a group — including ones orphaned to `systemd --user`, because
+# reparenting does NOT move a process between cgroups (verified on this host).
+# The server itself stays in this unit's cgroup, outside the capped slice, so an
+# agent runaway can no longer choose the control plane as its OOM victim.
+# Unset SHELL (or set LOOM_AGENT_SLICE_BYPASS=1) to disable placement.
+Environment=SHELL=/home/Carl/loom-slack-bridge/scripts/loom-agent-shell
+
+# The shim above covers PTY-spawned work only. `pi` is spawned DIRECTLY with
+# child_process.spawn and no shell (Pi/RpcProcess.ts), measured at ~3.2 GB across
+# 9 processes (~26% of unit RSS), so it needs the separate wrapper in
+# scripts/loom-agent-exec, wired via the pi provider's binaryPath setting rather
+# than from here. See docs/memory-containment.md "Directly-spawned children".
+
+ExecStartPre=/usr/bin/mountpoint -q /home/Carl/.t3/cockpit/userdata
+ExecStartPre=/usr/bin/mountpoint -q /home/Carl/.pi
+ExecStartPre=/usr/bin/mountpoint -q /mnt/fast
+ExecStart=/home/Carl/loom-releases/current/deploy/runtime/t3 __service-launcher
+# The server's Node flags, applied by the runner to the live server only (never the trial start).
+Environment="LOOM_DEPLOY_SERVER_NODE_FLAGS=--max-old-space-size=8192 --trace-gc --inspect=127.0.0.1:9229"
+# Any version Loom has not staged fails at download, before anything stops.
+Environment=T3CODE_RELEASE_BASE_URL=http://127.0.0.1:9/loom-publishes-nothing
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+# Reap leftover agent scopes from a previous run before starting. Agent processes
+# live in loom-agents.slice, OUTSIDE this unit's cgroup, so KillMode alone can
+# never reach them; without this a restart would strand them (verified). The
+# leading `-` keeps a failure here non-fatal to startup.
+ExecStartPre=-/usr/bin/systemctl --user stop loom-agents.slice
+
+# KillMode=control-group (was: process). Verified by experiment: with
+# KillMode=process a directly-spawned child SURVIVED a restart, while with
+# control-group it was REAPED. This is what stops orphans accumulating in this
+# unit's own cgroup across restarts. Contained agent work is unaffected, since
+# it lives in the sibling slice and is handled by ExecStartPre above.
+KillMode=mixed
+
+# A cap on THIS unit is deliberately NOT set. cgroup v2's no-internal-processes
+# rule means the unit cgroup cannot both hold the server and have capped
+# children, and the server measures as the #2 highest oom_score in the unit — a
+# unit-level cap would make the control plane a likely victim rather than
+# protect it. Containment belongs in the sibling slice above.
+#
+# OOMPolicy=continue: if the kernel does still kill a process inside this unit,
+# do NOT tear down the whole unit with it. Verified by experiment: with an
+# identical memory hog, OOMPolicy=stop gave Result=oom-kill and took the
+# supervisor down, while OOMPolicy=continue left the supervisor running.
+OOMPolicy=continue
+
+# --- disk re-layout (plans/disk-relayout) ---
+# Never let the control plane's heap reach swap: a swapped page faulted during GC is a
+# random read queued behind whatever is saturating the disk.
+MemorySwapMax=0
+# SQLite temp B-trees (sorts/GROUP BY) go to tmpfs, not /var/tmp on the boot disk.
+Environment=SQLITE_TMPDIR=/dev/shm
+
+[Install]
+WantedBy=default.target

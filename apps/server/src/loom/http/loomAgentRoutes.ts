@@ -1,9 +1,11 @@
 /**
  * REST routes beside `/mcp` for Loom's pi extension (session profile, `ask_user_question`, cache
  * warming, gate keep-alive) on the thread's MCP credential, which must carry `workstream`; and
- * deployctl's `/loom/deploy/restarting` on an environment session bearer.
+ * `loom-deploy`'s `/loom/deploy/restarting` and `/loom/deploy/switch` on an environment bearer.
  */
 import {
+  AuthEnvironmentMaintainScope,
+  type AuthEnvironmentScope,
   AuthOrchestrationOperateScope,
   DOCUMENT_QUERY_ROLE,
   LoomCacheWarming,
@@ -13,6 +15,7 @@ import {
 import { gateKeepAliveCounterpart } from "@t3tools/shared/workstreamGraph";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
@@ -32,7 +35,7 @@ import {
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { isContinueLaunch } from "../../orchestration-v2/Orchestrator.loom.ts";
 import type { LoomSessionProfile } from "../../provider/Drivers/Pi/loomExtension.ts";
-import { LoomDeployNotices } from "../deploy/LoomDeployNotices.ts";
+import * as LoomDeploy from "../deploy/LoomDeploy.ts";
 import { loomPaths, promptCapturePathsOf } from "../loomPaths.ts";
 import { readLaunchIdentity } from "../workstream/launchIdentity.ts";
 import { LoomCacheBroadcast } from "../projection/LoomCacheBroadcast.ts";
@@ -248,39 +251,70 @@ const gateKeepAliveRoute = HttpRouter.route(
   ),
 );
 
-/** deployctl, just before it stops the unit: warn every open browser (plan §1.2). */
-const restartingRoute = HttpRouter.route(
-  "POST",
-  "/loom/deploy/restarting",
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const session = yield* (yield* EnvironmentAuth.EnvironmentAuth)
-      .authenticateHttpRequest(request)
-      .pipe(
-        Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, () => Effect.succeed(null)),
+/** `loom-deploy`'s routes: an environment bearer holding `scope`, and a body `fields` decodes. */
+const deployRoute = <F extends Schema.Struct.Fields>(
+  path: HttpRouter.PathInput,
+  scope: AuthEnvironmentScope,
+  fields: F,
+  handle: (body: Schema.Struct<F>["Type"]) => Effect.Effect<HttpServerResponse.HttpServerResponse>,
+) =>
+  HttpRouter.route(
+    "POST",
+    path,
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const session = yield* (yield* EnvironmentAuth.EnvironmentAuth)
+        .authenticateHttpRequest(request)
+        .pipe(
+          Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, () => Effect.succeed(null)),
+        );
+      if (session === null) return reply(401, "A valid environment bearer is required.");
+      if (!session.scopes.includes(scope)) return reply(403, `This session lacks ${scope}.`);
+      const body = yield* request.json.pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct(fields))),
+        Effect.option,
       );
-    if (session === null) return reply(401, "A valid environment bearer is required.");
-    if (!session.scopes.includes(AuthOrchestrationOperateScope))
-      return reply(403, `This session lacks ${AuthOrchestrationOperateScope}.`);
-    const body = yield* request.json.pipe(
-      Effect.flatMap(
-        Schema.decodeUnknownEffect(
-          Schema.Struct({ releaseId: Schema.String, reason: LoomDeployRestartReason }),
-        ),
+      if (Option.isNone(body)) return reply(400, `Expected { ${Object.keys(fields).join(", ")} }.`);
+      return yield* handle(body.value);
+    }),
+  );
+
+/** `loom-deploy`'s two routes; the service is taken at build, where `ServerSelfUpdate` is. */
+const deployRoutes = Layer.unwrap(
+  Effect.gen(function* () {
+    const deploy = yield* LoomDeploy.LoomDeploy;
+    return HttpRouter.addAll([
+      // `loom-deploy back`, just before it stops the unit: warn every open browser.
+      deployRoute(
+        "/loom/deploy/restarting",
+        AuthOrchestrationOperateScope,
+        { releaseId: Schema.String, reason: LoomDeployRestartReason },
+        (body) =>
+          deploy
+            .restarting(body.releaseId, body.reason)
+            .pipe(Effect.as(HttpServerResponse.empty({ status: 204 }))),
       ),
-      Effect.option,
-    );
-    if (Option.isNone(body)) return reply(400, "Expected { releaseId, reason }.");
-    yield* (yield* LoomDeployNotices).restarting(body.value.releaseId, body.value.reason);
-    return HttpServerResponse.empty({ status: 204 });
+      // The engine, with a staged release: hand it to upstream's launcher (plan §4.1).
+      deployRoute(
+        "/loom/deploy/switch",
+        AuthEnvironmentMaintainScope,
+        { version: Schema.String },
+        (body) =>
+          deploy.switchTo(body.version).pipe(
+            Effect.map((updateId) => HttpServerResponse.jsonUnsafe({ updateId })),
+            Effect.catchTags({
+              LoomDeployRefusal: (refusal) =>
+                Effect.succeed(
+                  HttpServerResponse.jsonUnsafe({ reason: refusal.reason }, { status: 409 }),
+                ),
+            }),
+          ),
+      ),
+    ]);
   }),
 );
 
-export const LoomAgentRoutesLive = HttpRouter.addAll([
-  restartingRoute,
-  profileRoute,
-  askRoute,
-  waitRoute,
-  cacheWarmingRoute,
-  gateKeepAliveRoute,
-]);
+export const LoomAgentRoutesLive = Layer.merge(
+  HttpRouter.addAll([profileRoute, askRoute, waitRoute, cacheWarmingRoute, gateKeepAliveRoute]),
+  deployRoutes,
+);
