@@ -251,7 +251,7 @@ On the phone this applies however the document was opened, including from the Fi
   density="compact"
   columns={["Item", "What", "Files", "After", "PR"]}
   rows={[
-    ["**A. Server lookup**", "§2: three result fields, one store read, tests", "`packages/contracts/src/server.ts`; `apps/server/src/loom/query/documentAuthor.ts`; `apps/server/src/loom/projection/LoomStore.ts`; a new test beside `documentQuery.test.ts`", "none", "1"],
+    ["**A. Server lookup**", "§2: four result fields, one store read, tests", "`packages/contracts/src/server.ts`; `apps/server/src/loom/query/documentAuthor.ts`; `apps/server/src/loom/projection/LoomStore.ts`; a new test beside `documentQuery.test.ts`", "none", "1"],
     ["**B. Web follow and header**", "§3: helper, store action, four call sites, header, preview fixture, tests", "`apps/web/src/loom/openDocumentLink.ts` (new); `apps/web/src/loom/LoomMdxAuthorLine.tsx` (new); `apps/web/src/rightPanelStore.ts`; `ChatMarkdown.tsx`; `loom/ControlDigestCard.tsx`; `chat/UserMessageContextChips.tsx`; `files/FilePreviewPanel.tsx`; `preview/fixtures.tsx`", "A's contract commit", "1"],
     ["**C. Model text and eval**", "§4: seven cases, two harness changes, three arms and a full run, two strings", "`evals/loom-handback/cases.ts`, `grade.ts`, `run.ts`, `run.test.ts`; `apps/server/src/loom/prompt/prose.ts`; `apps/server/src/mcp/toolkits/workstream/render.ts`; `sessionComposerLive.test.ts` if it pins the clause", "none", "1"],
     ["**D. Live pass and evidence**", "§8: the journey, the timings, images and a short video", "none in the tree; base timings from a separate `git worktree add` checkout, removed afterwards", "A, B", "1"],
@@ -270,8 +270,8 @@ On the phone this applies however the document was opened, including from the Fi
 <FileTree
   title="Pull request 1"
   entries={[
-    { "path": "packages/contracts/src/server.ts", "change": "modified", "note": "DocumentQueryAuthorResult: authorArchived, sameFile, laterEditors (loom hunk)" },
-    { "path": "apps/server/src/loom/query/documentAuthor.ts", "change": "modified", "note": "fill the three fields; the resolution order is unchanged" },
+    { "path": "packages/contracts/src/server.ts", "change": "modified", "note": "DocumentQueryAuthorResult: authoringSignature, authorArchived, sameFile, laterEditors (loom hunk)" },
+    { "path": "apps/server/src/loom/query/documentAuthor.ts", "change": "modified", "note": "fill the four fields; the resolution order is unchanged" },
     { "path": "apps/server/src/loom/projection/LoomStore.ts", "change": "modified", "note": "one read: threads with a file_change on a path since a time, under a workstream root" },
     { "path": "apps/server/src/loom/query/documentAuthor.test.ts", "change": "added", "note": "archived author, different worktree, later editor, a non-authoring signer reached by fall-through" },
     { "path": "apps/web/src/loom/openDocumentLink.ts", "change": "added", "note": "useOpenDocumentLink and the pure decision function" },
