@@ -36,4 +36,4 @@ Read every sample that flipped, and the final text of the orchestrator cases tha
 
 ## Add a case
 
-Add an entry to `cases.ts`: Acme data only, a `source` naming the real situation it mirrors, a `kind` (`bad` fails on the text it is written against, `control` and `guard` pass on both sides), and the plan's prediction for the base text in `base`. Build every Loom-produced message from source, through `world.ts` when the change alters it.
+Add an entry to `cases.ts`: Acme data only, a `source` naming the real situation it mirrors, a `kind` (`bad` fails on the text it is written against, `control` and `guard` pass on both sides), and the plan's prediction for the base text in `base`. Build every Loom-produced message from source, through `world.ts` when the change alters it. A finished child that may add to its report lists `mcp__t3-code__workstream_submit` in `looking` and gives `finishedReport`: the addition is answered with this checkout's result and the message after it is graded.

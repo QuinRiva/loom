@@ -281,3 +281,30 @@ it("counts a notify with no submit apart in a no-repeat case", () => {
     }).pass,
   ).toBe(true);
 });
+
+describe("a finished author's report addition", () => {
+  const submit = loom("workstream_submit", {
+    markdown: "Round 2: SMS on the second reminder only.",
+  });
+  const looking = ["mcp__t3-code__workstream_submit"];
+  const check = {
+    kind: "notifies",
+    parentId: "thread:p",
+    quotes: ["two retries", "second reminder only"],
+    allQuotes: true,
+  } as const;
+  const notify = (message: string) => loom("notify_thread", { threadId: "thread:p", message });
+
+  it("does not decide, alone or beside the hand-over", () => {
+    expect(decides([submit], looking)).toBe(false);
+    const both = notify('Approved. "Two retries, not three." "SMS on the second reminder only."');
+    expect(grade(check, { ...observed([submit, both]), looking }).pass).toBe(true);
+    expect(grade(check, observed([submit, both])).reason).toBe("first Loom call workstream_submit");
+  });
+
+  it("needs every change quoted when all quotes are required", () => {
+    expect(grade(check, observed([notify('Approved. "Two retries, not three."')])).reason).toBe(
+      "notified the parent without the human's words",
+    );
+  });
+});
