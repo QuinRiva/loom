@@ -312,3 +312,17 @@ describe("a finished author's report addition", () => {
     );
   });
 });
+
+it("reads a Loom tool called by its bare name as that tool", () => {
+  const bare = {
+    name: "notify_thread",
+    input: { threadId: "thread:p", message: "delegate it out" },
+  };
+  const none = { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] } as const;
+  expect(grade(none, observed([bare])).reason).toBe("called notify_thread");
+  const notifies = { kind: "notifies", parentId: "thread:p", quotes: ["delegate it out"] } as const;
+  expect(grade(notifies, observed([bare])).pass).toBe(true);
+  expect(
+    decides([{ name: "workstream_submit", input: {} }], ["mcp__t3-code__workstream_submit"]),
+  ).toBe(false);
+});

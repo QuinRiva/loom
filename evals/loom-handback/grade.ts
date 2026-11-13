@@ -42,10 +42,31 @@ export const LOOKING: ReadonlySet<string> = new Set([
   ].map((tool) => `mcp__t3-code__${tool}`),
 ]);
 
+/** pi's own tools; any other unprefixed name is a Loom tool called without its server prefix. */
+const NATIVE = new Set([
+  "read",
+  "bash",
+  "edit",
+  "write",
+  "sign_document",
+  "tool_search",
+  "bg_start",
+  "bg_wait",
+]);
+
+/**
+ * A Loom tool called by its bare name (`notify_thread`), which pi answers "not found" and the model
+ * then retries, read as the Loom tool it reaches for.
+ */
+export const canonical = (calls: ReadonlyArray<Call>): ReadonlyArray<Call> =>
+  calls.map((call) =>
+    call.name.startsWith(LOOM) || NATIVE.has(call.name) ? call : { ...call, name: loom(call.name) },
+  );
+
 /** Whether a message decides: it ends the turn, or makes a call that is not looking around. */
 export const decides = (calls: ReadonlyArray<Call>, looking: ReadonlyArray<string> = []) =>
   calls.length === 0 ||
-  calls.some((call) => !LOOKING.has(call.name) && !looking.includes(call.name));
+  canonical(calls).some((call) => !LOOKING.has(call.name) && !looking.includes(call.name));
 
 /** Lower-case, one space, straight quotes: a quote survives re-wrapping and typographic quotes. */
 const normalise = (text: string) =>
@@ -125,10 +146,10 @@ const APPROVAL_WORD = /accept|approv|sign.?off|human/i;
 
 const verdict = (pass: boolean, reason: string): Grade => ({ pass, reason });
 
-export const grade = (
-  check: Check,
-  { calls, text, ended, prior = [], looking = [] }: Observed,
-): Grade => {
+export const grade = (check: Check, observed: Observed): Grade => {
+  const { text, ended, looking = [] } = observed;
+  const calls = canonical(observed.calls);
+  const prior = canonical(observed.prior ?? []);
   const submits = calls.filter(isSubmit);
   const raises = named(calls, "workstream_request_attention");
   switch (check.kind) {
