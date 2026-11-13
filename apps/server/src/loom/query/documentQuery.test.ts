@@ -48,7 +48,7 @@ import {
 import {
   lookupDocumentQueryAuthor,
   parseManagerSessions,
-  signingSessionIds,
+  signingSessions,
 } from "./documentAuthor.ts";
 import { buildDocumentQueryOverlay } from "./documentQueryOverlay.ts";
 
@@ -177,7 +177,8 @@ const S2 = "01a15c20-0000-7192-ba4d-ee2415c0b3e4";
 const S3 = "01a15c20-1111-7192-ba4d-ee2415c0b3e4";
 
 it("picks the latest authoring signer, then other signers by recency", () => {
-  const pick = (contents: string) => signingSessionIds(parseManagerSessions(contents));
+  const pick = (contents: string) =>
+    signingSessions(parseManagerSessions(contents)).map((entry) => entry.id);
   assert.deepEqual(
     pick(
       signed([
@@ -239,6 +240,10 @@ it.layer(TestLayer)("Query threads", (it) => {
         authorTitle: "Plan author",
         authorSource: "signature",
         filePath,
+        authoringSignature: true,
+        authorArchived: false,
+        sameFile: true,
+        laterEditors: [],
       });
       const asked = yield* askDocumentQuery(ask(viewer, "Why?"));
       assert.deepInclude(asked, { authorThreadId: author, authorSource: "signature" });

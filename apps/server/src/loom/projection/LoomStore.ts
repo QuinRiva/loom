@@ -332,6 +332,16 @@ export interface LoomStoreV2Shape {
    * recently updated first, else null. pi names a session file `<timestamp>_<sessionId>.jsonl`.
    */
   readonly threadForPiSession: (sessionId: string) => Op<ThreadId | null>;
+  /**
+   * Live threads under `rootThreadId`, other than `excludeThreadId`, with a write or edit tool
+   * call on `absolutePath` started after `since`, first editor first. Shell-made edits are not seen.
+   */
+  readonly threadsEditingFileSince: (input: {
+    readonly rootThreadId: ThreadId;
+    readonly excludeThreadId: ThreadId;
+    readonly absolutePath: string;
+    readonly since: string;
+  }) => Op<ReadonlyArray<{ readonly threadId: ThreadId; readonly title: string }>>;
   readonly goals: {
     /** Any state, tasks live only. */
     readonly get: (goalId: GoalId) => Op<LoomGoal | null>;
@@ -724,6 +734,25 @@ const make = Effect.gen(function* () {
           ORDER BY p.updated_at DESC LIMIT 1`.pipe(
         Effect.map((rows) => rows[0]?.threadId ?? null),
         run("threadForPiSession"),
+      ),
+    // A tool item names its file absolute or relative to the editing thread's workspace.
+    threadsEditingFileSince: ({ rootThreadId, excludeThreadId, absolutePath, since }) =>
+      sql<{ readonly threadId: ThreadId; readonly title: string }>`SELECT t.thread_id AS "threadId",
+            t.title AS "title"
+          FROM loom_thread_workstream w
+          JOIN orchestration_v2_projection_threads t ON t.thread_id = w.thread_id
+          LEFT JOIN projection_projects p ON p.project_id = t.project_id
+          JOIN orchestration_v2_projection_turn_items i
+            ON i.thread_id = w.thread_id AND i.type = 'file_change'
+          WHERE w.root_thread_id = ${rootThreadId} AND w.thread_id <> ${excludeThreadId}
+            AND t.deleted_at IS NULL AND t.archived_at IS NULL
+            AND json_extract(i.payload_json, '$.startedAt') > ${since}
+            AND ${absolutePath} IN (json_extract(i.payload_json, '$.fileName'),
+              rtrim(COALESCE(json_extract(t.payload_json, '$.worktreePath'), p.workspace_root), '/')
+                || '/' || json_extract(i.payload_json, '$.fileName'))
+          GROUP BY t.thread_id
+          ORDER BY min(json_extract(i.payload_json, '$.startedAt'))`.pipe(
+        run("threadsEditingFileSince"),
       ),
     // An episode root its subtree has not followed: an in-scope descendant still disagrees. Out of
     // scope: nodes created after the episode and nodes a human moved deliberately after it (the
