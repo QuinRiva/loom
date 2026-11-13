@@ -156,6 +156,7 @@ import { useRightPanelStore } from "../rightPanelStore";
 import { readThreadShell, useProjects } from "../state/entities";
 import { useReferenceLinkRules } from "../loom/referenceLinks"; // loom:
 import { remarkReferenceLinks } from "../loom/remarkReferenceLinks"; // loom:
+import { useOpenDocumentLink } from "../loom/openDocumentLink"; // loom: document links
 import { serverEnvironment } from "../state/server";
 import { shellEnvironment } from "../state/shell";
 import { assetEnvironment } from "../state/assets";
@@ -570,6 +571,7 @@ function useChatMarkdownState({
   const canOperateHost = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperatePreview = useEnvironmentScope(environmentId, AuthPreviewOperateScope);
   const remoteOpen = useRemoteOpenResolution(environmentId);
+  const openDocumentLink = useOpenDocumentLink(); // loom: document links
   const canUseShellActions =
     canOperateHost &&
     canUseMarkdownFileShellActions(environmentId, remoteOpen.state.mode, remoteOpen.isResolved);
@@ -811,8 +813,8 @@ function useChatMarkdownState({
     if (!threadRef) return;
     // Every open supersedes pending lookups, including synchronous opens.
     const isLatestLookup = claimWorkspaceBasenameLookup();
-    const openAt = (path: string) =>
-      useRightPanelStore.getState().openFile(threadRef, path, fileLinkMeta.line);
+    // loom: a signed document follows its author (openDocumentLink).
+    const openAt = (path: string) => openDocumentLink(threadRef, path, { line: fileLinkMeta.line });
     if (
       fileLinkMeta.workspaceLookupPath === null ||
       !cwd ||

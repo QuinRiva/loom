@@ -132,6 +132,7 @@ import {
 } from "./longLinePreview.loom";
 // loom: MDX plan renderer
 import { LoomMdxAnnotationLayer, LoomMdxReviewCount } from "~/loom/LoomMdxAnnotationLayer"; // loom: query threads
+import { LoomMdxAuthorLine } from "~/loom/LoomMdxAuthorLine"; // loom: document links
 import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
 // loom: previews reopen where the reader left them after a thread switch.
 import {
@@ -1607,6 +1608,10 @@ export default function FilePreviewPanel({
             </FileSurfaceAction>
           ) : null}
         </div>
+      ) : null}
+      {/* loom: document links — who wrote this document and where its comments go */}
+      {isMdx && previewPath !== null && attachment === undefined ? (
+        <LoomMdxAuthorLine filePath={previewPath} threadRef={threadRef} />
       ) : null}
       {relativePath && !attachment && !isHostFile && !canWriteFiles && !fileAccess.isPending ? (
         <div className="shrink-0 border-b px-3 py-1.5 text-2xs text-muted-foreground">

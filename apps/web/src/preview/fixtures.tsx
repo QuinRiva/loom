@@ -1,7 +1,11 @@
 import { type ReactNode, useEffect, useState } from "react";
 
 import { EnvironmentId, ThreadId, type FilesystemEntryMetadata } from "@t3tools/contracts";
-import type { RuntimeRequestId, UserInputQuestion } from "@t3tools/contracts";
+import type {
+  DocumentQueryAuthorResult,
+  RuntimeRequestId,
+  UserInputQuestion,
+} from "@t3tools/contracts";
 import {
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
@@ -27,6 +31,7 @@ import {
   type MeterFixtureSource,
 } from "../loom/subscriptionMeter.fixtures";
 import { threadMentionStatus, ThreadMentionView } from "../loom/ThreadMention";
+import { LoomMdxAuthorLineView } from "../loom/LoomMdxAuthorLine";
 import type { ProjectFaviconProject } from "../components/ProjectFavicon";
 import { TimelineLayoutFrame } from "./TimelineLayoutFrame";
 import {
@@ -1037,6 +1042,69 @@ const mdxQueryPinsFixture: PreviewFixture = {
   render: () => <PlanQueryPinsPreview />,
 };
 
+// loom: document links — the line naming who wrote a document and where its comments go.
+const AUTHOR_LINE_VIEWER = {
+  environmentId: loomPreviewEnvironmentId,
+  threadId: ThreadId.make("preview-viewer"),
+};
+const authorLineResult = (
+  overrides: Partial<DocumentQueryAuthorResult> = {},
+): DocumentQueryAuthorResult => ({
+  authorThreadId: loomPreviewThreads.done.id,
+  authorTitle: loomPreviewThreads.done.title,
+  authorSource: "signature",
+  filePath: "plans/x/intent.mdx",
+  authoringSignature: true,
+  authorArchived: false,
+  sameFile: true,
+  laterEditors: [],
+  ...overrides,
+});
+const AUTHOR_LINE_STATES: ReadonlyArray<{
+  label: string;
+  result: DocumentQueryAuthorResult;
+  reviewThere?: boolean;
+}> = [
+  {
+    label: "Written by this thread",
+    result: authorLineResult({ authorThreadId: AUTHOR_LINE_VIEWER.threadId }),
+  },
+  { label: "Another live author, same file", result: authorLineResult(), reviewThere: true },
+  { label: "Archived author", result: authorLineResult({ authorArchived: true }) },
+  { label: "Author in another worktree", result: authorLineResult({ sameFile: false }) },
+  { label: "No signature", result: authorLineResult({ authorSource: "viewing-thread" }) },
+  {
+    label: "With later editors",
+    result: authorLineResult({
+      laterEditors: [
+        { threadId: loomPreviewThreads.root.id, title: loomPreviewThreads.root.title },
+      ],
+    }),
+    reviewThere: true,
+  },
+];
+
+const mdxAuthorLineFixture: PreviewFixture = {
+  id: "mdx-author-line",
+  title: "Document author line",
+  description:
+    "The line under a document's header, one per lookup state. Chips show their unresolved form here (no backend).",
+  render: () => (
+    <div className="flex max-w-xl flex-col gap-3">
+      {AUTHOR_LINE_STATES.map(({ label, result, reviewThere }) => (
+        <div key={label} className="rounded-md border">
+          <div className="px-3 pt-2 text-xs font-medium">{label}</div>
+          <LoomMdxAuthorLineView
+            author={result}
+            threadRef={AUTHOR_LINE_VIEWER}
+            onReviewThere={reviewThere ? () => {} : null}
+          />
+        </div>
+      ))}
+    </div>
+  ),
+};
+
 const mdxScrollingTableFixture: PreviewFixture = {
   id: "mdx-scrolling-table",
   title: "Wide table (intra-cell selection + scroll)",
@@ -1626,6 +1694,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
       mdxHtmlBlockCardsFixture,
       mdxMermaidFixture,
       mdxQueryPinsFixture,
+      mdxAuthorLineFixture,
     ],
   },
   {

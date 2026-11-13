@@ -9,3 +9,7 @@ Further questions on the same version of the document land in the same query thr
 When an exchange settles something the document should change, press **Promote to author** under the answer. The query thread writes one comment for the writing thread, anchored to the passage you asked about. You can promote several exchanges from one query thread.
 
 The promoted comment does not reach the writing thread on its own: it waits in that thread's composer, beside your own annotations, until you send it. Edit it or delete it there like any other comment; a deleted promotion does not come back. Once sent, the comment links back to the query thread it came from.
+
+## Review a document with the thread that wrote it
+
+Comments and answers on a document go to the thread you are viewing it in. So a link to a document another thread signed takes you to that thread: the document opens at once where you clicked, then moves to the writing thread's right panel and the centre panel follows; the thread you came from stays a tab. A link to a document the current thread wrote, an unsigned document, or one whose writer is archived or works on another copy opens where you are. A document opened from the file explorer or search also stays put; the line under its header names the thread that wrote it, any thread that changed it since, and a **Review there** button that moves it.
