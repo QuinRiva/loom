@@ -25,6 +25,7 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useConversationJumpStore } from "./conversationJump";
 import { useDocumentQueryAuthor, useDocumentQueryPins } from "./documentQueryPins";
+import { markDocumentShown } from "./openDocumentLink";
 import { loomCommands } from "./loomGoalState";
 
 export function LoomMdxAnnotationLayer({
@@ -103,6 +104,7 @@ export function LoomMdxAnnotationLayer({
       filePath={filePath}
       composerDraftTarget={composerDraftTarget}
       query={query}
+      onSettled={() => markDocumentShown(threadRef, filePath)}
     />
   );
 }

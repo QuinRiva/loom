@@ -60,21 +60,21 @@ export function LoomMdxAuthorLineView({
       data-mdx-author-line
     >
       {here ? (
-        <span>Written by this thread.</span>
+        <span>Written by this thread</span>
       ) : signed ? (
         <>
           <span>Written by</span>
           {chip(author.authorThreadId, author.authorTitle)}
           {author.authorArchived ? <span>(archived)</span> : null}
           {author.sameFile ? null : <span>in another worktree</span>}
-          <span>· Comments here go to this thread.</span>
+          <span>· Comments here go to this thread</span>
         </>
       ) : (
-        <span>Comments go to this thread.</span>
+        <span>Comments go to this thread</span>
       )}
       {author.laterEditors.length > 0 ? (
         <>
-          <span>Changed since by</span>
+          <span>· Changed since by</span>
           {author.laterEditors.map((editor) => chip(editor.threadId, editor.title))}
         </>
       ) : null}

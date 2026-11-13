@@ -16,12 +16,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useRouter } from "@tanstack/react-router";
 
 import { isMdxPreviewFile } from "../components/files/filePreviewMode";
-import {
-  rightPanelHostRef,
-  type RightPanelSnapshot,
-  snapshotRightPanel,
-  useRightPanelStore,
-} from "../rightPanelStore";
+import { rightPanelHostRef, snapshotRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { environmentThreadShells } from "../state/threads";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
@@ -55,9 +50,11 @@ export interface DocumentLinkEnvironment {
     ref: ScopedThreadRef,
     path: string,
   ) => Promise<DocumentQueryAuthorResult | null>;
+  /** True once `ref`'s panel has drawn `path`, false if it never does. */
+  readonly documentShown: (ref: ScopedThreadRef, path: string) => Promise<boolean>;
   readonly viewingRole: (ref: ScopedThreadRef) => string | null;
   readonly routeThread: () => ScopedThreadRef | null;
-  readonly navigate: (ref: ScopedThreadRef) => void;
+  readonly navigate: (ref: ScopedThreadRef) => Promise<void>;
 }
 
 export interface OpenDocumentLinkOptions {
@@ -68,13 +65,42 @@ export interface OpenDocumentLinkOptions {
 
 const isAbsolutePath = (path: string) => path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path);
 
-function follow(
+const shownKey = (ref: ScopedThreadRef, path: string) =>
+  JSON.stringify([ref.environmentId, ref.threadId, path]);
+const shownWaiters = new Map<string, (shown: boolean) => void>();
+/** A cold read over the relay can take seconds; past this the document stays where it opened. */
+const SHOWN_TIMEOUT_MS = 8_000;
+
+/** Called by the document panel each time it draws `path` for `ref`. */
+export function markDocumentShown(ref: ScopedThreadRef, path: string) {
+  shownWaiters.get(shownKey(ref, path))?.(true);
+}
+
+function waitForDocumentShown(ref: ScopedThreadRef, path: string) {
+  const key = shownKey(ref, path);
+  shownWaiters.get(key)?.(false);
+  return new Promise<boolean>((resolve) => {
+    const settle = (shown: boolean) => {
+      clearTimeout(timer);
+      if (shownWaiters.get(key) === settle) shownWaiters.delete(key);
+      resolve(shown);
+    };
+    const timer = setTimeout(() => settle(false), SHOWN_TIMEOUT_MS);
+    shownWaiters.set(key, settle);
+  });
+}
+
+/**
+ * Opens the document in the author's panel and routes there, then calls `leave` for the thread
+ * left behind, so neither panel visibly changes before the author's thread is on screen.
+ */
+async function follow(
   env: DocumentLinkEnvironment,
   ref: ScopedThreadRef,
   target: FollowTarget,
   line: number | undefined,
-  before: RightPanelSnapshot,
   revision: number,
+  leave: () => void,
 ) {
   const author = scopeThreadRef(ref.environmentId, target.threadId);
   const followed = useRightPanelStore.getState().followDocumentToAuthor({
@@ -83,15 +109,17 @@ function follow(
     path: target.filePath,
     absolutePath: isAbsolutePath(target.filePath) ? target.filePath : null,
     line,
-    before,
     expectedUserActionRevision: revision,
   });
-  if (followed) env.navigate(author);
+  if (!followed) return;
+  await env.navigate(author);
+  leave();
 }
 
 /**
- * Opens `path` in `ref`'s panel, then follows it to its author when the lookup says so. The
- * follow is dropped if the lookup fails, the route has left `ref`, or `ref`'s panel was used since.
+ * Opens `path` in `ref`'s panel; once it is drawn there and the lookup names another author, the
+ * document follows to it. Dropped if the lookup fails, the document never draws, the route has
+ * left `ref`, or `ref`'s panel was used since the click.
  */
 export function openDocumentLink(
   env: DocumentLinkEnvironment,
@@ -101,18 +129,25 @@ export function openDocumentLink(
 ): Promise<void> {
   const panelRef = rightPanelHostRef(ref);
   const before = snapshotRightPanel(panelRef);
+  const alreadyShown =
+    before.panel?.isOpen === true && before.panel.activeSurfaceId === `file:${path}`;
   const store = useRightPanelStore.getState();
   if (options.absolute) store.openFileAbsolute(ref, path, options.line);
   else store.openFile(ref, path, options.line);
   if (!isMdxPreviewFile(path)) return Promise.resolve();
   const revision = useRightPanelStore.getState().getUserActionRevision(panelRef);
-  return env.lookup(ref, path).then((result) => {
-    const target = result && documentFollowTarget(result, ref.threadId, env.viewingRole(ref));
-    const route = env.routeThread();
-    if (!target || route?.environmentId !== ref.environmentId || route.threadId !== ref.threadId)
-      return;
-    follow(env, ref, target, options.line, before, revision);
-  });
+  return Promise.all([env.lookup(ref, path), alreadyShown || env.documentShown(ref, path)]).then(
+    async ([result, shown]) => {
+      const target =
+        shown && result && documentFollowTarget(result, ref.threadId, env.viewingRole(ref));
+      const route = env.routeThread();
+      if (!target || route?.environmentId !== ref.environmentId || route.threadId !== ref.threadId)
+        return;
+      await follow(env, ref, target, options.line, revision, () =>
+        useRightPanelStore.getState().restoreRightPanel(panelRef, before, revision),
+      );
+    },
+  );
 }
 
 function useDocumentLinkEnvironment(): DocumentLinkEnvironment {
@@ -129,14 +164,16 @@ function useDocumentLinkEnvironment(): DocumentLinkEnvironment {
         environmentId: ref.environmentId,
         input: { sourceThreadId: ref.threadId, filePath },
       }).then((result) => (result._tag === "Success" ? result.value : null)),
+    documentShown: waitForDocumentShown,
     viewingRole: (ref) =>
       registry.get(environmentThreadShells.threadShellAtom(ref))?.source.workstream?.role ?? null,
     routeThread: () => resolveThreadRouteRef(router?.state.matches.at(-1)?.params ?? {}),
-    navigate: (ref) =>
-      void router?.navigate({
+    navigate: async (ref) => {
+      await router?.navigate({
         to: "/$environmentId/$threadId",
         params: buildThreadRouteParams(ref),
-      }),
+      });
+    },
   };
 }
 
@@ -149,17 +186,13 @@ export function useOpenDocumentLink() {
 /** The header's Review there: moves the open document `path` from `ref`'s panel to its author's. */
 export function useMoveDocumentToAuthor() {
   const env = useDocumentLinkEnvironment();
-  return (ref: ScopedThreadRef, path: string, target: FollowTarget) => {
-    const panelRef = rightPanelHostRef(ref);
-    const store = useRightPanelStore.getState();
-    store.closeSurface(ref, `file:${path}`);
-    follow(
+  return (ref: ScopedThreadRef, path: string, target: FollowTarget) =>
+    void follow(
       env,
       ref,
       target,
       undefined,
-      snapshotRightPanel(panelRef),
-      store.getUserActionRevision(panelRef),
+      useRightPanelStore.getState().getUserActionRevision(rightPanelHostRef(ref)),
+      () => useRightPanelStore.getState().closeSurface(ref, `file:${path}`),
     );
-  };
 }

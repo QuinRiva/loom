@@ -42,12 +42,15 @@ const panelOf = (ref: ScopedThreadRef) =>
 function harness() {
   let answer: (result: DocumentQueryAuthorResult | null) => void = () => {};
   const route = { current: viewer as ScopedThreadRef | null };
-  const navigate = vi.fn<(ref: ScopedThreadRef) => void>();
+  const navigate = vi.fn<(ref: ScopedThreadRef) => Promise<void>>(async (ref) => {
+    route.current = ref;
+  });
   const env: DocumentLinkEnvironment = {
     lookup: () =>
       new Promise((resolve) => {
         answer = resolve;
       }),
+    documentShown: async () => true,
     viewingRole: () => null,
     routeThread: () => route.current,
     navigate,
@@ -90,13 +93,18 @@ describe("openDocumentLink", () => {
     expect(panelOf(viewer)).toMatchObject({ isOpen: true, activeSurfaceId: `file:${brief}` });
   });
 
-  it("follows to the author and puts the viewer's panel back as it was", async () => {
+  it("follows to the author, and only then puts the viewer's panel back as it was", async () => {
     useRightPanelStore.getState().openFile(viewer, "src/a.ts");
     const before = panelOf(viewer);
     const { env, navigate, answer } = harness();
+    const shownWhileRouting: Array<string | null> = [];
+    navigate.mockImplementation(async () => {
+      shownWhileRouting.push(panelOf(viewer).activeSurfaceId);
+    });
     const done = openDocumentLink(env, viewer, brief, { line: 4 });
     answer(signedBy(planner));
     await done;
+    expect(shownWhileRouting).toEqual([`file:${brief}`]);
     expect(panelOf(viewer)).toEqual(before);
     expect(panelOf(planner)).toMatchObject({ isOpen: true, activeSurfaceId: `file:${brief}` });
     expect(panelOf(planner).surfaces[0]).toMatchObject({ revealLine: 4 });
@@ -120,6 +128,15 @@ describe("openDocumentLink", () => {
     expect(panelOf(viewer).surfaces.map((surface) => surface.id)).toContain(`file:${brief}`);
     expect(panelOf(planner).surfaces).toEqual([]);
     expect([...used.navigate.mock.calls, ...moved.navigate.mock.calls]).toEqual([]);
+  });
+
+  it("stays when the document never draws where it was clicked", async () => {
+    const { env, navigate, answer } = harness();
+    const done = openDocumentLink({ ...env, documentShown: async () => false }, viewer, brief);
+    answer(signedBy(planner));
+    await done;
+    expect(panelOf(viewer).activeSurfaceId).toBe(`file:${brief}`);
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("never looks up a file that is not a document", () => {

@@ -171,8 +171,8 @@ interface RightPanelStoreState {
   /** Open a read-only explorer rooted at an out-of-workspace absolute directory. */
   openDirectoryAbsolute: (ref: ScopedThreadRef, absolutePath: string) => void;
   /**
-   * loom: a document link follows its author: opens the file in `to`'s panel and puts `from`'s
-   * panel back to `before`, in one transition; refused if `from`'s panel was used since the click.
+   * loom: a document link follows its author: opens the file in `to`'s panel as the click's
+   * user action; refused if `from`'s panel was used after `expectedUserActionRevision` was read.
    */
   followDocumentToAuthor: (input: {
     readonly from: ScopedThreadRef;
@@ -180,9 +180,14 @@ interface RightPanelStoreState {
     readonly path: string;
     readonly absolutePath: string | null;
     readonly line?: number | undefined;
-    readonly before: RightPanelSnapshot;
     readonly expectedUserActionRevision: number;
   }) => boolean;
+  /** loom: puts `ref`'s panel back to `before` unless it was used after the revision was read. */
+  restoreRightPanel: (
+    ref: ScopedThreadRef,
+    before: RightPanelSnapshot,
+    expectedUserActionRevision: number,
+  ) => void;
   /** Moves in place; "" opens the root explorer. folderTrail keeps the return path; keepSource opens beside the source. */
   navigateFolder: (
     ref: ScopedThreadRef,
@@ -246,7 +251,7 @@ interface RightPanelStoreState {
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
-// loom: one thread's panel as it stood, for followDocumentToAuthor to put back.
+// loom: one thread's panel as it stood, for restoreRightPanel to put back.
 export interface RightPanelSnapshot {
   readonly panel: ThreadRightPanelState | undefined;
   readonly visibility: ThreadPanelVisibility | undefined;
@@ -1022,33 +1027,39 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         path,
         absolutePath,
         line,
-        before,
         expectedUserActionRevision,
       }) => {
         let followed = false;
         set((state) => {
-          const fromKey = scopedThreadKey(from);
-          if ((state.userActionRevisionByThreadKey[fromKey] ?? 0) !== expectedUserActionRevision)
+          if (
+            (state.userActionRevisionByThreadKey[scopedThreadKey(from)] ?? 0) !==
+            expectedUserActionRevision
+          )
             return state;
           followed = true;
-          const opened = userActionOnThread(
+          return userActionOnThread(
             state,
             scopedThreadKey(to),
             (current) => upsertFileSurface(current, path, line, absolutePath),
             false,
           );
-          return {
-            ...opened,
-            byThreadKey: withEntry(opened.byThreadKey ?? state.byThreadKey, fromKey, before.panel),
-            threadPanelVisibilityByThreadKey: withEntry(
-              opened.threadPanelVisibilityByThreadKey ?? state.threadPanelVisibilityByThreadKey,
-              fromKey,
-              before.visibility,
-            ),
-          };
         });
         return followed;
       },
+      restoreRightPanel: (ref, before, expectedUserActionRevision) =>
+        set((state) => {
+          const key = scopedThreadKey(ref);
+          if ((state.userActionRevisionByThreadKey[key] ?? 0) !== expectedUserActionRevision)
+            return state;
+          return {
+            byThreadKey: withEntry(state.byThreadKey, key, before.panel),
+            threadPanelVisibilityByThreadKey: withEntry(
+              state.threadPanelVisibilityByThreadKey,
+              key,
+              before.visibility,
+            ),
+          };
+        }),
       navigateFolder: (ref, surfaceId, relativePath, folderTrail, keepSource = false) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
