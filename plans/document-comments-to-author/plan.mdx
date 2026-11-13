@@ -21,14 +21,14 @@ The second half of the brief is one hand-over to the parent on his closing word.
 
 **The bets.** That the centre panel changing a moment after the document appears reads as one motion (§1 says how that is measured). That an instruction can make a finished child hold its message until his word, where two real children did not (§4).
 
-**Cost.** Two pull requests. The first is web, one server lookup widened, and the model text with its eval: two coders in parallel, about $110 of eval runs. The second is the phone: one coder, after the first has merged.
+**Cost.** Two pull requests. The first is web, one server lookup widened, and the model text with its eval: two coders in parallel, and about $160 and two hours of eval runs. The second is the phone: one coder, after the first has merged.
 
 <Stats
   items={[
     { value: "0", label: "calls added before a document appears", detail: "the author lookup is the call the document panel already makes; it now starts at the click" },
     { value: "12 ms", label: "server time to map a signature to its thread", detail: "measured on the live database, 6,687 provider-thread rows; plus 1 to 3 ms warm, 50 to 90 ms cold, to list later editors" },
     { value: "2 of 2", label: "finished children told their parent at once after document comments", tone: "warning", detail: "the only two such cases in five weeks; both quote the instruction this plan amends" },
-    { value: "6", label: "new eval cases, 2 strings", detail: "each string ships only if its case fails before and passes after" },
+    { value: "7", label: "new eval cases, 2 strings", detail: "each string ships only if its case fails before and passes after; then a full run of all 27 cases" },
   ]}
 />
 
@@ -45,10 +45,10 @@ Today every way of opening a file writes to the right-panel state of the thread 
     `openFile(viewing thread, path, line)`, synchronously, as now. The panel mounts and starts reading the file.
   </Step>
   <Step at="2" title="In the same tick, the author lookup starts" badge="moved earlier">
-    The lookup runs through the same cached query the panel uses, so the panel's own request is served from it. One call per open, as today.
+    The lookup runs through the same cached query the panel uses, keyed by environment, viewing thread and path, so the panel's own request in the viewing thread is served from it. A document that stays costs one call, as today. A document that follows costs a second call once it lands in the author's panel, keyed on the author; the header line and the Query card there fill when it answers.
   </Step>
   <Step at="3" title="When it answers, the document follows to its author" badge={{ "label": "new", "tone": "accent" }} tone="accent">
-    Only if another live thread signed the document and works on the same file. One store transition opens the file in the author's right panel and puts the viewing thread's panel back as it was before the click; then the route changes to the author. The author's thread joins the tab strip above the centre panel the way any visited thread does.
+    Only if another live thread signed the document as its author and works on the same file. One store transition opens the file in the author's right panel and puts the viewing thread's panel back as it was before the click; then the route changes to the author. The author's thread joins the tab strip above the centre panel the way any visited thread does.
   </Step>
 </Steps>
 
@@ -68,7 +68,7 @@ Today every way of opening a file writes to the right-panel state of the thread 
       "`.mdx` signed by another live thread, same file",
       "the same one call",
       "as today, in the thread he clicked in",
-      "when the lookup returns: one store transition and one route change",
+      "when the lookup returns: one store transition and one route change. Listing later editors adds up to 90 ms to a cold lookup, which delays the move, not the document",
     ],
   ]}
 />
@@ -83,7 +83,7 @@ Today every way of opening a file writes to the right-panel state of the thread 
 
 ## 2. What the server says about a document
 
-`resolveDocumentAuthor` in `apps/server/src/loom/query/documentAuthor.ts` already reads the document from the viewing thread's workspace, parses its `manager_sessions` signature, and maps the most recent authoring signer to a live thread. It reuses all of that. Three facts are added to its result, because the client cannot work them out: a finished child's shell is often absent from the client's snapshot, and the client has no tool-call records.
+`resolveDocumentAuthor` in `apps/server/src/loom/query/documentAuthor.ts` already reads the document from the viewing thread's workspace, parses its `manager_sessions` signature, and maps the most recent authoring signer to a live thread. It reuses all of that. Four facts are added to its result, because the client cannot work them out: a finished child's shell is often absent from the client's snapshot, and the client has no tool-call records.
 
 <DataModel
   entities={[
@@ -97,6 +97,7 @@ Today every way of opening a file writes to the right-panel state of the thread 
         { "name": "authorTitle", "type": "string" },
         { "name": "authorSource", "type": "\"signature\" | \"viewing-thread\"" },
         { "name": "filePath", "type": "string", "note": "the document as the author names it" },
+        { "name": "authoringSignature", "type": "boolean", "change": "added", "note": "the signature that resolved carries an authoring role (plan, intent, recap, explainer, architecture, manager); false for a reviewer or other signer reached by fall-through" },
         { "name": "authorArchived", "type": "boolean", "change": "added", "note": "the author's shell has archivedAt set" },
         { "name": "sameFile", "type": "boolean", "change": "added", "note": "the author's workspace root joined with filePath is the absolute path the viewer read" },
         { "name": "laterEditors", "type": "{ threadId, title }[]", "change": "added", "note": "live threads in the author's workstream, other than the author, with a recorded edit to this file after the signature's authored_at" }
@@ -127,7 +128,11 @@ Today every way of opening a file writes to the right-panel state of the thread 
 
 - It reuses `useAtomQueryRunner(loomCommands.documentQueryAuthor)` for the lookup, `useNavigate` with `buildThreadRouteParams` for the route change (as `LoomMdxAnnotationLayer.tsx` does), and `isMdxPreviewFile` for the gate.
 - The decision is one pure exported function, tested on its own. Given the lookup result, the viewing thread's id and its workstream role, it returns "stay" or the author's thread and path.
-- It returns "stay" unless all of these hold: `authorSource` is `"signature"`; the author is another thread; `authorArchived` is false; `sameFile` is true; the viewing thread is not a query thread. A query thread has the role `document-query`. A person asking questions there is already talking to a fork of the author.
+- It returns "stay" unless all of these hold:
+  - `authorSource` is `"signature"`;
+  - `authoringSignature` is true, so a reviewer's signature, reached when every authoring signer is deleted, does not move him;
+  - the author is another thread, `authorArchived` is false and `sameFile` is true;
+  - the viewing thread is not a query thread (role `document-query`), where a person asking questions is already talking to a fork of the author.
 - The follow is dropped, silently, if the lookup fails, if he has since navigated away from the viewing thread, or if he has acted on that thread's panel since the click.
 
 **The store action.** `apps/web/src/rightPanelStore.ts` gains one loom action, a single `set`, taking the two threads, the path and line, the viewing thread's panel state as it was before the click, and the user-action revision read just after the click's `openFile`. It opens the file in the author's panel as a user action. It restores the viewing thread's panel to the before-click state only if that thread's revision is unchanged, the guard `openProactive` already uses. Without the restore, the document would stay open in the thread he left, and commenting on it there on his return would be today's misroute again.
@@ -206,7 +211,7 @@ The exact strings, the eval cases and the pre-registered change record are in `p
 
 That is a coder on 12 Nov, after PR #568 was live, on receiving five form answers. It is quoting the instruction every child carries: "Tell your parent at once ... only when it would act differently now".<Sidenote>`CHILD_READERSHIP_CLAUSE`, `apps/server/src/loom/prompt/prose.ts`</Sidenote>
 
-**The change.** Two sentences added to that instruction, as its exception, and one sentence added to the result a finished child sees when it adds to its report.<Sidenote>`REPORT_ADDITION_ECHO`, `apps/server/src/mcp/toolkits/workstream/render.ts`</Sidenote> Together they say four things. While the human reviews a document you wrote after you finished, your message to the parent waits until they say the review is finished. A full set of answers is not that word. End each reply by telling them the parent has not been told. Then tell it once.
+**The change.** Two sentences added to that instruction, as its exception, and one sentence added to the result a finished child sees when it adds to its report.<Sidenote>`REPORT_ADDITION_ECHO`, `apps/server/src/mcp/toolkits/workstream/render.ts`</Sidenote> Together they say five things. While the human reviews a document you wrote after you finished, your message to the parent waits until they say the review is finished. A full set of answers is not that word. A review that changed nothing needs no message. Once something has changed, end each reply by telling them the parent has not been told. Then tell it once.
 
 <Callout tone="decision" title="Why the system-prompt clause, when PR #568 found a result sentence worked and a clause edit did not">
   PR #568's lesson was to put a rule where the model is when it decides. Its held child decided after a tool result. A finished child decides on reading his message, before any tool call: the 12 Nov coder made no submit first. The only texts in front of it are his message and this clause, and the clause is what it obeyed.
@@ -214,13 +219,20 @@ That is a coder on 12 Nov, after PR #568 was live, on receiving five form answer
   Carrying the rule on his message instead would need the server to know that the receiving thread has finished, at both places where it prepares a message for the provider. It would also leave "at once" contradicting it. The report result is amended too, because a child that does record a round is told there to message its parent.
 </Callout>
 
-**Each string must earn its place.** Six new cases in `evals/loom-handback`, run in three arms (cases only; plus the clause; plus the result sentence). A string ships only if its case fails before it and passes after, with every existing guard still passing. The two cases the brief names are among the six: a finished author that holds through rounds and recognises his closing word, and a parent that receives the hand-over after it has started building on the earlier version. About 300 attempts: roughly 70 minutes and $110.
+**Each string must earn its place.** Seven new cases in `evals/loom-handback`, run in three arms (cases only; plus the clause; plus the result sentence). A string ships only if its case fails before it and passes after, with every existing guard still passing. The two cases the brief names are among the seven: a finished author that holds through rounds and recognises his closing word, and a parent that receives the hand-over after it has started building on the earlier version. A seventh covers the brief's "then or later": rounds of questions only, then a closing word, and no message.
+
+**Then everything else.** The final commit runs the whole eval once per model, all 27 cases, as `evals/README.md` asks before a merge. Six of the 13 cases outside the arms are children that read the changed clause, among them a planner holding a brief for approval. A case that passed on base and fails here stops the text.
+
+**The per-reply sentence has its own stop rule.** It is read, not pattern-matched. It is kept if at least 7 of 10 samples tell him the parent has not been told in each case where something changed, and it appears in none of the replies in the questions-only, working-child and held-child cases. Otherwise it is dropped and the rest of the text goes ahead. About 500 attempts in all: roughly two hours and $160.
 
 **No text is written for the parent.** Nobody has seen an orchestrator mishandle a late hand-over. The case measures it. If it fails, the failing samples go to a planner.
 
-**The clause is a commonly injected surface** (every child, every turn, 76 words added to about 265). `docs/architecture/tool-def-authoring.md` requires a cross-family read before it ships. That read is arranged by the orchestrator, after the eval passes and before the pull request merges.
+**The clause is a commonly injected surface** (every child, every turn, 88 words added to 275). `docs/architecture/tool-def-authoring.md` requires a cross-family read before it ships. That read is arranged by the orchestrator, after the eval passes and before the pull request merges.
 
-**A consequence to show the brief's owner when he tries it.** Today, when he answers a finished child's question form and writes nothing else, the parent hears immediately. After this change the child records the answers, replies that the parent has not been told, and waits for his word. That follows from the brief's must-nots ("send the parent anything about a review before you say it is done", "call a review done that you have not") and it is the 12 Nov row exactly. It costs him one more message per such review.
+**Two consequences to show the brief's owner when he tries it.**
+
+- **One more message on a single-round review.** Today, when he answers a finished child's question form and writes nothing else, the parent hears immediately. After this change the child records the answers, replies that the parent has not been told, and waits for his word. That follows from the brief's must-nots ("send the parent anything about a review before you say it is done", "call a review done that you have not"), and it is the 12 Nov row exactly.
+- **A line at the end of each reply.** Once he has asked for a change, each of the author's replies ends by saying the parent has not been told. It is the conversational stand-in for the marker he declined, and close to it in kind, so it is his to judge in use.
 
 ## 5. The phone (second pull request)
 
@@ -228,7 +240,7 @@ Every way of opening a file on the phone ends at one screen, so the change has o
 
 1. A small hook beside it runs `loom.documentQueryAuthor` for an `.mdx` opened in a thread. It reuses the query family in `packages/client-runtime/src/state/loom/goalCommands.ts`, which the phone does not instantiate yet, and the pure decision function of §3, moved to `packages/client-runtime` so both clients share it.
 2. When the decision is to follow, `answersTarget` is the author's thread. The bar reads "N answers ready to send to «author title»" and its button opens the author's chat in place of the file screen, so Back from there returns to the chat he came from.
-3. The document draws at once, read-only, and answers become tappable when the lookup has answered. The view already re-sends its `init` message when its inputs change; the answers target becomes one of those inputs. Until then a tap cannot land in the wrong draft.
+3. The document draws at once, read-only, and answers become tappable when the lookup has answered. The view already re-sends its `init` message when its inputs change; the answers target becomes one of those inputs. Until then a tap cannot land in the wrong draft. If the lookup fails, answers become tappable into the viewing thread's draft, as today, and the bar names that thread.
 4. No server change: the fields come from the first pull request.
 
 On the phone this applies however the document was opened, including from the Files browser. The brief's phone check covers a link; one screen with one rule is fewer parts than telling entry points apart there, and it is the brief's own aim.
@@ -241,8 +253,8 @@ On the phone this applies however the document was opened, including from the Fi
   rows={[
     ["**A. Server lookup**", "§2: three result fields, one store read, tests", "`packages/contracts/src/server.ts`; `apps/server/src/loom/query/documentAuthor.ts`; `apps/server/src/loom/projection/LoomStore.ts`; a new test beside `documentQuery.test.ts`", "none", "1"],
     ["**B. Web follow and header**", "§3: helper, store action, four call sites, header, preview fixture, tests", "`apps/web/src/loom/openDocumentLink.ts` (new); `apps/web/src/loom/LoomMdxAuthorLine.tsx` (new); `apps/web/src/rightPanelStore.ts`; `ChatMarkdown.tsx`; `loom/ControlDigestCard.tsx`; `chat/UserMessageContextChips.tsx`; `files/FilePreviewPanel.tsx`; `preview/fixtures.tsx`", "A's contract commit", "1"],
-    ["**C. Model text and eval**", "§4: six cases, harness check, three arms, two strings", "`evals/loom-handback/*`; `apps/server/src/loom/prompt/prose.ts`; `apps/server/src/mcp/toolkits/workstream/render.ts`; `sessionComposerLive.test.ts` if it pins the clause", "none", "1"],
-    ["**D. Live pass and evidence**", "§8: the journey, the timings, images and a short video", "none in the tree", "A, B", "1"],
+    ["**C. Model text and eval**", "§4: seven cases, two harness changes, three arms and a full run, two strings", "`evals/loom-handback/cases.ts`, `grade.ts`, `run.ts`, `run.test.ts`; `apps/server/src/loom/prompt/prose.ts`; `apps/server/src/mcp/toolkits/workstream/render.ts`; `sessionComposerLive.test.ts` if it pins the clause", "none", "1"],
+    ["**D. Live pass and evidence**", "§8: the journey, the timings, images and a short video", "none in the tree; base timings from a separate `git worktree add` checkout, removed afterwards", "A, B", "1"],
     ["**E. Phone**", "§5", "`apps/mobile/src/features/files/*`; `packages/client-runtime/src/state/loom/*`", "PR 1 merged", "2"],
   ]}
 />
@@ -261,7 +273,7 @@ On the phone this applies however the document was opened, including from the Fi
     { "path": "packages/contracts/src/server.ts", "change": "modified", "note": "DocumentQueryAuthorResult: authorArchived, sameFile, laterEditors (loom hunk)" },
     { "path": "apps/server/src/loom/query/documentAuthor.ts", "change": "modified", "note": "fill the three fields; the resolution order is unchanged" },
     { "path": "apps/server/src/loom/projection/LoomStore.ts", "change": "modified", "note": "one read: threads with a file_change on a path since a time, under a workstream root" },
-    { "path": "apps/server/src/loom/query/documentAuthor.test.ts", "change": "added", "note": "archived author, different worktree, later editor, most recent authoring signer wins" },
+    { "path": "apps/server/src/loom/query/documentAuthor.test.ts", "change": "added", "note": "archived author, different worktree, later editor, a non-authoring signer reached by fall-through" },
     { "path": "apps/web/src/loom/openDocumentLink.ts", "change": "added", "note": "useOpenDocumentLink and the pure decision function" },
     { "path": "apps/web/src/loom/openDocumentLink.test.ts", "change": "added", "note": "the decision table; open-before-lookup; follow dropped after a user action" },
     { "path": "apps/web/src/loom/LoomMdxAuthorLine.tsx", "change": "added", "note": "the header line" },
@@ -273,9 +285,10 @@ On the phone this applies however the document was opened, including from the Fi
     { "path": "apps/web/src/preview/fixtures.tsx", "change": "modified", "note": "a fixture per header state" },
     { "path": "apps/server/src/loom/prompt/prose.ts", "change": "modified", "note": "CHILD_READERSHIP_CLAUSE, model-text §1, if its cases earn it" },
     { "path": "apps/server/src/mcp/toolkits/workstream/render.ts", "change": "modified", "note": "REPORT_ADDITION_ECHO, model-text §2, if its case earns it" },
-    { "path": "evals/loom-handback/cases.ts", "change": "modified", "note": "six cases" },
-    { "path": "evals/loom-handback/grade.ts", "change": "modified", "note": "the check that follows one report addition" },
-    { "path": "evals/loom-handback/run.test.ts", "change": "modified", "note": "both sides of that check" }
+    { "path": "evals/loom-handback/cases.ts", "change": "modified", "note": "seven cases; two optional Case fields for the report on file" },
+    { "path": "evals/loom-handback/grade.ts", "change": "modified", "note": "notifies gains allQuotes" },
+    { "path": "evals/loom-handback/run.ts", "change": "modified", "note": "simulate answers a live workstream_submit with world.ts finishedSubmitResult" },
+    { "path": "evals/loom-handback/run.test.ts", "change": "modified", "note": "both sides of each harness change" }
   ]}
 />
 
@@ -300,29 +313,29 @@ On the phone this applies however the document was opened, including from the Fi
     ["Check: the orchestrator is still a tab; its thread shows nothing new", "the existing route-seeded tab; the restore in the store action; no message is sent anywhere", "live pass; store test that the viewer's panel state equals its before-click state"],
     ["Check: a held brief completes on \"approved\"", "PR #568, unchanged", "guards `held-child-corrections`, `held-child-approval` in every arm"],
     ["Check: a finished planner, three rounds, a closing word, one message to the parent, none before", "§4, model-text §1 and §2", "`finished-author-typed-correction`, `finished-author-round-after-addition`, `finished-author-closes`"],
-    ["Check: two questions, no change, the parent hears nothing", "§4", "`finished-author-questions-only`"],
+    ["Check: two questions, no change, the parent hears nothing, then or later", "§4; model-text §1, \"a review that changed nothing needs no message\"", "`finished-author-questions-only` (then), `finished-author-questions-then-close` (later)"],
     ["Check: a link in a notice or a report behaves the same", "§3 call sites: `ControlDigestCard`, and reports through `ChatMarkdown`", "live pass, one click of each"],
     ["Check: a link in the thread that wrote it: nothing differs", "the decision function returns \"stay\"", "decision test"],
     ["Check: explorer or search opens in place, header names the author with a button", "§3 header", "preview fixture; live pass"],
     ["Check: author deleted or archived, or no signature: opens where he is, header says comments go to this thread", "§2 `authorArchived`, existing deleted fall-through; §3 header", "server test; preview fixtures"],
     ["Check: the phone", "§5", "`test-t3-mobile` pass on Android, then his phone"],
-    ["Must not: tell the parent before he says it is done", "§4", "the three `none-of` cases"],
+    ["Must not: tell the parent before he says it is done", "§4", "the five `none-of` child cases"],
     ["Must not: call a review done that he has not", "model-text §1, \"answering every question the document asks is not saying so\"", "`finished-author-answers-form`"],
     ["Must not: reopen a finished author or hold up work behind it", "no server state changes; a finished child's addition is PR #568's path, untouched", "by inspection of the diff: nothing under `apps/server/src/loom/orchestration` or `handlers/` changes"],
     ["Must not: slower to appear, including over the relay", "§1: open first, look up in parallel", "the never-resolving-lookup test; the timings in §8"],
     ["Must not: move or drop comments waiting in a message box", "no draft store is read or written", "by inspection; live pass with a comment already waiting in the orchestrator"],
     ["Must not: change where Query goes", "`documentQuery.ts` untouched; fields are additive", "existing `documentQuery.test.ts`"],
-    ["Must not: move him for code, a diff, a report", "the helper's `.mdx` gate and `authorSource === \"signature\"`", "decision test"],
+    ["Must not: move him for code, a diff, a report", "the helper's `.mdx` gate, `authorSource === \"signature\"` and `authoringSignature`", "decision test"],
     ["Decided: the signer is the author; the header names later editors with a link", "§2 `laterEditors`, §3 header", "server test; fixture"],
     ["Decided: nothing new in the control plane; a finished author keeps showing Done", "nothing is added to it", "by inspection"],
     ["Decided: the phone as a second pull request", "§6", "two pull requests"],
     ["Decided: a correction typed into the parent's chat is passed on once", "PR #568's orchestrator text, unchanged", "guard `orchestrator-human-corrects-in-parent` is not in the arms; no text it reads changes"],
     ["Assumed: one hand-over only for a review of a document", "model-text §1 names the documents", "guards `finished-child-material`, `finished-child-delegate`"],
-    ["Assumed: any plain closing word; the author says it has handed over", "model-text §1", "`finished-author-closes`, and its final text read"],
+    ["Assumed: any plain closing word; the author says it has handed over, and until then says the parent has not been told", "model-text §1", "`finished-author-closes`, and its final text read; the per-reply sentence's stop rule (model-text §5)"],
     ["Assumed: signed documents only", "the decision function", "decision test"],
     ["Assumed: moved only while the author exists and is not archived", "§2, §3", "server test; decision test"],
     ["Assumed: a busy author queues his message", "nothing built", "none"],
-    ["Assumed: a thread that takes over a document signs it and becomes the author", "the existing rule that the most recent authoring signature wins", "server test of that order; a reviser that did not sign appears under \"Changed since by\""],
+    ["Assumed: a thread that takes over a document signs it and becomes the author", "the existing rule that the most recent authoring signature wins", "the existing test \"picks the latest authoring signer, then other signers by recency\" in `apps/server/src/loom/query/documentQuery.test.ts`; a reviser that did not sign appears under \"Changed since by\""],
     ["Assumed: desktop follows web", "the same bundle", "none"],
     ["Still unknown: which copy when the author is elsewhere", "settled, §2", "server test for `sameFile`"],
     ["Still unknown: can a cancelled author act", "settled, §2", "by reading `handlers/submit.ts`"],
@@ -336,11 +349,11 @@ On the phone this applies however the document was opened, including from the Fi
 
 **Tests, each for behaviour.**
 
-- Server: the resolver returns `authorArchived` for an archived signer; `sameFile` false when the author's root differs; a later editor found and the author itself excluded; with two authoring signers the more recent is the author.
+- Server: the resolver returns `authorArchived` for an archived signer; `sameFile` false when the author's root differs; a later editor found and the author itself excluded; `authoringSignature` false when the only live signer is a reviewer. The order of signers is already tested in `documentQuery.test.ts`.
 - Web: the decision table of §3; the file surface is open in the viewing thread before a never-resolving lookup settles; the store action restores the viewing thread only under an unchanged revision; a user action on the viewing thread between click and answer drops the follow.
-- Eval: `run.test.ts` covers the new check.
+- Eval: `run.test.ts` covers both harness changes.
 
-**The eval.** As model-text §5. Read `evals/README.md` first. The coder's report carries the filled change record: noise floor, per-arm verdicts, every flip read, and the count of replies that told the human the parent had not been told.
+**The eval.** As model-text §5. Read `evals/README.md` first. The coder's report carries the filled change record: noise floor, per-arm verdicts, every flip read, the full run's verdicts against base, and the per-reply sentence's counts against its stop rule.
 
 **One live pass of the journey**, by the recipe in `docs/dev-site-testing.md`. The seed has no signed document, and its threads have no pi session to map a signature to. So use a slice of real data:
 
@@ -354,11 +367,13 @@ On the phone this applies however the document was opened, including from the Fi
 2. Its header reads "Written by this thread", with the root under "Changed since by".
 3. Select a passage and add a comment. The chip is in the planner's message box. Do not send: the instance cannot run a turn.
 4. Click the root's tab. Its right panel is as it was before step 1.
-5. In the root, open the same file from the file explorer. It opens in place; the header names the planner with **Review there**; the button performs the move.
-6. Click a link to a `.ts` file and a link to the planner's report. Neither moves him.
-7. Take the timings of §1 on the base commit and on the branch.
+5. Before any click, leave a comment on some other file waiting in the root's message box. After steps 1 and 4 it is still there, unchanged.
+6. In the root, open the same file from the file explorer. It opens in place; the header names the planner with **Review there**; the button performs the move.
+7. Click the same document's link inside a control-plane notice in the root (the planner's held hand-back notice), and inside the planner's report opened in the root. Each follows to the planner as step 1 does.
+8. Click a link to a `.ts` file and the link that opens the planner's report. Neither moves him.
+9. Take the timings of §1 on the branch here, and on the base commit in a separate checkout made with `git worktree add` beside this worktree, its own dev instance on its own port, removed afterwards. Never check out another commit in this worktree: coder C's eval imports the server and package source from it while its arms run.
 
-**Evidence on the pull request.** Before and after images of step 1's end state and of the header in step 5, and a short video of step 1, since the change is one of timing. Uploaded to GitHub, not committed.
+**Evidence on the pull request.** Before and after images of step 1's end state and of the header in step 6, and a short video of step 1, since the change is one of timing. Uploaded to GitHub, not committed.
 
 **The phone.** `test-t3-mobile` on Android against the same slice once the first pull request is merged: tap the link in the root's chat, tap an answer, read the bar, press its button, press Back.
 
@@ -369,14 +384,15 @@ On the phone this applies however the document was opened, including from the Fi
 1. **The first check's end state is met; the path to it has two visible steps.** The brief says the click "takes you to" the author. The document first appears in the thread he clicked in, and the centre panel changes when the lookup answers. This is the price of the speed must-not. If the live pass shows the second step as a distinct jump, the cheap remedy is to start the lookup when the pointer enters an `.mdx` link, so the answer is usually cached by the click.
 2. **"Later editors" are the edits Loom recorded.** A file changed from a shell command, or by a thread whose tool records are no longer kept, does not appear.
 3. **No instruction is added telling a reviser to sign.** The brief's line describes how the author is determined, and the code already does that. Three of the brief's eight cases were a second planner that did not sign; those now show in the header.
-4. **The author's replies also say when the parent has not been told.** The brief assumes the author says it has handed over. The plan adds the mirror statement, because with no marker on the thread it is the only thing that makes an open review visible. The brief's Assumed line now says so.
+4. **Once he has asked for a change, the author's replies also say the parent has not been told.** The brief assumes the author says it has handed over. The plan adds the mirror statement, because with no marker on the thread it is the only thing that makes an open review visible. The brief's Assumed line now says so.
 5. **The phone follows the author however the document was opened.** §5 gives the reason.
 
 **Risks.**
 
-- **The clause change displaces other children.** It is read by every child. The seven guards are in every arm, and a guard that flips stops the text. A held child messaging its parent at approval as well as completing is the displacement most likely; `held-child-approval` catches it.
+- **The clause change displaces other children.** It is read by every child. The seven guards are in every arm, the full run covers the rest, and a case that flips stops the text. A held child messaging its parent at approval as well as completing is the displacement most likely; `held-child-approval` catches it.
 - **The review rule costs him a message on single-round reviews** (§4). It is what the brief asks for. Named so that it is judged in use.
 - **A parent building from the earlier version while he reviews.** With no marker, the parent learns at the hand-over. The brief's owner chose this. The orchestrator case measures what the parent then does.
 - **The lookup's signature match scans every provider thread** (12 ms at 6,687 rows) and grows with them. It delays only the move, never the document. Not fixed here.
-- **The helper's lookup and the panel's lookup may not share one cache entry** if the query family keys on object identity rather than value. The coder confirms one call per open in the live pass; if there are two, the helper passes the same input object shape the panel builds.
+- **A followed open costs a second lookup**, keyed on the author, for the header and the Query card in the author's panel (§1). The document is already showing; only those two wait for it. The coder confirms the count in the live pass: one call for a document that stays, two for one that follows.
+- **A cancelled author mid-review is not reached by model-text §2.** Its submit is refused with text that names `notify_thread`, the same nudge §2 qualifies for a finished one. §1 still applies to it. Rare, and not built for.
 - **The move, on a thread whose shell the client has not loaded.** A finished child's shell is often absent from the snapshot and loads by id, as thread chips rely on. The coder navigates the way `ThreadMention` does and confirms it in step 1 with an idle child.
