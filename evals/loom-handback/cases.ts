@@ -775,7 +775,7 @@ const PLAN_REL = "plans/invoice-reminders/plan.mdx";
 const PLAN_BRIEF = `# Plan: overdue-invoice reminders
 
 The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the implementation plan at \`${PLAN_PATH}\`, per the mdx-visual-plan skill. Two coders start from it as soon as you hand it back: one builds the daily job, including what happens when a send fails; the other builds the reminder email and the SMS text. Where a choice is the human's to make, put it to them in the plan with your recommendation: the coders build to the recommended option until the human answers.`;
-const RETRY_PASSAGE = "retries that step on each of the next three daily runs";
+const RETRY_PASSAGE = "tries that channel again on each of the next three daily runs";
 const SMS_PASSAGE = "SMS on both reminders when `billingContactPhone` is set";
 const REVIEWED_PLAN = `---
 reader:
@@ -828,14 +828,14 @@ Build one daily job, one table and one email template. The job runs on the exist
 
 ## 2. What is new
 
-1. **Table \`invoice_reminders\`**: invoice id, step (\`first\`, \`second\`), attempts, sent at; unique on invoice and step, so a rerun never sends a step twice.
-2. **Job \`apps/api/src/jobs/reminders.ts\`**: each run selects invoices with status \`sent\`, a due date 3 or 10 days past, and no sent row for that step. Draft, void, paid and disputed invoices never match.
-3. **One message per contact per day.** The job groups due invoices by billing contact email and sends one email (and one SMS) listing them all.
+1. **Table \`invoice_reminders\`**: invoice id, step (\`first\`, \`second\`), channel (\`email\`, \`sms\`), attempts, sent at; unique on invoice, step and channel, so a rerun never sends a step twice on one channel.
+2. **Job \`apps/api/src/jobs/reminders.ts\`**: each run selects invoices with status \`sent\` and no \`queue_reason\` that are at least 3 days past due (first step) or at least 10 (second step). It sends each channel of that step not yet sent, so a missed run is caught up the next day. Draft, void, paid and disputed invoices never match.
+3. **One message per contact per day.** The job groups due sends by billing contact (the invoice's email address for email, its phone number for SMS) and sends one email and one SMS listing them all.
 4. **Hand-off at 30 days**: the same run sets \`queue_reason = "overdue"\` on sent invoices 30 days past due.
 
 ## 3. When a send fails
 
-A send fails when the mailer or the SMS gateway returns an error. The job records the attempt and ${RETRY_PASSAGE}. After the third failed retry it sets \`queue_reason = "send_failed"\`, so the invoice reaches finance's queue early.
+A send fails when the mailer or the SMS gateway returns an error. The job records the failed attempt on that channel's row and ${RETRY_PASSAGE}. After the third failed retry it sets \`queue_reason = "send_failed"\`, so the invoice reaches finance's queue early.
 
 ## 4. Channels
 
@@ -849,7 +849,7 @@ Exact-hour delivery is not in the brief, and per-invoice timers would need a sch
 
 - A test per brief line on a fixed clock: the first step at 3 days and the second at 10, and none on draft, void, paid or disputed invoices.
 - One message for a contact with two due invoices, and \`queue_reason\` set at 30 days.
-- A failing sender: the step is retried on the next three runs, then \`queue_reason\` is \`send_failed\`.`;
+- A failing sender: the channel is tried again on the next three runs, then \`queue_reason\` is \`send_failed\`.`;
 const PLAN_REPORT = `<!-- response -->
 The reminders plan is written and signed: \`${PLAN_PATH}\` (commit \`6b7d2e4\`). One daily job sends due reminders, retries a failed send on the next three runs and then hands the invoice to finance's queue; SMS goes with the email. Two choices are put to the human in a question form, with a recommendation each, so coders can build to the recommended options now.
 <!-- /response -->
@@ -978,12 +978,12 @@ const retriesEdited = [
     edit(
       PLAN_PATH,
       `${RETRY_PASSAGE}. After the third failed retry`,
-      "retries that step on each of the next two daily runs. After the second failed retry",
+      "tries that channel again on each of the next two daily runs. After the second failed retry",
     ),
     edit(
       PLAN_PATH,
-      "the step is retried on the next three runs",
-      "the step is retried on the next two runs",
+      "the channel is tried again on the next three runs",
+      "the channel is tried again on the next two runs",
     ),
   ),
   said(
@@ -1031,7 +1031,7 @@ const askWhyNextRun = annotation(
 const askGrouping = annotation(
   "grouping",
   { id: "2-what-is-new", title: "2. What is new" },
-  "The job groups due invoices by billing contact email",
+  "The job groups due sends by billing contact",
   "How does the job decide which invoices go in the same message?",
 );
 
@@ -1823,7 +1823,7 @@ Two changes to the plan at the human's request in this thread, commits \`c41a9e7
       ),
       reviewInChild([askGrouping]),
       said(
-        "By the billing contact's email address (§2, item 3): every invoice whose reminder step falls due that day and shares the address goes into one email, and into one SMS when a phone number is on file. Nothing in the plan changes.",
+        "By billing contact (§2, item 3): the due sends that share an email address go into one email, and those that share a phone number into one SMS. Nothing in the plan changes.",
       ),
       humanInChild("Thanks, that answers both. Let's move on."),
     ],
