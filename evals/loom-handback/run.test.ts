@@ -237,7 +237,11 @@ it("counts a tool search for notify_thread as an attempted notify", () => {
   expect(grade(check, search("notify_thread send message to parent thread")).reason).toBe(
     "reached for notify_thread through tool_search",
   );
-  expect(grade(check, search("browser screenshot")).pass).toBe(true);
+  expect(grade(check, search("browser screenshot"))).toEqual({
+    pass: false,
+    apart: true,
+    reason: "searched for a tool",
+  });
 });
 
 it("reaches for notify_thread through a search for a way to message the parent", () => {
@@ -245,7 +249,7 @@ it("reaches for notify_thread through a search for a way to message the parent",
   const search = (query: string) =>
     grade(check, observed([{ name: "tool_search", input: { query } }]));
   expect(search("send a message to my parent thread").pass).toBe(false);
-  expect(search("read a pdf").pass).toBe(true);
+  expect(search("read a pdf").apart).toBe(true);
 });
 
 describe("no-repeat", () => {

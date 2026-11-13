@@ -163,6 +163,12 @@ export const grade = (
         return verdict(false, "reached for notify_thread through tool_search");
       const called = check.tools.find((tool) => named(calls, tool).length > 0);
       if (called !== undefined) return verdict(false, `called ${called}`);
+      // A message whose only decision is a search for some other tool has decided nothing yet.
+      const deciding = calls.filter(
+        (call) => !LOOKING.has(call.name) && !looking.includes(call.name),
+      );
+      if (deciding.length > 0 && deciding.every((call) => call.name === "tool_search"))
+        return { pass: false, apart: true, reason: "searched for a tool" };
       return !check.endsTurn || ended
         ? verdict(true, "none called")
         : verdict(false, `turn not ended: ${calls.at(-1)?.name ?? "no call"}`);
