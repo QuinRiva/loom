@@ -32,10 +32,11 @@ Environment=GOOGLE_CLOUD_LOCATION=global
 # session-control policy expires user credentials daily, which silently broke
 # GCS/Vertex/BigQuery access for long-running agents. Added live first; tracked
 # here so installing this file can never strip it again.
-# This key is the HARNESS identity (pi's own Vertex model calls). Agent shells
-# override it with loom-agents via shellCommandPrefix in ~/.pi/agent/settings.json
-# (AIT-249), so agents never act as the scraper SA.
-Environment=GOOGLE_APPLICATION_CREDENTIALS=/home/Carl/.gcp/scraper-sa-key.json
+# loom-agents is the identity of the server and everything it launches, pi's own
+# Vertex calls included; never Carl's scraper SA (AIT-249). pi re-asserts it in its
+# own process (~/.pi/agent/extensions/loom-agents-identity.ts) and ~/.profile and
+# ~/.bashrc keep it for shells inside agents, giving scraper only to Carl's own.
+Environment=GOOGLE_APPLICATION_CREDENTIALS=/home/Carl/.gcp/loom-agents-sa-key.json
 Environment=CLOUDSDK_CORE_ACCOUNT=loom-agents@test-ds-research.iam.gserviceaccount.com
 Environment=PATH=/home/Carl/loom-releases/current/deploy:/home/Carl/loom-releases/current/node_modules/.bin:/home/Carl/.n/bin:/home/Carl/.local/share/pnpm:/usr/local/bin:/usr/bin:/bin
 
