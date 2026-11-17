@@ -147,6 +147,12 @@ it.layer(TestLayer)("Loom review authorship", (it) => {
         commandId: CommandId.make(`command:${archived.threadId}:archive`),
         threadId: archived.threadId,
       });
+      const deleted = yield* createThread(worktree, "Deleted coder", reviewer.projectId);
+      yield* dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make(`command:${deleted.threadId}:delete`),
+        threadId: deleted.threadId,
+      });
       const unknown = "thread:not-on-this-server";
 
       // One trailer naming a held thread; then one naming an archived thread.
@@ -164,10 +170,12 @@ it.layer(TestLayer)("Loom review authorship", (it) => {
       const byOwner = commit(worktree, "owner adds g", "Owner");
       write(worktree, "app.ts", ["a", "B1", "c", "D1", "e", "f", "g", "h"]);
       const byUnknown = commit(worktree, "unknown adds h", "Loom agent", [unknown]);
+      write(worktree, "app.ts", ["a", "B1", "c", "D1", "e", "f", "g", "h", "i"]);
+      const byDeleted = commit(worktree, "deleted adds i", "Loom agent", [deleted.threadId]);
       // A file whose branch change only removes lines; one not yet committed; one not yet added.
       write(worktree, "gone.ts", ["x"]);
       commit(worktree, "drop y", "Loom agent", [coder.threadId]);
-      write(worktree, "app.ts", ["a", "B1", "c", "D1", "e", "f", "g", "h", "dirty"]);
+      write(worktree, "app.ts", ["a", "B1", "c", "D1", "e", "f", "g", "h", "i", "dirty"]);
       write(worktree, "fresh.ts", ["new"]);
 
       const result = yield* authorship.authorship({ threadId: reviewer.threadId, baseRef: null });
@@ -183,7 +191,8 @@ it.layer(TestLayer)("Loom review authorship", (it) => {
       assert.deepEqual(line(6), { sha: amended, author: "threads 2" });
       assert.deepEqual(line(7), { sha: byOwner, author: "git Owner" });
       assert.deepEqual(line(8), { sha: byUnknown, author: "git Loom agent" });
-      assert.equal(line(9), "uncommitted");
+      assert.deepEqual(line(9), { sha: byDeleted, author: "git Loom agent" });
+      assert.equal(line(10), "uncommitted");
       assert.equal(linesOf(result, "fresh.ts")(1), "uncommitted");
       // Only-removed lines leave no line to attribute.
       assert.isUndefined(result.files.find((file) => file.path === "gone.ts"));
@@ -198,7 +207,7 @@ it.layer(TestLayer)("Loom review authorship", (it) => {
       // Only commits that own a surviving line; oldest first.
       assert.deepEqual(
         result.commits.map((entry) => entry.sha),
-        [byCoder, byArchived, amended, byOwner, byUnknown],
+        [byCoder, byArchived, amended, byOwner, byUnknown, byDeleted],
       );
 
       // Line history: newest first; nothing for a file that differs from HEAD.
@@ -211,7 +220,7 @@ it.layer(TestLayer)("Loom review authorship", (it) => {
       });
       assert.deepEqual(history, { commits: [], threads: [] });
       git(worktree, "checkout", "--", "app.ts");
-      write(worktree, "app.ts", ["a", "B2", "c", "D1", "e", "f", "g", "h"]);
+      write(worktree, "app.ts", ["a", "B2", "c", "D1", "e", "f", "g", "h", "i"]);
       const rewrite = commit(worktree, "reviewer rewrites B", "Loom agent", [reviewer.threadId]);
       const rewritten = yield* authorship.lineHistory({
         threadId: reviewer.threadId,

@@ -275,7 +275,11 @@ const make = Effect.gen(function* () {
             }),
           ),
         { concurrency: BLAME_CONCURRENCY, discard: true },
-      ).pipe(Effect.timeoutOption(TOTAL_BUDGET_MS));
+      ).pipe(
+        Effect.timeoutOption(TOTAL_BUDGET_MS),
+        // Git's background lane: blame never takes a process slot from the diff's own reads.
+        Effect.provideService(GitVcsDriver.BackgroundGitWork, true),
+      );
 
       const shas = [
         ...new Set(
