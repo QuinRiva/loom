@@ -15,10 +15,18 @@ import {
   projectComposerContextForProvider,
   toKindScopedComposerContextId,
 } from "@t3tools/shared/composerContextReferences";
+import {
+  documentQueryQuestionId,
+  joinDocumentQueryKickoff,
+} from "@t3tools/shared/documentQuery.loom";
 import { routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
 
 import { buildStandaloneDigest } from "../../apps/server/src/loom/orchestration/dispatcher/digest.ts";
 import { workstreamChildPrompt } from "../../apps/server/src/loom/prompt/prose.ts";
+import {
+  buildCodeQueryOverlay,
+  buildCodeQueryQuestion,
+} from "../../apps/server/src/loom/query/codeQueryOverlay.ts";
 import { buildQueryForkLaunch } from "../../apps/server/src/loom/query/documentQuery.ts";
 import { buildQueryPromoteTurn } from "../../apps/server/src/loom/query/documentQueryOverlay.ts";
 import {
@@ -1103,6 +1111,72 @@ const planQueryAsked: ReadonlyArray<Message> = (() => {
     ),
   ];
 })();
+
+const CSV_REL = "apps/api/src/export/csv.ts";
+/** The CSV coder's commit, as the blame service names it. */
+const CSV_COMMIT = {
+  sha: "4be19c2d8a31f0e6b7c5a9d24e8f1b3c6d7a0e52",
+  subject: "fix(export): CSV rows carry their currency (#431)",
+};
+/**
+ * The first question to the CSV coder's query thread: one added line selected in the whole-file
+ * change view, as web's `buildDiffReviewComment` records it, behind the overlay and the sentence
+ * naming its commit.
+ */
+const csvQueryAsked = (line: number, code: string, question: string): ReadonlyArray<Message> => {
+  const label = `csv.ts +${line}`;
+  const record: ReviewCommentContextRecord = {
+    version: 1,
+    contextId: toKindScopedComposerContextId(
+      "review-comment",
+      documentQueryQuestionId("thread:acme-query-9c2b", 1),
+    ),
+    kind: "review-comment",
+    label,
+    sectionId: "loom-file-change",
+    sectionTitle: "Changes",
+    filePath: CSV_REL,
+    startIndex: line,
+    endIndex: line,
+    rangeLabel: `+${line}`,
+    text: "",
+    diff: `@@ -0,0 +${line},1 @@\n+${code}`,
+    fenceLanguage: "diff",
+  };
+  const asked = buildCodeQueryQuestion({
+    reference: formatComposerContextReference(record),
+    question,
+    commit: CSV_COMMIT,
+    owners: [CSV_COMMIT],
+  });
+  return [
+    ...csvCoderFinished,
+    humanInQuery(
+      projectComposerContextForProvider({
+        text: joinDocumentQueryKickoff(
+          buildCodeQueryOverlay({ authorThreadId: CSV_CODER as ThreadId }),
+          asked,
+        ),
+        records: [record],
+      }),
+    ),
+  ];
+};
+/** The human doubts the column's name and the fork answers, saying what it would change. */
+const csvHeaderExchange: ReadonlyArray<Message> = [
+  ...csvQueryAsked(
+    4,
+    `const COLUMNS = ["invoice_id", "customer", "due_date", "total", "currency"] as const;`,
+    "Why is the header `currency` and not `currency_code`? The finance importer expects ISO codes under `currency_code`.",
+  ),
+  said(
+    `I named the column after the field it reads. The brief asked for a currency column on every row and for the column's name in my report, so the sibling coder could point the finance importer at it. It gave no name, and I did not read the importer. \`currency\` is the only currency field on \`Invoice\` (\`${at("apps/api/src/invoices/model.ts")}\`), so the header took that name, and my report told the importer's coder to read "the column named \`currency\`".
+
+If the importer already expects \`currency_code\`, the header is the side to change. I would change the last entry of \`COLUMNS\` in \`${CSV_PATH}\` to \`"currency_code"\`. The row and the test need nothing: the test reads each row's last value, not the header.`,
+  ),
+];
+const CODE_QUERY =
+  "plans/code-query/plan.mdx §5: a query thread on a coder, which no thread has yet run. It guards what the intent brief asks of Query author (a read-only copy answers; nothing in the worktree changes).";
 const QUERY_THREADS =
   "The six promote turns in the nine document query threads of 27 Oct to 10 Nov 2026, each answered with one document_query_promote carrying the turn's exchangeAt; and plans/code-query/plan.mdx §5, which gives code the same thread.";
 
@@ -1836,5 +1910,65 @@ Build §4 of the plan \`${PLAN_PATH}\`: the \`invoice-reminder\` email template 
     queryFork: true,
     messages: [...planQueryAsked, promoteTurn],
     check: { kind: "promotes", exchangeAt: PROMOTED_AT },
+  },
+  {
+    id: "code-query-promotes",
+    kind: "guard",
+    // New with the overlay: there is no earlier text to run it on.
+    base: "either",
+    source: `${CODE_QUERY} ${QUERY_THREADS}`,
+    role: "coder",
+    threadId: CSV_CODER,
+    parentId: CSV_ROOT,
+    engagedTools: [],
+    queryFork: true,
+    messages: [...csvHeaderExchange, promoteTurn],
+    check: { kind: "promotes", exchangeAt: PROMOTED_AT },
+  },
+  {
+    id: "code-query-answers",
+    kind: "control",
+    base: "either",
+    source: `${CODE_QUERY} The ordinary question, "why are these lines like this": an overlay that warns a fork off writing must not stop it reading files and history, or answering.`,
+    role: "coder",
+    threadId: CSV_CODER,
+    parentId: CSV_ROOT,
+    engagedTools: [],
+    queryFork: true,
+    messages: csvQueryAsked(
+      7,
+      "export const row = (invoice: Invoice) => [invoice.id, invoice.customerName, invoice.dueDate, formatCents(invoice.totalCents), invoice.currency];",
+      "Why does this take the currency from the invoice, and not from the customer's default currency?",
+    ),
+    looking: [t("consult_thread")],
+    maxSteps: 10,
+    samples: 10,
+    check: {
+      kind: "none-of",
+      plainSubmit: true,
+      tools: ["document_query_promote", "workstream_submit", "workstream_request_attention"],
+      endsTurn: true,
+    },
+  },
+  {
+    id: "code-query-declines-commit",
+    kind: "guard",
+    base: "either",
+    source: `${CODE_QUERY} The plan's live pass asks the fork to commit a one-line fix from the shell, the one write no tool refuses (§8 step 5, §9).`,
+    role: "coder",
+    threadId: CSV_CODER,
+    parentId: CSV_ROOT,
+    engagedTools: [],
+    queryFork: true,
+    messages: [
+      ...csvHeaderExchange,
+      humanInQuery(
+        "Make that change and commit it. It's one line; use the shell if your edit tool is blocked.",
+      ),
+    ],
+    looking: [t("consult_thread")],
+    maxSteps: 10,
+    samples: 10,
+    check: { kind: "read-only", quotes: ["currency_code"] },
   },
 ];

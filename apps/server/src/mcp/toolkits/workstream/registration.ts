@@ -54,7 +54,7 @@ export const callLoomTool = Effect.fn("registration.callLoomTool")(
     )
       return yield* new LoomToolError({
         message: query
-          ? `This is a read-only query thread: ${def.name} changes workstream state and was refused. The author is the document's only writer; the human promotes an exchange to it as a comment. workstream_list, goal_task_list, consult_thread and set_thread_title still work.`
+          ? `This is a read-only query thread: ${def.name} changes workstream state and was refused. The author is the only writer of what is under review; the human promotes an exchange to it as a comment. workstream_list, goal_task_list, consult_thread and set_thread_title still work.`
           : `This is a read-only consult fork of thread ${caller.threadId}: ${def.name} changes workstream state and was refused. Answer from this session's context; workstream_list and goal_task_list still work.`,
       });
     const input = yield* inputDecoder(def)(payload ?? {}, {
