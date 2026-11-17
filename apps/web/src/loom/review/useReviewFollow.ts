@@ -56,3 +56,12 @@ export function useReviewFollow(routed: ScopedThreadRef | null) {
     reviewing: resolved.following ? { ref: resolved.threadRef, title: shell?.title ?? null } : null,
   };
 }
+
+/**
+ * Whose right-panel width a thread shows: while it follows a review, the review's, so the panel
+ * Carl sized there keeps its size and a resize made while following belongs to the review.
+ */
+export function useReviewPanelKey(routed: ScopedThreadRef | null): string | null {
+  const { threadRef } = useReviewFollow(routed);
+  return threadRef === null ? null : scopedThreadKey(threadRef);
+}

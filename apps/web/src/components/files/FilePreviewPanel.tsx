@@ -1859,8 +1859,9 @@ export default function FilePreviewPanel({
               cwd={hostFolderPath ?? cwd}
               projectName={hostFolderPath ?? projectName}
               hostFolder={hostFolderPath !== null}
-              // loom: directory reveal, and folder expansion kept per thread and folder
-              loomExpansionKey={`${scopedThreadKey(threadRef)}:${hostFolderPath ?? cwd}`}
+              // loom: directory reveal, and folder expansion kept per thread (the review's while
+              // following one) and folder
+              loomExpansionKey={`${scopedThreadKey(loomReviewRef)}:${hostFolderPath ?? cwd}`}
               revealPath={revealDirectoryPath}
               revealRequestId={revealDirectoryRequestId}
               selectedPath={
