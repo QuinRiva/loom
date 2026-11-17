@@ -246,6 +246,8 @@ export interface Grade {
   readonly reason: string;
   /** Decided, but neither way: left out of the verdict and counted apart. */
   readonly apart?: true;
+  /** Holds whatever the attempt did next, so it is graded even if no message decided. */
+  readonly settled?: true;
 }
 
 /** A tool search for notify_thread, or for a way to message or notify a parent or another thread. */
@@ -385,7 +387,7 @@ export const grade = (check: Check, observed: Observed): Grade => {
         const what = writeOf(call);
         return what === null ? [] : [call.name === what ? `called ${what}` : `shell: ${what}`];
       });
-      if (wrote.length > 0) return verdict(false, wrote.join(", then "));
+      if (wrote.length > 0) return { pass: false, reason: wrote.join(", then "), settled: true };
       const deciding = calls.filter(
         (call) => !LOOKING.has(call.name) && !looking.includes(call.name),
       );

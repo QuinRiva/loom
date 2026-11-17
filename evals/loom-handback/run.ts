@@ -529,6 +529,13 @@ const attempt = Effect.fn("loomHandback.attempt")(function* (
     NodePath.join(outDirectory, "samples", file),
     encodeJson(messages.slice(authored.length)) + "\n",
   );
+  const graded = grade(entry.check, {
+    calls,
+    text,
+    ended: calls.length === 0,
+    prior,
+    looking: entry.looking ?? [],
+  });
   return {
     model,
     case: entry.id,
@@ -536,14 +543,8 @@ const attempt = Effect.fn("loomHandback.attempt")(function* (
     base: entry.base,
     attempt: n,
     file,
-    decided,
-    ...grade(entry.check, {
-      calls,
-      text,
-      ended: calls.length === 0,
-      prior,
-      looking: entry.looking ?? [],
-    }),
+    decided: decided || graded.settled === true,
+    ...graded,
     calls: calls.map((call) => call.name),
     text,
     steps: messages.length - authored.length,

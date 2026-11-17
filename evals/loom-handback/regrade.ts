@@ -49,7 +49,6 @@ const regrade = (dir: string) =>
           .map((block) => ({ name: block.name ?? "", input: block.input ?? {} }));
       const assistant = messages.filter((message) => message.role === "assistant");
       const calls = callsOf(assistant.at(-1)?.content ?? []);
-      if (!decides(calls, entry.looking, entry.check)) return { ...row, pass: false, apart: true };
       const graded = grade(entry.check, {
         calls,
         text: row.text ?? "",
@@ -57,7 +56,9 @@ const regrade = (dir: string) =>
         prior: assistant.slice(0, -1).flatMap((message) => callsOf(message.content)),
         looking: entry.looking ?? [],
       });
-      return { ...row, ...graded, apart: graded.apart === true };
+      return graded.settled || decides(calls, entry.looking, entry.check)
+        ? { ...row, ...graded, apart: graded.apart === true }
+        : { ...row, pass: false, apart: true };
     });
 
 const tally = (rows: ReadonlyArray<Row>, model: string, id: string) => {

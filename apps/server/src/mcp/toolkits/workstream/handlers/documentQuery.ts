@@ -23,7 +23,7 @@ export const documentQueryPromote = Effect.fn("LoomToolkit.documentQueryPromote"
   );
   if (row?.role !== DOCUMENT_QUERY_ROLE || row.documentQuery === null)
     return yield* fail(
-      "Only a query thread can promote an exchange: this tool records a comment for the thread the query thread is a fork of.",
+      "Only a query thread can promote an exchange: this tool records a comment for the thread a query thread is a fork of.",
     );
   const text = input.text.trim();
   if (!text) return yield* fail("text must be the comment for the author, not empty.");

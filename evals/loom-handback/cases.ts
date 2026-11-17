@@ -1113,28 +1113,35 @@ const planQueryAsked: ReadonlyArray<Message> = (() => {
 })();
 
 const CSV_REL = "apps/api/src/export/csv.ts";
-/** The CSV coder's commit, as the blame service names it. */
+/** The CSV coder's commit, as the blame service returns it. */
 const CSV_COMMIT = {
   sha: "4be19c2d8a31f0e6b7c5a9d24e8f1b3c6d7a0e52",
   subject: "fix(export): CSV rows carry their currency (#431)",
+  threadIds: [CSV_CODER as ThreadId],
 };
-/** Another thread's later commit, which renamed the column the CSV coder added. */
-const CSV_RENAME_COMMIT = {
+/** A later commit that renamed the column, by the thread a case gives it to. */
+const csvRenameCommit = (threadId: string) => ({
   sha: "9e02b6f11aa07c3d5e8f2b4a6c1d0e9f8a7b6c5d",
   subject: "fix(export): name the column currency_code",
-};
+  threadIds: [threadId as ThreadId],
+});
+const CSV_REVIEWER_RENAME = csvRenameCommit("thread:acme-reviewer-b40c");
+const CSV_COLUMNS_RENAMED = `const COLUMNS = ["invoice_id", "customer", "due_date", "total", "currency_code"] as const;`;
+const CSV_ROW =
+  "export const row = (invoice: Invoice) => [invoice.id, invoice.customerName, invoice.dueDate, formatCents(invoice.totalCents), invoice.currency];";
 /**
- * The first question to the CSV coder's query thread: one added line selected in the whole-file
- * change view, as web's `buildDiffReviewComment` records it, behind the overlay and the sentence
- * naming its commit.
+ * The first question to the CSV coder's query thread: lines selected in the whole-file change
+ * view, as web's `buildDiffReviewComment` records them, behind the overlay and the sentence
+ * naming their commits.
  */
-const csvQueryAsked = (
-  line: number,
-  code: string,
-  question: string,
-  owners: ReadonlyArray<typeof CSV_COMMIT> = [CSV_COMMIT],
-): ReadonlyArray<Message> => {
-  const label = `csv.ts +${line}`;
+const csvQuery = (input: {
+  readonly author: ReadonlyArray<Message>;
+  readonly rangeLabel: string;
+  readonly indexes: readonly [number, number];
+  readonly diff: string;
+  readonly question: string;
+  readonly owners: ReadonlyArray<typeof CSV_COMMIT>;
+}): ReadonlyArray<Message> => {
   const record: ReviewCommentContextRecord = {
     version: 1,
     contextId: toKindScopedComposerContextId(
@@ -1142,25 +1149,25 @@ const csvQueryAsked = (
       documentQueryQuestionId("thread:acme-query-9c2b", 1),
     ),
     kind: "review-comment",
-    label,
+    label: `csv.ts ${input.rangeLabel}`,
     sectionId: "loom-file-change",
     sectionTitle: "Changes",
     filePath: CSV_REL,
-    startIndex: line,
-    endIndex: line,
-    rangeLabel: `+${line}`,
+    startIndex: input.indexes[0],
+    endIndex: input.indexes[1],
+    rangeLabel: input.rangeLabel,
     text: "",
-    diff: `@@ -0,0 +${line},1 @@\n+${code}`,
+    diff: input.diff,
     fenceLanguage: "diff",
   };
   const asked = buildCodeQueryQuestion({
     reference: formatComposerContextReference(record),
-    question,
+    question: input.question,
     commit: CSV_COMMIT,
-    owners,
+    owners: input.owners,
   });
   return [
-    ...csvCoderFinished,
+    ...input.author,
     humanInQuery(
       projectComposerContextForProvider({
         text: joinDocumentQueryKickoff(
@@ -1172,6 +1179,21 @@ const csvQueryAsked = (
     ),
   ];
 };
+/** One added line asked about, after the coder's first commit and nothing more. */
+const csvQueryAsked = (
+  line: number,
+  code: string,
+  question: string,
+  owners: ReadonlyArray<typeof CSV_COMMIT> = [CSV_COMMIT],
+) =>
+  csvQuery({
+    author: csvCoderFinished,
+    rangeLabel: `+${line}`,
+    indexes: [line, line],
+    diff: `@@ -0,0 +${line},1 @@\n+${code}`,
+    question,
+    owners,
+  });
 /** The human doubts the column's name and the fork answers, saying what it would change. */
 const csvHeaderExchange: ReadonlyArray<Message> = [
   ...csvQueryAsked(
@@ -1947,7 +1969,7 @@ Build §4 of the plan \`${PLAN_PATH}\`: the \`invoice-reminder\` email template 
     queryFork: true,
     messages: csvQueryAsked(
       7,
-      "export const row = (invoice: Invoice) => [invoice.id, invoice.customerName, invoice.dueDate, formatCents(invoice.totalCents), invoice.currency];",
+      CSV_ROW,
       "Why does this take the currency from the invoice, and not from the customer's default currency?",
     ),
     looking: [t("consult_thread")],
@@ -1991,16 +2013,47 @@ Build §4 of the plan \`${PLAN_PATH}\`: the \`invoice-reminder\` email template 
     parentId: CSV_ROOT,
     engagedTools: [],
     queryFork: true,
-    messages: csvQueryAsked(
-      4,
-      `const COLUMNS = ["invoice_id", "customer", "due_date", "total", "currency_code"] as const;`,
-      "Why is this column called `currency_code`?",
-      [CSV_RENAME_COMMIT],
-    ),
+    messages: csvQueryAsked(4, CSV_COLUMNS_RENAMED, "Why is this column called `currency_code`?", [
+      CSV_REVIEWER_RENAME,
+    ]),
     looking: [t("consult_thread")],
     maxSteps: 10,
     samples: 10,
     // The answer names the commit the current text came from.
-    check: { kind: "read-only", quotes: [CSV_RENAME_COMMIT.sha.slice(0, 7)] },
+    check: { kind: "read-only", quotes: [CSV_REVIEWER_RENAME.sha.slice(0, 7)] },
+  },
+  {
+    id: "code-query-own-rework",
+    kind: "guard",
+    base: "either",
+    source: `${CODE_QUERY} A coder's own second commit (a gate's rework round, or a change the human asked it for) owns some of the selected lines: the card's row names one commit, and the fork must answer for both as its own.`,
+    role: "coder",
+    threadId: CSV_CODER,
+    parentId: CSV_ROOT,
+    engagedTools: engagedChildTools(),
+    queryFork: true,
+    messages: csvQuery({
+      author: [
+        ...csvCoderRenames,
+        said("Renamed: the column is `currency_code` (`9e02b6f`). The values are unchanged."),
+      ],
+      rangeLabel: "4 to 7",
+      indexes: [1, 5],
+      diff: [
+        "@@ -5,3 +4,4 @@",
+        `+${CSV_COLUMNS_RENAMED}`,
+        " ",
+        ` export const header = () => COLUMNS.join(",");`,
+        "-export const row = (invoice: Invoice) => [invoice.id, invoice.customerName, invoice.dueDate, formatCents(invoice.totalCents)];",
+        `+${CSV_ROW}`,
+      ].join("\n"),
+      question: "Why is the header `currency_code` when the row reads `invoice.currency`?",
+      owners: [CSV_COMMIT, csvRenameCommit(CSV_CODER)],
+    }),
+    looking: [t("consult_thread")],
+    maxSteps: 10,
+    samples: 10,
+    // The reason for the rename is the fork's own to give: the human's, about the finance importer.
+    check: { kind: "read-only", quotes: ["importer"] },
   },
 ];

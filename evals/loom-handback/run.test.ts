@@ -394,9 +394,11 @@ describe("a query thread", () => {
       "wrote nothing, answer does not name it",
     );
     const edit = { name: "edit", input: { path: "csv.ts", edits: [] } };
-    expect(grade(readOnly, { ...observed([], declined), prior: [edit] }).reason).toBe(
-      "called edit",
-    );
+    expect(grade(readOnly, { ...observed([], declined), prior: [edit] })).toEqual({
+      pass: false,
+      reason: "called edit",
+      settled: true,
+    });
     const commit = bash("sed -i s/a/b/ csv.ts && git commit -am fix");
     expect(grade(readOnly, { ...observed([], declined), prior: [edit, commit] }).reason).toBe(
       "called edit, then shell: sed -i",
