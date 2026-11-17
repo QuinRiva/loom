@@ -1,4 +1,5 @@
 import { usePreviewPanelInlineSize } from "../../hooks/usePreviewPanelInlineSize";
+import { useCarriedPanelWidth } from "../../loom/rightPanelWidth"; // loom: right-panel-carry
 import { RightPanelSheet } from "../RightPanelSheet";
 import { RightPanelTabs, type RightPanelTabsProps } from "../RightPanelTabs";
 
@@ -27,9 +28,11 @@ export function ChatRightPanel(props: ChatRightPanelProps) {
     layoutControls,
     ...tabs
   } = props;
+  const defaultWidth = useCarriedPanelWidth(widthStorageKey); // loom: right-panel-carry
   const inlineSize = usePreviewPanelInlineSize({
     container: workspaceLayoutElement,
     widthStorageKey,
+    defaultWidth, // loom: right-panel-carry
   });
   if (!sheet) {
     return <RightPanelTabs {...tabs} mode="inline" maximized={maximized} inlineSize={inlineSize} />;

@@ -21,6 +21,7 @@ import { useWorkstreamCommands, useWorkstreamNodes } from "../loom/workstreamSta
 import { WorkstreamEnvironmentContext, WorkstreamTotalSpend } from "../loom/WorkstreamSpendSlot";
 import { isAbsolutePreviewablePath } from "../markdown-links";
 import { useRightPanelStore } from "../rightPanelStore";
+import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { useThreadShell } from "../state/entities"; // loom: agent-started origin title
 import { threadStartOriginOf } from "@t3tools/client-runtime/state/loom/threadOrigin"; // loom: agent-started origin
 import { buildThreadLineage } from "../threadRouteLineage";
@@ -46,11 +47,21 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
   const { nodes, rollupOf } = useWorkstreamNodes(threadRef.environmentId);
   const commands = useWorkstreamCommands(threadRef.environmentId);
   const [timelineId, setTimelineId] = useState<ThreadId | null>(null);
-  const onOpenThread = (threadId: ThreadId) =>
+  // Navigating by this panel keeps it open and in front in the thread it opens (right-panel-carry);
+  // a narrow window's sheet would cover that thread's chat, so there it lands on the chat as before.
+  const keepPanelOpenIn = (threadId: ThreadId) => {
+    if (nodes.has(threadId) && !window.matchMedia(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY).matches)
+      useRightPanelStore
+        .getState()
+        .open(scopeThreadRef(threadRef.environmentId, threadId), "workstream");
+  };
+  const onOpenThread = (threadId: ThreadId) => {
+    keepPanelOpenIn(threadId);
     void navigate({
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(scopeThreadRef(threadRef.environmentId, threadId)),
     });
+  };
   // Reports are absolute paths outside any worktree: open them read-only in
   // THIS panel (the open thread's right panel).
   const onOpenReport = (reportPath: string) => {
@@ -160,7 +171,11 @@ export function WorkstreamPanel({ threadRef }: { readonly threadRef: ScopedThrea
             startedBy={startedBy}
             onNavigateToThread={onOpenThread}
             // loom: the agent-started chip opens its origin at the handoff
-            onOpenStartedBy={() => originId && openHandoffOrigin(originId, threadRef.threadId)}
+            onOpenStartedBy={() => {
+              if (!originId) return;
+              keepPanelOpenIn(originId);
+              openHandoffOrigin(originId, threadRef.threadId);
+            }}
           />
         </div>
         <div className="relative min-h-0 flex-1 overflow-hidden">

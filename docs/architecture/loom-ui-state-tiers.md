@@ -21,7 +21,13 @@ Fork-seam rules (loom state lives in loom-owned files — `apps/web/src/loom/`, 
 
 Scroll positions (the chat timeline's, file previews' in `rememberedScroll.loom.ts`) sit between
 tiers 1 and 4: an in-memory map keyed by thread that survives remounts and thread switches but not
-a reload, because persisting on every scroll frame costs more than a reload's reset is worth.
+a reload, because persisting on every scroll frame costs more than a reload's reset is worth. The
+Workstream graph's zoom and pan sit there too, kept per workstream root in `workstreamUiStore` for
+the session, so moving between threads of one workstream keeps the graph where it was.
+
+The right panel's width is tier 1 at workstream scope: one localStorage width per workstream root,
+read and written by every thread under it (`loom/rightPanelWidth.ts`). A workstream never sized
+takes the width of the one shown last and writes it as its own, so a width changes only by a drag.
 
 Picking the tier is the design decision. If a choice should outlive the component that sets it,
 it is tier 1 or 2 and belongs in a store — not in `useState` layered over the persisted world.
@@ -67,6 +73,12 @@ automatic effect.
 right-panel surface, and the turn-scoped dismissal refs no longer exist. The seed-not-override
 policy above now has **no exceptions** — every automatic surface opener goes through
 `seedWorkstream`.
+
+Navigating by the Workstream panel is not an automatic opener but the user's own act: opening a
+thread from inside it brings the Workstream tab up open and in front in the destination thread,
+over whatever was persisted there, keeping its other tabs behind it. It is the store's `open`
+user action, run in the click handler before the route changes, so it is one atomic transition and
+no effect decides the surface. Reaching a thread any other way changes none of its surfaces.
 
 ## Orphan keys: no automatic sweep, except thread tabs
 
