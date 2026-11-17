@@ -39,8 +39,12 @@ export interface AuthorCardSlot {
       readonly fileDiff: FileDiffMetadata;
       readonly range: SelectedLineRange;
     },
-    card: ReactNode,
-    close: () => void,
+    actions: {
+      /** The draft's text box is shown. */
+      readonly commenting: boolean;
+      readonly comment: () => void;
+      readonly close: () => void;
+    },
   ) => ReactNode;
 }
 
@@ -119,7 +123,8 @@ function AuthorCard({
   filePath,
   fileDiff,
   range,
-  card,
+  commenting,
+  comment,
   close,
 }: {
   authors: ReturnType<typeof useLoomAuthorship>;
@@ -130,11 +135,11 @@ function AuthorCard({
   filePath: string;
   fileDiff: FileDiffMetadata;
   range: SelectedLineRange;
-  card: ReactNode;
+  commenting: boolean;
+  comment: () => void;
   close: () => void;
 }) {
   const navigate = useNavigate();
-  const [commenting, setCommenting] = useState(false);
   const { authorship, result } = authors;
   const lines = addedLines(fileDiff, range);
   const owners = authorship ? lines.map((line) => authorship.at(filePath, line)) : [];
@@ -160,7 +165,8 @@ function AuthorCard({
               endLine: Math.max(...lines),
             },
           }),
-          result?.headSha ?? undefined,
+          // A commit or a discarded edit changes what the lines' history can be.
+          `${result?.headSha ?? ""}:${authors.diffHash ?? ""}`,
         )
       : null,
   );
@@ -244,14 +250,13 @@ function AuthorCard({
               <XIcon />
               Close
             </Button>
-            <Button variant="outline" size="xs" onClick={() => setCommenting(true)}>
+            <Button variant="outline" size="xs" onClick={comment}>
               <MessageCircleIcon />
               Comment
             </Button>
           </div>
         )}
       </div>
-      {commenting ? card : null}
     </div>
   );
 }
@@ -304,15 +309,8 @@ export function useAuthorCardSlot({
   return {
     restore: loaded ? focus : null,
     onFocus: (next) => useReviewFollowStore.getState().setFocus(reviewing, next),
-    render: (draft, card, close) => (
-      <AuthorCard
-        authors={authors}
-        reviewing={reviewing}
-        routed={routed}
-        {...draft}
-        card={card}
-        close={close}
-      />
+    render: (draft, actions) => (
+      <AuthorCard authors={authors} reviewing={reviewing} routed={routed} {...draft} {...actions} />
     ),
   };
 }

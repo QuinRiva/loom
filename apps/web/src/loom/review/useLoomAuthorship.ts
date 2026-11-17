@@ -114,6 +114,8 @@ export function useLoomAuthorship({
     result,
     /** The base the answer was asked against, for the author card's line history. */
     baseRef,
+    /** The shown diff's hash: the line history is re-asked when the content changes. */
+    diffHash,
     filter: activeFilter,
     setFilter: (group: string | null) => {
       if (threadRef) useReviewBaselineStore.getState().setAuthorFilter(threadRef, group);
