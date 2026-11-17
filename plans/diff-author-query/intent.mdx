@@ -37,6 +37,18 @@ without losing your place in the diff.
 - One click returns you to the thread you were reviewing in, with the diff
   as you left it.
 
+Those four pass in the Diff panel. After trying it you said: "it seems it
+was only built for *just* the diff view - which is the view that I rarely
+use for reviewing diffs". So the same holds in the view you do review in, a
+changed file opened whole from the Files list:
+
+- Its changed lines carry their author thread's colour, and the file's
+  header names the threads that wrote them.
+- Selecting lines opens the same card.
+- Open thread lands in the coder's conversation at the turn that made the
+  commit, with the same file open beside it at the same lines. One click
+  returns you to the file as you left it.
+
 **It must not.**
 
 - Name a thread that did not write the lines. No author shown beats a guess.
@@ -102,6 +114,10 @@ without losing your place in the diff.
 - _Assumed:_ the earlier author appears on the card, not on the hunk's own
   row as the mockup's "after Deploy server" note drew it. Redirect if you
   want it on the row.
+- _Assumed:_ in the whole-file view, authors show when it is comparing
+  against the whole branch or the live "Since your message", as in the Diff
+  panel, and not for an earlier interval. The Files list itself is
+  unchanged. Redirect if you want the thread filter there too.
 - _Assumed:_ web and desktop first. Redirect if you review diffs on your
   phone.
 
