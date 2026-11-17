@@ -12,6 +12,7 @@
     "test-signal": "node --env-file-if-exists=../.env test-signal/run.ts",
     "explainer-density": "node --env-file-if-exists=../.env explainer-density/run.ts",
     "loom-handback": "node --env-file-if-exists=../.env loom-handback/run.ts",
+    "loom-handback:regrade": "node loom-handback/regrade.ts",
     "typecheck": "effect-tsgo tsrs --noEmit",
     "test": "vp test run --config ../vite.config.ts --dir ."
   },

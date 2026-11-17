@@ -1,19 +1,29 @@
 /**
- * The 19 cases of plans/human-in-child-thread/plan.mdx §5: authored Acme transcripts ending at a
- * decision. Every Loom-produced message in them is built from source, through `world.ts` where the
- * change alters it. No real thread text: `source` names the situation each mirrors.
+ * The cases of plans/human-in-child-thread/plan.mdx §5 and plans/document-comments-to-author/
+ * model-text.md §4: authored Acme transcripts ending at a decision. Every Loom-produced message in
+ * them is built from source, through `world.ts` where the change alters it. No real thread text:
+ * `source` names the situation each mirrors.
  */
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import type { ReviewCommentContextRecord, ThreadId } from "@t3tools/contracts";
+import {
+  formatComposerContextReference,
+  projectComposerContextForProvider,
+  toKindScopedComposerContextId,
+} from "@t3tools/shared/composerContextReferences";
 import { routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
-import type { ThreadId } from "@t3tools/contracts";
 
+import { buildStandaloneDigest } from "../../apps/server/src/loom/orchestration/dispatcher/digest.ts";
 import { workstreamChildPrompt } from "../../apps/server/src/loom/prompt/prose.ts";
 import {
   appendWarnings,
+  composeNotifyFramedText,
+  describeSender,
+  relationshipLabel,
   renderSubmitOutcome,
 } from "../../apps/server/src/mcp/toolkits/workstream/render.ts";
 import { labelledForModel } from "../../packages/provider-pi/src/server/provenance.loom.ts";
@@ -65,6 +75,8 @@ export interface Case {
   readonly maxSteps?: number;
   /** Decided samples to collect, where the default cannot show the effect sought. */
   readonly samples?: number;
+  /** A finished child's report on file and its path: a live submit is answered as the server would. */
+  readonly finishedReport?: { readonly markdown: string; readonly path: string };
 }
 
 /** Where pi installs a skill, and its text from this checkout. */
@@ -752,6 +764,296 @@ const MATCHER_BRIEF = `# Fix the duplicate matcher with the human, pair by pair
 
 The human is going through the duplicate detector's false positives (\`${PAIRS_PATH}\`) and wants the matcher in \`${at("apps/api/src/invoices/dedupe.ts")}\` fixed as each one turns up. Make each fix they ask for, with a test, and commit as you go.`;
 
+// ── Scenario D: the reminders plan. Its planner has finished and two coders build from it; the
+// human then reviews the plan in the planner's thread (plans/document-comments-to-author/model-text.md §4).
+
+const PLAN_PLANNER = "thread:acme-planner-5d10";
+const PLAN_TITLE = "Invoice reminders plan";
+const JOB_CODER = "thread:acme-coder-e2a4";
+const CHANNELS_CODER = "thread:acme-coder-8f31";
+const PLAN_REL = "plans/invoice-reminders/plan.mdx";
+const PLAN_BRIEF = `# Plan: overdue-invoice reminders
+
+The intent brief at \`${INTENT_PATH}\` is approved by the human. Write the implementation plan at \`${PLAN_PATH}\`, per the mdx-visual-plan skill. Two coders start from it as soon as you hand it back: one builds the daily job, including what happens when a send fails; the other builds the reminder email and the SMS text. Where a choice is the human's to make, put it to them in the plan with your recommendation: the coders build to the recommended option until the human answers.`;
+const RETRY_PASSAGE = "tries that channel again on each of the next three daily runs";
+const SMS_PASSAGE = "SMS on both reminders when `billingContactPhone` is set";
+const REVIEWED_PLAN = `---
+reader:
+  who: the coders who build from it, and the human, who answers its two questions
+  knows: the approved brief; not the jobs, notify or finance-queue code
+  after_first_screen: they can say what is built, what happens when a send fails, and which channel each reminder uses
+kicker: "Implementation plan · 11 Nov 2026"
+status: draft
+intent: plans/invoice-reminders/intent.mdx
+---
+
+# A daily job sends due reminders, retries a failed send, and hands unpaid invoices to finance's existing queue
+
+Build one daily job, one table and one email template. The job runs on the existing 06:00 runner and sends each billing contact at most one message a day, covering all their due invoices. A send that fails is retried on later runs. At 30 days, or when the retries run out, the job sets the field finance's queue already reads. Nothing in the finance app changes.
+
+**What it means.** In scope: reminders at 3 and 10 days overdue by email, and by SMS when a phone number is on file; retries of a failed send; the hand-off to finance. Not in scope: letters, calls, payment terms. Done is §6: every line of the brief has a test.
+
+**Questions for you.** Two choices are yours. The coders build to the recommended option until you answer.
+
+<QuestionForm
+  questions={[
+    {
+      id: "retries",
+      title: "How many times is a failed send retried?",
+      subtitle: "More retries ride out a longer outage; fewer reach finance sooner.",
+      mode: "single",
+      options: [
+        { id: "three", label: "Three times, on the next three daily runs", recommended: true },
+        { id: "one", label: "Once, on the next daily run" },
+      ],
+    },
+    {
+      id: "sms-time",
+      title: "When does an SMS reminder go?",
+      subtitle: "Decides whether the job needs a second daily run.",
+      mode: "single",
+      options: [
+        { id: "with-email", label: "With the email, at 06:00", recommended: true },
+        { id: "later", label: "Three hours later, at 09:00" },
+      ],
+    },
+  ]}
+/>
+
+## 1. What is reused
+
+- \`daily\` in \`apps/api/src/jobs/daily.ts\` runs registered jobs at 06:00.
+- \`sendEmail\` and \`sendSms\` in \`apps/api/src/notify/\` send one message each.
+- Finance's queue lists invoices whose \`queue_reason\` is set, through \`/api/finance/queue\`.
+
+## 2. What is new
+
+1. **Table \`invoice_reminders\`**: invoice id, step (\`first\`, \`second\`), channel (\`email\`, \`sms\`), attempts, sent at; unique on invoice, step and channel, so a rerun never sends a step twice on one channel.
+2. **Job \`apps/api/src/jobs/reminders.ts\`**: each run selects invoices with status \`sent\` and no \`queue_reason\` that are at least 3 days past due (first step) or at least 10 (second step). It sends each channel of that step not yet sent, so a missed run is caught up the next day. Draft, void, paid and disputed invoices never match.
+3. **One message per contact per day.** The job groups due sends by billing contact (the invoice's email address for email, its phone number for SMS) and sends one email and one SMS listing them all.
+4. **Hand-off at 30 days**: the same run sets \`queue_reason = "overdue"\` on sent invoices 30 days past due.
+
+## 3. When a send fails
+
+A send fails when the mailer or the SMS gateway returns an error. The job records the failed attempt on that channel's row and ${RETRY_PASSAGE}. After the third failed retry it sets \`queue_reason = "send_failed"\`, so the invoice reaches finance's queue early.
+
+## 4. Channels
+
+Email on both reminders, from the existing billing address, with the new template \`invoice-reminder\`. ${SMS_PASSAGE}: one line naming the invoice numbers and the amount due, sent with the email.
+
+## 5. Rejected: a timer per invoice
+
+Exact-hour delivery is not in the brief, and per-invoice timers would need a scheduler the app does not have.
+
+## 6. Verification
+
+- A test per brief line on a fixed clock: the first step at 3 days and the second at 10, and none on draft, void, paid or disputed invoices.
+- One message for a contact with two due invoices, and \`queue_reason\` set at 30 days.
+- A failing sender: the channel is tried again on the next three runs, then \`queue_reason\` is \`send_failed\`.`;
+const PLAN_REPORT = `<!-- response -->
+The reminders plan is written and signed: \`${PLAN_PATH}\` (commit \`6b7d2e4\`). One daily job sends due reminders, retries a failed send on the next three runs and then hands the invoice to finance's queue; SMS goes with the email. Two choices are put to the human in a question form, with a recommendation each, so coders can build to the recommended options now.
+<!-- /response -->
+
+- Daily job, table and hand-off: §2 (\`apps/api/src/jobs/reminders.ts\`, table \`invoice_reminders\`).
+- When a send fails: §3.
+- Email and SMS: §4 (template \`invoice-reminder\`).
+- The skill's check: no findings.`;
+const PLAN_REPORT_PATH = reportPathOf(PLAN_PLANNER);
+const REVIEWED_PLAN_RENDER = lintDoc(PLAN_REL, REVIEWED_PLAN);
+const relintPlan = `cd ${WORKTREE} && bash ${skillLocation("mdx-doc-core/scripts/lint-doc.sh")} ${PLAN_REL}`;
+
+/** The planner writes the plan, hands it back done, and says so; the human has not yet written. */
+const plannerFinishedPlan: ReadonlyArray<Message> = [
+  kickoff("planner", PLAN_BRIEF),
+  plannerReadsSkill,
+  said(
+    "Reading the approved brief and the code it touches.",
+    read(INTENT_PATH, INTENT_APPROVED),
+    ...Object.entries(REMINDERS_CODE).map(([path, content]) => read(path, content)),
+  ),
+  said(
+    "Writing the plan and signing it.",
+    bash(`cat > ${PLAN_PATH} <<'EOF'\n${REVIEWED_PLAN}\nEOF`, ""),
+  ),
+  said("", sign(PLAN_PATH, "plan")),
+  said("Running the skill's check and looking at the rendered page.", REVIEWED_PLAN_RENDER.check),
+  said("", ...REVIEWED_PLAN_RENDER.look),
+  said(
+    "It compiles and the first screen carries the recommendation and both questions. Committing it; that finishes the plan, and I hand it back next.",
+    bash(
+      `git add ${PLAN_PATH} && git commit -q -m 'docs(plans): invoice reminders plan' && git log --oneline -1`,
+      "6b7d2e4 docs(plans): invoice reminders plan",
+    ),
+  ),
+  said("", {
+    name: t("workstream_submit"),
+    input: { markdown: PLAN_REPORT },
+    result: submitEcho(PLAN_PLANNER, "done"),
+  }),
+  said(
+    "Done: the plan is handed back, with two questions for the human and a recommendation on each.",
+  ),
+];
+
+/** The human's message from the plan's panel: one chip per comment, projected as the provider sees it. */
+const reviewInChild = (records: ReadonlyArray<ReviewCommentContextRecord>) =>
+  humanInChild(
+    projectComposerContextForProvider({
+      text: records.map((record) => formatComposerContextReference(record)).join(" "),
+      records,
+    }),
+  );
+/** A comment on a passage, as web's annotation layer records it. */
+const annotation = (
+  key: string,
+  section: { readonly id: string; readonly title: string },
+  quote: string,
+  text: string,
+): ReviewCommentContextRecord => ({
+  version: 1,
+  contextId: toKindScopedComposerContextId("review-comment", `mdx-anchor:${key}`),
+  kind: "review-comment",
+  label: "plan.mdx annotation",
+  sectionId: section.id,
+  sectionTitle: section.title,
+  filePath: PLAN_REL,
+  startIndex: 0,
+  endIndex: 0,
+  rangeLabel: "annotation",
+  text,
+  diff: "",
+  mdxAnchor: {
+    anchor: {
+      anchorKind: "text",
+      textQuote: quote,
+      sectionId: section.id,
+      sectionTitle: section.title,
+    },
+    quotedText: quote,
+  },
+});
+const SEND_FAILS = { id: "3-when-a-send-fails", title: "3. When a send fails" };
+const CHANNELS = { id: "4-channels", title: "4. Channels" };
+const RENDERED_SMS_PASSAGE = SMS_PASSAGE.replaceAll("`", "");
+const FEWER_RETRIES =
+  "Two retries, not three. A third leaves the contact unreminded for most of a week.";
+const SMS_SECOND_ONLY = "SMS on the second reminder only. The first reminder is email alone.";
+const askFewerRetries = annotation("retries-two", SEND_FAILS, RETRY_PASSAGE, FEWER_RETRIES);
+const askSmsSecondOnly = annotation("sms-second", CHANNELS, RENDERED_SMS_PASSAGE, SMS_SECOND_ONLY);
+
+/** The planner makes the retries change and commits. */
+const retriesEdited = [
+  said(
+    "Cutting the retries to two.",
+    edit(
+      PLAN_PATH,
+      `${RETRY_PASSAGE}. After the third failed retry`,
+      "tries that channel again on each of the next two daily runs. After the second failed retry",
+    ),
+    edit(
+      PLAN_PATH,
+      "the channel is tried again on the next three runs",
+      "the channel is tried again on the next two runs",
+    ),
+  ),
+  said(
+    "Checking and committing.",
+    bash(
+      `${relintPlan} && git commit -qam 'docs(plans): two retries, not three' && git log --oneline -1`,
+      `${PLAN_REL}: OK — no findings.\nc41a9e7 docs(plans): two retries, not three`,
+    ),
+  ),
+];
+/** The planner makes the SMS change and commits. */
+const smsEdited = [
+  said(
+    "Moving SMS to the second reminder only.",
+    edit(
+      PLAN_PATH,
+      `${SMS_PASSAGE}: one line`,
+      "SMS on the second reminder only, when `billingContactPhone` is set: one line",
+    ),
+    edit(
+      PLAN_PATH,
+      "by email, and by SMS when a phone number is on file;",
+      "by email, and the second also by SMS when a phone number is on file;",
+    ),
+  ),
+  said(
+    "Checking and committing.",
+    bash(
+      `${relintPlan} && git commit -qam 'docs(plans): SMS on the second reminder only' && git log --oneline -1`,
+      `${PLAN_REL}: OK — no findings.\n5f08b3d docs(plans): SMS on the second reminder only`,
+    ),
+  ),
+];
+const RETRIES_DONE =
+  "Done: §3 now retries a failed send on the next two daily runs, then hands the invoice to finance (`c41a9e7`).";
+const SMS_DONE =
+  "Done: §4 now sends SMS with the second reminder only; the first reminder is email alone (`5f08b3d`).";
+
+const askWhyNextRun = annotation(
+  "why-next-run",
+  SEND_FAILS,
+  RETRY_PASSAGE,
+  "Why retry on the next daily run rather than again within the same run?",
+);
+const askGrouping = annotation(
+  "grouping",
+  { id: "2-what-is-new", title: "2. What is new" },
+  "The job groups due sends by billing contact",
+  "How does the job decide which invoices go in the same message?",
+);
+
+const PLAN_MEMBER = {
+  id: PLAN_PLANNER as ThreadId,
+  role: "planner",
+  outcome: "done" as const,
+  attention: [],
+  reportPath: PLAN_REPORT_PATH,
+  report: PLAN_REPORT,
+};
+/** The planner's hand-over as the parent receives it: the notify frame, from this checkout. */
+const handover = (message: string): Message => ({
+  role: "user",
+  text: labelledForModel({
+    messageId: "message:eval",
+    text: composeNotifyFramedText(
+      describeSender({
+        title: PLAN_TITLE,
+        role: "planner",
+        threadId: PLAN_PLANNER,
+        relationship: relationshipLabel({
+          senderThreadId: PLAN_PLANNER,
+          senderParentThreadId: REMINDERS_ROOT,
+          targetThreadId: REMINDERS_ROOT,
+          targetParentThreadId: null,
+        }),
+      }),
+      PLAN_PLANNER,
+      message,
+    ),
+    createdBy: "agent",
+    creationSource: "eval",
+    senderThreadId: PLAN_PLANNER,
+    loom: { origin: "notify" },
+    hasParent: false,
+  }),
+});
+const spawned = (role: string, title: string, purpose: string, brief: string, id: string) => ({
+  name: t("workstream_spawn"),
+  input: { role, title, purpose, brief },
+  result: appendWarnings(`Spawned Workstream sub-thread ${id}: ${title}`),
+});
+const FINISHED_AUTHOR = `The two finished children a person wrote to with comments on their document, 4 and 12 Nov 2026, each of which told its parent at once (plans/document-comments-to-author/model-text.md §6).`;
+
+/** What every finished-author case shares: a report addition is answered from source and does not decide. */
+const finishedAuthor = {
+  looking: [t("workstream_submit")],
+  maxSteps: 10,
+  finishedReport: { markdown: PLAN_REPORT, path: PLAN_REPORT_PATH },
+};
+
 // ── Cases
 
 const PLANNER_APPROVAL =
@@ -1357,5 +1659,117 @@ Re-render the 1,200 archived invoice PDFs in \`${at("storage/invoices/2025/")}\`
       humanInChild("Why are you rendering these one at a time rather than in parallel?"),
     ],
     check: { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] },
+  },
+  {
+    id: "finished-author-closes",
+    kind: "guard",
+    base: "passes",
+    source: `${FINISHED_AUTHOR} The brief's check: rounds of changes, then "okay, we're done, let's move on"; the parent hears what changed at the latest then.`,
+    role: "planner",
+    threadId: PLAN_PLANNER,
+    parentId: REMINDERS_ROOT,
+    engagedTools: engagedChildTools(),
+    messages: [
+      ...plannerFinishedPlan,
+      reviewInChild([askFewerRetries]),
+      ...retriesEdited,
+      said(RETRIES_DONE),
+      reviewInChild([askSmsSecondOnly]),
+      ...smsEdited,
+      said(SMS_DONE),
+      humanInChild("Thanks, that's everything from me. The plan's good to go; let's move on."),
+    ],
+    ...finishedAuthor,
+    check: {
+      kind: "notifies",
+      parentId: REMINDERS_ROOT,
+      quotes: ["two retries", "second reminder only"],
+      allQuotes: true,
+    },
+  },
+  {
+    id: "finished-author-questions-then-close",
+    kind: "guard",
+    base: "passes",
+    source: `${FINISHED_AUTHOR} The brief's check: a question the human only asked does not reach the parent, then or at the closing word.`,
+    role: "planner",
+    threadId: PLAN_PLANNER,
+    parentId: REMINDERS_ROOT,
+    engagedTools: engagedChildTools(),
+    messages: [
+      ...plannerFinishedPlan,
+      reviewInChild([askWhyNextRun]),
+      said(
+        "The job runs once a day: `daily` in `apps/api/src/jobs/daily.ts` registers it at 06:00, and the app has no other scheduler. A send fails when the mailer or the SMS gateway returns an error, which usually lasts a while, so a second try minutes later in the same run would most likely fail too. The next daily run is the next chance the app has. Nothing in the plan changes.",
+      ),
+      reviewInChild([askGrouping]),
+      said(
+        "By billing contact (§2, item 3): the due sends that share an email address go into one email, and those that share a phone number into one SMS. Nothing in the plan changes.",
+      ),
+      humanInChild("Thanks, that answers both. Let's move on."),
+    ],
+    ...finishedAuthor,
+    check: { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] },
+  },
+  {
+    id: "orchestrator-handover-mid-build",
+    kind: "guard",
+    base: "passes",
+    source:
+      "The brief's open question: what a parent does with a hand-over that arrives after it has started building on the earlier version of a plan (plans/document-comments-to-author/intent.mdx, Still unknown).",
+    role: "orchestrator",
+    threadId: REMINDERS_ROOT,
+    parentId: null,
+    engagedTools: [],
+    messages: [
+      humanInRoot(
+        `The reminders brief is approved (\`${INTENT_PATH}\`). Get the plan written and the build started.`,
+      ),
+      said(
+        "Spawning a planner for the plan.",
+        spawned(
+          "planner",
+          PLAN_TITLE,
+          "The implementation plan for overdue-invoice reminders, under the approved brief.",
+          PLAN_BRIEF,
+          PLAN_PLANNER,
+        ),
+      ),
+      said("A planner is writing the plan. I'll start the build from it when it is handed back."),
+      notices([buildStandaloneDigest([PLAN_MEMBER])]),
+      said(
+        "Reading the plan.",
+        read(PLAN_REPORT_PATH, PLAN_REPORT),
+        read(PLAN_PATH, REVIEWED_PLAN),
+      ),
+      said(
+        "Starting the build: one coder on the job and its retries, one on the email and SMS.",
+        spawned(
+          "coder",
+          "Reminders job and retries",
+          "The reminders table, daily job, hand-off and retries (plan §2 and §3).",
+          `# Build: the reminders daily job and its retries
+
+Build §2 and §3 of the plan \`${PLAN_PATH}\`: the \`invoice_reminders\` table, the daily job in \`${at("apps/api/src/jobs/reminders.ts")}\`, the hand-off at 30 days, and what happens when a send fails. A sibling builds the email template and the SMS text (§4). The plan's two questions are with the human; build to the recommended options.`,
+          JOB_CODER,
+        ),
+        spawned(
+          "coder",
+          "Reminder email and SMS",
+          "The reminder email template and SMS text (plan §4).",
+          `# Build: the reminder email and SMS text
+
+Build §4 of the plan \`${PLAN_PATH}\`: the \`invoice-reminder\` email template and the one-line SMS text, which the daily job a sibling is building calls. The plan's two questions are with the human; build to the recommended options.`,
+          CHANNELS_CODER,
+        ),
+      ),
+      said(
+        `Two coders are building from the plan. It asks you two questions (how many times a failed send is retried, and when an SMS goes), and the coders build to the recommended answers until you reply. Answer them in the planner's thread: [${PLAN_TITLE}](t3-thread://v1/${PLAN_PLANNER}).`,
+      ),
+      handover(
+        `The human has gone through the plan with me and approved it as it now stands (\`${PLAN_PATH}\`, commit \`c41a9e7\`). One section changed, §3 (when a send fails): a failed send is now retried on the next two daily runs, not three, and then the invoice goes to finance's queue. The human: "${FEWER_RETRIES}" That also settles the form's retries question. They answered the SMS question with the recommended option, with the email at 06:00, so §4 is unchanged.`,
+      ),
+    ],
+    check: { kind: "prompts", threadId: JOB_CODER, noLink: false },
   },
 ];

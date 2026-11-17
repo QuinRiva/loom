@@ -18,6 +18,8 @@ export interface Observed {
   readonly ended: boolean;
   /** Calls made before the deciding message, which a case answered rather than graded. */
   readonly prior?: ReadonlyArray<Call>;
+  /** The case's own looking calls, which do not decide even beside a call that does. */
+  readonly looking?: ReadonlyArray<string>;
 }
 
 /**
@@ -40,10 +42,31 @@ export const LOOKING: ReadonlySet<string> = new Set([
   ].map((tool) => `mcp__t3-code__${tool}`),
 ]);
 
+/** pi's own tools; any other unprefixed name is a Loom tool called without its server prefix. */
+const NATIVE = new Set([
+  "read",
+  "bash",
+  "edit",
+  "write",
+  "sign_document",
+  "tool_search",
+  "bg_start",
+  "bg_wait",
+]);
+
+/**
+ * A Loom tool called by its bare name (`notify_thread`), which pi answers "not found" and the model
+ * then retries, read as the Loom tool it reaches for.
+ */
+const canonical = (calls: ReadonlyArray<Call>): ReadonlyArray<Call> =>
+  calls.map((call) =>
+    call.name.startsWith(LOOM) || NATIVE.has(call.name) ? call : { ...call, name: loom(call.name) },
+  );
+
 /** Whether a message decides: it ends the turn, or makes a call that is not looking around. */
 export const decides = (calls: ReadonlyArray<Call>, looking: ReadonlyArray<string> = []) =>
   calls.length === 0 ||
-  calls.some((call) => !LOOKING.has(call.name) && !looking.includes(call.name));
+  canonical(calls).some((call) => !LOOKING.has(call.name) && !looking.includes(call.name));
 
 /** Lower-case, one space, straight quotes: a quote survives re-wrapping and typographic quotes. */
 const normalise = (text: string) =>
@@ -53,9 +76,11 @@ const normalise = (text: string) =>
     .replaceAll(/[“”]/g, '"')
     .replaceAll(/\s+/g, " ");
 
-const quotes = (text: unknown, fragments: ReadonlyArray<string>) =>
-  typeof text === "string" &&
-  fragments.some((fragment) => normalise(text).includes(normalise(fragment)));
+const quotes = (text: unknown, fragments: ReadonlyArray<string>, all = false) => {
+  if (typeof text !== "string") return false;
+  const found = (fragment: string) => normalise(text).includes(normalise(fragment));
+  return all ? fragments.every(found) : fragments.some(found);
+};
 
 const outcomeOf = (call: Call) =>
   typeof call.input.outcome === "string" ? call.input.outcome.trim() : "";
@@ -98,11 +123,12 @@ export type Check =
   | { readonly kind: "no-hold" }
   /** A submit, none of whose markdown repeats the report on file; a notify and no submit is apart. */
   | { readonly kind: "no-repeat"; readonly repeats: (markdown: string) => boolean }
-  /** The first deciding Loom call is notify_thread to the parent, quoting one of the fragments. */
+  /** The first deciding Loom call is notify_thread to the parent, quoting one of the fragments (every one with `allQuotes`). */
   | {
       readonly kind: "notifies";
       readonly parentId: string;
       readonly quotes: ReadonlyArray<string>;
+      readonly allQuotes?: boolean;
     };
 
 export interface Grade {
@@ -120,7 +146,10 @@ const APPROVAL_WORD = /accept|approv|sign.?off|human/i;
 
 const verdict = (pass: boolean, reason: string): Grade => ({ pass, reason });
 
-export const grade = (check: Check, { calls, text, ended, prior = [] }: Observed): Grade => {
+export const grade = (check: Check, observed: Observed): Grade => {
+  const { text, ended, looking = [] } = observed;
+  const calls = canonical(observed.calls);
+  const prior = canonical(observed.prior ?? []);
   const submits = calls.filter(isSubmit);
   const raises = named(calls, "workstream_request_attention");
   switch (check.kind) {
@@ -155,6 +184,12 @@ export const grade = (check: Check, { calls, text, ended, prior = [] }: Observed
         return verdict(false, "reached for notify_thread through tool_search");
       const called = check.tools.find((tool) => named(calls, tool).length > 0);
       if (called !== undefined) return verdict(false, `called ${called}`);
+      // A message whose only decision is a search for some other tool has decided nothing yet.
+      const deciding = calls.filter(
+        (call) => !LOOKING.has(call.name) && !looking.includes(call.name),
+      );
+      if (deciding.length > 0 && deciding.every((call) => call.name === "tool_search"))
+        return { pass: false, apart: true, reason: "searched for a tool" };
       return !check.endsTurn || ended
         ? verdict(true, "none called")
         : verdict(false, `turn not ended: ${calls.at(-1)?.name ?? "no call"}`);
@@ -225,7 +260,10 @@ export const grade = (check: Check, { calls, text, ended, prior = [] }: Observed
         : verdict(true, "submitted only what changed");
     }
     case "notifies": {
-      const first = calls.find((call) => call.name.startsWith(LOOM) && !LOOKING.has(call.name));
+      const first = calls.find(
+        (call) =>
+          call.name.startsWith(LOOM) && !LOOKING.has(call.name) && !looking.includes(call.name),
+      );
       if (first === undefined)
         return verdict(
           false,
@@ -236,7 +274,7 @@ export const grade = (check: Check, { calls, text, ended, prior = [] }: Observed
       if (first.name !== loom("notify_thread"))
         return verdict(false, `first Loom call ${first.name.slice(LOOM.length)}`);
       if (first.input.threadId !== check.parentId) return verdict(false, "notified another thread");
-      return quotes(first.input.message, check.quotes)
+      return quotes(first.input.message, check.quotes, check.allQuotes)
         ? verdict(true, "notified the parent, quoting the human")
         : verdict(false, "notified the parent without the human's words");
     }

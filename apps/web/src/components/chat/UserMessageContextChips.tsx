@@ -3,7 +3,6 @@ import { isSvgAttachment } from "@t3tools/shared/image";
 import { useRenderedAppearance } from "../../hooks/useTheme";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
-import { useRightPanelStore } from "~/rightPanelStore";
 import { COMPOSER_CONTEXT_KINDS } from "@t3tools/contracts";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 import { use, type ReactNode } from "react";
@@ -62,6 +61,7 @@ import {
 } from "../../reviewCommentContext";
 import { TimelineRowCtx } from "./timelineRowContext";
 import { PromotedFromQuery } from "../../loom/PromotedFromQuery"; // loom: query threads
+import { useOpenDocumentLink } from "../../loom/openDocumentLink"; // loom: document links
 import { userMessageFileLabel } from "./TimelineUserMessageRow.logic";
 
 function UserMessageMentionChip(props: {
@@ -69,6 +69,7 @@ function UserMessageMentionChip(props: {
   copyMarkdown: string;
 }) {
   const ctx = use(TimelineRowCtx);
+  const openDocumentLink = useOpenDocumentLink(); // loom: a signed document follows its author
   return (
     <Tooltip>
       <TooltipTrigger
@@ -79,8 +80,7 @@ function UserMessageMentionChip(props: {
             aria-label={`Preview ${props.record.path}`}
             data-markdown-copy={props.copyMarkdown}
             onClick={() => {
-              if (ctx.threadRef)
-                useRightPanelStore.getState().openFile(ctx.threadRef, props.record.path);
+              if (ctx.threadRef) openDocumentLink(ctx.threadRef, props.record.path); // loom:
             }}
           >
             <WorkspaceEntryIcon

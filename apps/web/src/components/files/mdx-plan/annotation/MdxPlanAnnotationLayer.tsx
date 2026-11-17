@@ -93,6 +93,8 @@ interface MdxPlanAnnotationLayerProps {
   filePath: string;
   composerDraftTarget: ScopedThreadRef | DraftId;
   query?: PlanQueryBinding | undefined;
+  /** The renderer drew the compiled document, or its error. */
+  onSettled?: ((error: string | null) => void) | undefined;
 }
 
 interface Box {
@@ -254,6 +256,7 @@ export function MdxPlanAnnotationLayer({
   filePath,
   composerDraftTarget,
   query,
+  onSettled,
 }: MdxPlanAnnotationLayerProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const pendingRangeRef = useRef<Range | null>(null);
@@ -930,6 +933,7 @@ export function MdxPlanAnnotationLayer({
                 the section outline rather than on top of it. */}
             <MdxPlanRenderer
               source={source}
+              onSettled={onSettled}
               stickyEnd={
                 reviewChoiceTotal > 0 ? (
                   <span className="pointer-events-auto shrink-0 rounded-full border border-border bg-background/90 px-2.5 py-1 text-2xs font-medium text-muted-foreground shadow-sm backdrop-blur">

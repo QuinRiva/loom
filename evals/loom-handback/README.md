@@ -32,8 +32,8 @@ Read every sample that flipped, and the final text of the orchestrator cases tha
 
 ## The grader
 
-`grade.ts` checks the deciding message's tool calls and text; `run.test.ts` tests it. A plain submit has no outcome or `done`; a held one has `awaiting_acceptance`. A quote is a case-insensitive fragment of the human's words, after whitespace and typographic quotes are normalised.
+`grade.ts` checks the deciding message's tool calls and text; `run.test.ts` tests it. A Loom tool called by its bare name (`notify_thread`, which Opus often does and pi answers "not found") grades as that tool. After a grader fix, `pnpm loom-handback:regrade runs/<name> [runs/<baseline>]` grades a finished run again from its saved samples and writes `summary.regraded.md` beside it. A plain submit has no outcome or `done`; a held one has `awaiting_acceptance`. A quote is a case-insensitive fragment of the human's words, after whitespace and typographic quotes are normalised.
 
 ## Add a case
 
-Add an entry to `cases.ts`: Acme data only, a `source` naming the real situation it mirrors, a `kind` (`bad` fails on the text it is written against, `control` and `guard` pass on both sides), and the plan's prediction for the base text in `base`. Build every Loom-produced message from source, through `world.ts` when the change alters it.
+Add an entry to `cases.ts`: Acme data only, a `source` naming the real situation it mirrors, a `kind` (`bad` fails on the text it is written against, `control` and `guard` pass on both sides), and the plan's prediction for the base text in `base`. Build every Loom-produced message from source, through `world.ts` when the change alters it. A finished child that may add to its report lists `mcp__t3-code__workstream_submit` in `looking` and gives `finishedReport`: the addition is answered with this checkout's result and the message after it is graded.

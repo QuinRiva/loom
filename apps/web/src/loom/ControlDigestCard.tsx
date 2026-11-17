@@ -27,6 +27,7 @@ import {
 import { useRightPanelStore } from "~/rightPanelStore";
 
 import { verifyChipTargetBeforeOpen } from "./verifiedFileChips";
+import { useOpenDocumentLink } from "./openDocumentLink";
 
 import type { ControlBubble } from "@t3tools/client-runtime/state/loom/controlBubble";
 
@@ -183,13 +184,6 @@ export function ControlDigestCardView({
   );
 }
 
-/** Opens a handed-back document where a chat file chip would: the workspace file or the read-only host file. */
-const openDocument = (threadRef: ScopedThreadRef, meta: MarkdownFileLinkMeta) => {
-  const panel = useRightPanelStore.getState();
-  if (meta.workspaceRelativePath === null) panel.openFileAbsolute(threadRef, meta.filePath);
-  else panel.openFile(threadRef, meta.workspaceRelativePath);
-};
-
 /** ↗ means "opens the thread" on every row: the row itself, or its own button beside a report row. */
 const OpenThreadGlyph = () => (
   <span className="grid size-5 shrink-0 place-items-center text-muted-foreground">
@@ -231,6 +225,13 @@ function ReportDocumentChips({
   threadRef: ScopedThreadRef | null;
 }) {
   const [showAll, setShowAll] = useState(false);
+  const openDocumentLink = useOpenDocumentLink();
+  // Opens a handed-back document where a chat file chip would (the workspace file or the
+  // read-only host file), following a signed document to its author.
+  const openDocument = (ref: ScopedThreadRef, meta: MarkdownFileLinkMeta) =>
+    meta.workspaceRelativePath === null
+      ? openDocumentLink(ref, meta.filePath, { absolute: true })
+      : openDocumentLink(ref, meta.workspaceRelativePath);
   const environmentId: EnvironmentId | null = threadRef?.environmentId ?? null;
   // Unresolvable without a workspace (no `cwd`), a relative name is dropped rather than misopened.
   const resolved = documents.flatMap((path) => {

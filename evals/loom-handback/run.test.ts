@@ -237,7 +237,11 @@ it("counts a tool search for notify_thread as an attempted notify", () => {
   expect(grade(check, search("notify_thread send message to parent thread")).reason).toBe(
     "reached for notify_thread through tool_search",
   );
-  expect(grade(check, search("browser screenshot")).pass).toBe(true);
+  expect(grade(check, search("browser screenshot"))).toEqual({
+    pass: false,
+    apart: true,
+    reason: "searched for a tool",
+  });
 });
 
 it("reaches for notify_thread through a search for a way to message the parent", () => {
@@ -245,7 +249,7 @@ it("reaches for notify_thread through a search for a way to message the parent",
   const search = (query: string) =>
     grade(check, observed([{ name: "tool_search", input: { query } }]));
   expect(search("send a message to my parent thread").pass).toBe(false);
-  expect(search("read a pdf").pass).toBe(true);
+  expect(search("read a pdf").apart).toBe(true);
 });
 
 describe("no-repeat", () => {
@@ -280,4 +284,45 @@ it("counts a notify with no submit apart in a no-repeat case", () => {
       prior: [notify],
     }).pass,
   ).toBe(true);
+});
+
+describe("a finished author's report addition", () => {
+  const submit = loom("workstream_submit", {
+    markdown: "Round 2: SMS on the second reminder only.",
+  });
+  const looking = ["mcp__t3-code__workstream_submit"];
+  const check = {
+    kind: "notifies",
+    parentId: "thread:p",
+    quotes: ["two retries", "second reminder only"],
+    allQuotes: true,
+  } as const;
+  const notify = (message: string) => loom("notify_thread", { threadId: "thread:p", message });
+
+  it("does not decide, alone or beside the hand-over", () => {
+    expect(decides([submit], looking)).toBe(false);
+    const both = notify('Approved. "Two retries, not three." "SMS on the second reminder only."');
+    expect(grade(check, { ...observed([submit, both]), looking }).pass).toBe(true);
+    expect(grade(check, observed([submit, both])).reason).toBe("first Loom call workstream_submit");
+  });
+
+  it("needs every change quoted when all quotes are required", () => {
+    expect(grade(check, observed([notify('Approved. "Two retries, not three."')])).reason).toBe(
+      "notified the parent without the human's words",
+    );
+  });
+});
+
+it("reads a Loom tool called by its bare name as that tool", () => {
+  const bare = {
+    name: "notify_thread",
+    input: { threadId: "thread:p", message: "delegate it out" },
+  };
+  const none = { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] } as const;
+  expect(grade(none, observed([bare])).reason).toBe("called notify_thread");
+  const notifies = { kind: "notifies", parentId: "thread:p", quotes: ["delegate it out"] } as const;
+  expect(grade(notifies, observed([bare])).pass).toBe(true);
+  expect(
+    decides([{ name: "workstream_submit", input: {} }], ["mcp__t3-code__workstream_submit"]),
+  ).toBe(false);
 });

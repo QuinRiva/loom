@@ -53,22 +53,21 @@ export const parseManagerSessions = (contents: string): ReadonlyArray<ManagerSes
 /** Roles that author a document; a `reviewer` or other signer only annotated it. */
 const AUTHOR_ROLES = new Set(["plan", "recap", "explainer", "architecture", "intent", "manager"]);
 
+const isAuthoring = (entry: ManagerSession) => AUTHOR_ROLES.has(entry.role ?? "");
+
 /**
- * Signing sessions in the order to try them: the most recent authoring-role signer first
- * (the pick), then older authoring signers, then any other signer by recency, so a deleted
- * pick still lands on a signer before the viewing thread.
+ * Signing sessions in the order to try them, one entry per session: the most recent
+ * authoring-role signer first (the pick), then older authoring signers, then any other signer by
+ * recency, so a deleted pick still lands on a signer before the viewing thread.
  */
-export const signingSessionIds = (entries: ReadonlyArray<ManagerSession>) => [
-  ...new Set(
-    entries
-      .toSorted(
-        (left, right) =>
-          Number(AUTHOR_ROLES.has(right.role ?? "")) - Number(AUTHOR_ROLES.has(left.role ?? "")) ||
-          (right.authored_at ?? "").localeCompare(left.authored_at ?? ""),
-      )
-      .map((entry) => entry.id),
-  ),
-];
+export const signingSessions = (entries: ReadonlyArray<ManagerSession>) =>
+  entries
+    .toSorted(
+      (left, right) =>
+        Number(isAuthoring(right)) - Number(isAuthoring(left)) ||
+        (right.authored_at ?? "").localeCompare(left.authored_at ?? ""),
+    )
+    .filter((entry, index, sorted) => sorted.findIndex((e) => e.id === entry.id) === index);
 
 /**
  * The author a Query on `filePath` from `sourceThreadId` forks (a query thread stands for its
@@ -112,9 +111,11 @@ export const resolveDocumentAuthor = Effect.fn("documentAuthor.resolveDocumentAu
     const { contents } = yield* (yield* WorkspaceFileSystem)
       .readFile({ cwd, relativePath: input.filePath, maxBytes: DOCUMENT_READ_MAX_BYTES })
       .pipe(Effect.mapError((cause) => fail(`${input.filePath} could not be read.`, cause)));
+    const absolutePath = NodePath.resolve(cwd, input.filePath);
     const resolved = (
       author: NonNullable<typeof viewing>,
       authorSource: DocumentQueryAuthorSource,
+      signature: ManagerSession | null,
     ) =>
       Effect.map(workspaceOf(author), (root) => {
         const relative =
@@ -123,28 +124,60 @@ export const resolveDocumentAuthor = Effect.fn("documentAuthor.resolveDocumentAu
             : "";
         const inside =
           relative !== "" && !relative.startsWith("..") && !NodePath.isAbsolute(relative);
-        return { author, authorSource, contents, filePath: inside ? relative : input.filePath };
+        const filePath = inside ? relative : input.filePath;
+        return {
+          author,
+          authorSource,
+          signature,
+          contents,
+          filePath,
+          absolutePath,
+          sameFile: root !== null && NodePath.resolve(root, filePath) === absolutePath,
+        };
       });
-    for (const sessionId of signingSessionIds(parseManagerSessions(contents))) {
-      const signer = yield* store.threadForPiSession(sessionId);
+    for (const signature of signingSessions(parseManagerSessions(contents))) {
+      const signer = yield* store.threadForPiSession(signature.id);
       const author = signer === null ? null : yield* authorOf(signer);
-      if (author !== null) return yield* resolved(author, "signature");
+      if (author !== null) return yield* resolved(author, "signature", signature);
     }
     const author = yield* authorOf(viewing.id);
     if (author === null) return yield* fail("The document's author thread was not found.");
-    return yield* resolved(author, "viewing-thread");
+    return yield* resolved(author, "viewing-thread", null);
   },
 );
 
-/** `loom.documentQueryAuthor`: the Query card's pre-flight, the same resolution `askDocumentQuery` makes. */
+/**
+ * `loom.documentQueryAuthor`: the same resolution `askDocumentQuery` makes, read by the Query
+ * card, the document header and the link follow, plus the threads in the author's workstream
+ * that edited the file after the signature.
+ */
 export const lookupDocumentQueryAuthor = (input: DocumentQueryAuthorInput) =>
   resolveDocumentAuthor({ method: LOOM_WS_METHODS.documentQueryAuthor, ...input }).pipe(
-    Effect.map(({ author, authorSource, filePath }) => ({
-      authorThreadId: author.id,
-      authorTitle: author.title,
-      authorSource,
-      filePath,
-    })),
+    Effect.flatMap(({ author, authorSource, signature, filePath, absolutePath, sameFile }) =>
+      Effect.gen(function* () {
+        const store = yield* LoomStoreV2;
+        const since = signature?.authored_at;
+        const laterEditors =
+          since === undefined
+            ? []
+            : yield* store.threadsEditingFileSince({
+                rootThreadId: (yield* store.getWorkstream(author.id))?.rootThreadId ?? author.id,
+                excludeThreadId: author.id,
+                absolutePath,
+                since,
+              });
+        return {
+          authorThreadId: author.id,
+          authorTitle: author.title,
+          authorSource,
+          filePath,
+          authoringSignature: signature !== null && isAuthoring(signature),
+          authorArchived: author.archivedAt != null,
+          sameFile,
+          laterEditors,
+        };
+      }),
+    ),
     Effect.catchIf(
       (error) => error._tag !== "LoomWsMethodError",
       (cause) =>

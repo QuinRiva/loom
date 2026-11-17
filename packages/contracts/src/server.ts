@@ -607,6 +607,13 @@ export const DocumentQueryAuthorResult = Schema.Struct({
   authorSource: DocumentQueryAuthorSource,
   /** The document as the author names it (author-relative when it lies in its workspace). */
   filePath: TrimmedNonEmptyString,
+  /** The resolving signature carries an authoring role (not a reviewer reached by fall-through). */
+  authoringSignature: Schema.Boolean,
+  authorArchived: Schema.Boolean,
+  /** The author's workspace holds the very file the viewer read. */
+  sameFile: Schema.Boolean,
+  /** Live threads in the author's workstream with a recorded edit to the file since it was signed. */
+  laterEditors: Schema.Array(Schema.Struct({ threadId: ThreadId, title: Schema.String })),
 });
 export type DocumentQueryAuthorResult = typeof DocumentQueryAuthorResult.Type;
 

@@ -37,6 +37,7 @@ import {
   WORKTREE,
 } from "./cases.ts";
 import { type Call, decides, grade } from "./grade.ts";
+import { finishedSubmitResult } from "./world.ts";
 
 const { values } = NodeUtil.parseArgs({
   options: {
@@ -388,6 +389,7 @@ const sessionText = (messages: ReadonlyArray<ApiMessage>) =>
 const simulate = Effect.fn("loomHandback.simulate")(function* (
   messages: ReadonlyArray<ApiMessage>,
   call: Call,
+  entry: Case,
 ) {
   if (call.name === "edit") {
     const edits = Array.isArray(call.input.edits) ? call.input.edits.length : 1;
@@ -406,6 +408,15 @@ const simulate = Effect.fn("loomHandback.simulate")(function* (
       targetTitle: target,
     });
     return { text, tokens: 0 };
+  }
+  // A finished child's report addition gets this checkout's result, not an invented one.
+  if (call.name === agentToolName("workstream_submit") && entry.finishedReport !== undefined) {
+    const { text, isError } = finishedSubmitResult(
+      entry.finishedReport.markdown,
+      String(call.input.markdown ?? ""),
+      entry.finishedReport.path,
+    );
+    return { text, tokens: 0, isError };
   }
   const response = yield* post({
     model: values["simulator-model"],
@@ -497,12 +508,13 @@ const attempt = Effect.fn("loomHandback.attempt")(function* (
     prior.push(...calls);
     const results: Array<Block> = [];
     for (const [index, call] of calls.entries()) {
-      const answer = yield* simulate(messages, call);
+      const answer = yield* simulate(messages, call, entry);
       simulated += answer.tokens;
       results.push({
         type: "tool_result",
         tool_use_id: uses[index]!.id ?? "",
         content: answer.text,
+        ...("isError" in answer && answer.isError ? { is_error: true } : {}),
       });
     }
     messages.push({ role: "user", content: results });
@@ -520,7 +532,13 @@ const attempt = Effect.fn("loomHandback.attempt")(function* (
     attempt: n,
     file,
     decided,
-    ...grade(entry.check, { calls, text, ended: calls.length === 0, prior }),
+    ...grade(entry.check, {
+      calls,
+      text,
+      ended: calls.length === 0,
+      prior,
+      looking: entry.looking ?? [],
+    }),
     calls: calls.map((call) => call.name),
     text,
     steps: messages.length - authored.length,

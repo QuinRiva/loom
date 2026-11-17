@@ -133,7 +133,7 @@ interface MdxPlanRendererProps {
    * annotation layer's "n of m decided" pill), so the two never overlap. */
   stickyEnd?: ReactNode;
   /** Called when the document has drawn (`null`) or failed to (the error text). */
-  onSettled?: (error: string | null) => void;
+  onSettled?: ((error: string | null) => void) | undefined;
 }
 
 /** A document with at least this many top-level sections gets an outline. */
