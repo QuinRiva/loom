@@ -8,7 +8,7 @@ import type {
 } from "@pierre/diffs";
 import type { CodeViewHandle } from "@pierre/diffs/react";
 import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
-import { useState, type ReactNode, type Ref } from "react";
+import { Fragment, useState, type ReactNode, type Ref } from "react";
 
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { fnv1a32, resolveFileDiffPath, resolveFileDiffPreviousPath } from "~/lib/diffRendering";
@@ -18,6 +18,7 @@ import {
   type ReviewCommentContext,
 } from "~/reviewCommentContext";
 
+import type { AuthorCardSlot } from "~/loom/review/AuthorCard"; // loom: diff author query
 import { nextFileCommentId } from "../files/fileCommentAnnotations";
 import { DiffCommentAnnotation } from "./DiffCommentAnnotation";
 import { StyledDiffCodeView, type StyledDiffCodeViewOptions } from "./StyledDiffCodeView";
@@ -99,6 +100,8 @@ interface AnnotatableCodeViewProps {
     collapsed: boolean,
   ) => ReactNode;
   onRevealSearchMatch: (fileKey: string) => void;
+  /** loom: diff author query — selecting lines opens the draft as the author card. */
+  authorCard?: AuthorCardSlot | undefined;
 }
 
 interface DiffSelectionContext {
@@ -123,6 +126,7 @@ export function AnnotatableCodeView({
   renderHeaderFilenameSuffix,
   renderHeaderPrefix,
   onRevealSearchMatch,
+  authorCard, // loom
 }: AnnotatableCodeViewProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -140,6 +144,16 @@ export function AnnotatableCodeView({
     annotation: DiffCommentLineAnnotation;
   } | null>(null);
   const [draftText, setDraftText] = useState("");
+  // loom: diff author query — the review's file and lines, selected again once on mount
+  const [restored, setRestored] = useState<AuthorCardSlot["restore"]>(null);
+  const restore = authorCard?.restore ?? null;
+  if (restore !== null && restore !== restored && selectedLines === null && draft === null) {
+    const file = files.find((candidate) => candidate.filePath === restore.filePath);
+    if (file) {
+      setRestored(restore);
+      setSelectedLines({ id: file.fileKey, range: restore.range });
+    }
+  }
 
   const filesByKey = new Map(files.map((file) => [file.fileKey, file]));
   if (
@@ -242,6 +256,7 @@ export function AnnotatableCodeView({
       text: "",
     });
     if (!comment) return;
+    authorCard?.onFocus({ filePath, range }); // loom: diff author query
     setDraftText("");
     setDraft({
       fileKey: item.id,
@@ -277,8 +292,10 @@ export function AnnotatableCodeView({
       options={{
         ...options,
         enableGutterUtility: draft === null,
-        enableLineSelection: draft === null,
+        // loom: diff author query — an author card no comment was typed into gives way to a new selection
+        enableLineSelection: draft === null || (authorCard !== undefined && draftText === ""),
         onGutterUtilityClick: beginComment,
+        ...(authorCard ? { onLineSelectionEnd: beginComment } : {}), // loom
       }}
       renderHeaderFilenameSuffix={(item) =>
         item.type === "diff" ? renderHeaderFilenameSuffix(item.fileDiff) : null
@@ -294,26 +311,42 @@ export function AnnotatableCodeView({
           <div
             className={hasDraft ? "py-1" : "divide-y divide-border/30 border-y border-border/30"}
           >
-            {annotation.metadata.entries.map((entry) => (
-              <DiffCommentAnnotation
-                key={entry.id}
-                environmentId={environmentId}
-                projectId={projectId}
-                ownerKey={JSON.stringify([
-                  environmentId,
-                  composerDraftTarget,
-                  codeViewKey,
-                  entry.id,
-                ])}
-                kind={entry.kind}
-                rangeLabel={entry.rangeLabel}
-                text={entry.kind === "draft" ? draftText : entry.text}
-                onTextChange={setDraftText}
-                onCancel={() => removeEntry(entry.id)}
-                onComment={(text) => submitEntry(entry.id, text)}
-                onDelete={() => removeEntry(entry.id)}
-              />
-            ))}
+            {annotation.metadata.entries.map((entry) => {
+              const card = (
+                <DiffCommentAnnotation
+                  key={entry.id}
+                  environmentId={environmentId}
+                  projectId={projectId}
+                  ownerKey={JSON.stringify([
+                    environmentId,
+                    composerDraftTarget,
+                    codeViewKey,
+                    entry.id,
+                  ])}
+                  kind={entry.kind}
+                  rangeLabel={entry.rangeLabel}
+                  text={entry.kind === "draft" ? draftText : entry.text}
+                  onTextChange={setDraftText}
+                  onCancel={() => removeEntry(entry.id)}
+                  onComment={(text) => submitEntry(entry.id, text)}
+                  onDelete={() => removeEntry(entry.id)}
+                />
+              );
+              // loom: diff author query — the draft is drawn as the author card
+              const file =
+                entry.kind === "draft" && draft ? filesByKey.get(draft.fileKey) : undefined;
+              return authorCard && file ? (
+                <Fragment key={entry.id}>
+                  {authorCard.render(
+                    { filePath: file.filePath, fileDiff: file.fileDiff, range: entry.range },
+                    card,
+                    () => removeEntry(entry.id),
+                  )}
+                </Fragment>
+              ) : (
+                card
+              );
+            })}
           </div>
         );
       }}

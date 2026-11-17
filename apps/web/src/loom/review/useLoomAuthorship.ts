@@ -86,7 +86,8 @@ export function useLoomAuthorship({
     answer !== null &&
     diffHash !== null &&
     (complete ? answer.asked?.hash : answer.asked?.trackedHash) === diffHash;
-  const authorship = shown && current ? authorshipOf(answer.result) : null;
+  const result = shown && current ? answer.result : null;
+  const authorship = result === null ? null : authorshipOf(result);
   const activeFilter =
     authorship?.groups.some((group) => group.key === filter) === true ? filter : null;
   // A layout effect, so stale marks are cleared in the commit that draws new rows, before paint.
@@ -101,6 +102,10 @@ export function useLoomAuthorship({
     shown,
     error: shown ? query.error : null,
     authorship,
+    /** The reply `authorship` was built from: commit subjects, thread roles and run times. */
+    result,
+    /** The base the answer was asked against, for the author card's line history. */
+    baseRef,
     filter: activeFilter,
     setFilter: (group: string | null) => {
       if (threadRef) useReviewBaselineStore.getState().setAuthorFilter(threadRef, group);
