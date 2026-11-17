@@ -7,7 +7,10 @@ operate it. Everything here runs as Carl on the production machine, usually over
 ## The parts
 
 - **The service** `loom-cockpit` (`deploy/systemd/loom-cockpit.service`) starts upstream's launcher
-  from `~/loom-releases/current/deploy/runtime/t3 __service-launcher`.
+  from `~/loom-releases/current/deploy/runtime/t3 __service-launcher`. A deploy does not install
+  the file; it is copied by hand. It sets `T3CODE_LAN=false`: a server the launcher starts
+  otherwise listens on every address, and `tailscale serve` holds this machine's tailnet address on
+  Loom's port, so every start fails with `EADDRINUSE`.
 - **The launcher** (upstream's `apps/server/src/serviceLauncher.ts`, unchanged) runs one release
   at a time. On a switch it stops the server, copies the database to
   `<home>/runtime/db-backup/<update id>/`, starts the new release and either accepts it or puts the
@@ -15,7 +18,8 @@ operate it. Everything here runs as Carl on the production machine, usually over
 - **The release runner** (`apps/server/src/loom/deploy/runner.ts`) is what the launcher starts as
   each release. It starts the server, keeps a hard-linked copy of the launcher's database copy
   (the kept copy), runs the five-minute watch before telling the launcher the release started,
-  and holds a `--no-return` release that fails.
+  and holds a `--no-return` release that fails. On a stop it kills a server still running 4.5 s
+  after the stop signal, before the launcher's own 5 s allowance ends, and logs that it did.
 - **The command** `loom-deploy` (`deploy/loom-deploy`, linked from `~/.local/bin` and on the
   service's search path, so an agent shell in Loom finds it too) runs the deploy
   engine in its own transient unit, `loom-deploy.service`, so a restarting Loom or a dropped SSH
@@ -66,6 +70,9 @@ nothing queues the two, and a Loom switch inside the bridge's watch makes the br
 back, which can in turn fail Loom's Slack check. Nothing in Loom's deploy writes
 `~/loom-releases/deploy-in-progress`.
 
+The bridge borrows Loom's message definitions through `~/loom-releases/current`, so a Loom change to
+those definitions needs the bridge deployed first, as before.
+
 A deploy goes through these stages, each written to `<stateDir>/deploy-status.json`, which Loom
 pushes to every open client:
 
@@ -109,12 +116,48 @@ anything stops. That one deploy is done by hand, with no probation and no automa
 
 Going back is the same steps with the old release's `loom-deploy adopt` and the saved copy.
 
-## The cut-over, and the way back to the old mechanism
+## The way back to the old mechanism
 
-The cut-over is in the plan's §8 and is started by Carl. Its way back, while the old mechanism is
-still at hand: copy `~/.config/systemd/user/loom-cockpit.service.pre-launcher` over the service
-file, `systemctl --user daemon-reload`, restart `loom-cockpit`, put the bridge's previous release
-back with its own tool (`deployctl rollback bridge`) and start its worker.
+Loom moved onto this mechanism on 17 Nov 2026. The old tool (`deployctl`, in the Slack bridge's
+repository) can take Loom back until the next bridge deploy after that date, which pushes the
+bridge release that still carries the old tool's Loom target out of reach; after it, this way back
+needs a rebuild of bridge commit `6346c8f`. Run it over SSH, outside Loom. There is no way back while
+a deploy is `switching` or `watching`: wait for `loom-deploy status --wait` to end first.
 
-The bridge borrows Loom's message definitions through `~/loom-releases/current`, so a Loom change to
-those definitions needs the bridge deployed first, as before.
+1. Only if the running release itself is bad: `loom-deploy back --wait`. Everything written in
+   Loom since its switch is lost.
+2. The old service file, which runs whatever `current` names, directly, on the same database:
+
+   ```bash
+   cp ~/.config/systemd/user/loom-cockpit.service.pre-launcher ~/.config/systemd/user/loom-cockpit.service
+   systemctl --user daemon-reload && systemctl --user restart loom-cockpit
+   ```
+
+3. The manifest fix. The old tool picks a release's database from a `db` field that only it writes;
+   on a record without one it moves `statev2.sqlite` aside and starts Loom on an empty database,
+   and reports success. It was run once on production on 17 Nov; every record written since needs
+   it again:
+
+   ```bash
+   node -e 'const f="/home/Carl/loom-releases/manifest.json",fs=require("fs"),m=JSON.parse(fs.readFileSync(f));for(const r of Object.values(m.releases))if(r.status!=="failed"&&!r.db)r.db="statev2.sqlite";fs.writeFileSync(f+".tmp",JSON.stringify(m,null,2)+"\n");fs.renameSync(f+".tmp",f)'
+   ```
+
+4. The bridge's previous release, which has the old tool's Loom target. Wait until
+   `curl -s http://127.0.0.1:13901/healthz` shows `"loom":"connected"` (the rollback checks it) and
+   `ls -A ~/loom-bridge-releases/spool/queue ~/loom-bridge-releases/spool/processing` lists
+   nothing, then:
+
+   ```bash
+   systemctl --user stop loom-deployd
+   ~/loom-bridge-releases/current/deploy/deployctl rollback bridge --inline   # ROLLBACK OK
+   ```
+
+   If the bridge's checkout is clean, on `master` and at `3988de7`, reset it so Slack's
+   instructions name the old tool again:
+   `git -C ~/loom-slack-bridge reset --hard 6346c8fa8af21c075e2a55b34fe0574135a0afbe`.
+
+5. Start the old worker. `ls ~/loom-releases/deploy-in-progress ~/loom-bridge-releases/deploy-in-progress`
+   must find neither file, and `ls -A ~/loom-releases/spool/queue ~/loom-releases/spool/processing`
+   must list nothing (a job there runs the moment the worker starts), then
+   `systemctl --user start loom-deployd`.
+6. `rm ~/.local/bin/loom-deploy ~/loom-releases/deploy.json`, so `loom-deploy` refuses every verb.
