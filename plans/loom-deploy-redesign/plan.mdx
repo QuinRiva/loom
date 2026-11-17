@@ -4,7 +4,7 @@ reader:
   knows: the brief; not the research behind it, upstream's updater code, today's deploy tool, or how the production machine is laid out
   after_first_screen: Loom's own small program inside each release makes upstream's launcher wait out the five-minute watch and keep the database copy; one command builds and asks for the switch; the server starts that command from a Deploy control and tells every client the stage; production moves over in one ordinary restart with a three-command way back
 kicker: "Implementation plan · approved 11 Nov 2026"
-status: approved
+status: done
 intent: plans/loom-deploy-redesign/intent.mdx
 manager_sessions:
   - id: 01a1c8ea-e1cd-704e-8305-6160612f0521
@@ -710,3 +710,57 @@ The bridge's rewritten Slack instructions are checked in the bridge's repository
 
   Ported code keeps to this repository's rules: the four-line comment cap means the bridge tool's long explanatory comments are cut down, and no hunk in an upstream-owned file goes unmarked.
 </Details>
+
+## As built
+
+Built in three phases and merged as pull request 571 on 13 Nov 2026; production moved onto it on 17 Nov 2026. Each line is a place where the build or the cut-over departed from the text above, with the reason.
+
+**Size.** About 3,060 lines of code and 1,280 of tests, against the estimate of about 1,650 plus tests. Two review gates found dense code, not extra layers; the estimate was low for the command and the store code.
+
+**The runner and the command (§2, §3, §5).**
+
+- `back` runs in the engine's own unit, as a deploy does, and returns before anything stops. A Loom thread resumed after the restart could otherwise run it twice, and a second `back` goes one release further.
+- `back` and the Loom-is-down route refuse unless the stop succeeded and nothing answers on Loom's port. A stop that silently failed would have had the database copied over a live server.
+- `back` records the return through the returned-to release's own `adopt --undo`, under the same update id, so the launcher removes its own leftover backup.
+- `deploy` writes the new deploy's status at the press, with an empty id and sha until the ref resolves, and waits up to 60 s for the ref. A deploy that fails before it builds ends as `called-off` with its reason and a non-zero exit. As planned, nobody was told about a deploy until the fetch had finished, and never if it failed before that.
+- Flags are parsed strictly. A mistyped flag had started a deploy.
+- Two configuration keys beyond §7.2, both with defaults: `engineUnit`, so a scratch store's engine cannot meet production's, and `probeSeconds`, which shortens the watch in the seam test.
+- `--no-return` holds only on probation. A held release whose launcher restarts (a reboot) is not held again; it fails and restarts until it is fixed or `back` is run, which is the old behaviour for a broken release and avoids the runner guessing from old state.
+- The runner passes its server's exit code on unchanged, because the launcher reads 78 as "another server owns this home".
+- The returned-to runner, not only after-accept, marks a put-back release `failed` and deletes that release's kept copy. Otherwise each failed deploy left a full database copy on the fast disk.
+- A `--release` deploy that fails its trial start is not marked `failed`, so a mistaken `deploy --release` of the running release cannot get it removed.
+- No new status phases: a release re-run after `retry` reports `switching`, `back` writes `put-back`, and a no-return watch failure with Loom still up stays `watching` with its reason.
+- after-accept writes the manifest, the `previous` link and the history line first and prunes last. A `back` soon after `live` had killed it mid-prune before the manifest was written.
+- The estimate counts only deploys that built. Each kept copy carries a `meta.json` naming the release it returns to. The trial start waits for the foreign-home guard's line and five seconds more before it reads the log for the settings warning.
+- §2's last-but-one table row is wrong as written: the seam test's stop case never exercises the launcher's own 5-second allowance, because the runner kills its server itself at 4.5 s. The runner now logs that kill, so §12.3's first reading can be taken from the journal.
+
+**The server and the contract (§4.1, §4.2).**
+
+- One service, not two: `LoomDeployNotices` became `LoomDeploy`, following the repository's rule to extend the service that owns the domain. It is provided beside the routes, where upstream's `ServerSelfUpdate` is, which needed marked hunks in `server.ts`, `ws.ts` and `RpcInstrumentation.ts`.
+- `start` and `cancel` run the release's own `loom-deploy`, not `systemd-run` directly, so one place refuses a second deploy.
+- `loom.startDeploy` returns nothing; the release id arrives with the status. The `available` event carries `stopAfterSeconds`, which the idle row's "restarts Loom in about" line needs.
+- The status file is re-read every second, not watched: the state folder sees every database write. It is sent on subscribe when it changed in the last 24 hours, whatever its stage.
+- The engine waits five minutes for the server to accept a switch, not 30 s. Upstream's own check of the staged release can take three minutes, and at 30 s the engine recorded "called off" for a switch the server then made.
+
+**The web control (§4.3, §4.4).**
+
+- The subscription is folded into one state per connection, because the events sent on subscribe arrive together and the last one had overwritten the rest.
+- The Settings search entry is offered only where a server can deploy itself.
+- Every window reads "Started by" the same way, and a deploy started from a Loom thread reads "from a Loom thread"; the thread id stays in the status and the history. The mock-up's "from this device" would have made the pressing window differ from the others.
+- The "called off" retraction is sticky, like the warning it replaces.
+- There is no confirmation dialog on the row or the palette action. Carl found it unnecessary at the cut-over; the warning toast and Cancel cover a mistaken press.
+
+**The production machine (§7).**
+
+- The service file sets `T3CODE_LAN=false`. A server started by the launcher otherwise listens on every address, and Tailscale already holds this machine's tailnet address on Loom's port.
+- The service file puts the release's `deploy` folder on the search path agents inherit, so a pi thread told to run `loom-deploy` finds it. §7.1 had kept the installed path untouched.
+- The service file quotes the Node flags line; unquoted, systemd splits it at the spaces.
+- Nothing queues a Loom deploy behind a bridge deploy any more. The operating notes carry it as a written rule.
+
+**The cut-over and the way back (§8).**
+
+- The first restart onto the launcher failed on the listening address above. Loom was down for 2 minutes 53 seconds while the written way back put the old arrangement in place; the second attempt, with the setting added, took 9.9 s. The scratch rehearsal had not caught it because nothing else listened on its port.
+- The way back to the old tool needs one manifest fix that §8 does not give. The old tool picks a release's database from a `db` field only it writes; on records without one it moved the live database aside and started Loom on an empty one. The fix was applied on production during the first way back, and the operating notes carry it.
+- The first deploy under the new mechanism ran its routine retention: three old release folders and eleven failed manifest records went. "Nothing is deleted" above holds for the history, the snapshots and the old runbook.
+- The bridge switch took more steps than §8 lists: a typecheck of the prepared bridge release against the Loom release then live, and a fast-forward of the bridge's development checkout, which is what makes the new Slack instructions live.
+- Measured on production: the first deploy's switch took 25.3 s from stop to answering, the old server stopped by itself in 2.7 s, both interrupted turns resumed, and Jacob's instance followed within three minutes.
