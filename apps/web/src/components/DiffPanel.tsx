@@ -17,6 +17,7 @@ import {
   PilcrowIcon,
   Rows3Icon,
   TextWrapIcon,
+  UsersRoundIcon, // loom: diff author query
 } from "lucide-react";
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide";
 import * as Schema from "effect/Schema";
@@ -64,6 +65,8 @@ import { LoomScopeMenuEntries } from "../loom/review/LoomScopeMenuEntries"; // l
 import { LoomOpenWholeFileButton } from "../loom/review/FileChangeView"; // loom: change review
 import { useLoomReviewSelection } from "../loom/review/useLoomReviewSelection"; // loom: change review
 import { useReviewBaselineStore } from "../loom/review/reviewBaselineStore"; // loom: change review
+import { useLoomAuthorship } from "../loom/review/useLoomAuthorship"; // loom: diff author query
+import { AuthorshipFileChips, AuthorshipLegend } from "../loom/review/AuthorshipLegend"; // loom: diff author query
 import { useClientSettings, updateClientSettings } from "../hooks/useSettings";
 import { formatRelativeTimeLabel, formatShortTimestamp } from "../timestampFormat";
 import { DiffFilePathCopyButton } from "./DiffFilePathCopyButton";
@@ -543,6 +546,21 @@ export default function DiffPanel({
       ? Math.max(0, recordedToolCallFileCount - renderablePatch.files.length)
       : 0;
   const fileStats = new Map(lazySource?.files?.map((file) => [file.path, file]));
+  // loom: diff author query — who wrote each block of the whole-branch view and of the live
+  // "Since your message" view, whose new side is the same worktree.
+  const loomAuthors = useLoomAuthorship({
+    threadRef: routeThreadRef ?? null,
+    baseRef: loomReview ? null : selectedBaseRef,
+    eligible:
+      canReadFiles &&
+      !toolCallSelection &&
+      (loomReview
+        ? loomReview.live
+        : selectedRunId === null && selectedGitScope === "branch" && selectedCommitSha === null),
+    // Not the tracked-only first pass: ask once, for the complete list.
+    diffHash: preview?.incomplete ? null : (selectedGitSource?.diffHash ?? null),
+    workspaceMutationId,
+  });
   const sourceLineStat =
     isGitSelection && selectedGitSource?.files
       ? selectedGitSource.files.reduce(
@@ -674,7 +692,10 @@ export default function DiffPanel({
   // Hiding is display-only: lazy loading indexes into the full list. A requested file stays visible.
   const isFileShown = (file: FileDiffMetadata) => {
     const path = resolveFileDiffPath(file);
-    return !hideTestFiles || path === selectedFilePath || !isTestChangedFile(path);
+    return (
+      (!hideTestFiles || path === selectedFilePath || !isTestChangedFile(path)) &&
+      loomAuthors.isFileShown(path) // loom: the author filter
+    );
   };
   const shownFileEntries = renderableFileEntries.filter(({ fileDiff }) => isFileShown(fileDiff));
   const shownFileKeys = shownFileEntries.map((file) => file.fileKey);
@@ -1282,6 +1303,27 @@ export default function DiffPanel({
             </TooltipPopup>
           </Tooltip>
         )}
+        {loomAuthors.eligible && (
+          // loom: diff author query — the Authors toggle
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Toggle
+                  aria-label={loomAuthors.shown ? "Hide authors" : "Show authors"}
+                  variant="ghost"
+                  size="sm"
+                  pressed={loomAuthors.shown}
+                  onPressedChange={(pressed) => loomAuthors.setOff(!pressed)}
+                />
+              }
+            >
+              <UsersRoundIcon className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipPopup side="top">
+              {loomAuthors.shown ? "Hide who wrote each change" : "Show who wrote each change"}
+            </TooltipPopup>
+          </Tooltip>
+        )}
         {diffFileKeys.length > 0 && (
           <Tooltip>
             <TooltipTrigger
@@ -1331,6 +1373,7 @@ export default function DiffPanel({
       ) : (
         <>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+            <AuthorshipLegend authors={loomAuthors} /> {/* loom: diff author query */}
             {preview?.incomplete && (
               <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-2xs text-muted-foreground">
                 {selectedPatchError
@@ -1480,13 +1523,14 @@ export default function DiffPanel({
                           />
                           {/* loom: change review — the file whole, in the Files surface */}
                           <LoomOpenWholeFileButton onOpen={() => openDiffFile(path)} />
+                          <AuthorshipFileChips authors={loomAuthors} path={path} /> {/* loom */}
                         </>
                       );
                     }}
+                    // loom: diff author query — the authorship CSS rides beside upstream's
+                    unsafeCSSExtra={`${lazySource ? "[data-additions-count], [data-deletions-count] { display: none; }\n" : ""}${loomAuthors.css}`}
                     {...(lazySource
                       ? {
-                          unsafeCSSExtra:
-                            "[data-additions-count], [data-deletions-count] { display: none; }",
                           renderHeaderMetadata: (fileDiff: FileDiffMetadata) => {
                             const stat = fileStats.get(resolveFileDiffPath(fileDiff));
                             return stat ? (
@@ -1526,7 +1570,15 @@ export default function DiffPanel({
                       preferredHighlighter: PREFERRED_HIGHLIGHTER,
                       themeType: resolvedTheme as DiffThemeType,
                       stickyHeaders: true,
-                      onPostRender: codeViewReveal.flush,
+                      // loom: diff author query — stamps authorship on rendered rows
+                      onPostRender: (node, _instance, phase, context) => {
+                        codeViewReveal.flush();
+                        loomAuthors.onPostRender(
+                          node,
+                          phase,
+                          context.type === "diff" ? context.item.fileDiff : undefined,
+                        );
+                      },
                       ...(currentLoadDiffFiles ? { loadDiffFiles } : {}),
                     }}
                   />

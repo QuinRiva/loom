@@ -66,6 +66,12 @@ export const loomReviewQueries = {
     refreshTrigger: ({ environmentId, input }) =>
       input.intervalId === "live" ? runRevision(environmentId, input.threadId) : undefined,
   }),
+  // Asked once the diff is drawn and again only when its content changes (the caller keys it
+  // on the diff's hash): blame is the one costly read, and it never sits on the diff's path.
+  authorship: createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+    label: `environment-data:${LOOM_WS_METHODS.reviewAuthorship}`,
+    tag: LOOM_WS_METHODS.reviewAuthorship,
+  }),
   fileContents: createEnvironmentRpcCommand(connectionAtomRuntime, {
     label: `environment-data:${LOOM_WS_METHODS.reviewFileContents}`,
     tag: LOOM_WS_METHODS.reviewFileContents,
