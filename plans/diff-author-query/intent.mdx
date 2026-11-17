@@ -53,8 +53,8 @@ without losing your place in the diff.
 - Finding the author with git blame on the changed lines, then the
   `Loom-Thread` line agents add to every commit. Wins if the lines you review
   are committed, which they are by the time you compare against
-  `origin/main`. Every agent commit since that line began on 13 Oct carries
-  it (583 of 583), and every thread they name still exists. Blame takes
+  `origin/main`. Every agent commit that is not a merge carries it (583 of
+  583 since it began on 13 Oct), and every thread they name still exists. Blame takes
   17 ms on the largest file of the latest merged branch and runs after the
   diff is drawn. _Chosen._
 - Finding the author of uncommitted lines from the snapshot Loom takes at the
@@ -92,6 +92,9 @@ without losing your place in the diff.
   author, because blame names who wrote a line, not who deleted one. That is
   24 of 564 blocks (4%) across the last ten merged branches, about two a
   branch. Redirect if you want the thread that deleted them named.
+- _Assumed:_ clicking a thread in the top row narrows the list to the files
+  it changed and dims the other threads' lines in them; it does not cut
+  those lines out. Redirect if you want them hidden.
 - _Assumed:_ the earlier author appears on the card, not on the hunk's own
   row as the mockup's "after Deploy server" note drew it. Redirect if you
   want it on the row.
