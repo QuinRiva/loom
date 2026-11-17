@@ -135,7 +135,7 @@ Branches: the ten most recent first-parent merge commits on `origin/main`, from 
 
 Across the ten: 77 commits, none without a `Loom-Thread` trailer, 2 with two different ones. Of 407 hunks at the default three lines of context, 27 (6.6%) hold lines from more than one thread. That is why §4 colours lines and lists every author on a hunk's row, and does not give a hunk one colour.
 
-Agent merge commits carry no trailer (the shim adds it on `git commit` only) and fall under the no-trailer row of §3. The thread lookup took the 307 distinct trailer values of all 583 non-merge agent commits counted that day and read `orchestration_v2_projection_threads` in the live database, read-only. All 307 have a row: 18 archived, none deleted. By role: 192 coder, 42 reviewer, 42 root, 19 shipper, 12 planner.
+Agent merge commits carry a trailer only when concluded with `git commit` (9 of 10 on `origin/main`); one without falls under the no-trailer row of §3. The thread lookup took the 307 distinct trailer values of all 583 non-merge agent commits counted that day and read `orchestration_v2_projection_threads` in the live database, read-only. All 307 have a row: 18 archived, none deleted. By role: 192 coder, 42 reviewer, 42 root, 19 shipper, 12 planner.
 
 </Details>
 
