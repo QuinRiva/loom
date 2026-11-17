@@ -932,36 +932,6 @@ const annotation = (
     quotedText: quote,
   },
 });
-/**
- * A question-form answer on its recommended option, in the shape and wording of web's
- * `questionAnswerComment` (apps/web/src/components/files/mdx-plan/questionAnswers.ts), which the
- * eval cannot load: web modules resolve through its `~` alias.
- */
-const recommendedAnswer = (
-  questionId: string,
-  title: string,
-  label: string,
-): ReviewCommentContextRecord => ({
-  version: 1,
-  contextId: toKindScopedComposerContextId(
-    "review-comment",
-    `mdx-question:${PLAN_REL}:${questionId}`,
-  ),
-  kind: "review-comment",
-  label: `plan.mdx answer: ${questionId}`,
-  sectionId: `file:${PLAN_REL}`,
-  sectionTitle: "plan.mdx",
-  filePath: PLAN_REL,
-  startIndex: 0,
-  endIndex: 0,
-  rangeLabel: `answer: ${questionId}`,
-  text: `Q: ${title} → chose: "${label}" (the recommended option)`,
-  diff: "",
-  mdxAnchor: {
-    anchor: { anchorKind: "visual", targetKind: "control", blockType: "question-form" },
-    quotedText: title,
-  },
-});
 const SEND_FAILS = { id: "3-when-a-send-fails", title: "3. When a send fails" };
 const CHANNELS = { id: "4-channels", title: "4. Channels" };
 const RENDERED_SMS_PASSAGE = SMS_PASSAGE.replaceAll("`", "");
@@ -1082,10 +1052,6 @@ const finishedAuthor = {
   looking: [t("workstream_submit")],
   maxSteps: 10,
   finishedReport: { markdown: PLAN_REPORT, path: PLAN_REPORT_PATH },
-};
-const planAddition = (markdown: string): ToolCall => {
-  const { text, isError } = finishedSubmitResult(PLAN_REPORT, markdown, PLAN_REPORT_PATH);
-  return { name: t("workstream_submit"), input: { markdown }, result: text, isError };
 };
 
 // ── Cases
@@ -1695,81 +1661,10 @@ Re-render the 1,200 archived invoice PDFs in \`${at("storage/invoices/2025/")}\`
     check: { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] },
   },
   {
-    id: "finished-author-answers-form",
-    kind: "bad",
-    base: "fails",
-    source: `${FINISHED_AUTHOR} The 12 Nov child's message was form answers, each the recommended option.`,
-    role: "planner",
-    threadId: PLAN_PLANNER,
-    parentId: REMINDERS_ROOT,
-    engagedTools: engagedChildTools(),
-    messages: [
-      ...plannerFinishedPlan,
-      reviewInChild([
-        recommendedAnswer(
-          "retries",
-          "How many times is a failed send retried?",
-          "Three times, on the next three daily runs",
-        ),
-        recommendedAnswer("sms-time", "When does an SMS reminder go?", "With the email, at 06:00"),
-      ]),
-    ],
-    ...finishedAuthor,
-    check: { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] },
-    samples: 10,
-  },
-  {
-    id: "finished-author-typed-correction",
-    kind: "bad",
-    base: "fails",
-    source: `${FINISHED_AUTHOR} Here the change is typed rather than attached as a comment.`,
-    role: "planner",
-    threadId: PLAN_PLANNER,
-    parentId: REMINDERS_ROOT,
-    engagedTools: engagedChildTools(),
-    messages: [
-      ...plannerFinishedPlan,
-      humanInChild(
-        "One change to the plan: retry a failed send once, on the next daily run, and then hand the invoice to finance. Three retries leaves a contact unreminded for most of a week.",
-      ),
-    ],
-    ...finishedAuthor,
-    check: { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] },
-    samples: 10,
-  },
-  {
-    id: "finished-author-round-after-addition",
-    kind: "bad",
-    base: "fails",
-    source: `${FINISHED_AUTHOR} Here the author has just recorded the round in its report and reads the result of that submit.`,
-    role: "planner",
-    threadId: PLAN_PLANNER,
-    parentId: REMINDERS_ROOT,
-    engagedTools: engagedChildTools(),
-    messages: [
-      ...plannerFinishedPlan,
-      reviewInChild([askFewerRetries, askSmsSecondOnly]),
-      ...retriesEdited,
-      ...smsEdited,
-      said(
-        "Both changes are in the plan: §3 now retries a failed send on the next two daily runs, and §4 sends SMS with the second reminder only. Adding this round to my report.",
-        planAddition(`<!-- response -->
-Two changes to the plan at the human's request in this thread, commits \`c41a9e7\` and \`5f08b3d\`.
-<!-- /response -->
-
-- §3: a failed send is retried on the next two daily runs, not three. The human: "${FEWER_RETRIES}"
-- §4: SMS goes with the second reminder only. The human: "${SMS_SECOND_ONLY}"`),
-      ),
-    ],
-    ...finishedAuthor,
-    check: { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] },
-    samples: 10,
-  },
-  {
     id: "finished-author-closes",
-    kind: "bad",
-    base: "fails",
-    source: `${FINISHED_AUTHOR} The brief's check: three rounds, then "okay, we're done, let's move on", and one message to the parent.`,
+    kind: "guard",
+    base: "passes",
+    source: `${FINISHED_AUTHOR} The brief's check: rounds of changes, then "okay, we're done, let's move on"; the parent hears what changed at the latest then.`,
     role: "planner",
     threadId: PLAN_PLANNER,
     parentId: REMINDERS_ROOT,
@@ -1791,26 +1686,12 @@ Two changes to the plan at the human's request in this thread, commits \`c41a9e7
       quotes: ["two retries", "second reminder only"],
       allQuotes: true,
     },
-    samples: 10,
-  },
-  {
-    id: "finished-author-questions-only",
-    kind: "control",
-    base: "passes",
-    source: `${FINISHED_AUTHOR} The brief's check: two questions, no change, and the parent hears nothing.`,
-    role: "planner",
-    threadId: PLAN_PLANNER,
-    parentId: REMINDERS_ROOT,
-    engagedTools: engagedChildTools(),
-    messages: [...plannerFinishedPlan, reviewInChild([askWhyNextRun, askGrouping])],
-    ...finishedAuthor,
-    check: { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] },
   },
   {
     id: "finished-author-questions-then-close",
-    kind: "bad",
-    base: "either",
-    source: `${FINISHED_AUTHOR} The brief's check: questions only, and the parent hears nothing "then or later".`,
+    kind: "guard",
+    base: "passes",
+    source: `${FINISHED_AUTHOR} The brief's check: a question the human only asked does not reach the parent, then or at the closing word.`,
     role: "planner",
     threadId: PLAN_PLANNER,
     parentId: REMINDERS_ROOT,
@@ -1829,12 +1710,11 @@ Two changes to the plan at the human's request in this thread, commits \`c41a9e7
     ],
     ...finishedAuthor,
     check: { kind: "none-of", plainSubmit: false, tools: ["notify_thread"] },
-    samples: 10,
   },
   {
     id: "orchestrator-handover-mid-build",
-    kind: "control",
-    base: "either",
+    kind: "guard",
+    base: "passes",
     source:
       "The brief's open question: what a parent does with a hand-over that arrives after it has started building on the earlier version of a plan (plans/document-comments-to-author/intent.mdx, Still unknown).",
     role: "orchestrator",

@@ -32,7 +32,7 @@ Read every sample that flipped, and the final text of the orchestrator cases tha
 
 ## The grader
 
-`grade.ts` checks the deciding message's tool calls and text; `run.test.ts` tests it. A plain submit has no outcome or `done`; a held one has `awaiting_acceptance`. A quote is a case-insensitive fragment of the human's words, after whitespace and typographic quotes are normalised.
+`grade.ts` checks the deciding message's tool calls and text; `run.test.ts` tests it. A Loom tool called by its bare name (`notify_thread`, which Opus often does and pi answers "not found") grades as that tool. After a grader fix, `pnpm loom-handback:regrade runs/<name> [runs/<baseline>]` grades a finished run again from its saved samples and writes `summary.regraded.md` beside it. A plain submit has no outcome or `done`; a held one has `awaiting_acceptance`. A quote is a case-insensitive fragment of the human's words, after whitespace and typographic quotes are normalised.
 
 ## Add a case
 

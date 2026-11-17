@@ -3,8 +3,9 @@
 // @effect-diagnostics nodeBuiltinImport:off
 /**
  * Grades a finished run again with this checkout's grader, from the samples it saved: for a grader
- * fix found after the run. A sample this grader would not have stopped at is left out.
- * Usage: node loom-handback/regrade.ts runs/<name> [runs/<baseline>]
+ * fix found after the run. A sample this grader would not have stopped at, or of a case since
+ * deleted, is left out.
+ * Usage: pnpm loom-handback:regrade runs/<name> [runs/<baseline>]
  */
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -32,9 +33,13 @@ const regrade = (dir: string) =>
     .split("\n")
     .filter((line) => line.trim() !== "")
     .map((line) => JSON.parse(line) as Row)
-    .filter((row) => row.decided === true && row.file !== undefined)
-    .map((row) => {
-      const entry = cases.find((candidate) => candidate.id === row.case)!;
+    .flatMap((row) => {
+      const entry = cases.find((candidate) => candidate.id === row.case);
+      return row.decided === true && row.file !== undefined && entry !== undefined
+        ? [{ row, entry }]
+        : [];
+    })
+    .map(({ row, entry }) => {
       const messages = JSON.parse(
         NodeFS.readFileSync(NodePath.join(dir, "samples", row.file!), "utf8"),
       ) as ReadonlyArray<{ readonly role: string; readonly content: ReadonlyArray<Block> }>;

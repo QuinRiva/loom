@@ -58,7 +58,7 @@ const NATIVE = new Set([
  * A Loom tool called by its bare name (`notify_thread`), which pi answers "not found" and the model
  * then retries, read as the Loom tool it reaches for.
  */
-export const canonical = (calls: ReadonlyArray<Call>): ReadonlyArray<Call> =>
+const canonical = (calls: ReadonlyArray<Call>): ReadonlyArray<Call> =>
   calls.map((call) =>
     call.name.startsWith(LOOM) || NATIVE.has(call.name) ? call : { ...call, name: loom(call.name) },
   );
