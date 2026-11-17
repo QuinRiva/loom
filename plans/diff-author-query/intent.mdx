@@ -3,8 +3,8 @@ reader:
   who: Carl, who asked for this and approves its intent before anything is planned or built
   knows: his own request and the mockup he approved in chat; Loom's threads, forks and the Query button on plans and recaps; none of the code
   after_first_screen: he can correct any line or say "go"
-kicker: "Intent brief · draft for your corrections · 17 Nov 2026"
-status: draft
+kicker: "Intent brief · approved 17 Nov 2026"
+status: approved
 manager_sessions:
   - id: 01a1e6ab-93d8-7041-aed3-6df8fec5efb5
     name: Link diff lines to authoring subthread
@@ -69,6 +69,10 @@ without losing your place in the diff.
 - Authorship is shown per block of changed lines, not per line.
 - Query author and Open thread sit side by side on the card.
 - Lines not yet committed show as uncommitted, with no author.
+- Asked whether his second view, "the last hunk of work that was done",
+  needs anything new: "No, those two cover it; build nothing more for it".
+  The two are the Diff panel's existing "Since your message" view and this
+  brief's filter that narrows the diff to one thread's changes.
 - _Assumed:_ authorship is on by default in the whole-branch view, with a
   toggle that is remembered. Redirect if you would rather switch it on
   yourself.
@@ -78,25 +82,8 @@ without losing your place in the diff.
   phone.
 
 **Not doing.** Authorship on GitHub's pull request page. Authors for
-uncommitted lines. Mobile.
-
-**Questions for you.**
-
-<QuestionForm
-  questions={[
-    {
-      id: "last-work-view",
-      title: "Does your second view, \"the last hunk of work that was done\", need anything new?",
-      subtitle: "Two things would already show it: the Diff panel's existing \"Since your message\" view, and this brief's filter that narrows the diff to one thread's changes.",
-      mode: "single",
-      allowOther: true,
-      options: [
-        { id: "covered", label: "No, those two cover it; build nothing more for it", recommended: true },
-        { id: "per-commit", label: "Yes, I also want to step through the branch one commit at a time" },
-      ],
-    },
-  ]}
-/>
+uncommitted lines. Mobile. A view that steps through the branch one commit
+at a time.
 
 **Still unknown.**
 
