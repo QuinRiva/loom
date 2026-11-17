@@ -18,6 +18,7 @@ import {
   type ReviewCommentContext,
 } from "~/reviewCommentContext";
 
+import type { AuthorCardSlot } from "~/loom/review/AuthorCard"; // loom: diff author query
 import { nextFileCommentId } from "../files/fileCommentAnnotations";
 import { DiffCommentAnnotation } from "./DiffCommentAnnotation";
 import { StyledDiffCodeView, type StyledDiffCodeViewOptions } from "./StyledDiffCodeView";
@@ -99,6 +100,8 @@ interface AnnotatableCodeViewProps {
     collapsed: boolean,
   ) => ReactNode;
   onRevealSearchMatch: (fileKey: string) => void;
+  /** loom: diff author query — selecting lines opens the draft as the author card. */
+  authorCard?: AuthorCardSlot | undefined;
 }
 
 interface DiffSelectionContext {
@@ -123,6 +126,7 @@ export function AnnotatableCodeView({
   renderHeaderFilenameSuffix,
   renderHeaderPrefix,
   onRevealSearchMatch,
+  authorCard, // loom
 }: AnnotatableCodeViewProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -140,6 +144,17 @@ export function AnnotatableCodeView({
     annotation: DiffCommentLineAnnotation;
   } | null>(null);
   const [draftText, setDraftText] = useState("");
+  // loom: diff author query — the review's file and lines, selected again once on mount
+  const [restored, setRestored] = useState<AuthorCardSlot["restore"]>(null);
+  const [loomCommenting, setLoomCommenting] = useState(false);
+  const restore = authorCard?.restore ?? null;
+  if (restore !== null && restore !== restored && selectedLines === null && draft === null) {
+    const file = files.find((candidate) => candidate.filePath === restore.filePath);
+    if (file) {
+      setRestored(restore);
+      setSelectedLines({ id: file.fileKey, range: restore.range });
+    }
+  }
 
   const filesByKey = new Map(files.map((file) => [file.fileKey, file]));
   if (
@@ -242,6 +257,8 @@ export function AnnotatableCodeView({
       text: "",
     });
     if (!comment) return;
+    authorCard?.onFocus({ filePath, range }); // loom: diff author query
+    setLoomCommenting(false); // loom
     setDraftText("");
     setDraft({
       fileKey: item.id,
@@ -256,6 +273,24 @@ export function AnnotatableCodeView({
       },
     });
   };
+
+  // loom: diff author query — the author card heads the draft's annotation; the draft's text box
+  // waits for its Comment button.
+  const loomCard = (annotation: { readonly metadata: DiffCommentAnnotationGroup }) => {
+    const entry = annotation.metadata.entries.find((candidate) => candidate.kind === "draft");
+    const file = entry && draft ? filesByKey.get(draft.fileKey) : undefined;
+    if (!authorCard || !entry || !file) return null;
+    return authorCard.render(
+      { filePath: file.filePath, fileDiff: file.fileDiff, range: entry.range },
+      {
+        commenting: loomCommenting,
+        comment: () => setLoomCommenting(true),
+        close: () => removeEntry(entry.id),
+      },
+    );
+  };
+  const loomShown = (entry: DiffCommentAnnotationEntry) =>
+    !authorCard || entry.kind !== "draft" || loomCommenting;
 
   return (
     <StyledDiffCodeView<DiffCommentAnnotationGroup>
@@ -277,8 +312,10 @@ export function AnnotatableCodeView({
       options={{
         ...options,
         enableGutterUtility: draft === null,
-        enableLineSelection: draft === null,
+        // loom: diff author query — an author card no comment was typed into gives way to a new selection
+        enableLineSelection: draft === null || (authorCard !== undefined && draftText === ""),
         onGutterUtilityClick: beginComment,
+        ...(authorCard ? { onLineSelectionEnd: beginComment } : {}), // loom
       }}
       renderHeaderFilenameSuffix={(item) =>
         item.type === "diff" ? renderHeaderFilenameSuffix(item.fileDiff) : null
@@ -294,7 +331,8 @@ export function AnnotatableCodeView({
           <div
             className={hasDraft ? "py-1" : "divide-y divide-border/30 border-y border-border/30"}
           >
-            {annotation.metadata.entries.map((entry) => (
+            {loomCard(annotation) /* loom: diff author query */}
+            {annotation.metadata.entries.filter(loomShown).map((entry) => (
               <DiffCommentAnnotation
                 key={entry.id}
                 environmentId={environmentId}

@@ -1,4 +1,4 @@
-import type { CodeViewScrollTarget } from "@pierre/diffs";
+import type { CodeViewScrollTarget, SelectedLineRange } from "@pierre/diffs";
 import { useState } from "react";
 
 interface FileRevealHandle {
@@ -16,10 +16,15 @@ interface FileRevealHandle {
 export function createCodeViewFileReveal() {
   let viewer: FileRevealHandle | null = null;
   let pending: string | null = null;
+  let pendingRange: SelectedLineRange | null = null; // loom: diff author query — a review's lines
   const flush = () => {
     if (pending === null || viewer === null) return;
     if (!viewer.getInstance() || viewer.getItem(pending) === undefined) return;
-    viewer.scrollTo({ type: "item", id: pending, align: "start" });
+    viewer.scrollTo(
+      pendingRange // loom: diff author query
+        ? { type: "range", id: pending, range: pendingRange, align: "center" }
+        : { type: "item", id: pending, align: "start" },
+    );
     pending = null;
   };
   return {
@@ -28,8 +33,9 @@ export function createCodeViewFileReveal() {
       viewer = next;
       flush();
     },
-    request(fileKey: string) {
+    request(fileKey: string, range?: SelectedLineRange) {
       pending = fileKey;
+      pendingRange = range ?? null; // loom: diff author query
       flush();
     },
     flush,

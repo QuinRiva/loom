@@ -64,6 +64,15 @@ import { LoomScopeMenuEntries } from "../loom/review/LoomScopeMenuEntries"; // l
 import { LoomOpenWholeFileButton } from "../loom/review/FileChangeView"; // loom: change review
 import { useLoomReviewSelection } from "../loom/review/useLoomReviewSelection"; // loom: change review
 import { useReviewBaselineStore } from "../loom/review/reviewBaselineStore"; // loom: change review
+import { useLoomAuthorship } from "../loom/review/useLoomAuthorship"; // loom: diff author query
+import {
+  AuthorshipFileChips,
+  AuthorshipLegend,
+  AuthorshipToggle,
+} from "../loom/review/AuthorshipLegend"; // loom: diff author query
+import { useAuthorCardSlot } from "../loom/review/AuthorCard"; // loom: diff author query
+import { ReviewFollowLabel } from "../loom/review/ReviewFollowBack"; // loom: diff author query
+import { useReviewFollow } from "../loom/review/useReviewFollow"; // loom: diff author query
 import { useClientSettings, updateClientSettings } from "../hooks/useSettings";
 import { formatRelativeTimeLabel, formatShortTimestamp } from "../timestampFormat";
 import { DiffFilePathCopyButton } from "./DiffFilePathCopyButton";
@@ -246,7 +255,11 @@ export default function DiffPanel({
   const [openCommitMenu, setOpenCommitMenu] = useState<ReviewBranchCommitsResult | null>(null);
   const [codeViewRevision, setCodeViewRevision] = useState(0);
 
-  const routeThreadRef = useThreadRouteRef();
+  // loom: diff author query — the panel reads and writes the review this thread follows, if any;
+  // links, file opens and comments stay with the thread in the main window.
+  const routedThreadRef = useThreadRouteRef();
+  const loomFollow = useReviewFollow(routedThreadRef);
+  const routeThreadRef = loomFollow.threadRef;
   const activeThreadId = routeThreadRef?.threadId ?? null;
   const activeThread = useQuietThreadShell(routeThreadRef);
   const fileAccess = useFilesystemReadAccess(activeThread?.environmentId ?? null);
@@ -475,7 +488,7 @@ export default function DiffPanel({
     headerCommitSha !== null
       ? projectCommitUrl(activeProject?.repositoryIdentity, headerCommitSha)
       : null;
-  const openLink = useOpenLink(routeThreadRef);
+  const openLink = useOpenLink(routedThreadRef); // loom: the main window's thread
   // A SHA link goes to the code host; it must not route back into this pane's commit selection.
   const openCommitUrl = (event: MouseEvent<HTMLElement>, url: string) => {
     event.stopPropagation();
@@ -657,6 +670,23 @@ export default function DiffPanel({
   );
 
   const isRefreshingDiff = branchDiffPreview.isPending || areFilePatchesPending;
+  // loom: diff author query — who wrote each block of the whole-branch view and of the live
+  // "Since your message" view, whose new side is the same worktree.
+  const loomAuthors = useLoomAuthorship({
+    threadRef: routeThreadRef ?? null,
+    baseRef: loomReview ? null : selectedBaseRef,
+    eligible:
+      canReadFiles &&
+      !toolCallSelection &&
+      (loomReview
+        ? loomReview.live
+        : selectedRunId === null && selectedGitScope === "branch" && selectedCommitSha === null),
+    diffHash: selectedGitSource?.diffHash ?? null,
+    complete: !preview?.incomplete,
+    loaded: !isRefreshingDiff,
+    workspaceMutationId,
+    intervalPatch: loomReview?.source?.diff ?? null,
+  });
   const pathOccurrences = new Map<string, number>();
   const renderableFileEntries = renderableFiles.map((fileDiff) => {
     const entry = getCachedFileEntry(fileDiff);
@@ -674,7 +704,10 @@ export default function DiffPanel({
   // Hiding is display-only: lazy loading indexes into the full list. A requested file stays visible.
   const isFileShown = (file: FileDiffMetadata) => {
     const path = resolveFileDiffPath(file);
-    return !hideTestFiles || path === selectedFilePath || !isTestChangedFile(path);
+    return (
+      (!hideTestFiles || path === selectedFilePath || !isTestChangedFile(path)) &&
+      loomAuthors.isFileShown(path) // loom: the author filter
+    );
   };
   const shownFileEntries = renderableFileEntries.filter(({ fileDiff }) => isFileShown(fileDiff));
   const shownFileKeys = shownFileEntries.map((file) => file.fileKey);
@@ -727,6 +760,15 @@ export default function DiffPanel({
     codeViewReveal.request(file.fileKey);
     return true;
   };
+  // loom: diff author query — selecting lines opens the author card; a review reopens on its lines
+  const loomAuthorCard = useAuthorCardSlot({
+    authors: loomAuthors,
+    routed: routedThreadRef,
+    reviewing: routeThreadRef,
+    files: renderableFileEntries,
+    revealFile: revealDiffFile,
+    revealLines: codeViewReveal.request,
+  });
 
   // A file another view asked to reveal (a chat diff link): retried as the diff loads until it
   // holds the file, then not again until a new request, so it does not undo what the user did since.
@@ -746,7 +788,7 @@ export default function DiffPanel({
 
   const openDiffFile = (filePath: string) => {
     openDiffFilePrimaryAction({
-      threadRef: routeThreadRef,
+      threadRef: routedThreadRef, // loom: the main window's thread
       filePath,
       activeCwd,
       repositoryRoot: activeRepositoryRoot,
@@ -1282,6 +1324,7 @@ export default function DiffPanel({
             </TooltipPopup>
           </Tooltip>
         )}
+        <AuthorshipToggle authors={loomAuthors} /> {/* loom: diff author query */}
         {diffFileKeys.length > 0 && (
           <Tooltip>
             <TooltipTrigger
@@ -1331,6 +1374,12 @@ export default function DiffPanel({
       ) : (
         <>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+            {/* loom: diff author query */}
+            <ReviewFollowLabel routed={routedThreadRef} follow={loomFollow} />
+            <AuthorshipLegend
+              authors={loomAuthors}
+              paths={new Set(renderableFiles.map(resolveFileDiffPath))}
+            />
             {preview?.incomplete && (
               <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-2xs text-muted-foreground">
                 {selectedPatchError
@@ -1480,13 +1529,14 @@ export default function DiffPanel({
                           />
                           {/* loom: change review — the file whole, in the Files surface */}
                           <LoomOpenWholeFileButton onOpen={() => openDiffFile(path)} />
+                          <AuthorshipFileChips authors={loomAuthors} path={path} /> {/* loom */}
                         </>
                       );
                     }}
+                    // loom: diff author query — the authorship CSS rides beside upstream's
+                    unsafeCSSExtra={`${lazySource ? "[data-additions-count], [data-deletions-count] { display: none; }\n" : ""}${loomAuthors.css}`}
                     {...(lazySource
                       ? {
-                          unsafeCSSExtra:
-                            "[data-additions-count], [data-deletions-count] { display: none; }",
                           renderHeaderMetadata: (fileDiff: FileDiffMetadata) => {
                             const stat = fileStats.get(resolveFileDiffPath(fileDiff));
                             return stat ? (
@@ -1499,6 +1549,7 @@ export default function DiffPanel({
                         }
                       : {})}
                     onRevealSearchMatch={unfoldDiffFile}
+                    authorCard={loomAuthorCard} // loom: diff author query
                     renderHeaderPrefix={(fileDiff, fileKey, collapsed) => {
                       return (
                         <DiffFileCollapseToggle
@@ -1526,7 +1577,15 @@ export default function DiffPanel({
                       preferredHighlighter: PREFERRED_HIGHLIGHTER,
                       themeType: resolvedTheme as DiffThemeType,
                       stickyHeaders: true,
-                      onPostRender: codeViewReveal.flush,
+                      // loom: diff author query — stamps authorship on rendered rows
+                      onPostRender: (node, _instance, phase, context) => {
+                        codeViewReveal.flush();
+                        loomAuthors.onPostRender(
+                          node,
+                          phase,
+                          context.type === "diff" ? context.item.fileDiff : undefined,
+                        );
+                      },
                       ...(currentLoadDiffFiles ? { loadDiffFiles } : {}),
                     }}
                   />

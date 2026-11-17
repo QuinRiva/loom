@@ -43,6 +43,7 @@ import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { SubscriptionMeterChip } from "~/loom/SubscriptionMeter"; // loom:
 import { DocumentQueryHeaderChip } from "~/loom/DocumentQueryHeader"; // loom: query threads
+import { ReviewFollowBack } from "~/loom/review/ReviewFollowBack"; // loom: diff author query
 import { useClientSettings } from "../../hooks/useSettings";
 import { GuestShareIndicator } from "./GuestShareControls";
 
@@ -441,6 +442,7 @@ export const ChatHeader = memo(function ChatHeader({
       {isServerThread ? (
         <DocumentQueryHeaderChip threadRef={activeThreadRef} onOpenThread={onOpenThread} />
       ) : null}
+      {isServerThread ? <ReviewFollowBack threadRef={activeThreadRef} /> : null} {/* loom */}
       {/* loom: the sidebar footer meter, mirrored here while the sidebar is
           closed; it renders nothing when the sidebar is on screen. */}
       <SubscriptionMeterChip />

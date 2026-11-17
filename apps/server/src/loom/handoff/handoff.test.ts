@@ -32,6 +32,7 @@ import * as LoomUsageLedger from "../economics/LoomUsageLedger.ts";
 import * as LoomGoalBroadcast from "../projection/LoomGoalBroadcast.ts";
 import { UsageLimitSources } from "../../usage/UsageLimitSources.ts";
 import { ReviewSnapshotService } from "../review/ReviewSnapshotService.ts";
+import { ReviewAuthorship } from "../review/ReviewAuthorship.ts";
 import { LoomDeploy } from "../deploy/LoomDeploy.ts";
 import { LoomThreadConsult } from "../workstream/consult.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
@@ -75,6 +76,7 @@ const TestLayer = Layer.mergeAll(
   Layer.mock(LoomThreadConsult)({}),
   Layer.mock(UsageLimitSources)({}),
   Layer.mock(ReviewSnapshotService)({}),
+  Layer.mock(ReviewAuthorship)({}),
   Layer.mock(LoomDeploy)({}),
   Layer.succeed(LoomWsSession, {} as never),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-loom-retro-" }),

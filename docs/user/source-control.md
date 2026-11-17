@@ -28,6 +28,26 @@ the same menu to switch between **Repo code** and **Everything**; the choice is 
 device. The view refreshes when you open it, when you refresh it, and whenever a thread working in
 the same worktree finishes.
 
+## See which thread wrote each change
+
+<!-- loom: diff author query (plans/diff-author-query) -->
+
+In the Diff panel's **Changes** view, and in **Since your message** up to now, each block of
+changed lines shows the thread that wrote it: a coloured edge on its lines and, above the block,
+the thread's name and the commit. A row under the toolbar lists those threads; choose one to narrow
+the diff to its files and dim everyone else's lines, and choose it again to clear it. A commit made
+outside a Loom thread shows its git author instead, lines not yet committed show as uncommitted,
+and a block that only removes lines shows no author. The authors button in the toolbar (**Hide who
+wrote each change**) turns this off; the choice is remembered on this device.
+
+Select lines to see who wrote them: a card names the thread, its commit and the commit's message,
+and, where a later thread rewrote those lines, the thread that wrote them before. **Open thread**
+takes you to that thread at the turn that made the commit, so you can ask it there; its Diff panel
+shows the diff you were reviewing, on the same file and lines, and any change you make to it there
+is kept when you return. **Back to review** in the thread's header returns you to the thread you
+were reviewing in. To see the thread's own diff instead, close the "The diff from…" line at the top
+of its Diff panel. **Comment** on the card leaves a line comment as before.
+
 ## Review changes from the Files tree
 
 <!-- loom: change review (plans/change-review) -->

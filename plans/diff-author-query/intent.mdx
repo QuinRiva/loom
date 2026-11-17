@@ -1,0 +1,111 @@
+---
+reader:
+  who: Carl, who asked for this and approves its intent before anything is planned or built
+  knows: his own request and the mockup he approved in chat; Loom's threads, forks and the Query button on plans and recaps; none of the code
+  after_first_screen: he can correct any line or say "go"
+kicker: "Intent brief · approved 17 Nov 2026"
+status: approved
+plan: plans/diff-author-query/plan.mdx
+manager_sessions:
+  - id: 01a1e6ab-93d8-7041-aed3-6df8fec5efb5
+    name: Link diff lines to authoring subthread
+    role: intent
+    authored_at: 2026-11-17T01:09:59.972Z
+---
+
+# Ask the coder that wrote a line, from the diff you are reviewing
+
+**Goal.** "I may want to ask questions about why a line or a function was
+written in a certain way. But the most meaningful way to ask that is to ask
+that of the coder subthread that wrote that line." While reviewing a branch's
+changes, see which thread wrote each part and go to that thread to ask,
+without losing your place in the diff.
+
+**You'll know it works when.**
+
+- You open the Diff panel on a branch several threads worked on. Each block
+  of changed lines carries the name of the thread that wrote it and its
+  commit. A row at the top lists those threads, and clicking one narrows the
+  diff to that thread's changes.
+- You select lines and a card names the thread, the commit and its message.
+  Where a later thread rewrote the lines (a reviewer's fix, say), the card
+  offers the earlier author too.
+- You press Open thread and land in the coder's own conversation at the
+  turn that made the commit. The same diff is reopened beside it: the same
+  file, the same comparison and the same selected lines. You ask the coder
+  there.
+- One click returns you to the thread you were reviewing in, with the diff
+  as you left it.
+
+**It must not.**
+
+- Name a thread that did not write the lines. No author shown beats a guess.
+- Make the diff slower to open or scroll, on this machine or over the relay.
+
+**Approaches in play.**
+
+- Finding the author with git blame on the changed lines, then the
+  `Loom-Thread` line agents add to every commit. Wins if the lines you review
+  are committed, which they are by the time you compare against
+  `origin/main`. Every agent commit that is not a merge carries it (583 of
+  583 since it began on 13 Oct), and every thread they name still exists. Blame takes
+  17 ms on the largest file of the latest merged branch and runs after the
+  diff is drawn. _Chosen._
+- Finding the author of uncommitted lines from the snapshot Loom takes at the
+  end of each turn. Wins if you often review before coders commit. Not in
+  the first cut.
+- Dropped: recording every edit an agent makes with its line range. It is a
+  second record of authorship that drifts as lines move.
+- Asking through Open thread: you go to the live coder, and the diff
+  follows the main window there. _Chosen._ Your question and its answer
+  become part of that coder's conversation.
+- Deferred: Query author, where a read-only copy of the coder answers so its
+  thread is untouched, with a marker on the lines asked about and Promote to
+  send a comment to the real coder. It costs more than everything above put
+  together (a database migration, new event types, model-read text to
+  evaluate). Wins if, after using Open thread, you find you often ask about
+  code only to understand it. The plan's slices 3 to 5 hold its design.
+
+**Decided.** "Yep looks good" to the mockup, which fixed three things.
+
+- Authorship is shown per block of changed lines, not per line.
+- On the cost of Query author: "I didn't anticipate the huge increase in
+  cost for querying the author", and "I'm less convinced about the value of
+  querying the author, unlike plans", because with code "I often anticipate
+  changes much more directly". So: "let's just try slices 1 and 2 and see if
+  that works. Then we can always come back and build the remaining ones
+  after we deploy slices 1 and 2 if I see value in that." The card
+  therefore offers Open thread only.
+- Lines not yet committed show as uncommitted, with no author.
+- Asked whether his second view, "the last hunk of work that was done",
+  needs anything new: "No, those two cover it; build nothing more for it".
+  The two are the Diff panel's existing "Since your message" view and this
+  brief's filter that narrows the diff to one thread's changes.
+- Asked whether authors should also show in "Since your message", the view
+  the panel opens on: "Show authors in both views". That is the live "Since
+  your message" view and the whole-branch view ("Changes", which already
+  compares against `origin/main` without you picking a base). Earlier "Since
+  your message" intervals show no authors.
+- _Assumed:_ authorship is on by default, with a toggle that is remembered.
+  Redirect if you would rather switch it on yourself.
+- _Assumed:_ a commit made outside a Loom thread (yours, or upstream's)
+  shows its git author and offers no thread to open. So does a commit one
+  thread amended after another made it (4 of 583): the card names both and
+  opens neither.
+- _Assumed:_ a block that only removes lines shows as removed, with no
+  author, because blame names who wrote a line, not who deleted one. That is
+  24 of 564 blocks (4%) across the last ten merged branches, about two a
+  branch. Redirect if you want the thread that deleted them named.
+- _Assumed:_ clicking a thread in the top row narrows the list to the files
+  it changed and dims the other threads' lines in them; it does not cut
+  those lines out. Redirect if you want them hidden.
+- _Assumed:_ the earlier author appears on the card, not on the hunk's own
+  row as the mockup's "after Deploy server" note drew it. Redirect if you
+  want it on the row.
+- _Assumed:_ web and desktop first. Redirect if you review diffs on your
+  phone.
+
+**Not doing.** Authorship on GitHub's pull request page. Authors for
+uncommitted lines. Mobile. A view that steps through the branch one commit
+at a time. Query author, its line markers and Promote, until you have used
+Open thread and say you want them.

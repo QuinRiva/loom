@@ -33,6 +33,10 @@ interface ReviewBaselineState {
   changedOnly: boolean;
   /** Tier 2: split by default, separate from the Diff panel's layout (unified by default). */
   fileChangeLayout: "split" | "unified";
+  /** Tier 2: the Diff panel's Authors toggle, on by default. */
+  authorshipOff: boolean;
+  /** Session only, per reviewing thread: the author group the diff is narrowed to. */
+  authorFilterByThreadKey: Record<string, string | null>;
   selectInterval: (ref: ScopedThreadRef, intervalId: string | null) => void;
   /** Selects the live interval only when the thread has no choice recorded yet. */
   seedLive: (ref: ScopedThreadRef) => void;
@@ -40,6 +44,8 @@ interface ReviewBaselineState {
   setMarksOff: (marksOff: boolean) => void;
   setChangedOnly: (changedOnly: boolean) => void;
   setFileChangeLayout: (fileChangeLayout: "split" | "unified") => void;
+  setAuthorshipOff: (authorshipOff: boolean) => void;
+  setAuthorFilter: (ref: ScopedThreadRef, group: string | null) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -51,6 +57,8 @@ export const useReviewBaselineStore = create<ReviewBaselineState>()(
       marksOff: false,
       changedOnly: false,
       fileChangeLayout: "split",
+      authorshipOff: false,
+      authorFilterByThreadKey: {},
       selectInterval: (ref, intervalId) =>
         set((state) => ({
           intervalIdByThreadKey: {
@@ -73,6 +81,14 @@ export const useReviewBaselineStore = create<ReviewBaselineState>()(
       setMarksOff: (marksOff) => set({ marksOff }),
       setChangedOnly: (changedOnly) => set({ changedOnly }),
       setFileChangeLayout: (fileChangeLayout) => set({ fileChangeLayout }),
+      setAuthorshipOff: (authorshipOff) => set({ authorshipOff }),
+      setAuthorFilter: (ref, group) =>
+        set((state) => ({
+          authorFilterByThreadKey: {
+            ...state.authorFilterByThreadKey,
+            [scopedThreadKey(ref)]: group,
+          },
+        })),
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -92,6 +108,7 @@ export const useReviewBaselineStore = create<ReviewBaselineState>()(
         sources: state.sources,
         marksOff: state.marksOff,
         fileChangeLayout: state.fileChangeLayout,
+        authorshipOff: state.authorshipOff,
       }),
     },
   ),

@@ -121,6 +121,8 @@ export function useLoomReviewSelection({
   };
   return {
     label: label ?? "Since your message",
+    /** "Since your message" up to now: its new side is the worktree, so authorship applies. */
+    live: intervalId === "live",
     query,
     source,
     loadDiffFiles: diff.data

@@ -24,6 +24,7 @@ import { UsageLedgerReactorLive } from "./economics/UsageLedgerReactor.ts";
 import { HandoffDrafterReactorLive } from "./handoff/HandoffDrafterReactor.ts";
 import { HandoffDuplicateJudgePiLive } from "./handoff/handoffDuplicates.ts";
 import { ReviewSnapshotReactorLive } from "./review/ReviewSnapshotReactor.ts";
+import * as ReviewAuthorship from "./review/ReviewAuthorship.ts";
 import { WorkstreamDispatcherStartedLive } from "./orchestration/dispatcher/WorkstreamDispatcher.ts";
 import {
   EmergentGoalGeneratorPiLive,
@@ -153,6 +154,7 @@ export const LoomControlPlaneLive = Layer.mergeAll(
   EmergentGoalReactorLive.pipe(Layer.provide(LoomGoalBroadcastLive)),
   HandoffDrafterReactorLive, // loom: 3b-5 — archives a drafter once its handoff is recorded
   ReviewSnapshotReactorLive,
+  ReviewAuthorship.layer, // the Diff panel's authorship read, beside the snapshots it sits with
   LoomStateDirRetentionLive,
 ).pipe(
   Layer.provideMerge(WorkstreamDispatcherStartedLive),
