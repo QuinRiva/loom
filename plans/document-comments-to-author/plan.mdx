@@ -3,7 +3,7 @@ reader:
   who: first a reviewer judging this plan against the approved brief beside it, then coders who start cold and build from it
   knows: Loom's codebase in general and the brief; none of the investigation behind this plan, and nothing of the conversation that produced the brief
   after_first_screen: that a document opens exactly as today and the app then follows it to its author, that the hand-over rule is two added sentences of model text gated by an eval, that it ships as two pull requests, and which lines of the brief the plan reads rather than meets literally
-kicker: "Implementation plan · draft · 13 Nov 2026"
+kicker: "Implementation plan · approved 13 Nov 2026 · web built 17 Nov; phone to follow"
 status: approved
 intent: plans/document-comments-to-author/intent.mdx
 manager_sessions:
@@ -396,3 +396,16 @@ On the phone this applies however the document was opened, including from the Fi
 - **A followed open costs a second lookup**, keyed on the author, for the header and the Query card in the author's panel (§1). The document is already showing; only those two wait for it. The coder confirms the count in the live pass: one call for a document that stays, two for one that follows.
 - **A cancelled author mid-review is not reached by model-text §2.** Its submit is refused with text that names `notify_thread`, the same nudge §2 qualifies for a finished one. §1 still applies to it. Rare, and not built for.
 - **The move, on a thread whose shell the client has not loaded.** A finished child's shell is often absent from the snapshot and loads by id, as thread chips rely on. The coder navigates the way `ThreadMention` does and confirms it in step 1 with an idle child.
+
+## As built
+
+The first pull request (web, server lookup) is built. The phone, §5, is the second and is not yet built; its departures join this section when it ships, and `status` moves to `done` then.
+
+- **No model-facing text ships; §4 is void.** Revision 1 of the hand-over text failed its eval on Claude Opus 5.5: a finished planner told of coders building the old plan still messaged its parent mid-review in 10 of 10 samples, before and after the text. It is reverted. Carl then corrected the brief on 13 Nov: a subthread should "communicate important, timely info up to the orchestrator where it deems relevant", neither relaying every message nor waiting for a final word. That is the rule PR #568 already ships, so revision 2 was never applied and the web change ships without text. On today's text a finished author hands over once at the closing word (18 of 20 samples) and stays silent after questions only (20 of 20). `model-text.md` records what was tried.
+- **The eval keeps three new guard cases** (`finished-author-closes`, `finished-author-questions-then-close`, `orchestrator-handover-mid-build`) and deletes four whose pass condition was silence mid-review, which Carl's correction no longer asks for. Two grader fixes ship with them: a Loom tool called by its bare name, as Opus often does, now grades as that tool, and a search for some other tool no longer passes. PR #568's saved runs were regraded with the fixed grader and its results stand. All figures are Opus 5.5; Fable's quota had run out.
+- **The click order changed from §1 and §3.** As planned, the follow interrupted the document's first draw and the document appeared at a median 689 ms after the click, against 156 ms on the base build. As built, the document draws where he clicked, then opens in the author's panel, the route moves, and only then is the viewer's panel restored: median 155 ms to the document, about 450 ms to the centre panel changing. If the document never draws within 8 s it stays where he clicked. The store has two actions, `followDocumentToAuthor` and `restoreRightPanel`, where §3 had one.
+- **Review there closes the document in the thread he left**, so his next comment cannot land there.
+- **Later editors match a path both ways a tool records it**, absolute or relative to the editing thread's workspace.
+- **The header line is its own row under the file panel's toolbar**, since the toolbar has no room for it. It shows on every signed `.mdx`, including "Written by this thread".
+- **`docs/user/plan-queries.md` gained a short section** on reviewing a document with the thread that wrote it.
+- **Not checked live:** over the relay (the ordering holds by construction and is unit-tested), a `.mdx` link inside a report, and the lookup count per click. There is no video; the recorder dropped the frames around the click, and screenshots stand in.
