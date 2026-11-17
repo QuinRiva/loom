@@ -1,11 +1,7 @@
 // loom: the Deploy row (plans/loom-deploy-redesign §4.3), mounted by one marked line in
-// `SettingsPanels.tsx`; the command palette's "Deploy Loom" opens the same confirmation.
+// `SettingsPanels.tsx`; the command palette's "Deploy Loom" starts a deploy the same way.
 import { useAtomValue } from "@effect/atom-react";
-import {
-  deployWords,
-  type LoomDeployState,
-  roughDuration,
-} from "@t3tools/client-runtime/state/loom/deploy";
+import { deployWords, type LoomDeployState } from "@t3tools/client-runtime/state/loom/deploy";
 import {
   isAtomCommandInterrupted,
   runAtomCommand,
@@ -20,7 +16,6 @@ import { searchableSetting } from "../components/settings/settingsSearch";
 import { SettingsRow } from "../components/settings/settingsLayout";
 import { Button } from "../components/ui/button";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
-import { ensureLocalApi } from "../localApi";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentSummaries } from "../state/presentation";
 import { loomCommands } from "./loomGoalState";
@@ -64,24 +59,21 @@ const failed = (title: string, result: Parameters<typeof squashAtomCommandFailur
   );
 };
 
-/** Asks first; the start warning that follows comes to every client from the server. */
-export async function confirmDeploy(environmentId: EnvironmentId): Promise<void> {
-  const available = valueOf(appAtomRegistry.get(deployState(environmentId)))?.available;
-  const confirmed = await ensureLocalApi().dialogs.confirm(
-    [
-      "Deploy Loom?",
-      `This builds main and restarts Loom in ${available == null ? "a few minutes" : roughDuration(available.stopAfterSeconds)}. Everyone using Loom is warned now, and running agent turns are interrupted and resume when it is back.`,
-    ].join("\n"),
-  );
-  if (!confirmed) return;
-  const result = await runAtomCommand(appAtomRegistry, loomCommands.startDeploy, {
+const run = async (
+  environmentId: EnvironmentId,
+  command: "startDeploy" | "cancelDeploy",
+  title: string,
+) => {
+  const result = await runAtomCommand(appAtomRegistry, loomCommands[command], {
     environmentId,
     input: {},
   });
-  if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-    failed("Could not start the deploy", result);
-  }
-}
+  if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) failed(title, result);
+};
+
+/** Starts at once: the warning every client sees, and Cancel until the switch, cover a mistaken press. */
+export const startDeploy = (environmentId: EnvironmentId) =>
+  run(environmentId, "startDeploy", "Could not start the deploy");
 
 function LoomDeployRow({ environmentId }: { environmentId: EnvironmentId }) {
   const state = useLoomDeploy(environmentId);
@@ -93,16 +85,9 @@ function LoomDeployRow({ environmentId }: { environmentId: EnvironmentId }) {
 
   const act = async () => {
     setBusy(true);
-    if (row.action === "deploy") await confirmDeploy(environmentId);
-    else {
-      const result = await runAtomCommand(appAtomRegistry, loomCommands.cancelDeploy, {
-        environmentId,
-        input: {},
-      });
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-        failed("Could not cancel the deploy", result);
-      }
-    }
+    await (row.action === "deploy"
+      ? startDeploy(environmentId)
+      : run(environmentId, "cancelDeploy", "Could not cancel the deploy"));
     setBusy(false);
   };
 
