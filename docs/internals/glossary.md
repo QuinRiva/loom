@@ -42,9 +42,9 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 
 ## Loom diff authorship
 
-| Term             | Meaning                                                                                                                                                                                                                        |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Reviewing thread | The thread whose Diff panel state a review uses. Open thread on the author card makes the author thread's panel follow it (`reviewFollowStore`): that panel reads and writes the reviewing thread's diff state, never its own. |
+| Term             | Meaning                                                                                                                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reviewing thread | The thread whose comparison a review uses. Open thread on the author card makes the author thread follow it (`reviewFollowStore`): its Diff panel and its Files comparison read and write the reviewing thread's diff state, never its own. |
 
 ## Loom deploys
 

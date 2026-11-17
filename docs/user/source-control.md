@@ -48,6 +48,12 @@ is kept when you return. **Back to review** in the thread's header returns you t
 were reviewing in. To see the thread's own diff instead, close the "The diff from…" line at the top
 of its Diff panel. **Comment** on the card leaves a line comment as before.
 
+A changed file opened whole from the Files tree shows the same: its changed lines carry their
+thread's colour, a row above the file names the threads that wrote them, and selecting lines opens
+the same card. There, **Open thread** opens that file beside the thread, on the same comparison and
+lines. Authors show under **Changes (branch)** and **Since your message**, not under
+**Uncommitted** or an **Earlier** message.
+
 ## Review changes from the Files tree
 
 <!-- loom: change review (plans/change-review) -->

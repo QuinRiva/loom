@@ -126,6 +126,7 @@ function AuthorCard({
   commenting,
   comment,
   close,
+  opensFile,
 }: {
   authors: ReturnType<typeof useLoomAuthorship>;
   /** The thread whose diff this is. */
@@ -138,6 +139,8 @@ function AuthorCard({
   commenting: boolean;
   comment: () => void;
   close: () => void;
+  /** Open thread opens this file whole beside the author, not the Diff panel. */
+  opensFile: boolean;
 }) {
   const navigate = useNavigate();
   const { authorship, result } = authors;
@@ -185,7 +188,12 @@ function AuthorCard({
   const openThread = (row: AuthorRow) => {
     if (row.threadId === null) return;
     const author = scopeThreadRef(reviewing.environmentId, row.threadId);
-    followReviewToAuthor({ reviewing, author, authoredAt: row.commit.authoredAt });
+    followReviewToAuthor({
+      reviewing,
+      author,
+      authoredAt: row.commit.authoredAt,
+      ...(opensFile ? { file: filePath } : {}),
+    });
     if (scopedThreadKey(author) !== scopedThreadKey(routed))
       void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(author) });
   };
@@ -228,7 +236,9 @@ function AuthorCard({
           <p className="text-muted-foreground">
             {uncommitted
               ? "These lines are not committed yet, so they have no author."
-              : "No thread on this branch wrote these lines."}
+              : result?.files.some((file) => file.path === filePath)
+                ? "No thread on this branch wrote these lines."
+                : "Who wrote this file is not known here."}
           </p>
         ) : (
           <>
@@ -262,9 +272,10 @@ function AuthorCard({
 }
 
 /**
- * The Diff panel's author card, while it shows authors: the slot `AnnotatableCodeView` draws its
- * draft through, and the return to the review's file and lines when the panel mounts on a review
- * that recorded them (this thread's own, or the one it follows).
+ * The author card, while authors are shown: the slot `AnnotatableCodeView` draws its draft through,
+ * and the return to the review's file and lines when a view mounts on a review that recorded them
+ * (this thread's own, or the one it follows). The Diff panel passes how to reveal a file in its
+ * list; without that the card is in the whole-file view, whose Open thread opens that file.
  */
 export function useAuthorCardSlot({
   authors,
@@ -277,10 +288,10 @@ export function useAuthorCardSlot({
   authors: ReturnType<typeof useLoomAuthorship>;
   routed: ScopedThreadRef | null;
   reviewing: ScopedThreadRef | null;
-  files: ReadonlyArray<{ readonly fileDiff: FileDiffMetadata; readonly fileKey: string }>;
+  files?: ReadonlyArray<{ readonly fileDiff: FileDiffMetadata; readonly fileKey: string }>;
   /** Unfolds, loads and scrolls to a file; false until the diff lists it. */
-  revealFile: (filePath: string) => boolean;
-  revealLines: (fileKey: string, range: SelectedLineRange) => void;
+  revealFile?: (filePath: string) => boolean;
+  revealLines?: (fileKey: string, range: SelectedLineRange) => void;
 }): AuthorCardSlot | undefined {
   const [focus] = useState(() =>
     reviewing === null
@@ -288,7 +299,7 @@ export function useAuthorCardSlot({
       : (useReviewFollowStore.getState().focusByThreadKey[scopedThreadKey(reviewing)] ?? null),
   );
   const loaded =
-    focus === null
+    focus === null || files === undefined
       ? undefined
       : files.find(
           (file) =>
@@ -298,7 +309,7 @@ export function useAuthorCardSlot({
   const stage = useRef<"file" | "lines" | "done">("file");
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- drives the viewer (outside React) to the review's file, then its lines, as the diff loads
   useEffect(() => {
-    if (focus === null || stage.current === "done") return;
+    if (focus === null || !revealFile || !revealLines || stage.current === "done") return;
     if (stage.current === "file" && revealFile(focus.filePath)) stage.current = "lines";
     if (stage.current === "lines" && loaded) {
       revealLines(loaded.fileKey, focus.range);
@@ -307,10 +318,17 @@ export function useAuthorCardSlot({
   });
   if (!authors.shown || routed === null || reviewing === null) return undefined;
   return {
-    restore: loaded ? focus : null,
+    restore: files === undefined || loaded ? focus : null,
     onFocus: (next) => useReviewFollowStore.getState().setFocus(reviewing, next),
     render: (draft, actions) => (
-      <AuthorCard authors={authors} reviewing={reviewing} routed={routed} {...draft} {...actions} />
+      <AuthorCard
+        authors={authors}
+        reviewing={reviewing}
+        routed={routed}
+        opensFile={files === undefined}
+        {...draft}
+        {...actions}
+      />
     ),
   };
 }

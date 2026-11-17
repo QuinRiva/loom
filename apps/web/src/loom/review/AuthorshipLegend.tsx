@@ -117,3 +117,33 @@ export function AuthorshipFileChips({ authors, path }: { authors: LoomAuthorship
     </span>
   );
 }
+
+/** The whole-file view's header row: every thread with lines in the file shown. */
+export function AuthorshipFileRow({ authors, path }: { authors: LoomAuthorship; path: string }) {
+  if (!authors.shown) return null;
+  const groups = authors.authorship?.groups.filter((group) => group.files.has(path)) ?? [];
+  return (
+    <div className="flex h-8 shrink-0 items-center gap-3 overflow-x-auto border-b border-border/70 px-3 text-2xs text-muted-foreground">
+      <span className="shrink-0">Written by</span>
+      {authors.authorship === null ? (
+        <span className="truncate">
+          {authors.error
+            ? `Authors unavailable: ${authors.error}`
+            : "Finding who wrote these lines…"}
+        </span>
+      ) : groups.length === 0 ? (
+        <span className="truncate">no thread on this branch, as far as is known</span>
+      ) : (
+        groups.map((group) => (
+          <span key={group.key} className="inline-flex min-w-0 shrink-0 items-center gap-1">
+            <AuthorDot group={group} />
+            <span className="max-w-48 truncate">{group.label}</span>
+          </span>
+        ))
+      )}
+      {authors.authorship?.incomplete ? (
+        <span className="shrink-0">· partial: some files were not checked</span>
+      ) : null}
+    </div>
+  );
+}

@@ -79,6 +79,8 @@ export interface LoomChangeMarks {
   /** Changes whenever the comparison does, so an opened file refetches its sides. */
   readonly revision: string;
   readonly ignoreWhitespace: boolean;
+  /** False for git's tracked-files-only listing a refresh shows before the complete one. */
+  readonly complete: boolean;
   readonly refresh: () => void;
 }
 
@@ -228,6 +230,7 @@ export function useLoomChangeMarks({
           ? `${baseline.source.kind}:${baseline.source.diffHash}`
           : "none",
     ignoreWhitespace,
+    complete: intervalActive || gitPreview.data?.incomplete !== true,
     refresh: intervalActive ? intervalDiff.refresh : gitPreview.refresh,
   };
 }

@@ -12,6 +12,7 @@ const marks = (files: ReadonlyArray<LoomChangedFile>): LoomChangeMarks => ({
   files: new Map(files.map((file) => [file.path, file])),
   revision: "r",
   ignoreWhitespace: false,
+  complete: true,
   refresh: () => undefined,
 });
 

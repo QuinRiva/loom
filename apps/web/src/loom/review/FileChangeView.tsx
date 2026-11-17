@@ -10,6 +10,7 @@ import {
   type FileDiffMetadata,
   parseDiffFromFile,
 } from "@pierre/diffs";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { Columns2Icon, EyeIcon, FileCode2Icon, PencilIcon, Rows3Icon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -42,6 +43,8 @@ import { isEditableFocused } from "../../lib/editableFocus";
 import { useEnvironmentQuery } from "../../state/query";
 import { reviewEnvironment } from "../../state/review";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useAuthorCardSlot } from "./AuthorCard";
+import { AuthorshipFileRow } from "./AuthorshipLegend";
 import { LoomBaselineChip } from "./BaselineChip";
 import { ChangeRuler, LoomChangeCounter } from "./ChangeRuler";
 import {
@@ -53,12 +56,17 @@ import {
   useChangeNavigationStore,
 } from "./changeNavigation";
 import { useReviewBaselineStore } from "./reviewBaselineStore";
+import { ReviewFollowLabel } from "./ReviewFollowBack";
+import { sharesCheckout } from "./reviewFollowStore";
 import { createLoomReviewFileContentsLoader, loomReviewQueries } from "./reviewQueries";
 import {
   recordFetchedStatus,
   type LoomChangeMarks,
   type LoomChangedFile,
 } from "./useLoomChangeMarks";
+import { useLoomAuthorship } from "./useLoomAuthorship";
+import { useReviewFollow } from "./useReviewFollow";
+import { useQuietThreadShell } from "../../state/entities";
 
 /** About 5,000 lines of ordinary source; either side over this opens in hunk mode. */
 export const WHOLE_FILE_MAX_BYTES = 250_000;
@@ -104,6 +112,21 @@ type WholeFileState =
   | { readonly key: string; readonly diff: FileDiffMetadata }
   | { readonly key: string; readonly error: string };
 
+/** Whose comparison this is and how to ask who wrote it (plans/diff-author-query). */
+export interface FileChangeReview {
+  /** The thread in the main window. */
+  readonly routed: ScopedThreadRef;
+  /** The thread whose comparison is shown: the routed one, or the review it follows. */
+  readonly reviewing: ScopedThreadRef;
+  readonly baseRef: string | null;
+  /** The whole branch or the live "Since your message": the comparisons that can have authors. */
+  readonly eligible: boolean;
+  readonly diffHash: string;
+  readonly complete: boolean;
+  readonly workspaceMutationId: string | null;
+  readonly intervalPatch: string | null;
+}
+
 export interface FileChangeViewProps {
   readonly file: LoomChangedFile;
   /** A new revision reloads both sides (the comparison refreshed). */
@@ -118,6 +141,7 @@ export interface FileChangeViewProps {
   readonly statusPending?: boolean;
   /** Where the reader's place in this file is remembered across a thread switch. */
   readonly scrollKey?: string;
+  readonly review?: FileChangeReview;
 }
 
 export function FileChangeView({
@@ -129,6 +153,7 @@ export function FileChangeView({
   composerDraftTarget,
   statusPending = false,
   scrollKey,
+  review,
 }: FileChangeViewProps) {
   const resolvedTheme = useRenderedAppearance(); // the diff worker pool resolves only this theme
   const layout = useReviewBaselineStore((state) => state.fileChangeLayout);
@@ -194,6 +219,31 @@ export function FileChangeView({
         ? wholeOnScreen.diff
         : undefined;
 
+  const authors = useLoomAuthorship({
+    threadRef: review?.reviewing ?? null,
+    baseRef: review?.baseRef ?? null,
+    eligible: review?.eligible ?? false,
+    diffHash: review?.diffHash ?? null,
+    complete: review?.complete ?? true,
+    loaded: fileDiff !== undefined,
+    workspaceMutationId: review?.workspaceMutationId ?? null,
+    intervalPatch: review?.intervalPatch ?? null,
+    filterable: false,
+  });
+  const authorCard = useAuthorCardSlot({
+    authors,
+    routed: review?.routed ?? null,
+    reviewing: review?.reviewing ?? null,
+  });
+  const follow = useReviewFollow(review?.routed ?? null);
+  // A thread following a review opens on the lines the review was looking at.
+  const focus =
+    review &&
+    scopedThreadKey(review.routed) !== scopedThreadKey(review.reviewing) &&
+    authorCard?.restore?.filePath === file.path
+      ? authorCard.restore
+      : null;
+
   const [codeView, setCodeView] = useState<AnnotatableCodeViewHandle | null>(null);
   const changes = fileDiff ? rulerChanges(fileDiff, layout) : [];
   const openedRef = useRef<{ readonly key: string; readonly mode: typeof mode } | null>(null);
@@ -238,8 +288,12 @@ export function FileChangeView({
     if (opened?.key !== openKey || opened.mode !== mode) {
       openedRef.current = { key: openKey, mode };
       const saved =
-        scrollKey && opened?.key !== openKey ? readRememberedScroll(scrollKey) : undefined;
-      if (saved) {
+        scrollKey && opened?.key !== openKey && !focus
+          ? readRememberedScroll(scrollKey)
+          : undefined;
+      if (focus) {
+        codeView.scrollTo({ type: "range", id: file.path, range: focus.range, align: "center" });
+      } else if (saved) {
         codeView.scrollTo({ type: "position", position: saved.top });
         if (saved.anchor) {
           const { line, side, offset } = saved.anchor;
@@ -298,7 +352,7 @@ export function FileChangeView({
         useChangeNavigationStore.setState({ owner: null, count: 0 });
       }
     };
-  }, [changes, codeView, file.path, layout, mode, scrollKey]);
+  }, [changes, codeView, file.path, focus, layout, mode, scrollKey]);
 
   const notice =
     mode === "patch" ? (
@@ -341,6 +395,8 @@ export function FileChangeView({
   return (
     <>
       {notice}
+      {review ? <ReviewFollowLabel routed={review.routed} follow={follow} /> : null}
+      <AuthorshipFileRow authors={authors} path={file.path} />
       <div
         className="flex min-h-0 flex-1"
         data-loom-file-change={mode}
@@ -379,6 +435,8 @@ export function FileChangeView({
           renderHeaderFilenameSuffix={() => null}
           renderHeaderPrefix={() => null}
           onRevealSearchMatch={() => undefined}
+          authorCard={authorCard}
+          unsafeCSSExtra={authors.css}
           options={{
             diffStyle: layout,
             disableFileHeader: true,
@@ -390,6 +448,12 @@ export function FileChangeView({
             preferredHighlighter: PREFERRED_HIGHLIGHTER,
             themeType: resolvedTheme,
             ...(mode === "patch" ? { loadDiffFiles } : {}),
+            onPostRender: (node, _instance, phase, context) =>
+              authors.onPostRender(
+                node,
+                phase,
+                context.type === "diff" ? context.item.fileDiff : undefined,
+              ),
           }}
         />
         {/* Hunk mode shows only the changes and their gaps, so its scrollbar is no map of the file. */}
@@ -405,18 +469,26 @@ export function FileChangeView({
   );
 }
 
-/** The opened changed file, fed by whichever baseline the Files surface marks against. */
+/**
+ * The opened changed file, fed by whichever baseline the Files surface marks against. `threadRef`
+ * owns that baseline: the routed thread, or the review it follows.
+ */
 export function LoomFileChangeSurface({
   environmentId,
   threadRef,
+  routedRef,
   marks,
   file,
   working,
   composerDraftTarget,
   scrollKey,
+  workspaceMutationId,
 }: {
   environmentId: EnvironmentId;
   threadRef: ScopedThreadRef;
+  /** The thread in the main window. */
+  routedRef: ScopedThreadRef;
+  workspaceMutationId: string | null;
   marks: LoomChangeMarks;
   file: LoomChangedFile;
   /** The working copy the Files surface already read; its size stands in when git has none. */
@@ -427,6 +499,8 @@ export function LoomFileChangeSurface({
   const getLoomContents = useAtomCommand(loomReviewQueries.fileContents);
   const getGitContents = useAtomCommand(reviewEnvironment.diffFileContents);
   const baseline = marks.baseline;
+  const routedShell = useQuietThreadShell(routedRef);
+  const reviewShell = useQuietThreadShell(threadRef);
   const workingLines = working?.contents.split("\n").length ?? 0;
   const size = file.bytes ?? working?.byteLength ?? null;
   // A deleted file has no working copy to size; its patch is the whole file anyway.
@@ -512,6 +586,29 @@ export function LoomFileChangeSurface({
       // A failed read falls back to the guess.
       statusPending={provisional && !fetchedStatus && gitPatch.error === null}
       scrollKey={scrollKey}
+      review={{
+        routed: routedRef,
+        reviewing: threadRef,
+        baseRef: baseline.kind === "git" ? baseline.baseRef : null,
+        eligible:
+          (baseline.kind === "git"
+            ? baseline.source.kind === "branch-range"
+            : baseline.intervalId === "live") &&
+          (scopedThreadKey(routedRef) === scopedThreadKey(threadRef) ||
+            sharesCheckout(routedShell, reviewShell)),
+        // As the Diff panel keys the same question, so the two views share one answer.
+        diffHash:
+          baseline.kind === "git"
+            ? baseline.source.diffHash
+            : baseline.sources.map((source) => source.diffHash).join("|") ||
+              `${baseline.intervalId}:empty`,
+        complete: marks.complete,
+        workspaceMutationId,
+        intervalPatch:
+          baseline.kind === "interval"
+            ? baseline.sources.map((source) => source.diff).join("\n")
+            : null,
+      }}
     />
   );
 }

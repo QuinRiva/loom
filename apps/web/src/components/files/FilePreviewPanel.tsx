@@ -146,6 +146,7 @@ import {
 import { LoomFilesReviewBar } from "~/loom/review/BaselineChip";
 import { LoomFileChangeActions, LoomFileChangeSurface } from "~/loom/review/FileChangeView";
 import { useLoomChangeMarks } from "~/loom/review/useLoomChangeMarks";
+import { useReviewFollow } from "~/loom/review/useReviewFollow"; // loom: diff author query
 import { changeFileSaveSession, useFileSaveSession } from "./fileSaveSessions";
 import { revisionedQuery } from "~/state/revisionedQuery";
 import {
@@ -1409,12 +1410,15 @@ export default function FilePreviewPanel({
     revealRequestId,
     revealConsumed, // loom:
   );
+  // loom: diff author query — a thread following a review marks against that review's comparison
+  const loomReviewRef = useReviewFollow(threadRef).threadRef ?? threadRef;
+
   // loom: a baseline-marked file opens whole, side by side, unless it is a document that
   // renders (markdown, MDX, HTML, tables), which opens as a document with its changes opt-in.
   // Keyed on the file type, not `rendered`, so the source toggle never lands in the diff. An
   // explicit choice holds while the file stays open.
   const loomMarks = useLoomChangeMarks({
-    threadRef,
+    threadRef: loomReviewRef,
     cwd,
     workspaceMutationId,
     enabled: attachment === undefined && canReadFiles,
@@ -1533,7 +1537,7 @@ export default function FilePreviewPanel({
           </ScrollArea>
           {loomMarks && loomChange ? ( // loom: baseline · split/unified · Edit or Rendered
             <LoomFileChangeActions
-              threadRef={threadRef}
+              threadRef={loomReviewRef}
               marks={loomMarks}
               editing={!loomShowsChange}
               rendered={rendered}
@@ -1680,7 +1684,9 @@ export default function FilePreviewPanel({
             <LoomFileChangeSurface
               key={loomChange.path}
               environmentId={environmentId}
-              threadRef={threadRef}
+              threadRef={loomReviewRef}
+              routedRef={threadRef}
+              workspaceMutationId={workspaceMutationId}
               marks={loomMarks}
               file={loomChange}
               working={file.data}
@@ -1877,7 +1883,9 @@ export default function FilePreviewPanel({
               {...(hostFolderPath === null && loomMarks
                 ? {
                     loomMarks,
-                    loomReviewBar: <LoomFilesReviewBar threadRef={threadRef} marks={loomMarks} />,
+                    loomReviewBar: (
+                      <LoomFilesReviewBar threadRef={loomReviewRef} marks={loomMarks} />
+                    ),
                   }
                 : {})}
             />

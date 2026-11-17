@@ -8,6 +8,7 @@ import { useReviewBaselineStore } from "./reviewBaselineStore";
 import {
   followReviewToAuthor,
   resolveReviewFollow,
+  sharesCheckout,
   useReviewFollowStore,
 } from "./reviewFollowStore";
 
@@ -84,5 +85,17 @@ describe("resolveReviewFollow", () => {
 
   it("reads the routed thread when nothing is followed", () => {
     expect(resolve({ reviewing: null, shell: "present" })).toBe(AUTHOR);
+  });
+});
+
+describe("sharesCheckout", () => {
+  const shell = (worktreePath: string | null) => ({ projectId: "project-1", worktreePath });
+
+  it("shows authors to a following thread only in the reviewing thread's own checkout", () => {
+    expect(sharesCheckout(shell("/worktrees/a"), shell("/worktrees/a"))).toBe(true);
+    // Blame read in one checkout must never be drawn on another's lines.
+    expect(sharesCheckout(shell("/worktrees/b"), shell("/worktrees/a"))).toBe(false);
+    expect(sharesCheckout(shell(null), shell("/worktrees/a"))).toBe(false);
+    expect(sharesCheckout(shell("/worktrees/a"), null)).toBe(false);
   });
 });
