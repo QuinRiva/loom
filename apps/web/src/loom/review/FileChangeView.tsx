@@ -57,7 +57,7 @@ import {
 } from "./changeNavigation";
 import { useReviewBaselineStore } from "./reviewBaselineStore";
 import { ReviewFollowLabel } from "./ReviewFollowBack";
-import { sharesCheckout } from "./reviewFollowStore";
+import { sharesCheckout, useReviewFollowStore } from "./reviewFollowStore";
 import { createLoomReviewFileContentsLoader, loomReviewQueries } from "./reviewQueries";
 import {
   recordFetchedStatus,
@@ -236,12 +236,15 @@ export function FileChangeView({
     reviewing: review?.reviewing ?? null,
   });
   const follow = useReviewFollow(review?.routed ?? null);
-  // A thread following a review opens on the lines the review was looking at.
+  // A thread following a review opens on the lines the review was looking at. Read live: the view
+  // is kept across threads sharing a worktree, so it may have mounted before those lines were picked.
+  const reviewKey = review ? scopedThreadKey(review.reviewing) : null;
+  const reviewFocus = useReviewFollowStore((state) =>
+    reviewKey === null ? null : (state.focusByThreadKey[reviewKey] ?? null),
+  );
   const focus =
-    review &&
-    scopedThreadKey(review.routed) !== scopedThreadKey(review.reviewing) &&
-    authorCard?.restore?.filePath === file.path
-      ? authorCard.restore
+    review && scopedThreadKey(review.routed) !== reviewKey && reviewFocus?.filePath === file.path
+      ? reviewFocus
       : null;
 
   const [codeView, setCodeView] = useState<AnnotatableCodeViewHandle | null>(null);
