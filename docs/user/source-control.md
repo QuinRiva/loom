@@ -40,6 +40,14 @@ outside a Loom thread shows its git author instead, lines not yet committed show
 and a block that only removes lines shows no author. The authors button in the toolbar (**Hide who
 wrote each change**) turns this off; the choice is remembered on this device.
 
+Select lines to see who wrote them: a card names the thread, its commit and the commit's message,
+and, where a later thread rewrote those lines, the thread that wrote them before. **Open thread**
+takes you to that thread at the turn that made the commit, so you can ask it there; its Diff panel
+shows the diff you were reviewing, on the same file and lines, and any change you make to it there
+is kept when you return. **Back to review** in the thread's header returns you to the thread you
+were reviewing in. To see the thread's own diff instead, close the "The diff from…" line at the top
+of its Diff panel. **Comment** on the card leaves a line comment as before.
+
 ## Review changes from the Files tree
 
 <!-- loom: change review (plans/change-review) -->

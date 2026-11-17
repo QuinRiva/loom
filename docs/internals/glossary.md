@@ -38,6 +38,14 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 | Side thread | A thread that lives on another thread's context beside the workstream graph: a root that is never a parent, so no control-plane reader reaches it. Today a query thread or a `/handoff` drafter (`SIDE_THREAD_ROLES`); the class decides only where it is shown. |
 | Anchor      | The thread a side thread hangs from in every presentation (sidebar, graph, thread tabs): the thread it was forked from.                                                                                                                                          |
 
+<!-- loom: diff author query -->
+
+## Loom diff authorship
+
+| Term             | Meaning                                                                                                                                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Reviewing thread | The thread whose Diff panel state a review uses. Open thread on the author card makes the author thread's panel follow it (`reviewFollowStore`): that panel reads and writes the reviewing thread's diff state, never its own. |
+
 ## Loom deploys
 
 How it is operated: [`deploy/README.md`](../../deploy/README.md).
