@@ -6,8 +6,8 @@
  * @module loom/review/useLoomAuthorship
  */
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
-import { useEffect, useState } from "react";
+import type { LoomReviewAuthorshipResult, ScopedThreadRef } from "@t3tools/contracts";
+import { useLayoutEffect, useState } from "react";
 
 import { useEnvironmentQuery } from "../../state/query";
 import { revisionedQuery } from "../../state/revisionedQuery";
@@ -21,6 +21,7 @@ export function useLoomAuthorship({
   baseRef,
   eligible: inView,
   diffHash,
+  complete,
   loaded,
   workspaceMutationId,
 }: {
@@ -31,6 +32,8 @@ export function useLoomAuthorship({
   eligible: boolean;
   /** The shown diff's hash; null while it loads. */
   diffHash: string | null;
+  /** False for the tracked-files-only listing a refresh shows before the complete one. */
+  complete: boolean;
   /** The diff's file list and first patches have arrived. */
   loaded: boolean;
   workspaceMutationId: string | null;
@@ -42,13 +45,21 @@ export function useLoomAuthorship({
   );
   const eligible = threadRef !== null && inView;
   const shown = eligible && !off;
+  // The complete listing's hash keys the question; the tracked-only listing's hash is kept to tell
+  // whether a refresh's first pass still shows the content an answer was given for.
+  const [trackedHash, setTrackedHash] = useState<string | null>(null);
+  if (!complete && diffHash !== null && diffHash !== trackedHash) setTrackedHash(diffHash);
+  const [asked, setAsked] = useState<{
+    readonly hash: string;
+    readonly trackedHash: string | null;
+  }>();
+  if (complete && diffHash !== null && diffHash !== asked?.hash)
+    setAsked({ hash: diffHash, trackedHash });
+  const hash = asked?.hash ?? null;
   // Latched once the diff's first patches have arrived, so blame never competes with the reads
-  // that draw it; a later refresh keeps the answer on screen while it re-asks.
+  // that draw it.
   const [drawn, setDrawn] = useState(false);
-  if (!drawn && loaded && diffHash !== null) setDrawn(true);
-  // A refresh passes through a tracked-only listing with no hash; the last one keeps the answer.
-  const [hash, setHash] = useState(diffHash);
-  if (diffHash !== null && diffHash !== hash) setHash(diffHash);
+  if (!drawn && loaded && hash !== null) setDrawn(true);
   const [stamps] = useState(createAuthorshipStamps);
   // A commit leaves the diff's content as it was, so the workspace revision re-asks too.
   const query = useEnvironmentQuery(
@@ -62,11 +73,25 @@ export function useLoomAuthorship({
         )
       : null,
   );
-  const authorship = shown && query.data ? authorshipOf(query.data) : null;
+  // Each answer remembers the content it was asked for, and is drawn only on that content: lines
+  // that moved since must never wear the old answer's author while the new one is on its way.
+  const [answer, setAnswer] = useState<{
+    readonly result: LoomReviewAuthorshipResult;
+    readonly at: number;
+    readonly asked: typeof asked;
+  } | null>(null);
+  if (query.data && !query.isPending && query.dataUpdatedAt !== answer?.at)
+    setAnswer({ result: query.data, at: query.dataUpdatedAt, asked });
+  const current =
+    answer !== null &&
+    diffHash !== null &&
+    (complete ? answer.asked?.hash : answer.asked?.trackedHash) === diffHash;
+  const authorship = shown && current ? authorshipOf(answer.result) : null;
   const activeFilter =
     authorship?.groups.some((group) => group.key === filter) === true ? filter : null;
+  // A layout effect, so stale marks are cleared in the commit that draws new rows, before paint.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- restamps the viewer's already-rendered rows (DOM outside React) when the answer or filter changes
-  useEffect(() => {
+  useLayoutEffect(() => {
     stamps.update(authorship === null ? null : { authorship, filter: activeFilter });
   }, [stamps, authorship, activeFilter]);
 

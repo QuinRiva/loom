@@ -17,7 +17,6 @@ import {
   PilcrowIcon,
   Rows3Icon,
   TextWrapIcon,
-  UsersRoundIcon, // loom: diff author query
 } from "lucide-react";
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide";
 import * as Schema from "effect/Schema";
@@ -66,7 +65,11 @@ import { LoomOpenWholeFileButton } from "../loom/review/FileChangeView"; // loom
 import { useLoomReviewSelection } from "../loom/review/useLoomReviewSelection"; // loom: change review
 import { useReviewBaselineStore } from "../loom/review/reviewBaselineStore"; // loom: change review
 import { useLoomAuthorship } from "../loom/review/useLoomAuthorship"; // loom: diff author query
-import { AuthorshipFileChips, AuthorshipLegend } from "../loom/review/AuthorshipLegend"; // loom: diff author query
+import {
+  AuthorshipFileChips,
+  AuthorshipLegend,
+  AuthorshipToggle,
+} from "../loom/review/AuthorshipLegend"; // loom: diff author query
 import { useClientSettings, updateClientSettings } from "../hooks/useSettings";
 import { formatRelativeTimeLabel, formatShortTimestamp } from "../timestampFormat";
 import { DiffFilePathCopyButton } from "./DiffFilePathCopyButton";
@@ -671,8 +674,8 @@ export default function DiffPanel({
       (loomReview
         ? loomReview.live
         : selectedRunId === null && selectedGitScope === "branch" && selectedCommitSha === null),
-    // Not the tracked-only first pass: ask once, for the complete list.
-    diffHash: preview?.incomplete ? null : (selectedGitSource?.diffHash ?? null),
+    diffHash: selectedGitSource?.diffHash ?? null,
+    complete: !preview?.incomplete,
     loaded: !isRefreshingDiff,
     workspaceMutationId,
   });
@@ -1304,27 +1307,7 @@ export default function DiffPanel({
             </TooltipPopup>
           </Tooltip>
         )}
-        {loomAuthors.eligible && (
-          // loom: diff author query — the Authors toggle
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Toggle
-                  aria-label={loomAuthors.shown ? "Hide authors" : "Show authors"}
-                  variant="ghost"
-                  size="sm"
-                  pressed={loomAuthors.shown}
-                  onPressedChange={(pressed) => loomAuthors.setOff(!pressed)}
-                />
-              }
-            >
-              <UsersRoundIcon className="size-3.5" />
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {loomAuthors.shown ? "Hide who wrote each change" : "Show who wrote each change"}
-            </TooltipPopup>
-          </Tooltip>
-        )}
+        <AuthorshipToggle authors={loomAuthors} /> {/* loom: diff author query */}
         {diffFileKeys.length > 0 && (
           <Tooltip>
             <TooltipTrigger
@@ -1374,7 +1357,11 @@ export default function DiffPanel({
       ) : (
         <>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
-            <AuthorshipLegend authors={loomAuthors} /> {/* loom: diff author query */}
+            {/* loom: diff author query */}
+            <AuthorshipLegend
+              authors={loomAuthors}
+              paths={new Set(renderableFiles.map(resolveFileDiffPath))}
+            />
             {preview?.incomplete && (
               <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-2xs text-muted-foreground">
                 {selectedPatchError
