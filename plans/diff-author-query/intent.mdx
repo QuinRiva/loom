@@ -78,12 +78,13 @@ without losing your place in the diff.
   needs anything new: "No, those two cover it; build nothing more for it".
   The two are the Diff panel's existing "Since your message" view and this
   brief's filter that narrows the diff to one thread's changes.
-- _Assumed:_ authorship is on by default in the whole-branch view
-  ("Changes", which already compares against `origin/main` without you
-  picking a base), with a toggle that is remembered. The panel opens on
-  "Since your message" when the thread has one, so authors appear once you
-  pick Changes, which it remembers per thread. Redirect if you want authors
-  in "Since your message" too, or would rather switch them on yourself.
+- _Assumed:_ authorship is on by default, with a toggle that is remembered,
+  in two views. One is the whole-branch view ("Changes", which already
+  compares against `origin/main` without you picking a base). The other is
+  the live "Since your message" view the panel opens on, so the first check
+  holds without a click. Earlier "Since your message" intervals show no
+  authors. Redirect if you want authors in the whole-branch view only, or
+  would rather switch them on yourself.
 - _Assumed:_ a commit made outside a Loom thread (yours, or upstream's)
   shows its git author and offers no Query. So does a commit one thread
   amended after another made it (4 of 583): the card names both and asks
