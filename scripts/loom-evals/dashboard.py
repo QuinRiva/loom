@@ -42,6 +42,7 @@ WINDOWS = ("week", "4w", "prev4w", "since-2026-10-07")
 HOUR = timedelta(hours=1)
 EVALS_HOME = Path.home() / "loom-evals"
 DEPLOY_LOG = Path.home() / "loom-releases" / "deploy.log"
+DEPLOY_HISTORY = Path.home() / "loom-releases" / "deploy-history.jsonl"
 
 
 def parse_week(s):
@@ -270,7 +271,7 @@ def compute(q, wins):
         q("launch stamps", "select thread_id, launched_at, loom_commit from loom_thread_launch_stamps where launched_at < ? and thread_id not in (:excluded)", iso(to))
         if stamps_exist else []
     )
-    # The deploy log, not manifest.json: the manifest is pruned to a few entries and marks old ones failed after the fact.
+    # The old tool's deploy log, not manifest.json: the manifest is pruned to a few entries and marks old ones failed after the fact.
     log = DEPLOY_LOG.read_text(errors="replace") if DEPLOY_LOG.exists() else ""
     bridge = set(re.findall(r"promoting bridge release (\S+)", log))
     releases = [
@@ -278,6 +279,19 @@ def compute(q, wins):
         for at, promoted, rolled_back in re.findall(r"^(\S+Z) (?:.*promotion of (\S+) SUCCEEDED|rollback \(.*\) -> (\S+))", log, re.M)
         if (promoted or rolled_back) not in bridge
     ]
+    # From 17 Nov 2026 `loom-deploy` records Loom's deploys in deploy-history.jsonl instead: a release is in
+    # force from `live`, and a `back` or `put-back` of the release in force returns to the one before it.
+    history = DEPLOY_HISTORY.read_text().splitlines() if DEPLOY_HISTORY.exists() else []
+    chain = [rid for _, rid in releases]
+    for h in map(json.loads, filter(str.strip, history)):
+        if h["outcome"] == "live" and chain[-1:] != [h["id"]]:
+            chain.append(h["id"])
+        elif h["outcome"] in ("back", "put-back") and len(chain) > 1 and chain[-1] == h["id"]:
+            chain.pop()
+        else:
+            continue
+        releases.append((h["endedAt"][:19] + ".000Z", chain[-1]))
+    releases.sort()
 
     for win, (start, end) in wins.items():
         limited_note = None
@@ -333,7 +347,7 @@ def compute(q, wins):
             if at < t_ and (at >= f or i + 1 == len(releases) or releases[i + 1][0] >= f)
         ))
         rows.add("releases_in_force", "all", "all", win, (", ".join(rel) if len(rel) <= 3 else f"{rel[0]} … {rel[-1]}") if rel else None,
-                 len(rel), None if log else f"{DEPLOY_LOG} missing")
+                 len(rel), None if log or history else f"{DEPLOY_LOG} and {DEPLOY_HISTORY} missing")
         if stamps_exist:
             launched = [c for _, at, c in stamps if inw(at)]
             emit("launches_by_commit", launched, {"commit": lambda c: (c or "unknown")[:10]}, count)
