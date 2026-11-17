@@ -87,19 +87,19 @@ panel behaves as one panel you sized once, not as a new panel per thread.
   thread you land in shows the width of the review you came from. That
   change is built on its own branch and waits on your word in the thread
   that made it. The two agree whenever both threads are in one workstream.
+- _Assumed:_ in a window too narrow for a side panel, where the panel is a
+  sheet over the chat, a click in the Workstream panel does nothing new. It
+  lands as it does today: on the chat if that thread's panel was closed,
+  under the sheet if it was open. Redirect if the sheet should always
+  follow you.
+- _Assumed:_ the graph's zoom and position carry between threads but reset
+  on a full reload, as they always have; the width and the open Workstream
+  panel survive it. Redirect if the zoom should survive a reload too.
+- _Assumed:_ a thread opened by Query on a document is its own root, so it
+  starts at the width you arrived with and then keeps its own.
 - _Assumed:_ web and desktop. The mobile app has no side panel to size.
 
 **Not doing.** The width of the panel on the Pull requests page. Syncing
 widths between browsers or machines; they stay local to the browser, as
 today. Changing when the Workstream panel opens by itself on a thread you
 reach without clicking in it.
-
-**Still unknown.**
-
-- Does the Workstream graph keep its zoom and position across a move between
-  threads today? The code stores one view per workstream for the session,
-  which says yes; one live click from parent to child settles it, and a gap
-  becomes part of this work.
-- Does the document-link case need anything beyond the shared width? Nobody
-  has run it live. One click on a document link whose author is a child
-  settles it.
