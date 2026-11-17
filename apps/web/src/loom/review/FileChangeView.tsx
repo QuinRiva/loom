@@ -54,7 +54,11 @@ import {
 } from "./changeNavigation";
 import { useReviewBaselineStore } from "./reviewBaselineStore";
 import { createLoomReviewFileContentsLoader, loomReviewQueries } from "./reviewQueries";
-import type { LoomChangeMarks, LoomChangedFile } from "./useLoomChangeMarks";
+import {
+  recordFetchedStatus,
+  type LoomChangeMarks,
+  type LoomChangedFile,
+} from "./useLoomChangeMarks";
 
 /** About 5,000 lines of ordinary source; either side over this opens in hunk mode. */
 export const WHOLE_FILE_MAX_BYTES = 250_000;
@@ -88,6 +92,14 @@ function fileDiffStub(
   };
 }
 
+/** From git's per-file header; hunk lines always start with a marker, so none can match. */
+function statusOfPatch(diff: string): LoomChangedFile["status"] | null {
+  if (/^rename from /m.test(diff)) return "renamed";
+  if (/^new file mode /m.test(diff)) return "added";
+  if (/^deleted file mode /m.test(diff)) return "deleted";
+  return diff ? "modified" : null;
+}
+
 type WholeFileState =
   | { readonly key: string; readonly diff: FileDiffMetadata }
   | { readonly key: string; readonly error: string };
@@ -102,6 +114,8 @@ export interface FileChangeViewProps {
   /** The file's own patch, read only while it is over the size cap. */
   readonly patch: { readonly text: string | null; readonly error: string | null };
   readonly composerDraftTarget: ScopedThreadRef | DraftId;
+  /** The change type is still being read: the whole file waits, the last one staying on screen. */
+  readonly statusPending?: boolean;
   /** Where the reader's place in this file is remembered across a thread switch. */
   readonly scrollKey?: string;
 }
@@ -113,6 +127,7 @@ export function FileChangeView({
   loadDiffFiles,
   patch,
   composerDraftTarget,
+  statusPending = false,
   scrollKey,
 }: FileChangeViewProps) {
   const resolvedTheme = useRenderedAppearance(); // the diff worker pool resolves only this theme
@@ -129,7 +144,7 @@ export function FileChangeView({
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the whole file pair through the diff loader for the current file and revision
   useEffect(() => {
-    if (mode !== "whole") return;
+    if (mode !== "whole" || statusPending) return;
     let cancelled = false;
     void load(fileDiffStub(path, previousPath, status)).then(
       ({ oldFile, newFile }) => {
@@ -160,7 +175,7 @@ export function FileChangeView({
     return () => {
       cancelled = true;
     };
-  }, [key, load, mode, path, previousPath, status]);
+  }, [key, load, mode, path, previousPath, status, statusPending]);
 
   const patchDiff =
     mode === "patch" && patch.text !== null
@@ -431,8 +446,10 @@ export function LoomFileChangeSurface({
         })
       : null,
   );
+  // Past the combined patch's cut-off a file's status is a guess; its own patch has the real one.
+  const provisional = file.provisional === true && baseline?.kind === "git";
   const gitPatch = useEnvironmentQuery(
-    oversize && baseline?.kind === "git"
+    (oversize || provisional) && baseline?.kind === "git"
       ? reviewEnvironment.diffFilePatch({
           environmentId,
           input: {
@@ -451,6 +468,15 @@ export function LoomFileChangeSurface({
         })
       : null,
   );
+  const fetchedStatus =
+    provisional && gitPatch.data ? (statusOfPatch(gitPatch.data.diff) ?? file.status) : null;
+  const gitCwd = baseline?.kind === "git" ? baseline.cwd : null;
+  const gitSource = baseline?.kind === "git" ? baseline.source : null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes the fetched status to the marks store so the tree's letter corrects too
+  useEffect(() => {
+    if (fetchedStatus && gitCwd && gitSource)
+      recordFetchedStatus(gitCwd, gitSource, file.path, fetchedStatus);
+  }, [gitCwd, gitSource, fetchedStatus, file.path]);
   if (!baseline) return <FileSurfaceLoading />;
   const loadDiffFiles =
     baseline.kind === "interval"
@@ -474,7 +500,7 @@ export function LoomFileChangeSurface({
       : (gitPatch.data?.diff ?? null);
   return (
     <FileChangeView
-      file={file}
+      file={fetchedStatus ? { ...file, status: fetchedStatus, provisional: false } : file}
       revision={marks.revision}
       oversize={oversize}
       loadDiffFiles={loadDiffFiles}
@@ -483,6 +509,8 @@ export function LoomFileChangeSurface({
         error: baseline.kind === "interval" ? intervalPatch.error : gitPatch.error,
       }}
       composerDraftTarget={composerDraftTarget}
+      // A failed read falls back to the guess.
+      statusPending={provisional && !fetchedStatus && gitPatch.error === null}
       scrollKey={scrollKey}
     />
   );

@@ -12,6 +12,7 @@ import type {
 } from "@t3tools/contracts";
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { useEffect } from "react";
+import { create } from "zustand";
 
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../../diffPanelStore";
 import { useClientSettings } from "../../hooks/useSettings";
@@ -31,6 +32,24 @@ export interface LoomChangedFile {
   readonly status: LoomChangeStatus;
   /** The larger side's size, when the baseline reports one (intervals do; git does not). */
   readonly bytes: number | null;
+  /** A guess: git's combined patch was cut off before this file, so it carries no change type. */
+  readonly provisional?: boolean;
+}
+
+/** A provisional file's status, read from its own patch once opened; exact for that `diffHash`. */
+const useFetchedStatuses = create<
+  Record<string, { readonly diffHash: string; readonly status: LoomChangeStatus }>
+>(() => ({}));
+
+export function recordFetchedStatus(
+  cwd: string,
+  source: ReviewDiffPreviewSource,
+  path: string,
+  status: LoomChangeStatus,
+) {
+  useFetchedStatuses.setState({
+    [`${cwd}\0${source.kind}\0${path}`]: { diffHash: source.diffHash, status },
+  });
 }
 
 export type LoomChangeBaseline =
@@ -71,7 +90,10 @@ const STATUS_BY_CHANGE_TYPE: Record<FileDiffMetadata["type"], LoomChangeStatus> 
   change: "modified",
 };
 
-function gitChangedFiles(source: ReviewDiffPreviewSource): LoomChangedFile[] {
+function gitChangedFiles(
+  { cwd, source }: { cwd: string; source: ReviewDiffPreviewSource },
+  fetched: ReturnType<typeof useFetchedStatuses.getState>,
+): LoomChangedFile[] {
   // Upstream's file stats carry no status; the patch does, for every file it was not cut short on.
   const patch = getRenderablePatch(source.diff, "loom-change-marks");
   const parsed = new Map(
@@ -82,11 +104,16 @@ function gitChangedFiles(source: ReviewDiffPreviewSource): LoomChangedFile[] {
     [...parsed.values()].map((file) => ({ path: file.name, previousPath: file.prevName ?? null }));
   return stats.map((stat) => {
     const type = parsed.get(stat.path)?.type;
+    // A status fetched under an older comparison stays the best guess, so a refresh never flickers.
+    const fetchedFile = fetched[`${cwd}\0${source.kind}\0${stat.path}`];
     return {
       path: stat.path,
       previousPath: stat.previousPath,
-      status: type ? STATUS_BY_CHANGE_TYPE[type] : stat.previousPath ? "renamed" : "modified",
+      status: type
+        ? STATUS_BY_CHANGE_TYPE[type]
+        : (fetchedFile?.status ?? (stat.previousPath ? "renamed" : "modified")),
       bytes: null,
+      provisional: !type && fetchedFile?.diffHash !== source.diffHash,
     };
   });
 }
@@ -107,6 +134,7 @@ export function useLoomChangeMarks({
   const sources = useReviewBaselineStore((state) => state.sources);
   const marksOff = useReviewBaselineStore((state) => state.marksOff);
   const changedOnly = useReviewBaselineStore((state) => state.changedOnly);
+  const fetchedStatuses = useFetchedStatuses();
   const ignoreWhitespace = useClientSettings((settings) => settings.diffIgnoreWhitespace);
   const selection = useDiffPanelStore((state) =>
     selectThreadDiffPanelSelection(state.byThreadKey, threadRef),
@@ -180,7 +208,7 @@ export function useLoomChangeMarks({
           })),
         )
       : baseline?.kind === "git"
-        ? gitChangedFiles(baseline.source)
+        ? gitChangedFiles(baseline, fetchedStatuses)
         : [];
   return {
     scope: intervalActive ? "interval" : "git",
