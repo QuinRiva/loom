@@ -1,0 +1,186 @@
+---
+reader:
+  who: Carl, who asked for this and approves its intent before anything is planned or built
+  knows: his own request and the right panel as he uses it every day; Loom's threads, child threads and the Workstream panel; none of the code
+  after_first_screen: he can correct any line, answer the three questions or say "go"
+kicker: "Intent brief · draft for your corrections · 18 Nov 2026"
+status: draft
+manager_sessions:
+  - id: 01a1eb99-8a37-702d-a4d0-d60a3a4bee42
+    name: Right panel carries into child threads
+    role: intent
+    authored_at: 2026-11-17T22:24:27.335Z
+---
+
+# The right panel keeps its width, and the Workstream panel stays open, when you move to a child thread
+
+**Goal.** "if a thread doesn't yet have a saved width for the panel - I don't
+think the "default" value should just be arbitrary. It's *probably* better to
+retain the existing width *at least* within the context of a parent --> child
+sub-thread." Moving between a thread and the threads under it, the right
+panel behaves as one panel you sized once, not as a new panel per thread.
+
+**You'll know it works when.**
+
+- In a parent thread you drag the right panel to a width, then click a child
+  in the Workstream panel. The child opens with the Workstream panel open and
+  in front, at the same width, with the graph zoomed and placed as you left
+  it.
+- You click back to the parent, or across to a sibling, and the panel has not
+  moved.
+- You reach the child another way (the sidebar, a thread tab, a link in the
+  chat) and the panel is the width you left it.
+- A document link that takes the main window to the thread that wrote the
+  document leaves the document in the panel at the width it had.
+- After a reload, all of the above still hold.
+
+**It must not.**
+
+- Show the old default for a moment and then snap to the carried width.
+- Bring back a Workstream tab you closed in a thread, unless you clicked that
+  thread in the Workstream panel.
+- Make the panel wider than a narrow window allows; today's limits stay.
+
+**Approaches in play.**
+
+- One width for a whole workstream, meaning a root thread and every thread
+  under it: they all read and write the same width. Wins if you never want
+  one child at a different width from its parent. It is also the least code,
+  and it cannot jump inside a workstream. _My pick; question 1._
+- Each thread keeps its own width, and a thread you have never sized starts
+  at the width you arrived with. Wins if you do size children differently and
+  want each remembered. This is the closest reading of your words, but a
+  child you sized last week still jumps when you click into it.
+- One width for the whole app. Wins if moving between root threads should
+  feel the same as moving inside a workstream. Question 2.
+
+**Decided.**
+
+- "by default, if a thread doesn't yet have a saved width for the panel - I
+  don't think the "default" value should just be arbitrary."
+- "a common scenario when moving from a parent to a child, is that I'm
+  navigating *by* the workstream panel: so firstly the workstream panel
+  should then be open in the child, and it should be the same width."
+- The standard it is held to: "things don't disappear when I stop looking at
+  them", and of a panel you sized, "I wouldn't expect that panel to re-adjust
+  itself (because the content in the panel, as I perceive it, is unchanged)."
+- _Assumed:_ the rule runs in every direction inside a workstream (parent to
+  child, child to parent, sibling to sibling), since a panel that holds going
+  down and jumps coming back is the same fault. Redirect if you meant
+  downward only.
+- _Assumed:_ a width only ever changes because you dragged it. Nothing
+  automatic rewrites a width you set.
+- _Assumed:_ Open thread on an author card keeps its own rule, where the
+  thread you land in shows the width of the review you came from. That
+  change is built on its own branch and waits on your word in the thread
+  that made it. The two agree whenever both threads are in one workstream.
+- _Assumed:_ web and desktop. The mobile app has no side panel to size.
+
+**Not doing.** The width of the panel on the Pull requests page. Syncing
+widths between browsers or machines; they stay local to the browser, as
+today. Changing when the Workstream panel opens by itself on a thread you
+reach without clicking in it.
+
+**Questions for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "within-workstream",
+      title: "Inside one workstream, is there one panel width or one per thread?",
+      subtitle:
+        "Decides what happens when you click into a child you sized differently some time ago: nothing moves, or the panel changes to that child's own width.",
+      mode: "single",
+      options: [
+        {
+          id: "shared",
+          label: "One width for the workstream",
+          detail:
+            "Resizing in any of its threads resizes it for all of them. Widths you set on individual children before this change stop being used.",
+          recommended: true,
+        },
+        {
+          id: "per-thread",
+          label: "One per thread; a never-sized thread starts at the width you arrived with",
+          detail:
+            "A child you have sized keeps its own width, so the panel can still change size when you click into it.",
+        },
+      ],
+    },
+    {
+      id: "between-roots",
+      title: "What width does the panel open at in a root thread you have never sized?",
+      subtitle:
+        'You said of root threads "At this point I\'m not sure". Today it is a fixed 540 px whatever you were just using.',
+      mode: "single",
+      options: [
+        {
+          id: "last-used",
+          label: "The width you last used anywhere; after that the workstream keeps its own",
+          detail: "No arbitrary default, and workstreams you have sized still differ from each other.",
+          recommended: true,
+        },
+        {
+          id: "fixed",
+          label: "Leave it at 540 px for now",
+          detail: "Only parent and child are fixed; decide about root threads after using it.",
+        },
+        {
+          id: "global",
+          label: "One width everywhere in the app",
+          detail: "The panel never changes width on any navigation. Makes question 1 moot.",
+        },
+      ],
+    },
+    {
+      id: "workstream-front",
+      title:
+        "You click a thread in the Workstream panel, and that thread last had its panel closed or another tab in front. Does the Workstream panel still come up in front?",
+      subtitle:
+        "Loom's standing rule is that nothing automatic overrides how you left a thread's panel. This treats the click in the Workstream panel as your own choice, not an automatic one.",
+      mode: "single",
+      options: [
+        {
+          id: "always",
+          label: "Yes, always: I navigated with it, so it stays",
+          detail: "The thread's other tabs are kept behind it, untouched.",
+          recommended: true,
+        },
+        {
+          id: "unset-only",
+          label: "Only in a thread whose panel I have never touched",
+          detail: "A thread I arranged keeps its arrangement, even if that hides the Workstream panel.",
+        },
+      ],
+    },
+    {
+      id: "what-else",
+      title: "Should anything else in the panel carry between threads of a workstream?",
+      subtitle:
+        "For example the Files or Diff tab you had open. Each tab kind keeps its own state per thread, so carrying them is a larger piece of work than width and the Workstream panel.",
+      mode: "single",
+      allowOther: true,
+      options: [
+        {
+          id: "nothing",
+          label: "Nothing else for now; I will say after using it",
+          recommended: true,
+        },
+        {
+          id: "open-closed",
+          label: "Whether the panel is open: if it was open where I left, it is open where I land",
+        },
+      ],
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- Does the Workstream graph keep its zoom and position across a move between
+  threads today? The code stores one view per workstream for the session,
+  which says yes; one live click from parent to child settles it, and a gap
+  becomes part of this work.
+- Does the document-link case need anything beyond the shared width? Nobody
+  has run it live. One click on a document link whose author is a child
+  settles it.
