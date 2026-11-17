@@ -46,16 +46,19 @@ export function useLoomAuthorship({
   // that draw it; a later refresh keeps the answer on screen while it re-asks.
   const [drawn, setDrawn] = useState(false);
   if (!drawn && loaded && diffHash !== null) setDrawn(true);
+  // A refresh passes through a tracked-only listing with no hash; the last one keeps the answer.
+  const [hash, setHash] = useState(diffHash);
+  if (diffHash !== null && diffHash !== hash) setHash(diffHash);
   const [stamps] = useState(createAuthorshipStamps);
   // A commit leaves the diff's content as it was, so the workspace revision re-asks too.
   const query = useEnvironmentQuery(
-    shown && drawn && diffHash !== null
+    shown && drawn && hash !== null
       ? revisionedQuery(
           loomReviewQueries.authorship({
             environmentId: threadRef.environmentId,
             input: { threadId: threadRef.threadId, baseRef },
           }),
-          `${diffHash}:${workspaceMutationId ?? ""}`,
+          `${hash}:${workspaceMutationId ?? ""}`,
         )
       : null,
   );
