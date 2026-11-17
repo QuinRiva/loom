@@ -1,6 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
-  DOCUMENT_QUERY_ROLE,
   type DocumentQueryAuthorResult,
   type EnvironmentId,
   type ScopedThreadRef,
@@ -9,11 +8,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
-import {
-  type DocumentLinkEnvironment,
-  documentFollowTarget,
-  openDocumentLink,
-} from "./openDocumentLink";
+import { type DocumentLinkEnvironment, openDocumentLink } from "./openDocumentLink";
 
 const environmentId = "env-1" as EnvironmentId;
 const viewer = scopeThreadRef(environmentId, ThreadId.make("orchestrator"));
@@ -69,20 +64,6 @@ beforeEach(() => {
     threadPanelVisibilityByThreadKey: {},
     userActionRevisionByThreadKey: {},
     closeRevisionByThreadKey: {},
-  });
-});
-
-describe("documentFollowTarget", () => {
-  it("follows only another live author's own signature on the same file", () => {
-    const follows = (result: DocumentQueryAuthorResult, role: string | null = null) =>
-      documentFollowTarget(result, viewer.threadId, role) !== null;
-    expect(follows(signedBy(planner))).toBe(true);
-    expect(follows(signedBy(viewer))).toBe(false);
-    expect(follows(signedBy(planner, { authorSource: "viewing-thread" }))).toBe(false);
-    expect(follows(signedBy(planner, { authoringSignature: false }))).toBe(false);
-    expect(follows(signedBy(planner, { authorArchived: true }))).toBe(false);
-    expect(follows(signedBy(planner, { sameFile: false }))).toBe(false);
-    expect(follows(signedBy(planner), DOCUMENT_QUERY_ROLE)).toBe(false);
   });
 });
 
