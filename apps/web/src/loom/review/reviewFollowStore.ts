@@ -87,6 +87,22 @@ export function followReviewToAuthor(input: {
 }
 
 /**
+ * Whether a following thread works in the reviewing thread's checkout. Its Files surface reads its
+ * own checkout, so authors blamed in another one would be drawn on the wrong lines.
+ */
+export function sharesCheckout(
+  following: { readonly projectId: string; readonly worktreePath: string | null } | null,
+  reviewing: { readonly projectId: string; readonly worktreePath: string | null } | null,
+): boolean {
+  return (
+    following !== null &&
+    reviewing !== null &&
+    following.projectId === reviewing.projectId &&
+    following.worktreePath === reviewing.worktreePath
+  );
+}
+
+/**
  * Which thread a panel reads its diff state from. A follow is dropped only on a positive answer that
  * the reviewing thread is gone; while its shell is merely absent (older settled roots are cut from
  * the snapshot) it is kept, and the panel waits for that one shell.

@@ -57,6 +57,7 @@ import {
 } from "./changeNavigation";
 import { useReviewBaselineStore } from "./reviewBaselineStore";
 import { ReviewFollowLabel } from "./ReviewFollowBack";
+import { sharesCheckout } from "./reviewFollowStore";
 import { createLoomReviewFileContentsLoader, loomReviewQueries } from "./reviewQueries";
 import {
   recordFetchedStatus,
@@ -65,6 +66,7 @@ import {
 } from "./useLoomChangeMarks";
 import { useLoomAuthorship } from "./useLoomAuthorship";
 import { useReviewFollow } from "./useReviewFollow";
+import { useQuietThreadShell } from "../../state/entities";
 
 /** About 5,000 lines of ordinary source; either side over this opens in hunk mode. */
 export const WHOLE_FILE_MAX_BYTES = 250_000;
@@ -497,6 +499,8 @@ export function LoomFileChangeSurface({
   const getLoomContents = useAtomCommand(loomReviewQueries.fileContents);
   const getGitContents = useAtomCommand(reviewEnvironment.diffFileContents);
   const baseline = marks.baseline;
+  const routedShell = useQuietThreadShell(routedRef);
+  const reviewShell = useQuietThreadShell(threadRef);
   const workingLines = working?.contents.split("\n").length ?? 0;
   const size = file.bytes ?? working?.byteLength ?? null;
   // A deleted file has no working copy to size; its patch is the whole file anyway.
@@ -587,9 +591,11 @@ export function LoomFileChangeSurface({
         reviewing: threadRef,
         baseRef: baseline.kind === "git" ? baseline.baseRef : null,
         eligible:
-          baseline.kind === "git"
+          (baseline.kind === "git"
             ? baseline.source.kind === "branch-range"
-            : baseline.intervalId === "live",
+            : baseline.intervalId === "live") &&
+          (scopedThreadKey(routedRef) === scopedThreadKey(threadRef) ||
+            sharesCheckout(routedShell, reviewShell)),
         // As the Diff panel keys the same question, so the two views share one answer.
         diffHash:
           baseline.kind === "git"
