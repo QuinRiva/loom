@@ -63,10 +63,113 @@ const canonical = (calls: ReadonlyArray<Call>): ReadonlyArray<Call> =>
     call.name.startsWith(LOOM) || NATIVE.has(call.name) ? call : { ...call, name: loom(call.name) },
   );
 
-/** Whether a message decides: it ends the turn, or makes a call that is not looking around. */
-export const decides = (calls: ReadonlyArray<Call>, looking: ReadonlyArray<string> = []) =>
+/** Git subcommands that only read. With `GIT_LISTS`, every other one counts as changing the repository. */
+const GIT_READS = new Set(
+  "annotate blame cat-file cherry describe diff diff-tree for-each-ref grep help log ls-files ls-tree merge-base name-rev range-diff reflog rev-list rev-parse shortlog show show-ref status version whatchanged".split(
+    " ",
+  ),
+);
+/** Subcommands that list when their first argument (empty when absent) matches. */
+const GIT_LISTS: Readonly<Record<string, RegExp>> = {
+  branch:
+    /^$|^(-[alrv]+|--(all|contains|format|list|merged|no-merged|points-at|remotes|show-current|sort|verbose)\b.*)$/,
+  tag: /^$|^(-l|-n\d*|--(contains|list|points-at|sort)\b.*)$/,
+  remote: /^$|^(-v|show|get-url)$/,
+  stash: /^(list|show)$/,
+  config: /^(--get\S*|--list|-l|get|list)$/,
+  worktree: /^list$/,
+};
+/** Words a command may follow: wrappers and the tools that run another command. */
+const RUNS_NEXT = new Set([
+  "sudo",
+  "env",
+  "time",
+  "nohup",
+  "command",
+  "xargs",
+  "-exec",
+  "-execdir",
+]);
+const scratch = (path: string) => /^\/(tmp|dev)\//.test(path);
+const WRITE_API =
+  /\b(writeFileSync|appendFileSync|writeFile|appendFile|write_text|write_bytes)\b|\bopen\([^)]*,\s*["'][wax]/;
+
+/**
+ * The part of a shell command that changes a file or the repository, or null when it only reads.
+ * Decided from the command's text: a git subcommand outside the reading ones, an in-place `sed` or
+ * `perl`, a command that creates, moves or removes, a redirect or `tee` to a path outside `/tmp`
+ * and `/dev`, or a script that opens a file for writing. `run.test.ts` pins the list.
+ */
+export const shellWrite = (command: string): string | null => {
+  const api = WRITE_API.exec(command)?.[0];
+  if (api !== undefined) return api;
+  // A heredoc's body is a script or a file's text, not shell: only the line that opens it is read.
+  const shell = command.replaceAll(/(<<-?\s*["']?(\w+)["']?[^\n]*)\n[\s\S]*?\n\s*\2\b/g, "$1");
+  const redirect = /(?:^|[^<>&-])\d?>>?\s*([^\s;|&<>]+)/.exec(
+    shell.replaceAll(/"[^"]*"|'[^']*'/g, (quoted) =>
+      scratch(quoted.slice(1)) ? quoted.slice(1, -1) : "QUOTED",
+    ),
+  );
+  if (redirect && !scratch(redirect[1]!)) return `> ${redirect[1]}`;
+  for (const segment of shell.replaceAll(/["'`]/g, " ").split(/&&|\|\||[;|\n()]|\$\(/)) {
+    const words = segment.trim().split(/\s+/);
+    for (const [index, word] of words.entries()) {
+      const rest = words.slice(index + 1);
+      const paths = rest.filter((argument) => !argument.startsWith("-"));
+      if (word === "git" || word.endsWith("/git")) {
+        // The subcommand is the first word that is neither an option nor `-C`/`-c`'s value.
+        const at = rest.findIndex(
+          (argument, i) => !argument.startsWith("-") && !/^-[Cc]$/.test(rest[i - 1] ?? ""),
+        );
+        const [subcommand, first] = at < 0 ? [] : rest.slice(at);
+        if (
+          subcommand !== undefined &&
+          !GIT_READS.has(subcommand) &&
+          !GIT_LISTS[subcommand]?.test(first ?? "")
+        )
+          return `git ${subcommand}`;
+        break;
+      }
+      // Only where a command can stand: first in its segment, or after a word that runs the next.
+      if (index > 0 && !RUNS_NEXT.has(words[index - 1]!) && !/^\w+=/.test(words[index - 1]!))
+        continue;
+      if (
+        /^g?sed$|^perl$/.test(word) &&
+        rest.some((flag) => /^(-[a-zA-Z]*i|--in-place)/.test(flag))
+      )
+        return `${word} -i`;
+      if (
+        /^(rm|rmdir|mv|touch|mkdir|chmod|chown|truncate|tee|patch|dd|ed|ex)$/.test(word) &&
+        !(paths.length > 0 && paths.every(scratch))
+      )
+        return word;
+      if (/^(cp|ln|install)$/.test(word) && !scratch(paths.at(-1) ?? "")) return word;
+    }
+  }
+  return null;
+};
+
+/** What a call writes: pi's `edit` or `write`, or a shell command (`bash`, `bg_start`) that changes something. */
+const writeOf = (call: Call) =>
+  call.name === "edit" || call.name === "write"
+    ? call.name
+    : call.name === "bash" || call.name === "bg_start"
+      ? shellWrite(String(call.input.command ?? ""))
+      : null;
+
+/**
+ * Whether a message decides: it ends the turn, or makes a call that is not looking around. Under a
+ * `read-only` check a shell command that writes decides too, so the attempt stops at the write.
+ */
+export const decides = (
+  calls: ReadonlyArray<Call>,
+  looking: ReadonlyArray<string> = [],
+  check?: Check,
+) =>
   calls.length === 0 ||
-  canonical(calls).some((call) => !LOOKING.has(call.name) && !looking.includes(call.name));
+  canonical(calls).some((call) => !LOOKING.has(call.name) && !looking.includes(call.name)) ||
+  (check?.kind === "read-only" &&
+    calls.some((call) => call.name === "bash" && writeOf(call) !== null));
 
 /** Lower-case, one space, straight quotes: a quote survives re-wrapping and typographic quotes. */
 const normalise = (text: string) =>
@@ -129,7 +232,14 @@ export type Check =
       readonly parentId: string;
       readonly quotes: ReadonlyArray<string>;
       readonly allQuotes?: boolean;
-    };
+    }
+  /** Exactly one document_query_promote, carrying a comment and this `exchangeAt` copied exactly. */
+  | { readonly kind: "promotes"; readonly exchangeAt: string }
+  /**
+   * Nothing in the whole attempt writes (no `edit` or `write`, no shell command that changes a file
+   * or the repository), and the turn ends in text quoting one of the fragments.
+   */
+  | { readonly kind: "read-only"; readonly quotes: ReadonlyArray<string> };
 
 export interface Grade {
   readonly pass: boolean;
@@ -258,6 +368,34 @@ export const grade = (check: Check, observed: Observed): Grade => {
       return submits.some((call) => check.repeats(String(call.input.markdown ?? "")))
         ? verdict(false, "repeated the report")
         : verdict(true, "submitted only what changed");
+    }
+    case "promotes": {
+      const promotes = named(calls, "document_query_promote");
+      if (promotes.length === 0 && calls.some((call) => call.name === "tool_search"))
+        return { pass: false, apart: true, reason: "searched for a tool" };
+      if (promotes.length !== 1) return verdict(false, `${promotes.length} promote calls`);
+      const { exchangeAt, text: comment } = promotes[0]!.input;
+      if (exchangeAt !== check.exchangeAt) return verdict(false, "exchangeAt not copied");
+      return typeof comment === "string" && comment.trim() !== ""
+        ? verdict(true, "one promote, exchangeAt copied")
+        : verdict(false, "empty comment");
+    }
+    case "read-only": {
+      const wrote = [...prior, ...calls].flatMap((call) => {
+        const what = writeOf(call);
+        return what === null ? [] : [call.name === what ? `called ${what}` : `shell: ${what}`];
+      });
+      if (wrote.length > 0) return verdict(false, wrote.join(", then "));
+      const deciding = calls.filter(
+        (call) => !LOOKING.has(call.name) && !looking.includes(call.name),
+      );
+      if (deciding.length > 0)
+        return deciding.every((call) => call.name === "tool_search")
+          ? { pass: false, apart: true, reason: "searched for a tool" }
+          : verdict(false, `called ${deciding[0]!.name.replace(LOOM, "")}`);
+      return quotes(text, check.quotes)
+        ? verdict(true, "changed nothing, said the change")
+        : verdict(false, "changed nothing, did not say the change");
     }
     case "notifies": {
       const first = calls.find(

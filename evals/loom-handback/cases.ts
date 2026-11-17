@@ -19,6 +19,8 @@ import { routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
 
 import { buildStandaloneDigest } from "../../apps/server/src/loom/orchestration/dispatcher/digest.ts";
 import { workstreamChildPrompt } from "../../apps/server/src/loom/prompt/prose.ts";
+import { buildQueryForkLaunch } from "../../apps/server/src/loom/query/documentQuery.ts";
+import { buildQueryPromoteTurn } from "../../apps/server/src/loom/query/documentQueryOverlay.ts";
 import {
   appendWarnings,
   composeNotifyFramedText,
@@ -77,6 +79,11 @@ export interface Case {
   readonly samples?: number;
   /** A finished child's report on file and its path: a live submit is answered as the server would. */
   readonly finishedReport?: { readonly markdown: string; readonly path: string };
+  /**
+   * A query thread: `role`, `threadId` and `parentId` are its author's, whose launch it replays. It
+   * declares the promote tool as loaded, and pi's guard refuses its `edit`.
+   */
+  readonly queryFork?: true;
 }
 
 /** Where pi installs a skill, and its text from this checkout. */
@@ -1054,6 +1061,51 @@ const finishedAuthor = {
   finishedReport: { markdown: PLAN_REPORT, path: PLAN_REPORT_PATH },
 };
 
+// ── Scenario E: query threads (plans/code-query/plan.mdx §5). The human questions a read-only fork
+// of a finished author: its first message is the overlay then the question, as the server sends it.
+
+/** A message the human sends in a query thread, which is a root: it arrives bare. */
+const humanInQuery = (text: string): Message => ({ role: "user", text });
+const PROMOTED_AT = "2026-11-12T03:14:07.512Z";
+/** The Promote button's turn on the exchange asked at `PROMOTED_AT`. */
+const promoteTurn = humanInQuery(buildQueryPromoteTurn(PROMOTED_AT));
+
+/** The plan's query thread, asked why a failed send is retried three times. */
+const planQueryAsked: ReadonlyArray<Message> = (() => {
+  const [, question] = buildQueryForkLaunch({
+    threadId: "thread:acme-query-4a7e" as ThreadId,
+    authorThreadId: PLAN_PLANNER as ThreadId,
+    question: {
+      sourceThreadId: PLAN_PLANNER as ThreadId,
+      filePath: PLAN_REL,
+      anchor: {
+        anchorKind: "text",
+        textQuote: RETRY_PASSAGE,
+        sectionId: SEND_FAILS.id,
+        sectionTitle: SEND_FAILS.title,
+      },
+      quotedText: RETRY_PASSAGE,
+      sectionId: SEND_FAILS.id,
+      sectionTitle: SEND_FAILS.title,
+      rangeLabel: "annotation",
+      question:
+        "Why three retries? A reminder that fails on Monday is not known to have failed until Thursday.",
+    },
+    createdAt: PROMOTED_AT,
+  });
+  return [
+    ...plannerFinishedPlan,
+    humanInQuery(
+      projectComposerContextForProvider({ text: question.text, records: question.context.records }),
+    ),
+    said(
+      "Three was my default, not a requirement. The brief sets no number of retries, and I picked three so an outage of the mailer or the SMS gateway lasting a long weekend would still end in a sent reminder. Your point stands against it: with one run a day, the third retry is the fourth day, and until then nobody at finance knows the contact has heard nothing. Two retries hands the invoice to finance's queue a day sooner and still rides out a two-day outage. I would change §3 to two retries and the last line of §6 to match; the form's retries question then offers two and one.",
+    ),
+  ];
+})();
+const QUERY_THREADS =
+  "The six promote turns in the nine document query threads of 27 Oct to 10 Nov 2026, each answered with one document_query_promote carrying the turn's exchangeAt; and plans/code-query/plan.mdx §5, which gives code the same thread.";
+
 // ── Cases
 
 const PLANNER_APPROVAL =
@@ -1771,5 +1823,18 @@ Build §4 of the plan \`${PLAN_PATH}\`: the \`invoice-reminder\` email template 
       ),
     ],
     check: { kind: "prompts", threadId: JOB_CODER, noLink: false },
+  },
+  {
+    id: "document-query-promotes",
+    kind: "guard",
+    base: "passes",
+    source: QUERY_THREADS,
+    role: "planner",
+    threadId: PLAN_PLANNER,
+    parentId: REMINDERS_ROOT,
+    engagedTools: [],
+    queryFork: true,
+    messages: [...planQueryAsked, promoteTurn],
+    check: { kind: "promotes", exchangeAt: PROMOTED_AT },
   },
 ];

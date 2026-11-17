@@ -46,7 +46,7 @@ import {
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import { writeWorkstreamBrief } from "../workstream/brief.ts";
 import { resolveDocumentAuthor } from "./documentAuthor.ts";
-import { buildDocumentQueryOverlay } from "./documentQueryOverlay.ts";
+import { buildDocumentQueryOverlay, buildQueryPromoteTurn } from "./documentQueryOverlay.ts";
 
 const method = LOOM_WS_METHODS.documentQuery;
 const fail = (message: string) => new LoomWsMethodError({ method, message });
@@ -348,7 +348,7 @@ export const promoteDocumentQuery = Effect.fn("documentQuery.promoteDocumentQuer
       commandId: CommandId.make(id),
       threadId: input.queryThreadId,
       messageId: MessageId.make(`message:${id}`),
-      text: `Promote the exchange above (my question at exchangeAt ${input.exchangeAt} and your answer): write one anchored comment for the author with \`mcp__t3-code__document_query_promote\`; nothing else reaches the author.`,
+      text: buildQueryPromoteTurn(input.exchangeAt),
       attachments: [],
       // The human pressed Promote; the server words the turn.
       createdBy: "user",

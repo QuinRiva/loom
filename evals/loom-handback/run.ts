@@ -17,6 +17,7 @@ import { addendumParts } from "../../apps/server/src/loom/prompt/sessionComposer
 import { LOOM_TOOL_DEFS } from "../../apps/server/src/mcp/toolkits/workstream/defs.ts";
 import {
   agentToolName,
+  DOCUMENT_QUERY,
   HUMAN_INPUT,
 } from "../../apps/server/src/mcp/toolkits/workstream/families.ts";
 import { LOOM_TOOL_PROSE } from "../../apps/server/src/mcp/toolkits/workstream/prose.ts";
@@ -37,7 +38,7 @@ import {
   WORKTREE,
 } from "./cases.ts";
 import { type Call, decides, grade } from "./grade.ts";
-import { finishedSubmitResult } from "./world.ts";
+import { finishedSubmitResult, queryGuardRefusal } from "./world.ts";
 
 const { values } = NodeUtil.parseArgs({
   options: {
@@ -186,10 +187,10 @@ const skillsBlock = (skills: ReadonlyArray<string>) => {
 };
 
 /**
- * The composer's system prompt (pi's preamble, the addendum in the composer's order, the role's
- * skills as pi lists them) and the
- * tools pi declares: the role's profile, human input when a person can read the thread, and what the
- * session profile adds once a person has written to a child (`loomExtension.ts`, toolProfile).
+ * The composer's system prompt (pi's preamble, the addendum in its order, the role's skills as pi
+ * lists them) and the tools pi declares: the role's profile, human input when a person can read the
+ * thread, what a child gains once a person has written to it (`loomExtension.ts`, toolProfile), and
+ * for a query thread the promote tool, as a `tool_search` has loaded it.
  */
 const assemble = (entry: Case) => {
   const isChild = entry.parentId !== null;
@@ -212,6 +213,7 @@ const assemble = (entry: Case) => {
     ...overlay.tools.filter((name) => !HUMAN_INPUT.includes(name as never)),
     ...(isChild && !engaged ? [] : HUMAN_INPUT),
     ...(engaged ? entry.engagedTools : []),
+    ...(entry.queryFork ? DOCUMENT_QUERY : []),
   ]);
   return {
     system: `${LOOM_PREAMBLE}\n\n<addendum>\n${addendum}\n</addendum>${skillsBlock(overlay.skills ?? [])}\n\n<cwd>\n${WORKTREE}\n</cwd>`,
@@ -391,6 +393,9 @@ const simulate = Effect.fn("loomHandback.simulate")(function* (
   call: Call,
   entry: Case,
 ) {
+  // A query thread's edit is refused by pi's guard, in this checkout's words.
+  if (entry.queryFork && call.name === "edit")
+    return { text: queryGuardRefusal(call.name), tokens: 0, isError: true };
   if (call.name === "edit") {
     const edits = Array.isArray(call.input.edits) ? call.input.edits.length : 1;
     return {
@@ -503,7 +508,7 @@ const attempt = Effect.fn("loomHandback.attempt")(function* (
       .map((part) => part.text ?? "")
       .join("");
     messages.push({ role: "assistant", content: response.content.flatMap(replayable) });
-    decided = decides(calls, entry.looking);
+    decided = decides(calls, entry.looking, entry.check);
     if (decided) break;
     prior.push(...calls);
     const results: Array<Block> = [];

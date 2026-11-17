@@ -49,7 +49,7 @@ const regrade = (dir: string) =>
           .map((block) => ({ name: block.name ?? "", input: block.input ?? {} }));
       const assistant = messages.filter((message) => message.role === "assistant");
       const calls = callsOf(assistant.at(-1)?.content ?? []);
-      if (!decides(calls, entry.looking)) return { ...row, pass: false, apart: true };
+      if (!decides(calls, entry.looking, entry.check)) return { ...row, pass: false, apart: true };
       const graded = grade(entry.check, {
         calls,
         text: row.text ?? "",
