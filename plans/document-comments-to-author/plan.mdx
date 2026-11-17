@@ -3,8 +3,8 @@ reader:
   who: first a reviewer judging this plan against the approved brief beside it, then coders who start cold and build from it
   knows: Loom's codebase in general and the brief; none of the investigation behind this plan, and nothing of the conversation that produced the brief
   after_first_screen: that a document opens exactly as today and the app then follows it to its author, that the hand-over rule is two added sentences of model text gated by an eval, that it ships as two pull requests, and which lines of the brief the plan reads rather than meets literally
-kicker: "Implementation plan · approved 13 Nov 2026 · web built 17 Nov; phone to follow"
-status: approved
+kicker: "Implementation plan · built 17 Nov 2026"
+status: done
 intent: plans/document-comments-to-author/intent.mdx
 manager_sessions:
   - id: 01a1d33b-740b-741b-9337-5063f6bb5d34
@@ -399,7 +399,7 @@ On the phone this applies however the document was opened, including from the Fi
 
 ## As built
 
-The first pull request (web, server lookup) is built. The phone, §5, is the second and is not yet built; its departures join this section when it ships, and `status` moves to `done` then.
+Both pull requests are built: web and the server lookup first (PR #575), then the phone, §5. The departures of each follow.
 
 - **No model-facing text ships; §4 is void.** Revision 1 of the hand-over text failed its eval on Claude Opus 5.5: a finished planner told of coders building the old plan still messaged its parent mid-review in 10 of 10 samples, before and after the text. It is reverted. Carl then corrected the brief on 13 Nov: a subthread should "communicate important, timely info up to the orchestrator where it deems relevant", neither relaying every message nor waiting for a final word. That is the rule PR #568 already ships, so revision 2 was never applied and the web change ships without text. On today's text a finished author hands over once at the closing word (18 of 20 samples) and stays silent after questions only (20 of 20). `model-text.md` records what was tried.
 - **The eval keeps three new guard cases** (`finished-author-closes`, `finished-author-questions-then-close`, `orchestrator-handover-mid-build`) and deletes four whose pass condition was silence mid-review, which Carl's correction no longer asks for. Two grader fixes ship with them: a Loom tool called by its bare name, as Opus often does, now grades as that tool, and a search for some other tool no longer passes. PR #568's saved runs were regraded with the fixed grader and its results stand. All figures are Opus 5.5; Fable's quota had run out.
@@ -409,3 +409,12 @@ The first pull request (web, server lookup) is built. The phone, §5, is the sec
 - **The header line is its own row under the file panel's toolbar**, since the toolbar has no room for it. It shows on every signed `.mdx`, including "Written by this thread".
 - **`docs/user/plan-queries.md` gained a short section** on reviewing a document with the thread that wrote it.
 - **Not checked live:** over the relay (the ordering holds by construction and is unit-tested), a `.mdx` link inside a report, and the lookup count per click. There is no video; the recorder dropped the frames around the click, and screenshots stand in.
+
+The phone:
+
+- **Not run on a device when this was written.** Agent device access was off, so the journey, the document's time to appear and the iPad split view are unchecked on a screen. A test drives the real document view with a fake page instead: answers sent before the author lookup settles land in no draft, two answers after it land in the author's draft, and a failed lookup sends them to the viewing thread's draft.
+- **The lookup runs once per opened document.** The view does not follow the cached query as it refreshes, so the target cannot change after he has started answering and split his answers between two drafts.
+- **The bar always names where answers go**, including "ready to send to" the thread he is in when nothing follows. The author's button is labelled **Open chat**.
+- **When following, answers carry the path as the author names it**, so they match the author's draft on web.
+- **If the lookup is slower than the page**, the document first shows as read-only and draws again when answers become tappable. If the lookup never answers, answers stay untappable until he reopens the document.
+- **The decision function moved** to `packages/client-runtime/src/state/loom/documentAuthor.ts`, unchanged, and web imports it from there.

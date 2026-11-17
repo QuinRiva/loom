@@ -1,7 +1,8 @@
 /**
  * loom: an `.mdx` drawn by web's renderer in a viewer page the server serves (so a new block
  * reaches the phone with a deploy). The app hands it the text and signs its images, so the page
- * holds no credential; in a thread, a tapped answer arrives as web's record for the draft.
+ * holds no credential; in a thread, a tapped answer arrives as web's record for the draft of the
+ * document's author, or of the thread it was opened in when the author is not the one to review it.
  */
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { getBrowseDirectoryPath } from "@t3tools/client-runtime/state/projects";
@@ -36,6 +37,7 @@ import {
   removeComposerDraftContextRecord,
   upsertComposerDraftContextRecord,
 } from "../../state/composerDraftContextRecord.loom";
+import { useThreadShell } from "../../state/entities";
 import { useComposerDraft } from "../../state/use-composer-drafts";
 import { usePreparedConnection } from "../../state/session";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
@@ -44,6 +46,7 @@ import {
   resolveWorkspaceFilePath,
   resolveWorkspaceRelativeFilePath,
 } from "./filePath";
+import { useDocumentAnswersTarget } from "./useDocumentAuthor.loom";
 
 /** From the page's load end, not mount, so a slow first download on mobile data is not a failure. */
 const READY_TIMEOUT_MS = 8_000;
@@ -76,6 +79,8 @@ export function MdxDocumentView(props: {
   const answered = useRef(false);
   // The answers last told to this load of the page; null until it has had `init`.
   const sentPresent = useRef<string | null>(null);
+  // The `initKey` last sent to this load of the page; null until it has had `init`.
+  const sentInit = useRef<string | null>(null);
   const viewerUrl =
     connection._tag === "Some"
       ? new URL(DOCUMENT_VIEWER_PATH, connection.value.httpBaseUrl).toString()
@@ -89,16 +94,24 @@ export function MdxDocumentView(props: {
     (workspace && resolveWorkspaceRelativeFilePath(workspace.cwd, props.filePath)) ??
     props.filePath;
 
-  // Answers are tappable only in a thread, whose draft is the truth for which are answered.
-  const answersTarget =
-    workspace?.threadId != null ? scopedThreadKey(props.environmentId, workspace.threadId) : null;
+  // Answers are tappable only in a thread, once the author lookup has named the thread whose
+  // draft takes them; that draft is the truth for which are answered.
+  const viewingThreadId = workspace?.threadId ?? null;
+  const target = useDocumentAnswersTarget(props.environmentId, viewingThreadId, documentPath);
+  const viewingTitle = useThreadShell(
+    viewingThreadId === null
+      ? null
+      : { environmentId: props.environmentId, threadId: viewingThreadId },
+  )?.title;
+  const answersTarget = target && scopedThreadKey(props.environmentId, target.threadId);
+  const answersPath = target?.filePath ?? documentPath;
   const draft = useComposerDraft(answersTarget);
   const chips = new Set(collectComposerContextReferences(draft.text).map((ref) => ref.contextId));
   const present = (draft.context?.records ?? []).flatMap((record) =>
     record.kind === "review-comment" &&
     "mdxAnchor" in record &&
     record.mdxAnchor !== undefined &&
-    record.filePath === documentPath &&
+    record.filePath === answersPath &&
     chips.has(record.contextId)
       ? [record.contextId]
       : [],
@@ -107,18 +120,23 @@ export function MdxDocumentView(props: {
 
   const deliver = (message: DocumentViewerAppMessage) =>
     webView.current?.injectJavaScript(documentViewerAppMessageScript(message));
-  const sendInit = () =>
+  // What `init` carries that can change while the page shows: the text, the theme, where answers go.
+  const initKey = JSON.stringify([props.source, themeAppearance, answersTarget, answersPath]);
+  const sendInit = () => {
+    sentInit.current = initKey;
+    sentPresent.current = presentKey;
     deliver({
       type: "init",
       protocol: DOCUMENT_VIEWER_PROTOCOL,
       token: token.current,
       source: props.source,
-      filePath: documentPath,
+      filePath: answersPath,
       baseDir,
       ...(workspace ? { cwd: workspace.cwd } : {}),
       appearance: themeAppearance,
       ...(answersTarget === null ? {} : { answers: { draftTarget: answersTarget, present } }),
     });
+  };
 
   const clearReadyTimer = () => {
     if (readyTimer.current !== null) clearTimeout(readyTimer.current);
@@ -128,19 +146,17 @@ export function MdxDocumentView(props: {
     clearReadyTimer();
     token.current = uuidv4();
     answered.current = false;
+    sentInit.current = null;
     sentPresent.current = null;
     setState("loading");
     setGeneration((value) => value + 1);
   };
 
-  // A new text (Refresh, a file that changed) or theme goes to the page already showing.
-  const sentInit = useRef<{ source: string; appearance: string } | null>(null);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pushes a changed document or theme into the WebView, a native view outside React
+  // A new text (Refresh, a file that changed), theme or answers draft goes to the page already
+  // showing; the draft changes once, when the author lookup settles after the page is up.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pushes a changed document, theme or answers target into the WebView, a native view outside React
   useEffect(() => {
-    const sent = sentInit.current;
-    if (sent === null || (sent.source === props.source && sent.appearance === themeAppearance))
-      return;
-    sentInit.current = { source: props.source, appearance: themeAppearance };
+    if (sentInit.current === null || sentInit.current === initKey) return;
     sendInit();
   });
   // The thread's draft changed (an answer joined it, its chip was removed): the page re-reads it.
@@ -208,8 +224,6 @@ export function MdxDocumentView(props: {
         answered.current = true;
         clearReadyTimer();
         setState("ready");
-        sentInit.current = { source: props.source, appearance: themeAppearance };
-        sentPresent.current = presentKey;
         sendInit();
         return;
       case "rendered":
@@ -227,7 +241,7 @@ export function MdxDocumentView(props: {
         if (
           answersTarget === null ||
           record.mdxAnchor === undefined ||
-          record.filePath !== documentPath
+          record.filePath !== answersPath
         ) {
           deliver({ type: "answers-present", present });
         } else if (!upsertComposerDraftContextRecord(answersTarget, record)) {
@@ -315,25 +329,32 @@ export function MdxDocumentView(props: {
           <AppActivityIndicator />
         </View>
       )}
-      {workspace?.threadId && present.length > 0 ? (
+      {target && present.length > 0 ? (
         <View
           className="flex-row items-center justify-between gap-3 border-t border-border bg-card px-4 pt-2"
           style={{ paddingBottom: Math.max(insets.bottom, 8) }}
         >
           <Text className="flex-1 text-sm text-foreground">
             {present.length === 1 ? "1 answer" : `${present.length} answers`} ready to send
+            {(target.authorTitle ?? viewingTitle)
+              ? ` to ${target.authorTitle ?? viewingTitle}`
+              : ""}
           </Text>
           <Button
             tone="primary"
-            label="Back to chat"
-            onPress={() =>
+            label={target.authorTitle === null ? "Back to chat" : "Open chat"}
+            onPress={() => {
+              const params = {
+                environmentId: String(props.environmentId),
+                threadId: String(target.threadId),
+              };
+              // The author's chat takes the file screen's place, so Back returns to the chat he came from.
               navigation.dispatch(
-                StackActions.popTo("Thread", {
-                  environmentId: String(props.environmentId),
-                  threadId: String(workspace.threadId),
-                }),
-              )
-            }
+                target.authorTitle === null
+                  ? StackActions.popTo("Thread", params)
+                  : StackActions.replace("Thread", params),
+              );
+            }}
           />
         </View>
       ) : null}

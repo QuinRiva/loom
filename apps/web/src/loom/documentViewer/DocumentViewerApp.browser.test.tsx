@@ -208,6 +208,24 @@ describe("document viewer answers", () => {
     await expect.element(yes).toHaveAttribute("aria-checked", "false");
   });
 
+  // The phone draws the document before the author lookup names the draft its answers join.
+  it("takes answers only once a later init names the draft they join", async () => {
+    const { app, screen } = await openViewer();
+    using _app = app;
+    await using _screen = screen;
+    app.init(openPrIntent, "/repo/plans/open-pr-keeps-thread-active", { filePath: INTENT_PATH });
+    await expect
+      .element(page.getByText("Questions here are answered by replying in chat."))
+      .toBeVisible();
+    app.init(openPrIntent, "/repo/plans/open-pr-keeps-thread-active", {
+      filePath: INTENT_PATH,
+      answers: { draftTarget: "env:author", present: [] },
+    });
+    await page.getByRole("radio", { name: /Yes, go/ }).click();
+    await vi.waitFor(() => expect(upserts(app.received)).toHaveLength(1));
+    expect(page.getByText("Questions here are answered by replying in chat.").query()).toBeNull();
+  });
+
   it("shows an answer as chosen only while the app reports its chip in the draft", async () => {
     const { app, screen } = await openViewer();
     using _app = app;

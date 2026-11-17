@@ -6,12 +6,13 @@
  */
 import type { DocumentQueryAuthorResult, ScopedThreadRef } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
+import { documentFollowTarget } from "@t3tools/client-runtime/state/loom/documentAuthor";
 
 import { MarkdownThreadLink } from "../components/chat/MarkdownThreadLink";
 import { Button } from "../components/ui/button";
 import { environmentThreadShells } from "../state/threads";
 import { useDocumentQueryAuthor } from "./documentQueryPins";
-import { documentFollowTarget, useMoveDocumentToAuthor } from "./openDocumentLink";
+import { useMoveDocumentToAuthor } from "./openDocumentLink";
 
 export function LoomMdxAuthorLine(props: {
   readonly filePath: string;

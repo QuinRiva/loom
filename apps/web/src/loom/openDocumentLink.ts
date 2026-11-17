@@ -6,13 +6,12 @@
  */
 import { useContext } from "react";
 import { RegistryContext } from "@effect/atom-react";
-import {
-  DOCUMENT_QUERY_ROLE,
-  type DocumentQueryAuthorResult,
-  type ScopedThreadRef,
-  type ThreadId,
-} from "@t3tools/contracts";
+import type { DocumentQueryAuthorResult, ScopedThreadRef } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  type DocumentFollowTarget,
+  documentFollowTarget,
+} from "@t3tools/client-runtime/state/loom/documentAuthor";
 import { useRouter } from "@tanstack/react-router";
 
 import { isMdxPreviewFile } from "../components/files/filePreviewMode";
@@ -21,27 +20,6 @@ import { environmentThreadShells } from "../state/threads";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 import { loomCommands } from "./loomGoalState";
-
-interface FollowTarget {
-  readonly threadId: ThreadId;
-  readonly filePath: string;
-}
-
-/** Where a document opened in `viewingThreadId` should be reviewed: its author's thread, or null to stay. */
-export function documentFollowTarget(
-  result: DocumentQueryAuthorResult,
-  viewingThreadId: ThreadId,
-  viewingRole: string | null,
-): FollowTarget | null {
-  return result.authorSource === "signature" &&
-    result.authoringSignature &&
-    result.authorThreadId !== viewingThreadId &&
-    !result.authorArchived &&
-    result.sameFile &&
-    viewingRole !== DOCUMENT_QUERY_ROLE
-    ? { threadId: result.authorThreadId, filePath: result.filePath }
-    : null;
-}
 
 /** What a follow reads from outside the panel store; the hooks wire it to the app. */
 export interface DocumentLinkEnvironment {
@@ -97,7 +75,7 @@ function waitForDocumentShown(ref: ScopedThreadRef, path: string) {
 async function follow(
   env: DocumentLinkEnvironment,
   ref: ScopedThreadRef,
-  target: FollowTarget,
+  target: DocumentFollowTarget,
   line: number | undefined,
   revision: number,
   leave: () => void,
@@ -186,7 +164,7 @@ export function useOpenDocumentLink() {
 /** The header's Review there: moves the open document `path` from `ref`'s panel to its author's. */
 export function useMoveDocumentToAuthor() {
   const env = useDocumentLinkEnvironment();
-  return (ref: ScopedThreadRef, path: string, target: FollowTarget) =>
+  return (ref: ScopedThreadRef, path: string, target: DocumentFollowTarget) =>
     void follow(
       env,
       ref,

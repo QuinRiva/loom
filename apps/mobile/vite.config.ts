@@ -22,6 +22,7 @@ const reactTests = [
   "src/features/pull-requests/usePullRequestList.test.tsx",
   "src/components/ui/AppBar.android.test.tsx",
   "src/features/files/ZipArchiveView.test.tsx",
+  "src/features/files/MdxDocumentView.loom.test.tsx", // loom
   "src/features/pull-requests/guide/useReviewGuide.test.tsx",
   "src/features/settings/SettingsServerControlsRouteScreen.test.tsx",
   "src/features/settings/components/BranchNamingSettings.test.tsx",
