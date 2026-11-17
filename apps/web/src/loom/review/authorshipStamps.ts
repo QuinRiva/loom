@@ -84,20 +84,14 @@ function stamp(node: HTMLElement, diff: FileDiffMetadata, view: AuthorshipView |
 
 /**
  * The viewer's post-render hook plus `update`, which restamps every mounted file when the
- * authorship or filter changes (the viewer does not re-render for that). `onFirstDraw` fires on
- * the viewer's first render, so authorship is asked only once the diff is on screen.
+ * authorship or filter changes (the viewer does not re-render for that).
  */
-export function createAuthorshipStamps(onFirstDraw: () => void) {
+export function createAuthorshipStamps() {
   const mounted = new Map<HTMLElement, FileDiffMetadata>();
   let view: AuthorshipView | null = null;
-  let drawn = false;
   return {
     /** `diff` is the item's diff; undefined for a plain file, which has no authors. */
     onPostRender(node: HTMLElement, phase: string, diff: FileDiffMetadata | undefined) {
-      if (!drawn && phase !== "unmount") {
-        drawn = true;
-        onFirstDraw();
-      }
       if (phase === "unmount" || diff === undefined) {
         mounted.delete(node);
         return;

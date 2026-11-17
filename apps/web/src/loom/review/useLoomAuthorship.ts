@@ -21,6 +21,7 @@ export function useLoomAuthorship({
   baseRef,
   eligible: inView,
   diffHash,
+  loaded,
   workspaceMutationId,
 }: {
   threadRef: ScopedThreadRef | null;
@@ -30,6 +31,8 @@ export function useLoomAuthorship({
   eligible: boolean;
   /** The shown diff's hash; null while it loads. */
   diffHash: string | null;
+  /** The diff's file list and first patches have arrived. */
+  loaded: boolean;
   workspaceMutationId: string | null;
 }) {
   const off = useReviewBaselineStore((state) => state.authorshipOff);
@@ -39,10 +42,12 @@ export function useLoomAuthorship({
   );
   const eligible = threadRef !== null && inView;
   const shown = eligible && !off;
+  // Latched once the diff's first patches have arrived, so blame never competes with the reads
+  // that draw it; a later refresh keeps the answer on screen while it re-asks.
   const [drawn, setDrawn] = useState(false);
-  const [stamps] = useState(() => createAuthorshipStamps(() => setDrawn(true)));
-  // Asked once the viewer has drawn, so blame never competes with the diff's own reads. A commit
-  // leaves the diff's content as it was, so the workspace revision re-asks too.
+  if (!drawn && loaded && diffHash !== null) setDrawn(true);
+  const [stamps] = useState(createAuthorshipStamps);
+  // A commit leaves the diff's content as it was, so the workspace revision re-asks too.
   const query = useEnvironmentQuery(
     shown && drawn && diffHash !== null
       ? revisionedQuery(

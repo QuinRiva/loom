@@ -546,21 +546,6 @@ export default function DiffPanel({
       ? Math.max(0, recordedToolCallFileCount - renderablePatch.files.length)
       : 0;
   const fileStats = new Map(lazySource?.files?.map((file) => [file.path, file]));
-  // loom: diff author query — who wrote each block of the whole-branch view and of the live
-  // "Since your message" view, whose new side is the same worktree.
-  const loomAuthors = useLoomAuthorship({
-    threadRef: routeThreadRef ?? null,
-    baseRef: loomReview ? null : selectedBaseRef,
-    eligible:
-      canReadFiles &&
-      !toolCallSelection &&
-      (loomReview
-        ? loomReview.live
-        : selectedRunId === null && selectedGitScope === "branch" && selectedCommitSha === null),
-    // Not the tracked-only first pass: ask once, for the complete list.
-    diffHash: preview?.incomplete ? null : (selectedGitSource?.diffHash ?? null),
-    workspaceMutationId,
-  });
   const sourceLineStat =
     isGitSelection && selectedGitSource?.files
       ? selectedGitSource.files.reduce(
@@ -675,6 +660,22 @@ export default function DiffPanel({
   );
 
   const isRefreshingDiff = branchDiffPreview.isPending || areFilePatchesPending;
+  // loom: diff author query — who wrote each block of the whole-branch view and of the live
+  // "Since your message" view, whose new side is the same worktree.
+  const loomAuthors = useLoomAuthorship({
+    threadRef: routeThreadRef ?? null,
+    baseRef: loomReview ? null : selectedBaseRef,
+    eligible:
+      canReadFiles &&
+      !toolCallSelection &&
+      (loomReview
+        ? loomReview.live
+        : selectedRunId === null && selectedGitScope === "branch" && selectedCommitSha === null),
+    // Not the tracked-only first pass: ask once, for the complete list.
+    diffHash: preview?.incomplete ? null : (selectedGitSource?.diffHash ?? null),
+    loaded: !isRefreshingDiff,
+    workspaceMutationId,
+  });
   const pathOccurrences = new Map<string, number>();
   const renderableFileEntries = renderableFiles.map((fileDiff) => {
     const entry = getCachedFileEntry(fileDiff);
