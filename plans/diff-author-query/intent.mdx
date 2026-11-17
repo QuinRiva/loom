@@ -5,7 +5,7 @@ reader:
   after_first_screen: he can correct any line or say "go"
 kicker: "Intent brief · approved 17 Nov 2026"
 status: approved
-plan: plans/diff-author-query/plan.mdx
+plan: plans/code-query/plan.mdx
 manager_sessions:
   - id: 01a1e6ab-93d8-7041-aed3-6df8fec5efb5
     name: Link diff lines to authoring subthread
@@ -91,8 +91,8 @@ rest of the phases that we paused (with the query fork)". So, in both views:
   than everything above put together (a database migration, new event
   types, model-read text to evaluate). A coder that finished a while ago is
   read in full, at the uncached price, for your first question to its copy;
-  later questions to that copy are cheap. The first plan's section 7 and
-  slices 3 to 5 hold its design.
+  later questions to that copy are cheap. `plans/code-query/plan.mdx` holds
+  its plan; `plans/diff-author-query/plan.mdx` built everything above it.
 
 **Decided.** "Yep looks good" to the mockup, which fixed three things.
 
@@ -131,6 +131,15 @@ rest of the phases that we paused (with the query fork)". So, in both views:
 - _Assumed:_ the earlier author appears on the card, not on the hunk's own
   row as the mockup's "after Deploy server" note drew it. Redirect if you
   want it on the row.
+- _Assumed:_ the marker on asked-about lines is a mark in the line-number
+  gutter. Selecting marked lines lists the questions on the card, each with
+  a way to its answer. Redirect if you want the question shown beside the
+  lines, as the mockup's "1 question" pill drew it.
+- _Assumed:_ a copy answers on the model its coder ran on, since no other
+  model can reuse what the coder already read. Redirect if a cheaper model's
+  answer would do.
+- _Assumed:_ asking again after the coder has done more work starts a fresh
+  copy; the older copy is archived and its markers go.
 - _Assumed:_ in the whole-file view, authors show when it is comparing
   against the whole branch or the live "Since your message", as in the Diff
   panel, and not for an earlier interval. The Files list itself is
