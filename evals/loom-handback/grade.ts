@@ -237,7 +237,7 @@ export type Check =
   | { readonly kind: "promotes"; readonly exchangeAt: string }
   /**
    * Nothing in the whole attempt writes (no `edit` or `write`, no shell command that changes a file
-   * or the repository), and the turn ends in text quoting one of the fragments.
+   * or the repository), and the turn ends in an answer quoting one of the fragments.
    */
   | { readonly kind: "read-only"; readonly quotes: ReadonlyArray<string> };
 
@@ -394,8 +394,8 @@ export const grade = (check: Check, observed: Observed): Grade => {
           ? { pass: false, apart: true, reason: "searched for a tool" }
           : verdict(false, `called ${deciding[0]!.name.replace(LOOM, "")}`);
       return quotes(text, check.quotes)
-        ? verdict(true, "changed nothing, said the change")
-        : verdict(false, "changed nothing, did not say the change");
+        ? verdict(true, "wrote nothing, answer names it")
+        : verdict(false, "wrote nothing, answer does not name it");
     }
     case "notifies": {
       const first = calls.find(

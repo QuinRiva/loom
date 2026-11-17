@@ -391,7 +391,7 @@ describe("a query thread", () => {
       true,
     );
     expect(grade(readOnly, observed([], "I can't change files here.")).reason).toBe(
-      "changed nothing, did not say the change",
+      "wrote nothing, answer does not name it",
     );
     const edit = { name: "edit", input: { path: "csv.ts", edits: [] } };
     expect(grade(readOnly, { ...observed([], declined), prior: [edit] }).reason).toBe(

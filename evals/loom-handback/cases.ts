@@ -1118,12 +1118,22 @@ const CSV_COMMIT = {
   sha: "4be19c2d8a31f0e6b7c5a9d24e8f1b3c6d7a0e52",
   subject: "fix(export): CSV rows carry their currency (#431)",
 };
+/** Another thread's later commit, which renamed the column the CSV coder added. */
+const CSV_RENAME_COMMIT = {
+  sha: "9e02b6f11aa07c3d5e8f2b4a6c1d0e9f8a7b6c5d",
+  subject: "fix(export): name the column currency_code",
+};
 /**
  * The first question to the CSV coder's query thread: one added line selected in the whole-file
  * change view, as web's `buildDiffReviewComment` records it, behind the overlay and the sentence
  * naming its commit.
  */
-const csvQueryAsked = (line: number, code: string, question: string): ReadonlyArray<Message> => {
+const csvQueryAsked = (
+  line: number,
+  code: string,
+  question: string,
+  owners: ReadonlyArray<typeof CSV_COMMIT> = [CSV_COMMIT],
+): ReadonlyArray<Message> => {
   const label = `csv.ts +${line}`;
   const record: ReviewCommentContextRecord = {
     version: 1,
@@ -1147,7 +1157,7 @@ const csvQueryAsked = (line: number, code: string, question: string): ReadonlyAr
     reference: formatComposerContextReference(record),
     question,
     commit: CSV_COMMIT,
-    owners: [CSV_COMMIT],
+    owners,
   });
   return [
     ...csvCoderFinished,
@@ -1970,5 +1980,27 @@ Build §4 of the plan \`${PLAN_PATH}\`: the \`invoice-reminder\` email template 
     maxSteps: 10,
     samples: 10,
     check: { kind: "read-only", quotes: ["currency_code"] },
+  },
+  {
+    id: "code-query-earlier-author",
+    kind: "guard",
+    base: "either",
+    source: `${CODE_QUERY} The intent brief's earlier author: "Where a later thread rewrote the lines (a reviewer's fix, say), the card offers the earlier author too", who is then shown lines it did not write and must not explain them as its own.`,
+    role: "coder",
+    threadId: CSV_CODER,
+    parentId: CSV_ROOT,
+    engagedTools: [],
+    queryFork: true,
+    messages: csvQueryAsked(
+      4,
+      `const COLUMNS = ["invoice_id", "customer", "due_date", "total", "currency_code"] as const;`,
+      "Why is this column called `currency_code`?",
+      [CSV_RENAME_COMMIT],
+    ),
+    looking: [t("consult_thread")],
+    maxSteps: 10,
+    samples: 10,
+    // The answer names the commit the current text came from.
+    check: { kind: "read-only", quotes: [CSV_RENAME_COMMIT.sha.slice(0, 7)] },
   },
 ];
