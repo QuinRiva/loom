@@ -25,6 +25,7 @@ export function useLoomAuthorship({
   loaded,
   workspaceMutationId,
   intervalPatch,
+  filterable = true,
 }: {
   threadRef: ScopedThreadRef | null;
   /** The base the panel asked its diff for: the user's pick, or null for the automatic one. */
@@ -40,11 +41,13 @@ export function useLoomAuthorship({
   workspaceMutationId: string | null;
   /** "Since your message"'s patch: authors are shown only on the lines it adds. */
   intervalPatch: string | null;
+  /** False where the Diff panel's "Written by" filter has no control: its lines are not dimmed. */
+  filterable?: boolean;
 }) {
   const off = useReviewBaselineStore((state) => state.authorshipOff);
   const threadKey = threadRef ? scopedThreadKey(threadRef) : null;
   const filter = useReviewBaselineStore((state) =>
-    threadKey === null ? null : (state.authorFilterByThreadKey[threadKey] ?? null),
+    threadKey === null || !filterable ? null : (state.authorFilterByThreadKey[threadKey] ?? null),
   );
   const eligible = threadRef !== null && inView;
   const shown = eligible && !off;

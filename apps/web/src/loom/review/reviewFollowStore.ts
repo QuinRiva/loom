@@ -60,22 +60,25 @@ export const useReviewFollowStore = create<ReviewFollowState>()(
 );
 
 /**
- * Open thread's store writes: the author's panel follows the review and shows the diff, and its
- * timeline is parked at the commit's author date. Writes nothing into the author's own diff state.
- * When the author is the reviewing thread itself, only the jump is parked.
+ * Open thread's store writes: the author's panel follows the review and shows the diff (or `file`,
+ * opened whole, when the card was in the whole-file view), and its timeline is parked at the
+ * commit's author date. Writes nothing into the author's own diff state. When the author is the
+ * reviewing thread itself, only the jump is parked.
  */
 export function followReviewToAuthor(input: {
   readonly reviewing: ScopedThreadRef;
   readonly author: ScopedThreadRef;
   /** The commit's author date, which a rebase or amend keeps. */
   readonly authoredAt: string;
+  readonly file?: string | undefined;
 }) {
   const { reviewing, author } = input;
   if (scopedThreadKey(author) !== scopedThreadKey(reviewing)) {
     useReviewFollowStore.setState((state) => ({
       followByThreadKey: { ...state.followByThreadKey, [scopedThreadKey(author)]: reviewing },
     }));
-    useRightPanelStore.getState().open(author, "diff");
+    if (input.file === undefined) useRightPanelStore.getState().open(author, "diff");
+    else useRightPanelStore.getState().openFile(author, input.file);
   }
   // Timeline rows carry UTC instants and are compared as strings; git's %aI carries an offset.
   useConversationJumpStore

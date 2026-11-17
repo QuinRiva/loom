@@ -64,10 +64,8 @@ function addedLinesOf(patch: string): ReadonlyMap<string, ReadonlySet<number>> {
   return added;
 }
 
-const narrowed = new WeakMap<
-  LoomReviewAuthorshipResult,
-  { readonly patch: string; readonly result: LoomReviewAuthorshipResult }
->();
+/** Per reply and patch: the Diff panel and the whole-file view build the same patch differently. */
+const narrowed = new WeakMap<LoomReviewAuthorshipResult, Map<string, LoomReviewAuthorshipResult>>();
 
 /**
  * The reply cut to the lines `patch` adds. The reply covers the whole branch, and "Since your
@@ -78,8 +76,10 @@ export function narrowAuthorship(
   result: LoomReviewAuthorshipResult,
   patch: string,
 ): LoomReviewAuthorshipResult {
-  const cached = narrowed.get(result);
-  if (cached?.patch === patch) return cached.result;
+  let cache = narrowed.get(result);
+  if (cache === undefined) narrowed.set(result, (cache = new Map()));
+  const cached = cache.get(patch);
+  if (cached !== undefined) return cached;
   const added = addedLinesOf(patch);
   const files = result.files.flatMap((file) => {
     const lines = added.get(file.path);
@@ -98,7 +98,8 @@ export function narrowAuthorship(
     return runs.length > 0 ? [{ ...file, runs }] : [];
   });
   const next = { ...result, files };
-  narrowed.set(result, { patch, result: next });
+  if (cache.size > 3) cache.clear();
+  cache.set(patch, next);
   return next;
 }
 
