@@ -43,6 +43,65 @@ export interface Authorship {
 
 const KIND_ORDER = { thread: 0, threads: 1, git: 2, uncommitted: 3 } as const;
 
+/** The new-side lines each file of a unified diff adds. */
+function addedLinesOf(patch: string): ReadonlyMap<string, ReadonlySet<number>> {
+  const added = new Map<string, Set<number>>();
+  let lines: Set<number> | null = null;
+  let line = 0;
+  let previous = "";
+  for (const text of patch.split("\n")) {
+    const header = previous.startsWith("--- ");
+    previous = text;
+    if (header && text.startsWith("+++ ")) {
+      const path = text.slice(4).replace(/^"(.*)"$/, "$1");
+      lines = path === "/dev/null" ? null : new Set();
+      if (lines) added.set(path.replace(/^b\//, ""), lines);
+    } else if (text.startsWith("@@")) line = Number(/\+(\d+)/.exec(text)?.[1] ?? 0);
+    else if (lines === null || text.startsWith("-") || text.startsWith("\\")) continue;
+    else if (text.startsWith("+")) lines.add(line++);
+    else if (text.startsWith(" ")) line++;
+  }
+  return added;
+}
+
+const narrowed = new WeakMap<
+  LoomReviewAuthorshipResult,
+  { readonly patch: string; readonly result: LoomReviewAuthorshipResult }
+>();
+
+/**
+ * The reply cut to the lines `patch` adds. The reply covers the whole branch, and "Since your
+ * message" shows only part of it: a line the branch changed before the message must not name its
+ * author there.
+ */
+export function narrowAuthorship(
+  result: LoomReviewAuthorshipResult,
+  patch: string,
+): LoomReviewAuthorshipResult {
+  const cached = narrowed.get(result);
+  if (cached?.patch === patch) return cached.result;
+  const added = addedLinesOf(patch);
+  const files = result.files.flatMap((file) => {
+    const lines = added.get(file.path);
+    if (lines === undefined || lines.size === 0) return [];
+    if (file.untracked) return [file];
+    const runs = file.runs.flatMap(([start, end, index]) => {
+      const kept: Array<[number, number, number]> = [];
+      for (let line = start; line <= end; line++) {
+        if (!lines.has(line)) continue;
+        const last = kept.at(-1);
+        if (last && last[1] === line - 1) last[1] = line;
+        else kept.push([line, line, index]);
+      }
+      return kept;
+    });
+    return runs.length > 0 ? [{ ...file, runs }] : [];
+  });
+  const next = { ...result, files };
+  narrowed.set(result, { patch, result: next });
+  return next;
+}
+
 const built = new WeakMap<LoomReviewAuthorshipResult, Authorship>();
 
 /** One `Authorship` per reply, so a render that did not change the reply restamps nothing. */

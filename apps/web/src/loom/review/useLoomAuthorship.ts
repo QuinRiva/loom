@@ -11,7 +11,7 @@ import { useLayoutEffect, useState } from "react";
 
 import { useEnvironmentQuery } from "../../state/query";
 import { revisionedQuery } from "../../state/revisionedQuery";
-import { authorshipOf } from "./authorship";
+import { authorshipOf, narrowAuthorship } from "./authorship";
 import { AUTHORSHIP_CSS, createAuthorshipStamps } from "./authorshipStamps";
 import { useReviewBaselineStore } from "./reviewBaselineStore";
 import { loomReviewQueries } from "./reviewQueries";
@@ -24,6 +24,7 @@ export function useLoomAuthorship({
   complete,
   loaded,
   workspaceMutationId,
+  intervalPatch,
 }: {
   threadRef: ScopedThreadRef | null;
   /** The base the panel asked its diff for: the user's pick, or null for the automatic one. */
@@ -37,6 +38,8 @@ export function useLoomAuthorship({
   /** The diff's file list and first patches have arrived. */
   loaded: boolean;
   workspaceMutationId: string | null;
+  /** "Since your message"'s patch: authors are shown only on the lines it adds. */
+  intervalPatch: string | null;
 }) {
   const off = useReviewBaselineStore((state) => state.authorshipOff);
   const threadKey = threadRef ? scopedThreadKey(threadRef) : null;
@@ -86,7 +89,12 @@ export function useLoomAuthorship({
     answer !== null &&
     diffHash !== null &&
     (complete ? answer.asked?.hash : answer.asked?.trackedHash) === diffHash;
-  const result = shown && current ? answer.result : null;
+  const result =
+    shown && current
+      ? intervalPatch === null
+        ? answer.result
+        : narrowAuthorship(answer.result, intervalPatch)
+      : null;
   const authorship = result === null ? null : authorshipOf(result);
   const activeFilter =
     authorship?.groups.some((group) => group.key === filter) === true ? filter : null;

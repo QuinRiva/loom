@@ -685,6 +685,7 @@ export default function DiffPanel({
     complete: !preview?.incomplete,
     loaded: !isRefreshingDiff,
     workspaceMutationId,
+    intervalPatch: loomReview?.source?.diff ?? null,
   });
   const pathOccurrences = new Map<string, number>();
   const renderableFileEntries = renderableFiles.map((fileDiff) => {
