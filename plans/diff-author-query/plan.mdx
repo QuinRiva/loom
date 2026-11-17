@@ -4,7 +4,7 @@ reader:
   who: the gate reviewer judging this plan against the approved brief, and the coder threads that will each build one slice of it cold
   knows: the codebase's conventions, the Diff panel and query threads as shipped features; nothing of the planning thread, the measurements or the owner's conversation
   after_first_screen: what is being built, the three bets it rests on, and the order of the five slices
-status: approved
+status: done
 intent: plans/diff-author-query/intent.mdx
 manager_sessions:
   - id: 01a1e713-231b-7344-b7ff-adfc8a3c9532
@@ -751,3 +751,19 @@ The end-to-end journey, run at slice 4 and again after slice 5, on a dev instanc
 - Authors show in the whole-branch view, which he reaches by picking Changes when the panel opens on "Since your message".
 - The thread filter narrows the file list and dims other threads' lines; it does not cut their hunks out.
 - The mockup's "after ‹thread›" note on a hunk's row is not drawn. The earlier author is on the card, where the brief's check puts it, because finding it needs a history walk per hunk.
+
+## As built
+
+Slices 1 and 2 were built and reviewed on 17 Nov 2026 and ship in one pull request. Where the build departs from the sections above:
+
+- **Slices 3 to 5 were not built.** After the plan was approved the owner deferred Query author, its line markers and Promote: "let's just try slices 1 and 2 and see if that works. Then we can always come back and build the remaining ones after we deploy slices 1 and 2 if I see value in that." So the card offers Open thread only, no Query author button is drawn, and `AnnotatableCodeView.tsx` gained one optional prop, not three. §7 and the slice 3 to 5 cards stand as the design for that later work.
+- **Authors also show in the live "Since your message" view**, which the plan left out. The owner chose "Show authors in both views" once it was clear the panel opens on that view. The server reply still covers the whole branch; the client cuts it to the lines the interval's patch adds, so a thread is not named on lines changed before the message. Earlier intervals show no authors.
+- **`baseRef: null` means the automatic base**, resolved by the server through the same driver call as the diff, so the live view can ask for authors without a branch source of its own. The wire shape is unchanged.
+- **Authorship is asked once the diff's first patches have arrived**, not on the viewer's first render, which raced the patch reads and slowed loads over the shared link. The query is keyed on the diff's content hash and the workspace mutation id, and an answer is drawn only on the content it was asked for, so a refresh never paints an old answer on lines that moved.
+- **Blame runs on git's background lane**, so it never takes a permit the diff's own reads use.
+- **The edge recolours the viewer's existing added-line bar** instead of adding a second edge, which sat under that bar and could not be seen. Removed lines get no edge; the hunk label still names the authors.
+- **Each author row on the card has its own Open thread button.** With Query author gone, the plan's single action row and its "subject" chosen by clicking an earlier row would only have added a state to manage.
+- **A card with no comment typed gives way to a new selection.** Selecting lines opens the card at once, and upstream disables selection while a draft exists, so without this a second selection would need a Close first.
+- **`reviewFollowStore.removeThread` was not kept.** The plan asked for it for parity; nothing calls it.
+- **`authorOf` stayed in `packages/shared`** as planned, although the server check that was to share it belongs to slice 3.
+- **Slice 2 ran after slice 1's review, alone.** The parallel run with slice 3 never arose.
