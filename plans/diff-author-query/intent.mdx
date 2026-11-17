@@ -5,6 +5,7 @@ reader:
   after_first_screen: he can correct any line or say "go"
 kicker: "Intent brief · approved 17 Nov 2026"
 status: approved
+plan: plans/diff-author-query/plan.mdx
 manager_sessions:
   - id: 01a1e6ab-93d8-7041-aed3-6df8fec5efb5
     name: Link diff lines to authoring subthread
@@ -52,8 +53,10 @@ without losing your place in the diff.
 - Finding the author with git blame on the changed lines, then the
   `Loom-Thread` line agents add to every commit. Wins if the lines you review
   are committed, which they are by the time you compare against
-  `origin/main`. 193 of 193 agent commits in the last 14 days carry that
-  line. _Chosen._
+  `origin/main`. Every agent commit since that line began on 13 Oct carries
+  it (583 of 583), and every thread they name still exists. Blame takes
+  17 ms on the largest file of the latest merged branch and runs after the
+  diff is drawn. _Chosen._
 - Finding the author of uncommitted lines from the snapshot Loom takes at the
   end of each turn. Wins if you often review before coders commit. Not in
   the first cut.
@@ -62,7 +65,9 @@ without losing your place in the diff.
 - Asking through Query author (a read-only copy answers) and through Open
   thread (you go to the live coder). Both are built. Either way the main
   window moves to another thread, so the diff has to follow it, and that is
-  the one hard part they share.
+  the one hard part they share. A coder that finished a while ago is read
+  in full, at the uncached price, for your first question to its copy; later
+  questions to that copy are cheap.
 
 **Decided.** "Yep looks good" to the mockup, which fixed three things.
 
@@ -73,11 +78,23 @@ without losing your place in the diff.
   needs anything new: "No, those two cover it; build nothing more for it".
   The two are the Diff panel's existing "Since your message" view and this
   brief's filter that narrows the diff to one thread's changes.
-- _Assumed:_ authorship is on by default in the whole-branch view, with a
-  toggle that is remembered. Redirect if you would rather switch it on
-  yourself.
+- _Assumed:_ authorship is on by default in the whole-branch view
+  ("Changes", which already compares against `origin/main` without you
+  picking a base), with a toggle that is remembered. The panel opens on
+  "Since your message" when the thread has one, so authors appear once you
+  pick Changes, which it remembers per thread. Redirect if you want authors
+  in "Since your message" too, or would rather switch them on yourself.
 - _Assumed:_ a commit made outside a Loom thread (yours, or upstream's)
-  shows its git author and offers no Query.
+  shows its git author and offers no Query. So does a commit one thread
+  amended after another made it (4 of 583): the card names both and asks
+  neither.
+- _Assumed:_ a block that only removes lines shows as removed, with no
+  author, because blame names who wrote a line, not who deleted one. That is
+  24 of 564 blocks (4%) across the last ten merged branches, about two a
+  branch. Redirect if you want the thread that deleted them named.
+- _Assumed:_ the earlier author appears on the card, not on the hunk's own
+  row as the mockup's "after Deploy server" note drew it. Redirect if you
+  want it on the row.
 - _Assumed:_ web and desktop first. Redirect if you review diffs on your
   phone.
 
@@ -87,16 +104,10 @@ at a time.
 
 **Still unknown.**
 
-- How often does a branch diff hold a block that only removes lines? Blame
-  names who wrote a line, not who deleted one. A count over the last ten
-  merged branches settles whether the first cut needs a second lookup for
-  them.
 - Does a copy of a coder whose long session was summarised part-way still
   give the real reason for its early lines, or a plausible reconstruction?
-  Asking about the early lines of a long-running coder in the first live
-  pass settles it, and whether the answer needs a warning.
-- Is blame quick enough on the largest file of a real branch diff, over the
-  relay? Timing it on a recent branch settles it.
-- Does the whole-branch view already compare against `origin/main` without
-  you picking a base? Reading the panel's default settles it; if it does
-  not, that comes back to you as a question.
+  The copy is told to say when it is reconstructing and to read its own
+  transcript first. Asking about the early lines of a long-running coder in
+  the first live pass settles whether that is enough. If it is not, the card
+  warns when the coder was summarised after it wrote the lines, and whether
+  a warning is enough comes back to you.
