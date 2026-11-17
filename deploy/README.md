@@ -120,8 +120,8 @@ Going back is the same steps with the old release's `loom-deploy adopt` and the 
 
 Loom moved onto this mechanism on 17 Nov 2026. The old tool (`deployctl`, in the Slack bridge's
 repository) can take Loom back until the next bridge deploy after that date, which pushes the
-bridge release that still carries the old tool's Loom target out of reach; after it, this way back
-needs a rebuild of bridge commit `6346c8f`. Run it over SSH, outside Loom. There is no way back while
+bridge release that still carries the old tool's Loom target out of reach; after it, these steps no
+longer work as written. Run them over SSH, outside Loom. There is no way back while
 a deploy is `switching` or `watching`: wait for `loom-deploy status --wait` to end first.
 
 1. Only if the running release itself is bad: `loom-deploy back --wait`. Everything written in
@@ -142,8 +142,12 @@ a deploy is `switching` or `watching`: wait for `loom-deploy status --wait` to e
    node -e 'const f="/home/Carl/loom-releases/manifest.json",fs=require("fs"),m=JSON.parse(fs.readFileSync(f));for(const r of Object.values(m.releases))if(r.status!=="failed"&&!r.db)r.db="statev2.sqlite";fs.writeFileSync(f+".tmp",JSON.stringify(m,null,2)+"\n");fs.renameSync(f+".tmp",f)'
    ```
 
-4. The bridge's previous release, which has the old tool's Loom target. Wait until
-   `curl -s http://127.0.0.1:13901/healthz` shows `"loom":"connected"` (the rollback checks it) and
+4. The bridge's previous release, which has the old tool's Loom target. First
+   `readlink ~/loom-bridge-releases/current ~/loom-bridge-releases/previous`: if `current` names
+   `…-6346c8f`, the rollback is already done, so skip to the checkout below; if it names anything
+   but `…-3988de7`, stop, because a later bridge deploy has ended this way back. Then wait until
+   `curl -s http://127.0.0.1:13901/healthz` shows `"loom":"connected"` (the rollback checks it; if
+   not within 60 s, `systemctl --user restart loom-slack-bridge` and check again) and
    `ls -A ~/loom-bridge-releases/spool/queue ~/loom-bridge-releases/spool/processing` lists
    nothing, then:
 
@@ -152,9 +156,10 @@ a deploy is `switching` or `watching`: wait for `loom-deploy status --wait` to e
    ~/loom-bridge-releases/current/deploy/deployctl rollback bridge --inline   # ROLLBACK OK
    ```
 
-   If the bridge's checkout is clean, on `master` and at `3988de7`, reset it so Slack's
-   instructions name the old tool again:
-   `git -C ~/loom-slack-bridge reset --hard 6346c8fa8af21c075e2a55b34fe0574135a0afbe`.
+   The bridge's checkout: if
+   `git -C ~/loom-slack-bridge status -sb --untracked-files=no; git -C ~/loom-slack-bridge rev-parse --short HEAD`
+   prints only the `## master…` line and `3988de7`, reset it so Slack's instructions name the old tool
+   again: `git -C ~/loom-slack-bridge reset --hard 6346c8fa8af21c075e2a55b34fe0574135a0afbe`.
 
 5. Start the old worker. `ls ~/loom-releases/deploy-in-progress ~/loom-bridge-releases/deploy-in-progress`
    must find neither file, and `ls -A ~/loom-releases/spool/queue ~/loom-releases/spool/processing`
