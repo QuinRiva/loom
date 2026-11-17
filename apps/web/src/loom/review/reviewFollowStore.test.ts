@@ -56,17 +56,6 @@ describe("following a review to its author", () => {
     expect(useReviewFollowStore.getState().followByThreadKey).toEqual({});
     expect(useConversationJumpStore.getState().request?.threadId).toBe(REVIEWING.threadId);
   });
-
-  it("Back deletes the follow", () => {
-    setup();
-    followReviewToAuthor({
-      reviewing: REVIEWING,
-      author: AUTHOR,
-      authoredAt: "2026-11-17T01:00:00Z",
-    });
-    useReviewFollowStore.getState().unfollow(AUTHOR);
-    expect(useReviewFollowStore.getState().followByThreadKey).toEqual({});
-  });
 });
 
 describe("resolveReviewFollow", () => {

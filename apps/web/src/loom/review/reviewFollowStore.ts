@@ -1,7 +1,7 @@
 /**
  * loom: a Diff panel following another thread's review (plans/diff-author-query/plan.mdx §6): Open
  * thread points the author's panel at the reviewing thread's diff state, never copying into the
- * author's own. Tiers per docs/architecture/loom-ui-state-tiers.md; `removeThread` is parity.
+ * author's own. Tiers per docs/architecture/loom-ui-state-tiers.md.
  */
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
@@ -26,7 +26,6 @@ interface ReviewFollowState {
   focusByThreadKey: Record<string, ReviewFocus>;
   unfollow: (ref: ScopedThreadRef) => void;
   setFocus: (reviewing: ScopedThreadRef, focus: ReviewFocus) => void;
-  removeThread: (ref: ScopedThreadRef) => void;
 }
 
 const without = <T>(record: Record<string, T>, key: string) => {
@@ -47,11 +46,6 @@ export const useReviewFollowStore = create<ReviewFollowState>()(
       setFocus: (reviewing, focus) =>
         set((state) => ({
           focusByThreadKey: { ...state.focusByThreadKey, [scopedThreadKey(reviewing)]: focus },
-        })),
-      removeThread: (ref) =>
-        set((state) => ({
-          followByThreadKey: without(state.followByThreadKey, scopedThreadKey(ref)),
-          focusByThreadKey: without(state.focusByThreadKey, scopedThreadKey(ref)),
         })),
     }),
     {
