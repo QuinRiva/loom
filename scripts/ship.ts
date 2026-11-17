@@ -191,7 +191,7 @@ export class ShipMergeNotConfirmedError extends Schema.TaggedError<ShipMergeNotC
  */
 export function planShipSteps(options: ShipPlanOptions): ReadonlyArray<ShipStep> {
   const title = options.openPrTitle ?? options.title ?? options.message.split("\n")[0] ?? "";
-  // deployctl reads these back from the merge commit (`%(trailers:key=Loom-Summary)`), so they
+  // `loom-deploy` reads these back from the merge commit (`%(trailers:key=Loom-Summary)`), so they
   // must stay the last paragraph of the merge body.
   const trailers = `Loom-Summary: ${options.summary}\nLoom-Kind: ${options.kind}`;
   const prBody = [options.body?.trimEnd(), trailers].filter(Boolean).join("\n\n");

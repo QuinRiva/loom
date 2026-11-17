@@ -40,7 +40,7 @@ METRICS = {
     "cost_per_goal_median": ("Cost (list price)", "Cost per goal, median", "usd", "`loom_usage_ledger.cost_usd` by `goal_id`, goals created in the window, cost to window end"),
     "cost_per_goal_mean": ("Cost (list price)", "Cost per goal, mean", "usd", "as above"),
     "cost_per_resolved_gate": ("Cost (list price)", "Cost per resolved gate", "usd", "reviewer plus coder ledger cost, gates resolved in the window"),
-    "releases_in_force": ("Instruction surface", "Releases in force", "text", "`~/loom-releases/deploy.log`: successful cockpit promotions and rollbacks"),
+    "releases_in_force": ("Instruction surface", "Releases in force", "text", "`~/loom-releases/deploy.log` (cockpit promotions and rollbacks) to 17 Nov 2026, then `deploy-history.jsonl` (`live`, `back`, `put-back`)"),
     "launches_by_commit": ("Instruction surface", "Launches by loom commit", "count", "`loom_thread_launch_stamps.loom_commit`"),
 }
 READING_RULE = (

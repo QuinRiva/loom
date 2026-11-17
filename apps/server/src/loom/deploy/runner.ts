@@ -257,7 +257,11 @@ function stopAndExit(code: number, signal: NodeJS.Signals = "SIGTERM") {
   if (child === undefined || !alive(child)) process.exit(code);
   child.once("exit", () => process.exit(code));
   child.kill(signal);
-  setTimeout(() => child.kill("SIGKILL"), STOP_GRACE_MS).unref();
+  setTimeout(() => {
+    if (!alive(child)) return;
+    log(`server still running ${STOP_GRACE_MS / 1000} s after ${signal}: killing it`);
+    child.kill("SIGKILL");
+  }, STOP_GRACE_MS).unref();
 }
 
 function fail(reason: string) {

@@ -24,8 +24,10 @@ in a workstream the SHIPPING POLICY block in your prompt states it.
 
 Shipping ends at the merge. **Deploying to the production VM is a separate,
 human-initiated act** — never deploy as part of finishing a change unless the
-user explicitly asks for a deploy. When asked, the mechanism lives in
-`~/loom-releases/RUNBOOK.md` (loom-slack-bridge repo); never run a raw in-place
+user explicitly asks for a deploy. When asked, run `loom-deploy deploy` (on the
+path of every Loom shell; [`deploy/README.md`](deploy/README.md)). From a Loom
+thread run `deploy` and `back` without `--wait` and follow with
+`loom-deploy status`: Loom restarts under the command. Never run a raw in-place
 `pnpm cockpit:build`.
 
 ## Database migrations

@@ -107,7 +107,7 @@ files too (above). In order, the script:
    `--pr-only`, reuses it and its title instead.
 7. Merges it (`gh pr merge --merge --admin`; `main`'s Restrict-updates ruleset
    reports a bypass actor's PR as blocked without `--admin`), the merge body
-   being the PR title then the trailers, where deployctl reads them for the deploy toast, and confirms
+   being the PR title then the trailers, where `loom-deploy` reads them for the deploy toast, and confirms
    the merged state.
 8. Deletes the remote branch explicitly once the merge is confirmed.
 

@@ -21,7 +21,7 @@ It links out rather than repeating:
 - patch mechanics for the bundled pi → [`infra/pi-patches/README.md`](../../infra/pi-patches/README.md)
 - re-scoring the routing matrix → [`model-profiles.md`](model-profiles.md#re-scoring-routine-for-a-new-model)
 - landing the PR → [`shipping.md`](shipping.md)
-- deploying the cockpit → `~/loom-releases/RUNBOOK.md` (`deployctl`)
+- deploying the cockpit → [`deploy/README.md`](../../deploy/README.md) (`loom-deploy`)
 - rebuilding cli-proxy → `/home/Carl/cli-proxy/AGENTS.md`
 
 A pi bump and a model rollover are separable, but they couple through the
@@ -84,7 +84,7 @@ the longest pole (§3, step 1).
 What a pi bump touches, and the two catalogues that decide which models exist.
 "Effect" says when a change is visible: **live** = the next pi process / next
 spawn picks it up with no restart; **restart** = a service restart;
-**deploy** = only after the loom release is promoted.
+**deploy** = only after a Loom deploy that carries the change.
 
 The places a model **slug** lives — cockpit presets and defaults, failover
 chains, the global pi defaults, `PI_DEFAULT_MODEL` — are not listed here. They
@@ -108,7 +108,7 @@ needs Carl's yes first (the `platform-update` skill asks).
 | 6   | cli-proxy (Claude pool only)        | `/home/Carl/cli-proxy/docker-compose.yml` `image:` tag; upstream `internal/registry/models/models.json` + cloak pin in `internal/runtime/executor/helps/claude_device_profile.go` | other project | restart (~6 s outage) | Anthropic rejects the model with `Claude Code <old> does not support this model; version <floor> or newer is required` — even though `GET /v1/models` lists it.                                                                                                                                                          |
 | 10  | Role prose                          | `roles/*.md`                                                                                                                                                                      | repo          | —                     | Nothing to edit: roles name model families and tiers (Opus = anthropic/medium, Sol = openai/medium), never versions.                                                                                                                                                                                                     |
 | 12  | Tests that assert a default         | the fixtures asserting `PI_DEFAULT_MODEL`'s value                                                                                                                                 | repo          | —                     | The skill's loom PR updates them with the constant (the gate fails loudly otherwise); the ~100 fixtures that merely _use_ a slug stay as they are.                                                                                                                                                                       |
-| 15  | Deploy                              | `~/loom-releases/RUNBOOK.md` → `deployctl deploy cockpit main`                                                                                                                    | machine       | —                     | Row 1 and the skill's loom PR stay on paper, and the cockpit cannot run a new `cliproxy/*` model.                                                                                                                                                                                                                        |
+| 15  | Deploy                              | `loom-deploy deploy` ([`deploy/README.md`](../../deploy/README.md))                                                                                                               | machine       | —                     | Row 1 and the skill's loom PR stay on paper, and the cockpit cannot run a new `cliproxy/*` model.                                                                                                                                                                                                                        |
 | 17  | Web search backend                  | `~/.pi/web-search.json` → `provider` (`exa`; absent means `auto`, which tries OpenAI first)                                                                                       | machine       | live                  | An unset provider sends every `web_search` through an OpenAI model on the Codex subscription.                                                                                                                                                                                                                            |
 | 18  | Prompt-template provider preference | `pi-prompt-template-model` `PREFERRED_PROVIDERS` (`openai-codex` first)                                                                                                           | machine       | live                  | Note only: it breaks a tie only for a template naming a bare model id, and `~/.pi/agent/prompts/` is empty.                                                                                                                                                                                                              |
 
@@ -149,7 +149,7 @@ deploy. Sequence so that nothing points at a model that nothing can serve:
    exception is a `cliproxy/*` model only the new pi ships: the deployed
    cockpit derives that catalogue from its own, older pi (row 4), so the skill
    holds those targets until after step 5 (0.99.2's `claude-sonnet-5-5`).
-5. **Deploy** (row 15) per `~/loom-releases/RUNBOOK.md`. Confirm the promoted
+5. **Deploy** (row 15) per [`deploy/README.md`](../../deploy/README.md). Confirm the live
    release resolves the new pi:
    `grep '"version"' "$(readlink -f ~/loom-releases/current/apps/server/node_modules/@earendil-works/pi-coding-agent)/package.json"`.
 

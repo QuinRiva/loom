@@ -1,7 +1,6 @@
 [Unit]
-# Loom's service under upstream's launcher (plans/loom-deploy-redesign §7.1, deploy/README.md):
-# the installed file of 11 Nov 2026 with the start line changed, three lines added and the
-# working directory moved off the release folder. Installed only at the cut-over.
+# Loom's service under upstream's launcher (deploy/README.md). A deploy does not install this
+# file: copy it to ~/.config/systemd/user/ by hand and run `systemctl --user daemon-reload`.
 Description=loom cockpit server
 After=network-online.target
 Wants=network-online.target
@@ -14,6 +13,9 @@ Type=simple
 WorkingDirectory=%h
 Environment=T3CODE_HOME=/home/Carl/.t3/cockpit
 Environment=T3CODE_PORT=13900
+# A server the launcher starts listens on every address unless told otherwise, and
+# `tailscale serve` holds this machine's tailnet address on the same port: EADDRINUSE.
+Environment=T3CODE_LAN=false
 # Production runs from the release store; never auto-create a project for the
 # install directory (each promoted release has a new realpath → junk projects).
 Environment=T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD=false
