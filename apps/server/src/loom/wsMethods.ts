@@ -20,9 +20,11 @@ import {
   type LoomGoalGetInput,
   type LoomGoalUpdateInput,
   type LoomPromptCaptureInput,
+  type LoomReviewAuthorshipInput,
   type LoomReviewDiffInput,
   type LoomReviewFileContentsInput,
   type LoomReviewIntervalsInput,
+  type LoomReviewLineHistoryInput,
   type LoomThreadHistoryInput,
   type LoomThreadShellInput,
   type LoomThreadSpendInput,
@@ -55,6 +57,7 @@ import { goalShellItem, LoomGoalBroadcast } from "./projection/LoomGoalBroadcast
 import { promptCapturePathsOf } from "./loomPaths.ts";
 import { LoomThreadConsult } from "./workstream/consult.ts";
 import { ReviewSnapshotService } from "./review/ReviewSnapshotService.ts";
+import { ReviewAuthorship } from "./review/ReviewAuthorship.ts";
 import { UsageLimitSources } from "../usage/UsageLimitSources.ts";
 import {
   type LoomGoalTaskInput,
@@ -139,6 +142,7 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
   const consult = yield* LoomThreadConsult;
   const usageLimitSources = yield* UsageLimitSources;
   const reviewSnapshots = yield* ReviewSnapshotService;
+  const reviewAuthorship = yield* ReviewAuthorship;
   const orchestrator = yield* OrchestratorV2;
   const deploy = yield* LoomDeploy.LoomDeploy;
   const session = yield* LoomWsSession;
@@ -310,6 +314,10 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
       reviewRead(LOOM_WS_METHODS.reviewDiff)(reviewSnapshots.diff(input)),
     [LOOM_WS_METHODS.reviewFileContents]: (input: LoomReviewFileContentsInput) =>
       reviewRead(LOOM_WS_METHODS.reviewFileContents)(reviewSnapshots.fileContents(input)),
+    [LOOM_WS_METHODS.reviewAuthorship]: (input: LoomReviewAuthorshipInput) =>
+      reviewRead(LOOM_WS_METHODS.reviewAuthorship)(reviewAuthorship.authorship(input)),
+    [LOOM_WS_METHODS.reviewLineHistory]: (input: LoomReviewLineHistoryInput) =>
+      reviewRead(LOOM_WS_METHODS.reviewLineHistory)(reviewAuthorship.lineHistory(input)),
     // Context-viz experiment: the thread's pi session file, attributed per call and item.
     [LOOM_WS_METHODS.contextUsage]: (input: LoomContextUsageInput) =>
       contextUsageReport(input.threadId).pipe(

@@ -307,6 +307,10 @@
       "types": "./src/documentQuery.loom.ts",
       "import": "./src/documentQuery.loom.ts"
     },
+    "./reviewAuthorship.loom": {
+      "types": "./src/reviewAuthorship.loom.ts",
+      "import": "./src/reviewAuthorship.loom.ts"
+    },
     "./composerContextLegacy": {
       "types": "./src/composerContextLegacy.ts",
       "import": "./src/composerContextLegacy.ts"

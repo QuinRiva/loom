@@ -77,6 +77,9 @@ export const LOOM_WS_METHODS = {
   reviewIntervals: "loom.review.intervals",
   reviewDiff: "loom.review.diff",
   reviewFileContents: "loom.review.fileContents",
+  // Diff author query (plans/diff-author-query/plan.mdx §3): who wrote the whole-branch diff's lines.
+  reviewAuthorship: "loom.review.authorship",
+  reviewLineHistory: "loom.review.lineHistory",
   // Loom deploys (plans/loom-deploy-redesign/plan.mdx §4): the Deploy control and every client's
   // view of a deploy's stage, beside the startup notice and the restart warning.
   subscribeDeploy: "loom.subscribeDeploy",
@@ -400,6 +403,81 @@ export const LoomReviewFileContentsInput = Schema.Struct({
 });
 export type LoomReviewFileContentsInput = typeof LoomReviewFileContentsInput.Type;
 
+/** A branch commit that owns a changed line; `threadIds` are its `Loom-Thread` trailers, de-duplicated. */
+export const LoomReviewAuthorshipCommit = Schema.Struct({
+  sha: TrimmedNonEmptyString,
+  /** First line, at most 300 characters. */
+  subject: Schema.String,
+  gitAuthor: Schema.String,
+  /** Author date: stable across rebase and amend. */
+  authoredAt: IsoDateTime,
+  threadIds: Schema.Array(ThreadId),
+});
+export type LoomReviewAuthorshipCommit = typeof LoomReviewAuthorshipCommit.Type;
+
+/** A thread a trailer names that this server holds and has not deleted. */
+export const LoomReviewAuthorshipThread = Schema.Struct({
+  threadId: ThreadId,
+  title: Schema.String,
+  role: Schema.NullOr(Schema.String),
+  archived: Schema.Boolean,
+  /** When its latest run finished. */
+  lastRunAt: Schema.NullOr(IsoDateTime),
+});
+export type LoomReviewAuthorshipThread = typeof LoomReviewAuthorshipThread.Type;
+
+/**
+ * `runs` are `[start, end, commitIndex]`: new-side line numbers, inclusive; `commitIndex` indexes
+ * `commits`, -1 is uncommitted. Lines older than the merge base have no run.
+ */
+export const LoomReviewAuthorshipFile = Schema.Struct({
+  path: Schema.String,
+  runs: Schema.Array(Schema.Tuple([Schema.Number, Schema.Number, Schema.Number])),
+  /** A file not in HEAD: every line is uncommitted and `runs` is empty. */
+  untracked: Schema.optionalKey(Schema.Literal(true)),
+});
+export type LoomReviewAuthorshipFile = typeof LoomReviewAuthorshipFile.Type;
+
+/**
+ * `loom.review.authorship`: who wrote each changed line of the thread's whole-branch diff (the
+ * working tree against the merge base). `baseRef` is the base the panel asked its diff for: the
+ * user's pick, or null for the automatic base the whole-branch view resolves.
+ */
+export const LoomReviewAuthorshipInput = Schema.Struct({
+  threadId: ThreadId,
+  baseRef: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type LoomReviewAuthorshipInput = typeof LoomReviewAuthorshipInput.Type;
+export const LoomReviewAuthorshipResult = Schema.Struct({
+  mergeBase: Schema.NullOr(Schema.String),
+  headSha: Schema.NullOr(Schema.String),
+  /** Oldest first: a thread's colour follows its first commit on the branch. */
+  commits: Schema.Array(LoomReviewAuthorshipCommit),
+  threads: Schema.Array(LoomReviewAuthorshipThread),
+  files: Schema.Array(LoomReviewAuthorshipFile),
+  /** The file cap or time budget was hit; a file without an entry has no author. */
+  incomplete: Schema.Boolean,
+});
+export type LoomReviewAuthorshipResult = typeof LoomReviewAuthorshipResult.Type;
+
+/**
+ * `loom.review.lineHistory`: the branch commits that touched these new-side lines, newest first;
+ * none when the file differs from HEAD, since the line numbers would not match.
+ */
+export const LoomReviewLineHistoryInput = Schema.Struct({
+  threadId: ThreadId,
+  baseRef: Schema.NullOr(TrimmedNonEmptyString),
+  path: TrimmedNonEmptyString,
+  startLine: PositiveInt,
+  endLine: PositiveInt,
+});
+export type LoomReviewLineHistoryInput = typeof LoomReviewLineHistoryInput.Type;
+export const LoomReviewLineHistoryResult = Schema.Struct({
+  commits: Schema.Array(LoomReviewAuthorshipCommit),
+  threads: Schema.Array(LoomReviewAuthorshipThread),
+});
+export type LoomReviewLineHistoryResult = typeof LoomReviewLineHistoryResult.Type;
+
 /**
  * One merged PR of a deploy; `summary` and `kind` come from its merge commit's `Loom-Summary:` /
  * `Loom-Kind:` trailers (written by `pnpm ship`) and are null for a PR merged without them.
@@ -575,6 +653,16 @@ export const LoomWsRpcs = [
   Rpc.make(LOOM_WS_METHODS.reviewFileContents, {
     payload: LoomReviewFileContentsInput,
     success: ReviewDiffFileContentsResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.reviewAuthorship, {
+    payload: LoomReviewAuthorshipInput,
+    success: LoomReviewAuthorshipResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.reviewLineHistory, {
+    payload: LoomReviewLineHistoryInput,
+    success: LoomReviewLineHistoryResult,
     error: LoomWsError,
   }),
   Rpc.make(LOOM_WS_METHODS.contextUsage, {
