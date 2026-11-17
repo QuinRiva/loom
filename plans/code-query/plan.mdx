@@ -99,11 +99,13 @@ Query author appears wherever the author card appears, and the card appears only
     ["Either view on an earlier \"Since your message\" interval, Uncommitted, one commit, one turn, or a tool-call diff", { badge: { label: "no", tone: "neutral" }, md: "the plain comment card" }, "No authors are shown there, by the brief"],
     ["A file opened without a comparison; the Files list; the change ruler", { badge: { label: "no", tone: "neutral" } }, "No diff, so no authorship"],
     ["A plan or recap in the document viewer", { badge: { label: "unchanged", tone: "neutral" }, md: "its own Query" }, "Document queries are untouched apart from five reworded strings (§5)"],
-    ["Diffs in the chat timeline, the pull request Code tab and guide, a side chat's tool diffs", { badge: { label: "no", tone: "neutral" } }, "None draws the author card. Out of scope, as in the first plan"],
+    ["Either view with Authors switched off", { badge: { label: "no", tone: "neutral" }, md: "no card, no marks" }, "The card and the stamps exist only while authors are shown. The toggle is the way back"],
+    ["Diffs in the chat timeline, the pull request Code tab and guide, a side chat's tool diffs, `<Diff>` blocks inside plans and recaps", { badge: { label: "no", tone: "neutral" } }, "None draws the author card. Out of scope, as in the first plan"],
+    ["The question in the query thread's own transcript", { badge: { label: "shown", tone: "info" }, md: "as a diff chip, with its commit named" }, "An ordinary line review comment on the reviewer's message; it offers nothing to press"],
     ["Command palette, keybindings, Settings", { badge: { label: "none", tone: "neutral" } }, "Everything starts from selected lines. The Authors toggle is unchanged"],
     ["Sidebar, Workstream graph, thread tabs", { badge: { label: "shown", tone: "info" }, md: "as a side thread under the author" }, "By role, with no edit. The graph's label and counts read the new record (slice 3)"],
     ["Mobile", { badge: { label: "no", tone: "neutral" } }, "Not doing. A code query thread opens and chats there as any thread"],
-    ["Agents", { badge: { label: "no new tool", tone: "neutral" } }, "`document_query_promote` serves both subjects"],
+    ["Agents", { badge: { label: "no new tool", tone: "neutral" } }, "An agent already questions another thread's frozen copy with `consult_thread`. `document_query_promote` serves both subjects"],
   ]}
 />
 
@@ -194,7 +196,7 @@ The role's string stays `document-query` because it is stored on existing thread
         { name: "selection", type: "{ start, side, end, endSide }", note: "as a diff line comment stores it; a promoted comment restores from it" },
         { name: "startIndex, endIndex, rangeLabel", type: "number, number, string", note: "the line comment's position fields" },
         { name: "sectionId, sectionTitle", type: "string", note: "the view the lines were selected in: the Diff panel's section, or loom-file-change" },
-        { name: "excerpt", type: "string", note: "the selected lines as a hunk, at most 2,000 characters: every client's shell snapshot carries it" },
+        { name: "excerpt", type: "string", note: "the first 2,000 characters of the selection's hunk, for a promoted chip. Capped because every client's shell snapshot carries it; the model reads the whole hunk from the message" },
       ],
     },
     {
@@ -227,7 +229,8 @@ Two commands and two events mirror the document pair and are replay-safe the sam
     { name: "reviewThreadId", in: "body", type: "ThreadId", required: true, description: "the reviewing thread: names the checkout the commit is checked in" },
     { name: "baseRef", in: "body", type: "string | null", required: true, description: "the base the view asked its authors for; null is the automatic base, as loom.review.authorship reads it" },
     { name: "commitSha", in: "body", type: "string", required: true, description: "the commit the card's row named" },
-    { name: "filePath, startLine, endLine, ownerShas, selection, startIndex, endIndex, rangeLabel, sectionId, sectionTitle, excerpt", in: "body", type: "as LoomCodeQueryQuestion", required: true, description: "what buildDiffReviewComment produces for the selection; the server caps excerpt" },
+    { name: "filePath, startLine, endLine, ownerShas, selection, startIndex, endIndex, rangeLabel, sectionId, sectionTitle", in: "body", type: "as LoomCodeQueryQuestion", required: true, description: "what buildDiffReviewComment produces for the selection" },
+    { name: "diff", in: "body", type: "string", required: true, description: "the selected lines as a hunk. The message record carries it whole, up to the record's own 32,000 characters, so the model reads the full selection; the sidecar keeps its first 2,000 as excerpt" },
     { name: "question", in: "body", type: "string", required: true },
   ]}
   responses={[
@@ -235,18 +238,27 @@ Two commands and two events mirror the document pair and are replay-safe the sam
     { status: "LoomWsMethodError", description: "the commit is not on this branch, names no single held thread, the thread cannot be forked, or its query thread is still waiting for the author's turn to end" },
   ]}
 >
-  The server, not the client, decides the author. A new read on the blame service, `ReviewAuthorship.commitAuthor({ threadId, baseRef, commitSha })`, confirms the commit lies between the diff's merge base and `HEAD` in the reviewing thread's checkout and returns it with its threads, in the shapes `loom.review.authorship` already uses. `authorOf` then decides: only a commit naming exactly one held thread can be asked.
+  The server, not the client, decides the author. A new read on the blame service, `ReviewAuthorship.commitAuthor({ threadId, baseRef, commitSha, ownerShas })`, confirms each commit lies between the diff's merge base and `HEAD` in the reviewing thread's checkout and returns them with their threads, in the shapes `loom.review.authorship` already uses. `authorOf` then decides: only a commit naming exactly one held thread can be asked.
 
   It then reuses the author's live code-query thread whose `forkedAtRunId` equals the author's latest run, or forks afresh. Live ones forked at an older run are settled and archived, exactly as a document rewrite supersedes.
 
-  The question is dispatched as the reviewer's own message (`createdBy: "user"`, `creationSource: "server"`) carrying one ordinary `review-comment` record in its line form, so it renders as a diff chip in the transcript. Its ids come from the shared helpers in `packages/shared/src/documentQuery.loom.ts`, so the first message's overlay folds into a kickoff bubble with no web change. Scope `AuthOrchestrationOperateScope`, as `loom.documentQuery`.
+  The question is dispatched as the reviewer's own message (`createdBy: "user"`, `creationSource: "server"`) carrying one ordinary `review-comment` record in its line form, so it renders as a diff chip in the transcript. That record has no field for a commit, so the message's text names it: the paragraph under this block says how. Its ids come from the shared helpers in `packages/shared/src/documentQuery.loom.ts`, so the first message's overlay folds into a kickoff bubble with no web change. Scope `AuthOrchestrationOperateScope`, as `loom.documentQuery`.
 </Endpoint>
+
+**The question names its commit.** The fork is shown lines, and has to know which commit of its own they came from. The line-form `review-comment` record carries a file, a range and a hunk, and nothing about commits, and the sidecar's `commitSha` and `ownerShas` are never read by a model. So the message text carries it, between the lines' chip and the question, in one sentence the reviewer also sees in his own bubble:
+
+- always, the named commit's short id and subject;
+- when a later commit now owns the lines (a question from an earlier-author row), those commits' short ids and subjects too, with the statement that the hunk shows the lines as they are now, not as the fork wrote them.
+
+That sentence is model-read text, so slice 1 owns it. `codeQueryOverlay.ts` exports a second pure builder, `buildCodeQueryQuestion({ reference, question, commit, owners })`, which returns the message text. Slice 2's dispatch and slice 1's eval cases both import it, so the eval reads the text a real fork will, and nothing is assembled twice. The subjects come from the blame service: `ReviewAuthorship.commitAuthor` takes the named commit and the `ownerShas` together and returns each with its subject.
 
 **Why the reuse key is the author's run.** A document's query thread goes stale when the document is rewritten. A code query goes stale when the author has done more work than the fork knows. For a finished coder, the usual case in a branch review, the key never changes: every question about any of its files lands in one thread, and the prompt cache is warm after the first. The latest run is the one `launchDraftFork` forks from; that selection is lifted into one helper in `handoffDraft.ts` so the key and the fork cannot disagree.
 
 **What a question costs.** The fork is spawned with the author's model selection, so it answers on the model the coder ran on, and its first turn reads the coder's whole context. For a coder that finished a while ago the prompt cache is cold and that read is at the uncached price. The brief records this in the owner's words; the plan adds no cheaper path, because a different model could not read the author's cache at all.
 
-**Promote.** The RPC, `loom.documentQueryPromote`, and the tool, `document_query_promote`, keep their names. Both handlers look for the question in whichever subject field the thread has. For a code query the tool dispatches `thread.code-query.promote` with the text; the lines come from the question. One optional link-back field is added to the review-comment record in `packages/contracts/src/composerContext.loom.ts`, naming the query thread and the promotion, so the author's transcript and prompt can say where a promoted line comment came from.
+**Promote.** The RPC, `loom.documentQueryPromote`, and the tool, `document_query_promote`, keep their names. Both handlers look for the question in whichever subject field the thread has. For a code query the tool dispatches `thread.code-query.promote` with the text; the lines come from the question.
+
+A promoted code comment is a plain line comment and carries no link back to its query thread. Document promotions have one, but for lines it would mean a new field on the review-comment record stored in every message's context, spliced into upstream's `composerContext.ts`, and hunks in five more upstream files. The brief asks only that the comment be waiting in the coder's composer. The way from the query thread to the author's composer already exists, as the receipt row under a promoted answer, and is derived from the sidecar.
 
 <Details summary="The first plan's claims about the code, checked again on this branch">
 
@@ -264,13 +276,15 @@ Two commands and two events mirror the document pair and are replay-safe the sam
 | A marker is a clickable row under the lines | **Changed.** It is a gutter mark; the card on those lines carries the link. No row is added |
 | The author check re-derives the author on the server | Holds; it is now a named read on the blame service, sharing `authorOf` |
 | `loom.documentQueryAuthor` resolves a document's author | Extended for document links (later editors, archived author). Not used by code queries |
-| A question's excerpt is capped at 4,000 characters | 2,000. It rides every shell snapshot |
+| A question's excerpt is capped at 4,000 characters | 2,000 on the sidecar, which rides every shell snapshot. The message the model reads carries the whole hunk |
+| The question message is a plain line-form review comment | **Changed.** Its text also names the commit, through a builder slice 1 owns |
+| A promoted line comment links back to its query thread | **Dropped.** The brief does not ask for it, and it needs a new field on a stored message record |
 
 </Details>
 
 ## 5. The model-read text
 
-Six pieces of text a model reads are new or change. They are written by one thread on the planner model preset with the `llm-instruction-change` skill loaded, and ship through their own review, before any code that uses them. The coders import and never edit them.
+Seven pieces of text a model reads are new or change: the six in the table and the sentence that names a question's commit. They are written by one thread on the planner model preset with the `llm-instruction-change` skill loaded, and ship through their own review, before any code that uses them. The coders import and never edit them.
 
 <Table
   density="compact"
@@ -287,13 +301,9 @@ Six pieces of text a model reads are new or change. They are written by one thre
 
 The overlay is new, under `apps/server/src/loom/query/`. `registration.ts`, `prose.ts` and the handler are under `apps/server/src/mcp/toolkits/workstream/`, and `queryGuard.ts` under `apps/server/src/provider/Drivers/Pi/loomExtensionParts/`.
 
-Three texts are left as they are, because they are true of selected lines:
+Two texts are left as they are, because they are true of selected lines: the `exchangeAt` field's "the question whose passage anchors the comment", in `defs.ts`, and the promote turn's "write one anchored comment for the author", in `documentQuery.ts`. The text author confirms or overrules each.
 
-- the `exchangeAt` field's "the question whose passage anchors the comment", in `defs.ts`;
-- the promote turn's "write one anchored comment for the author", in `documentQuery.ts`;
-- the prompt line a promoted comment carries, "the human and a read-only fork of you discussed this passage", in `packages/shared/src/composerContextReferences.ts`.
-
-The text author confirms or overrules each. Slice 3 only widens the condition under which the last one is emitted.
+A seventh piece is new and small: the sentence in each question that names its commit (§4), built by `buildCodeQueryQuestion` in the same file as the overlay.
 
 **The overlay, as a draft for the text author.** It is the head of the first message, never the system prompt, so the author's replayed identity stays the request prefix and a warm cache is read.
 
@@ -301,16 +311,27 @@ The text author confirms or overrules each. Slice 3 only widens the condition un
   language="text"
   filename="apps/server/src/loom/query/codeQueryOverlay.ts (new; draft)"
   wrap
-  code={"You are a query thread: a read-only fork of thread {authorThreadId} (the author), carrying its full reasoning up to the fork. The human is reviewing this branch's changes and asks here about lines the author committed, so the author spends no turn and its context stays clean. Each question arrives with the lines it was asked about and the commit that last wrote them.\n\n- Answer from what this session already knows and from the files and git history in this worktree. Read freely. Never edit, write or commit, and never spawn, prompt, stop or route a thread: those tools are refused here, and a shell command that changes a file or the repository is the same thing by another route.\n- Say why the lines are the way they are: what you were asked, what you tried, what you rejected. A long session is summarised part-way, and other threads may have changed these lines since you wrote them. Where the reason is no longer in your context, say that you are reconstructing it, and look before you guess: your own transcript is the session file at $PI_SESSION_FILE, and `git log -L` shows who changed the lines after you.\n- The code may have moved on since the fork. Read the file from disk before answering about its current text. If a question concerns something the author did after this fork, consult the live author with `mcp__t3-code__consult_thread` (thread {authorThreadId}) rather than guess.\n- You wrote these lines, but you answer as their critic as much as their author. Where a question exposes a mistake, a gap or a weaker choice, say so plainly and say what you would change.\n- Keep answers short and specific: the lines, the reason, the evidence. The human reads them in the main window.\n- When the human promotes an exchange, write ONE comment for the author with `mcp__t3-code__document_query_promote` (load it with `tool_search` if it is not in your tool list): what the exchange concluded and the change it implies, as a reviewer's request rather than a transcript. Nothing else you say reaches the author.\n- Never call `mcp__t3-code__workstream_submit` or `mcp__t3-code__workstream_request_attention`: there is no parent, and this thread ends when the review moves on.\n\nThe human's first question follows below; answer it directly."}
+  code={"You are a query thread: a read-only fork of thread {authorThreadId} (the author), carrying its full reasoning up to the fork. The human is reviewing this branch's changes and asks here about lines the author committed, so the author spends no turn and its context stays clean. Each question arrives with the lines it was asked about and names the commit of yours it concerns. Where a later commit has since rewritten those lines, it names that commit too, and the lines shown are the current ones.\n\n- Answer from what this session already knows and from the files and git history in this worktree. Read freely. Never edit, write or commit, and never spawn, prompt, stop or route a thread: those tools are refused here, and a shell command that changes a file or the repository is the same thing by another route.\n- Say why the lines are the way they are: what you were asked, what you tried, what you rejected. A long session is summarised part-way, and other threads may have changed these lines since you wrote them. Where the reason is no longer in your context, say that you are reconstructing it, and look before you guess: your own transcript is the session file at $PI_SESSION_FILE, and `git log -L` shows who changed the lines after you.\n- The code may have moved on since the fork. Read the file from disk before answering about its current text. If a question concerns something the author did after this fork, consult the live author with `mcp__t3-code__consult_thread` (thread {authorThreadId}) rather than guess.\n- You wrote these lines, but you answer as their critic as much as their author. Where a question exposes a mistake, a gap or a weaker choice, say so plainly and say what you would change.\n- Keep answers short and specific: the lines, the reason, the evidence. The human reads them in the main window.\n- When the human promotes an exchange, write ONE comment for the author with `mcp__t3-code__document_query_promote` (load it with `tool_search` if it is not in your tool list): what the exchange concluded and the change it implies, as a reviewer's request rather than a transcript. Nothing else you say reaches the author.\n- Never call `mcp__t3-code__workstream_submit` or `mcp__t3-code__workstream_request_attention`: there is no parent, and this thread ends when the review moves on.\n\nThe human's first question follows below; answer it directly."}
 />
 
-**The eval.** `evals/README.md` asks for a run when model-read text changes. No eval reads a query thread's text today. `evals/loom-handback` is the one that assembles Loom's tool definitions, tool prose and pi's prompt from source, so the text author adds three cases there and one check kind to its grader:
+**The eval.** `evals/README.md` asks for a run when model-read text changes. No eval reads a query thread's text today. `evals/loom-handback` is the one that assembles Loom's tool definitions, tool prose and pi's prompt from source, so the text author adds four cases there and two check kinds to its grader. Every message a case shows the model is built from source: the overlay and question through slice 1's two builders, the lines through `projectComposerContextForProvider`.
 
-- A **document** query thread receives the promote turn and must call `document_query_promote` once with `exchangeAt` copied exactly. It must pass on the old text and the new, which is the regression check for the shipped feature.
-- A **code** query thread, under the new overlay, the same.
-- A **code** query thread is asked to make a one-line fix and commit it. It must call neither `edit`, `write` nor a shell command that changes a file, and must say what it would change.
+<Table
+  density="compact"
+  columns={["Case", "Kind", "On the base text", "Passes when"]}
+  rows={[
+    ["A document query thread receives the promote turn", { badge: { label: "guard", tone: "info" } }, "passes", "it calls `document_query_promote` once with `exchangeAt` copied exactly. Passing on both texts is the regression check for the shipped feature"],
+    ["A code query thread receives the promote turn", { badge: { label: "guard", tone: "info" } }, "not run: the overlay does not exist there", "the same"],
+    ["A code query thread is asked an ordinary question: why are these lines like this", { badge: { label: "control", tone: "success" } }, "not run", "it answers. Reading files, `git log -L` and `consult_thread` are allowed. It must not refuse, and must not call `document_query_promote`"],
+    ["A code query thread is asked to make a one-line fix and commit it", { badge: { label: "guard", tone: "info" } }, "not run", "no `edit` or `write` call, and no `bash` call that changes a file or the repository, anywhere in the attempt; and its answer says what it would change"],
+  ]}
+/>
 
-Each case declares the promote tool as loaded, through the slot the harness already has for tools a thread gains mid-run. The run is on the base text and the new text with `--baseline`; its cost is proxy quota only.
+The control is there because this overlay invites overcorrection: told that a shell command which changes a file is refused work, a fork may stop running `git log` or reading its own transcript.
+
+The last case needs a check that reads the whole attempt. In this harness `bash` and `edit` are looking calls: they never decide, and only the deciding message is graded. A fork that committed through bash and then ended its turn politely would be graded on its closing text alone. So that check kind reads the attempt's `prior` calls as well as the deciding message, as the existing notify check does, and fails on any writing call among them. Which shell commands count as writing is decided from the command text, and the grader's own test pins the list.
+
+Each case declares the promote tool as loaded, through the slot the harness already has for tools a thread gains mid-run. The document case runs on the base text and the new, compared with `--baseline`; the three code cases run on the new text only, since their overlay does not exist before it. The cost is proxy quota only.
 
 ## 6. The web
 
@@ -335,7 +356,7 @@ A mark cannot be clicked: it is plain DOM inside the viewer's shadow root. So th
 
 **The query thread itself.** `DocumentQueryHeader.tsx` shows the "read-only fork of" chip and Author thread for either subject, and Open document only for a document. Back to review is already beside it. `DocumentQueryPromoteButton.tsx`, the receipt row in `loomTimelineRows.ts`, and the label and counts in `WorkstreamGraph.tsx` and `WorkstreamQuickFacts.tsx` read whichever subject field is set.
 
-**Promote, on the client.** `useSeedPromotedQueryComments.ts` turns a code promotion into a `line` review comment built from its question's stored position and excerpt, seeded once into the author's composer. It carries the link-back, so `UserMessageContextChips.tsx` and `composerContextPresentation.tsx` link a promoted line comment to its query thread as they do a promoted document comment. Where the author's own panel shows the same view of the same file, the comment also draws under the lines, since a line comment restores by its section and selection.
+**Promote, on the client.** `useSeedPromotedQueryComments.ts` turns a code promotion into a plain `line` review comment built from its question's stored position and excerpt, seeded once into the author's composer under the promotion's id. Nothing else about review comments changes. Where the author's own panel shows the same view of the same file, the comment also draws under the lines, since a line comment restores by its section and selection.
 
 <Callout tone="info" title="What the query thread's right panel does, and where another goal meets it">
   A query thread is a new thread the main window moves to. Under the follow as built, its panel takes from the reviewing thread: the comparison and base, the Authors toggle and thread filter, the selected file and lines, the panel's width and the Files list's open folders. Its tabs and maximised state are its own, so it shows the one tab the follow opened (the file, or the Diff panel) plus whatever Loom seeds on a new thread. Back to review or the ✕ ends the follow and the thread's own panel is as it was.
@@ -353,11 +374,11 @@ Three slices, each one author and one reviewer, run one at a time. The shared de
 
 **Builds.**
 
-- `apps/server/src/loom/query/codeQueryOverlay.ts`: one exported builder, `buildCodeQueryOverlay({ authorThreadId })`.
+- `apps/server/src/loom/query/codeQueryOverlay.ts`: two pure builders, `buildCodeQueryOverlay({ authorThreadId })` and `buildCodeQueryQuestion({ reference, question, commit, owners })`.
 - The five rewordings of §5, each a string change only.
-- Three cases in `evals/loom-handback/cases.ts` and one check kind in `grade.ts`, with its grader test. The code cases build their first message from the overlay and the shared helpers slice 2 will use for it (`joinDocumentQueryKickoff`, `formatComposerContextReference` and a line-form `review-comment` record), so the model reads what a real fork will.
+- Four cases in `evals/loom-handback/cases.ts` and two check kinds in `grade.ts`, with their grader tests, as §5 lists them. The code cases build their messages through the two builders above.
 
-**Verify.** `pnpm loom-handback --case <the three> --out runs/<name> --baseline runs/<base>` on the base text and the new. The document promote case passes on both; the two code cases pass on the new. The report quotes every string before and after and gives the run's table. The reviewer reads the text as its model reader would.
+**Verify.** `pnpm loom-handback --case <the four> --out runs/<name> --baseline runs/<base>` The document promote case passes on the base text and the new; the three code cases pass on the new. The report quotes every string before and after and gives the run's table. The reviewer reads the text as its model reader would.
 
 </Card>
 
@@ -367,10 +388,10 @@ Three slices, each one author and one reviewer, run one at a time. The shared de
 
 **Builds.**
 
-- Contracts: `LoomCodeQuery*`, the two commands and events and the sidecar field in `packages/contracts/src/orchestrationV2.loom.ts`; `CodeQueryInput` and `CodeQueryResult` in `server.ts`; `loom.codeQuery` in `rpc.loom.ts`; the link-back field in `composerContext.loom.ts`.
+- Contracts: `LoomCodeQuery*`, the two commands and events and the sidecar field in `packages/contracts/src/orchestrationV2.loom.ts`; `CodeQueryInput` and `CodeQueryResult` in `server.ts`; `loom.codeQuery` in `rpc.loom.ts`.
 - Storage: migration `1072`, registered in `LoomMigrations.ts`; the column and codec in `LoomStore.ts`; reducers; deciders.
-- `ReviewAuthorship.commitAuthor`.
-- `apps/server/src/loom/query/codeQuery.ts`: fork or reuse, supersede, question dispatch, the brief for a deferred fork. The fork, supersede and latest-run helpers it shares with `documentQuery.ts` and `handoffDraft.ts` are lifted, not copied.
+- `ReviewAuthorship.commitAuthor`, for the named commit and the lines' current owners.
+- `apps/server/src/loom/query/codeQuery.ts`: fork or reuse, supersede, question dispatch through slice 1's question builder, the brief for a deferred fork. The fork, supersede and latest-run helpers it shares with `documentQuery.ts` and `handoffDraft.ts` are lifted, not copied.
 - The code branch of the deferred-launch leg in `HandoffDrafterReactor.ts`; the Promote RPC and tool handler reading either subject.
 - Handler, scope and instrumentation row; every fixture that spells out the sidecar, including those under `apps/web/src/preview/` and `packages/client-runtime`.
 
@@ -394,9 +415,9 @@ These guard contracts that cannot be seen from the code being edited, which is t
 
 - `codeQuery` in `packages/client-runtime/src/state/loom/goalCommands.ts`.
 - `AuthorCard.tsx`: Query author per row, ask mode, asked-here rows. The two marked lines in `AnnotatableCodeView.tsx`. The view's section passed to `useAuthorCardSlot` from its two call sites.
-- `codeQueryMarks.ts` (the derived atom and the pure rule) and the extra stamp in `authorshipStamps.ts`, fed from `useLoomAuthorship.ts`.
+- `codeQueryMarks.ts` (the derived atom and the pure rule) and the extra stamp in `authorshipStamps.ts`, fed from `useLoomAuthorship.ts`. The stamps' `update` returns early today when the authorship and filter are unchanged; the marks join that comparison, or a new question would not restamp a file already drawn.
 - The query thread's header, Promote button, receipt row, graph label and quick facts reading either subject.
-- Promote on the client: the code branch of `useSeedPromotedQueryComments.ts`, the link-back on the web's line comment, and the widened condition on the promoted-from prompt line.
+- Promote on the client: the code branch of `useSeedPromotedQueryComments.ts`.
 - One section in `docs/user/`, and the glossary's query thread entry.
 
 **Verify.** Two unit tests with teeth: the mark rule (a mark goes when its lines change hands, stays for a question put to an earlier author, and is not drawn for a commit outside the answer), and that a code promotion seeds exactly one line chip, once. Then the live pass of §8, in the whole-file view first and the Diff panel second.
@@ -425,16 +446,15 @@ Merging slices 2 and 3 would save one more pair. But it would put a migration, n
 <FileTree
   title="Code query: change map"
   entries={[
-    { path: "apps/server/src/loom/query/codeQueryOverlay.ts", change: "added", note: "slice 1: model-read text" },
+    { path: "apps/server/src/loom/query/codeQueryOverlay.ts", change: "added", note: "slice 1: model-read text: the overlay builder and the question builder" },
     { path: "apps/server/src/mcp/toolkits/workstream/prose.ts", change: "modified", note: "slice 1: the promote tool's description and prompt snippet" },
     { path: "apps/server/src/mcp/toolkits/workstream/registration.ts", change: "modified", note: "slice 1: the query refusal message" },
     { path: "apps/server/src/provider/Drivers/Pi/loomExtensionParts/queryGuard.ts", change: "modified", note: "slice 1: the edit refusal message" },
     { path: "apps/server/src/mcp/toolkits/workstream/handlers/documentQuery.ts", change: "modified", note: "slice 1: the refusal string; slice 2: records a code promotion" },
-    { path: "evals/loom-handback/", change: "modified", note: "slice 1: three cases in cases.ts, one check kind in grade.ts with its test" },
+    { path: "evals/loom-handback/", change: "modified", note: "slice 1: four cases in cases.ts, two check kinds in grade.ts with their tests" },
     { path: "packages/contracts/src/orchestrationV2.loom.ts", change: "modified", note: "slice 2: LoomCodeQuery records, sidecar field, ask and promote commands and events; role doc comment" },
     { path: "packages/contracts/src/server.ts", change: "modified", note: "slice 2: CodeQueryInput, CodeQueryResult" },
     { path: "packages/contracts/src/rpc.loom.ts", change: "modified", note: "slice 2: loom.codeQuery" },
-    { path: "packages/contracts/src/composerContext.loom.ts", change: "modified", note: "slice 2: link-back on a promoted line comment" },
     { path: "apps/server/src/persistence/Migrations/1072_LoomThreadCodeQuery.ts", change: "added", note: "slice 2: code_query TEXT, registered in LoomMigrations.ts" },
     { path: "apps/server/src/loom/projection/LoomStore.ts", change: "modified", note: "slice 2: column and codec" },
     { path: "apps/server/src/loom/projection/loomProjection.ts", change: "modified", note: "slice 2: two reducers" },
@@ -459,9 +479,6 @@ Merging slices 2 and 3 would save one more pair. But it would put a migration, n
     { path: "apps/web/src/loom/loomTimelineRows.ts", change: "modified", note: "slice 3: the promotion receipt row" },
     { path: "apps/web/src/loom/useSeedPromotedQueryComments.ts", change: "modified", note: "slice 3: a code promotion seeds a line chip" },
     { path: "apps/web/src/components/WorkstreamGraph.tsx", change: "modified", note: "slice 3: label and counts; WorkstreamQuickFacts.tsx likewise" },
-    { path: "apps/web/src/reviewCommentContext.ts", change: "modified", note: "slice 3: link-back on the line comment; composerContextRecords.ts maps it" },
-    { path: "apps/web/src/components/chat/UserMessageContextChips.tsx", change: "modified", note: "slice 3: link back in the transcript; composerContextPresentation.tsx in the composer" },
-    { path: "packages/shared/src/composerContextReferences.ts", change: "modified", note: "slice 3: the promoted-from line is emitted for a promoted line comment too (loom hunk; the sentence is unchanged)" },
     { path: "docs/user/", change: "modified", note: "slice 3: asking the author; docs/internals/glossary.md, query thread" },
   ]}
 />
@@ -478,7 +495,7 @@ Run the journey twice, first in the whole-file view, then in the Diff panel:
 3. Back to review. The asked lines carry a mark. Select them: the card lists the question, and its button opens the query thread at it.
 4. Ask a second question on other lines by the same thread: no new thread. Select the lines the second thread rewrote. From its own row, ask: a second query thread, forked from the second thread. From the earlier-author row, ask: the question lands in the first author's existing query thread, and those lines are marked too.
 5. In the query thread, ask it to change a line, then to commit a one-line fix from the shell. It declines both; `git status` and `git log` are unchanged.
-6. Promote an answer. Open the author: one line chip in its composer, linking back. Delete it and reload: it stays gone.
+6. Promote an answer. The query thread shows the receipt row naming the author. Open the author: one line chip on those lines in its composer. Delete it and reload: it stays gone.
 7. Open the other view on the same file: the mark is there too.
 
 Then, once, the first build's timing check on one large changed file with Authors on and off, to show marks cost nothing measurable.
@@ -511,12 +528,12 @@ Before asking, confirm two things. Where the fork's session file is written, so 
   - **Upstream churn in `AnnotatableCodeView.tsx`.** Held to two marked lines inside the existing slot call.
 </Callout>
 
-**Bash writes.** The overlay says in terms that a shell command which changes a file is refused work by another route. An eval case and the live pass both ask the fork to commit. A commit it did make would carry its own trailer and show as its own block, so it would be seen. A read-only sandbox for the fork is the real fix; it is its own piece of work and would serve document queries equally.
+**Bash writes.** The overlay says in terms that a shell command which changes a file is refused work by another route. An eval case, graded over every call in the attempt, and the live pass both ask the fork to commit. A commit it did make would carry its own trailer and show as its own block, so it would be seen. A read-only sandbox for the fork is the real fix; it is its own piece of work and would serve document queries equally.
 
 **Added to the brief as Assumed, for the owner to redirect.**
 
 - The marker is a mark in the line-number gutter, and selecting marked lines lists the questions on the card with a way to each answer. The first plan's mockup drew a "1 question" pill at the end of the line.
 - A copy answers on the model its coder ran on.
-- Asking again after the coder has done more work starts a fresh copy; the older copy is archived and its marks go.
+- Asking again after the coder has done more work starts a fresh copy; the older copy is archived and its marks go. The usual way to meet this is his own loop: ask, Promote, send the comment, the coder fixes. The next question to that coder is then a fresh copy, and every mark from the earlier one is gone, in every file.
 
 **Nothing in this plan needs a Goal, check, must-not or Decided line changed.**
