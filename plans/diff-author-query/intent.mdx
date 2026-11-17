@@ -1,0 +1,115 @@
+---
+reader:
+  who: Carl, who asked for this and approves its intent before anything is planned or built
+  knows: his own request and the mockup he approved in chat; Loom's threads, forks and the Query button on plans and recaps; none of the code
+  after_first_screen: he can correct any line or say "go"
+kicker: "Intent brief · draft for your corrections · 17 Nov 2026"
+status: draft
+manager_sessions:
+  - id: 01a1e6ab-93d8-7041-aed3-6df8fec5efb5
+    name: Link diff lines to authoring subthread
+    role: intent
+    authored_at: 2026-11-17T01:09:59.972Z
+---
+
+# Ask the coder that wrote a line, from the diff you are reviewing
+
+**Goal.** "I may want to ask questions about why a line or a function was
+written in a certain way. But the most meaningful way to ask that is to ask
+that of the coder subthread that wrote that line." While reviewing a branch's
+changes, see which thread wrote each part and put a question to that thread
+without losing your place in the diff.
+
+**You'll know it works when.**
+
+- You open the Diff panel on a branch several threads worked on. Each block
+  of changed lines carries the name of the thread that wrote it and its
+  commit. A row at the top lists those threads, and clicking one narrows the
+  diff to that thread's changes.
+- You select lines and a card names the thread, the commit and its message.
+  Where a later thread rewrote the lines (a reviewer's fix, say), the card
+  offers the earlier author too.
+- You press Query author and type a question. A read-only copy of that coder
+  answers from its own transcript in the main window. The diff beside it
+  still shows the same file, the same comparison and the same selected
+  lines, and those lines keep a marker saying a question was asked there.
+- You press Promote on an answer, and a comment about those lines is waiting
+  in the real coder's composer for you to send.
+- You press Open thread instead and land in the coder's own conversation at
+  the turn that made the commit, with the same diff reopened beside it.
+- From either, one click returns you to the thread you were reviewing in,
+  with the diff as you left it.
+
+**It must not.**
+
+- Name a thread that did not write the lines. No author shown beats a guess.
+- Spend a turn of the coder's thread, or change anything in it, when you
+  Query.
+- Make the diff slower to open or scroll, on this machine or over the relay.
+
+**Approaches in play.**
+
+- Finding the author with git blame on the changed lines, then the
+  `Loom-Thread` line agents add to every commit. Wins if the lines you review
+  are committed, which they are by the time you compare against
+  `origin/main`. 193 of 193 agent commits in the last 14 days carry that
+  line. _Chosen._
+- Finding the author of uncommitted lines from the snapshot Loom takes at the
+  end of each turn. Wins if you often review before coders commit. Not in
+  the first cut.
+- Dropped: recording every edit an agent makes with its line range. It is a
+  second record of authorship that drifts as lines move.
+- Asking through Query author (a read-only copy answers) and through Open
+  thread (you go to the live coder). Both are built. Either way the main
+  window moves to another thread, so the diff has to follow it, and that is
+  the one hard part they share.
+
+**Decided.** "Yep looks good" to the mockup, which fixed three things.
+
+- Authorship is shown per block of changed lines, not per line.
+- Query author and Open thread sit side by side on the card.
+- Lines not yet committed show as uncommitted, with no author.
+- _Assumed:_ authorship is on by default in the whole-branch view, with a
+  toggle that is remembered. Redirect if you would rather switch it on
+  yourself.
+- _Assumed:_ a commit made outside a Loom thread (yours, or upstream's)
+  shows its git author and offers no Query.
+- _Assumed:_ web and desktop first. Redirect if you review diffs on your
+  phone.
+
+**Not doing.** Authorship on GitHub's pull request page. Authors for
+uncommitted lines. Mobile.
+
+**Questions for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "last-work-view",
+      title: "Does your second view, \"the last hunk of work that was done\", need anything new?",
+      subtitle: "Two things would already show it: the Diff panel's existing \"Since your message\" view, and this brief's filter that narrows the diff to one thread's changes.",
+      mode: "single",
+      allowOther: true,
+      options: [
+        { id: "covered", label: "No, those two cover it; build nothing more for it", recommended: true },
+        { id: "per-commit", label: "Yes, I also want to step through the branch one commit at a time" },
+      ],
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- How often does a branch diff hold a block that only removes lines? Blame
+  names who wrote a line, not who deleted one. A count over the last ten
+  merged branches settles whether the first cut needs a second lookup for
+  them.
+- Does a copy of a coder whose long session was summarised part-way still
+  give the real reason for its early lines, or a plausible reconstruction?
+  Asking about the early lines of a long-running coder in the first live
+  pass settles it, and whether the answer needs a warning.
+- Is blame quick enough on the largest file of a real branch diff, over the
+  relay? Timing it on a recent branch settles it.
+- Does the whole-branch view already compare against `origin/main` without
+  you picking a base? Reading the panel's default settles it; if it does
+  not, that comes back to you as a question.
