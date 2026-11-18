@@ -36,7 +36,6 @@ import { useHubLoginBannerItems } from "../loom/HubLoginBanner"; // loom
 import { ReferenceLinksProvider } from "../loom/referenceLinks"; // loom:
 import { useLoomRightPanelSurfaces } from "../loom/useLoomRightPanelSurfaces"; // loom: 3d-2 seam 18
 import { useLoomThreadFamily } from "../loom/useLoomThreadFamily"; // loom: workstream family (DL-1706)
-import { rightPanelWidthKey } from "../loom/rightPanelWidth"; // loom: right-panel-carry
 import { useReviewPanelWidthKey } from "../loom/review/useReviewFollow"; // loom: diff author query
 import { LoomStagedCards } from "../loom/LoomStagedCards"; // loom: 3d-4 staged cards
 import { isDocumentQueryWaiting } from "../loom/DocumentQueryHeader"; // loom: query threads
@@ -1000,9 +999,10 @@ export default function ChatView(props: ChatViewProps) {
   })();
   const activeThreadRef = useActiveThreadRef(activeThread);
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
-  const loomPanelWidthKey =
-    useReviewPanelWidthKey(activeThreadRef, activeThread?.lineage.rootThreadId) ??
-    (activeThreadRef && rightPanelWidthKey(activeThreadRef, activeThread?.lineage.rootThreadId)); // loom: diff author query
+  const loomPanelWidthKey = useReviewPanelWidthKey(
+    activeThreadRef,
+    activeThread?.lineage.rootThreadId,
+  ); // loom: right-panel-carry
   const activeEnvironmentServerBrowser = useEnvironmentSupportsServerBrowser(
     activeThreadRef?.environmentId ?? null,
   );
@@ -1109,7 +1109,7 @@ export default function ChatView(props: ChatViewProps) {
     surfaces: rightPanelState.surfaces,
   };
   const rightPanelPresence = usePanelPresence(
-    rightPanelOpen && activeThreadRef !== null,
+    rightPanelOpen && loomPanelWidthKey !== null, // loom: right-panel-carry, waits for its width key
     rightPanelPresenceValue,
     panelAnimationsActive,
     activeThreadKey,
@@ -4097,12 +4097,12 @@ export default function ChatView(props: ChatViewProps) {
         )}
       </div>
 
-      {rightPanelPresent && activeThreadRef && !embedded ? (
+      {rightPanelPresent && activeThreadRef && loomPanelWidthKey !== null && !embedded ? ( // loom: right-panel-carry
         <ChatRightPanel
           sheet={shouldUsePlanSidebarSheet}
           workspaceLayoutElement={workspaceLayoutElement}
           // loom: one width per workstream, the followed review's while following (right-panel-carry)
-          widthStorageKey={loomPanelWidthKey ?? ""}
+          widthStorageKey={loomPanelWidthKey}
           sheetAnimationDurationMs={panelAnimationsActive ? panelAnimationDurationMs : 0}
           onCloseSheet={closePreviewPanelStable}
           open={rightPanelOpen}

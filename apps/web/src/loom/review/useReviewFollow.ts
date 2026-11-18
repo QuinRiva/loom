@@ -61,14 +61,17 @@ export function useReviewFollow(routed: ScopedThreadRef | null) {
 /**
  * The right-panel width key a thread shows: while it follows a review, the review's workstream,
  * so the panel Carl sized there keeps its size and a resize made while following belongs to it.
+ * Null until that workstream's root is known, so the panel waits rather than open at a guess.
  */
-export function useReviewPanelWidthKey(routed: ScopedThreadRef | null, routedRootId?: ThreadId) {
+export function useReviewPanelWidthKey(
+  routed: ScopedThreadRef | null,
+  routedRootId: ThreadId | undefined,
+) {
   const { threadRef } = useReviewFollow(routed);
   const shell = useQuietThreadShell(threadRef);
-  return threadRef === null
+  const rootThreadId =
+    threadRef?.threadId === routed?.threadId ? routedRootId : shell?.lineage.rootThreadId;
+  return threadRef === null || rootThreadId === undefined
     ? null
-    : rightPanelWidthKey(
-        threadRef,
-        threadRef.threadId === routed?.threadId ? routedRootId : shell?.lineage.rootThreadId,
-      );
+    : rightPanelWidthKey(threadRef, rootThreadId);
 }
