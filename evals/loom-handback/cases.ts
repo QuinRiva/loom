@@ -15,18 +15,11 @@ import {
   projectComposerContextForProvider,
   toKindScopedComposerContextId,
 } from "@t3tools/shared/composerContextReferences";
-import {
-  documentQueryQuestionId,
-  joinDocumentQueryKickoff,
-} from "@t3tools/shared/documentQuery.loom";
 import { routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
 
 import { buildStandaloneDigest } from "../../apps/server/src/loom/orchestration/dispatcher/digest.ts";
 import { workstreamChildPrompt } from "../../apps/server/src/loom/prompt/prose.ts";
-import {
-  buildCodeQueryOverlay,
-  buildCodeQueryQuestion,
-} from "../../apps/server/src/loom/query/codeQueryOverlay.ts";
+import { buildCodeQueryForkLaunch } from "../../apps/server/src/loom/query/codeQuery.ts";
 import { buildQueryForkLaunch } from "../../apps/server/src/loom/query/documentQuery.ts";
 import { buildQueryPromoteTurn } from "../../apps/server/src/loom/query/documentQueryOverlay.ts";
 import {
@@ -1130,9 +1123,9 @@ const CSV_COLUMNS_RENAMED = `const COLUMNS = ["invoice_id", "customer", "due_dat
 const CSV_ROW =
   "export const row = (invoice: Invoice) => [invoice.id, invoice.customerName, invoice.dueDate, formatCents(invoice.totalCents), invoice.currency];";
 /**
- * The first question to the CSV coder's query thread: lines selected in the whole-file change
- * view, as web's `buildDiffReviewComment` records them, behind the overlay and the sentence
- * naming their commits.
+ * The first question to the CSV coder's query thread, built as the server sends it: lines selected
+ * in the whole-file change view, as web's `buildDiffReviewComment` records them, behind the overlay
+ * and the sentence naming their commits.
  */
 const csvQuery = (input: {
   readonly author: ReadonlyArray<Message>;
@@ -1142,40 +1135,41 @@ const csvQuery = (input: {
   readonly question: string;
   readonly owners: ReadonlyArray<typeof CSV_COMMIT>;
 }): ReadonlyArray<Message> => {
-  const record: ReviewCommentContextRecord = {
-    version: 1,
-    contextId: toKindScopedComposerContextId(
-      "review-comment",
-      documentQueryQuestionId("thread:acme-query-9c2b", 1),
-    ),
-    kind: "review-comment",
-    label: `csv.ts ${input.rangeLabel}`,
-    sectionId: "loom-file-change",
-    sectionTitle: "Changes",
-    filePath: CSV_REL,
-    startIndex: input.indexes[0],
-    endIndex: input.indexes[1],
-    rangeLabel: input.rangeLabel,
-    text: "",
-    diff: input.diff,
-    fenceLanguage: "diff",
-  };
-  const asked = buildCodeQueryQuestion({
-    reference: formatComposerContextReference(record),
-    question: input.question,
-    commit: CSV_COMMIT,
-    owners: input.owners,
+  const [, asked] = buildCodeQueryForkLaunch({
+    threadId: "thread:acme-query-9c2b" as ThreadId,
+    authorThreadId: CSV_CODER as ThreadId,
+    launch: {
+      question: {
+        reviewThreadId: CSV_ROOT as ThreadId,
+        baseRef: null,
+        commitSha: CSV_COMMIT.sha,
+        ownerShas: input.owners.map((owner) => owner.sha),
+        filePath: CSV_REL,
+        startLine: input.indexes[0],
+        endLine: input.indexes[1],
+        selection: {
+          start: input.indexes[0],
+          side: "additions",
+          end: input.indexes[1],
+          endSide: "additions",
+        },
+        startIndex: input.indexes[0],
+        endIndex: input.indexes[1],
+        rangeLabel: input.rangeLabel,
+        sectionId: "loom-file-change",
+        sectionTitle: "Changes",
+        diff: input.diff,
+        question: input.question,
+      },
+      commit: CSV_COMMIT,
+      owners: input.owners,
+    },
+    createdAt: PROMOTED_AT,
   });
   return [
     ...input.author,
     humanInQuery(
-      projectComposerContextForProvider({
-        text: joinDocumentQueryKickoff(
-          buildCodeQueryOverlay({ authorThreadId: CSV_CODER as ThreadId }),
-          asked,
-        ),
-        records: [record],
-      }),
+      projectComposerContextForProvider({ text: asked.text, records: asked.context.records }),
     ),
   ];
 };
