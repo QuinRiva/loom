@@ -4,7 +4,7 @@ reader:
   who: the gate reviewer judging this plan against the approved brief, and the three threads that will each build one slice of it cold
   knows: the codebase's conventions; that authors, the author card and Open thread already ship in the Diff panel and the whole-file change view; nothing of the planning thread or the owner's conversation
   after_first_screen: what is being built, on which screens, the bets it rests on, and the order of the three slices
-status: approved
+status: done
 intent: plans/diff-author-query/intent.mdx
 manager_sessions:
   - id: 01a1eb9c-41ed-7709-ab5d-aec93fa58ec3
@@ -537,3 +537,18 @@ Before asking, confirm two things. Where the fork's session file is written, so 
 - Asking again after the coder has done more work starts a fresh copy; the older copy is archived and its marks go. The usual way to meet this is his own loop: ask, Promote, send the comment, the coder fixes. The next question to that coder is then a fresh copy, and every mark from the earlier one is gone, in every file.
 
 **Nothing in this plan needs a Goal, check, must-not or Decided line changed.**
+
+## As built
+
+The three slices were built and reviewed on 18 Nov 2026 and ship in one pull request. Where the build departs from the sections above:
+
+- **The overlay was rewritten, not edited from the draft in §5.** It fixes one frame (the copy is a fork, the session above is its own, "the author" is the original thread), tests a reason by whether the copy can point to the turn that gave it, and gives the no-changes rule once with its reason. The draft's "consult the live author" line was dropped: a card question always forks the author's latest run, so there is nothing later to consult.
+- **A question calls every commit of the copy's own thread "your commit".** The plan named only the row's commit as the copy's. A selection can span two commits by one coder, and the plain wording told the copy its own second commit was someone else's. `CodeQueryCommit` therefore carries `threadIds`. A third sentence form covers a selection the named commit owns only part of. Short commit ids are 12 characters, since 7 can be ambiguous in this repository.
+- **Six eval cases, not four, and one harness field.** Added: a question put to an earlier author, and a selection spanning two of the copy's own commits. The harness gained a `queryFork` option, because its existing slot for tools gained mid-run also switched on a tool a query thread does not have.
+- **The server does not check that the named commit touched the selected lines.** The commit always comes from the server's own blame or line-history answer, and a line-level check would refuse legitimate questions on a file with uncommitted edits. `commitAuthor` reports which commits are on the branch, and `askCodeQuery` words every refusal.
+- **The card waits for a thread to reach the client only when the question has just created it.** Waiting on every destination broke Open thread for an archived author. Query author is hidden while the card is in Comment mode, and a narrow card wraps its buttons under the thread's name so the name is never squeezed out.
+- **The query thread's header compacts when the main window is narrow.** With the review panel dragged wide, Back to review overlapped its neighbour. The plan expected no header change.
+- **The card says "These lines did not change in this comparison"** for a selection carried into "Since your message" that the interval does not show as changed. It had said the lines were removed.
+- **The summarised-coder check ran on a stand-in.** A dev instance refuses to run a thread from the live install, by design, so §8's question to a real long-running coder could not be asked. A Sonnet coder on the seeded instance was given stated reasons for ten constants and compacted twice; its copy searched its own session file and quoted the original instruction. The check on a real long-running coder waits for the deployed build.
+- **The large-file timing with marks on was not repeated.** Marks add one check per added row to the existing stamping pass, with no request and no row.
+- **The branch was rebased onto the per-workstream panel width** (PR #584) before the live pass. A review follow keeps precedence there, so the panel keeps the review's width in a query thread.
