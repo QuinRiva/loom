@@ -23,13 +23,13 @@ export function ReviewFollowBack({ threadRef }: { readonly threadRef: ScopedThre
       variant="outline"
       size="xs"
       className="shrink-0"
-      onClick={() => {
-        useReviewFollowStore.getState().unfollow(threadRef);
+      // Unfollowing after the route changes, so this thread never redraws its own panel on the way out.
+      onClick={() =>
         void navigate({
           to: "/$environmentId/$threadId",
           params: buildThreadRouteParams(reviewing.ref),
-        });
-      }}
+        }).finally(() => useReviewFollowStore.getState().unfollow(threadRef))
+      }
     >
       <ArrowLeftIcon />
       Back to review

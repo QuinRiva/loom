@@ -2,7 +2,7 @@
 // and writes its root's key, so moving inside a workstream never resizes the panel. A workstream
 // never sized takes the width of the one shown last, and keeps it from then on.
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useLayoutEffect } from "react";
 
@@ -13,7 +13,7 @@ import { PREVIEW_PANEL_DEFAULT_WIDTH } from "../hooks/usePreviewPanelInlineSize"
 const LAST_SHOWN_KEY = "t3code:loom:right-panel-width:last-shown-key";
 
 /** Upstream's per-thread key, taken at the workstream root: a root keeps the width it had. */
-export const rightPanelWidthKey = (thread: ScopedThreadRef, rootThreadId = thread.threadId) =>
+export const rightPanelWidthKey = (thread: ScopedThreadRef, rootThreadId: ThreadId) =>
   `t3code:preview-panel-width:${scopedThreadKey(scopeThreadRef(thread.environmentId, rootThreadId))}`;
 
 const read = <T, E>(key: string | null, schema: Schema.Codec<T, E>): T | null => {
