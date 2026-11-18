@@ -4,6 +4,7 @@
  * scopes a marked block in `auth/RpcAuthorization.ts`. Goal writes publish on `LoomGoalBroadcast`.
  */
 import {
+  type CodeQueryInput,
   type DocumentQueryAuthorInput,
   type DocumentQueryInput,
   type DocumentQueryPromoteInput,
@@ -49,6 +50,7 @@ import type { WorkspaceFileSystem } from "../workspace/WorkspaceFileSystem.ts";
 import { contextUsageReport } from "./context-viz/contextUsageReport.ts";
 import * as LoomDeploy from "./deploy/LoomDeploy.ts";
 import { lookupDocumentQueryAuthor } from "./query/documentAuthor.ts";
+import { askCodeQuery } from "./query/codeQuery.ts";
 import { askDocumentQuery, promoteDocumentQuery } from "./query/documentQuery.ts";
 import { LoomUsageLedger } from "./economics/LoomUsageLedger.ts";
 import { buildHandoffDraftTurnStart, launchDraftFork } from "./handoff/handoffDraft.ts";
@@ -158,6 +160,7 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
     | ServerConfig
     | FileSystem.FileSystem
     | Path.Path
+    | ReviewAuthorship
   >();
 
   const fail = (method: string, message: string, cause?: unknown) =>
@@ -260,6 +263,9 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
     // The Query card's pre-flight: which thread a Query on this document forks.
     [LOOM_WS_METHODS.documentQueryAuthor]: (input: DocumentQueryAuthorInput) =>
       lookupDocumentQueryAuthor(input).pipe(Effect.provideContext(queryServices)),
+    // Query author: a question about committed lines, in their author's read-only query thread.
+    [LOOM_WS_METHODS.codeQuery]: (input: CodeQueryInput) =>
+      askCodeQuery(input).pipe(Effect.provideContext(queryServices)),
     // Promote: a human turn asking the query thread to distil one exchange for the author.
     [LOOM_WS_METHODS.documentQueryPromote]: (input: DocumentQueryPromoteInput) =>
       promoteDocumentQuery(input).pipe(Effect.provideContext(queryServices)),

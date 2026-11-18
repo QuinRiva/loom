@@ -226,6 +226,7 @@ export const RPC_REQUIRED_SCOPES = {
   [LOOM_WS_METHODS.handoffDraft]: AuthOrchestrationOperateScope,
   [LOOM_WS_METHODS.retroDraft]: AuthOrchestrationOperateScope,
   [LOOM_WS_METHODS.documentQuery]: AuthOrchestrationOperateScope, // loom: query threads
+  [LOOM_WS_METHODS.codeQuery]: AuthOrchestrationOperateScope, // loom: code query threads
   [LOOM_WS_METHODS.documentQueryPromote]: AuthOrchestrationOperateScope, // loom: query threads
   [LOOM_WS_METHODS.documentQueryAuthor]: AuthOrchestrationReadScope, // loom: query threads
   [LOOM_WS_METHODS.threadSpend]: AuthOrchestrationReadScope,
