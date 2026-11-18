@@ -239,7 +239,7 @@ function AuthorCard({
         );
 
   /** The main window goes to `threadId` at `at`, with this file or diff beside it as it is. */
-  const follow = async (threadId: ThreadId, at: string) => {
+  const follow = async (threadId: ThreadId, at: string, created = false) => {
     const destination = scopeThreadRef(reviewing.environmentId, threadId);
     followReviewToAuthor({
       reviewing,
@@ -248,18 +248,17 @@ function AuthorCard({
       ...(opensFile ? { file: filePath } : {}),
     });
     if (scopedThreadKey(destination) === scopedThreadKey(routed)) return;
-    // Navigating before a new thread's shell reaches this client reads as a missing thread.
-    if (await waitForThreadShell(destination))
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(destination),
-      });
-    else
+    // A thread just created reads as missing until its shell reaches this client. Any other
+    // thread navigates at once: an archived one is never in the live shells, and its route loads it.
+    if (created && !(await waitForThreadShell(destination))) {
       toastManager.add({
         type: "info",
         title: "Question sent",
         description: "The query thread will appear in the sidebar shortly.",
       });
+      return;
+    }
+    void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(destination) });
   };
   const openThread = (row: AuthorRow) => {
     if (row.threadId !== null) void follow(row.threadId, row.commit.authoredAt);
@@ -300,7 +299,7 @@ function AuthorCard({
     // A fresh fork archived the author's stale query thread; the graph reads archived shells
     // from a one-shot snapshot.
     if (result.value.created) refreshArchivedThreadsForEnvironment(reviewing.environmentId);
-    await follow(result.value.queryThreadId, result.value.askedAt);
+    await follow(result.value.queryThreadId, result.value.askedAt, result.value.created);
   };
 
   const renderAsked = (question: CodeQuestion) => (
@@ -326,43 +325,50 @@ function AuthorCard({
     </div>
   );
   const renderRow = (row: AuthorRow) => [
-    <div key={row.key} className="flex min-w-0 items-start gap-2">
+    // A narrow card (the whole-file view's split layout) wraps the buttons under the name.
+    <div key={row.key} className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
       <span
         aria-hidden
         className="mt-1 size-2 shrink-0 rounded-full"
         style={{ backgroundColor: colourOf(row.group) }}
       />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 basis-40">
         <div className="flex min-w-0 items-baseline gap-1.5">
-          <span className="truncate font-medium text-foreground">{row.label}</span>
-          {row.detail ? <span className="shrink-0 text-muted-foreground">{row.detail}</span> : null}
+          <span className="max-w-full shrink-0 truncate font-medium text-foreground">
+            {row.label}
+          </span>
+          {row.detail ? (
+            <span className="min-w-0 truncate text-muted-foreground">{row.detail}</span>
+          ) : null}
         </div>
         <div className="truncate text-muted-foreground">
           <span className="font-mono">{row.commit.sha.slice(0, 7)}</span> {row.commit.subject}
         </div>
       </div>
-      {row.threadId !== null && !commenting ? (
-        <Button
-          variant={asking === row.key ? "secondary" : "outline"}
-          size="xs"
-          onClick={() => {
-            setError(null);
-            setAsking(asking === row.key ? null : row.key);
-          }}
-        >
-          <MessageCircleQuestionIcon />
-          Query author
-        </Button>
-      ) : null}
-      {row.threadId !== null ? (
-        <Button variant="outline" size="xs" onClick={() => openThread(row)}>
-          {scopedThreadKey(scopeThreadRef(reviewing.environmentId, row.threadId)) ===
-          scopedThreadKey(routed)
-            ? "Show its turn"
-            : "Open thread"}
-          <ArrowUpRightIcon />
-        </Button>
-      ) : null}
+      <div className="ms-auto flex shrink-0 gap-1">
+        {row.threadId !== null && !commenting ? (
+          <Button
+            variant={asking === row.key ? "secondary" : "outline"}
+            size="xs"
+            onClick={() => {
+              setError(null);
+              setAsking(asking === row.key ? null : row.key);
+            }}
+          >
+            <MessageCircleQuestionIcon />
+            Query author
+          </Button>
+        ) : null}
+        {row.threadId !== null ? (
+          <Button variant="outline" size="xs" onClick={() => openThread(row)}>
+            {scopedThreadKey(scopeThreadRef(reviewing.environmentId, row.threadId)) ===
+            scopedThreadKey(routed)
+              ? "Show its turn"
+              : "Open thread"}
+            <ArrowUpRightIcon />
+          </Button>
+        ) : null}
+      </div>
     </div>,
     ...asked.filter((question) => question.authorThreadId === row.threadId).map(renderAsked),
     asking === row.key && !commenting ? (
