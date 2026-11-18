@@ -195,6 +195,23 @@ const foldWorkstream = (
         return undefined;
       return next({ documentQuery: { ...query, promotions: [...query.promotions, promotion] } });
     }
+    // The same, for code: the first question sets the run the thread was forked at.
+    case "thread.code-query-asked": {
+      const { forkedAtRunId, question } = event.payload;
+      const query = row.codeQuery ?? { forkedAtRunId, questions: [], promotions: [] };
+      if (query.questions.some((entry) => entry.messageId === question.messageId)) return undefined;
+      return next({ codeQuery: { ...query, questions: [...query.questions, question] } });
+    }
+    case "thread.code-query-promoted": {
+      const { promotion } = event.payload;
+      const query = row.codeQuery;
+      if (
+        query === null ||
+        query.promotions.some((entry) => entry.promotionId === promotion.promotionId)
+      )
+        return undefined;
+      return next({ codeQuery: { ...query, promotions: [...query.promotions, promotion] } });
+    }
     // Edge tables only, or (gate-warning) nothing: Phase 3b surfaces it.
     case "thread.gate-warning":
     case "thread.consult-recorded":

@@ -35,6 +35,8 @@ import {
 } from "./providerUsageLimits.ts";
 import { ReviewDiffFileContentsInput, ReviewDiffFileContentsResult } from "./review.ts";
 import {
+  CodeQueryInput,
+  CodeQueryResult,
   DocumentQueryAuthorInput,
   DocumentQueryAuthorResult,
   DocumentQueryInput,
@@ -59,6 +61,8 @@ export const LOOM_WS_METHODS = {
   documentQuery: "loom.documentQuery",
   documentQueryAuthor: "loom.documentQueryAuthor",
   documentQueryPromote: "loom.documentQueryPromote",
+  // Code query threads: ask the thread that committed the selected lines, in its read-only fork.
+  codeQuery: "loom.codeQuery",
   // 3d-4 — seam 11's spend reads (DL-438).
   threadSpend: "loom.threadSpend",
   topSpend: "loom.topSpend",
@@ -607,6 +611,11 @@ export const LoomWsRpcs = [
   Rpc.make(LOOM_WS_METHODS.documentQueryPromote, {
     payload: DocumentQueryPromoteInput,
     success: DocumentQueryPromoteResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.codeQuery, {
+    payload: CodeQueryInput,
+    success: CodeQueryResult,
     error: LoomWsError,
   }),
   // 3d-4 — seam 11 (DL-438).

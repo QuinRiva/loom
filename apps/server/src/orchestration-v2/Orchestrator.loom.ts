@@ -1546,6 +1546,8 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
       const row = yield* requireWorkstream(command.threadId);
       if (row.role !== DOCUMENT_QUERY_ROLE)
         return yield* fail(`Thread ${command.threadId} is not a query thread.`);
+      if (row.codeQuery !== null)
+        return yield* fail(`Query thread ${command.threadId} is about code, not a document.`);
       const query = row.documentQuery;
       if (
         query !== null &&
@@ -1572,6 +1574,38 @@ export const decideLoomCommand = Effect.fn("loom.decideLoomCommand")(function* (
       if (!row.documentQuery?.questions.some((question) => question.askedAt === exchangeAt))
         return yield* fail(`Query thread ${command.threadId} has no question at ${exchangeAt}.`);
       yield* on("thread.document-query-promoted", command.threadId, {
+        promotion: command.promotion,
+      });
+      return {};
+    }
+
+    case "thread.code-query.ask": {
+      yield* requireThread(command.threadId);
+      const row = yield* requireWorkstream(command.threadId);
+      if (row.role !== DOCUMENT_QUERY_ROLE)
+        return yield* fail(`Thread ${command.threadId} is not a query thread.`);
+      if (row.documentQuery !== null)
+        return yield* fail(`Query thread ${command.threadId} is about a document, not code.`);
+      if (row.codeQuery !== null && row.codeQuery.forkedAtRunId !== command.forkedAtRunId)
+        return yield* fail(
+          `Query thread ${command.threadId} was forked at run ${row.codeQuery.forkedAtRunId}; a question after the author's next run forks a new one.`,
+        );
+      yield* on("thread.code-query-asked", command.threadId, {
+        forkedAtRunId: command.forkedAtRunId,
+        question: command.question,
+      });
+      return {};
+    }
+
+    case "thread.code-query.promote": {
+      yield* requireThread(command.threadId);
+      const row = yield* requireWorkstream(command.threadId);
+      if (row.role !== DOCUMENT_QUERY_ROLE)
+        return yield* fail(`Thread ${command.threadId} is not a query thread.`);
+      const { exchangeAt } = command.promotion;
+      if (!row.codeQuery?.questions.some((question) => question.askedAt === exchangeAt))
+        return yield* fail(`Query thread ${command.threadId} has no question at ${exchangeAt}.`);
+      yield* on("thread.code-query-promoted", command.threadId, {
         promotion: command.promotion,
       });
       return {};

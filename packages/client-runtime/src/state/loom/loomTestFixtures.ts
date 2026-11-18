@@ -45,6 +45,7 @@ export const workstreamFields = (
   handoffDestinations: [],
   handoffOrigin: null,
   documentQuery: null,
+  codeQuery: null,
   archivedAt: null,
   deletedAt: null,
   createdAt: "2026-10-05T00:00:00.000Z",

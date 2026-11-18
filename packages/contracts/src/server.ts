@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as Struct from "effect/Struct"; // loom: code query threads
 import { AcpRegistryUrlAuthAction } from "./acpRegistry.ts";
 import {
   type EnvironmentMachineKind,
@@ -25,7 +26,7 @@ import {
 import { EditorId, FileManagerRevealKind, RemoteOpenTarget } from "./editor.ts";
 import { ManagedPolicySummary } from "./managedPolicy.ts";
 import { ModelCapabilities, ProviderOptionDescriptor } from "./model.ts";
-import { DocumentQueryAuthorSource } from "./orchestrationV2.loom.ts"; // loom: query threads
+import { DocumentQueryAuthorSource, LoomCodeQueryQuestion } from "./orchestrationV2.loom.ts"; // loom: query threads
 import { PlanCommentAnchor } from "./plan.ts"; // loom: query threads
 import { RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
@@ -627,6 +628,29 @@ export type DocumentQueryPromoteInput = typeof DocumentQueryPromoteInput.Type;
 
 export const DocumentQueryPromoteResult = Schema.Struct({ dispatched: Schema.Literal(true) });
 export type DocumentQueryPromoteResult = typeof DocumentQueryPromoteResult.Type;
+
+// loom: code query threads (plans/code-query/plan.mdx §4). Query author on the author card asks
+// the thread that committed the selected lines, in its read-only fork. The server re-derives the
+// author from `commitSha` in `reviewThreadId`'s checkout; the rest is the question as recorded,
+// plus the selection's hunk (`diff`), which the message carries whole and the sidecar cut.
+export const CodeQueryInput = LoomCodeQueryQuestion.mapFields((fields) => ({
+  ...Struct.omit(fields, ["messageId", "askedAt", "excerpt"]),
+  reviewThreadId: ThreadId,
+  /** The base the view asked its authors for; null is the automatic base. */
+  baseRef: Schema.NullOr(TrimmedNonEmptyString),
+  diff: Schema.String,
+  question: TrimmedNonEmptyString,
+}));
+export type CodeQueryInput = typeof CodeQueryInput.Type;
+
+export const CodeQueryResult = Schema.Struct({
+  queryThreadId: ThreadId,
+  /** False when the question landed in the author's live query thread for its latest run. */
+  created: Schema.Boolean,
+  askedAt: IsoDateTime,
+  authorThreadId: ThreadId,
+});
+export type CodeQueryResult = typeof CodeQueryResult.Type;
 
 export const EnvironmentThemeColor = Schema.String.check(
   Schema.isPattern(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/),
