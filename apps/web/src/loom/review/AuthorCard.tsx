@@ -397,7 +397,15 @@ function AuthorCard({
         {authorship === null ? (
           <p className="text-muted-foreground">Finding who wrote these lines…</p>
         ) : lines.length === 0 ? (
-          <p className="text-muted-foreground">Removed lines have no recorded author.</p>
+          <p className="text-muted-foreground">
+            {/* A selection carried across comparisons can hold only unchanged lines. */}
+            {selected?.diff
+              .split("\n")
+              .slice(1)
+              .some((line) => line.startsWith("-"))
+              ? "Removed lines have no recorded author."
+              : "These lines did not change in this comparison."}
+          </p>
         ) : current.length === 0 ? (
           <p className="text-muted-foreground">
             {uncommitted
