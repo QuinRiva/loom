@@ -160,13 +160,15 @@ export function promotionReceiptRows(
 ): ReadonlyArray<LoomPromotionRow> {
   const authorThreadId = source?.workstream?.forkFromThreadId;
   return source && authorThreadId
-    ? (source.workstream?.documentQuery?.promotions ?? []).map((promotion) => ({
-        kind: "loom-promotion",
-        id: `loom-promotion:${promotion.promotionId}`,
-        createdAt: promotion.promotedAt,
-        sourceThreadId: source.id,
-        authorThreadId,
-      }))
+    ? ((source.workstream?.documentQuery ?? source.workstream?.codeQuery)?.promotions ?? []).map(
+        (promotion) => ({
+          kind: "loom-promotion",
+          id: `loom-promotion:${promotion.promotionId}`,
+          createdAt: promotion.promotedAt,
+          sourceThreadId: source.id,
+          authorThreadId,
+        }),
+      )
     : [];
 }
 
