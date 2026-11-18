@@ -3,6 +3,7 @@
  * (plans/diff-author-query/plan.mdx §6). See reviewFollowStore.
  */
 import { useAtomValue } from "@effect/atom-react";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { threadFamilyRead } from "@t3tools/client-runtime/state/threads";
 import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { AsyncResult, Atom } from "effect/reactivity";

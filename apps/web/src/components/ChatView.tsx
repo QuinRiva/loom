@@ -4102,7 +4102,7 @@ export default function ChatView(props: ChatViewProps) {
           sheet={shouldUsePlanSidebarSheet}
           workspaceLayoutElement={workspaceLayoutElement}
           // loom: one width per workstream, the followed review's while following (right-panel-carry)
-          widthStorageKey={loomPanelWidthKey}
+          widthStorageKey={loomPanelWidthKey ?? ""}
           sheetAnimationDurationMs={panelAnimationsActive ? panelAnimationDurationMs : 0}
           onCloseSheet={closePreviewPanelStable}
           open={rightPanelOpen}
