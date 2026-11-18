@@ -113,7 +113,12 @@ const forksOf = (threadId: ThreadId) =>
 const authorState = (threadId: ThreadId) =>
   Effect.gen(function* () {
     const projection = yield* projectionOf(threadId);
-    return { runs: projection.runs, messages: projection.messages, row: yield* row(threadId) };
+    return {
+      thread: projection.thread,
+      runs: projection.runs,
+      messages: projection.messages,
+      row: yield* row(threadId),
+    };
   });
 const settlePass = Effect.flatMap(HandoffDrafterReactor, (reactor) => reactor.runPass);
 
@@ -181,7 +186,8 @@ it.layer(TestLayer)("Code query threads", (it) => {
         const { worktree, reviewThreadId } = yield* reviewRepo("main");
         const coder = ThreadId.make("code-query-coder");
         const fixer = ThreadId.make("code-query-fixer");
-        yield* seedThread({ threadId: coder, title: "CSV coder" });
+        // A role gives the author a sidecar row, as every real coder has, for the snapshot to compare.
+        yield* seedThread({ threadId: coder, title: "CSV coder", role: "coder" });
         yield* seedRunningRun({ threadId: coder, driver: pi });
         yield* completeSeededRun({ threadId: coder });
         yield* seedThread({ threadId: fixer, title: "Fixer" });
@@ -195,6 +201,7 @@ it.layer(TestLayer)("Code query threads", (it) => {
           fixer,
         ]);
         const before = yield* authorState(coder);
+        assert.isNotNull(before.row);
 
         const first = yield* askCodeQuery(asking(reviewThreadId, byCoder, [byCoder], 4, "Why D1?"));
         assert.deepInclude(first, { created: true, authorThreadId: coder });
