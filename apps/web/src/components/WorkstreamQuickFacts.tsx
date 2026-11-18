@@ -41,7 +41,7 @@ export const WorkstreamQuickFacts = forwardRef<
   const attention = nodeAttentionOf(node);
   const step = getStep(node);
   const lastOutcome = node.lastOutcome;
-  const lastPromotedAt = node.documentQuery?.promotions.at(-1)?.promotedAt;
+  const lastPromotedAt = (node.documentQuery ?? node.codeQuery)?.promotions.at(-1)?.promotedAt;
   const status = [
     getGateWaitLabel(node, byId)?.label ?? COLUMN_SHORT_LABELS[node.column].toLowerCase(),
     formatCompactAge(node.lastActivityAt),
@@ -57,7 +57,7 @@ export const WorkstreamQuickFacts = forwardRef<
       <div className="text-sm font-semibold leading-snug text-foreground">{node.title}</div>
       <div className="mt-1 text-2xs leading-snug text-muted-foreground">
         {node.role === DOCUMENT_QUERY_ROLE && node.forkFromThreadId
-          ? `Questions on ${node.documentQuery?.filePath ?? "a document"}, in a read-only fork of ${
+          ? `Questions on ${node.documentQuery?.filePath ?? (node.codeQuery ? "its committed lines" : "a document")}, in a read-only fork of ${
               byId.get(node.forkFromThreadId)?.title ?? "its author"
             }${lastPromotedAt ? ` · last promoted ${formatRelativeAge(lastPromotedAt)}` : ""}`
           : getPurpose(node)}

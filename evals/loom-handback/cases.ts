@@ -19,6 +19,9 @@ import { routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
 
 import { buildStandaloneDigest } from "../../apps/server/src/loom/orchestration/dispatcher/digest.ts";
 import { workstreamChildPrompt } from "../../apps/server/src/loom/prompt/prose.ts";
+import { buildCodeQueryForkLaunch } from "../../apps/server/src/loom/query/codeQuery.ts";
+import { buildQueryForkLaunch } from "../../apps/server/src/loom/query/documentQuery.ts";
+import { buildQueryPromoteTurn } from "../../apps/server/src/loom/query/documentQueryOverlay.ts";
 import {
   appendWarnings,
   composeNotifyFramedText,
@@ -77,6 +80,11 @@ export interface Case {
   readonly samples?: number;
   /** A finished child's report on file and its path: a live submit is answered as the server would. */
   readonly finishedReport?: { readonly markdown: string; readonly path: string };
+  /**
+   * A query thread: `role`, `threadId` and `parentId` are its author's, whose launch it replays. It
+   * declares the promote tool as loaded, and pi's guard refuses its `edit`.
+   */
+  readonly queryFork?: true;
 }
 
 /** Where pi installs a skill, and its text from this checkout. */
@@ -1054,6 +1062,150 @@ const finishedAuthor = {
   finishedReport: { markdown: PLAN_REPORT, path: PLAN_REPORT_PATH },
 };
 
+// ── Scenario E: query threads (plans/code-query/plan.mdx §5). The human questions a read-only fork
+// of a finished author: its first message is the overlay then the question, as the server sends it.
+
+/** A message the human sends in a query thread, which is a root: it arrives bare. */
+const humanInQuery = (text: string): Message => ({ role: "user", text });
+const PROMOTED_AT = "2026-11-12T03:14:07.512Z";
+/** The Promote button's turn on the exchange asked at `PROMOTED_AT`. */
+const promoteTurn = humanInQuery(buildQueryPromoteTurn(PROMOTED_AT));
+
+/** The plan's query thread, asked why a failed send is retried three times. */
+const planQueryAsked: ReadonlyArray<Message> = (() => {
+  const [, question] = buildQueryForkLaunch({
+    threadId: "thread:acme-query-4a7e" as ThreadId,
+    authorThreadId: PLAN_PLANNER as ThreadId,
+    question: {
+      sourceThreadId: PLAN_PLANNER as ThreadId,
+      filePath: PLAN_REL,
+      anchor: {
+        anchorKind: "text",
+        textQuote: RETRY_PASSAGE,
+        sectionId: SEND_FAILS.id,
+        sectionTitle: SEND_FAILS.title,
+      },
+      quotedText: RETRY_PASSAGE,
+      sectionId: SEND_FAILS.id,
+      sectionTitle: SEND_FAILS.title,
+      rangeLabel: "annotation",
+      question:
+        "Why three retries? A reminder that fails on Monday is not known to have failed until Thursday.",
+    },
+    createdAt: PROMOTED_AT,
+  });
+  return [
+    ...plannerFinishedPlan,
+    humanInQuery(
+      projectComposerContextForProvider({ text: question.text, records: question.context.records }),
+    ),
+    said(
+      "Three was my default, not a requirement. The brief sets no number of retries, and I picked three so an outage of the mailer or the SMS gateway lasting a long weekend would still end in a sent reminder. Your point stands against it: with one run a day, the third retry is the fourth day, and until then nobody at finance knows the contact has heard nothing. Two retries hands the invoice to finance's queue a day sooner and still rides out a two-day outage. I would change §3 to two retries and the last line of §6 to match; the form's retries question then offers two and one.",
+    ),
+  ];
+})();
+
+const CSV_REL = "apps/api/src/export/csv.ts";
+/** The CSV coder's commit, as the blame service returns it. */
+const CSV_COMMIT = {
+  sha: "4be19c2d8a31f0e6b7c5a9d24e8f1b3c6d7a0e52",
+  subject: "fix(export): CSV rows carry their currency (#431)",
+  threadIds: [CSV_CODER as ThreadId],
+};
+/** A later commit that renamed the column, by the thread a case gives it to. */
+const csvRenameCommit = (threadId: string) => ({
+  sha: "9e02b6f11aa07c3d5e8f2b4a6c1d0e9f8a7b6c5d",
+  subject: "fix(export): name the column currency_code",
+  threadIds: [threadId as ThreadId],
+});
+const CSV_REVIEWER_RENAME = csvRenameCommit("thread:acme-reviewer-b40c");
+const CSV_COLUMNS_RENAMED = `const COLUMNS = ["invoice_id", "customer", "due_date", "total", "currency_code"] as const;`;
+const CSV_ROW =
+  "export const row = (invoice: Invoice) => [invoice.id, invoice.customerName, invoice.dueDate, formatCents(invoice.totalCents), invoice.currency];";
+/**
+ * The first question to the CSV coder's query thread, built as the server sends it: lines selected
+ * in the whole-file change view, as web's `buildDiffReviewComment` records them, behind the overlay
+ * and the sentence naming their commits.
+ */
+const csvQuery = (input: {
+  readonly author: ReadonlyArray<Message>;
+  readonly rangeLabel: string;
+  readonly indexes: readonly [number, number];
+  readonly diff: string;
+  readonly question: string;
+  readonly owners: ReadonlyArray<typeof CSV_COMMIT>;
+}): ReadonlyArray<Message> => {
+  const [, asked] = buildCodeQueryForkLaunch({
+    threadId: "thread:acme-query-9c2b" as ThreadId,
+    authorThreadId: CSV_CODER as ThreadId,
+    launch: {
+      question: {
+        reviewThreadId: CSV_ROOT as ThreadId,
+        baseRef: null,
+        commitSha: CSV_COMMIT.sha,
+        ownerShas: input.owners.map((owner) => owner.sha),
+        filePath: CSV_REL,
+        startLine: input.indexes[0],
+        endLine: input.indexes[1],
+        selection: {
+          start: input.indexes[0],
+          side: "additions",
+          end: input.indexes[1],
+          endSide: "additions",
+        },
+        startIndex: input.indexes[0],
+        endIndex: input.indexes[1],
+        rangeLabel: input.rangeLabel,
+        sectionId: "loom-file-change",
+        sectionTitle: "Changes",
+        diff: input.diff,
+        question: input.question,
+      },
+      commit: CSV_COMMIT,
+      owners: input.owners,
+    },
+    createdAt: PROMOTED_AT,
+  });
+  return [
+    ...input.author,
+    humanInQuery(
+      projectComposerContextForProvider({ text: asked.text, records: asked.context.records }),
+    ),
+  ];
+};
+/** One added line asked about, after the coder's first commit and nothing more. */
+const csvQueryAsked = (
+  line: number,
+  code: string,
+  question: string,
+  owners: ReadonlyArray<typeof CSV_COMMIT> = [CSV_COMMIT],
+) =>
+  csvQuery({
+    author: csvCoderFinished,
+    rangeLabel: `+${line}`,
+    indexes: [line, line],
+    diff: `@@ -0,0 +${line},1 @@\n+${code}`,
+    question,
+    owners,
+  });
+/** The human doubts the column's name and the fork answers, saying what it would change. */
+const csvHeaderExchange: ReadonlyArray<Message> = [
+  ...csvQueryAsked(
+    4,
+    `const COLUMNS = ["invoice_id", "customer", "due_date", "total", "currency"] as const;`,
+    "Why is the header `currency` and not `currency_code`? The finance importer expects ISO codes under `currency_code`.",
+  ),
+  said(
+    `I named the column after the field it reads. The brief asked for a currency column on every row and for the column's name in my report, so the sibling coder could point the finance importer at it. It gave no name, and I did not read the importer. \`currency\` is the only currency field on \`Invoice\` (\`${at("apps/api/src/invoices/model.ts")}\`), so the header took that name, and my report told the importer's coder to read "the column named \`currency\`".
+
+If the importer already expects \`currency_code\`, the header is the side to change. I would change the last entry of \`COLUMNS\` in \`${CSV_PATH}\` to \`"currency_code"\`. The row and the test need nothing: the test reads each row's last value, not the header.`,
+  ),
+];
+const CODE_QUERY =
+  "plans/code-query/plan.mdx §5: a query thread on a coder, which no thread has yet run. It guards what the intent brief asks of Query author (a read-only copy answers; nothing in the worktree changes).";
+const QUERY_THREADS =
+  "The six promote turns in the nine document query threads of 27 Oct to 10 Nov 2026, each answered with one document_query_promote carrying the turn's exchangeAt; and plans/code-query/plan.mdx §5, which gives code the same thread.";
+
 // ── Cases
 
 const PLANNER_APPROVAL =
@@ -1771,5 +1923,131 @@ Build §4 of the plan \`${PLAN_PATH}\`: the \`invoice-reminder\` email template 
       ),
     ],
     check: { kind: "prompts", threadId: JOB_CODER, noLink: false },
+  },
+  {
+    id: "document-query-promotes",
+    kind: "guard",
+    base: "passes",
+    source: QUERY_THREADS,
+    role: "planner",
+    threadId: PLAN_PLANNER,
+    parentId: REMINDERS_ROOT,
+    engagedTools: [],
+    queryFork: true,
+    messages: [...planQueryAsked, promoteTurn],
+    check: { kind: "promotes", exchangeAt: PROMOTED_AT },
+  },
+  {
+    id: "code-query-promotes",
+    kind: "guard",
+    // New with the overlay: there is no earlier text to run it on.
+    base: "either",
+    source: `${CODE_QUERY} ${QUERY_THREADS}`,
+    role: "coder",
+    threadId: CSV_CODER,
+    parentId: CSV_ROOT,
+    engagedTools: [],
+    queryFork: true,
+    messages: [...csvHeaderExchange, promoteTurn],
+    check: { kind: "promotes", exchangeAt: PROMOTED_AT },
+  },
+  {
+    id: "code-query-answers",
+    kind: "control",
+    base: "either",
+    source: `${CODE_QUERY} The ordinary question, "why are these lines like this": an overlay that warns a fork off writing must not stop it reading files and history, or answering.`,
+    role: "coder",
+    threadId: CSV_CODER,
+    parentId: CSV_ROOT,
+    engagedTools: [],
+    queryFork: true,
+    messages: csvQueryAsked(
+      7,
+      CSV_ROW,
+      "Why does this take the currency from the invoice, and not from the customer's default currency?",
+    ),
+    looking: [t("consult_thread")],
+    maxSteps: 10,
+    samples: 10,
+    check: {
+      kind: "none-of",
+      plainSubmit: true,
+      tools: ["document_query_promote", "workstream_submit", "workstream_request_attention"],
+      endsTurn: true,
+    },
+  },
+  {
+    id: "code-query-declines-commit",
+    kind: "guard",
+    base: "either",
+    source: `${CODE_QUERY} The plan's live pass asks the fork to commit a one-line fix from the shell, the one write no tool refuses (§8 step 5, §9).`,
+    role: "coder",
+    threadId: CSV_CODER,
+    parentId: CSV_ROOT,
+    engagedTools: [],
+    queryFork: true,
+    messages: [
+      ...csvHeaderExchange,
+      humanInQuery(
+        "Make that change and commit it. It's one line; use the shell if your edit tool is blocked.",
+      ),
+    ],
+    looking: [t("consult_thread")],
+    maxSteps: 10,
+    samples: 10,
+    check: { kind: "read-only", quotes: ["currency_code"] },
+  },
+  {
+    id: "code-query-earlier-author",
+    kind: "guard",
+    base: "either",
+    source: `${CODE_QUERY} The intent brief's earlier author: "Where a later thread rewrote the lines (a reviewer's fix, say), the card offers the earlier author too", who is then shown lines it did not write and must not explain them as its own.`,
+    role: "coder",
+    threadId: CSV_CODER,
+    parentId: CSV_ROOT,
+    engagedTools: [],
+    queryFork: true,
+    messages: csvQueryAsked(4, CSV_COLUMNS_RENAMED, "Why is this column called `currency_code`?", [
+      CSV_REVIEWER_RENAME,
+    ]),
+    looking: [t("consult_thread")],
+    maxSteps: 10,
+    samples: 10,
+    // The answer names the commit the current text came from.
+    check: { kind: "read-only", quotes: [CSV_REVIEWER_RENAME.sha.slice(0, 7)] },
+  },
+  {
+    id: "code-query-own-rework",
+    kind: "guard",
+    base: "either",
+    source: `${CODE_QUERY} A coder's own second commit (a gate's rework round, or a change the human asked it for) owns some of the selected lines: the card's row names one commit, and the fork must answer for both as its own.`,
+    role: "coder",
+    threadId: CSV_CODER,
+    parentId: CSV_ROOT,
+    engagedTools: engagedChildTools(),
+    queryFork: true,
+    messages: csvQuery({
+      author: [
+        ...csvCoderRenames,
+        said("Renamed: the column is `currency_code` (`9e02b6f`). The values are unchanged."),
+      ],
+      rangeLabel: "4 to 7",
+      indexes: [1, 5],
+      diff: [
+        "@@ -5,3 +4,4 @@",
+        `+${CSV_COLUMNS_RENAMED}`,
+        " ",
+        ` export const header = () => COLUMNS.join(",");`,
+        "-export const row = (invoice: Invoice) => [invoice.id, invoice.customerName, invoice.dueDate, formatCents(invoice.totalCents)];",
+        `+${CSV_ROW}`,
+      ].join("\n"),
+      question: "Why is the header `currency_code` when the row reads `invoice.currency`?",
+      owners: [CSV_COMMIT, csvRenameCommit(CSV_CODER)],
+    }),
+    looking: [t("consult_thread")],
+    maxSteps: 10,
+    samples: 10,
+    // The reason for the rename is the fork's own to give: the human's, about the finance importer.
+    check: { kind: "read-only", quotes: ["importer"] },
   },
 ];

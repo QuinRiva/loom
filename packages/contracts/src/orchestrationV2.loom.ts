@@ -17,6 +17,7 @@ import {
   NonNegativeInt,
   PositiveInt,
   ProjectId,
+  RunId,
   RuntimeRequestId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -237,9 +238,9 @@ export const HandoffOrigin = Schema.Struct({
 export type HandoffOrigin = typeof HandoffOrigin.Type;
 
 /**
- * A query thread's role: a read-only, visible fork of a document's author (the
- * thread whose composer a Comment would reach) that the human questions about
- * one revision of that document (plans/plan-query-threads/plan.mdx §2.1).
+ * A query thread's role: a read-only, visible fork of an author that the human questions. Its
+ * subject is whichever sidecar field is set: `documentQuery`, one revision of a document, or
+ * `codeQuery`, lines the author committed (plans/code-query/plan.mdx §4). Stored, so never renamed.
  */
 export const DOCUMENT_QUERY_ROLE = "document-query";
 
@@ -304,6 +305,68 @@ export const LoomDocumentQuery = Schema.Struct({
   promotions: Schema.Array(LoomDocumentQueryPromotion),
 });
 export type LoomDocumentQuery = typeof LoomDocumentQuery.Type;
+
+/** The diff selection a code question was asked on, as a diff line comment stores it. */
+export const LoomCodeQuerySelection = Schema.Struct({
+  start: Schema.Number,
+  side: Schema.Literals(["additions", "deletions"]),
+  end: Schema.Number,
+  endSide: Schema.Literals(["additions", "deletions"]),
+});
+export type LoomCodeQuerySelection = typeof LoomCodeQuerySelection.Type;
+
+/** A code question's sidecar `excerpt`: rides every shell snapshot, so it is capped. */
+export const LOOM_CODE_QUERY_EXCERPT_MAX = 2_000;
+
+/** One question asked in a code query thread, on the added lines of one file's diff. */
+export const LoomCodeQueryQuestion = Schema.Struct({
+  /** The human message carrying the question. */
+  messageId: MessageId,
+  /** The conversation-jump anchor a mark opens; the Promote key. */
+  askedAt: IsoDateTime,
+  /** The commit the card's row named; it decided the author, and may be an earlier author's. */
+  commitSha: TrimmedNonEmptyString,
+  /** The commits owning the selected added lines when asked: a mark is drawn while they still do. */
+  ownerShas: Schema.Array(TrimmedNonEmptyString),
+  /** Worktree-relative. */
+  filePath: TrimmedNonEmptyString,
+  /** First and last added line of the selection, new-side numbers. */
+  startLine: PositiveInt,
+  endLine: PositiveInt,
+  selection: LoomCodeQuerySelection,
+  startIndex: NonNegativeInt,
+  endIndex: NonNegativeInt,
+  rangeLabel: Schema.String,
+  /** The view the lines were selected in: the Diff panel's section, or `loom-file-change`. */
+  sectionId: TrimmedNonEmptyString,
+  sectionTitle: Schema.String,
+  /** The selection's hunk, cut to its first `LOOM_CODE_QUERY_EXCERPT_MAX` characters. */
+  excerpt: Schema.String.check(Schema.isMaxLength(LOOM_CODE_QUERY_EXCERPT_MAX)),
+});
+export type LoomCodeQueryQuestion = typeof LoomCodeQueryQuestion.Type;
+
+/** One exchange a code query thread distilled into a line comment for the author. */
+export const LoomCodeQueryPromotion = Schema.Struct({
+  /** The chip id in the author's composer; the seed-once key. */
+  promotionId: TrimmedNonEmptyString,
+  promotedAt: IsoDateTime,
+  /** The `askedAt` of the question it distils; the lines come from that question. */
+  exchangeAt: IsoDateTime,
+  text: TrimmedNonEmptyString,
+});
+export type LoomCodeQueryPromotion = typeof LoomCodeQueryPromotion.Type;
+
+/**
+ * A code query thread's subject: the author as of one run. A question after the author's next
+ * run forks a new query thread, so `forkedAtRunId` is set once, by the first question.
+ */
+export const LoomCodeQuery = Schema.Struct({
+  /** The author's latest run when the thread was forked (null: a V1 import with none); the reuse key. */
+  forkedAtRunId: Schema.NullOr(RunId),
+  questions: Schema.Array(LoomCodeQueryQuestion),
+  promotions: Schema.Array(LoomCodeQueryPromotion),
+});
+export type LoomCodeQuery = typeof LoomCodeQuery.Type;
 
 // mcp__t3-code__consult_thread observability: one entry per distinct target this thread has
 // consulted (the full question + answer live on `thread.consult-recorded`).
@@ -476,6 +539,8 @@ export const LoomThreadWorkstream = Schema.Struct({
   documentQuery: Schema.NullOr(LoomDocumentQuery).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /** Set on a `DOCUMENT_QUERY_ROLE` thread about code by its first question; null on every other. */
+  codeQuery: Schema.NullOr(LoomCodeQuery).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   /** Mirrored from thread.archived / unarchived. */
   archivedAt: Schema.NullOr(IsoDateTime),
   /** Mirrored from thread.unarchived; bounds the unarchive cascade (DL-199). */
@@ -949,6 +1014,19 @@ export const makeLoomInternalCommandMembers = <
       ...LoomCommandFields,
       promotion: LoomDocumentQueryPromotion,
     }),
+    /** Records one question on a code query thread (`threadId`); the first one sets its run. */
+    Schema.Struct({
+      type: Schema.Literal("thread.code-query.ask"),
+      ...LoomCommandFields,
+      forkedAtRunId: Schema.NullOr(RunId),
+      question: LoomCodeQueryQuestion,
+    }),
+    /** Records one promoted exchange on a code query thread (`threadId`). */
+    Schema.Struct({
+      type: Schema.Literal("thread.code-query.promote"),
+      ...LoomCommandFields,
+      promotion: LoomCodeQueryPromotion,
+    }),
     /**
      * Writes the pending `fork` context transfer on a forkFrom child
      * (`threadId`) from `sourceThreadId`'s latest finished run, at promotion
@@ -1183,6 +1261,19 @@ export const makeLoomDomainEventMembers = <const Base extends Schema.Struct.Fiel
       type: Schema.Literal("thread.document-query-promoted"),
       payload: Schema.Struct({ promotion: LoomDocumentQueryPromotion }),
     }),
+    Schema.Struct({
+      ...base,
+      type: Schema.Literal("thread.code-query-asked"),
+      payload: Schema.Struct({
+        forkedAtRunId: Schema.NullOr(RunId),
+        question: LoomCodeQueryQuestion,
+      }),
+    }),
+    Schema.Struct({
+      ...base,
+      type: Schema.Literal("thread.code-query-promoted"),
+      payload: Schema.Struct({ promotion: LoomCodeQueryPromotion }),
+    }),
   ] as const;
 
 // Narrowing guards. The listed string tuples are checked against the spliced
@@ -1212,6 +1303,8 @@ export const LOOM_COMMAND_TYPES = [
   "thread.handoff.record",
   "thread.document-query.ask",
   "thread.document-query.promote",
+  "thread.code-query.ask",
+  "thread.code-query.promote",
   "thread.fork.prepare",
   "runtime-request.create",
 ] as const;
@@ -1247,6 +1340,8 @@ export const LOOM_EVENT_TYPES = [
   "thread.handoff-recorded",
   "thread.document-query-asked",
   "thread.document-query-promoted",
+  "thread.code-query-asked",
+  "thread.code-query-promoted",
 ] as const;
 export type LoomEventType = (typeof LOOM_EVENT_TYPES)[number];
 

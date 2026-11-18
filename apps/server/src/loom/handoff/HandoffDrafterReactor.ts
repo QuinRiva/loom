@@ -2,13 +2,14 @@
  * Settles `/handoff` drafters from durable state once the kickoff run ends: a handoff means `done`
  * then `thread.archive`; none, or a kickoff unfinished past `HANDOFF_HUNG_GRACE_MS`, raises
  * `needs_guidance` on the source if it has a live Loom row, else the drafter. Re-sends a fork a
- * mid-turn source deferred; a `document-query` thread gets only that leg. Deterministic `server:` ids.
+ * mid-turn source deferred; a query thread (either subject) gets only that leg. Deterministic `server:` ids.
  */
 import {
   CommandId,
   DOCUMENT_QUERY_ROLE,
   HANDOFF_DRAFTER_ROLE,
   type LoomThreadWorkstream,
+  type OrchestrationV2ServerCommand,
   type OrchestrationV2ThreadShell,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -29,6 +30,7 @@ import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { dispatchServerCommand } from "../orchestration/redrive.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
+import { buildCodeQueryForkLaunch, parseCodeQueryBrief } from "../query/codeQuery.ts";
 import { buildQueryForkLaunch, parseDocumentQueryBrief } from "../query/documentQuery.ts";
 import { readWorkstreamBriefAt } from "../workstream/brief.ts";
 import {
@@ -102,15 +104,38 @@ const make = Effect.gen(function* () {
     CommandReceiptStoreV2 | OrchestratorV2 | FileSystem.FileSystem
   >();
 
-  /** A deferred query thread's fork and its overlay-led first question; none without a brief. */
+  /**
+   * A deferred query thread's fork and its overlay-led first question, on a document or on code;
+   * none without a brief.
+   */
   const queryLaunch = (row: LoomThreadWorkstream, authorThreadId: ThreadId, createdAt: string) =>
     Effect.map(
       row.kickoffBriefPath === null
         ? Effect.succeed(Option.none<string>())
         : readWorkstreamBriefAt(row.kickoffBriefPath),
       (brief) =>
-        Option.map(Option.flatMap(brief, parseDocumentQueryBrief), (question) =>
-          buildQueryForkLaunch({ threadId: row.threadId, authorThreadId, question, createdAt }),
+        Option.flatMap(brief, (text) =>
+          Option.orElse(
+            Option.map(
+              parseDocumentQueryBrief(text),
+              (question): ReadonlyArray<OrchestrationV2ServerCommand> =>
+                buildQueryForkLaunch({
+                  threadId: row.threadId,
+                  authorThreadId,
+                  question,
+                  createdAt,
+                }),
+            ),
+            () =>
+              Option.map(parseCodeQueryBrief(text), (launch) =>
+                buildCodeQueryForkLaunch({
+                  threadId: row.threadId,
+                  authorThreadId,
+                  launch,
+                  createdAt,
+                }),
+              ),
+          ),
         ),
     );
 

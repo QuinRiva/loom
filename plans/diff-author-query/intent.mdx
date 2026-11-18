@@ -5,7 +5,7 @@ reader:
   after_first_screen: he can correct any line or say "go"
 kicker: "Intent brief · approved 17 Nov 2026"
 status: approved
-plan: plans/diff-author-query/plan.mdx
+plan: plans/code-query/plan.mdx
 manager_sessions:
   - id: 01a1e6ab-93d8-7041-aed3-6df8fec5efb5
     name: Link diff lines to authoring subthread
@@ -49,9 +49,24 @@ changed file opened whole from the Files list:
   commit, with the same file open beside it at the same lines. One click
   returns you to the file as you left it.
 
+Those pass too. Having used Open thread you said: "I'd like to build the
+rest of the phases that we paused (with the query fork)". So, in both views:
+
+- You press Query author on the card and type a question. A read-only copy
+  of that coder answers from its own transcript in the main window. The
+  file or diff beside it is as you left it: the same file, the same
+  comparison and the same selected lines.
+- The lines you asked about keep a marker saying a question was asked
+  there, in the whole-file view and in the Diff panel.
+- You press Promote on an answer, and a comment about those lines is
+  waiting in the real coder's composer for you to send.
+- One click returns you from the copy to the thread you were reviewing in.
+
 **It must not.**
 
 - Name a thread that did not write the lines. No author shown beats a guess.
+- Spend a turn of the coder's thread, or change anything in it, when you
+  Query.
 - Make the diff slower to open or scroll, on this machine or over the relay.
 
 **Approaches in play.**
@@ -71,12 +86,13 @@ changed file opened whole from the Files list:
 - Asking through Open thread: you go to the live coder, and the diff
   follows the main window there. _Chosen._ Your question and its answer
   become part of that coder's conversation.
-- Deferred: Query author, where a read-only copy of the coder answers so its
-  thread is untouched, with a marker on the lines asked about and Promote to
-  send a comment to the real coder. It costs more than everything above put
-  together (a database migration, new event types, model-read text to
-  evaluate). Wins if, after using Open thread, you find you often ask about
-  code only to understand it. The plan's slices 3 to 5 hold its design.
+- Asking through Query author: a read-only copy of the coder answers, so
+  its thread is untouched. _Chosen, alongside Open thread._ It costs more
+  than everything above put together (a database migration, new event
+  types, model-read text to evaluate). A coder that finished a while ago is
+  read in full, at the uncached price, for your first question to its copy;
+  later questions to that copy are cheap. `plans/code-query/plan.mdx` holds
+  its plan; `plans/diff-author-query/plan.mdx` built everything above it.
 
 **Decided.** "Yep looks good" to the mockup, which fixed three things.
 
@@ -86,8 +102,9 @@ changed file opened whole from the Files list:
   querying the author, unlike plans", because with code "I often anticipate
   changes much more directly". So: "let's just try slices 1 and 2 and see if
   that works. Then we can always come back and build the remaining ones
-  after we deploy slices 1 and 2 if I see value in that." The card
-  therefore offers Open thread only.
+  after we deploy slices 1 and 2 if I see value in that." After deploying
+  them: "I'd like to build the rest of the phases that we paused (with the
+  query fork)". The card offers Query author beside Open thread.
 - Lines not yet committed show as uncommitted, with no author.
 - Asked whether his second view, "the last hunk of work that was done",
   needs anything new: "No, those two cover it; build nothing more for it".
@@ -114,6 +131,17 @@ changed file opened whole from the Files list:
 - _Assumed:_ the earlier author appears on the card, not on the hunk's own
   row as the mockup's "after Deploy server" note drew it. Redirect if you
   want it on the row.
+- _Assumed:_ the marker on asked-about lines is a mark in the line-number
+  gutter. Selecting marked lines lists the questions on the card, each with
+  a way to its answer. Redirect if you want the question shown beside the
+  lines, as the mockup's "1 question" pill drew it.
+- _Assumed:_ a copy answers on the model its coder ran on, since no other
+  model can reuse what the coder already read. Redirect if a cheaper model's
+  answer would do.
+- _Assumed:_ once you send a promoted comment and the coder acts on it, your
+  next question to that coder starts a fresh copy. The earlier copy is
+  archived and every marker from it goes, in every file. Redirect if markers
+  should outlast the copy.
 - _Assumed:_ in the whole-file view, authors show when it is comparing
   against the whole branch or the live "Since your message", as in the Diff
   panel, and not for an earlier interval. The Files list itself is
@@ -123,5 +151,18 @@ changed file opened whole from the Files list:
 
 **Not doing.** Authorship on GitHub's pull request page. Authors for
 uncommitted lines. Mobile. A view that steps through the branch one commit
-at a time. Query author, its line markers and Promote, until you have used
-Open thread and say you want them.
+at a time.
+
+**Still unknown.**
+
+- Does a copy of a coder whose long session was summarised part-way still
+  give the real reason for its early lines, or a plausible reconstruction?
+  The copy is told to say when it is reconstructing and to read its own
+  transcript first. Asking about the early lines of a long-running coder in
+  the first live pass settles whether that is enough. If it is not, the card
+  warns when the coder was summarised after it wrote the lines, and whether
+  a warning is enough comes back to you. So far it has been asked only of a
+  stand-in: a short Sonnet session, compacted twice, whose copy searched its
+  own transcript and quoted the original instruction word for word. A test
+  instance cannot run your real coders, so the answer for one of those waits
+  for your first use after deploy.

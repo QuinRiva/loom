@@ -242,6 +242,7 @@ const RPC_AGGREGATES = {
   [LOOM_WS_METHODS.handoffDraft]: "loom",
   [LOOM_WS_METHODS.retroDraft]: "loom",
   [LOOM_WS_METHODS.documentQuery]: "loom", // loom: query threads
+  [LOOM_WS_METHODS.codeQuery]: "loom", // loom: code query threads
   [LOOM_WS_METHODS.documentQueryPromote]: "loom", // loom: query threads
   [LOOM_WS_METHODS.documentQueryAuthor]: "loom", // loom: query threads
   [LOOM_WS_METHODS.threadSpend]: "loom",

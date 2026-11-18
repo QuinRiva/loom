@@ -33,10 +33,11 @@ Terms whose meaning matters across T3 Code. Architecture and lifecycle constrain
 
 ## Loom side threads
 
-| Term        | Meaning                                                                                                                                                                                                                                                          |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Side thread | A thread that lives on another thread's context beside the workstream graph: a root that is never a parent, so no control-plane reader reaches it. Today a query thread or a `/handoff` drafter (`SIDE_THREAD_ROLES`); the class decides only where it is shown. |
-| Anchor      | The thread a side thread hangs from in every presentation (sidebar, graph, thread tabs): the thread it was forked from.                                                                                                                                          |
+| Term         | Meaning                                                                                                                                                                                                                                                                                                                                                |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Side thread  | A thread that lives on another thread's context beside the workstream graph: a root that is never a parent, so no control-plane reader reaches it. Today a query thread or a `/handoff` drafter (`SIDE_THREAD_ROLES`); the class decides only where it is shown.                                                                                       |
+| Anchor       | The thread a side thread hangs from in every presentation (sidebar, graph, thread tabs): the thread it was forked from.                                                                                                                                                                                                                                |
+| Query thread | A read-only fork of an author, role `document-query`, that answers questions so the author spends no turn. Its subject is whichever sidecar field is set: `documentQuery` (one revision of a document the author signed) or `codeQuery` (lines the author committed, asked from the author card). Promote leaves one comment in the author's composer. |
 
 <!-- loom: diff author query -->
 

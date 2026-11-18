@@ -765,6 +765,7 @@ export default function DiffPanel({
     authors: loomAuthors,
     routed: routedThreadRef,
     reviewing: routeThreadRef,
+    section: { id: reviewSectionId, title: reviewSectionTitle }, // loom: code query
     files: renderableFileEntries,
     revealFile: revealDiffFile,
     revealLines: codeViewReveal.request,

@@ -48,11 +48,10 @@ const exchangeAtAtom = Atom.family((key: string) => {
   const ref = scopeThreadRef(environmentId, threadId);
   return Atom.make((get): string | null => {
     const query = get(environmentThreadShells.quietThreadShellAtom(ref))?.source.workstream;
-    if (query?.role !== DOCUMENT_QUERY_ROLE || !query.documentQuery) return null;
+    const questions = (query?.documentQuery ?? query?.codeQuery)?.questions;
+    if (query?.role !== DOCUMENT_QUERY_ROLE || !questions) return null;
     const thread = get(environmentThreadDetails.threadAtom(ref));
-    return thread === null
-      ? null
-      : promotableExchangeAt(thread.projection.runs, query.documentQuery.questions, runId);
+    return thread === null ? null : promotableExchangeAt(thread.projection.runs, questions, runId);
   }).pipe(Atom.withLabel(`loom-document-query-exchange:${key}`));
 });
 

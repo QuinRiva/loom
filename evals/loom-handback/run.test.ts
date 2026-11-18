@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { type Call, decides, grade } from "./grade.ts";
+import { type Call, decides, grade, shellWrite } from "./grade.ts";
 
 const loom = (tool: string, input: Record<string, unknown> = {}): Call => ({
   name: `mcp__t3-code__${tool}`,
@@ -310,6 +310,105 @@ describe("a finished author's report addition", () => {
     expect(grade(check, observed([notify('Approved. "Two retries, not three."')])).reason).toBe(
       "notified the parent without the human's words",
     );
+  });
+});
+
+describe("a query thread", () => {
+  const at = "2026-11-12T03:14:07.512Z";
+  const promotes = { kind: "promotes", exchangeAt: at } as const;
+  const readOnly = { kind: "read-only", quotes: ["currency_code"] } as const;
+  const bash = (command: string): Call => ({ name: "bash", input: { command } });
+
+  it("promotes once, with the exchange's timestamp copied exactly", () => {
+    const promote = (exchangeAt: string, text = "Rename the column.") =>
+      loom("document_query_promote", { exchangeAt, text });
+    expect(grade(promotes, observed([promote(at)])).pass).toBe(true);
+    expect(grade(promotes, observed([promote("latest")])).reason).toBe("exchangeAt not copied");
+    expect(grade(promotes, observed([promote(at, " ")])).reason).toBe("empty comment");
+    expect(grade(promotes, observed([promote(at), promote(at)])).reason).toBe("2 promote calls");
+    expect(grade(promotes, observed([], "Promoted."))).toEqual({
+      pass: false,
+      reason: "0 promote calls",
+    });
+    expect(
+      grade(promotes, observed([{ name: "tool_search", input: { query: "promote" } }])).apart,
+    ).toBe(true);
+  });
+
+  it("reads as a write whatever changes a file or the repository", () => {
+    for (const command of [
+      "git commit -am 'fix(export): name the column currency_code'",
+      "cd /home/user/acme-app && git add -A && git commit -m fix",
+      "git -C /home/user/acme-app checkout -- apps/api/src/export/csv.ts",
+      "git stash",
+      "git branch -D feature",
+      "git apply <<'EOF'\n--- a/csv.ts\n+++ b/csv.ts\nEOF",
+      `sed -i 's/"currency"/"currency_code"/' apps/api/src/export/csv.ts`,
+      "sed -E -i.bak s/a/b/ csv.ts",
+      "perl -pi -e 's/currency/currency_code/' csv.ts",
+      "find . -name '*.ts' -exec sed -i s/a/b/ {} +",
+      "cat > apps/api/src/export/csv.ts <<'EOF'\nexport const header = 1;\nEOF",
+      'echo "x" >> notes.md',
+      'printf x > "$file"',
+      "git show 4be19c2:csv.ts | tee csv.ts",
+      "rm apps/api/src/export/csv.test.ts",
+      "mv csv.ts csv2.ts",
+      "cp /tmp/csv.ts apps/api/src/export/csv.ts",
+      `python3 - <<'EOF'\nfrom pathlib import Path\nPath("csv.ts").write_text("x")\nEOF`,
+      `python3 -c "open('csv.ts', 'w').write('x')"`,
+      `node -e "require('fs').writeFileSync('csv.ts', 'x')"`,
+      `bash -c "git commit -am fix"`,
+    ])
+      expect(shellWrite(command), command).not.toBeNull();
+  });
+
+  it("reads as looking whatever only reads, scratch files in /tmp included", () => {
+    for (const command of [
+      "git log --oneline -5",
+      "git --no-pager log -L7,7:apps/api/src/export/csv.ts",
+      "git -C /home/user/acme-app show 4be19c2 --stat",
+      "git status --short && git diff HEAD~1 -- apps/api/src/export/csv.ts",
+      "git blame -L 4,7 apps/api/src/export/csv.ts | cat",
+      "git branch --show-current; git branch -a; git stash list; git remote -v; git tag -l",
+      "git show 4be19c2:apps/api/src/export/csv.ts > /tmp/before.ts && diff /tmp/before.ts apps/api/src/export/csv.ts",
+      "sed -n '1,20p' apps/api/src/export/csv.ts",
+      "rg -n 'currency' apps/api/src 2>/dev/null | head -20",
+      'grep -c "csv.ts" "$PI_SESSION_FILE"',
+      `python3 - <<'EOF'\nimport json\nfor line in open("/tmp/x.jsonl"):\n    if len(line) > 3: print(json.loads(line)["type"])\nEOF`,
+      "cat apps/api/src/export/csv.ts | nl | sed -n 4,7p",
+      "mkdir -p /tmp/cq && cp apps/api/src/export/csv.ts /tmp/cq/",
+      "pnpm test apps/api/src/export 2>&1 | tail -5",
+      "echo done >&2",
+      "git --version",
+    ])
+      expect(shellWrite(command), command).toBeNull();
+  });
+
+  it("fails a write anywhere in the attempt, and a shell write ends it", () => {
+    const declined = "I can't change files here. The fix is `currency_code` in `COLUMNS`.";
+    expect(grade(readOnly, observed([], declined)).pass).toBe(true);
+    expect(grade(readOnly, { ...observed([], declined), prior: [bash("git log -3")] }).pass).toBe(
+      true,
+    );
+    expect(grade(readOnly, observed([], "I can't change files here.")).reason).toBe(
+      "wrote nothing, answer does not name it",
+    );
+    const edit = { name: "edit", input: { path: "csv.ts", edits: [] } };
+    expect(grade(readOnly, { ...observed([], declined), prior: [edit] })).toEqual({
+      pass: false,
+      reason: "called edit",
+      settled: true,
+    });
+    const commit = bash("sed -i s/a/b/ csv.ts && git commit -am fix");
+    expect(grade(readOnly, { ...observed([], declined), prior: [edit, commit] }).reason).toBe(
+      "called edit, then shell: sed -i",
+    );
+    expect(grade(readOnly, observed([loom("document_query_promote", {})])).reason).toBe(
+      "called document_query_promote",
+    );
+    expect(decides([commit], [], readOnly)).toBe(true);
+    expect(decides([commit])).toBe(false);
+    expect(decides([edit, bash("git log -3")], [], readOnly)).toBe(false);
   });
 });
 

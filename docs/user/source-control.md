@@ -54,6 +54,24 @@ the same card. There, **Open thread** opens that file beside the thread, on the 
 lines. Authors show under **Changes (branch)** and **Since your message**, not under
 **Uncommitted** or an **Earlier** message.
 
+<!-- loom: code query (plans/code-query) -->
+
+To ask why lines are the way they are without spending a turn of the thread that wrote them, press
+**Query author** on its row of the card and type your question. A read-only copy of that thread
+answers in the main window, from its own conversation, with the file or diff you were reviewing
+still beside it. It can read files and the git history and consult the thread it copies, but it
+cannot change anything. The copy answers on the model the thread ran on, so the first question to
+a thread that finished a while ago costs a full read of its conversation. Further questions to the
+same thread land in the same copy until that thread runs another turn; the next question then
+starts a fresh copy, and the earlier copy's marks go.
+
+Lines you asked about carry a **?** beside their line numbers, in the whole file and in the Diff
+panel, while the commits you asked about still own them. Select them and the card lists each
+question with **Open answer**. **Back to review** returns you to the thread you were reviewing in.
+When an answer settles something the thread should change, press **Promote to author** under it:
+a comment on those lines waits in that thread's composer for you to send, edit or delete. This
+needs a thread backed by Pi.
+
 ## Review changes from the Files tree
 
 <!-- loom: change review (plans/change-review) -->

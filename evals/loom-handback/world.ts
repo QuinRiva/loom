@@ -1,11 +1,14 @@
 /**
  * What this checkout's control plane sends for the things the human-in-child change altered
  * (plans/human-in-child-thread/plan.mdx §5, model-text §8): the held notice, a finished child's
- * submit result and the tools an engaged child gains.
+ * submit result and the tools an engaged child gains; and for a query thread
+ * (plans/code-query/plan.mdx §5), what the pi guard answers its `edit` with.
  */
 import { buildHeldHandbackMessage } from "../../apps/server/src/loom/orchestration/dispatcher/wakes.ts";
+import { LOOM_QUERY_FORK_ENV } from "../../apps/server/src/loom/query/queryPosture.ts";
 import { repeatsReport } from "../../apps/server/src/loom/workstream/report.ts";
 import { ENGAGED_CHILD_TOOLS } from "../../apps/server/src/mcp/toolkits/workstream/families.ts";
+import { queryGuardPart } from "../../apps/server/src/provider/Drivers/Pi/loomExtensionParts/queryGuard.ts";
 import {
   REPORT_ADDITION_ECHO,
   REPORT_REPEAT_REFUSAL,
@@ -37,3 +40,13 @@ export const finishedSubmitResult = (
 
 /** Tools a child's session profile makes active once a person has written to it, beyond its role's. */
 export const engagedChildTools = (): ReadonlyArray<string> => ENGAGED_CHILD_TOOLS;
+
+/** The refusal pi's query guard answers `edit` or `write` with in a query thread: the part itself, run. */
+export const queryGuardRefusal = (toolName: string): string => {
+  let refuse: (event: { toolName: string }) => { reason: string } | undefined = () => undefined;
+  new Function("pi", "process", queryGuardPart.source)(
+    { on: (_event: string, handler: typeof refuse) => (refuse = handler) },
+    { env: { [LOOM_QUERY_FORK_ENV]: "1" } },
+  );
+  return refuse({ toolName })?.reason ?? "";
+};

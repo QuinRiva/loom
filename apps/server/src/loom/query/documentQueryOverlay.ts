@@ -18,3 +18,7 @@ export const buildDocumentQueryOverlay = (input: {
 - Never call \`mcp__t3-code__workstream_submit\` or \`mcp__t3-code__workstream_request_attention\`: there is no parent, and this thread ends when the review moves on.
 
 The human's first question follows below; answer it directly.`;
+
+/** The Promote turn on either subject: the human pressed Promote and the server words it. */
+export const buildQueryPromoteTurn = (exchangeAt: string) =>
+  `Promote the exchange above (my question at exchangeAt ${exchangeAt} and your answer): write one anchored comment for the author with \`mcp__t3-code__document_query_promote\`; nothing else reaches the author.`;

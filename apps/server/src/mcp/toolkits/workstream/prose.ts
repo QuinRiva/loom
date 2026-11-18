@@ -171,9 +171,9 @@ export const LOOM_TOOL_PROSE = {
   },
   document_query_promote: {
     description:
-      "Record ONE comment for the author of the document this query thread is about, distilling the exchange the human asked you to promote; it waits in the author's composer until the human sends it. Query threads only.",
+      "Record ONE comment for this query thread's author (the thread it is a fork of), distilling the exchange the human asked you to promote; it waits in the author's composer until the human sends it. Query threads only.",
     promptSnippet:
-      "promote one exchange to the document's author as an anchored comment (query threads only).",
+      "promote one exchange to the query thread's author as an anchored comment (query threads only).",
     // No guidelines: the description and the promote turn carry the contract.
     promptGuidelines: "",
   },

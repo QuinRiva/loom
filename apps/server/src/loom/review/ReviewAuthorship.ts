@@ -113,6 +113,23 @@ export class ReviewAuthorship extends Context.Service<
     readonly lineHistory: (
       input: LoomReviewLineHistoryInput,
     ) => Effect.Effect<LoomReviewLineHistoryResult, ReviewAuthorshipError>;
+    /**
+     * The named commit and the selected lines' owners, each only if it lies on the diff's branch
+     * (between the merge base and HEAD), with the threads they name. A Query author check.
+     */
+    readonly commitAuthor: (input: {
+      readonly threadId: ThreadId;
+      readonly baseRef: string | null;
+      readonly commitSha: string;
+      readonly ownerShas: ReadonlyArray<string>;
+    }) => Effect.Effect<
+      {
+        readonly commit: LoomReviewAuthorshipCommit | null;
+        readonly owners: ReadonlyArray<LoomReviewAuthorshipCommit | null>;
+        readonly threads: ReadonlyArray<LoomReviewAuthorshipThread>;
+      },
+      ReviewAuthorshipError
+    >;
   }
 >()("t3/loom/review/ReviewAuthorship") {}
 
@@ -367,7 +384,48 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  return ReviewAuthorship.of({ authorship, lineHistory });
+  const commitAuthor = Effect.fn("ReviewAuthorship.commitAuthor")(
+    function* (input: {
+      readonly threadId: ThreadId;
+      readonly baseRef: string | null;
+      readonly commitSha: string;
+      readonly ownerShas: ReadonlyArray<string>;
+    }) {
+      const root = yield* rootOf(input.threadId);
+      const branch = root === null ? null : yield* branchOf(root, input.baseRef);
+      const onBranch =
+        root === null || branch === null
+          ? new Set<string>()
+          : new Set(
+              (yield* run(root, ["rev-list", `${branch.mergeBase}..${branch.headSha}`])).stdout
+                .split("\n")
+                .filter((sha) => sha !== ""),
+            );
+      const commits = yield* readCommits(
+        root ?? "",
+        [...new Set([input.commitSha, ...input.ownerShas])].filter((sha) => onBranch.has(sha)),
+      );
+      const bySha = new Map(commits.map((commit) => [commit.sha, commit]));
+      return {
+        commit: bySha.get(input.commitSha) ?? null,
+        owners: input.ownerShas.map((sha) => bySha.get(sha) ?? null),
+        threads: yield* readThreads(commits),
+      };
+    },
+    (effect, input) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new ReviewAuthorshipError({
+              threadId: input.threadId,
+              detail: typeof cause === "string" ? cause : "git failed",
+              ...(typeof cause === "string" ? {} : { cause }),
+            }),
+        ),
+      ),
+  );
+
+  return ReviewAuthorship.of({ authorship, lineHistory, commitAuthor });
 });
 
 export const layer = Layer.effect(ReviewAuthorship, make);

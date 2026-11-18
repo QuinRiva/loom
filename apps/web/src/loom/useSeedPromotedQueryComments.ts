@@ -1,7 +1,8 @@
 /**
  * loom: a promoted query-thread exchange seeds once per client into the author's composer as a
- * chip, never forced: the id is recorded on seed (`workstreamUiStore`, tier 1), so deleting the
- * chip dismisses it for good. Mounted by the author's ChatView.
+ * chip (a code promotion as a plain line comment on its question's lines), never forced: the id is
+ * recorded on seed (`workstreamUiStore`, tier 1), so deleting the chip dismisses it for good.
+ * Mounted by the author's ChatView.
  */
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -15,7 +16,11 @@ import { Atom } from "effect/reactivity";
 import { useEffect } from "react";
 
 import { useComposerDraftStore } from "../composerDraftStore";
-import type { MdxAnchorReviewCommentContext } from "../reviewCommentContext";
+import type {
+  LineReviewCommentContext,
+  MdxAnchorReviewCommentContext,
+  ReviewCommentContext,
+} from "../reviewCommentContext";
 import { environmentThreadShells } from "../state/threads";
 import { selectSeededPromotionIds, useWorkstreamUiStore } from "./workstreamUiStore";
 
@@ -23,36 +28,64 @@ import { selectSeededPromotionIds, useWorkstreamUiStore } from "./workstreamUiSt
  * Every promotion on `authorId`'s query threads as the chip it seeds, oldest first. Archived or
  * settled query threads still count: a promotion outlives the review.
  */
-function promotedQueryComments(
+export function promotedQueryComments(
   threads: ReadonlyArray<OrchestrationV2ThreadShell>,
   authorId: ThreadId,
-): ReadonlyArray<MdxAnchorReviewCommentContext> {
+): ReadonlyArray<ReviewCommentContext> {
   return threads
     .flatMap((thread) => {
       const workstream = thread.workstream;
-      const query = workstream?.documentQuery;
-      return workstream?.role === DOCUMENT_QUERY_ROLE &&
-        workstream.forkFromThreadId === authorId &&
-        thread.deletedAt === null &&
-        query
-        ? query.promotions.map(({ promotionId, promotedAt, comment }) => ({
-            promotedAt,
-            chip: {
-              kind: "mdx-anchor",
-              id: promotionId,
-              filePath: query.filePath,
-              ...comment,
-              queryThreadId: thread.id,
-              promotionId,
-            } satisfies MdxAnchorReviewCommentContext,
-          }))
-        : [];
+      if (
+        workstream?.role !== DOCUMENT_QUERY_ROLE ||
+        workstream.forkFromThreadId !== authorId ||
+        thread.deletedAt !== null
+      )
+        return [];
+      const document = workstream.documentQuery;
+      const code = workstream.codeQuery;
+      return [
+        ...(document?.promotions ?? []).map(({ promotionId, promotedAt, comment }) => ({
+          promotedAt,
+          chip: {
+            kind: "mdx-anchor",
+            id: promotionId,
+            filePath: document!.filePath,
+            ...comment,
+            queryThreadId: thread.id,
+            promotionId,
+          } satisfies MdxAnchorReviewCommentContext as ReviewCommentContext,
+        })),
+        ...(code?.promotions ?? []).flatMap(({ promotionId, promotedAt, exchangeAt, text }) => {
+          const question = code!.questions.find((candidate) => candidate.askedAt === exchangeAt);
+          return question
+            ? [
+                {
+                  promotedAt,
+                  chip: {
+                    kind: "line",
+                    id: promotionId,
+                    sectionId: question.sectionId,
+                    sectionTitle: question.sectionTitle,
+                    filePath: question.filePath,
+                    rangeLabel: question.rangeLabel,
+                    text,
+                    startIndex: question.startIndex,
+                    endIndex: question.endIndex,
+                    diff: question.excerpt,
+                    fenceLanguage: "diff",
+                    selection: question.selection,
+                  } satisfies LineReviewCommentContext as ReviewCommentContext,
+                },
+              ]
+            : [];
+        }),
+      ];
     })
     .toSorted((left, right) => left.promotedAt.localeCompare(right.promotedAt))
     .map(({ chip }) => chip);
 }
 
-const NO_CHIPS: ReadonlyArray<MdxAnchorReviewCommentContext> = Object.freeze([]);
+const NO_CHIPS: ReadonlyArray<ReviewCommentContext> = Object.freeze([]);
 
 /**
  * Adds each promoted chip this client has not seeded yet to the author's composer (appended,
@@ -60,7 +93,7 @@ const NO_CHIPS: ReadonlyArray<MdxAnchorReviewCommentContext> = Object.freeze([])
  */
 export function seedPromotedQueryComments(
   authorRef: ScopedThreadRef,
-  promoted: ReadonlyArray<MdxAnchorReviewCommentContext>,
+  promoted: ReadonlyArray<ReviewCommentContext>,
 ) {
   const ui = useWorkstreamUiStore.getState();
   const seeded = new Set(selectSeededPromotionIds(ui, authorRef));

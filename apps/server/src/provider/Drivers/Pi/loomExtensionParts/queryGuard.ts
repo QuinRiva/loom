@@ -11,7 +11,7 @@ export const queryGuardPart: LoomExtensionPart = {
 if (process.env.${LOOM_QUERY_FORK_ENV} === "1") {
   pi.on("tool_call", (event) =>
     event.toolName === "edit" || event.toolName === "write"
-      ? { block: true, reason: "This is a read-only query thread: " + event.toolName + " is refused. The author (the thread named in this thread's kickoff brief) is the document's only writer. Say what you would change instead; the human can Promote the exchange to the author as a comment." }
+      ? { block: true, reason: "This is a read-only query thread: " + event.toolName + " is refused. The author (the thread this one is a fork of) is the only writer of what is under review. Say what you would change instead; the human can Promote the exchange to the author as a comment." }
       : undefined,
   );
 }

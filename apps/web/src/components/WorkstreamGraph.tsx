@@ -1114,8 +1114,10 @@ function SatelliteNode({
 }) {
   const node = byId.get(laid.thread.id) ?? laid.thread;
   const { x, y, w, h } = laid;
-  const query = node.documentQuery;
-  const label = `? ${query ? query.filePath.slice(query.filePath.lastIndexOf("/") + 1) : node.title}`;
+  const query = node.documentQuery ?? node.codeQuery;
+  // A code query names the file of its latest question.
+  const file = node.documentQuery?.filePath ?? node.codeQuery?.questions.at(-1)?.filePath;
+  const label = `? ${file ? file.slice(file.lastIndexOf("/") + 1) : node.title}`;
   const counts = query
     ? `${plural(query.questions.length, "question")} · ${query.promotions.length} promoted`
     : "forking…";

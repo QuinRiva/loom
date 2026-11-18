@@ -16,20 +16,12 @@ import {
   type LoomThreadWorkstream,
   LoomWsMethodError,
   MessageId,
-  type OrchestrationV2ServerCommand,
-  type ReviewCommentContextRecord,
   ThreadId,
 } from "@t3tools/contracts";
 import {
   documentQueryPromoteId,
   documentQueryQuestionId as questionId,
-  joinDocumentQueryKickoff,
 } from "@t3tools/shared/documentQuery.loom";
-import {
-  formatComposerContextReference,
-  sanitizeComposerContextLabel,
-  toKindScopedComposerContextId,
-} from "@t3tools/shared/composerContextReferences";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -37,16 +29,18 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
-import {
-  buildDraftSpawn,
-  curatedTitle,
-  forkPrepareCommand,
-  launchDraftFork,
-} from "../handoff/handoffDraft.ts";
+import { forkPrepareCommand } from "../handoff/handoffDraft.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
-import { writeWorkstreamBrief } from "../workstream/brief.ts";
 import { resolveDocumentAuthor } from "./documentAuthor.ts";
-import { buildDocumentQueryOverlay } from "./documentQueryOverlay.ts";
+import { buildDocumentQueryOverlay, buildQueryPromoteTurn } from "./documentQueryOverlay.ts";
+import {
+  buildQueryBrief,
+  buildQuestionDispatch,
+  isLiveQueryOf,
+  launchQueryFork,
+  queryBriefJson,
+  supersedeQueryThreads,
+} from "./queryThread.ts";
 
 const method = LOOM_WS_METHODS.documentQuery;
 const fail = (message: string) => new LoomWsMethodError({ method, message });
@@ -60,12 +54,7 @@ type QueryKey = {
 };
 
 const isLiveQueryOn = (row: LoomThreadWorkstream, input: QueryKey) =>
-  row.role === DOCUMENT_QUERY_ROLE &&
-  row.forkFromThreadId === input.authorThreadId &&
-  row.documentQuery?.filePath === input.filePath &&
-  row.archivedAt === null &&
-  row.deletedAt === null &&
-  row.outcome === null;
+  isLiveQueryOf(row, input.authorThreadId) && row.documentQuery?.filePath === input.filePath;
 
 /** The live query thread to reuse for (author, file, revision), else null: fork afresh. */
 export const reusableQueryThread = (
@@ -89,57 +78,36 @@ export const supersededQueryThreads = (
 export type DocumentQueryQuestionInput = Omit<DocumentQueryInput, "sourceThreadId">;
 
 /**
- * The question as the human's own message: one `review-comment` record carrying the passage
- * (`mdxAnchor`) with empty comment text, referenced ahead of the question body so the agent
- * reads it once. The first question carries the overlay ahead of it.
+ * The question as the human's own message: its record carries the passage (`mdxAnchor`) with empty
+ * comment text, and the question follows the record's chip.
  */
-const buildQuestionDispatch = (input: {
+const buildDocumentQuestionDispatch = (input: {
   readonly threadId: ThreadId;
   readonly n: number;
   readonly question: DocumentQueryQuestionInput;
   readonly overlay?: string;
 }) => {
   const { question } = input;
-  const id = questionId(input.threadId, input.n);
-  const contextId = toKindScopedComposerContextId("review-comment", id);
-  const label = sanitizeComposerContextLabel(
-    `${question.filePath.split("/").pop()} ${question.rangeLabel}`,
-    "review-comment",
-  );
-  const record: ReviewCommentContextRecord = {
-    version: 1,
-    contextId,
-    kind: "review-comment",
-    label,
-    sectionId: question.sectionId.trim() || "document",
-    sectionTitle: question.sectionTitle,
-    filePath: question.filePath,
-    startIndex: 0,
-    endIndex: 0,
-    rangeLabel: question.rangeLabel,
-    text: "",
-    diff: "",
-    mdxAnchor: {
-      anchor: question.anchor,
-      quotedText: question.quotedText.slice(0, QUOTED_TEXT_MAX),
-    },
-  };
-  return {
-    type: "message.dispatch",
-    commandId: CommandId.make(id),
+  return buildQuestionDispatch({
     threadId: input.threadId,
-    messageId: MessageId.make(`message:${id}`),
-    text: ((text) =>
-      input.overlay === undefined ? text : joinDocumentQueryKickoff(input.overlay, text))(
-      `${formatComposerContextReference({ kind: "review-comment", contextId, label })} ${question.question}`,
-    ),
-    context: { version: 1, records: [record] },
-    attachments: [],
-    // The human typed it (the Query card); the server sequences it behind the fork.
-    createdBy: "user",
-    creationSource: "server",
-    dispatchMode: { type: "queue_after_active" },
-  } satisfies OrchestrationV2ServerCommand;
+    n: input.n,
+    record: {
+      sectionId: question.sectionId.trim() || "document",
+      sectionTitle: question.sectionTitle,
+      filePath: question.filePath,
+      startIndex: 0,
+      endIndex: 0,
+      rangeLabel: question.rangeLabel,
+      text: "",
+      diff: "",
+      mdxAnchor: {
+        anchor: question.anchor,
+        quotedText: question.quotedText.slice(0, QUOTED_TEXT_MAX),
+      },
+    },
+    text: (reference) => `${reference} ${question.question}`,
+    ...(input.overlay === undefined ? {} : { overlay: input.overlay }),
+  });
 };
 
 const BRIEF_MARKER = "loom:document-query-question";
@@ -153,14 +121,16 @@ const decodeQuestion = Schema.decodeUnknownOption(QuestionJson);
  * reactor's deferred leg decodes.
  */
 export const buildDocumentQueryBrief = (overlay: string, input: DocumentQueryInput) =>
-  `${overlay}\n\n---\n\nFirst question, on \`${input.filePath}\` (${input.sectionTitle}):\n\n${input.question}\n\n<!-- ${BRIEF_MARKER} ${encodeQuestion(input).replace(/>/g, "\\u003e")} -->\n`;
+  buildQueryBrief({
+    marker: BRIEF_MARKER,
+    overlay,
+    firstQuestion: `First question, on \`${input.filePath}\` (${input.sectionTitle}):\n\n${input.question}`,
+    json: encodeQuestion(input),
+  });
 
 /** The first question a brief carries, or none. */
 export const parseDocumentQueryBrief = (brief: string) =>
-  Option.flatMap(
-    Option.fromNullishOr(new RegExp(`<!-- ${BRIEF_MARKER} (.*) -->\\s*$`, "s").exec(brief)?.[1]),
-    decodeQuestion,
-  );
+  Option.flatMap(queryBriefJson(BRIEF_MARKER, brief), decodeQuestion);
 
 /** The fork transfer from the author, then the overlay and first question as one message. */
 export const buildQueryForkLaunch = (input: {
@@ -175,7 +145,7 @@ export const buildQueryForkLaunch = (input: {
       sourceThreadId: input.authorThreadId,
       createdAt: input.createdAt,
     }),
-    buildQuestionDispatch({
+    buildDocumentQuestionDispatch({
       threadId: input.threadId,
       n: 1,
       question: input.question,
@@ -185,39 +155,6 @@ export const buildQueryForkLaunch = (input: {
       }),
     }),
   ] as const;
-
-/**
- * The `launchDraftFork` build: the drafter fork's spawn as a goal-less `document-query` root
- * carrying the brief, then `buildQueryForkLaunch` (no separate kickoff message).
- */
-const buildDocumentQueryCommands = (
-  fork: Parameters<Parameters<typeof launchDraftFork>[0]["build"]>[0],
-  input: {
-    readonly question: DocumentQueryInput;
-    readonly revision: string;
-    readonly kickoffBriefPath: string;
-  },
-) => {
-  const spawn = buildDraftSpawn({
-    ...fork,
-    sourceGoalId: null,
-    role: DOCUMENT_QUERY_ROLE,
-    title: curatedTitle(
-      "Query",
-      input.question.filePath.split("/").pop() ?? input.question.filePath,
-    ),
-    purpose: `Query thread on ${input.question.filePath} @ ${input.revision}`,
-  });
-  return [
-    { ...spawn, kickoffBriefPath: input.kickoffBriefPath },
-    ...buildQueryForkLaunch({
-      threadId: fork.drafterThreadId,
-      authorThreadId: fork.source.id,
-      question: input.question,
-      createdAt: fork.createdAt,
-    }),
-  ];
-};
 
 /**
  * `loom.documentQuery`: resolve the author (`resolveDocumentAuthor`), hash the document, reuse
@@ -262,46 +199,39 @@ export const askDocumentQuery = Effect.fn("documentQuery.askDocumentQuery")(
           sectionTitle: input.sectionTitle,
         },
       });
-    let queryThreadId: ThreadId;
+    const queryThreadId =
+      reuse?.threadId ?? ThreadId.make(yield* (yield* SecureRandom.SecureRandom).uuidV4());
     if (reuse === null) {
-      queryThreadId = ThreadId.make(yield* (yield* SecureRandom.SecureRandom).uuidV4());
-      const kickoffBriefPath = yield* writeWorkstreamBrief(
-        queryThreadId,
-        buildDocumentQueryBrief(buildDocumentQueryOverlay({ filePath, authorThreadId }), question),
-      );
-      yield* launchDraftFork({
+      yield* launchQueryFork({
         method,
-        verb: "queried",
-        sourceThreadId: authorThreadId,
-        drafterThreadId: queryThreadId,
-        build: (fork) => buildDocumentQueryCommands(fork, { question, revision, kickoffBriefPath }),
+        authorThreadId,
+        queryThreadId,
+        subject: filePath.split("/").pop() ?? filePath,
+        purpose: `Query thread on ${filePath} @ ${revision}`,
+        brief: buildDocumentQueryBrief(
+          buildDocumentQueryOverlay({ filePath, authorThreadId }),
+          question,
+        ),
+        launch: (forkedAt) =>
+          buildQueryForkLaunch({
+            threadId: queryThreadId,
+            authorThreadId,
+            question,
+            createdAt: forkedAt,
+          }),
       });
       // A thread whose first ask never recorded is never reused (it names no file), so no id clashes.
       yield* recordAsk(queryThreadId, 1);
     } else {
-      queryThreadId = reuse.threadId;
       const n = (reuse.documentQuery?.questions.length ?? 0) + 1;
       // Recorded first: `n` counts recorded asks, so a message that landed unrecorded would
       // hand the next question its id, and the receipt would drop that question silently.
       yield* recordAsk(queryThreadId, n);
-      yield* orchestrator.dispatch(buildQuestionDispatch({ threadId: queryThreadId, n, question }));
+      yield* orchestrator.dispatch(
+        buildDocumentQuestionDispatch({ threadId: queryThreadId, n, question }),
+      );
     }
-    for (const stale of supersededQueryThreads(candidates, key)) {
-      const id = (step: string) =>
-        CommandId.make(`server:loom:query-supersede:${stale.threadId}:${step}`);
-      yield* orchestrator.dispatch({
-        type: "thread.outcome.set",
-        commandId: id("done"),
-        threadId: stale.threadId,
-        createdAt,
-        outcome: "done",
-      });
-      yield* orchestrator.dispatch({
-        type: "thread.archive",
-        commandId: id("archive"),
-        threadId: stale.threadId,
-      });
-    }
+    yield* supersedeQueryThreads(supersededQueryThreads(candidates, key), createdAt);
     return {
       queryThreadId,
       created: reuse === null,
@@ -334,7 +264,11 @@ export const promoteDocumentQuery = Effect.fn("documentQuery.promoteDocumentQuer
         method: promoteMethod,
         message: "Only a query thread's exchanges can be promoted.",
       });
-    if (!row.documentQuery?.questions.some((question) => question.askedAt === input.exchangeAt))
+    if (
+      ![...(row.documentQuery?.questions ?? []), ...(row.codeQuery?.questions ?? [])].some(
+        (question) => question.askedAt === input.exchangeAt,
+      )
+    )
       return yield* new LoomWsMethodError({
         method: promoteMethod,
         message: "That exchange is not a question asked in this query thread.",
@@ -348,7 +282,7 @@ export const promoteDocumentQuery = Effect.fn("documentQuery.promoteDocumentQuer
       commandId: CommandId.make(id),
       threadId: input.queryThreadId,
       messageId: MessageId.make(`message:${id}`),
-      text: `Promote the exchange above (my question at exchangeAt ${input.exchangeAt} and your answer): write one anchored comment for the author with \`mcp__t3-code__document_query_promote\`; nothing else reaches the author.`,
+      text: buildQueryPromoteTurn(input.exchangeAt),
       attachments: [],
       // The human pressed Promote; the server words the turn.
       createdBy: "user",

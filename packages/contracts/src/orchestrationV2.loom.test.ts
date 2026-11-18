@@ -135,6 +135,7 @@ const workstreamJson = {
   handoffDestinations: [],
   handoffOrigin: null,
   documentQuery: null,
+  codeQuery: null,
   archivedAt: null,
   deletedAt: null,
   createdAt: now,

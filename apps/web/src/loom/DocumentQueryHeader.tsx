@@ -1,3 +1,6 @@
+/** A header button's label, hidden (still read aloud) while the thread header is narrow. */
+const NARROW_HEADER_LABEL = "@max-[36rem]/thread-header:sr-only";
+
 /**
  * loom: what a query thread (role `document-query`) shows of itself (plan-query-threads §4, §5
  * step 12): a header chip naming the author it is a read-only fork of, the document and author
@@ -5,11 +8,12 @@
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { DOCUMENT_QUERY_ROLE, type ScopedThreadRef, type ThreadId } from "@t3tools/contracts";
-import { ClockIcon, FileTextIcon, GitForkIcon } from "lucide-react";
+import { ClockIcon, FileTextIcon, GitForkIcon, UserRoundIcon } from "lucide-react";
 import type { CSSProperties } from "react";
 
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { truncateLabel } from "../lib/workstreamPresentation";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useQuietThreadShell } from "../state/entities";
@@ -31,26 +35,46 @@ export function DocumentQueryHeaderChip({
   const filePath = workstream?.documentQuery?.filePath ?? null;
   return (
     <div className="flex min-w-0 shrink items-center gap-1.5" data-document-query-header="">
-      <Badge
-        variant="label"
-        size="sm"
-        style={{ "--label": "var(--color-primary)" } as CSSProperties}
-      >
-        <GitForkIcon />
-        read-only fork of “{truncateLabel(authorTitle ?? "an earlier thread", 36)}”
-      </Badge>
+      {/* Narrow, the badge keeps only its icon so the thread's own title stays readable. */}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Badge
+              variant="label"
+              size="sm"
+              className="min-w-0 shrink"
+              style={{ "--label": "var(--color-primary)" } as CSSProperties}
+            />
+          }
+        >
+          <GitForkIcon />
+          <span className={`min-w-0 truncate ${NARROW_HEADER_LABEL}`}>
+            read-only fork of “{truncateLabel(authorTitle ?? "an earlier thread", 36)}”
+          </span>
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">
+          A read-only fork of “{authorTitle ?? "an earlier thread"}”
+        </TooltipPopup>
+      </Tooltip>
       {filePath ? (
         <Button
           variant="outline"
           size="xs"
+          className="shrink-0"
           onClick={() => useRightPanelStore.getState().openFile(threadRef, filePath)}
         >
           <FileTextIcon />
-          Open document
+          <span className={NARROW_HEADER_LABEL}>Open document</span>
         </Button>
       ) : null}
-      <Button variant="outline" size="xs" onClick={() => onOpenThread(authorId)}>
-        Author thread
+      <Button
+        variant="outline"
+        size="xs"
+        className="shrink-0"
+        onClick={() => onOpenThread(authorId)}
+      >
+        <UserRoundIcon />
+        <span className={NARROW_HEADER_LABEL}>Author thread</span>
       </Button>
     </div>
   );

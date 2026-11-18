@@ -32,7 +32,8 @@ export function ReviewFollowBack({ threadRef }: { readonly threadRef: ScopedThre
       }
     >
       <ArrowLeftIcon />
-      Back to review
+      {/* Kept longest of the header's labels: it is the way back. */}
+      <span className="@max-[20rem]/thread-header:sr-only">Back to review</span>
     </Button>
   );
 }

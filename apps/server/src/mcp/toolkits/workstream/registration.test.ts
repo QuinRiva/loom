@@ -235,7 +235,7 @@ it.effect(
         expect(result.content, def.name).toEqual([
           {
             type: "text",
-            text: `This is a read-only query thread: ${def.name} changes workstream state and was refused. The author is the document's only writer; the human promotes an exchange to it as a comment. workstream_list, goal_task_list, consult_thread and set_thread_title still work.`,
+            text: `This is a read-only query thread: ${def.name} changes workstream state and was refused. The author is the only writer of what is under review; the human promotes an exchange to it as a comment. workstream_list, goal_task_list, consult_thread and set_thread_title still work.`,
           },
         ]);
       }
