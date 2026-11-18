@@ -36,6 +36,8 @@ export function createLoomCommandAtoms<R, E>(
     promptCapture: command(LOOM_WS_METHODS.promptCapture),
     // The MDX viewer's Query: forks (or reuses) the author's query thread and asks there.
     documentQuery: command(LOOM_WS_METHODS.documentQuery),
+    // The author card's Query author: forks (or reuses) the committing thread's code query thread.
+    codeQuery: command(LOOM_WS_METHODS.codeQuery),
     // A query thread's Promote: queues the turn that distils one exchange for the author.
     documentQueryPromote: command(LOOM_WS_METHODS.documentQueryPromote),
     // The hub login dialog; a double-click must not post one code twice.

@@ -1,8 +1,8 @@
 /**
- * loom: draws authorship on rows the diff viewer has already rendered (plans/diff-author-query/
- * plan.mdx §4). The viewer is virtualised with fixed row heights and has no per-line decoration
- * option, so its post-render hook stamps attributes on the added lines it drew and a label into
- * each hunk's separator row; static CSS paints them. Nothing adds or resizes a row.
+ * loom: draws authorship, and code queries' marks, on rows the diff viewer already rendered
+ * (plans/diff-author-query/plan.mdx §4). The viewer is virtualised with fixed row heights and has no
+ * per-line decoration option, so its post-render hook stamps attributes on the added lines it drew
+ * and a label into each hunk's separator row; static CSS paints them. Nothing adds or resizes a row.
  */
 import type { FileDiffMetadata } from "@pierre/diffs";
 
@@ -13,11 +13,14 @@ import {
   type AuthorGroup,
   type Authorship,
 } from "./authorship";
+import { type CodeQuestion, marks } from "./codeQueryMarks";
 
 export interface AuthorshipView {
   readonly authorship: Authorship;
   /** The group the diff is narrowed to; other groups' lines are dimmed. */
   readonly filter: string | null;
+  /** Live code questions; a line is marked while one of them `marks` it. */
+  readonly questions: ReadonlyArray<CodeQuestion>;
 }
 
 const HUNK_LABEL = "data-loom-hunk-authors";
@@ -50,10 +53,15 @@ function stamp(node: HTMLElement, diff: FileDiffMetadata, view: AuthorshipView |
     if (owner === null) {
       row.removeAttribute("data-loom-author");
       row.removeAttribute("data-loom-dim");
+      row.removeAttribute("data-loom-asked");
       continue;
     }
     row.setAttribute("data-loom-author", authorMark(owner.group));
     row.toggleAttribute("data-loom-dim", view!.filter !== null && view!.filter !== owner.group.key);
+    row.toggleAttribute(
+      "data-loom-asked",
+      view!.questions.some((question) => marks(question, path, line, owner)),
+    );
   }
   if (view === null) return;
   // A separator above hunk N carries its expand index, once per column. Unified draws the
@@ -100,7 +108,12 @@ export function createAuthorshipStamps() {
       stamp(node, diff, view);
     },
     update(next: AuthorshipView | null) {
-      if (next?.authorship === view?.authorship && next?.filter === view?.filter) return;
+      if (
+        next?.authorship === view?.authorship &&
+        next?.filter === view?.filter &&
+        next?.questions === view?.questions
+      )
+        return;
       view = next;
       for (const [node, diff] of mounted) stamp(node, diff, view);
     },
@@ -128,6 +141,16 @@ ${slotColours}
   background-size: auto !important;
 }
 [data-loom-dim] { opacity: 0.35; }
+/* A question was asked about the line: a mark beside its author edge. */
+[data-column-number][data-loom-asked]::after {
+  content: "?";
+  position: absolute;
+  top: 0;
+  left: 6px;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  color: var(--color-primary);
+}
 [${HUNK_LABEL}] {
   display: flex;
   align-items: center;

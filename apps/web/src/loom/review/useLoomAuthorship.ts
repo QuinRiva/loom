@@ -13,6 +13,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { revisionedQuery } from "../../state/revisionedQuery";
 import { authorshipOf, narrowAuthorship } from "./authorship";
 import { AUTHORSHIP_CSS, createAuthorshipStamps } from "./authorshipStamps";
+import { useCodeQuestions } from "./codeQueryMarks";
 import { useReviewBaselineStore } from "./reviewBaselineStore";
 import { loomReviewQueries } from "./reviewQueries";
 
@@ -99,13 +100,14 @@ export function useLoomAuthorship({
         : narrowAuthorship(answer.result, intervalPatch)
       : null;
   const authorship = result === null ? null : authorshipOf(result);
+  const questions = useCodeQuestions(threadRef?.environmentId ?? null);
   const activeFilter =
     authorship?.groups.some((group) => group.key === filter) === true ? filter : null;
   // A layout effect, so stale marks are cleared in the commit that draws new rows, before paint.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- restamps the viewer's already-rendered rows (DOM outside React) when the answer or filter changes
   useLayoutEffect(() => {
-    stamps.update(authorship === null ? null : { authorship, filter: activeFilter });
-  }, [stamps, authorship, activeFilter]);
+    stamps.update(authorship === null ? null : { authorship, filter: activeFilter, questions });
+  }, [stamps, authorship, activeFilter, questions]);
 
   return {
     /** The toggle shows in a view that can have authors. */
@@ -115,6 +117,8 @@ export function useLoomAuthorship({
     authorship,
     /** The reply `authorship` was built from: commit subjects, thread roles and run times. */
     result,
+    /** Live code questions, for the card's "asked here" rows: the stamps mark the same lines. */
+    questions,
     /** The base the answer was asked against, for the author card's line history. */
     baseRef,
     /** The shown diff's hash: the line history is re-asked when the content changes. */

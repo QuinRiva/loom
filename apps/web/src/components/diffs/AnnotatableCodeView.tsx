@@ -284,6 +284,8 @@ export function AnnotatableCodeView({
       { filePath: file.filePath, fileDiff: file.fileDiff, range: entry.range },
       {
         commenting: loomCommenting,
+        text: draftText, // loom: code query — the card's question is the draft's text
+        setText: setDraftText, // loom
         comment: () => setLoomCommenting(true),
         close: () => removeEntry(entry.id),
       },

@@ -1,10 +1,15 @@
 /**
  * loom: the author card (plans/diff-author-query/plan.mdx §5): the draft comment card under a header
  * naming the thread and commit that wrote the selected lines, and any earlier thread. Open thread
- * goes to that thread with this review's diff beside it (§6); Query author is deferred.
+ * goes to that thread with this review's diff beside it (§6). Query author asks that thread's
+ * read-only fork, which opens the same way (plans/code-query/plan.mdx §6).
  */
 import type { FileDiffMetadata, SelectedLineRange } from "@pierre/diffs";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import type {
   LoomReviewAuthorshipCommit,
   LoomReviewAuthorshipThread,
@@ -13,17 +18,29 @@ import type {
 } from "@t3tools/contracts";
 import { authorOf } from "@t3tools/shared/reviewAuthorship.loom";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowUpRightIcon, MessageCircleIcon, XIcon } from "lucide-react";
+import {
+  ArrowUpRightIcon,
+  MessageCircleIcon,
+  MessageCircleQuestionIcon,
+  XIcon,
+} from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { DiffCommentAnnotation } from "../../components/diffs/DiffCommentAnnotation";
 import { Button } from "../../components/ui/button";
+import { toastManager } from "../../components/ui/toast";
+import { refreshArchivedThreadsForEnvironment } from "../../lib/archivedThreadsState";
 import { resolveFileDiffPath } from "../../lib/diffRendering";
 import { buildDiffReviewComment } from "../../reviewCommentContext";
+import { waitForThreadShell } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { revisionedQuery } from "../../state/revisionedQuery";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
+import { loomCommands } from "../loomGoalState";
 import { AUTHOR_COLOURS, NEUTRAL_AUTHOR_COLOUR, type AuthorGroup } from "./authorship";
+import { type CodeQuestion, marks } from "./codeQueryMarks";
 import { followReviewToAuthor, type ReviewFocus, useReviewFollowStore } from "./reviewFollowStore";
 import { loomReviewQueries } from "./reviewQueries";
 import type { useLoomAuthorship } from "./useLoomAuthorship";
@@ -42,10 +59,18 @@ export interface AuthorCardSlot {
     actions: {
       /** The draft's text box is shown. */
       readonly commenting: boolean;
+      /** The draft's text, which a question is typed into too, so a stray selection keeps it. */
+      readonly text: string;
+      readonly setText: (text: string) => void;
       readonly comment: () => void;
       readonly close: () => void;
     },
   ) => ReactNode;
+}
+
+interface CardSection {
+  readonly id: string;
+  readonly title: string;
 }
 
 /** New-side numbers of the added lines a selection holds. */
@@ -124,9 +149,12 @@ function AuthorCard({
   fileDiff,
   range,
   commenting,
+  text,
+  setText,
   comment,
   close,
   opensFile,
+  section,
 }: {
   authors: ReturnType<typeof useLoomAuthorship>;
   /** The thread whose diff this is. */
@@ -137,12 +165,20 @@ function AuthorCard({
   fileDiff: FileDiffMetadata;
   range: SelectedLineRange;
   commenting: boolean;
+  text: string;
+  setText: (text: string) => void;
   comment: () => void;
   close: () => void;
   /** Open thread opens this file whole beside the author, not the Diff panel. */
   opensFile: boolean;
+  /** The view the lines are selected in, recorded with a question. */
+  section: CardSection;
 }) {
   const navigate = useNavigate();
+  const codeQuery = useAtomCommand(loomCommands.codeQuery, { reportFailure: false });
+  const [asking, setAsking] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { authorship, result } = authors;
   const lines = addedLines(fileDiff, range);
   const owners = authorship ? lines.map((line) => authorship.at(filePath, line)) : [];
@@ -185,19 +221,111 @@ function AuthorCard({
         rows.findIndex((other) => other.threadId === row.threadId) === index,
     );
 
-  const openThread = (row: AuthorRow) => {
-    if (row.threadId === null) return;
-    const author = scopeThreadRef(reviewing.environmentId, row.threadId);
+  const selected = buildDiffReviewComment({
+    id: "",
+    sectionId: section.id,
+    sectionTitle: section.title,
+    filePath,
+    fileDiff,
+    range,
+    text: "",
+  });
+  // The questions whose mark is on one of these lines, under their author's row.
+  const asked =
+    authorship === null
+      ? []
+      : authors.questions.filter((question) =>
+          lines.some((line) => marks(question, filePath, line, authorship.at(filePath, line))),
+        );
+
+  /** The main window goes to `threadId` at `at`, with this file or diff beside it as it is. */
+  const follow = async (threadId: ThreadId, at: string) => {
+    const destination = scopeThreadRef(reviewing.environmentId, threadId);
     followReviewToAuthor({
       reviewing,
-      author,
-      authoredAt: row.commit.authoredAt,
+      author: destination,
+      authoredAt: at,
       ...(opensFile ? { file: filePath } : {}),
     });
-    if (scopedThreadKey(author) !== scopedThreadKey(routed))
-      void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(author) });
+    if (scopedThreadKey(destination) === scopedThreadKey(routed)) return;
+    // Navigating before a new thread's shell reaches this client reads as a missing thread.
+    if (await waitForThreadShell(destination))
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(destination),
+      });
+    else
+      toastManager.add({
+        type: "info",
+        title: "Question sent",
+        description: "The query thread will appear in the sidebar shortly.",
+      });
   };
-  const renderRow = (row: AuthorRow) => (
+  const openThread = (row: AuthorRow) => {
+    if (row.threadId !== null) void follow(row.threadId, row.commit.authoredAt);
+  };
+  const ask = async (row: AuthorRow, question: string) => {
+    if (selected?.selection === undefined || lines.length === 0) return;
+    setPending(true);
+    setError(null);
+    const result = await codeQuery({
+      environmentId: reviewing.environmentId,
+      input: {
+        reviewThreadId: reviewing.threadId,
+        baseRef: authors.baseRef,
+        commitSha: row.commit.sha,
+        ownerShas: shas,
+        filePath,
+        startLine: Math.min(...lines),
+        endLine: Math.max(...lines),
+        selection: selected.selection,
+        startIndex: selected.startIndex,
+        endIndex: selected.endIndex,
+        rangeLabel: selected.rangeLabel,
+        sectionId: section.id,
+        sectionTitle: section.title,
+        diff: selected.diff,
+        question,
+      },
+    });
+    setPending(false);
+    if (result._tag === "Failure") {
+      if (isAtomCommandInterrupted(result)) return;
+      const failure = squashAtomCommandFailure(result);
+      setError(failure instanceof Error ? failure.message : "Could not ask the author.");
+      return;
+    }
+    setText("");
+    setAsking(null);
+    // A fresh fork archived the author's stale query thread; the graph reads archived shells
+    // from a one-shot snapshot.
+    if (result.value.created) refreshArchivedThreadsForEnvironment(reviewing.environmentId);
+    await follow(result.value.queryThreadId, result.value.askedAt);
+  };
+
+  const renderAsked = (question: CodeQuestion) => (
+    <div
+      key={`${question.queryThreadId}:${question.askedAt}`}
+      className="flex min-w-0 items-center gap-2 text-muted-foreground"
+      data-loom-code-question=""
+    >
+      <span aria-hidden className="w-2 shrink-0 text-center font-bold text-primary">
+        ?
+      </span>
+      <span className="min-w-0 flex-1 truncate">
+        Asked here {formatRelativeTimeLabel(question.askedAt)}
+      </span>
+      <Button
+        variant="outline"
+        size="xs"
+        onClick={() => void follow(question.queryThreadId, question.askedAt)}
+      >
+        Open answer
+        <ArrowUpRightIcon />
+      </Button>
+    </div>
+  );
+  const renderRow = (row: AuthorRow) => [
     <div key={row.key} className="flex min-w-0 items-start gap-2">
       <span
         aria-hidden
@@ -213,6 +341,19 @@ function AuthorCard({
           <span className="font-mono">{row.commit.sha.slice(0, 7)}</span> {row.commit.subject}
         </div>
       </div>
+      {row.threadId !== null && !commenting ? (
+        <Button
+          variant={asking === row.key ? "secondary" : "outline"}
+          size="xs"
+          onClick={() => {
+            setError(null);
+            setAsking(asking === row.key ? null : row.key);
+          }}
+        >
+          <MessageCircleQuestionIcon />
+          Query author
+        </Button>
+      ) : null}
       {row.threadId !== null ? (
         <Button variant="outline" size="xs" onClick={() => openThread(row)}>
           {scopedThreadKey(scopeThreadRef(reviewing.environmentId, row.threadId)) ===
@@ -222,8 +363,27 @@ function AuthorCard({
           <ArrowUpRightIcon />
         </Button>
       ) : null}
-    </div>
-  );
+    </div>,
+    ...asked.filter((question) => question.authorThreadId === row.threadId).map(renderAsked),
+    asking === row.key && !commenting ? (
+      <div key={`${row.key}:ask`} className="-mx-3">
+        <DiffCommentAnnotation
+          environmentId={reviewing.environmentId}
+          kind="draft"
+          rangeLabel={selected?.rangeLabel ?? ""}
+          text={text}
+          onTextChange={setText}
+          onCancel={() => setAsking(null)}
+          onComment={(question) => void ask(row, question)}
+          placeholder={`Ask “${row.label}” why these lines are the way they are…`}
+          submitLabel="Ask"
+          pending={pending}
+        />
+        {error ? <p className="px-3 text-destructive">{error}</p> : null}
+      </div>
+    ) : null,
+  ];
+  const rowThreads = new Set([...current, ...earlier].map((row) => row.threadId));
 
   return (
     <div data-loom-author-card="">
@@ -243,6 +403,7 @@ function AuthorCard({
         ) : (
           <>
             {current.map(renderRow)}
+            {asked.filter((question) => !rowThreads.has(question.authorThreadId)).map(renderAsked)}
             {uncommitted ? (
               <p className="text-muted-foreground">Some of these lines are not committed yet.</p>
             ) : null}
@@ -254,7 +415,7 @@ function AuthorCard({
             {earlier.map(renderRow)}
           </>
         ) : null}
-        {commenting ? null : (
+        {commenting || asking !== null ? null : (
           <div className="flex items-center justify-end gap-1">
             <Button variant="ghost-muted" size="xs" onClick={close}>
               <XIcon />
@@ -281,11 +442,13 @@ export function useAuthorCardSlot({
   authors,
   routed,
   reviewing,
+  section,
   files,
   revealFile,
   revealLines,
 }: {
   authors: ReturnType<typeof useLoomAuthorship>;
+  section: CardSection;
   routed: ScopedThreadRef | null;
   reviewing: ScopedThreadRef | null;
   files?: ReadonlyArray<{ readonly fileDiff: FileDiffMetadata; readonly fileKey: string }>;
@@ -326,6 +489,7 @@ export function useAuthorCardSlot({
         reviewing={reviewing}
         routed={routed}
         opensFile={files === undefined}
+        section={section}
         {...draft}
         {...actions}
       />

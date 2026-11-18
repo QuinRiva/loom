@@ -72,6 +72,9 @@ import { useQuietThreadShell } from "../../state/entities";
 export const WHOLE_FILE_MAX_BYTES = 250_000;
 export const WHOLE_FILE_MAX_LINES = 5_000;
 
+/** The review-comment section of a line selected here: a comment or a question records it. */
+const FILE_CHANGE_SECTION = { id: "loom-file-change", title: "Changes" };
+
 const CHANGE_TYPE = {
   added: "new",
   deleted: "deleted",
@@ -234,6 +237,7 @@ export function FileChangeView({
     authors,
     routed: review?.routed ?? null,
     reviewing: review?.reviewing ?? null,
+    section: FILE_CHANGE_SECTION,
   });
   const follow = useReviewFollow(review?.routed ?? null);
   // A thread following a review opens on the lines the review was looking at. Read live: the view
@@ -432,8 +436,8 @@ export function FileChangeView({
             },
           ]}
           pendingFiles={[]}
-          sectionId="loom-file-change"
-          sectionTitle="Changes"
+          sectionId={FILE_CHANGE_SECTION.id}
+          sectionTitle={FILE_CHANGE_SECTION.title}
           composerDraftTarget={composerDraftTarget}
           renderHeaderFilenameSuffix={() => null}
           renderHeaderPrefix={() => null}
