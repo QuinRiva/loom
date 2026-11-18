@@ -36,7 +36,8 @@ import { useHubLoginBannerItems } from "../loom/HubLoginBanner"; // loom
 import { ReferenceLinksProvider } from "../loom/referenceLinks"; // loom:
 import { useLoomRightPanelSurfaces } from "../loom/useLoomRightPanelSurfaces"; // loom: 3d-2 seam 18
 import { useLoomThreadFamily } from "../loom/useLoomThreadFamily"; // loom: workstream family (DL-1706)
-import { useReviewPanelKey } from "../loom/review/useReviewFollow"; // loom: diff author query
+import { rightPanelWidthKey } from "../loom/rightPanelWidth"; // loom: right-panel-carry
+import { useReviewPanelWidthKey } from "../loom/review/useReviewFollow"; // loom: diff author query
 import { LoomStagedCards } from "../loom/LoomStagedCards"; // loom: 3d-4 staged cards
 import { isDocumentQueryWaiting } from "../loom/DocumentQueryHeader"; // loom: query threads
 import { useSeedPromotedQueryComments } from "../loom/useSeedPromotedQueryComments"; // loom: query threads
@@ -999,7 +1000,9 @@ export default function ChatView(props: ChatViewProps) {
   })();
   const activeThreadRef = useActiveThreadRef(activeThread);
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
-  const loomPanelKey = useReviewPanelKey(activeThreadRef) ?? activeThreadKey; // loom: diff author query
+  const loomPanelWidthKey =
+    useReviewPanelWidthKey(activeThreadRef, activeThread?.lineage.rootThreadId) ??
+    (activeThreadRef && rightPanelWidthKey(activeThreadRef, activeThread?.lineage.rootThreadId)); // loom: diff author query
   const activeEnvironmentServerBrowser = useEnvironmentSupportsServerBrowser(
     activeThreadRef?.environmentId ?? null,
   );
@@ -4098,7 +4101,8 @@ export default function ChatView(props: ChatViewProps) {
         <ChatRightPanel
           sheet={shouldUsePlanSidebarSheet}
           workspaceLayoutElement={workspaceLayoutElement}
-          widthStorageKey={`t3code:preview-panel-width:${loomPanelKey}`} // loom: a followed review's width
+          // loom: one width per workstream, the followed review's while following (right-panel-carry)
+          widthStorageKey={loomPanelWidthKey ?? ""}
           sheetAnimationDurationMs={panelAnimationsActive ? panelAnimationDurationMs : 0}
           onCloseSheet={closePreviewPanelStable}
           open={rightPanelOpen}

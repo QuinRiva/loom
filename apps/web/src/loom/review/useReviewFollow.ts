@@ -5,13 +5,14 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { threadFamilyRead } from "@t3tools/client-runtime/state/threads";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import { useQuietThreadShell } from "../../state/entities";
 import { useEnvironmentShellStatus } from "../../state/shell";
 import { threadFamilies } from "../../state/threads";
 import { isThreadRouteSnapshotAuthoritative } from "../../threadRoutes";
+import { rightPanelWidthKey } from "../rightPanelWidth";
 import { useAwaitingShelllessThread } from "../useAwaitingShelllessThread";
 import { useLoomThreadFamily } from "../useLoomThreadFamily";
 import { resolveReviewFollow, useReviewFollowStore } from "./reviewFollowStore";
@@ -58,10 +59,16 @@ export function useReviewFollow(routed: ScopedThreadRef | null) {
 }
 
 /**
- * Whose right-panel width a thread shows: while it follows a review, the review's, so the panel
- * Carl sized there keeps its size and a resize made while following belongs to the review.
+ * The right-panel width key a thread shows: while it follows a review, the review's workstream,
+ * so the panel Carl sized there keeps its size and a resize made while following belongs to it.
  */
-export function useReviewPanelKey(routed: ScopedThreadRef | null): string | null {
+export function useReviewPanelWidthKey(routed: ScopedThreadRef | null, routedRootId?: ThreadId) {
   const { threadRef } = useReviewFollow(routed);
-  return threadRef === null ? null : scopedThreadKey(threadRef);
+  const shell = useQuietThreadShell(threadRef);
+  return threadRef === null
+    ? null
+    : rightPanelWidthKey(
+        threadRef,
+        threadRef.threadId === routed?.threadId ? routedRootId : shell?.lineage.rootThreadId,
+      );
 }
