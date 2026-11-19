@@ -89,6 +89,9 @@ export const LOOM_WS_METHODS = {
   subscribeDeploy: "loom.subscribeDeploy",
   startDeploy: "loom.startDeploy",
   cancelDeploy: "loom.cancelDeploy",
+  // Phone app updates (plans/mobile-self-hosted-updates/plan.mdx §3): the stored APKs and a link to one.
+  subscribeMobileApp: "loom.subscribeMobileApp",
+  mobileApkUrl: "loom.mobileApkUrl",
   // Context-viz experiment (plans/context-viz-experiment/plan.mdx §2.3): a pi thread's window, read from its jsonl.
   contextUsage: "loom.contextUsage",
 } as const;
@@ -575,6 +578,53 @@ export const LoomDeployEvent = Schema.Union([
 ]);
 export type LoomDeployEvent = typeof LoomDeployEvent.Type;
 
+/**
+ * The phone app's update state (plans/mobile-self-hosted-updates/plan.mdx §3). The app reading it may
+ * be several releases behind the server, so this shape grows only by optional fields and carries no
+ * enumerations.
+ */
+export const LoomMobileApk = Schema.Struct({
+  /** The commit it was built from; equals the build stamp inside it. */
+  sha: Schema.String,
+  committedAt: IsoDateTime,
+  builtAt: IsoDateTime,
+  bytes: Schema.Number,
+});
+export type LoomMobileApk = typeof LoomMobileApk.Type;
+
+/** A build for the running release: `failed` is null while it runs, then the reason in plain words. */
+export const LoomMobileBuild = Schema.Struct({
+  sha: Schema.String,
+  startedAt: IsoDateTime,
+  failed: Schema.NullOr(Schema.String),
+});
+export type LoomMobileBuild = typeof LoomMobileBuild.Type;
+
+/** `loom.subscribeMobileApp`'s every value: the stored APKs newest first, and which one matches. */
+export const LoomMobileAppState = Schema.Struct({
+  apks: Schema.Array(LoomMobileApk),
+  /** The matching APK's sha; null when none matches the running release. */
+  current: Schema.NullOr(Schema.String),
+  build: Schema.NullOr(LoomMobileBuild),
+});
+export type LoomMobileAppState = typeof LoomMobileAppState.Type;
+
+/** `<stateDir>/mobile-app.json`, written by `loom-deploy`: the stream's value plus each APK's path. */
+export const LoomMobileAppFile = Schema.Struct({
+  ...LoomMobileAppState.fields,
+  apks: Schema.Array(Schema.Struct({ ...LoomMobileApk.fields, file: Schema.String })),
+});
+export type LoomMobileAppFile = typeof LoomMobileAppFile.Type;
+
+export const LoomMobileApkUrlInput = Schema.Struct({ sha: Schema.String });
+export type LoomMobileApkUrlInput = typeof LoomMobileApkUrlInput.Type;
+/** A signed link, relative to the server's origin, that needs no session; `expiresAt` in epoch ms. */
+export const LoomMobileApkUrlResult = Schema.Struct({
+  relativeUrl: Schema.String,
+  expiresAt: Schema.Number,
+});
+export type LoomMobileApkUrlResult = typeof LoomMobileApkUrlResult.Type;
+
 const goalRpc = <Tag extends string, Payload extends Schema.Top>(tag: Tag, payload: Payload) =>
   Rpc.make(tag, { payload, success: LoomGoalWriteResult, error: LoomWsError });
 
@@ -688,6 +738,17 @@ export const LoomWsRpcs = [
   // No input: the control deploys the default branch and never carries --no-return.
   Rpc.make(LOOM_WS_METHODS.startDeploy, { payload: Schema.Struct({}), error: LoomWsError }),
   Rpc.make(LOOM_WS_METHODS.cancelDeploy, { payload: Schema.Struct({}), error: LoomWsError }),
+  Rpc.make(LOOM_WS_METHODS.subscribeMobileApp, {
+    payload: Schema.Struct({}),
+    success: LoomMobileAppState,
+    error: LoomWsError,
+    stream: true,
+  }),
+  Rpc.make(LOOM_WS_METHODS.mobileApkUrl, {
+    payload: LoomMobileApkUrlInput,
+    success: LoomMobileApkUrlResult,
+    error: LoomWsError,
+  }),
   // The hub's own error text reaches the dialog, so these fail with the source's error.
   Rpc.make(LOOM_WS_METHODS.usageLimitSourceLoginStart, {
     payload: UsageLimitSourceLoginStartInput,
