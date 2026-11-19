@@ -62,6 +62,16 @@ rest of the phases that we paused (with the query fork)". So, in both views:
   waiting in the real coder's composer for you to send.
 - One click returns you from the copy to the thread you were reviewing in.
 
+After using it you selected a line the branch had not changed and asked:
+"Did you fail to add the new ask stuff to the view I actually use?" The
+card had only said the line did not change. So, in both views:
+
+- Any line you select names who wrote it: the thread or the person, the
+  commit and its date. Where no thread wrote it, the card says there is no
+  one to ask.
+- Query author is offered on any line a thread wrote on this branch,
+  whichever comparison the view is on, and the "?" mark shows in both.
+
 **It must not.**
 
 - Name a thread that did not write the lines. No author shown beats a guess.
@@ -131,6 +141,11 @@ rest of the phases that we paused (with the query fork)". So, in both views:
 - _Assumed:_ the earlier author appears on the card, not on the hunk's own
   row as the mockup's "after Deploy server" note drew it. Redirect if you
   want it on the row.
+- _Assumed:_ on a line a thread wrote before this branch, the card names
+  the thread and offers Open thread, but not Query author. Under 2% of
+  lines in `lease-extraction`'s busiest files have such a thread behind
+  them today (107 of 6,652), and 37% in Loom's (3,166 of 8,664). Redirect if
+  you want to ask those threads too.
 - _Assumed:_ the marker on asked-about lines is a mark in the line-number
   gutter. Selecting marked lines lists the questions on the card, each with
   a way to its answer. Redirect if you want the question shown beside the
