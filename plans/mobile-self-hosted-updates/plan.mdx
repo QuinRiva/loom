@@ -19,7 +19,7 @@ At the end of every deploy one question is asked: **does an APK the server alrea
 
 The Loom server streams that state to the app over the connection it already has. The app compares the commit baked into itself with the one on offer. When they differ, the home screen says a new version is ready; a tap downloads it through a short-lived signed link and hands it to Android's installer. Settings → About shows the same state, with the way back.
 
-It is two coder briefs in sequence, about a day of agent work, with two real APK builds as proof. On the machine, each deploy that changes the app costs 10 to 25 minutes of low-priority CPU and about 9 GB of transient disk, on the disk that has room.
+It is two coder briefs in sequence, about a day of agent work, with two real APK builds as proof. On the machine, each deploy that changes the app costs 10 to 25 minutes of low-priority CPU. It uses about 4 GB of scratch while it runs and keeps about 10 GB of caches between builds, all on the disk that has room.
 
 <Stats
   items={[
@@ -250,7 +250,7 @@ The app reads it as `Constants.expoConfig?.extra?.loomBuild`, the way About alre
 
 **The contract's one rule:** this shape grows only by optional fields and carries no enumerations. The app that reads it is by definition the one that may be several releases behind the server.
 
-**The state file.** The deploy code writes `mobile-app.json` in the server's state directory, beside `deploy-status.json`, which is written and read the same way. Its schema, `LoomMobileAppFile`, is defined once in contracts: the wire shape plus each APK's absolute `file` path. The server never decides anything; it reads this file, drops the paths and streams the rest.
+**The state file.** The deploy code writes `mobile-app.json` in the server's state directory, beside `deploy-status.json`, which is written and read the same way. Its schema, `LoomMobileAppFile`, is defined once in contracts: the wire shape plus each APK's absolute `file` path. The server never decides anything; it reads this file, drops the paths and streams the rest. It does so on every server, whether or not that server can deploy itself. `LoomDeploy` keeps its deploy controls behind that test, and the new members must not sit behind it, or a dev server would read nothing and neither brief could be proved.
 
 ## 4. The background build
 
@@ -262,7 +262,7 @@ The app reads it as `Constants.expoConfig?.extra?.loomBuild`, the way About alre
     ["Outlive the deploy command and a Loom restart", "Its own transient systemd unit, `loom-mobile-build`, started with `systemd-run --user --collect` exactly as the deploy engine is. Stopping the `loom-cockpit` service kills only that service's own processes."],
     ["Never fail or block a deploy", "The call cannot throw (the pattern of `installPiSkills`), and the release is already live when it is made. `refuseIfBusy` looks only at the engine's unit, so a running build never makes a deploy wait. The unit runs with `Nice=10`, `CPUWeight=20` and `IOWeight=20`."],
     ["Clean its scratch", "A fresh checkout under `<mobile dir>/build/`, removed whole when the job ends and cleared again when the next one starts, which covers a kill or a reboot. It cannot build inside the release folder: at least 2.4 GB of native build output lands in 47 folders inside `node_modules`, which no targeted delete removes safely."],
-    ["Fit on the disk", "The mobile directory goes on `/mnt/fast` (over 140 GB free), not the root disk. That disk is full to within 12 GB, and lost 11 GB of free space on the day this was written. The job refuses to start with under 10 GB free there and records why. Only Gradle's cache stays on the root disk, 6.3 GB today."],
+    ["Fit on the disk", "The mobile directory goes on `/mnt/fast` (141 GB free), and **a build writes nothing to the root disk**, which is down to 11 GB free and lost 12 GB on the day this was written. The checkout, the package store, Gradle's home and the temporary folder are all under the mobile directory. `/mnt/fast` is also the disk the live database is on, so the job refuses to start with under 30 GB free there and records why."],
     ["Not pile up", "One unit name, so at most one build. When a deploy goes live during a build of another commit, that build is stopped and one starts for the running release."],
     ["Keep the signing certificate", "The key is not on this machine by accident: it ships in the `expo` package's prebuild template (`node_modules/expo/template.tgz`, `android/app/debug.keystore`). The three hand builds carry byte-identical keystores and the certificate SHA-256 `fac61745…1033b9c`. The job refuses to publish any APK whose certificate differs, so an Expo bump that changed the key would show as a failed build, not as an APK that cannot be installed over the old one."],
   ]}
@@ -282,20 +282,28 @@ The app reads it as `Constants.expoConfig?.extra?.loomBuild`, the way About alre
 
 1. Find the newest stored APK that matches the release (§2). If one does: record it as the matching APK, clear any failed build, stop a build in flight, and delete a stored APK newer than it. That last case is an APK built from a release the server has since gone back from.
 2. Otherwise, if a build of this same commit is already running, leave it.
-3. Otherwise stop any build, write that a build of this commit has started, and start the unit: `node <release>/apps/server/src/loom/deploy/cli.ts <release> apk-build`.
+3. Otherwise stop any build, write that a build of this commit has started, and start the unit: `node <release>/apps/server/src/loom/deploy/cli.ts <release> apk-build`. The release is always the one now running. After `back()` that is the release returned to, not the one that was left.
 
 The choice in those three steps is a pure function of four things: the stored APKs, the match, the build on record and whether the unit is active. It is tested as a table.
 
-**The job** (`apk-build`, run inside the unit) makes no decisions:
+**The job** (`apk-build`, run inside the unit) makes no decisions. A unit started by `systemd-run --user` gets the user manager's environment, not the caller's. So the job sets its own for every step, as the deploy engine does:
 
-1. Refuse with under 10 GB free on the mobile directory's disk.
+- `HOME`, and `PATH` as node's folder followed by `path` from `deploy.json`. That is where `pnpm` and `npx` are found.
+- `GRADLE_USER_HOME=<mobile dir>/gradle`.
+- `TMPDIR=<mobile dir>/build/tmp`, where Metro keeps its cache.
+
+Then, in order:
+
+1. Refuse with under 30 GB free on the mobile directory's disk.
 2. Clear `<mobile dir>/build/`, then `git worktree add --detach` the release's commit from the store's mirror into it.
-3. `pnpm install --frozen-lockfile`, the command the deploy engine runs for a release.
+3. `pnpm install --frozen-lockfile --store-dir <mobile dir>/pnpm-store`. The store is named because pnpm, on a disk other than its usual store's, quietly starts a new one wherever it sees fit. Asked from `/mnt/fast/loom-deploy`, it answers `/mnt/fast/loom-deploy/node_modules/.pnpm-store`.
 4. In `apps/mobile`: `npx expo prebuild --clean --platform android`, with `APP_VARIANT=preview`, `T3CODE_MOBILE_UPDATES_ENABLED=0`, `EXPO_NO_GIT_STATUS=1`, `CI=1`, `LOOM_BUILD_SHA`, `LOOM_BUILD_COMMITTED_AT`, and `ANDROID_HOME`, `ANDROID_SDK_ROOT` and `JAVA_HOME` from `deploy.json`. The same variables stay set for the next step, since Gradle writes the configuration into the APK.
 5. In `apps/mobile/android`: `NODE_ENV=production ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a "-Dorg.gradle.jvmargs=-Xmx8g -XX:MaxMetaspaceSize=2g"`. Steps 4 and 5 are today's hand recipe from `docs/operations/loom-android-apk.md`, with the build stamp's two variables and `--no-daemon` added.
-6. Check the APK (below). Any failure ends the job with the build recorded as failed and nothing published.
+6. Check the APK (below), with `aapt2` and `apksigner` from the newest folder under `<androidHome>/build-tools/`; neither is on any `PATH`. Any failure ends the job with the build recorded as failed and nothing published.
 7. Publish. Copy the APK to `<mobile dir>/apks/loom-<sha7>.apk` through a temporary name. Save the two lists from the source map beside it as `loom-<sha7>.inputs.json`, about 90 KB. Keep the newest other stored APK and delete any older. Write the state file with the new one as the matching APK.
-8. Always, including on a stop signal: remove the checkout. The whole output goes to `<mobile dir>/build.log`, replaced by each build.
+8. Always, including on a stop signal: remove `<mobile dir>/build/`. The whole output goes to `<mobile dir>/build.log`, replaced by each build.
+
+**What stays between builds** is three things. The two stored APKs are 216 MB. The package store is about 4 GB, the size of one install. Gradle's home is 6.3 GB on the root disk today, after the hand builds. The store and Gradle's home start empty. So the first build on a machine also downloads every package and every Gradle dependency once. Nobody has timed that build.
 
 <Table
   density="compact"
@@ -505,7 +513,7 @@ Everything else is in `apps/server/src/loom/`, `packages/contracts/src/rpc.loom.
   entries={[
     { path: "packages/contracts/src/rpc.loom.ts", change: "modified", note: "the two methods; LoomMobileApk, LoomMobileBuild, LoomMobileAppState, LoomMobileAppFile, the link's input and result" },
     { path: "apps/server/src/loom/loomPaths.ts", change: "modified", note: "mobileAppPath, beside deployStatusPath" },
-    { path: "apps/server/src/loom/deploy/mobileApp.ts", change: "added", note: "read the state file, stream it on change, sign a link, resolve a token to a file; a running build older than 90 minutes reads as failed" },
+    { path: "apps/server/src/loom/deploy/mobileApp.ts", change: "added", note: "read the state file, stream it on change, sign a link, resolve a token to a file; a running build older than 90 minutes reads as failed. None of it depends on whether the server can deploy itself" },
     { path: "apps/server/src/loom/deploy/mobileApp.test.ts", change: "added", note: "a link round-trips; a tampered or expired token and an unknown sha are refused" },
     { path: "apps/server/src/loom/deploy/LoomDeploy.ts", change: "modified", note: "three new members, delegating to mobileApp.ts" },
     { path: "apps/server/src/loom/wsMethods.ts", change: "modified", note: "two handlers" },
@@ -516,7 +524,7 @@ Everything else is in `apps/server/src/loom/`, `packages/contracts/src/rpc.loom.
     { path: "packages/client-runtime/src/rpc/client.ts", change: "modified", note: "upstream file: one marked line in EnvironmentSubscriptionRpcTag" },
     { path: "packages/client-runtime/src/state/loom/goalCommands.ts", change: "modified", note: "mobileApp subscription atom, mobileApkUrl command" },
     { path: "apps/mobile/src/features/updates/loomAppBuild.loom.ts", change: "added", note: "reads the build stamp; the pure function from state and stamp to the words of §7" },
-    { path: "apps/mobile/src/features/updates/loomAppBuild.loom.test.ts", change: "added", note: "every row of §7's table" },
+    { path: "apps/mobile/src/features/updates/loomAppBuild.loom.test.ts", change: "added", note: "the decision for every row of §7's table: quiet or notice, which notice, the go-back row, the 90-minute rule. Not the sentences" },
     { path: "apps/mobile/src/features/updates/useLoomAppBuild.loom.ts", change: "added", note: "picks the environment, subscribes, exposes the words and the install action" },
     { path: "apps/mobile/src/features/updates/LoomAppUpdateNotice.loom.tsx", change: "added", note: "the home notice" },
     { path: "apps/mobile/src/features/updates/LoomAppBuildSection.loom.tsx", change: "added", note: "the About rows" },
@@ -549,9 +557,12 @@ No Android device or emulator can run on this host: there is no `/dev/kvm`. Carl
 
 - a bare clone of the branch as `repo.git`;
 - a release folder checked out from it and installed;
-- a `deploy.json` whose `stateDir` is a running dev server's state directory, whose `engineUnit` and `mobile.unit` carry scratch names, and whose `mobile.dir` is scratch.
+- a `deploy.json` **written fresh, never copied from production's**. Its `home` and `stateDir` are a running dev server's. Its `unit`, `engineUnit` and `mobile.unit` carry scratch names, and `unit` is never `loom-cockpit`. It has no `piSkillsDir`, `refreshCheckouts`, `bridge`, `backupDir` or `reapBeforeStart`.
+- a mobile directory at `/mnt/fast/loom-deploy/apk-scratch/`, a new folder Carl's user can create, removed at the end.
 
-Run from that release, `after-accept` and `apk` are the real verbs. The build is the real job in a real transient unit, and the state file it writes is the one the dev server reads. Nothing in `~/loom-releases` or the live install is read or written.
+The fresh file matters because `after-accept` does more than this plan adds to it. It relinks the folder pi loads its skills from to the release it runs in, and it fast-forwards every checkout the file lists. With production's values those would be every agent's skills and Carl's main checkout.
+
+Run from that release, `after-accept` and `apk` are the real verbs. The build is the real job in a real transient unit, and the state file it writes is the one the dev server reads. Nothing in `~/loom-releases` is read or written. In `/mnt/fast/loom-deploy`, which holds production's database copies, only the new folder is touched.
 
 <Table
   density="compact"
@@ -565,12 +576,12 @@ Run from that release, `after-accept` and `apk` are the real verbs. The build is
     ["Going back offers the earlier APK", "The reconcile table test; and on the scratch store, `apk` run from a release at the earlier commit makes the earlier APK the matching one and deletes the later", { badge: { label: "here", tone: "success" } }],
     ["The server tells the phone and serves the file", "`verify-mobile-app.ts` against the dev server: signs in with a pairing token as the phone does, reads the stream, sees it change when the build publishes, asks for the link, fetches it with no credentials, and compares length and SHA-256 with the stored file. A tampered token and an unknown sha are refused", { badge: { label: "here", tone: "success" } }],
     ["The app code is in the APK and compiles for the device", "`vp check`, `vp run typecheck`, `vp run lint:mobile`; Gradle bundled it; the notice's sentences are found in the APK's `assets/index.android.bundle`", { badge: { label: "here", tone: "success" } }],
-    ["The app says the right thing in each state", "`loomAppBuild.loom.test.ts` covers every row of §7. No render test: the phone's test harness replaces React Native with stand-ins, so it would prove nothing about the device", { badge: { label: "here, logic only", tone: "warning" } }],
+    ["The app says the right thing in each state", "`loomAppBuild.loom.test.ts` covers the decision in every row of §7, not the wording. No render test: the phone's test harness replaces React Native with stand-ins, so it would prove nothing about the device", { badge: { label: "here, logic only", tone: "warning" } }],
     { tone: "warning", cells: ["The notice and the About rows look right", "Not possible here. They are built from `Notice` and `SettingsRow` in containers the app already uses", { badge: { label: "phone", tone: "warning" } }] },
     { tone: "warning", cells: ["Android's installer opens from the app, after the one-time permission", "Not possible here. The permission is confirmed in the manifest; the browser button is the hedge", { badge: { label: "phone", tone: "warning" } }] },
     { tone: "warning", cells: ["The 108 MB download completes on the phone's connection", "Not possible here. The script fetches the same link over loopback", { badge: { label: "phone", tone: "warning" } }] },
     { tone: "warning", cells: ["An older APK installs over a newer one, the app opens, the pairing is kept", "Not possible here (§6)", { badge: { label: "phone", tone: "warning" } }] },
-    { tone: "warning", cells: ["The build runs on `/mnt/fast` in production", "First seen on the first production deploy. There `pnpm install` copies packages instead of linking them, because its store is on the root disk; `scripts/setup-worktree.ts` documents that this happens silently and works", { badge: { label: "first deploy", tone: "warning" } }] },
+    ["The build runs on `/mnt/fast` as production's will", "The scratch copy's mobile directory is on that disk, with its own package store and Gradle home, both starting empty. That is the layout and the cold start of production's first build", { badge: { label: "here", tone: "success" } }],
   ]}
 />
 
@@ -607,7 +618,7 @@ Run from that release, `after-accept` and `apk` are the real verbs. The build is
     He installs it over the top, the last one he has to ask for. About shows its build and **Up to date**.
   </Step>
   <Step title="Step 2.">
-    He asks for a deploy of a change that touches the app: the next mobile fix in the queue, or a one-line visible change the orchestrator has ready. When the notice appears he taps it, allows the app to install APKs this once, downloads and confirms. About shows the new build; he is still paired.
+    He asks for a deploy of a change that touches the app: the next mobile fix in the queue, or a one-line visible change the orchestrator has ready. When the notice appears he taps it, allows the app to install APKs this once, downloads and confirms. Android 11 is reported to close an app at the moment that permission is granted; if the app closes, he opens it and taps the notice again. About shows the new build; he is still paired.
   </Step>
   <Step title="Step 3.">
     In About he taps "Go back to" the first build and confirms. About shows the earlier build, and the home notice offers the newer one again.
@@ -626,13 +637,13 @@ The contract first, as its own commit. Then the server's three members and the r
 
 `mobile.ts`, the hooks and verbs in `cli.ts`, the stamp and permission in `app.config.ts`, the docs. Then every "here" row of §9 on the scratch copy, with the app code of Brief 1 in the APK. The first build is of the branch head. The second is of a scratch commit that touches the app, made only in the scratch mirror, so that going back has two stored APKs to choose between.
 
-Its hand-back carries the build log, the six checks' output, the script's output and the scratch `deploy.json`, and it removes `.t3/apk-scratch/`. Each build goes through `bg_start`. The scratch copy sits on the root disk and needs 10 GB free there, which the coder checks first. With less than that, it stops and says so.
+Its hand-back carries the build log, the six checks' output, the script's output and the scratch `deploy.json`, and it removes `.t3/apk-scratch/`. Each build goes through `bg_start`. The builds, the package store and Gradle's home are all under the scratch mobile directory on `/mnt/fast`, about 15 GB at the peak, and the coder removes that folder too. Only the scratch store and its release folders sit in the worktree on the root disk; they are checkouts whose installs link into the existing package store.
 
 </Card>
 
 **In sequence, and why.** The second brief's proof needs the first brief's code in the tree, and its builds are the long pole either way. The two touch disjoint files once the contract commit exists, so they can overlap if the orchestrator wants the time back. The price is a third short brief to run the end-to-end proof on the combined head. One PR for both, since one request is one PR.
 
-**For the orchestrator, outside these briefs.** Fold the three corrections on the first screen into the brief. Have the visible change for step 2 ready. Decide with Carl's word who edits production's `deploy.json`. Watch the root disk before Brief 2: at 12 GB free its scratch copy barely fits. The other disk has room, but a scratch directory there needs one `sudo mkdir`, which is Carl's yes.
+**For the orchestrator, outside these briefs.** Fold the three corrections on the first screen into the brief. Have the visible change for step 2 ready. Decide with Carl's word who edits production's `deploy.json`.
 
 ## 11. Risks, limits and what was left out
 
@@ -642,5 +653,6 @@ Its hand-back carries the build log, the six checks' output, the script's output
 - **An app too old to connect is told so, but offered no download.** When a deploy raises the wire protocol, the app's existing screen says "Client not supported … Update your app". The new APK then reaches the phone by a link from an agent, as today. Serving it without the connection needs a download that asks for no sign-in at all, which is a different decision. The protocol number has been raised once in its life.
 - **A build that will not open on the phone.** Carl's answer stands: no separate command. The earlier APK is a file under the mobile directory and the rewritten runbook says how an agent hands it over.
 - **Two writers of one small file.** The decision and the job both write the state file, through an atomic rename. A deploy landing in the second an APK is published could lose one of the two writes; the next deploy, or `loom-deploy apk`, puts it right.
+- **The build shares a disk with the live database.** `/mnt/fast` is where the room is, and it is also where the database and its copies live. The 30 GB floor is what keeps a build from ever being the thing that fills it. The caches kept there grow slowly, with each new dependency version, and nothing prunes them.
 - **Load.** Gradle with an 8 GB heap on a machine that also runs agents. The unit is low priority and the machine has 62 GB; if it hurts, the heap is one flag.
 - **Left out on purpose:** a download progress bar, since the notice says "Downloading"; dismissing the notice; a web or desktop surface; any setting. Also left out is narrowing the rule further by comparing bundle contents. That would cost two to three minutes of bundling on every deploy, to save installs the fortnight has not yet shown to matter.
