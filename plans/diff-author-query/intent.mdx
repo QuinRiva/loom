@@ -71,6 +71,11 @@ card had only said the line did not change. So, in both views:
   one to ask.
 - Query author is offered on any line a thread wrote on this branch,
   whichever comparison the view is on, and the "?" mark shows in both.
+- On a line no thread on this branch wrote, Query author is offered to the
+  threads that changed this file on the branch. Its copy says the lines are
+  not its own, and answers from what it knows of them and what their
+  history shows, without passing a guess off as the original author's
+  reason.
 
 **It must not.**
 
@@ -141,11 +146,17 @@ card had only said the line did not change. So, in both views:
 - _Assumed:_ the earlier author appears on the card, not on the hunk's own
   row as the mockup's "after Deploy server" note drew it. Redirect if you
   want it on the row.
+- Asked what should happen on a line the branch did not change, from four
+  options: "Let me ask this branch's coders about any line". The option
+  read: on an unchanged line, offer Query author to the threads that
+  changed this file, for questions like why they left it alone; the copy
+  would be answering about code it did not write.
 - _Assumed:_ on a line a thread wrote before this branch, the card names
-  the thread and offers Open thread, but not Query author. Under 2% of
-  lines in `lease-extraction`'s busiest files have such a thread behind
-  them today (107 of 6,652), and 37% in Loom's (3,166 of 8,664). Redirect if
-  you want to ask those threads too.
+  that thread and offers Open thread, but Query author goes to this
+  branch's coders, not to it. Under 2% of lines in `lease-extraction`'s
+  busiest files have such a thread behind them today (107 of 6,652), and
+  37% in Loom's (3,166 of 8,664). Redirect if you want to ask those older
+  threads too.
 - _Assumed:_ the marker on asked-about lines is a mark in the line-number
   gutter. Selecting marked lines lists the questions on the card, each with
   a way to its answer. Redirect if you want the question shown beside the
