@@ -261,6 +261,8 @@ const RPC_AGGREGATES = {
   [LOOM_WS_METHODS.subscribeDeploy]: "loom", // loom: deploy toasts
   [LOOM_WS_METHODS.startDeploy]: "loom", // loom: the Deploy control
   [LOOM_WS_METHODS.cancelDeploy]: "loom", // loom: the Deploy control
+  [LOOM_WS_METHODS.subscribeMobileApp]: "loom", // loom: phone app updates
+  [LOOM_WS_METHODS.mobileApkUrl]: "loom", // loom: phone app updates
   [LOOM_WS_METHODS.contextUsage]: "loom", // loom: context-viz experiment
 } as const satisfies Readonly<Record<WsRpcMethod, string>>;
 

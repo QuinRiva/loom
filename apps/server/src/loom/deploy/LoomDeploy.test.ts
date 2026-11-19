@@ -13,6 +13,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 
+import { AssetSigner } from "../../assets/AssetSigner.ts";
 import { EnvironmentAuth } from "../../auth/EnvironmentAuth.ts";
 import { requiredScopeForRpcMethod } from "../../auth/RpcAuthorization.ts";
 import { ServerSelfUpdate } from "../../cloud/selfUpdate.ts";
@@ -107,6 +108,7 @@ it.layer(NodeServices.layer)("deploy files and events", (it) => {
                 Layer.succeed(ServerConfig, { stateDir: dir, baseDir: dir } as never),
                 Layer.mock(ServerSelfUpdate)({}),
                 Layer.mock(EnvironmentAuth)({}),
+                Layer.mock(AssetSigner)({}),
               ),
             ),
           ),

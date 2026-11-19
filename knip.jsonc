@@ -53,6 +53,8 @@
         "scripts/probe-claude-fork-local-rollback-replay.ts",
         "scripts/update-test-shard-weights.ts",
         "scripts/verify-background-live.ts",
+        // loom: plays the phone app against a server's APK stream, run by hand.
+        "scripts/verify-mobile-app.ts",
         "src/provider/testFixtures/*.mjs",
         // loom: the thread-search ranker eval, run by hand.
         "src/dev/threadSearchEval.loom.ts",

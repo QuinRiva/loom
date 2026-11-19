@@ -9,6 +9,8 @@ import {
   LoomDeployNotice,
   type LoomDeployRestartReason,
   LoomDeployStatus,
+  type LoomMobileApkUrlResult,
+  type LoomMobileAppState,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Clock from "effect/Clock";
@@ -32,6 +34,7 @@ import { ServerConfig } from "../../config.ts";
 import * as ProcessRunner from "../../processRunner.ts";
 import { loomPaths } from "../loomPaths.ts";
 import { LOOM_REPO_ROOT } from "../prompt/roleOverlay.ts";
+import { makeMobileApp } from "./mobileApp.ts";
 import {
   estimateStopAt,
   readConfig,
@@ -68,6 +71,14 @@ export class LoomDeploy extends Context.Service<
     /** Hands a staged version to upstream's launcher; the update id once it accepts. */
     readonly switchTo: (version: string) => Effect.Effect<string, LoomDeployRefusal>;
     readonly events: Stream.Stream<LoomDeployEvent>;
+    /** The phone app's update state, on every server whether or not it can deploy itself. */
+    readonly mobileApp: Stream.Stream<LoomMobileAppState>;
+    /** A session-less link to the stored APK built from `sha`. */
+    readonly mobileApkUrl: (
+      sha: string,
+    ) => Effect.Effect<LoomMobileApkUrlResult, LoomDeployRefusal>;
+    /** The stored APK a link's token names, unless forged, expired or no longer stored. */
+    readonly mobileApkFile: (token: string) => Effect.Effect<Option.Option<string>>;
   }
 >()("t3/loom/deploy/LoomDeploy") {}
 
@@ -130,6 +141,7 @@ const make = Effect.gen(function* () {
   const deployable = yield* resolveDeployable(serverConfig.baseDir);
   const pubsub = yield* PubSub.unbounded<LoomDeployEvent>();
   const cannot = new LoomDeployRefusal({ reason: "This server cannot deploy itself." });
+  const mobileApp = yield* makeMobileApp(paths.mobileAppPath);
 
   const restarting = Effect.fn("LoomDeploy.restarting")(function* (
     releaseId: string,
@@ -189,6 +201,21 @@ const make = Effect.gen(function* () {
     return result.updateId ?? "";
   });
 
+  const mobileApkUrl = Effect.fn("LoomDeploy.mobileApkUrl")(function* (sha: string) {
+    const url = yield* mobileApp
+      .apkUrl(sha)
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new LoomDeployRefusal({ reason: "The download link could not be signed.", cause }),
+        ),
+      );
+    if (Option.isSome(url)) return url.value;
+    return yield* new LoomDeployRefusal({
+      reason: "That build of the app is no longer on the server.",
+    });
+  });
+
   // A one-second read of a file under 1 KB; a directory watch here would wake on every WAL write.
   const lastStatus = yield* Ref.make(yield* readText(paths.deployStatusPath));
   if (deployable !== undefined) {
@@ -236,6 +263,9 @@ const make = Effect.gen(function* () {
     cancel: command(["cancel"]),
     switchTo,
     events,
+    mobileApp: mobileApp.state,
+    mobileApkUrl,
+    mobileApkFile: mobileApp.apkFile,
   });
 });
 

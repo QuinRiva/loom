@@ -245,6 +245,8 @@ export const RPC_REQUIRED_SCOPES = {
   [LOOM_WS_METHODS.subscribeDeploy]: AuthOrchestrationReadScope, // loom: deploy toasts
   [LOOM_WS_METHODS.startDeploy]: AuthEnvironmentMaintainScope, // loom: the Deploy control
   [LOOM_WS_METHODS.cancelDeploy]: AuthEnvironmentMaintainScope, // loom: the Deploy control
+  [LOOM_WS_METHODS.subscribeMobileApp]: AuthOrchestrationReadScope, // loom: phone app updates
+  [LOOM_WS_METHODS.mobileApkUrl]: AuthOrchestrationReadScope, // loom: phone app updates
   [LOOM_WS_METHODS.contextUsage]: AuthOrchestrationReadScope, // loom: context-viz experiment
 } as const satisfies Readonly<Record<WsRpcMethod, AuthEnvironmentScope>>;
 
