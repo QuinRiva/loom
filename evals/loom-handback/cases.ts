@@ -2155,6 +2155,8 @@ Build §4 of the plan \`${PLAN_PATH}\`: the \`invoice-reminder\` email template 
     messages: csvQueryAsked(4, CSV_COLUMNS_RENAMED, "Why is this column called `currency_code`?", [
       CSV_REVIEWER_RENAME,
     ]),
+    // The server names only commits it has read from the checkout, so this one is there to be read.
+    world: `Commit ${CSV_REVIEWER_RENAME.sha} ("${CSV_REVIEWER_RENAME.subject}") is in this session's repository, on the checked-out branch directly after the agent's commit 4be19c2: it changed line 4 of ${CSV_REL} from "currency" to "currency_code" and nothing else, and the working tree has it.`,
     looking: [t("consult_thread")],
     maxSteps: 10,
     samples: 10,

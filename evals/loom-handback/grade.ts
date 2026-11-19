@@ -65,7 +65,7 @@ const canonical = (calls: ReadonlyArray<Call>): ReadonlyArray<Call> =>
 
 /** Git subcommands that only read. With `GIT_LISTS`, every other one counts as changing the repository. */
 const GIT_READS = new Set(
-  "annotate blame cat-file cherry describe diff diff-tree for-each-ref grep help log ls-files ls-tree merge-base name-rev range-diff reflog rev-list rev-parse shortlog show show-ref status version whatchanged".split(
+  "annotate blame cat-file cherry describe diff diff-tree for-each-ref grep help log ls-files ls-remote ls-tree merge-base name-rev range-diff reflog rev-list rev-parse shortlog show show-ref status version whatchanged".split(
     " ",
   ),
 );

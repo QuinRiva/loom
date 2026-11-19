@@ -341,6 +341,7 @@ describe("a query thread", () => {
       "cd /home/user/acme-app && git add -A && git commit -m fix",
       "git -C /home/user/acme-app checkout -- apps/api/src/export/csv.ts",
       "git stash",
+      "git fetch -q 2>&1 | tail -2",
       "git branch -D feature",
       "git apply <<'EOF'\n--- a/csv.ts\n+++ b/csv.ts\nEOF",
       `sed -i 's/"currency"/"currency_code"/' apps/api/src/export/csv.ts`,
@@ -380,6 +381,7 @@ describe("a query thread", () => {
       "pnpm test apps/api/src/export 2>&1 | tail -5",
       "echo done >&2",
       "git --version",
+      "timeout 20 git ls-remote --heads origin 2>&1 | head -20",
     ])
       expect(shellWrite(command), command).toBeNull();
   });
