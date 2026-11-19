@@ -1,0 +1,57 @@
+---
+reader:
+  who: Carl, who asked for this role and approves its intent before anything is built
+  knows: his own request and the chat that shaped it; nothing of how roles are wired
+  after_first_screen: he can correct a line or say "go"; his answer is folded into Decided
+kicker: "Intent brief · approved 18 Nov 2026"
+status: approved
+manager_sessions:
+  - id: 01a1ecef-e1b7-711d-ac3b-a79c96f0eece
+    name: Final intent-alignment reviewer role
+    role: intent
+    authored_at: 2026-11-18T05:30:16.990Z
+---
+
+# A final reviewer that reads the whole build before it ships and tells you what could go
+
+**Goal.** "At the end, look at what we've delivered, ignoring what the intent brief was, ignoring the plan ... Is that really the best thing? Have we overcomplicated stuff? Are we writing code that just really isn't necessary?" After six or seven coders and eight or nine waves, one fresh reader looks at everything that was built. It holds the build against what you asked for in your own words, and brings you only what is worth your attention.
+
+**You'll know it works when.**
+
+- Near the end of a long build you tell the orchestrator to launch the final reviewer. With nothing more from you, a report document arrives that you open and read in about a minute.
+- The report opens with a verdict, and "ship as is" in one line is a normal one.
+- It holds a handful of items, as many as are important and no more. An item is one of two things. It is a whole capability or mechanism you could do without: a setting, a fallback path, a cache, a second way of doing the same thing. Or it is something you asked for that the build does not yet give you.
+- A cut says what keeping the part costs you and what you lose by cutting it. A gap quotes what you asked for and says what the build does instead.
+- You mark each item in the document, or say "ship", and that is the whole exchange.
+- It is run on the two finished goals you named: the llm-client trace payload design and the GraphtusEnricher production build. Its items are ones you recognise as worth having been asked about.
+- **Must not:** come back with a list you will not read; judge whether code is correct, or raise a line or a function; be told what to think by the orchestrator. Nor may it ask you something it could have covered by stating its assumption, or flag a thing you asked for in so many words.
+
+**Approaches in play.**
+
+- It reads two things only. One is every message you wrote in the goal, verbatim. The other is the whole branch against main, with the result running. Before it opens the build it writes down what "done" looks like from your words, so it cannot read the build as what you meant. _My pick._
+- It collects your words itself with the tools a reviewer already has. Wins if that is reliable across a goal's sub-threads and continuations. Otherwise a small server tool hands them over; a spike on the two test goals decides.
+- Dropped: grading every decision the agents made by how you came to approve it. It is the long list you said you would not read.
+- Dropped: the orchestrator briefs it. That is the bias you asked to avoid.
+
+**Decided.**
+
+- Not a code review: "it really shouldn't be spending much time at all looking at whether the code is technically correct."
+- No orchestrator brief: "avoid it being heavily biassed by having the orchestrator write a comprehensive brief where the orchestrator itself is biassed".
+- When: "before we ship a change". A second run after the plan is for "perhaps later".
+- Length: "Anything that comes back with a really long list of 20, 30 things to fix, I'm not going to look at it." No fixed number: "let's not place a *hard* limit on 5, that seems arbitrary ... what I want to avoid is leaking of unimportant things into a report that I need to read."
+- Gaps count too: asked whether it should also report what you asked for and did not get, "Yes".
+- Form: "it should probably return a report for me to read".
+- The bar: a proposal to cut or simplify "has to pass a 'why do i care' threshold".
+- Friction: "I want to basically just tell the orchestrator, 'Hey, launch this reviewer, have it review,' and then I can read whatever the output is."
+- Questions: "It *can* ask me questions, but I think it needs to justify to itself why it needs to ask me that question".
+- Something you would never notice was gone: "The orchestrator cuts it unasked, and the report lists it in one line so I can object".
+- _Assumed:_ it is a new role called `final-reviewer`, beside the existing reviewer, which is written for code and hunks. Redirect if wrong.
+- _Assumed:_ it prefers cuts to redesigns. Deleting at the end is cheap; "this should have been built differently" is not, so a redesign reaches you only when keeping the build plainly costs more than redoing it.
+- _Assumed:_ the orchestrator passes its report on to you unedited. It may add its own reply to an item, marked as its own.
+
+**Not doing.** The run after the plan. Launching it automatically. Any review of correctness, tests or style. New server machinery, unless the spike shows it cannot collect your words without it.
+
+**Still unknown.**
+
+- Does the bar hold? Your read of the two trial reports settles it. If the items are not ones you care about, the role's wording changes; it does not get longer.
+- Settled by the first trial: refusing to read the plan cost one near-miss in two runs, a change reported as silent when the question was already with you. The record of your words now also lists the questions still open with you.
