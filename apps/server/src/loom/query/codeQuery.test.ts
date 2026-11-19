@@ -228,7 +228,7 @@ it.layer(TestLayer)("Code query threads", (it) => {
     "a question forks the idle author; a second reuses it; Promote records; the author is untouched; its next run supersedes",
     () =>
       Effect.gen(function* () {
-        const { worktree, reviewThreadId } = yield* reviewRepo("main");
+        const { worktree, base, reviewThreadId } = yield* reviewRepo("main");
         const coder = ThreadId.make("code-query-coder");
         const fixer = ThreadId.make("code-query-fixer");
         // A role gives the author a sidecar row, as every real coder has, for the snapshot to compare.
@@ -302,9 +302,10 @@ it.layer(TestLayer)("Code query threads", (it) => {
         assert.equal(query.codeQuery?.questions[0]?.messageId, message.id);
 
         // Asked from the earlier-author row of lines the fixer rewrote: the coder's same thread,
-        // and the sentence says the lines are no longer as the coder wrote them.
+        // and the sentence says the lines are no longer as the coder wrote them. Line 1 in the
+        // range predates the branch, so it is never named as having rewritten them.
         const second = yield* askCodeQuery(
-          asking(reviewThreadId, byCoder, [byFixer], 2, "Why B1?"),
+          asking(reviewThreadId, byCoder, [byFixer], 1, "Why B1?", 2),
         );
         assert.deepEqual([second.created, second.queryThreadId], [false, first.queryThreadId]);
         const reused = (yield* messagesOf(first.queryThreadId)).find(
@@ -312,8 +313,9 @@ it.layer(TestLayer)("Code query threads", (it) => {
         );
         assert.match(
           reused?.text ?? "",
-          /^\[app\.ts \+2\]\(t3-context:\/\/v1\/review-comment\/.+\) An earlier version of these lines is from your commit .+ They have since been rewritten by commit .+"fix: rename B"/,
+          /^\[app\.ts \+1 to \+2\]\(t3-context:\/\/v1\/review-comment\/.+\) An earlier version of these lines is from your commit .+ They have since been rewritten by commit [0-9a-f]{12} "fix: rename B", so the hunk/,
         );
+        assert.notInclude(reused?.text ?? "", base.slice(0, 12));
         assert.lengthOf((yield* row(first.queryThreadId)).codeQuery?.questions ?? [], 2);
 
         // Promote: the RPC queues the human's turn; the tool records the words, the lines stay the

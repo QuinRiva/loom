@@ -234,17 +234,17 @@ export const askCodeQuery = Effect.fn("codeQuery.askCodeQuery")(
     const createdAt = DateTime.formatIso(yield* DateTime.now);
     // An unchanged line its own thread wrote before the branch is the thread's: named as its own.
     const own = writers.find(ownCommit);
-    // The range's other writers join the branch owners, so no line is named the thread's unless it is.
+    // The range's other writers join the branch owners, so no line is named the thread's unless it
+    // is; except in the earlier-author form (`commit` owns none), which would call them rewriters.
+    const ranged = [
+      ...resolvedOwners,
+      ...writers.filter((writer) => !resolvedOwners.some((owner) => owner.sha === writer.sha)),
+    ];
     const launch: CodeQueryLaunch = !unchanged
       ? {
           question: input,
           commit,
-          owners: [
-            ...resolvedOwners,
-            ...writers.filter(
-              (writer) => !resolvedOwners.some((owner) => owner.sha === writer.sha),
-            ),
-          ],
+          owners: ranged.some((owner) => owner.sha === commit.sha) ? ranged : resolvedOwners,
         }
       : own === undefined
         ? { question: input, commitChanged: "file", commit, owners: writers }
