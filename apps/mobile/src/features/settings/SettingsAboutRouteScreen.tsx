@@ -15,6 +15,7 @@ import {
   registerHiddenUpdateTap,
   runAppUpdateCheck,
 } from "../updates/app-updates";
+import { LoomAppBuildSection } from "../updates/LoomAppBuildSection.loom"; // loom: phone app updates
 import { SettingsRow } from "./components/SettingsRow";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -32,6 +33,8 @@ export function SettingsAboutRouteScreen() {
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
         <AppSettingsSection />
+        {/* loom: which build this app runs, against the server's */}
+        <LoomAppBuildSection />
       </ScrollView>
     </SettingsScreen>
   );

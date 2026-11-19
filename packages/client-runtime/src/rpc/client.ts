@@ -74,7 +74,8 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof WS_METHODS.subscribeProjectClones
   | typeof WS_METHODS.terminalAttach
   | typeof WS_METHODS.terminalObserve
-  | typeof LOOM_WS_METHODS.subscribeDeploy; // loom: deploy toasts
+  | typeof LOOM_WS_METHODS.subscribeDeploy // loom: deploy toasts
+  | typeof LOOM_WS_METHODS.subscribeMobileApp; // loom: phone app updates
 
 export type EnvironmentStreamCommandRpcTag =
   | typeof WS_METHODS.chatGptHandoffSubscribe
