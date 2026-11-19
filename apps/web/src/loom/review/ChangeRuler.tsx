@@ -6,13 +6,15 @@
  * @module loom/review/ChangeRuler
  */
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { type PointerEvent, useEffect, useRef } from "react";
 
 import type { AnnotatableCodeViewHandle } from "../../components/diffs/AnnotatableCodeView";
 import { FileSurfaceAction } from "../../components/files/fileSurfaceChrome";
 import { type RulerChange, useChangeNavigationStore } from "./changeNavigation";
 
 const MIN_BAND_PX = 4;
+/** Movement past this turns a press on a band from a click (jump to it) into a drag. */
+const DRAG_THRESHOLD_PX = 3;
 
 /**
  * Bands sit at their row over the file's rows. Under word wrap a long line is taller than a row,
@@ -29,6 +31,64 @@ export function ChangeRuler({
   totalRows: number;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  // `grab` is where in the viewport block the cursor holds it, null until a band press moves far
+  // enough to count as a drag. `draggedRef` stops the band's click jumping after a drag.
+  const dragRef = useRef<{ x: number; y: number; grab: number | null } | null>(null);
+  const draggedRef = useRef(false);
+  const scrollRoot = () => codeView?.getInstance()?.getContainerElement() ?? null;
+  // Puts the viewport block's top at `y - grab` (ruler px), like dragging a scrollbar thumb.
+  const scrollTo = (ruler: HTMLElement, y: number, grab: number) => {
+    const root = scrollRoot();
+    if (root) root.scrollTop = ((y - grab) / ruler.clientHeight) * root.scrollHeight;
+  };
+  // Inside the block keeps the grab offset; elsewhere the view centres on the cursor.
+  const grabAt = (ruler: HTMLElement, y: number) => {
+    const block = viewportRef.current;
+    const root = scrollRoot();
+    if (block && y >= block.offsetTop && y <= block.offsetTop + block.offsetHeight)
+      return y - block.offsetTop;
+    return root && root.scrollHeight > 0
+      ? ((root.clientHeight / root.scrollHeight) * ruler.clientHeight) / 2
+      : 0;
+  };
+  const startDrag = (event: PointerEvent<HTMLDivElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    // The code view holds a jump's target until a wheel or press on its own scroller, which would
+    // pull it back from a drag; a synthetic wheel scrolls nothing and drops that target.
+    scrollRoot()?.dispatchEvent(new Event("wheel"));
+  };
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const ruler = event.currentTarget;
+    const y = event.clientY - ruler.getBoundingClientRect().top;
+    draggedRef.current = false;
+    // A band press waits to see whether it is a click, uncaptured so the click reaches the band;
+    // a track press scrolls at once. Capture keeps the drag once the cursor leaves the strip.
+    const onBand = (event.target as Element).closest("button") !== null;
+    const grab = onBand ? null : grabAt(ruler, y);
+    dragRef.current = { x: event.clientX, y, grab };
+    if (grab !== null) {
+      startDrag(event);
+      scrollTo(ruler, y, grab);
+    }
+  };
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    // A band press released off the strip, before it became a drag, never sends its pointerup here.
+    if (!drag || event.buttons === 0) return void (dragRef.current = null);
+    const ruler = event.currentTarget;
+    const y = event.clientY - ruler.getBoundingClientRect().top;
+    if (drag.grab === null) {
+      if (Math.hypot(event.clientX - drag.x, y - drag.y) <= DRAG_THRESHOLD_PX) return;
+      draggedRef.current = true;
+      drag.grab = grabAt(ruler, drag.y);
+      startDrag(event);
+    }
+    scrollTo(ruler, y, drag.grab);
+  };
+  const endDrag = () => {
+    dragRef.current = null;
+  };
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to the code view's scroll and writes the viewport mark to the DOM
   useEffect(() => {
     const viewer = codeView?.getInstance();
@@ -47,8 +107,12 @@ export function ChangeRuler({
   if (changes.length === 0 || totalRows === 0) return null;
   return (
     <div
-      className="relative w-3.5 shrink-0 overflow-hidden border-l bg-muted/40"
+      className="relative w-3.5 shrink-0 touch-none overflow-hidden border-l bg-muted/40 select-none"
       data-loom-change-ruler=""
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
     >
       <div
         ref={viewportRef}
@@ -65,7 +129,9 @@ export function ChangeRuler({
             top: `min(${(change.start / totalRows) * 100}%, 100% - ${MIN_BAND_PX}px)`,
             height: `max(${(change.rows / totalRows) * 100}%, ${MIN_BAND_PX}px)`,
           }}
-          onClick={() => useChangeNavigationStore.getState().jump(index)}
+          onClick={() => {
+            if (!draggedRef.current) useChangeNavigationStore.getState().jump(index);
+          }}
         >
           {/* A modification is both: old on the left, new on the right, as side by side shows it. */}
           {change.deletions > 0 ? <span className="flex-1 bg-diff-deletion" /> : null}
