@@ -156,7 +156,8 @@ interface RoleLookup {
 
 /**
  * Built-in and project roles, each summarised from its first body line with the `You are a <role>
- * sub-thread.` / `You are the orchestrator:` lead-in trimmed (whole line if unmatched).
+ * sub-thread.` / `You are the <role>.` / `You are the orchestrator:` lead-in trimmed (whole line if
+ * unmatched).
  * Orchestrator first, the rest alphabetical; read fresh each call.
  */
 export const listRoleOverlays = (input: RoleLookup): ReadonlyArray<RoleSummary> => {
@@ -176,7 +177,12 @@ export const listRoleOverlays = (input: RoleLookup): ReadonlyArray<RoleSummary> 
     // `.replace` returns firstLine unchanged (the graceful fallback) when the
     // identity pattern doesn't match.
     return firstLine
-      ? [{ name, summary: firstLine.replace(/^You are (?:a|an|the) .*?(?:sub-thread\.|:)\s*/, "") }]
+      ? [
+          {
+            name,
+            summary: firstLine.replace(/^You are (?:a|an|the) [^.:]*?(?:sub-thread)?[.:]\s*/, ""),
+          },
+        ]
       : [];
   });
   return summaries.sort((a, b) =>

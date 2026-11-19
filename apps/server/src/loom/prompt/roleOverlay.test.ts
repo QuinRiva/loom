@@ -248,10 +248,12 @@ describe("listRoleOverlays", () => {
       "coder.md": "You are a coder sub-thread. Produce working, verified code.\n\n- bullet",
       "researcher.md":
         "---\ntools: [read]\n---\nYou are a researcher sub-thread. Return the answer, not the path.",
+      "final-reviewer.md": "You are the final reviewer. Report what matters: cuts and gaps.",
     });
     expect(listRoleOverlays(lookup)).toEqual([
       { name: "orchestrator", summary: "plan, delegate, review." },
       { name: "coder", summary: "Produce working, verified code." },
+      { name: "final-reviewer", summary: "Report what matters: cuts and gaps." },
       { name: "researcher", summary: "Return the answer, not the path." },
     ]);
   });
