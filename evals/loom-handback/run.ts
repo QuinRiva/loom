@@ -426,7 +426,7 @@ const simulate = Effect.fn("loomHandback.simulate")(function* (
   const response = yield* post({
     model: values["simulator-model"],
     max_tokens: 8000,
-    system: SIMULATOR_SYSTEM,
+    system: entry.world ? `${SIMULATOR_SYSTEM}\n- ${entry.world}` : SIMULATOR_SYSTEM,
     messages: [
       {
         role: "user",
