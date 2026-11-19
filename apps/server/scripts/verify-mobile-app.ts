@@ -67,12 +67,10 @@ const { ticket } = Schema.decodeUnknownSync(Schema.Struct({ ticket: Schema.Strin
 );
 step("paired and opened the socket");
 
-const stored =
-  values.state === undefined
-    ? null
-    : Schema.decodeSync(Schema.fromJsonString(LoomMobileAppFile))(
-        NodeFS.readFileSync(values.state, "utf8"),
-      );
+const decodeStored = Schema.decodeSync(Schema.fromJsonString(LoomMobileAppFile));
+// Read when a download is compared, since a build may publish while the script waits.
+const stored = () =>
+  values.state === undefined ? null : decodeStored(NodeFS.readFileSync(values.state, "utf8"));
 
 const fetchApk = async (relativeUrl: string) => {
   const response = await fetch(`${origin}${relativeUrl}`);
@@ -105,7 +103,7 @@ const program = Effect.gen(function* () {
     NodeAssert.equal(Number(response.headers.get("content-length")), bytes.length);
     NodeAssert.equal(bytes.length, apk.bytes, "downloaded length differs from the state's bytes");
     const sha256 = NodeCrypto.createHash("sha256").update(bytes).digest("hex");
-    const file = stored?.apks.find((entry) => entry.sha === apk.sha)?.file;
+    const file = stored()?.apks.find((entry) => entry.sha === apk.sha)?.file;
     if (file !== undefined) {
       const expected = NodeCrypto.createHash("sha256")
         .update(NodeFS.readFileSync(file))
