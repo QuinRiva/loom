@@ -1,171 +1,119 @@
 ---
 reader:
-  who: Carl, who asked for this and approves what gets built before anything is built
-  knows: he installs APKs by hand, his app sat ten days behind without telling him, and the four-point summary he said yes to; nothing of how app updates work
-  after_first_screen: he can say what changes on the phone day to day, what he still installs by hand and how the phone tells him, what happens when an update is bad, and what he does once to confirm it works
-kicker: "Intent brief · draft for your corrections · 19 Nov 2026"
+  who: Carl, who asked for this, has answered the first five questions, and approves what gets built before anything is built
+  knows: he installs APKs by hand, his app sat ten days behind without telling him, the four-point summary he said yes to, and his own five answers; nothing of how app updates work
+  after_first_screen: he can say what he gets either way, what the one open choice costs and buys in installs per week, and pick
+kicker: "Intent brief · draft, one question left · 19 Nov 2026"
 status: draft
 manager_sessions:
   - id: 01a1f1dd-aa91-76b3-a5d2-e63ce7d1da7e
     name: "Phone app updates: intent brief"
     role: intent
-    authored_at: 2026-11-19T03:58:12.557Z
+    authored_at: 2026-11-19T04:06:28.607Z
 ---
 
-# The phone app updates itself after each deploy, and tells you when it needs a new install
+# The phone app keeps up with each deploy, and tells you when it needs you
 
-**Goal.** "Is there a better way to keep the phone app updated rather than having to manually download and install the apk each time?" After a deploy, the Android app brings itself up to the server's version with nothing to install, and it is never behind without saying so.
+**Goal.** "Is there a better way to keep the phone app updated rather than having to manually download and install the apk each time?" After a deploy the Android app is brought up to date or tells you a new version is ready. It is never behind without saying so.
 
-<Callout tone="decision" title="What you are approving" focus>
+<Callout tone="decision" title="The one decision left: the approach you agreed to is the heavier of two" focus>
 
-- **Day to day.** A deploy publishes the app's code alongside the server. The next time you open the app it downloads that code (about 24 MB) and switches to it when you next leave the app. Nothing to download or install.
-- **Still by hand, about once a week.** Some changes live in the APK itself and cannot be swapped this way. You were told that would be the exception. It is not: going by what each one touched, **all 8 upstream pulls since 5 Oct would have needed a new APK**, roughly one a week. After such a deploy the app shows **New install needed** with a download button. You tap it, Android asks you to confirm, and your pairing is kept.
-- **A bad update.** One that crashes on opening is meant to be dropped by the updater itself, which reopens the app on the last version that worked. One that opens but is broken is put back from the server, and the phone follows on its next open. Neither needs an APK.
-- **Not yet seen on a phone.** No Android device can run on this server, so none of this has run end to end. The first real proof is your phone.
-- **Once, on your phone.** One last hand install to switch this on, then a five-minute check, set out under the questions.
+You chose that a deploy builds the APK by itself and the app shows a notice with a working download. That is already a complete way to update: **every deploy that changes the app builds an APK, the phone says so, you tap and confirm.** Serving the app's code from the server, which is what you agreed to, is a second mechanism on top of it. What it buys is **about 1 install a week instead of about 3 to 4**.
+
+I recommend building the first column first. Everything in it is needed for the second anyway, and its install step is the only part of either that has run on your phone. After a fortnight you decide on the second knowing how 3 to 4 installs a week feel.
 
 </Callout>
 
+<Table
+  density="compact"
+  columns={["", "A new APK every time", "Served code, plus an APK when needed"]}
+  rows={[
+    [
+      "**Installs**",
+      "About 3 to 4 a week to confirm, each a download of about 108 MB",
+      "About 1 a week. The other 2 to 3 arrive by themselves, 20 to 24 MB each, no tap",
+    ],
+    [
+      "**Seen on your phone**",
+      { badge: { label: "in part", tone: "success" }, md: "The install is how you update today. The notice and the deploy's own build are new" },
+      { badge: { label: "no", tone: "warning" }, md: "Nothing has run end to end, and no Android device can run on this server" },
+    ],
+    [
+      "**Server**",
+      "A background build, 3 to 4 times a week. One took 6 minutes when last timed, with warm caches; the latest left about 2 GB of scratch, and 23 GB is free",
+      "About 3 minutes more work on every deploy, plus that build about once a week",
+    ],
+    [
+      "**Way back**",
+      "Install the previous APK, kept on the server",
+      "Deploy a fix (your answer). A crash on opening is meant to undo itself",
+    ],
+    [
+      "**To build**",
+      "The notice, the build shown in Settings, the deploy building and serving the APK",
+      "All of that, plus an update address in the APK, a publish step in the deploy, and matching each update to the APK it fits",
+    ],
+  ]}
+/>
+
+###### From 5 Oct to 18 Nov there were 32 deploys: 8 changed the part that lives in the APK, 16 changed only code the phone runs, 8 changed nothing the phone runs. Counted from the deploy log and git by which files each deploy touched, against the files in today's app.
+
 **You'll know it works when.**
 
-- A deploy changes the app. You open it, leave it, come back, and Settings → About shows the new build (its commit and time) and **Up to date**. You installed nothing.
-- Settings → About always says which Loom build the app is running. Beside it is how that compares with the server: up to date, update downloaded, new install needed, or could not check (with when it last could).
-- After a deploy that changes the APK, the app's home screen shows **New install needed**. The download works straight away, and installing over the top keeps your pairing.
-- After `loom-deploy back`, or a deploy that Loom puts back by itself, the phone is on the earlier version after its next open.
-- An update that crashes on opening does not leave you with a dead app: it reopens on the last version that worked.
-- Off the tailnet, the app opens as fast as it does today on the version it has, and checks again when it reconnects.
-- **Must not:** ever take an update from upstream's Expo project. Cost you your pairing. Slow the app's start while it waits on a check. Fail or block a server deploy because the app's code failed to build.
+- A deploy changes the app. Once its APK is built, the home screen says a new version is ready, the download works, and installing over the top keeps your pairing.
+- Settings → About says which Loom build the app is running and whether that matches the server.
+- A deploy that changes nothing the phone runs shows nothing, and the app is quiet whenever it is current.
+- _If served code is built:_ after a deploy that changes only code, you open the app, leave it, come back, and About shows the new build with nothing installed. After `loom-deploy back` the phone is on the earlier version after its next open. Off the tailnet the app opens as fast as today.
+- **Must not:** ever take an update from upstream's Expo project. Cost you your pairing. Slow the app's start. Fail or block a server deploy because an app build failed.
 
 **Approaches in play.**
 
-- **The Loom server serves the app's code; each deploy publishes it; the app shows a notice when the APK is too old to take it.** _Your pick. I found nothing against it, and it is unproven on a device._ The app already has the update machinery and it is only switched off. Publishing adds about three minutes of work to a deploy. <Sidenote>Run once in this checkout: 2 min 53 s, and 1 min 54 s on an immediate rerun. Not timed inside a real deploy.</Sidenote>
-- Later, if the weekly confirm tap grates: an installer that updates the APK in the background with no prompt. Wins if the weekly tap proves a nuisance. I believe Android 12 and up allows this; I have not verified it.
-- Dropped: an in-app APK download for every change. Every deploy would cost a 6 to 22 minute build and an install prompt, against two to three minutes and no prompt.
-- Dropped: Obtainium watching a folder of APKs as the whole mechanism. Same cost per change.
+- **A new APK every time**, built by the deploy. _Recommended first cut._ Wins if 3 to 4 installs a week is tolerable, or until you know it is not.
+- **Served code on top.** _Your original pick._ Wins if 3 to 4 installs a week is too many. The app already has the update machinery, switched off; I found nothing against it and it is unproven on a device.
+- Later, with either: an installer app that updates in the background with no confirm (Obtainium is one). Wins if the confirm tap itself is the nuisance. I believe Android 12 and up allows this; I have not verified it.
 - Dropped: an agent pushing the APK over wireless debugging. The link drops on reboot and on a network change.
-- Dropped: letting the app take updates from whichever server it is paired with, instead of one address fixed in the APK. It needs the app's protection against an update that bricks it switched off.
-- Dropped: trusting the "which APK is this" stamp the build writes by itself. Three builds of the same code gave three different stamps, so the server could never match an update to an APK. Worked out by a separate command instead, the stamp was the same in five checkouts across three deployed versions, and the build accepted it when handed it.
+- Dropped, for served code: taking updates from whichever server the app is paired with. It needs the updater's protection against a bricking update switched off.
+- Dropped, for served code: trusting the "which APK is this" stamp the build writes by itself. Three builds of the same code gave three different stamps. Worked out by a separate command it was the same in five checkouts across three deployed versions, and the build accepted it when handed it.
 
-**Decided.** "Yep handoff to a new thread to build out that feature", said of a four-point summary. The server serves updates. A change to the APK-level part still needs a new APK. The app shows a notice with a download link when it does. The server's address is fixed in the APK.
+**Decided.** "Yep handoff to a new thread to build out that feature", said of a summary that had a new APK as the exception. Your answers in this document, 19 Nov:
 
-- _Assumed:_ the fixed address is the cockpit's tailnet address, which I take to be the one your phone is paired on (not checked). Off the tailnet there are no updates, and no Loom either; redirect if your phone connects another way.
-- _Assumed:_ updates are not cryptographically signed. The address is reachable only inside your tailnet, like the web app's own files, and the update carries app code, no data; redirect if wrong.
-- _Assumed:_ new code takes effect when the app next comes back from the background, never mid-session. That is how the existing machinery protects a half-written message; redirect if you want it applied on the spot.
+- Who builds the APK: "The deploy builds it by itself, in the background, after Loom is back up".
+- A version that opens but is broken: "No separate command: the app stays broken until a fix is deployed, and I use Loom in the phone's browser meanwhile".
+- How loudly: "Quiet when current; a notice on the home screen only when you must act or an update failed".
+- Off the tailnet: "Say nothing, run the version it has, and check again as soon as it reconnects to Loom".
+- Before it is seen on a phone: "Build it, test the server half with a script that plays the phone's part, then I run the five-minute check".
+- _Assumed:_ the server keeps the previous APK downloadable as the way back; redirect if wrong.
 - _Assumed:_ Android only, your one phone, the same "T3 Code Preview" app and signing key as today.
+- _Assumed, for served code:_ the update address is the cockpit's tailnet address, which I take to be the one your phone is paired on (not checked). Updates are not signed, since that address is reachable only inside your tailnet. New code takes effect when the app next comes back from the background.
 
-**Not doing.** iPhone. Other users, release channels or staged rollouts. Store builds. Installs with no confirm tap. Changes to pairing or to how the phone connects.
+**Not doing.** iPhone. Other users, release channels or staged rollouts. Store builds. Changes to pairing or to how the phone connects.
 
-## Questions for you
+## The question
 
 <QuestionForm
   questions={[
     {
-      id: "apk-build",
-      title: "When a deploy needs a new APK, who builds it?",
+      id: "first-cut",
+      title: "Build the APK-every-time version first, or go straight to served code as well?",
       subtitle:
-        "This is the weekly case. The notice is only useful if the download behind it exists. A build was 6 minutes last time with warm caches (the earlier estimate for a cold one was 22) and left about 2 GB of scratch files, on a disk that has 23 GB free today.",
+        "Both give you a notice and a ready download. Served code cuts installs from about 3 to 4 a week to about 1, and is the half nobody has seen work on a phone.",
       mode: "single",
       options: [
         {
-          id: "auto",
-          label: "The deploy builds it by itself, in the background, after Loom is back up",
+          id: "apk-first",
+          label: "APK every time first; I decide on served code after a fortnight of using it",
           recommended: true,
-          detail: "The notice appears on the phone once the APK is ready, so the button always works. The deploy itself is not held up.",
+          detail: "Nothing built is thrown away if you then say yes to served code.",
         },
         {
-          id: "on-request",
-          label: "An agent builds it when I ask, as today",
-          detail: "The notice appears at once but says the APK is not built yet; you ask for it.",
-        },
-      ],
-    },
-    {
-      id: "broken-update",
-      title: "An update opens but is broken (a screen misbehaves). What is the way back?",
-      subtitle:
-        "A crash on opening is meant to be handled by the updater itself. This is the other kind. Today's only server-side way back, loom-deploy back, also throws away everything written in Loom since the deploy.",
-      mode: "single",
-      options: [
-        {
-          id: "app-only-back",
-          label: "One command puts just the phone app back to the previous version; the server stays where it is",
-          recommended: true,
-          detail: "The phone follows on its next open, in a couple of minutes. The next deploy publishes normally again.",
+          id: "both-now",
+          label: "Both now: I already know 3 to 4 installs a week is too many",
+          detail: "About 1 install a week from the start, with the unproven half built before you have tried the proven one.",
         },
         {
-          id: "fix-forward",
-          label: "No separate command: the app stays broken until a fix is deployed, and I use Loom in the phone's browser meanwhile",
-          detail: "Less to build. A fix is an agent session plus a deploy, so more like half an hour.",
-        },
-      ],
-    },
-    {
-      id: "visibility",
-      title: "How loudly should the app tell you about its version?",
-      subtitle:
-        "The failure being fixed is an app that was behind and silent. Settings → About shows the running build and its state in every option.",
-      mode: "single",
-      options: [
-        {
-          id: "quiet-unless-action",
-          label: "Quiet when current; a notice on the home screen only when you must act or an update failed",
-          recommended: true,
-          detail: "New install needed, or an update that could not be downloaded or was dropped after a crash.",
-        },
-        {
-          id: "confirm-each",
-          label: "That, plus a brief 'Updated to build X' line each time an update takes effect",
-          detail: "Proof every time, at the cost of a message most days.",
-        },
-        {
-          id: "about-only",
-          label: "Settings → About only, nothing on the home screen",
-          detail: "You would have to go looking to learn a new install is needed.",
-        },
-      ],
-    },
-    {
-      id: "off-tailnet",
-      title: "The phone is off the tailnet when you open the app. What should it do about updates?",
-      subtitle:
-        "It cannot reach the server, so it cannot check. It cannot reach Loom either, and already shows that.",
-      mode: "single",
-      options: [
-        {
-          id: "quiet-retry",
-          label: "Say nothing, run the version it has, and check again as soon as it reconnects to Loom",
-          recommended: true,
-          detail: "About shows when it last managed to check. Today's machinery only rechecks at launch and after 15 minutes away, so the recheck on reconnect is new.",
-        },
-        {
-          id: "say-so",
-          label: "Also show 'Could not check for updates' on the home screen",
-          detail: "Honest, but it would show every time you open the app away from the tailnet.",
-        },
-      ],
-    },
-    {
-      id: "unproven",
-      title: "No Android device can run on this server. Build it before it has been seen working on a phone?",
-      subtitle:
-        "This server has no hardware virtualisation and no emulator installed (both checked); without the first, an emulator is as far as I know too slow to use. The first proof on a real device is your phone.",
-      mode: "single",
-      options: [
-        {
-          id: "build-then-phone",
-          label: "Build it, test the server half with a script that plays the phone's part, then I run the five-minute check",
-          recommended: true,
-          detail: "The first install is by hand either way. If the check fails, your current APK still works and updates stay off.",
-        },
-        {
-          id: "wireless-first",
-          label: "As above, but I connect my phone by wireless debugging for that first check so an agent can watch it",
-          detail: "The agent reads the phone's log while it takes its first update, so a failure is diagnosed in one go.",
-        },
-        {
-          id: "emulator-first",
-          label: "Stop: get an emulator running first (restart the cockpit with virtualisation on, or use another machine)",
-          detail: "Proof before your phone is involved, at the cost of server downtime or a second host.",
+          id: "apk-only",
+          label: "APK every time, and stop there",
+          detail: "One mechanism for good. Served code is dropped rather than deferred.",
         },
       ],
     },
@@ -174,14 +122,15 @@ manager_sessions:
 
 **Your five-minute check, once it is built.**
 
-1. Install the new APK over the top (the last hand install for ordinary changes). Settings → About shows its build and **Up to date**.
-2. An agent deploys a small visible change. Open the app, leave it, come back: About shows the new build. That is an update arriving.
-3. The agent puts the previous version back. Open, leave, come back: About shows the earlier build. That is a rollback.
+1. Install the new APK over the top, the last one you have to ask for. Settings → About shows its build and **Up to date**.
+2. An agent deploys a small visible change. When the notice appears, tap it, download, confirm: About shows the new build and you are still paired.
+3. Install the previous APK from the server over that one. About shows the earlier build. That is the way back.
+
+If served code is built, one more: after a code-only deploy, open, leave, come back, and About shows the new build with nothing installed.
 
 **Still unknown.**
 
-- Does the phone take an update from this server at all? Nothing has run end to end. I timed the publish step, measured the stamp, and read the updater's source for the rest. Step 2 above settles it.
-- Does the updater accept the tailnet address over plain HTTP, as the app's own connection does? The app's settings allow it. Step 2 settles it.
-- Does the updater really fall back after a crash on opening? That is its documented design, read in its source, never seen here. A deliberately broken update on a device settles it, which wants an agent watching (the wireless debugging option) or an emulator.
-- How often will **New install needed** fire when nothing in the APK really changed? Counting from git history, over the last eight weeks it would have fired at the 8 upstream pulls and at none of the 246 other changes to main. The count is of what each change touched, not of real stamps. The first month in use settles it.
-- Does the no-prompt installer work on your phone? Only worth finding out if the weekly tap grates.
+- Does Android let an older Loom APK install over a newer one? As I understand its rule it refuses only a lower version number, and the three Loom APKs I found all carry the same one, so it should. I have not seen it done. Step 3 settles it.
+- Are 3 to 4 installs a week the real number? It counts every deploy that touched a file in today's app, however small the change. The first fortnight settles it.
+- _For served code:_ does the phone take an update from this server, over plain HTTP, at all? Does the updater fall back after a crash on opening, as its source says? Neither has been seen. A device settles both.
+- Does a no-confirm installer work on your phone? Only worth finding out if the tap grates.
