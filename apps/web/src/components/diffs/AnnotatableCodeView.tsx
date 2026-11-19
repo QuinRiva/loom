@@ -104,7 +104,15 @@ interface AnnotatableCodeViewProps {
   /** loom: diff author query — selecting lines opens the draft as the author card. */
   authorCard?: AuthorCardSlot | undefined;
   /** loom: SPIKE inline diff editing — the new side is editable; each change reports the whole new file. */
-  loomEdit?: { onChange: (contents: string) => void } | undefined;
+  loomEdit?:
+    | {
+        /** False until the reader clicks into the new side: reading keeps the word highlights. */
+        active: boolean;
+        onChange: (contents: string) => void;
+        /** The session ended (Escape, focus left): the comparison as typed becomes the shown one. */
+        onComplete: (fileDiff: FileDiffMetadata) => void;
+      }
+    | undefined;
 }
 
 // loom: SPIKE inline diff editing
@@ -210,9 +218,9 @@ export function AnnotatableCodeView({
         fileDiff,
         annotations,
         collapsed,
-        ...(loomEdit ? { edit: true } : {}), // loom: SPIKE
+        ...(loomEdit ? { edit: loomEdit.active } : {}), // loom: SPIKE
         version: fnv1a32(
-          `${fileVersion}:${collapsed ? "1" : "0"}:${annotations
+          `${fileVersion}:${collapsed ? "1" : "0"}:${loomEdit?.active ? "e" : ""}:${annotations
             .flatMap((annotation) =>
               annotation.metadata.entries.map(
                 (entry) => `${entry.id}:${entry.rangeLabel}:${entry.text}`,
@@ -313,6 +321,13 @@ export function AnnotatableCodeView({
         ? {
             onItemEditChange: (event: { file: { contents: string } }) =>
               loomEdit.onChange(event.file.contents),
+            onItemEditComplete: ((event: { fileDiff?: FileDiffMetadata }) => {
+              if (event.fileDiff) {
+                event.fileDiff.cacheKey = `loom-file-change:typed:${Date.now()}`;
+                loomEdit.onComplete(event.fileDiff);
+              }
+              return "accept";
+            }) as never,
           }
         : {})}
       {...(viewerRef ? { viewerRef } : {})}

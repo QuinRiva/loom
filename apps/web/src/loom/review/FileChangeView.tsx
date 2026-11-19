@@ -194,6 +194,9 @@ export function FileChangeView({
   const typedRef = useRef<string | null>(null);
   const publishRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const editableLatchRef = useRef<string | null>(null);
+  // SPIKE variant: reading shows the word highlights; a click in the new side starts typing, and
+  // Escape or focus leaving the view ends it.
+  const [typing, setTyping] = useState<string | null>(null);
   const workingRef = useRef(editTarget?.working ?? null);
   workingRef.current = editTarget?.working ?? null;
   const saveTarget = {
@@ -211,8 +214,6 @@ export function FileChangeView({
       ({ oldFile, newFile }) => {
         if (cancelled) return;
         // loom: SPIKE — our own save echoing back: keep the editor's session.
-        const spikeLog = ((window as unknown as { __spikeLoads?: unknown[] }).__spikeLoads ??= []);
-        spikeLog.push({ key, echo: newFile?.contents === typedRef.current, at: Date.now() });
         if (typedRef.current !== null && newFile?.contents === typedRef.current) return;
         typedRef.current = null;
         const side = (contents: FileContents | null) =>
@@ -306,6 +307,9 @@ export function FileChangeView({
   if (editable) editableLatchRef.current = path;
   const loomEdit = editable
     ? {
+        active: typing === path,
+        onComplete: (fileDiff: FileDiffMetadata) =>
+          setWhole((current) => (current && "diff" in current ? { ...current, diff: fileDiff } : current)),
         onChange: (contents: string) => {
           if (contents === getProjectFileContents(saveTarget.environmentId, saveTarget.cwd, path))
             return;
@@ -479,7 +483,57 @@ export function FileChangeView({
         className="flex min-h-0 flex-1"
         data-loom-file-change={mode}
         data-loom-keys="[]"
+        // loom: SPIKE — a click on the new side's code starts typing
+        onClickCapture={(event) => {
+          if (!editable || typing === path) return;
+          const path_ = event.nativeEvent.composedPath() as HTMLElement[];
+          const onNewSide = path_.some((node) => node instanceof HTMLElement && node.matches?.("[data-additions], [data-unified]"));
+          const onCode = path_.some((node) => node instanceof HTMLElement && node.matches?.("[data-line]"));
+          const onGutter = path_.some((node) => node instanceof HTMLElement && node.matches?.("[data-column-number], [data-gutter]"));
+          if (!(onNewSide && onCode && !onGutter)) return;
+          setTyping(path);
+          // The editor mounts on the next render: put its caret where the reader clicked.
+          const { clientX, clientY } = event;
+          const root = path_.find((node) => node instanceof ShadowRoot) as ShadowRoot | undefined;
+          const place = (attempt: number) => {
+            const editorNode = root?.querySelector<HTMLElement>('[contenteditable="true"]');
+            if (!editorNode) {
+              if (attempt < 20) requestAnimationFrame(() => place(attempt + 1));
+              return;
+            }
+            const caret = (
+              document as Document & {
+                caretPositionFromPoint?: (x: number, y: number, o?: { shadowRoots: ShadowRoot[] }) => { offsetNode: Node; offset: number } | null;
+              }
+            ).caretPositionFromPoint?.(clientX, clientY, root ? { shadowRoots: [root] } : undefined);
+            editorNode.focus({ preventScroll: true });
+            if (!caret) return;
+            const range = document.createRange();
+            range.setStart(caret.offsetNode, caret.offset);
+            const selection = (root as ShadowRoot & { getSelection?: () => Selection | null })?.getSelection?.() ?? document.getSelection();
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+          };
+          requestAnimationFrame(() => place(0));
+        }}
+        onBlurCapture={(event) => {
+          if (typing !== path) return;
+          const next = event.relatedTarget as Node | null;
+          if (next && event.currentTarget.contains(next)) return;
+          // Focus moving into the code view's shadow root reports no relatedTarget; wait a tick.
+          setTimeout(() => {
+            let active = document.activeElement;
+            while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+            const host = document.querySelector("[data-loom-file-change]");
+            const inside = active && host && (host.contains(active) || host.contains((active.getRootNode() as ShadowRoot).host ?? null));
+            if (!inside) setTyping(null);
+          }, 0);
+        }}
         onKeyDown={(event) => {
+          if (event.key === "Escape" && typing === path) {
+            setTyping(null);
+            return;
+          }
           if (
             (event.key !== "[" && event.key !== "]") ||
             event.metaKey ||
@@ -495,7 +549,7 @@ export function FileChangeView({
       >
         <AnnotatableCodeView
           viewerRef={setCodeView}
-          codeViewKey={`${file.path}:${mode}:${editable ? "edit" : "read"}`}
+          codeViewKey={`${file.path}:${mode}`}
           className="h-full min-h-0 flex-1 overflow-auto"
           files={[
             {
