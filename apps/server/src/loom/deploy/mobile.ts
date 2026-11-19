@@ -253,6 +253,8 @@ function startBuild(
     "--property=Nice=10",
     "--property=CPUWeight=20",
     "--property=IOWeight=20",
+    // The first process the kernel kills under memory pressure, before any agent's.
+    "--property=OOMScoreAdjust=1000",
     `--property=RuntimeMaxSec=${BUILD_MAX_SECONDS}`,
     `--working-directory=${config.root}`,
     process.execPath,
@@ -441,81 +443,90 @@ export async function apkBuild(config: DeployConfig, releaseDir: string): Promis
       child.once("exit", (code) => resolve(code ?? 1));
     });
 
-  say(`building ${sha} (committed ${committedAt}) from ${releaseDir}`);
-  const free = NodeFS.statfsSync(mobile.dir);
-  const freeGb = (free.bavail * free.bsize) / 1024 ** 3;
-  if (free.bavail * free.bsize < MIN_FREE_BYTES)
-    return fail(
-      `Only ${freeGb.toFixed(0)} GB free on the disk of ${mobile.dir}; a build needs 30 GB.`,
-    );
-  say(`${freeGb.toFixed(0)} GB free`);
-  clean();
-  NodeFS.mkdirSync(dirs.tmp, { recursive: true });
-  const added = run("git", ["-C", mirror, "worktree", "add", "--detach", dirs.build, sha]);
-  if (added.code !== 0)
-    return fail(`Could not check out ${sha.slice(0, 7)}: ${added.stderr.trim()}`);
-  const app = NodePath.join(dirs.build, "apps", "mobile");
-  const steps: ReadonlyArray<readonly [string, string, ReadonlyArray<string>, string]> = [
-    [
-      "install",
-      "pnpm",
-      ["install", "--frozen-lockfile", "--store-dir", NodePath.join(mobile.dir, "pnpm-store")],
-      dirs.build,
-    ],
-    ["prebuild", "npx", ["expo", "prebuild", "--clean", "--platform", "android"], app],
-    [
-      "gradle",
-      "./gradlew",
+  const steps = async (): Promise<number> => {
+    say(`building ${sha} (committed ${committedAt}) from ${releaseDir}`);
+    const free = NodeFS.statfsSync(mobile.dir);
+    const freeGb = (free.bavail * free.bsize) / 1024 ** 3;
+    if (free.bavail * free.bsize < MIN_FREE_BYTES)
+      return fail(
+        `Only ${freeGb.toFixed(0)} GB free on the disk of ${mobile.dir}; a build needs 30 GB.`,
+      );
+    say(`${freeGb.toFixed(0)} GB free`);
+    clean();
+    NodeFS.mkdirSync(dirs.tmp, { recursive: true });
+    const added = run("git", ["-C", mirror, "worktree", "add", "--detach", dirs.build, sha]);
+    if (added.code !== 0)
+      return fail(`Could not check out ${sha.slice(0, 7)}: ${added.stderr.trim()}`);
+    const app = NodePath.join(dirs.build, "apps", "mobile");
+    const steps: ReadonlyArray<readonly [string, string, ReadonlyArray<string>, string]> = [
       [
-        "assembleRelease",
-        "--no-daemon",
-        "-PreactNativeArchitectures=arm64-v8a",
-        "-Dorg.gradle.jvmargs=-Xmx8g -XX:MaxMetaspaceSize=2g",
+        "install",
+        "pnpm",
+        ["install", "--frozen-lockfile", "--store-dir", NodePath.join(mobile.dir, "pnpm-store")],
+        dirs.build,
       ],
-      NodePath.join(app, "android"),
-    ],
-  ];
-  for (const [what, command, args, cwd] of steps) {
-    const code = await step(what, command, args, cwd);
-    if (code !== 0)
-      return fail(`The ${what} step failed (exit ${code}); see ${mobile.dir}/build.log.`);
-  }
+      ["prebuild", "npx", ["expo", "prebuild", "--clean", "--platform", "android"], app],
+      [
+        "gradle",
+        "./gradlew",
+        [
+          "assembleRelease",
+          "--no-daemon",
+          "-PreactNativeArchitectures=arm64-v8a",
+          "-Dorg.gradle.jvmargs=-Xmx8g -XX:MaxMetaspaceSize=2g",
+          // A missing NDK or platform fails the build instead of downloading onto the SDK's disk.
+          "-Pandroid.builder.sdkDownload=false",
+        ],
+        NodePath.join(app, "android"),
+      ],
+    ];
+    for (const [what, command, args, cwd] of steps) {
+      const code = await step(what, command, args, cwd);
+      if (code !== 0)
+        return fail(`The ${what} step failed (exit ${code}); see ${mobile.dir}/build.log.`);
+    }
 
-  const built = NodePath.join(dirs.build, BUILT_APK);
-  if (!NodeFS.existsSync(built)) return fail("Gradle finished but left no APK.");
-  const checks = checkApk(mobile, built, sha);
-  for (const { check, ok, found } of checks)
-    say(`check ${ok ? "ok  " : "FAIL"} ${check}: ${found}`);
-  const failed = checks.filter((check) => !check.ok);
-  if (failed.length > 0)
-    return fail(
-      `The APK failed its checks: ${failed.map(({ check, found }) => `${check} is ${found}`).join("; ")}.`,
+    const built = NodePath.join(dirs.build, BUILT_APK);
+    if (!NodeFS.existsSync(built)) return fail("Gradle finished but left no APK.");
+    const checks = checkApk(mobile, built, sha);
+    for (const { check, ok, found } of checks)
+      say(`check ${ok ? "ok  " : "FAIL"} ${check}: ${found}`);
+    const failed = checks.filter((check) => !check.ok);
+    if (failed.length > 0)
+      return fail(
+        `The APK failed its checks: ${failed.map(({ check, found }) => `${check} is ${found}`).join("; ")}.`,
+      );
+    const sources = readJson<{ sources?: unknown }>(NodePath.join(dirs.build, SOURCE_MAP))?.sources;
+    if (!Array.isArray(sources)) return fail("Gradle left no readable source map for the bundle.");
+    const inputs = inputsFromSourceMap(sources.filter((s): s is string => typeof s === "string"));
+
+    // Publish: the file through a temporary name, its inputs, then the state that names it.
+    NodeFS.mkdirSync(dirs.apks, { recursive: true });
+    const target = NodePath.join(dirs.apks, `loom-${sha.slice(0, 7)}.apk`);
+    NodeFS.copyFileSync(built, `${target}.tmp`);
+    NodeFS.renameSync(`${target}.tmp`, target);
+    writeJsonAtomic(inputsFile(target), inputs);
+    const file = readMobileFile(config);
+    const others = file.apks.filter((apk) => apk.sha !== sha);
+    const apk: StoredApk = {
+      sha,
+      committedAt,
+      builtAt: nowIso(),
+      bytes: NodeFS.statSync(target).size,
+      file: target,
+    };
+    writeMobileFile(config, { apks: [apk, ...others.slice(0, 1)], current: sha, build: null });
+    for (const old of others.slice(1)) removeApk(old);
+    say(
+      `published ${target} (${apk.bytes} bytes; ${inputs.repoFiles.length} repository files, ${inputs.depFolders.length} dependency folders)`,
     );
-  const sources = readJson<{ sources?: unknown }>(NodePath.join(dirs.build, SOURCE_MAP))?.sources;
-  if (!Array.isArray(sources)) return fail("Gradle left no readable source map for the bundle.");
-  const inputs = inputsFromSourceMap(sources.filter((s): s is string => typeof s === "string"));
-
-  // Publish: the file through a temporary name, its inputs, then the state that names it.
-  NodeFS.mkdirSync(dirs.apks, { recursive: true });
-  const target = NodePath.join(dirs.apks, `loom-${sha.slice(0, 7)}.apk`);
-  NodeFS.copyFileSync(built, `${target}.tmp`);
-  NodeFS.renameSync(`${target}.tmp`, target);
-  writeJsonAtomic(inputsFile(target), inputs);
-  const file = readMobileFile(config);
-  const others = file.apks.filter((apk) => apk.sha !== sha);
-  const apk: StoredApk = {
-    sha,
-    committedAt,
-    builtAt: nowIso(),
-    bytes: NodeFS.statSync(target).size,
-    file: target,
+    clean();
+    NodeFS.closeSync(logFd);
+    return 0;
   };
-  writeMobileFile(config, { apks: [apk, ...others.slice(0, 1)], current: sha, build: null });
-  for (const old of others.slice(1)) removeApk(old);
-  say(
-    `published ${target} (${apk.bytes} bytes; ${inputs.repoFiles.length} repository files, ${inputs.depFolders.length} dependency folders)`,
-  );
-  clean();
-  NodeFS.closeSync(logFd);
-  return 0;
+  try {
+    return await steps();
+  } catch (error) {
+    return fail(`The build job failed: ${String(error)}`);
+  }
 }

@@ -29,6 +29,8 @@ The certificate is the debug key in the `expo` package's prebuild template. A di
 
 `loom-deploy status` shows the phone app's line: the APK on offer, a build in progress, or the failure's reason. The whole output is `<mobile dir>/build.log`, and the unit's own lines are in `journalctl --user -u loom-mobile-build`. After a fix is deployed, the next deploy builds again; to retry without a deploy, run `loom-deploy apk`.
 
+The build never installs Android SDK components itself, since the SDK sits on the root disk. When an Expo or React Native bump needs an NDK, platform or build-tools version that is not installed, the build fails and `build.log` names it: install it with `sdkmanager` (on the path from `/etc/profile.d/android-sdk.sh`), check the root disk has room, then run `loom-deploy apk`.
+
 ## Handing an APK over by hand
 
 When the app will not open, or a phone needs its first Loom APK, give Carl a stored file: `<mobile dir>/apks/loom-<sha7>.apk`. There are at most two, the newest and the one before; the one before is the way back. The last hand handovers went as a GitHub pre-release on `QuinRiva/loom`.
