@@ -65,6 +65,9 @@ How it is operated: [`deploy/README.md`](../../deploy/README.md).
 | Deploy status     | `deploy-status.json` in the state dir: the stage of the current or last deploy. `loom-deploy` and the runner write it; the server pushes it to every client.                                                                                                                       |
 | Deploy notice     | What a deploy changed, or the fact that it was put back: `deploy-notice.json` in the state dir, written by the release runner before it starts a server, read at startup and sent to each browser once as the "Loom updated" or "Loom rolled back" toast. Not a Slack milestone.   |
 | Noticeable change | A PR in a deploy notice whose effect a Loom user could see or feel; the rest are behind the scenes.                                                                                                                                                                                |
+| Stored APK        | A phone app APK the server keeps, with the commit it was built from: at most two, the newest and the one before, under the `mobile` directory of `deploy.json`.                                                                                                                    |
+| Matching APK      | The stored APK whose app code equals the running release's: the one the server offers the phone. None while a newer one is building.                                                                                                                                               |
+| Build stamp       | The commit an APK was built from, written into it at build time (`extra.loomBuild` in the app's config). The app compares its own with the matching APK's.                                                                                                                         |
 
 ## Providers and checkpoints
 
