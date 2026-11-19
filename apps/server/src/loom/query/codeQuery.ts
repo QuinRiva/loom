@@ -49,12 +49,24 @@ const NamedCommit = LoomReviewAuthorshipCommit.mapFields(
   Struct.pick(["sha", "subject", "threadIds"]),
 );
 
-/** A question as the server sends it: the human's input and the commits it resolved for it. */
-export const CodeQueryLaunch = Schema.Struct({
-  question: CodeQueryInput,
-  commit: NamedCommit,
-  owners: Schema.Array(NamedCommit),
-});
+/**
+ * A question as the server sends it: the human's input and the commits its sentence names, as
+ * `buildCodeQueryQuestion` takes them. A `file` question names the lines' writers in full.
+ */
+export const CodeQueryLaunch = Schema.Union([
+  Schema.Struct({
+    question: CodeQueryInput,
+    commitChanged: Schema.optionalKey(Schema.Literal("lines")),
+    commit: NamedCommit,
+    owners: Schema.Array(NamedCommit),
+  }),
+  Schema.Struct({
+    question: CodeQueryInput,
+    commitChanged: Schema.Literal("file"),
+    commit: NamedCommit,
+    owners: Schema.Array(LoomReviewAuthorshipCommit),
+  }),
+]);
 export type CodeQueryLaunch = typeof CodeQueryLaunch.Type;
 
 /** The `n`th question: the lines' hunk as a line comment, then the sentence naming its commits. */
@@ -64,7 +76,7 @@ const buildCodeQuestionDispatch = (input: {
   readonly launch: CodeQueryLaunch;
   readonly overlay?: string;
 }) => {
-  const { question, commit, owners } = input.launch;
+  const { question } = input.launch;
   return buildQuestionDispatch({
     threadId: input.threadId,
     n: input.n,
@@ -80,7 +92,7 @@ const buildCodeQuestionDispatch = (input: {
       fenceLanguage: "diff",
     },
     text: (reference) =>
-      buildCodeQueryQuestion({ reference, question: question.question, commit, owners }),
+      buildCodeQueryQuestion({ ...input.launch, reference, question: question.question }),
     ...(input.overlay === undefined ? {} : { overlay: input.overlay }),
   });
 };
@@ -139,26 +151,39 @@ const liveCodeQueries = (
 const short = (sha: string) => sha.slice(0, 12);
 
 /**
- * `loom.codeQuery`: confirm the commit is on the reviewed branch and names exactly one held
- * thread, reuse that author's live code query thread for its latest run or fork it afresh,
- * supersede older ones, send the question and record it on the query thread's sidecar.
+ * `loom.codeQuery`: confirm the commit is on the branch and names one held thread, reuse or fork
+ * that author's query thread, supersede older ones, send and record the question. No `ownerShas`:
+ * lines the branch left unchanged, whose file the commit must have changed and whose writers are
+ * read here from an unbounded blame, never taken from the client.
  */
 export const askCodeQuery = Effect.fn("codeQuery.askCodeQuery")(
   function* (input: CodeQueryInput) {
     const orchestrator = yield* OrchestratorV2;
     const store = yield* LoomStoreV2;
-    const { commit, owners, threads } = yield* (yield* ReviewAuthorship).commitAuthor({
+    const authorship = yield* ReviewAuthorship;
+    const unchanged = input.ownerShas.length === 0;
+    const writers = unchanged
+      ? (yield* authorship.lineBlame({
+          threadId: input.reviewThreadId,
+          path: input.filePath,
+          startLine: input.startLine,
+          endLine: input.endLine,
+        })).commits
+      : [];
+    const { commit, owners, threads, changedFile } = yield* authorship.commitAuthor({
       threadId: input.reviewThreadId,
       baseRef: input.baseRef,
       commitSha: input.commitSha,
-      ownerShas: input.ownerShas,
+      ownerShas: unchanged ? writers.map((writer) => writer.sha) : input.ownerShas,
+      filePath: input.filePath,
     });
     if (commit === null)
       return yield* fail(
         `Commit ${short(input.commitSha)} is not on this branch's diff; reopen the diff and select the lines again.`,
       );
     const resolvedOwners = owners.filter((owner) => owner !== null);
-    if (resolvedOwners.length !== owners.length)
+    // Changed lines' owners are all on the branch; unchanged lines' writers all predate it.
+    if (unchanged ? resolvedOwners.length > 0 : resolvedOwners.length !== owners.length)
       return yield* fail(
         "The branch has changed since these lines' authors were drawn; reopen the diff and select the lines again.",
       );
@@ -170,6 +195,10 @@ export const askCodeQuery = Effect.fn("codeQuery.askCodeQuery")(
           : commit.threadIds.length === 0
             ? `Commit ${short(commit.sha)} carries no Loom-Thread trailer (git author ${commit.gitAuthor}), so no thread can be asked.`
             : `Commit ${short(commit.sha)} names thread ${commit.threadIds[0]}, which this server does not hold.`,
+      );
+    if (unchanged && !changedFile)
+      return yield* fail(
+        `Commit ${short(commit.sha)} did not change ${input.filePath} on this branch, so its thread is not one to ask about these lines.`,
       );
     const authorThreadId = author.thread.threadId;
     const forkedAtRunId =
@@ -186,7 +215,15 @@ export const askCodeQuery = Effect.fn("codeQuery.askCodeQuery")(
         "The query thread on this author is still waiting for the author's turn to end; ask again once it has started.",
       );
     const createdAt = DateTime.formatIso(yield* DateTime.now);
-    const launch: CodeQueryLaunch = { question: input, commit, owners: resolvedOwners };
+    // An unchanged line its own thread wrote before the branch is the thread's: named as its own.
+    const own = writers.find(
+      (writer) => writer.threadIds.length === 1 && writer.threadIds[0] === authorThreadId,
+    );
+    const launch: CodeQueryLaunch = !unchanged
+      ? { question: input, commit, owners: resolvedOwners }
+      : own === undefined
+        ? { question: input, commitChanged: "file", commit, owners: writers }
+        : { question: input, commit: own, owners: writers };
     const recordAsk = (threadId: ThreadId, n: number) =>
       orchestrator.dispatch({
         type: "thread.code-query.ask",
@@ -199,6 +236,8 @@ export const askCodeQuery = Effect.fn("codeQuery.askCodeQuery")(
           askedAt: createdAt,
           commitSha: input.commitSha,
           ownerShas: input.ownerShas,
+          commitChanged: unchanged ? "file" : "lines",
+          writerShas: writers.map((writer) => writer.sha),
           filePath: input.filePath,
           startLine: input.startLine,
           endLine: input.endLine,

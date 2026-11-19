@@ -119,18 +119,21 @@ export class ReviewAuthorship extends Context.Service<
     ) => Effect.Effect<LoomReviewLineHistoryResult, ReviewAuthorshipError>;
     /**
      * The named commit and the selected lines' owners, each only if it lies on the diff's branch
-     * (between the merge base and HEAD), with the threads they name. A Query author check.
+     * (between the merge base and HEAD), with the threads they name, and whether the named commit
+     * changed `filePath` on the branch. A Query author check.
      */
     readonly commitAuthor: (input: {
       readonly threadId: ThreadId;
       readonly baseRef: string | null;
       readonly commitSha: string;
       readonly ownerShas: ReadonlyArray<string>;
+      readonly filePath: string;
     }) => Effect.Effect<
       {
         readonly commit: LoomReviewAuthorshipCommit | null;
         readonly owners: ReadonlyArray<LoomReviewAuthorshipCommit | null>;
         readonly threads: ReadonlyArray<LoomReviewAuthorshipThread>;
+        readonly changedFile: boolean;
       },
       ReviewAuthorshipError
     >;
@@ -432,6 +435,7 @@ const make = Effect.gen(function* () {
       readonly baseRef: string | null;
       readonly commitSha: string;
       readonly ownerShas: ReadonlyArray<string>;
+      readonly filePath: string;
     }) {
       const root = yield* rootOf(input.threadId);
       const branch = root === null ? null : yield* branchOf(root, input.baseRef);
@@ -448,10 +452,24 @@ const make = Effect.gen(function* () {
         [...new Set([input.commitSha, ...input.ownerShas])].filter((sha) => onBranch.has(sha)),
       );
       const bySha = new Map(commits.map((commit) => [commit.sha, commit]));
+      const changedFile =
+        root !== null &&
+        branch !== null &&
+        onBranch.has(input.commitSha) &&
+        (yield* run(root, [
+          "log",
+          "--format=%H",
+          `${branch.mergeBase}..${branch.headSha}`,
+          "--",
+          input.filePath,
+        ])).stdout
+          .split("\n")
+          .includes(input.commitSha);
       return {
         commit: bySha.get(input.commitSha) ?? null,
         owners: input.ownerShas.map((sha) => bySha.get(sha) ?? null),
         threads: yield* readThreads(commits),
+        changedFile,
       };
     },
     (effect, input) =>
