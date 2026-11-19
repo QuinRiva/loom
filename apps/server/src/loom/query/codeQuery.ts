@@ -201,6 +201,24 @@ export const askCodeQuery = Effect.fn("codeQuery.askCodeQuery")(
         `Commit ${short(commit.sha)} did not change ${input.filePath} on this branch, so its thread is not one to ask about these lines.`,
       );
     const authorThreadId = author.thread.threadId;
+    const ownCommit = (candidate: Pick<LoomReviewAuthorshipCommit, "sha" | "threadIds">) =>
+      candidate.sha === commit.sha ||
+      (candidate.threadIds.length === 1 && candidate.threadIds[0] === authorThreadId);
+    // Owners none of the thread's own: the question calls the commit an earlier author, so where
+    // the lines' history can be read (their file is clean), the commit must be in it.
+    if (!unchanged && !resolvedOwners.some(ownCommit)) {
+      const history = yield* authorship.lineHistory({
+        threadId: input.reviewThreadId,
+        baseRef: input.baseRef,
+        path: input.filePath,
+        startLine: input.startLine,
+        endLine: input.endLine,
+      });
+      if (history.commits.length > 0 && !history.commits.some((entry) => entry.sha === commit.sha))
+        return yield* fail(
+          `Commit ${short(commit.sha)} wrote neither these lines nor an earlier version of them; ask one of the threads that did.`,
+        );
+    }
     const forkedAtRunId =
       latestForkRun((yield* orchestrator.getThreadRecords(authorThreadId, ["runs"])).runs)?.id ??
       null;
@@ -216,9 +234,7 @@ export const askCodeQuery = Effect.fn("codeQuery.askCodeQuery")(
       );
     const createdAt = DateTime.formatIso(yield* DateTime.now);
     // An unchanged line its own thread wrote before the branch is the thread's: named as its own.
-    const own = writers.find(
-      (writer) => writer.threadIds.length === 1 && writer.threadIds[0] === authorThreadId,
-    );
+    const own = writers.find(ownCommit);
     const launch: CodeQueryLaunch = !unchanged
       ? { question: input, commit, owners: resolvedOwners }
       : own === undefined

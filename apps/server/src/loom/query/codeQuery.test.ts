@@ -558,6 +558,12 @@ it.layer(TestLayer)("Code query threads", (it) => {
           askCodeQuery(asking(reviewThreadId, byCoder, [], 2, "Why B1?")),
         );
         assert.include(stale.message, "The branch has changed");
+        // A changed line asked of a thread that changed the file but never these lines would be
+        // told it wrote an earlier version of them: refused while their history says otherwise.
+        const notEarlier = yield* Effect.flip(
+          askCodeQuery(asking(reviewThreadId, byCoder, [byBusy], 1, "Why A?")),
+        );
+        assert.include(notEarlier.message, "wrote neither these lines nor an earlier version");
 
         assert.deepEqual(yield* authorState(coder), before);
 
