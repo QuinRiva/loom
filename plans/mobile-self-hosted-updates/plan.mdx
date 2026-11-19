@@ -1,0 +1,646 @@
+---
+reader:
+  who: the reviewer thread that gates this plan against the approved brief beside it, then the orchestrator who briefs two coders from it and the coders themselves
+  knows: the brief and Carl's six answers in it; nothing of the deploy code, the phone app's code or the measurements this plan rests on
+  after_first_screen: what is built and in which two pieces, the one rule that decides when an APK is built and offered, the two bets, what is proved before Carl's check and what only his phone can show, and that nothing here reopens the brief
+kicker: "Implementation plan · phone app updates, APK-first cut · 19 Nov 2026"
+status: draft
+intent: plans/mobile-self-hosted-updates/intent.mdx
+manager_sessions:
+  - id: 01a1f206-f328-746d-af20-4617b475feab
+    name: "APK-first updates: implementation plan"
+    role: plan
+    authored_at: 2026-11-19T04:56:40.855Z
+---
+
+# A deploy that changes the phone app builds its APK, and the app says so
+
+At the end of every deploy one question is asked: **does an APK the server already holds match the app code of the release now running?** If one does, nothing is built and the phone hears nothing. If none does, a background job builds the APK from that commit. It is published only if it carries the installed app's signing certificate and version code, and it sits beside the one before.
+
+The Loom server streams that state to the app over the connection it already has. The app compares the commit baked into itself with the one on offer. When they differ, the home screen says a new version is ready; a tap downloads it through a short-lived signed link and hands it to Android's installer. Settings → About shows the same state, with the way back.
+
+It is two coder briefs in sequence, about a day of agent work, with two real APK builds as proof. On the machine, each deploy that changes the app costs 10 to 25 minutes of low-priority CPU and about 9 GB of transient disk, on the disk that has room.
+
+<Stats
+  items={[
+    {
+      value: "24 of 32",
+      label: "Past deploys that would have built",
+      tone: "success",
+      detail: "5 Oct to 18 Nov, replayed from git. The same 24 the brief counted; a simpler path rule builds 27",
+    },
+    {
+      value: "8 to 22 min",
+      label: "One APK build",
+      tone: "info",
+      detail: "The three hand builds on this machine, by file times. The brief's 6 minutes was one warm run",
+    },
+    {
+      value: "4.3 GB",
+      label: "Scratch per build",
+      tone: "warning",
+      detail: "Not 2 GB: another 2.4 GB of native build output lands inside node_modules, so the build gets its own checkout",
+    },
+    {
+      value: "2 briefs",
+      label: "Coder work",
+      tone: "neutral",
+      detail: "Server, wire and app; then the deploy half with the end-to-end proof",
+    },
+  ]}
+/>
+
+<Callout tone="decision" title="What it means" focus>
+  **Nothing here reopens the brief.** Its four checks and four must-nots are met as written; §9 maps each. Three of its agent-written lines are sharpened, for the orchestrator to fold in. The build takes longer and leaves more scratch than it says (above). The first in-app install asks Carl once to let the app install APKs (§5). The home screen stays quiet while an APK is still building (§7).
+
+  **Two bets.** First, the rule for "the app changed" reads the list of files the last APK's own bundle was built from, so a deploy that touches only server code builds nothing. Every way it could miss is listed with what closes it, and any doubt counts as changed (§2). Second, the hand-off from the app to Android's installer cannot be run on this host. It reuses the function the app already uses to open a file in another app, and falls back to the phone's browser (§5).
+
+  **Before Carl's check** a real APK is built by the deploy's own path, inspected, and fetched by a script that plays the phone. **Only his phone can show** the notice on screen, the installer opening, and an older APK going on over a newer one (§9).
+
+  No open questions.
+</Callout>
+
+<Columns>
+  <Column label="Before">
+    <Screen
+      surface="mobile"
+      caption="Home, with the app ten days behind the server: nothing says so"
+      html={'<div style="box-sizing:border-box;height:100%;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.4"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><strong style="font-size:16px">Threads</strong><div style="flex:1"></div><span class="wf-pill">Search</span><span class="wf-pill">Filter</span></div><div style="flex:1;display:flex;flex-direction:column;gap:0"><div style="padding:10px 2px;border-bottom:1.4px solid var(--wf-line)"><strong>Phone app updates from Loom server</strong><br /><small>loom · 4 running · 2m</small></div><div style="padding:10px 2px;border-bottom:1.4px solid var(--wf-line)"><strong>Fix MDX rendering on mobile</strong><br /><small>loom · done · 1h</small></div><div style="padding:10px 2px;border-bottom:1.4px solid var(--wf-line)"><strong>Lease abstraction eval, round 4</strong><br /><small>ds-research · waiting on you · 3h</small></div><div style="padding:10px 2px"><strong>Code query threads</strong><br /><small>loom · settled · yesterday</small></div></div><div style="display:flex;align-items:center;width:100%;padding-top:10px;border-top:1.4px solid var(--wf-line);white-space:nowrap"><strong>Threads</strong><div style="flex:1"></div><span class="wf-muted">PRs</span><div style="flex:1"></div><span class="wf-muted">Settings</span></div></div>'}
+    />
+  </Column>
+  <Column label="After">
+    <Screen
+      surface="mobile"
+      caption="The same screen once the APK for a newer release is built: one notice, first in the list"
+      html={'<div style="box-sizing:border-box;height:100%;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.4"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><strong style="font-size:16px">Threads</strong><div style="flex:1"></div><span class="wf-pill">Search</span><span class="wf-pill">Filter</span></div><div class="wf-card" style="padding:10px 12px;background:var(--wf-accent-soft)"><strong>A new version of the app is ready.</strong><br /><small>Tap to install build 9f8e7d6 (108 MB).</small></div><div style="flex:1;display:flex;flex-direction:column;gap:0"><div style="padding:10px 2px;border-bottom:1.4px solid var(--wf-line)"><strong>Phone app updates from Loom server</strong><br /><small>loom · 4 running · 2m</small></div><div style="padding:10px 2px;border-bottom:1.4px solid var(--wf-line)"><strong>Fix MDX rendering on mobile</strong><br /><small>loom · done · 1h</small></div><div style="padding:10px 2px"><strong>Lease abstraction eval, round 4</strong><br /><small>ds-research · waiting on you · 3h</small></div></div><div style="display:flex;align-items:center;width:100%;padding-top:10px;border-top:1.4px solid var(--wf-line);white-space:nowrap"><strong>Threads</strong><div style="flex:1"></div><span class="wf-muted">PRs</span><div style="flex:1"></div><span class="wf-muted">Settings</span></div></div>'}
+    />
+  </Column>
+</Columns>
+
+## What it means in scope
+
+- **In the cut:** the deploy's background APK build, and the server keeping two APKs and serving them. In the app, the home notice and the "Loom build" rows in Settings → About, with the install and the way back. For agents, `loom-deploy status` shows the phone app's state and `loom-deploy apk` retries a build.
+- **Not doing,** as the brief says: served code and anything that prepares for it, iPhone, other users or channels, store builds, changes to pairing. Also not built here: a notice in the web or desktop app, and a setting for any of this. An app too old to connect at all gets no download either (§11).
+- **Done means** §9's proof passes on a scratch copy and Carl's three-step check passes on his phone.
+
+<Table
+  density="compact"
+  columns={["Word in this plan", "What it is"]}
+  rows={[
+    ["**Stored APK**", "An APK file the server keeps, with the commit it was built from. At most two: the newest and the one before."],
+    ["**Matching APK**", "The stored APK whose app code equals the app code of the release now running. It is the one the server offers. There is none while a newer one is still building."],
+    ["**Build stamp**", "The commit an APK was built from, written into the APK when it is built. The app reads it from itself and compares it with the matching APK's."],
+    ["**Release**, **after-accept**", "The glossary's words. A release is a built copy of Loom at one commit under `~/loom-releases/releases/`. After-accept is the step the release runs once its five-minute watch has passed (`afterAccept` in `apps/server/src/loom/deploy/cli.ts`)."],
+  ]}
+/>
+
+## 1. One deploy, end to end
+
+<Steps>
+  <Step at="0:00" title="Carl or an agent starts a deploy." aside="As today.">
+    `loom-deploy deploy` builds the release, trial-starts it and asks for the switch. Loom is down for about 40 seconds.
+  </Step>
+  <Step at="about 0:03 to 0:08" title="The five-minute watch." aside="As today.">
+    A release that fails here is put back by the launcher. It never reaches the next step, so **a release that is put back builds no APK**.
+  </Step>
+  <Step at="about 0:08" title="After-accept asks the one question." badge={{ label: "new", tone: "accent" }} aside="Under a second: one git diff and a few file checks.">
+    Does a stored APK match the running release (§2)? **Yes:** it is recorded as the matching APK and nothing else happens. **No:** a build is started in its own systemd unit, and the state file says one is building.
+  </Step>
+  <Step at="about 0:08 to 0:30" title="The build runs apart from Loom." badge={{ label: "new", tone: "accent" }} aside="Survives a Loom restart, another deploy and the end of the deploy command.">
+    A fresh checkout of the commit, install, Expo prebuild, Gradle. Then six checks; an APK that fails one is not published and the build is recorded as failed (§4).
+  </Step>
+  <Step at="about 0:30" title="The APK is published and the phone hears." badge={{ label: "new", tone: "accent" }}>
+    The state file names the new matching APK. The server sends the change to every subscribed app within five seconds, and the home notice appears (§7).
+  </Step>
+</Steps>
+
+<Callout tone="decision" title="The one rule everything else follows from">
+  **The server offers the stored APK whose app code equals the running release's. When none does, it builds one.** The same function answers at the end of a deploy, after `loom-deploy back`, and when an agent runs `loom-deploy apk`. A deploy that changes nothing the phone runs leaves the matching APK as it was. Going back to an earlier release makes the earlier APK the matching one again, with no extra mechanism.
+</Callout>
+
+## 2. When the app counts as changed
+
+Wrong one way, Carl is asked to install 108 MB for nothing. Wrong the other, the app is behind without saying so, which is the defect this work exists to fix. So the rule is built from what the APK actually contains, with a ring of caution around it, and anything it cannot decide counts as changed.
+
+<Callout tone="decision" title="Chosen: the last APK's own file list, plus a ring of caution">
+  Gradle already writes a source map for every release build, at `apps/mobile/android/app/build/generated/sourcemaps/react/release/index.android.bundle.map`. It lists every file in the JavaScript bundle: **1,469 repository files and 3,236 files from 207 dependency folders** in the build of 19 Nov. When an APK is published, those two lists are saved beside it. Later, the app's code at another commit equals that APK's when none of the tests below finds a difference.
+</Callout>
+
+Between a stored APK's commit and the running release's commit, **the app has changed when any of these holds**:
+
+1. `git diff --name-only --no-renames` between the two commits names a file in the APK's saved list of repository files.
+2. It names anything under `apps/mobile/` that is not a test (`*.test.*`, `__tests__/`) or Markdown. This covers native modules, config plugins, `app.config.ts`, the Metro and Babel configuration and every new file.
+3. It names an input outside that folder which the app's configuration and bundler read: anything under `assets/` or `scripts/lib/`, or any `packages/*/package.json`. A file under `packages/` whose name carries `.android.` or `.native.` counts too, since the bundler would pick it over its plain sibling.
+4. It names a file under `patches/`, other than a patch of `@earendil-works/pi-coding-agent`. The monthly pi bump rewrites that patch, and pi reaches the mobile workspace only through `packages/provider-pi`, whose two bundled files do not import it.
+5. The `apps/mobile:` section of `pnpm-lock.yaml` differs between the two commits. That section holds the resolved version and patch of every direct dependency: Expo, React Native, each native module and config plugin.
+6. One of the APK's 207 dependency folders is missing from the running release's `node_modules/.pnpm/`. A folder's name carries the package's version, its peers and its patch, as in `expo-network@58.0.3_patch_hash=b79a…`. So any change to a dependency the bundle reads from renames its folder.
+7. Git cannot compare the two commits, or the saved lists are missing or unreadable.
+
+Replayed from git over the 32 deploys of 5 Oct to 18 Nov:
+
+<Table
+  density="compact"
+  columns={["Rule", "", "Deploys that build", "What the difference is"]}
+  rows={[
+    ["The brief's count: the deploy touched a file of today's bundle", { badge: { label: "approved", tone: "neutral" } }, "24, or 3.8 a week", "The number Carl was shown"],
+    {
+      tone: "success",
+      cells: [
+        "The seven tests above",
+        { badge: { label: "chosen", tone: "success" } },
+        "24, or 3.8 a week",
+        "The same 24 deploys. The ring of caution added none in this period",
+      ],
+    },
+    [
+      "Any change under `apps/mobile`, `packages`, `assets`, `patches` or `scripts/lib`, or to the lockfile",
+      { badge: { label: "rejected", tone: "neutral" } },
+      "27, or 4.3 a week",
+      "Three installs for nothing: the pi bumps of 19 Oct and 10 Nov, and a server-only file in `packages/provider-pi` on 20 Oct",
+    ],
+  ]}
+/>
+
+The simpler rule was rejected on the brief's own check: "A deploy that changes nothing the phone runs shows nothing". A pi bump changes nothing the phone runs, and under the simpler rule it shows a notice about once a month. The replay has two limits. It used today's file list for every pair. And it could not replay test 6, which needs the installed tree of each old commit.
+
+<Details summary="Every way the rule could miss a real change, and what closes it">
+
+<Table
+  density="compact"
+  columns={["How the app could change", "What catches it"]}
+  rows={[
+    ["A file already in the bundle is edited, moved or deleted", "Test 1. `--no-renames` reports a move as a delete and an add."],
+    ["A file that was not in the bundle starts being bundled", "It needs an import from a bundled file (test 1), or it lives under `apps/mobile` (test 2), or it is a platform-specific twin under `packages` (test 3)."],
+    ["Native code, a config plugin, the manifest, the bundler's configuration", "Test 2."],
+    ["A JavaScript dependency the bundle reads from is bumped or patched, including one that only a workspace package depends on", "Test 6."],
+    ["Expo, React Native, a native module or a config plugin is bumped or patched", "Test 5, and `apps/mobile/package.json` under test 2."],
+    ["The modules Metro generates at start (the licences list, the two WebView scripts)", "Their inputs are under `apps/mobile`, `packages/client-runtime` and `scripts/lib` (tests 1 to 3). `third-party-licenses.config.json` is left out on purpose: it changes on every pi bump, and all it can alter in the app is the licences list, which may lag until the next build."],
+    ["A patch to a build tool that is neither in the bundle nor a direct dependency (`@expo/metro-config` has one today)", "Test 4."],
+    {
+      tone: "warning",
+      cells: [
+        "A build tool of that kind changes version through the lockfile alone, with no patch file, no direct dependency and no bundled file changing",
+        "**Not caught.** It changes how the bundle is produced, not which code is in it. The next real change rebuilds with it. Named in §11.",
+      ],
+    },
+    ["Environment files", "A release has no `.env`; the build sets its own variables (§4)."],
+  ]}
+/>
+
+</Details>
+
+**Where it lives.** One pure function, `appChanged`, in the new `apps/server/src/loom/deploy/mobile.ts`, taking the changed paths, the saved lists and the two booleans of tests 5 and 6. It gets a table-driven test with the real paths of the three deploys named above, because this function is where "silently behind" would come from.
+
+## 3. What identifies a build, and how the app learns the server's
+
+**The commit.** An APK is identified by the full commit it was built from. The app never needs to know which of two builds is newer, only whether its own is the one the server offers. So equality is enough and a content hash buys nothing. The build job sets two environment variables, and `apps/mobile/app.config.ts` writes them into the app's configuration:
+
+<Code
+  language="ts"
+  filename="apps/mobile/app.config.ts (two marked hunks)"
+  code={'// loom: the commit this APK was built from, set by the deploy\'s APK build\nconst loomBuild = repoEnv.LOOM_BUILD_SHA\n  ? { sha: repoEnv.LOOM_BUILD_SHA, committedAt: repoEnv.LOOM_BUILD_COMMITTED_AT }\n  : undefined;\n\n// in `android`: lets the app hand a downloaded APK to Android\'s installer (§5)\n...(loomBuild ? { permissions: ["android.permission.REQUEST_INSTALL_PACKAGES"] } : {}),\n\n// in `extra`: omitted when unset, because a null there is embedded as {}\n...(loomBuild ? { loomBuild } : {}),\n'}
+/>
+
+The app reads it as `Constants.expoConfig?.extra?.loomBuild`, the way About already reads `appVariant`, and checks that `sha` is a string before trusting it. Gradle writes the configuration into the APK as `assets/app.config`, so the stamp is checkable on the file itself. An APK built by hand without the variables has no stamp; the app then shows "not recorded" and treats itself as different from whatever the server offers.
+
+**The wire.** Two new members of `LoomWsRpcs` in `packages/contracts/src/rpc.loom.ts`, both needing only the read scope the app's other subscriptions hold:
+
+- `loom.subscribeMobileApp`: a stream whose every value is the whole state below. It is its own subscription, not a new event on `loom.subscribeDeploy`. An older app must keep decoding it after the server has moved on, and a union that gains a member breaks an old decoder.
+- `loom.mobileApkUrl`: takes a stored APK's `sha`, returns a signed relative URL and its expiry (§5).
+
+<DataModel
+  entities={[
+    {
+      id: "state",
+      name: "LoomMobileAppState (the stream's value)",
+      change: "added",
+      fields: [
+        { name: "apks", type: "LoomMobileApk[]", note: "the stored APKs, newest first, at most two" },
+        { name: "current", type: "string", nullable: true, note: "sha of the matching APK; null when none matches the running release" },
+        { name: "build", type: "LoomMobileBuild", nullable: true, note: "a build for the running release: in flight, or failed" },
+      ],
+    },
+    {
+      id: "apk",
+      name: "LoomMobileApk",
+      change: "added",
+      fields: [
+        { name: "sha", type: "string", pk: true, note: "the commit it was built from; equals the build stamp inside it" },
+        { name: "committedAt", type: "IsoDateTime", note: "the commit's date: what the app shows, and how it tells an earlier build from a later one" },
+        { name: "builtAt", type: "IsoDateTime" },
+        { name: "bytes", type: "number" },
+      ],
+    },
+    {
+      id: "build",
+      name: "LoomMobileBuild",
+      change: "added",
+      fields: [
+        { name: "sha", type: "string" },
+        { name: "startedAt", type: "IsoDateTime" },
+        { name: "failed", type: "string", nullable: true, note: "null while it runs; the reason in plain words once it has failed" },
+      ],
+    },
+  ]}
+  relations={[
+    { from: "state", to: "apk", kind: "1-n", label: "apks" },
+    { from: "state", to: "build", kind: "1-1", label: "build" },
+  ]}
+/>
+
+**The contract's one rule:** this shape grows only by optional fields and carries no enumerations. The app that reads it is by definition the one that may be several releases behind the server.
+
+**The state file.** The deploy code writes `mobile-app.json` in the server's state directory, beside `deploy-status.json`, which is written and read the same way. Its schema, `LoomMobileAppFile`, is defined once in contracts: the wire shape plus each APK's absolute `file` path. The server never decides anything; it reads this file, drops the paths and streams the rest.
+
+## 4. The background build
+
+<Table
+  density="compact"
+  columns={["What the build must do", "How"]}
+  rows={[
+    ["Start once the release is live", "`afterAccept` runs only after the watch has passed. The call goes straight after its records (the line that logs `current <id>`) and before its pruning, so a Loom restart seconds later cannot skip it."],
+    ["Outlive the deploy command and a Loom restart", "Its own transient systemd unit, `loom-mobile-build`, started with `systemd-run --user --collect` exactly as the deploy engine is. Stopping the `loom-cockpit` service kills only that service's own processes."],
+    ["Never fail or block a deploy", "The call cannot throw (the pattern of `installPiSkills`), and the release is already live when it is made. `refuseIfBusy` looks only at the engine's unit, so a running build never makes a deploy wait. The unit runs with `Nice=10`, `CPUWeight=20` and `IOWeight=20`."],
+    ["Clean its scratch", "A fresh checkout under `<mobile dir>/build/`, removed whole when the job ends and cleared again when the next one starts, which covers a kill or a reboot. It cannot build inside the release folder: at least 2.4 GB of native build output lands in 47 folders inside `node_modules`, which no targeted delete removes safely."],
+    ["Fit on the disk", "The mobile directory goes on `/mnt/fast` (over 140 GB free), not the root disk (16 GB free, 99% full). The job refuses to start with under 10 GB free there and records why. Only Gradle's cache stays on the root disk, 6.3 GB today."],
+    ["Not pile up", "One unit name, so at most one build. When a deploy goes live during a build of another commit, that build is stopped and one starts for the running release."],
+    ["Keep the signing certificate", "The key is not on this machine by accident: it ships in the `expo` package's prebuild template (`node_modules/expo/template.tgz`, `android/app/debug.keystore`). The three hand builds carry byte-identical keystores and the certificate SHA-256 `fac61745…1033b9c`. The job refuses to publish any APK whose certificate differs, so an Expo bump that changed the key would show as a failed build, not as an APK that cannot be installed over the old one."],
+  ]}
+/>
+
+**Machine configuration.** One new optional object in `~/loom-releases/deploy.json`, the file that already holds everything machine-specific. Without it nothing is built and the state file is never written, which is what Jacob's instance and every dev server get.
+
+<Code
+  language="json"
+  filename="~/loom-releases/deploy.json (addition)"
+  code={'"mobile": {\n  "dir": "/mnt/fast/loom-deploy/mobile",\n  "androidHome": "/opt/android-sdk",\n  "javaHome": "/usr/lib/jvm/java-17-openjdk-amd64"\n}\n'}
+/>
+
+`unit` is a fourth, optional key, defaulting to `loom-mobile-build`; a scratch store names its own, as `engineUnit` does today. `/mnt/fast/loom-deploy` is the directory `backupDir` already names; it is Carl's, so no `sudo` is needed.
+
+**The decision** is one function, `reconcileMobile(config, releaseDir)` in `mobile.ts`, called from `afterAccept`, from `back()` once Loom answers again, and by the new verb `loom-deploy apk`:
+
+1. Find the newest stored APK that matches the release (§2). If one does: record it as the matching APK, clear any failed build, stop a build in flight, and delete a stored APK newer than it. That last case is an APK built from a release the server has since gone back from.
+2. Otherwise, if a build of this same commit is already running, leave it.
+3. Otherwise stop any build, write that a build of this commit has started, and start the unit: `node <release>/apps/server/src/loom/deploy/cli.ts <release> apk-build`.
+
+The choice in those three steps is a pure function of four things: the stored APKs, the match, the build on record and whether the unit is active. It is tested as a table.
+
+**The job** (`apk-build`, run inside the unit) makes no decisions:
+
+1. Refuse with under 10 GB free on the mobile directory's disk.
+2. Clear `<mobile dir>/build/`, then `git worktree add --detach` the release's commit from the store's mirror into it.
+3. `pnpm install --frozen-lockfile`, the command the deploy engine runs for a release.
+4. In `apps/mobile`: `npx expo prebuild --clean --platform android`, with `APP_VARIANT=preview`, `T3CODE_MOBILE_UPDATES_ENABLED=0`, `EXPO_NO_GIT_STATUS=1`, `CI=1`, `LOOM_BUILD_SHA`, `LOOM_BUILD_COMMITTED_AT`, and `ANDROID_HOME`, `ANDROID_SDK_ROOT` and `JAVA_HOME` from `deploy.json`. The same variables stay set for the next step, since Gradle writes the configuration into the APK.
+5. In `apps/mobile/android`: `NODE_ENV=production ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a "-Dorg.gradle.jvmargs=-Xmx8g -XX:MaxMetaspaceSize=2g"`. Steps 4 and 5 are today's hand recipe from `docs/operations/loom-android-apk.md`, with the build stamp's two variables and `--no-daemon` added.
+6. Check the APK (below). Any failure ends the job with the build recorded as failed and nothing published.
+7. Publish. Copy the APK to `<mobile dir>/apks/loom-<sha7>.apk` through a temporary name. Save the two lists from the source map beside it as `loom-<sha7>.inputs.json`, about 90 KB. Keep the newest other stored APK and delete any older. Write the state file with the new one as the matching APK.
+8. Always, including on a stop signal: remove the checkout. The whole output goes to `<mobile dir>/build.log`, replaced by each build.
+
+<Table
+  density="compact"
+  columns={["Checked on the built file before it is published", "With", "Must be"]}
+  rows={[
+    ["Package", "`aapt2 dump badging`", "`com.t3tools.t3code.preview`"],
+    ["Version code", "`aapt2 dump badging`", "`1` (§6)"],
+    ["Signing certificate", "`apksigner verify --print-certs`", "SHA-256 `fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c`"],
+    ["Updates through Expo", "`aapt2 dump xmltree --file AndroidManifest.xml`", "`expo.modules.updates.ENABLED` is `false`"],
+    ["Install permission", "`aapt2 dump permissions`", "`android.permission.REQUEST_INSTALL_PACKAGES` is declared"],
+    ["Build stamp", "`unzip -p <apk> assets/app.config`", "`extra.loomBuild.sha` equals the commit built"],
+  ]}
+/>
+
+The fourth row is the brief's first must-not made mechanical: an APK that could take an update from upstream's Expo project is never published.
+
+<Card heading="What a rollback means for the APK on offer" tone="info" badge="follows from the one rule" meta={["no new mechanism", "one call in back()"]}>
+
+**Loom puts a release back by itself.** That happens inside the watch, before after-accept, so no build was started for it and the state file never moved. Nothing to do.
+
+**`loom-deploy back`.** Its last step calls the same decision for the release it returned to. The APK built from the release that was left no longer matches, so the earlier stored APK becomes the matching one. A build still in flight for the left release is stopped, and the left release's APK is deleted.
+
+A phone that never installed the left release's APK is quiet again. A phone that did install it is told "the server went back to an earlier version of the app", with the earlier APK to install (§7). This stays inside Carl's answer that there is "no separate command": nothing is added for a broken app, and the notice only follows what the server runs.
+
+**A fix deployed afterwards** is an ordinary deploy: if the app's code at the fix differs from the matching APK's, it builds.
+
+</Card>
+
+## 5. Where the APKs live and how the phone fetches one
+
+**Kept: two.** The newest and the one before, about 216 MB on `/mnt/fast`, outside every release folder so that release pruning never touches them. The one before is the way back the brief assumes.
+
+<Endpoint
+  method="GET"
+  path="/loom/mobile/apk/:token/:name"
+  summary="One stored APK, to anyone holding a signed link"
+  change="added"
+  params={[
+    { name: "token", in: "path", type: "string", required: true, description: "payload.signature from the server's existing AssetSigner; the payload names the APK's sha and an expiry 15 minutes ahead" },
+    { name: "name", in: "path", type: "string", required: true, description: "loom-<sha7>.apk; only what the downloader names the file" },
+  ]}
+  responses={[
+    { status: "200", description: "The file, with Content-Type application/vnd.android.package-archive and its Content-Length" },
+    { status: "404", description: "Bad signature, expired, or the sha is no longer stored" },
+  ]}
+>
+  Added to `apps/server/src/loom/http/loomAgentRoutes.ts`. No session is needed, which is the point: the phone's downloader and the phone's browser carry none of the app's credentials. The app's images and attachments already travel as signed links for the same reason. The link is minted by `loom.mobileApkUrl` over the authenticated connection and signed with `AssetSigner`, the key those links use.
+</Endpoint>
+
+**In the app, a tap does three things.**
+
+1. It asks for the link.
+2. It turns the relative URL into an absolute one with the connection's `httpBaseUrl`, as `apps/mobile/src/state/assets.ts` does for every other file. The download therefore follows whichever route the app is on.
+3. It calls the existing `openAttachmentInViewer` in `apps/mobile/src/lib/attachmentDownload.ts`, with the name `loom-<sha7>.apk` and the APK's MIME type.
+
+That function already downloads to the app's cache with `File.downloadFileAsync` and opens the file through `T3NativeControls.openFile`, an `ACTION_VIEW` intent on a `FileProvider` URI. For an APK, Android answers that intent with its package installer. No new native code.
+
+<Callout tone="warning" title="One thing the app needs that it does not have today">
+  Android's installer ignores that intent unless the calling app **declares** `REQUEST_INSTALL_PACKAGES`; the documented symptom is that nothing happens. Today's APK does not declare it, by `aapt2 dump permissions`. The hunk in §3 adds it for Loom's builds only. On the first in-app install Android asks Carl once to allow "T3 Code Preview" to install apps. After that each update is the tap, the download and the confirm the brief describes.
+</Callout>
+
+**The hedge.** If the installer returns and the app is still running, the install was cancelled or never opened. The app then offers one more button, "Download in the browser instead", which opens the same signed link with `Linking.openURL`. It is the only alternate path in the plan and it exists because the hand-off is the one step that cannot be run here.
+
+## 6. The way back, and the version code
+
+The brief's third check is an older APK installed over a newer one. Where versions are concerned, Android refuses only an APK whose version code is **lower** than the installed one. Every Loom APK carries version code `1`: `app.config.ts` sets no `android.versionCode`, and the prebuild template's default is `1`. So to Android an older Loom APK and a newer one are the same version. Installing either over the other is the operation Carl has already done with every hand install.
+
+The plan therefore **never lets the code climb**, and enforces it: version code `1` is one of the six checks in §4. An upstream pull that introduced a version code would fail the build loudly instead of breaking the way back quietly.
+
+What that leaves unproven is the app's own data: an older build opening storage a newer build has written to. Android does not guard that and nothing here can. It is step 3 of Carl's check, and the brief's first Still unknown stays open until then.
+
+## 7. What the app says, state by state
+
+Carl's answer: "Quiet when current; a notice on the home screen only when you must act or an update failed". One pure function turns the stream's value and the app's own build stamp into the words for both places, so they cannot disagree.
+
+<Table
+  density="compact"
+  columns={["Situation", "Home", "The notice says", "Settings → About, under “Loom build”"]}
+  rows={[
+    [
+      "The app's stamp is the matching APK",
+      { badge: { label: "quiet", tone: "neutral" } },
+      "",
+      "This app: `a1b2c3d` · 18 Nov. **Up to date.**",
+    ],
+    {
+      tone: "success",
+      cells: [
+        "The matching APK is a different build",
+        { badge: { label: "notice", tone: "success" } },
+        "“A new version of the app is ready. Tap to install build `9f8e7d6` (108 MB).”",
+        "**New version ready.** A row: Install `9f8e7d6` · 19 Nov · 108 MB.",
+      ],
+    },
+    {
+      tone: "success",
+      cells: [
+        "The matching APK is a different build, from an earlier commit than the app's",
+        { badge: { label: "notice", tone: "success" } },
+        "“The server went back to an earlier version of the app. Tap to install it.”",
+        "**The server is on an earlier version.** The same install row.",
+      ],
+    },
+    [
+      "No stored APK matches; one is building",
+      { badge: { label: "quiet", tone: "neutral" } },
+      "",
+      "**Behind the server.** Build `9f8e7d6` is being prepared, since 2:31 pm.",
+    ],
+    {
+      tone: "risk",
+      cells: [
+        "No stored APK matches; the build failed",
+        { badge: { label: "notice", tone: "risk" } },
+        "“The app is behind Loom and its new version failed to build. Tell an agent; the reason is in Settings, About.”",
+        "**Update failed:** the reason, as the build recorded it.",
+      ],
+    },
+    [
+      "The server has no APKs, does not know the method, or is not connected",
+      { badge: { label: "quiet", tone: "neutral" } },
+      "",
+      "This app's build only; “Not connected” when that is why.",
+    ],
+    [
+      "A tap is in progress",
+      { badge: { label: "notice", tone: "neutral" } },
+      "“Downloading the new version…”",
+      "The same words on the install row.",
+    ],
+  ]}
+/>
+
+**The building state is quiet on purpose.** The app is behind, there is nothing for Carl to do, and nothing has failed, so by his answer it is not a home-screen notice. About says it, and the notice follows within the build's 10 to 25 minutes. A build recorded as running for more than 90 minutes is shown as failed, with the words "The build did not finish". A reboot in the middle of one therefore cannot leave the app waiting in silence.
+
+**The notice cannot be dismissed.** It goes when the app matches. After Carl goes back to the earlier build on purpose it therefore stays until the next build; that is the app being behind and saying so.
+
+**The way back** is one more row in About, "Go back to `a1b2c3d` · 18 Nov". It is offered for a stored APK that is neither the app's own nor the matching one, and whose commit is earlier than the app's. Installing it uses the same tap.
+
+<Columns>
+  <Column label="Before">
+    <Screen
+      surface="mobile"
+      caption="Settings → About today"
+      html={'<div style="box-sizing:border-box;height:100%;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.4"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="wf-muted">Back</span><strong style="font-size:16px">About</strong></div><small class="wf-muted">App</small><div class="wf-card" style="display:flex;flex-direction:column;gap:0;padding:0"><div style="padding:10px 12px;border-bottom:1.4px solid var(--wf-line)">Client Storage</div><div style="padding:10px 12px;border-bottom:1.4px solid var(--wf-line)">Diagnostics</div><div style="padding:10px 12px;border-bottom:1.4px solid var(--wf-line)">Open source licenses</div><div style="padding:10px 12px;border-bottom:1.4px solid var(--wf-line)">Legal</div><div style="display:flex;align-items:center;padding:10px 12px;white-space:nowrap"><span>Version</span><div style="flex:1"></div><span class="wf-muted">2.2.0 · Preview</span></div></div><div style="flex:1"></div></div>'}
+    />
+  </Column>
+  <Column label="After">
+    <Screen
+      surface="mobile"
+      caption="The same screen with a newer APK ready and the one before still kept"
+      html={'<div style="box-sizing:border-box;height:100%;padding:14px;display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.4"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="wf-muted">Back</span><strong style="font-size:16px">About</strong></div><small class="wf-muted">App</small><div class="wf-card" style="display:flex;flex-direction:column;gap:0;padding:0"><div style="padding:10px 12px;border-bottom:1.4px solid var(--wf-line)">Client Storage</div><div style="padding:10px 12px;border-bottom:1.4px solid var(--wf-line)">Diagnostics</div><div style="padding:10px 12px;border-bottom:1.4px solid var(--wf-line)">Open source licenses</div><div style="padding:10px 12px;border-bottom:1.4px solid var(--wf-line)">Legal</div><div style="display:flex;align-items:center;padding:10px 12px;white-space:nowrap"><span>Version</span><div style="flex:1"></div><span class="wf-muted">2.2.0 · Preview</span></div></div><small class="wf-muted">Loom build</small><div class="wf-card" style="display:flex;flex-direction:column;gap:0;padding:0"><div style="padding:10px 12px;border-bottom:1.4px solid var(--wf-line)"><strong>This app</strong><br /><small>a1b2c3d · 18 Nov · New version ready</small></div><div style="padding:10px 12px;border-bottom:1.4px solid var(--wf-line);background:var(--wf-accent-soft)"><strong>Install 9f8e7d6</strong><br /><small>19 Nov · 108 MB</small></div><div style="padding:10px 12px"><strong>Go back to 7c9e1f0</strong><br /><small>15 Nov · 107 MB</small></div></div></div>'}
+    />
+  </Column>
+</Columns>
+
+**Which server.** The app subscribes on every connected environment and uses the first whose state holds a stored APK or a build. Carl's phone has one such server. An environment that does not know the method never yields a state. A failed subscription of this kind is not retried by default, so it costs nothing.
+
+**Where the notice sits.** It is the first element of the thread list's header. On Android an empty thread list draws no header, so the notice would not show there; About still would. Carl's list is never empty.
+
+**Start-up.** The subscription opens when the home list mounts on a connected environment. Nothing is added to the app's start, which is the brief's third must-not.
+
+## 8. Reused before added, and the marked hunks
+
+<Table
+  density="compact"
+  columns={["Reused as it is", "For"]}
+  rows={[
+    ["`afterAccept` and `back()` in `apps/server/src/loom/deploy/cli.ts`; `systemd-run` as `deploy()` uses it; `writeJsonAtomic`, `run`, `readConfig` in `store.ts`", "Where the decision is called, how the build is started, how its state is written"],
+    ["The `LoomDeploy` service, already wired into the server, the WebSocket methods and the Loom routes", "It gains the stream, the link and the file lookup, implemented in a sibling module. No new service means no new wiring hunks in upstream's `server.ts` or `ws.ts`"],
+    ["`deploy-status.json` as the pattern: a small file in the state directory, schema in contracts, written by the deploy code, read on a timer by the server", "`mobile-app.json`, read every five seconds per subscriber"],
+    ["`AssetSigner` and the signed-link idea of `apps/server/src/assets/AssetAccess.ts`", "The download link"],
+    ["`createLoomCommandAtoms` in `packages/client-runtime/src/state/loom/goalCommands.ts`, used on the phone already by `useDocumentAuthor.loom.ts`", "The subscription atom and the link command"],
+    ["`openAttachmentInViewer`, `File.downloadFileAsync`, `T3NativeControls.openFile`", "Download and hand-off to the installer"],
+    ["`Notice` in `apps/mobile/src/components/ui/Notice.tsx`; `SettingsSection` and `SettingsRow`", "The home notice and the About rows, in containers already proven on the phone"],
+    ["`apps/server/scripts/verify-background-live.ts`", "The pattern for a script that signs in with a pairing token and speaks the real WebSocket protocol"],
+    ["The build recipe and its two checks in `docs/operations/loom-android-apk.md`", "Steps 4 to 6 of the job"],
+  ]}
+/>
+
+**Looked at and not reused.**
+
+- `apps/mobile/src/features/updates/app-updates.ts` is the client of `expo-updates`, which stays switched off in every Loom build, so none of its logic applies. The new files sit beside it in the same folder, and About keeps its Version row.
+- `apps/server/src/desktopUpdate/` drives the desktop app's own updater from the server. The phone has no updater to drive, so only the idea carries over.
+- No earlier plan covers this ground, and none is superseded. `plans/loom-deploy-redesign/plan.mdx` built after-accept, to which this plan adds one call. `plans/mobile-document-rendering/plan.mdx` wrote the hand-build runbook this plan automates.
+
+**Hunks in upstream files, each marked `// loom:`.**
+
+- `apps/mobile/app.config.ts`: the two in §3.
+- `apps/mobile/src/features/home/HomeScreen.tsx`: an import and one element in `v2ListHeader`.
+- `apps/mobile/src/features/settings/SettingsAboutRouteScreen.tsx`: an import and one element after the App section.
+- `apps/server/src/auth/RpcAuthorization.ts` and `apps/server/src/observability/RpcInstrumentation.ts`: two lines each, beside the deploy methods.
+- `packages/client-runtime/src/rpc/client.ts`: one line in the subscription tag union.
+
+Everything else is in `apps/server/src/loom/`, `packages/contracts/src/rpc.loom.ts`, `packages/client-runtime/src/state/loom/` or new `*.loom.ts(x)` files.
+
+**Docs rewritten, not appended to.**
+
+- `docs/operations/loom-android-apk.md` becomes the page for the built thing. It says that the deploy builds the APK, how to read its state and its log, and what `loom-deploy apk` does after a failure. It lists the six checks. It says where the stored APKs are and how to hand one over when the app will not open. The hand recipe stays only as what the job runs.
+- `deploy/README.md` gains the `mobile` key, the mobile directory in "The store", the `apk` verb and the phone app's line in `status`.
+- `docs/internals/glossary.md` gains stored APK, matching APK and build stamp.
+
+<Details summary="All touched files">
+
+<FileTree
+  title="Brief 1: server, wire and app"
+  entries={[
+    { path: "packages/contracts/src/rpc.loom.ts", change: "modified", note: "the two methods; LoomMobileApk, LoomMobileBuild, LoomMobileAppState, LoomMobileAppFile, the link's input and result" },
+    { path: "apps/server/src/loom/loomPaths.ts", change: "modified", note: "mobileAppPath, beside deployStatusPath" },
+    { path: "apps/server/src/loom/deploy/mobileApp.ts", change: "added", note: "read the state file, stream it on change, sign a link, resolve a token to a file; a running build older than 90 minutes reads as failed" },
+    { path: "apps/server/src/loom/deploy/mobileApp.test.ts", change: "added", note: "a link round-trips; a tampered or expired token and an unknown sha are refused" },
+    { path: "apps/server/src/loom/deploy/LoomDeploy.ts", change: "modified", note: "three new members, delegating to mobileApp.ts" },
+    { path: "apps/server/src/loom/wsMethods.ts", change: "modified", note: "two handlers" },
+    { path: "apps/server/src/loom/http/loomAgentRoutes.ts", change: "modified", note: "GET /loom/mobile/apk/:token/:name" },
+    { path: "apps/server/src/auth/RpcAuthorization.ts", change: "modified", note: "upstream file: two marked lines, read scope" },
+    { path: "apps/server/src/observability/RpcInstrumentation.ts", change: "modified", note: "upstream file: two marked lines" },
+    { path: "apps/server/scripts/verify-mobile-app.ts", change: "added", note: "plays the phone's part (§9)" },
+    { path: "packages/client-runtime/src/rpc/client.ts", change: "modified", note: "upstream file: one marked line in EnvironmentSubscriptionRpcTag" },
+    { path: "packages/client-runtime/src/state/loom/goalCommands.ts", change: "modified", note: "mobileApp subscription atom, mobileApkUrl command" },
+    { path: "apps/mobile/src/features/updates/loomAppBuild.loom.ts", change: "added", note: "reads the build stamp; the pure function from state and stamp to the words of §7" },
+    { path: "apps/mobile/src/features/updates/loomAppBuild.loom.test.ts", change: "added", note: "every row of §7's table" },
+    { path: "apps/mobile/src/features/updates/useLoomAppBuild.loom.ts", change: "added", note: "picks the environment, subscribes, exposes the words and the install action" },
+    { path: "apps/mobile/src/features/updates/LoomAppUpdateNotice.loom.tsx", change: "added", note: "the home notice" },
+    { path: "apps/mobile/src/features/updates/LoomAppBuildSection.loom.tsx", change: "added", note: "the About rows" },
+    { path: "apps/mobile/src/features/home/HomeScreen.tsx", change: "modified", note: "upstream file: marked import and one element in v2ListHeader" },
+    { path: "apps/mobile/src/features/settings/SettingsAboutRouteScreen.tsx", change: "modified", note: "upstream file: marked import and one element" },
+  ]}
+/>
+
+<FileTree
+  title="Brief 2: the deploy half and the proof"
+  entries={[
+    { path: "apps/server/src/loom/deploy/mobile.ts", change: "added", note: "appChanged, the lists from the source map, the lockfile section, reconcileMobile and its pure choice, the build job, the six checks, publish" },
+    { path: "apps/server/src/loom/deploy/mobile.test.ts", change: "added", note: "appChanged and the reconcile choice, as tables" },
+    { path: "apps/server/src/loom/deploy/store.ts", change: "modified", note: "DeployConfig.mobile, the state file's path in homePaths" },
+    { path: "apps/server/src/loom/deploy/cli.ts", change: "modified", note: "the call in afterAccept and in back(); verbs apk and apk-build; the phone app's line in status and its JSON" },
+    { path: "apps/mobile/app.config.ts", change: "modified", note: "upstream file: the two marked hunks of §3" },
+    { path: "docs/operations/loom-android-apk.md", change: "modified", note: "rewritten" },
+    { path: "deploy/README.md", change: "modified", note: "the mobile key, the store, the verb, the status line" },
+    { path: "docs/internals/glossary.md", change: "modified", note: "stored APK, matching APK, build stamp" },
+  ]}
+/>
+
+</Details>
+
+## 9. What is proved before Carl's check, and what only his phone can show
+
+No Android device or emulator can run on this host: there is no `/dev/kvm`. Carl's answer was "Build it, test the server half with a script that plays the phone's part, then I run the five-minute check". His check should fail only on the rows marked phone.
+
+**The scratch copy.** Brief 2 builds a store that production never sees, under the worktree's git-ignored `.t3/apk-scratch/`:
+
+- a bare clone of the branch as `repo.git`;
+- a release folder checked out from it and installed;
+- a `deploy.json` whose `stateDir` is a running dev server's state directory, whose `engineUnit` and `mobile.unit` carry scratch names, and whose `mobile.dir` is scratch.
+
+Run from that release, `after-accept` and `apk` are the real verbs. The build is the real job in a real transient unit, and the state file it writes is the one the dev server reads. Nothing in `~/loom-releases` or the live install is read or written.
+
+<Table
+  density="compact"
+  columns={["Claim", "Evidence", "Where"]}
+  rows={[
+    ["The decision builds when the app changed and not otherwise", "`mobile.test.ts`, with the real paths of the pi bumps and the server-only deploy; then on the scratch store: `after-accept` starts a build, a second `after-accept` at a commit that adds only a file under `apps/server` starts none", { badge: { label: "here", tone: "success" } }],
+    ["A real APK is built by the path the deploy uses", "The unit runs to the end on the scratch store; `journalctl --user -u <scratch unit>` and `build.log` kept in the hand-back", { badge: { label: "here", tone: "success" } }],
+    ["Same certificate, version code 1, updates off, permission declared, stamp right", "The job's six checks pass, and the script repeats them on the bytes it downloaded; certificate compared with the hand-built APK of 19 Nov", { badge: { label: "here", tone: "success" } }],
+    ["The build cannot fail a deploy or outlive its scratch", "Kill the unit mid-build: `after-accept` had already returned 0, the checkout is gone after the next start, the state shows no half-published APK. Break the Android path in the scratch `deploy.json`: the build is recorded failed with its reason", { badge: { label: "here", tone: "success" } }],
+    ["Two deploys close together do not pile up", "Start `apk` twice: one unit. Start it for a second commit during a build: the first is stopped", { badge: { label: "here", tone: "success" } }],
+    ["Going back offers the earlier APK", "The reconcile table test; and on the scratch store, `apk` run from a release at the earlier commit makes the earlier APK the matching one and deletes the later", { badge: { label: "here", tone: "success" } }],
+    ["The server tells the phone and serves the file", "`verify-mobile-app.ts` against the dev server: signs in with a pairing token as the phone does, reads the stream, sees it change when the build publishes, asks for the link, fetches it with no credentials, and compares length and SHA-256 with the stored file. A tampered token and an unknown sha are refused", { badge: { label: "here", tone: "success" } }],
+    ["The app code is in the APK and compiles for the device", "`vp check`, `vp run typecheck`, `vp run lint:mobile`; Gradle bundled it; the notice's sentences are found in the APK's `assets/index.android.bundle`", { badge: { label: "here", tone: "success" } }],
+    ["The app says the right thing in each state", "`loomAppBuild.loom.test.ts` covers every row of §7. No render test: the phone's test harness replaces React Native with stand-ins, so it would prove nothing about the device", { badge: { label: "here, logic only", tone: "warning" } }],
+    { tone: "warning", cells: ["The notice and the About rows look right", "Not possible here. They are built from `Notice` and `SettingsRow` in containers the app already uses", { badge: { label: "phone", tone: "warning" } }] },
+    { tone: "warning", cells: ["Android's installer opens from the app, after the one-time permission", "Not possible here. The permission is confirmed in the manifest; the browser button is the hedge", { badge: { label: "phone", tone: "warning" } }] },
+    { tone: "warning", cells: ["The 108 MB download completes on the phone's connection", "Not possible here. The script fetches the same link over loopback", { badge: { label: "phone", tone: "warning" } }] },
+    { tone: "warning", cells: ["An older APK installs over a newer one, the app opens, the pairing is kept", "Not possible here (§6)", { badge: { label: "phone", tone: "warning" } }] },
+    { tone: "warning", cells: ["The build runs on `/mnt/fast` in production", "First seen on the first production deploy. There `pnpm install` copies packages instead of linking them, because its store is on the root disk; `scripts/setup-worktree.ts` documents that this happens silently and works", { badge: { label: "first deploy", tone: "warning" } }] },
+  ]}
+/>
+
+**The brief's lines, mapped.**
+
+<Table
+  density="compact"
+  columns={["The brief says", "Proved here by", "Then on the phone"]}
+  rows={[
+    ["The notice appears, the download works, the pairing is kept", "The decision, the real build, the six checks, and the script's download", "Steps 1 and 2"],
+    ["About says which build the app runs and whether it matches the server", "The words test", "Step 1"],
+    ["A deploy that changes nothing the phone runs shows nothing", "The decision's tests and the second `after-accept` on the scratch copy", "Nothing to do"],
+    ["The previous APK installs over a newer one and About shows the earlier build", "The reconcile test and the go-back run on the scratch copy", "Step 3"],
+    ["Must not take an update from upstream's Expo project", "The fourth of the six checks", "Nothing to do"],
+    ["Must not cost the pairing", "The package and certificate checks", "Steps 2 and 3"],
+    ["Must not slow the app's start", "§7: the subscription opens with the home list", "Nothing to do"],
+    ["Must not fail or block a deploy", "The killed and the broken build on the scratch copy", "Nothing to do"],
+  ]}
+/>
+
+**The first APK, and Carl's check.**
+
+<Steps>
+  <Step title="Before the deploy: one edit on the production machine.">
+    Whoever runs the deploy adds the `mobile` object of §4 to `~/loom-releases/deploy.json`. This is a production change and waits for Carl's word, with the deploy.
+  </Step>
+  <Step title="Carl asks for the deploy that carries the feature.">
+    The store holds no APK, so after-accept builds one for that release. This is the deploy path's first real run. **The deploy builds the first APK; nobody builds it by hand.** The phone still runs an app without the feature, so it shows nothing.
+  </Step>
+  <Step title="The orchestrator hands it over." aside="About 30 minutes after the deploy started.">
+    `loom-deploy status` shows when the phone app's APK is built. The orchestrator then publishes that file as a GitHub pre-release on `QuinRiva/loom`, the way the last hand builds reached the phone, and gives Carl the link.
+  </Step>
+  <Step title="Step 1 of his check.">
+    He installs it over the top, the last one he has to ask for. About shows its build and **Up to date**.
+  </Step>
+  <Step title="Step 2.">
+    He asks for a deploy of a change that touches the app: the next mobile fix in the queue, or a one-line visible change the orchestrator has ready. When the notice appears he taps it, allows the app to install APKs this once, downloads and confirms. About shows the new build; he is still paired.
+  </Step>
+  <Step title="Step 3.">
+    In About he taps "Go back to" the first build and confirms. About shows the earlier build, and the home notice offers the newer one again.
+  </Step>
+</Steps>
+
+## 10. The work, in two briefs
+
+<Card heading="Brief 1: server, wire and app" eyebrow="FIRST" tone="info" badge="TypeScript only" meta={["no Android build", "its files: the first tree in §8"]}>
+
+The contract first, as its own commit. Then the server's three members and the route, the client atoms, the app's four new files and two mounts, and the script. It is proved without a build. A state file written by hand points at an existing Loom APK: the hand build of 19 Nov, or one from the GitHub pre-releases. A dev server from the dev-verify recipe reads it, and `verify-mobile-app.ts` runs green against that server. Gates: `vp check`, `vp run typecheck`, `vp run lint:mobile`, the two new test files.
+
+</Card>
+
+<Card heading="Brief 2: the deploy half and the end-to-end proof" eyebrow="SECOND" tone="info" badge="two real builds" meta={["depends on Brief 1", "its files: the second tree in §8"]}>
+
+`mobile.ts`, the hooks and verbs in `cli.ts`, the stamp and permission in `app.config.ts`, the docs. Then every "here" row of §9 on the scratch copy, with the app code of Brief 1 in the APK. The first build is of the branch head. The second is of a scratch commit that touches the app, made only in the scratch mirror, so that going back has two stored APKs to choose between.
+
+Its hand-back carries the build log, the six checks' output, the script's output and the scratch `deploy.json`, and it removes `.t3/apk-scratch/`. Each build goes through `bg_start`. The scratch copy sits on the root disk and needs 10 GB free there, which the coder checks first.
+
+</Card>
+
+**In sequence, and why.** The second brief's proof needs the first brief's code in the tree, and its builds are the long pole either way. The two touch disjoint files once the contract commit exists, so they can overlap if the orchestrator wants the time back. The price is a third short brief to run the end-to-end proof on the combined head. One PR for both, since one request is one PR.
+
+**For the orchestrator, outside these briefs.** Fold the three corrections on the first screen into the brief. Have the visible change for step 2 ready. Decide with Carl's word who edits production's `deploy.json`.
+
+## 11. Risks, limits and what was left out
+
+- **The app-changed rule has one known gap,** the warning row in §2's drill-down. A build tool that is in no bundle, is no direct dependency and has no patch can change through the lockfile alone. It cannot put different code in the app, and the next real change rebuilds with it.
+- **The hand-off to the installer is unproven until step 2.** If it fails, the browser button completes the check and the failure is one more round on the app side, delivered by a hand-installed APK as today.
+- **Chrome may warn about an APK fetched over plain HTTP** when the browser button is used. It is a fallback; it was not tested.
+- **An app too old to connect is told so, but offered no download.** When a deploy raises the wire protocol, the app's existing screen says "Client not supported … Update your app". The new APK then reaches the phone by a link from an agent, as today. Serving it without the connection needs a download that asks for no sign-in at all, which is a different decision. The protocol number has been raised once in its life.
+- **A build that will not open on the phone.** Carl's answer stands: no separate command. The earlier APK is a file under the mobile directory and the rewritten runbook says how an agent hands it over.
+- **Two writers of one small file.** The decision and the job both write the state file, through an atomic rename. A deploy landing in the second an APK is published could lose one of the two writes; the next deploy, or `loom-deploy apk`, puts it right.
+- **Load.** Gradle with an 8 GB heap on a machine that also runs agents. The unit is low priority and the machine has 62 GB; if it hurts, the heap is one flag.
+- **Left out on purpose:** a download progress bar, since the notice says "Downloading"; dismissing the notice; a web or desktop surface; any setting. Also left out is narrowing the rule further by comparing bundle contents. That would cost two to three minutes of bundling on every deploy, to save installs the fortnight has not yet shown to matter.
