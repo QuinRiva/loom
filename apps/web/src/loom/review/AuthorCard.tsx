@@ -202,7 +202,11 @@ function AuthorCard({
       : null,
   );
   const writers = (blame.data?.commits ?? []).map((commit) => {
-    const row = rowOf(commit, blame.data?.threads ?? [], authorship?.groups ?? []);
+    const row = rowOf(
+      commit,
+      blame.data?.threads ?? [],
+      (authors.branch ?? authorship)?.groups ?? [],
+    );
     const date = new Date(commit.authoredAt).toLocaleDateString(undefined, {
       day: "numeric",
       month: "short",
@@ -255,11 +259,18 @@ function AuthorCard({
     );
 
   // The questions whose mark is on one of these lines, under their author's row.
+  // A selection of unchanged lines asks about them, owned by whoever wrote them on the branch.
+  const { branch } = authors;
+  const askLines = lines.length > 0 ? lines : unchanged;
+  const askOwners =
+    lines.length > 0
+      ? shas
+      : [...new Set(unchanged.flatMap((line) => branch?.at(filePath, line)?.sha ?? []))];
   const asked =
-    authorship === null
+    branch === null
       ? []
       : authors.questions.filter((question) =>
-          lines.some((line) => marks(question, filePath, line, authorship.at(filePath, line))),
+          askLines.some((line) => marks(question, filePath, line, branch.at(filePath, line))),
         );
 
   /** The main window goes to `threadId` at `at`, with this file or diff beside it as it is. */
@@ -288,7 +299,7 @@ function AuthorCard({
     if (row.threadId !== null) void follow(row.threadId, row.commit.authoredAt);
   };
   const ask = async (row: AuthorRow, question: string) => {
-    if (selected?.selection === undefined || lines.length === 0) return;
+    if (selected?.selection === undefined || askLines.length === 0) return;
     setPending(true);
     setError(null);
     const result = await codeQuery({
@@ -297,10 +308,10 @@ function AuthorCard({
         reviewThreadId: reviewing.threadId,
         baseRef: authors.baseRef,
         commitSha: row.commit.sha,
-        ownerShas: shas,
+        ownerShas: askOwners,
         filePath,
-        startLine: Math.min(...lines),
-        endLine: Math.max(...lines),
+        startLine: Math.min(...askLines),
+        endLine: Math.max(...askLines),
         selection: selected.selection,
         startIndex: selected.startIndex,
         endIndex: selected.endIndex,
@@ -429,15 +440,17 @@ function AuthorCard({
             <p className="text-muted-foreground">These lines did not change in this comparison.</p>
           ) : (
             <>
-              {/* Asking stays on lines the comparison changed: the server asks only of those. */}
+              {/* Only a commit on the branch can be asked: the server asks only of those. */}
               <p className="text-muted-foreground">
                 {writers.every((writer) => writer.onBranch)
-                  ? "These lines changed on this branch, but not in this comparison. Query author is offered only on lines this comparison changed."
-                  : writers.some((writer) => writer.row.threadId !== null)
-                    ? "These lines are older than this branch. Query author is offered only on lines the branch changed."
-                    : "These lines are older than this branch and no thread wrote them, so there is no one to ask."}
+                  ? "These lines changed on this branch, but not in this comparison."
+                  : writers.some((writer) => writer.onBranch)
+                    ? "Some of these lines are older than this branch; only the thread that changed them on the branch can be asked."
+                    : writers.some((writer) => writer.row.threadId !== null)
+                      ? "These lines are older than this branch. Query author is offered only on lines the branch changed."
+                      : "These lines are older than this branch and no thread wrote them, so there is no one to ask."}
               </p>
-              {writers.map((writer) => renderRow(writer.row, false))}
+              {writers.map((writer) => renderRow(writer.row, writer.onBranch))}
             </>
           )
         ) : current.length === 0 ? (

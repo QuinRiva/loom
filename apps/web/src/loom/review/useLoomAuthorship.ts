@@ -100,14 +100,20 @@ export function useLoomAuthorship({
         : narrowAuthorship(answer.result, intervalPatch)
       : null;
   const authorship = result === null ? null : authorshipOf(result);
+  // Unnarrowed: who wrote a line on the branch, even where "Since your message" shows it unchanged.
+  const branch = shown && current && answer !== null ? authorshipOf(answer.result) : null;
   const questions = useCodeQuestions(threadRef?.environmentId ?? null);
   const activeFilter =
     authorship?.groups.some((group) => group.key === filter) === true ? filter : null;
   // A layout effect, so stale marks are cleared in the commit that draws new rows, before paint.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- restamps the viewer's already-rendered rows (DOM outside React) when the answer or filter changes
   useLayoutEffect(() => {
-    stamps.update(authorship === null ? null : { authorship, filter: activeFilter, questions });
-  }, [stamps, authorship, activeFilter, questions]);
+    stamps.update(
+      authorship === null || branch === null
+        ? null
+        : { authorship, filter: activeFilter, questions, branch },
+    );
+  }, [stamps, authorship, activeFilter, questions, branch]);
 
   return {
     /** The toggle shows in a view that can have authors. */
@@ -119,6 +125,8 @@ export function useLoomAuthorship({
     result,
     /** Live code questions, for the card's "asked here" rows: the stamps mark the same lines. */
     questions,
+    /** The whole-branch authorship, unnarrowed by "Since your message"; null with `authorship`. */
+    branch,
     /** The base the answer was asked against, for the author card's line history. */
     baseRef,
     /** The shown diff's hash: the line history is re-asked when the content changes. */
