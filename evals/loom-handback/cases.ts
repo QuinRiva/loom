@@ -20,13 +20,8 @@ import { routeWorkSubmit } from "@t3tools/shared/workstreamGraph";
 import { buildStandaloneDigest } from "../../apps/server/src/loom/orchestration/dispatcher/digest.ts";
 import { workstreamChildPrompt } from "../../apps/server/src/loom/prompt/prose.ts";
 import { buildCodeQueryForkLaunch } from "../../apps/server/src/loom/query/codeQuery.ts";
-import {
-  buildCodeQueryOverlay,
-  buildCodeQueryQuestion,
-} from "../../apps/server/src/loom/query/codeQueryOverlay.ts";
 import { buildQueryForkLaunch } from "../../apps/server/src/loom/query/documentQuery.ts";
 import { buildQueryPromoteTurn } from "../../apps/server/src/loom/query/documentQueryOverlay.ts";
-import { buildQuestionDispatch } from "../../apps/server/src/loom/query/queryThread.ts";
 import {
   appendWarnings,
   composeNotifyFramedText,
@@ -1311,33 +1306,36 @@ const BANK_FEED_COMMIT = {
 /** What the repository's history holds about the delay, and what it does not. */
 const BANK_WORLD = `In this session's repository, every line of ${BANK_REL} that the agent's commit 5d0e7a3 did not change was last written by commit 3fa1c2d9e0b7 (Dana Whitfield <dana.whitfield@acme.example>, 14 Jul 2025, subject "feat(bank): page through the transaction feed", no message body, no trailers), which added the file; that includes the line \`await sleep(1100);\`, now line 16, and no other commit has touched it. Nothing in the repository says why the delay is 1100 ms or states a rate limit for the bank: no comment, commit message, document, issue reference, test or type in @acme/bank.`;
 /**
- * The human selects the delay, a line the coder left as it found it, and asks the coder's fork.
- * Built from the server's own pieces: `codeQuery.ts` does not yet pass `commitChanged`.
+ * The human selects the delay, a line the coder left as it found it, and asks the coder's fork,
+ * built as the server sends it.
  */
 const bankDelayAsked: ReadonlyArray<Message> = (() => {
-  const asked = buildQuestionDispatch({
+  const [, asked] = buildCodeQueryForkLaunch({
     threadId: "thread:acme-query-e51d" as ThreadId,
-    n: 1,
-    record: {
-      sectionId: "loom-file-change",
-      sectionTitle: "Changes",
-      filePath: BANK_REL,
-      startIndex: 15,
-      endIndex: 15,
-      rangeLabel: "16",
-      text: "",
-      diff: "@@ -13,1 +16,1 @@\n     await sleep(1100);",
-      fenceLanguage: "diff",
-    },
-    text: (reference) =>
-      buildCodeQueryQuestion({
-        reference,
+    authorThreadId: BANK_CODER as ThreadId,
+    launch: {
+      question: {
+        reviewThreadId: BANK_ROOT as ThreadId,
+        baseRef: null,
+        commitSha: BANK_COMMIT.sha,
+        ownerShas: [],
+        filePath: BANK_REL,
+        startLine: 16,
+        endLine: 16,
+        selection: { start: 16, side: "additions", end: 16, endSide: "additions" },
+        startIndex: 15,
+        endIndex: 15,
+        rangeLabel: "16",
+        sectionId: "loom-file-change",
+        sectionTitle: "Changes",
+        diff: "@@ -13,1 +16,1 @@\n     await sleep(1100);",
         question: "Why 1100 ms?",
-        commit: BANK_COMMIT,
-        commitChanged: "file",
-        owners: [BANK_FEED_COMMIT],
-      }),
-    overlay: buildCodeQueryOverlay({ authorThreadId: BANK_CODER as ThreadId }),
+      },
+      commitChanged: "file",
+      commit: BANK_COMMIT,
+      owners: [BANK_FEED_COMMIT],
+    },
+    createdAt: PROMOTED_AT,
   });
   return [
     ...bankCoderFinished,
