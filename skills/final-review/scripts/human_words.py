@@ -107,8 +107,9 @@ for tid, p in asked:
         ans = p["questionAnswer"]["answers"].get(qu["id"])
         if ans is None:
             continue
-        ans = ans if isinstance(ans, str) else json.dumps(ans)
-        picked = any(ans.strip() in (o.get("value"), re.sub(r"\s*\(Recommended\)$", "", o["label"])) for o in qu.get("options", []))
+        options = {x for o in qu.get("options", []) for x in (o.get("value"), re.sub(r"\s*\(Recommended\)$", "", o["label"]))}
+        picked = all(str(a).strip() in options for a in (ans if isinstance(ans, list) else [ans]))
+        ans = ans if isinstance(ans, str) else "; ".join(map(str, ans)) if isinstance(ans, list) else json.dumps(ans)
         entries.append((p["completedAt"], tid, "answer to agent question, " + ("PICKED an option (its wording is the agent's)" if picked else "typed their own answer"), ans, [], ctx, None))
 
 # Goal handoff: a handed-off thread's first message is another agent's brief. The human's words are in the run of the
