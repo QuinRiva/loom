@@ -66,9 +66,6 @@ After using it you selected a line the branch had not changed and asked:
 "Did you fail to add the new ask stuff to the view I actually use?" The
 card had only said the line did not change. So, in both views:
 
-- Any line you select names who wrote it: the thread or the person, the
-  commit and its date. Where no thread wrote it, the card says there is no
-  one to ask.
 - Query author is offered on any line a thread wrote on this branch,
   whichever comparison the view is on, and the "?" mark shows in both.
 - On a line no thread on this branch wrote, Query author is offered to the
@@ -151,12 +148,13 @@ card had only said the line did not change. So, in both views:
   read: on an unchanged line, offer Query author to the threads that
   changed this file, for questions like why they left it alone; the copy
   would be answering about code it did not write.
-- _Assumed:_ on a line a thread wrote before this branch, the card names
-  that thread and offers Open thread, but Query author goes to this
-  branch's coders, not to it. Under 2% of lines in `lease-extraction`'s
-  busiest files have such a thread behind them today (107 of 6,652), and
-  37% in Loom's (3,166 of 8,664). Redirect if you want to ask those older
-  threads too.
+- On naming the author of lines from before the branch, and reaching the
+  threads behind them: "whilst "nice" to be able to see who wrote any line,
+  it's be way to cluttered in the current display, and link out to old
+  closed threads to directly ask them questions when they don't have the
+  context of the current goal, wouldn't be very useful." So on such a line
+  the card offers this branch's coders and says nothing of who first wrote
+  it.
 - _Assumed:_ the marker on asked-about lines is a mark in the line-number
   gutter. Selecting marked lines lists the questions on the card, each with
   a way to its answer. Redirect if you want the question shown beside the
@@ -177,7 +175,10 @@ card had only said the line did not change. So, in both views:
 
 **Not doing.** Authorship on GitHub's pull request page. Authors for
 uncommitted lines. Mobile. A view that steps through the branch one commit
-at a time.
+at a time. Showing who wrote lines from before the branch, or opening or
+asking the threads behind them. Having a copy consult such a thread: "The
+one consideration, which goes beyond the scope of this goal, works be the
+possibility of using consult thread."
 
 **Still unknown.**
 
