@@ -180,6 +180,7 @@ const asking = (
   ownerShas: ReadonlyArray<string>,
   line: number,
   question: string,
+  endLine = line,
 ): CodeQueryInput => ({
   reviewThreadId,
   baseRef: "main",
@@ -187,11 +188,11 @@ const asking = (
   ownerShas,
   filePath: "app.ts",
   startLine: line,
-  endLine: line,
-  selection: { start: line, side: "additions", end: line, endSide: "additions" },
+  endLine,
+  selection: { start: line, side: "additions", end: endLine, endSide: "additions" },
   startIndex: line,
-  endIndex: line,
-  rangeLabel: `+${line}`,
+  endIndex: endLine,
+  rangeLabel: endLine === line ? `+${line}` : `+${line} to +${endLine}`,
   sectionId: "loom-file-change",
   sectionTitle: "Changes",
   diff: `@@ -${line},1 +${line},1 @@\n-x\n+line ${line}`,
@@ -547,6 +548,25 @@ it.layer(TestLayer)("Code query threads", (it) => {
           commitChanged: "file",
           writerShas: [ownOld],
         });
+
+        // Changed and older lines in one range: the older ones are named as another commit's.
+        const mixed = yield* askCodeQuery(
+          asking(reviewThreadId, byCoder, [byCoder], 2, "Why B1 and c?", 3),
+        );
+        assert.equal(mixed.queryThreadId, asked.queryThreadId);
+        const mixedMessage = (yield* messagesOf(asked.queryThreadId)).find(
+          (m) => m.id === `message:server:loom:query:${asked.queryThreadId}:3`,
+        )!;
+        assert.equal(
+          mixedMessage.text,
+          buildCodeQueryQuestion({
+            reference: formatComposerContextReference(mixedMessage.context!.records[0]!),
+            question: "Why B1 and c?",
+            commit: named(byCoder, [coder]),
+            owners: [named(byCoder, [coder]), named(base, [])],
+          }),
+        );
+        assert.include(mixedMessage.text, "; the rest are from commit");
 
         // Refused: a thread whose branch commit did not change the file; lines the branch did
         // change, sent as unchanged by a client that has not caught up.

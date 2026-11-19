@@ -162,14 +162,13 @@ export const askCodeQuery = Effect.fn("codeQuery.askCodeQuery")(
     const store = yield* LoomStoreV2;
     const authorship = yield* ReviewAuthorship;
     const unchanged = input.ownerShas.length === 0;
-    const writers = unchanged
-      ? (yield* authorship.lineBlame({
-          threadId: input.reviewThreadId,
-          path: input.filePath,
-          startLine: input.startLine,
-          endLine: input.endLine,
-        })).commits
-      : [];
+    // Every committed line of the range, read here: a range of changed lines can hold older ones.
+    const { commits: writers } = yield* authorship.lineBlame({
+      threadId: input.reviewThreadId,
+      path: input.filePath,
+      startLine: input.startLine,
+      endLine: input.endLine,
+    });
     const { commit, owners, threads, changedFile } = yield* authorship.commitAuthor({
       threadId: input.reviewThreadId,
       baseRef: input.baseRef,
@@ -235,8 +234,18 @@ export const askCodeQuery = Effect.fn("codeQuery.askCodeQuery")(
     const createdAt = DateTime.formatIso(yield* DateTime.now);
     // An unchanged line its own thread wrote before the branch is the thread's: named as its own.
     const own = writers.find(ownCommit);
+    // The range's other writers join the branch owners, so no line is named the thread's unless it is.
     const launch: CodeQueryLaunch = !unchanged
-      ? { question: input, commit, owners: resolvedOwners }
+      ? {
+          question: input,
+          commit,
+          owners: [
+            ...resolvedOwners,
+            ...writers.filter(
+              (writer) => !resolvedOwners.some((owner) => owner.sha === writer.sha),
+            ),
+          ],
+        }
       : own === undefined
         ? { question: input, commitChanged: "file", commit, owners: writers }
         : { question: input, commit: own, owners: writers };
@@ -253,7 +262,7 @@ export const askCodeQuery = Effect.fn("codeQuery.askCodeQuery")(
           commitSha: input.commitSha,
           ownerShas: input.ownerShas,
           commitChanged: unchanged ? "file" : "lines",
-          writerShas: writers.map((writer) => writer.sha),
+          writerShas: unchanged ? writers.map((writer) => writer.sha) : [],
           filePath: input.filePath,
           startLine: input.startLine,
           endLine: input.endLine,
