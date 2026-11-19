@@ -262,7 +262,7 @@ The app reads it as `Constants.expoConfig?.extra?.loomBuild`, the way About alre
     ["Outlive the deploy command and a Loom restart", "Its own transient systemd unit, `loom-mobile-build`, started with `systemd-run --user --collect` exactly as the deploy engine is. Stopping the `loom-cockpit` service kills only that service's own processes."],
     ["Never fail or block a deploy", "The call cannot throw (the pattern of `installPiSkills`), and the release is already live when it is made. `refuseIfBusy` looks only at the engine's unit, so a running build never makes a deploy wait. The unit runs with `Nice=10`, `CPUWeight=20` and `IOWeight=20`."],
     ["Clean its scratch", "A fresh checkout under `<mobile dir>/build/`, removed whole when the job ends and cleared again when the next one starts, which covers a kill or a reboot. It cannot build inside the release folder: at least 2.4 GB of native build output lands in 47 folders inside `node_modules`, which no targeted delete removes safely."],
-    ["Fit on the disk", "The mobile directory goes on `/mnt/fast` (over 140 GB free), not the root disk (16 GB free, 99% full). The job refuses to start with under 10 GB free there and records why. Only Gradle's cache stays on the root disk, 6.3 GB today."],
+    ["Fit on the disk", "The mobile directory goes on `/mnt/fast` (over 140 GB free), not the root disk. That disk is full to within 12 GB, and lost 11 GB of free space on the day this was written. The job refuses to start with under 10 GB free there and records why. Only Gradle's cache stays on the root disk, 6.3 GB today."],
     ["Not pile up", "One unit name, so at most one build. When a deploy goes live during a build of another commit, that build is stopped and one starts for the running release."],
     ["Keep the signing certificate", "The key is not on this machine by accident: it ships in the `expo` package's prebuild template (`node_modules/expo/template.tgz`, `android/app/debug.keystore`). The three hand builds carry byte-identical keystores and the certificate SHA-256 `fac61745…1033b9c`. The job refuses to publish any APK whose certificate differs, so an Expo bump that changed the key would show as a failed build, not as an APK that cannot be installed over the old one."],
   ]}
@@ -626,13 +626,13 @@ The contract first, as its own commit. Then the server's three members and the r
 
 `mobile.ts`, the hooks and verbs in `cli.ts`, the stamp and permission in `app.config.ts`, the docs. Then every "here" row of §9 on the scratch copy, with the app code of Brief 1 in the APK. The first build is of the branch head. The second is of a scratch commit that touches the app, made only in the scratch mirror, so that going back has two stored APKs to choose between.
 
-Its hand-back carries the build log, the six checks' output, the script's output and the scratch `deploy.json`, and it removes `.t3/apk-scratch/`. Each build goes through `bg_start`. The scratch copy sits on the root disk and needs 10 GB free there, which the coder checks first.
+Its hand-back carries the build log, the six checks' output, the script's output and the scratch `deploy.json`, and it removes `.t3/apk-scratch/`. Each build goes through `bg_start`. The scratch copy sits on the root disk and needs 10 GB free there, which the coder checks first. With less than that, it stops and says so.
 
 </Card>
 
 **In sequence, and why.** The second brief's proof needs the first brief's code in the tree, and its builds are the long pole either way. The two touch disjoint files once the contract commit exists, so they can overlap if the orchestrator wants the time back. The price is a third short brief to run the end-to-end proof on the combined head. One PR for both, since one request is one PR.
 
-**For the orchestrator, outside these briefs.** Fold the three corrections on the first screen into the brief. Have the visible change for step 2 ready. Decide with Carl's word who edits production's `deploy.json`.
+**For the orchestrator, outside these briefs.** Fold the three corrections on the first screen into the brief. Have the visible change for step 2 ready. Decide with Carl's word who edits production's `deploy.json`. Watch the root disk before Brief 2: at 12 GB free its scratch copy barely fits. The other disk has room, but a scratch directory there needs one `sudo mkdir`, which is Carl's yes.
 
 ## 11. Risks, limits and what was left out
 
