@@ -21,6 +21,7 @@ import {
 } from "../../cloud/serviceProtocol.ts";
 import { writeServiceState } from "../../serviceLauncher.ts";
 import { listChanges } from "./changes.ts";
+import { apkBuild, describeMobile, readMobileFile, reconcileMobile } from "./mobile.ts";
 import {
   answers,
   appendHistory,
@@ -69,6 +70,7 @@ const USAGE = `usage: loom-deploy <verb>
   retry                        run a held release again after a fix
   cancel                       stop a deploy that has not asked for the switch yet
   adopt                        make this release the launcher's active version (cut-over, back)
+  apk                          offer the stored phone app APK that matches this release, or build one
 See deploy/README.md.`;
 
 const say = (line: string) => process.stdout.write(`${line}\n`);
@@ -704,6 +706,7 @@ async function statusVerb(config: DeployConfig, args: ReadonlyArray<string>) {
           launcher: state ?? null,
           status: status ?? null,
           keptCopies: copies,
+          mobileApp: config.mobile === null ? null : readMobileFile(config),
         },
         null,
         2,
@@ -728,6 +731,7 @@ async function statusVerb(config: DeployConfig, args: ReadonlyArray<string>) {
     say(
       `             started ${status.startedAt} from ${status.origin}${status.who ? ` by ${status.who}` : ""}`,
     );
+  say(`phone app    ${describeMobile(config)}`);
   say(`kept copies  ${copies.length === 0 ? "none" : ""}`);
   for (const copy of copies)
     say(`  ${copy.at}  ${copy.toRelease}, returns to ${copy.fromRelease ?? "unknown"}`);
@@ -836,6 +840,7 @@ export async function back(config: DeployConfig, service: ServiceControl = syste
   writeJsonAtomic(paths.manifest, markCurrent(readManifest(paths.manifest), fromRelease));
   if (running !== undefined) atomicLink(paths.previous, running);
   if (config.bridge !== null) systemctl("restart", "--no-block", config.bridge.unit);
+  reconcileMobile(config, previous, say);
   say(`Back on ${fromRelease}.`);
   return 0;
 }
@@ -960,6 +965,7 @@ function afterAccept(config: DeployConfig, releaseDir: string) {
     },
   );
   log(`current ${id}`);
+  reconcileMobile(config, releaseDir, log);
 
   pruneKeptCopies(config);
   const removed = planRetention({
@@ -1017,6 +1023,12 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
       return trialStart(config, releaseDir);
     case "after-accept":
       return afterAccept(config, releaseDir);
+    case "apk":
+      if (config.mobile === null) throw new Refusal("deploy.json has no complete mobile key.");
+      reconcileMobile(config, releaseDir, say);
+      return 0;
+    case "apk-build":
+      return apkBuild(config, releaseDir);
     default:
       say(`Unknown verb "${verb}".\n${USAGE}`);
       return 2;

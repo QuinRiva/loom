@@ -34,6 +34,13 @@ export interface DeployConfig {
   readonly refreshCheckouts: ReadonlyArray<string>;
   readonly piSkillsDir: string | null;
   readonly reapBeforeStart: string | null;
+  /** The phone app's APK build (plans/mobile-self-hosted-updates §4); null builds nothing. */
+  readonly mobile: {
+    readonly dir: string;
+    readonly androidHome: string;
+    readonly javaHome: string;
+    readonly unit: string;
+  } | null;
 }
 
 /** The store a release folder sits in: `<store>/releases/<id>`. */
@@ -56,6 +63,9 @@ export function readConfig(root: string): DeployConfig {
   };
   const optional = (key: string) => (typeof raw[key] === "string" ? (raw[key] as string) : null);
   const bridge = raw.bridge as { unit?: unknown; healthUrl?: unknown } | undefined;
+  const mobile = raw.mobile as Record<string, unknown> | undefined;
+  const mobileText = (key: string) =>
+    typeof mobile?.[key] === "string" && mobile[key] !== "" ? (mobile[key] as string) : null;
   const home = text("home");
   return {
     root,
@@ -83,6 +93,15 @@ export function readConfig(root: string): DeployConfig {
       : [],
     piSkillsDir: optional("piSkillsDir"),
     reapBeforeStart: optional("reapBeforeStart"),
+    mobile:
+      mobileText("dir") && mobileText("androidHome") && mobileText("javaHome")
+        ? {
+            dir: mobileText("dir")!,
+            androidHome: mobileText("androidHome")!,
+            javaHome: mobileText("javaHome")!,
+            unit: mobileText("unit") ?? "loom-mobile-build",
+          }
+        : null,
   };
 }
 
@@ -103,6 +122,7 @@ export const homePaths = (config: DeployConfig) => ({
   database: NodePath.join(config.stateDir, "statev2.sqlite"),
   status: NodePath.join(config.stateDir, "deploy-status.json"),
   notice: NodePath.join(config.stateDir, "deploy-notice.json"),
+  mobileApp: NodePath.join(config.stateDir, "mobile-app.json"),
 });
 
 export const releasePaths = (releaseDir: string) => ({
