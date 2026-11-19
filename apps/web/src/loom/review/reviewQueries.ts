@@ -77,6 +77,11 @@ export const loomReviewQueries = {
     label: `environment-data:${LOOM_WS_METHODS.reviewLineHistory}`,
     tag: LOOM_WS_METHODS.reviewLineHistory,
   }),
+  // Asked when a card opens on lines the diff left unchanged.
+  lineBlame: createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+    label: `environment-data:${LOOM_WS_METHODS.reviewLineBlame}`,
+    tag: LOOM_WS_METHODS.reviewLineBlame,
+  }),
   fileContents: createEnvironmentRpcCommand(connectionAtomRuntime, {
     label: `environment-data:${LOOM_WS_METHODS.reviewFileContents}`,
     tag: LOOM_WS_METHODS.reviewFileContents,

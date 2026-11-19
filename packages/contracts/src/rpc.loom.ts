@@ -84,6 +84,7 @@ export const LOOM_WS_METHODS = {
   // Diff author query (plans/diff-author-query/plan.mdx §3): who wrote the whole-branch diff's lines.
   reviewAuthorship: "loom.review.authorship",
   reviewLineHistory: "loom.review.lineHistory",
+  reviewLineBlame: "loom.review.lineBlame",
   // Loom deploys (plans/loom-deploy-redesign/plan.mdx §4): the Deploy control and every client's
   // view of a deploy's stage, beside the startup notice and the restart warning.
   subscribeDeploy: "loom.subscribeDeploy",
@@ -486,6 +487,19 @@ export const LoomReviewLineHistoryResult = Schema.Struct({
 export type LoomReviewLineHistoryResult = typeof LoomReviewLineHistoryResult.Type;
 
 /**
+ * `loom.review.lineBlame`: the commits that last wrote these working-tree lines, older than the
+ * branch or not, in line order; uncommitted lines name none. For a selection the diff left
+ * unchanged.
+ */
+export const LoomReviewLineBlameInput = Schema.Struct({
+  threadId: ThreadId,
+  path: TrimmedNonEmptyString,
+  startLine: PositiveInt,
+  endLine: PositiveInt,
+});
+export type LoomReviewLineBlameInput = typeof LoomReviewLineBlameInput.Type;
+
+/**
  * One merged PR of a deploy; `summary` and `kind` come from its merge commit's `Loom-Summary:` /
  * `Loom-Kind:` trailers (written by `pnpm ship`) and are null for a PR merged without them.
  */
@@ -717,6 +731,11 @@ export const LoomWsRpcs = [
   Rpc.make(LOOM_WS_METHODS.reviewAuthorship, {
     payload: LoomReviewAuthorshipInput,
     success: LoomReviewAuthorshipResult,
+    error: LoomWsError,
+  }),
+  Rpc.make(LOOM_WS_METHODS.reviewLineBlame, {
+    payload: LoomReviewLineBlameInput,
+    success: LoomReviewLineHistoryResult,
     error: LoomWsError,
   }),
   Rpc.make(LOOM_WS_METHODS.reviewLineHistory, {

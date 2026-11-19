@@ -10,6 +10,7 @@ import type {
   LoomReviewAuthorshipInput,
   LoomReviewAuthorshipResult,
   LoomReviewAuthorshipThread,
+  LoomReviewLineBlameInput,
   LoomReviewLineHistoryInput,
   LoomReviewLineHistoryResult,
 } from "@t3tools/contracts";
@@ -112,6 +113,9 @@ export class ReviewAuthorship extends Context.Service<
     ) => Effect.Effect<LoomReviewAuthorshipResult, ReviewAuthorshipError>;
     readonly lineHistory: (
       input: LoomReviewLineHistoryInput,
+    ) => Effect.Effect<LoomReviewLineHistoryResult, ReviewAuthorshipError>;
+    readonly lineBlame: (
+      input: LoomReviewLineBlameInput,
     ) => Effect.Effect<LoomReviewLineHistoryResult, ReviewAuthorshipError>;
     /**
      * The named commit and the selected lines' owners, each only if it lies on the diff's branch
@@ -384,6 +388,44 @@ const make = Effect.gen(function* () {
       ),
   );
 
+  /** Unbounded blame of a few working-tree lines: asked when a card opens on unchanged lines. */
+  const lineBlame = Effect.fn("ReviewAuthorship.lineBlame")(
+    function* (input: LoomReviewLineBlameInput) {
+      const none = { commits: [], threads: [] };
+      const root = yield* rootOf(input.threadId);
+      if (root === null) return none;
+      const blame = yield* run(
+        root,
+        ["blame", "--incremental", `-L${input.startLine},${input.endLine}`, "--", input.path],
+        { timeoutMs: FILE_TIMEOUT_MS },
+      );
+      if (blame.exitCode !== 0) return none;
+      const owners = blame.stdout
+        .split("\n")
+        .flatMap((line) => {
+          const header = BLAME_HEADER.exec(line);
+          return header && !ZERO_SHA.test(header[1]!)
+            ? [[Number(header[2]), header[1]!] as const]
+            : [];
+        })
+        .toSorted((left, right) => left[0] - right[0]);
+      // `--no-walk=unsorted` keeps the order given: the lines' order.
+      const commits = yield* readCommits(root, [...new Set(owners.map(([, sha]) => sha))]);
+      return { commits, threads: yield* readThreads(commits) };
+    },
+    (effect, input) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new ReviewAuthorshipError({
+              threadId: input.threadId,
+              detail: typeof cause === "string" ? cause : "git failed",
+              ...(typeof cause === "string" ? {} : { cause }),
+            }),
+        ),
+      ),
+  );
+
   const commitAuthor = Effect.fn("ReviewAuthorship.commitAuthor")(
     function* (input: {
       readonly threadId: ThreadId;
@@ -425,7 +467,7 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  return ReviewAuthorship.of({ authorship, lineHistory, commitAuthor });
+  return ReviewAuthorship.of({ authorship, lineHistory, lineBlame, commitAuthor });
 });
 
 export const layer = Layer.effect(ReviewAuthorship, make);

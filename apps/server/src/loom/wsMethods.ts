@@ -26,6 +26,7 @@ import {
   type LoomReviewDiffInput,
   type LoomReviewFileContentsInput,
   type LoomReviewIntervalsInput,
+  type LoomReviewLineBlameInput,
   type LoomReviewLineHistoryInput,
   type LoomThreadHistoryInput,
   type LoomThreadShellInput,
@@ -325,6 +326,8 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
       reviewRead(LOOM_WS_METHODS.reviewAuthorship)(reviewAuthorship.authorship(input)),
     [LOOM_WS_METHODS.reviewLineHistory]: (input: LoomReviewLineHistoryInput) =>
       reviewRead(LOOM_WS_METHODS.reviewLineHistory)(reviewAuthorship.lineHistory(input)),
+    [LOOM_WS_METHODS.reviewLineBlame]: (input: LoomReviewLineBlameInput) =>
+      reviewRead(LOOM_WS_METHODS.reviewLineBlame)(reviewAuthorship.lineBlame(input)),
     // Context-viz experiment: the thread's pi session file, attributed per call and item.
     [LOOM_WS_METHODS.contextUsage]: (input: LoomContextUsageInput) =>
       contextUsageReport(input.threadId).pipe(

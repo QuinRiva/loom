@@ -73,25 +73,18 @@ interface CardSection {
   readonly title: string;
 }
 
-/** New-side numbers of the added lines a selection holds. */
-function addedLines(fileDiff: FileDiffMetadata, range: SelectedLineRange): number[] {
-  const diff = buildDiffReviewComment({
-    id: "",
-    sectionId: "",
-    sectionTitle: "",
-    filePath: "",
-    fileDiff,
-    range,
-    text: "",
-  })?.diff;
-  if (diff === undefined) return [];
-  const [header = "", ...lines] = diff.split("\n");
+/** New-side numbers of a selection's added and unchanged lines, and whether it removes any. */
+function selectionLines(diff: string | undefined) {
+  const added: number[] = [];
+  const unchanged: number[] = [];
+  let removes = false;
+  const [header = "", ...lines] = diff?.split("\n") ?? [];
   let line = Number(/\+(\d+)/.exec(header)?.[1] ?? 0);
-  return lines.flatMap((text) => {
-    if (text.startsWith("-")) return [];
-    const number = line++;
-    return text.startsWith("+") ? [number] : [];
-  });
+  for (const text of lines) {
+    if (text.startsWith("-")) removes = true;
+    else (text.startsWith("+") ? added : unchanged).push(line++);
+  }
+  return { added, unchanged, removes };
 }
 
 const colourOf = (group: AuthorGroup | undefined) =>
@@ -180,7 +173,47 @@ function AuthorCard({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { authorship, result } = authors;
-  const lines = addedLines(fileDiff, range);
+  const selected = buildDiffReviewComment({
+    id: "",
+    sectionId: section.id,
+    sectionTitle: section.title,
+    filePath,
+    fileDiff,
+    range,
+    text: "",
+  });
+  const { added: lines, unchanged, removes } = selectionLines(selected?.diff);
+  // Lines the comparison left unchanged: who last wrote them, asked only when they are selected.
+  const blamed = lines.length === 0 && !removes && unchanged.length > 0;
+  const blame = useEnvironmentQuery(
+    blamed && authorship !== null
+      ? revisionedQuery(
+          loomReviewQueries.lineBlame({
+            environmentId: reviewing.environmentId,
+            input: {
+              threadId: reviewing.threadId,
+              path: filePath,
+              startLine: Math.min(...unchanged),
+              endLine: Math.max(...unchanged),
+            },
+          }),
+          `${result?.headSha ?? ""}:${authors.diffHash ?? ""}`,
+        )
+      : null,
+  );
+  const writers = (blame.data?.commits ?? []).map((commit) => {
+    const row = rowOf(commit, blame.data?.threads ?? [], authorship?.groups ?? []);
+    const date = new Date(commit.authoredAt).toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+    return {
+      row: row.threadId === null ? { ...row, detail: date } : row,
+      // The whole-branch answer lists every branch commit that owns a line of the diff.
+      onBranch: result?.commits.some((candidate) => candidate.sha === commit.sha) === true,
+    };
+  });
   const owners = authorship ? lines.map((line) => authorship.at(filePath, line)) : [];
   const shas = [...new Set(owners.flatMap((owner) => (owner?.sha ? [owner.sha] : [])))];
   const current =
@@ -221,15 +254,6 @@ function AuthorCard({
         rows.findIndex((other) => other.threadId === row.threadId) === index,
     );
 
-  const selected = buildDiffReviewComment({
-    id: "",
-    sectionId: section.id,
-    sectionTitle: section.title,
-    filePath,
-    fileDiff,
-    range,
-    text: "",
-  });
   // The questions whose mark is on one of these lines, under their author's row.
   const asked =
     authorship === null
@@ -324,7 +348,7 @@ function AuthorCard({
       </Button>
     </div>
   );
-  const renderRow = (row: AuthorRow) => [
+  const renderRow = (row: AuthorRow, askable = true) => [
     // A narrow card (the whole-file view's split layout) wraps the buttons under the name.
     <div key={row.key} className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
       <span
@@ -346,7 +370,7 @@ function AuthorCard({
         </div>
       </div>
       <div className="ms-auto flex shrink-0 gap-1">
-        {row.threadId !== null && !commenting ? (
+        {row.threadId !== null && askable && !commenting ? (
           <Button
             variant={asking === row.key ? "secondary" : "outline"}
             size="xs"
@@ -397,15 +421,25 @@ function AuthorCard({
         {authorship === null ? (
           <p className="text-muted-foreground">Finding who wrote these lines…</p>
         ) : lines.length === 0 ? (
-          <p className="text-muted-foreground">
-            {/* A selection carried across comparisons can hold only unchanged lines. */}
-            {selected?.diff
-              .split("\n")
-              .slice(1)
-              .some((line) => line.startsWith("-"))
-              ? "Removed lines have no recorded author."
-              : "These lines did not change in this comparison."}
-          </p>
+          removes ? (
+            <p className="text-muted-foreground">Removed lines have no recorded author.</p>
+          ) : blame.isPending ? (
+            <p className="text-muted-foreground">Finding who wrote these lines…</p>
+          ) : writers.length === 0 ? (
+            <p className="text-muted-foreground">These lines did not change in this comparison.</p>
+          ) : (
+            <>
+              {/* Asking stays on lines the comparison changed: the server asks only of those. */}
+              <p className="text-muted-foreground">
+                {writers.every((writer) => writer.onBranch)
+                  ? "These lines changed on this branch, but not in this comparison. Query author is offered only on lines this comparison changed."
+                  : writers.some((writer) => writer.row.threadId !== null)
+                    ? "These lines are older than this branch. Query author is offered only on lines the branch changed."
+                    : "These lines are older than this branch and no thread wrote them, so there is no one to ask."}
+              </p>
+              {writers.map((writer) => renderRow(writer.row, false))}
+            </>
+          )
         ) : current.length === 0 ? (
           <p className="text-muted-foreground">
             {uncommitted
@@ -416,7 +450,7 @@ function AuthorCard({
           </p>
         ) : (
           <>
-            {current.map(renderRow)}
+            {current.map((row) => renderRow(row))}
             {asked.filter((question) => !rowThreads.has(question.authorThreadId)).map(renderAsked)}
             {uncommitted ? (
               <p className="text-muted-foreground">Some of these lines are not committed yet.</p>
@@ -426,7 +460,7 @@ function AuthorCard({
         {earlier.length > 0 ? (
           <>
             <p className="text-muted-foreground">Earlier, these lines were written by</p>
-            {earlier.map(renderRow)}
+            {earlier.map((row) => renderRow(row))}
           </>
         ) : null}
         {commenting || asking !== null ? null : (

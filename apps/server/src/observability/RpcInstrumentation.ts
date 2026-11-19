@@ -258,6 +258,7 @@ const RPC_AGGREGATES = {
   [LOOM_WS_METHODS.reviewFileContents]: "review", // loom: change review
   [LOOM_WS_METHODS.reviewAuthorship]: "review", // loom: diff author query
   [LOOM_WS_METHODS.reviewLineHistory]: "review", // loom: diff author query
+  [LOOM_WS_METHODS.reviewLineBlame]: "review", // loom: diff author query
   [LOOM_WS_METHODS.subscribeDeploy]: "loom", // loom: deploy toasts
   [LOOM_WS_METHODS.startDeploy]: "loom", // loom: the Deploy control
   [LOOM_WS_METHODS.cancelDeploy]: "loom", // loom: the Deploy control
