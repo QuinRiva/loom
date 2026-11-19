@@ -30,6 +30,16 @@ import { Button } from "../../components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../components/ui/tooltip";
 import type { DraftId } from "../../composerDraftStore";
 import { useClientSettings } from "../../hooks/useSettings";
+// loom: SPIKE inline diff editing
+import {
+  changeFileSaveSession,
+  type FilePendingListener,
+  useFileSaveSession,
+} from "../../components/files/fileSaveSessions";
+import {
+  getProjectFileContents,
+  setProjectFileQueryData,
+} from "../../components/files/projectFilesQueryState";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { useRenderedAppearance } from "../../hooks/useTheme";
 import { createGitDiffFileContentsLoader } from "../../lib/diffFileContents";
@@ -67,6 +77,8 @@ import {
 import { useLoomAuthorship } from "./useLoomAuthorship";
 import { useReviewFollow } from "./useReviewFollow";
 import { useQuietThreadShell } from "../../state/entities";
+
+const noPending: FilePendingListener = () => undefined; // loom: SPIKE
 
 /** About 5,000 lines of ordinary source; either side over this opens in hunk mode. */
 export const WHOLE_FILE_MAX_BYTES = 250_000;
@@ -112,7 +124,7 @@ function statusOfPatch(diff: string): LoomChangedFile["status"] | null {
 }
 
 type WholeFileState =
-  | { readonly key: string; readonly diff: FileDiffMetadata }
+  | { readonly key: string; readonly diff: FileDiffMetadata; readonly newIsWorking: boolean } // loom: SPIKE
   | { readonly key: string; readonly error: string };
 
 /** Whose comparison this is and how to ask who wrote it (plans/diff-author-query). */
@@ -145,6 +157,13 @@ export interface FileChangeViewProps {
   /** Where the reader's place in this file is remembered across a thread switch. */
   readonly scrollKey?: string;
   readonly review?: FileChangeReview;
+  /** loom: SPIKE inline diff editing — where typing in the new side saves, when it is the working file. */
+  readonly editTarget?: {
+    readonly environmentId: EnvironmentId;
+    readonly cwd: string;
+    readonly working: string | null;
+    readonly onPendingChange: FilePendingListener;
+  } | null;
 }
 
 export function FileChangeView({
@@ -157,6 +176,7 @@ export function FileChangeView({
   statusPending = false,
   scrollKey,
   review,
+  editTarget = null,
 }: FileChangeViewProps) {
   const resolvedTheme = useRenderedAppearance(); // the diff worker pool resolves only this theme
   const layout = useReviewBaselineStore((state) => state.fileChangeLayout);
@@ -169,6 +189,19 @@ export function FileChangeView({
   const [wholeRequestedFor, setWholeRequestedFor] = useState<string | null>(null);
   const mode = oversize && wholeRequestedFor !== file.path ? "patch" : "whole";
   const [whole, setWhole] = useState<WholeFileState | null>(null);
+  // loom: SPIKE inline diff editing. The last text typed here: a reload carrying it is our own save
+  // echoing back, so the open edit session is kept rather than replaced.
+  const typedRef = useRef<string | null>(null);
+  const publishRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const editableLatchRef = useRef<string | null>(null);
+  const workingRef = useRef(editTarget?.working ?? null);
+  workingRef.current = editTarget?.working ?? null;
+  const saveTarget = {
+    environmentId: editTarget?.environmentId ?? ("" as EnvironmentId),
+    cwd: editTarget?.cwd ?? "",
+    relativePath: path,
+  };
+  useFileSaveSession(saveTarget, editTarget?.onPendingChange ?? noPending);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the whole file pair through the diff loader for the current file and revision
   useEffect(() => {
@@ -177,6 +210,11 @@ export function FileChangeView({
     void load(fileDiffStub(path, previousPath, status)).then(
       ({ oldFile, newFile }) => {
         if (cancelled) return;
+        // loom: SPIKE — our own save echoing back: keep the editor's session.
+        const spikeLog = ((window as unknown as { __spikeLoads?: unknown[] }).__spikeLoads ??= []);
+        spikeLog.push({ key, echo: newFile?.contents === typedRef.current, at: Date.now() });
+        if (typedRef.current !== null && newFile?.contents === typedRef.current) return;
+        typedRef.current = null;
         const side = (contents: FileContents | null) =>
           contents && { ...contents, cacheKey: `loom-file-change:${key}:${contents.cacheKey}` };
         try {
@@ -186,6 +224,11 @@ export function FileChangeView({
               status === "added" ? null : side(oldFile),
               status === "deleted" ? null : side(newFile),
             ),
+            newIsWorking:
+              status !== "deleted" &&
+              newFile !== null &&
+              workingRef.current !== null &&
+              newFile.contents === workingRef.current,
           });
         } catch {
           // Pierre refuses two identical sides; a whitespace-only change under hidden whitespace.
@@ -250,6 +293,34 @@ export function FileChangeView({
     review && scopedThreadKey(review.routed) !== reviewKey && reviewFocus?.filePath === file.path
       ? reviewFocus
       : null;
+
+  // loom: SPIKE — typing is on when the new side is the working file under a baseline that ends there.
+  // Latched per path: a reload landing before the working copy's own refetch must not flip it off.
+  const editable =
+    localStorage.getItem("loom.spike.inlineEdit") !== "off" &&
+    editTarget !== null &&
+    mode === "whole" &&
+    wholeOnScreen !== null &&
+    "diff" in wholeOnScreen &&
+    (wholeOnScreen.newIsWorking || editableLatchRef.current === path);
+  if (editable) editableLatchRef.current = path;
+  const loomEdit = editable
+    ? {
+        onChange: (contents: string) => {
+          if (contents === getProjectFileContents(saveTarget.environmentId, saveTarget.cwd, path))
+            return;
+          typedRef.current = contents;
+          changeFileSaveSession(saveTarget, contents);
+          // Publishing the text re-renders the whole Files panel (70 to 100 ms a keystroke on 770
+          // lines), so it waits for a pause in typing.
+          clearTimeout(publishRef.current);
+          publishRef.current = setTimeout(
+            () => setProjectFileQueryData(saveTarget.environmentId, saveTarget.cwd, path, contents),
+            400,
+          );
+        },
+      }
+    : undefined;
 
   const [codeView, setCodeView] = useState<AnnotatableCodeViewHandle | null>(null);
   const changes = fileDiff ? rulerChanges(fileDiff, layout) : [];
@@ -424,7 +495,7 @@ export function FileChangeView({
       >
         <AnnotatableCodeView
           viewerRef={setCodeView}
-          codeViewKey={`${file.path}:${mode}`}
+          codeViewKey={`${file.path}:${mode}:${editable ? "edit" : "read"}`}
           className="h-full min-h-0 flex-1 overflow-auto"
           files={[
             {
@@ -443,6 +514,7 @@ export function FileChangeView({
           renderHeaderPrefix={() => null}
           onRevealSearchMatch={() => undefined}
           authorCard={authorCard}
+          loomEdit={loomEdit}
           unsafeCSSExtra={authors.css}
           options={{
             diffStyle: layout,
@@ -490,6 +562,7 @@ export function LoomFileChangeSurface({
   composerDraftTarget,
   scrollKey,
   workspaceMutationId,
+  editTarget = null,
 }: {
   environmentId: EnvironmentId;
   threadRef: ScopedThreadRef;
@@ -502,6 +575,11 @@ export function LoomFileChangeSurface({
   working: { readonly byteLength: number; readonly contents: string } | null;
   composerDraftTarget: ScopedThreadRef | DraftId;
   scrollKey: string;
+  /** loom: SPIKE inline diff editing */
+  editTarget?: {
+    readonly cwd: string;
+    readonly onPendingChange: FilePendingListener;
+  } | null;
 }) {
   const getLoomContents = useAtomCommand(loomReviewQueries.fileContents);
   const getGitContents = useAtomCommand(reviewEnvironment.diffFileContents);
@@ -593,6 +671,12 @@ export function LoomFileChangeSurface({
       // A failed read falls back to the guess.
       statusPending={provisional && !fetchedStatus && gitPatch.error === null}
       scrollKey={scrollKey}
+      // loom: SPIKE — only baselines whose new side ends at the working copy
+      editTarget={
+        editTarget && (baseline.kind === "git" || baseline.intervalId === "live")
+          ? { environmentId, ...editTarget, working: working?.contents ?? null }
+          : null
+      }
       review={{
         routed: routedRef,
         reviewing: threadRef,

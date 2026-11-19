@@ -5,6 +5,8 @@
  */
 import type { FileDiffContentsLoader } from "@pierre/diffs";
 
+import { EnvironmentId } from "@t3tools/contracts";
+
 import { DraftId } from "../composerDraftStore";
 import {
   FileChangeView,
@@ -99,6 +101,13 @@ export const FILE_CHANGE_VIEW_PREVIEW_GROUP: PreviewGroup = {
             loadDiffFiles={fixture.loadDiffFiles}
             patch={{ text: fixture.patch, error: null }}
             composerDraftTarget={DraftId.make("preview-file-change")}
+            // loom: SPIKE inline diff editing — typing on; nothing persists without a backend
+            editTarget={{
+              environmentId: EnvironmentId.make("preview"),
+              cwd: "/preview",
+              working: contents,
+              onPendingChange: () => undefined,
+            }}
           />
         </div>
       ),

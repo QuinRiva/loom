@@ -6,7 +6,8 @@ import type {
   FileDiffMetadata,
   SelectedLineRange,
 } from "@pierre/diffs";
-import type { CodeViewHandle } from "@pierre/diffs/react";
+import { EditProvider, type CodeViewHandle } from "@pierre/diffs/react";
+import { Editor, type EditorFactory } from "@pierre/diffs/edit"; // loom: SPIKE inline diff editing
 import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
 import { useState, type ReactNode, type Ref } from "react";
 
@@ -102,7 +103,16 @@ interface AnnotatableCodeViewProps {
   onRevealSearchMatch: (fileKey: string) => void;
   /** loom: diff author query — selecting lines opens the draft as the author card. */
   authorCard?: AuthorCardSlot | undefined;
+  /** loom: SPIKE inline diff editing — the new side is editable; each change reports the whole new file. */
+  loomEdit?: { onChange: (contents: string) => void } | undefined;
 }
+
+// loom: SPIKE inline diff editing
+const createDiffEditor: EditorFactory<DiffCommentAnnotationGroup, undefined> = (
+  editorType,
+  options,
+  editStateKey,
+) => new Editor(editorType, options, editStateKey);
 
 interface DiffSelectionContext {
   item: CodeViewItem<DiffCommentAnnotationGroup>;
@@ -127,6 +137,7 @@ export function AnnotatableCodeView({
   renderHeaderPrefix,
   onRevealSearchMatch,
   authorCard, // loom
+  loomEdit, // loom: SPIKE
 }: AnnotatableCodeViewProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -199,6 +210,7 @@ export function AnnotatableCodeView({
         fileDiff,
         annotations,
         collapsed,
+        ...(loomEdit ? { edit: true } : {}), // loom: SPIKE
         version: fnv1a32(
           `${fileVersion}:${collapsed ? "1" : "0"}:${annotations
             .flatMap((annotation) =>
@@ -294,9 +306,15 @@ export function AnnotatableCodeView({
   const loomShown = (entry: DiffCommentAnnotationEntry) =>
     !authorCard || entry.kind !== "draft" || loomCommenting;
 
-  return (
+  const view = (
     <StyledDiffCodeView<DiffCommentAnnotationGroup>
       key={codeViewKey}
+      {...(loomEdit
+        ? {
+            onItemEditChange: (event: { file: { contents: string } }) =>
+              loomEdit.onChange(event.file.contents),
+          }
+        : {})}
       {...(viewerRef ? { viewerRef } : {})}
       {...(className ? { className } : {})}
       {...(unsafeCSSExtra ? { unsafeCSSExtra } : {})}
@@ -359,4 +377,6 @@ export function AnnotatableCodeView({
       }}
     />
   );
+  // loom: SPIKE inline diff editing
+  return loomEdit ? <EditProvider createEditor={createDiffEditor}>{view}</EditProvider> : view;
 }

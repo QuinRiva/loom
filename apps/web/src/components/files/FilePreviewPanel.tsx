@@ -1428,6 +1428,11 @@ export default function FilePreviewPanel({
     previewPath !== null && !isHostFile && !isMedia && !isPdf
       ? loomMarks?.files.get(previewPath)
       : undefined;
+  // loom: SPIKE — what a workspace mutation (an agent's write) refreshes, callable from a test driver
+  (window as unknown as { __spikeAgentWrote?: () => void }).__spikeAgentWrote = () => {
+    file.refresh();
+    loomMarks?.refresh();
+  };
   const loomShowsChange =
     loomChange !== undefined &&
     (loomChoice?.path === previewPath ? loomChoice.showChanges : renderedMode === null);
@@ -1692,6 +1697,12 @@ export default function FilePreviewPanel({
               working={file.data}
               composerDraftTarget={composerDraftTarget}
               scrollKey={`${scrollKey}:change`} // loom: remembered scroll position
+              // loom: SPIKE inline diff editing — the same conditions as the editor's
+              editTarget={
+                file.data && !file.data.truncated && !isHostFile && !unboundedLines && canWriteFiles
+                  ? { cwd, onPendingChange }
+                  : null
+              }
             />
           ) : relativePath && renderBrowserFile && absolutePath ? (
             <WorkspaceBrowserPreview
