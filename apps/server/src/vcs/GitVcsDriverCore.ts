@@ -4951,17 +4951,41 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       if (target === null) return null;
       const { remoteName, branchName } = target;
       const remoteRefName = `${remoteName}/${branchName}`;
-      // A missing remote branch can leave a stale tracking ref; never resolve it.
-      if (!(yield* fetchRemote({ cwd: input.cwd, remoteName, refName: remoteRefName }))) {
-        return null;
-      }
-      const resolved = yield* executeGit(
+      const resolveTracked = executeGit(
         "GitVcsDriver.fetchWorktreeBaseCommit",
         input.cwd,
         ["rev-parse", "--verify", "--quiet", `refs/remotes/${remoteRefName}^{commit}`],
         { allowNonZeroExit: true },
+      ).pipe(
+        Effect.map((resolved) =>
+          resolved.exitCode === 0 ? { commitSha: resolved.stdout.trim(), remoteRefName } : null,
+        ),
       );
-      return resolved.exitCode === 0 ? { commitSha: resolved.stdout.trim(), remoteRefName } : null;
+      const fetched = yield* fetchRemote({
+        cwd: input.cwd,
+        remoteName,
+        refName: remoteRefName,
+      }).pipe(
+        // loom: a failed fetch (timeout, unreachable remote) starts from the existing tracking ref,
+        // which the status poll keeps near-current; with none, the fetch error stands.
+        Effect.catchTags({
+          GitCommandError: (error) =>
+            resolveTracked.pipe(
+              Effect.flatMap((tracked) =>
+                tracked === null
+                  ? Effect.fail(error)
+                  : Effect.logWarning("worktree base fetch failed; using the local tracking ref", {
+                      cwd: input.cwd,
+                      ref: `refs/remotes/${remoteRefName}`,
+                      detail: error.detail,
+                    }).pipe(Effect.as(tracked)),
+              ),
+            ),
+        }),
+      );
+      // A missing remote branch can leave a stale tracking ref; never resolve it.
+      if (fetched === false) return null;
+      return fetched === true ? yield* resolveTracked : fetched; // loom: fallback result
     });
 
   const fetchRemoteBranch: GitVcsDriver.GitVcsDriver["Service"]["fetchRemoteBranch"] = Effect.fn(

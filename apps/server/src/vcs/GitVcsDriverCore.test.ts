@@ -6471,6 +6471,27 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    // loom: a failed base fetch starts from the tracking ref the status poll keeps current.
+    it.effect("uses the existing tracking ref when the worktree base fetch fails", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-remote-");
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+        yield* git(cwd, ["push", "-u", "origin", initialBranch]);
+        const tracked = yield* git(cwd, ["rev-parse", `refs/remotes/origin/${initialBranch}`]);
+        yield* git(cwd, ["commit", "--allow-empty", "-m", "local only"]);
+        yield* git(cwd, ["remote", "set-url", "origin", `${cwd}/missing.git`]);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        assert.deepEqual(yield* driver.fetchWorktreeBaseCommit({ cwd, refName: initialBranch }), {
+          commitSha: tracked,
+          remoteRefName: `origin/${initialBranch}`,
+        });
+      }),
+    );
+
     it.effect("pushes with upstream setup and skips when already up to date", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
