@@ -21,7 +21,7 @@ export function createLoomCommandAtoms<R, E>(
   const command = <
     Tag extends Exclude<
       (typeof LOOM_WS_METHODS)[keyof typeof LOOM_WS_METHODS],
-      typeof LOOM_WS_METHODS.subscribeDeploy
+      typeof LOOM_WS_METHODS.subscribeDeploy | typeof LOOM_WS_METHODS.subscribeMobileApp
     >,
   >(
     tag: Tag,
@@ -84,5 +84,10 @@ export function createLoomCommandAtoms<R, E>(
     }),
     startDeploy: command(LOOM_WS_METHODS.startDeploy),
     cancelDeploy: command(LOOM_WS_METHODS.cancelDeploy),
+    mobileApp: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:loom:mobile-app",
+      tag: LOOM_WS_METHODS.subscribeMobileApp,
+    }),
+    mobileApkUrl: command(LOOM_WS_METHODS.mobileApkUrl),
   };
 }

@@ -43,6 +43,21 @@ fast-forward, the pi skills folder and the agent slice to stop before each serve
 `engineUnit` names the engine's unit; it defaults to `loom-deploy` and a scratch store must set
 its own.
 
+The optional `mobile` key turns on the phone app's APK build
+([`docs/operations/loom-android-apk.md`](../docs/operations/loom-android-apk.md)):
+
+```json
+"mobile": {
+  "dir": "/mnt/fast/loom-deploy/mobile",
+  "androidHome": "/opt/android-sdk",
+  "javaHome": "/usr/lib/jvm/java-17-openjdk-amd64"
+}
+```
+
+`dir` holds the stored APKs, the build's checkout, package store, Gradle home and `build.log`; it
+must be on a disk with room, never the root disk. `unit` names the build's unit and defaults to
+`loom-mobile-build`. Without the key nothing is built and the phone is offered nothing.
+
 A release's version is `100.<UTC date>.<n>`, stamped into its `apps/server/package.json` before
 the build. `<home>/runtime/versions/<version>` is a link to that release's `deploy/runtime/`.
 
@@ -51,11 +66,12 @@ the build. `<home>/runtime/versions/<version>` is a link to that release's `depl
 | Verb                                                                                                          | What it does                                                                                                                                                                                                                                                                                      |
 | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `loom-deploy deploy [ref] [--no-return] [--release <id>] [--wait] [--origin cli\|slack\|loom] [--who <name>]` | Starts a deploy of `ref` (default `main`) and returns once it has started. `--wait` follows it to the end. `--release` deploys a release already in the store without rebuilding it.                                                                                                              |
-| `loom-deploy status [--wait] [--json]`                                                                        | What is running, what the last deploy did and why, and the kept copies. Writes nothing.                                                                                                                                                                                                           |
+| `loom-deploy status [--wait] [--json]`                                                                        | What is running, what the last deploy did and why, the phone app's APK and build, and the kept copies. Writes nothing.                                                                                                                                                                            |
 | `loom-deploy back [--wait]`                                                                                   | Returns to the release before the running one, with the database copy taken when the running one was switched to. Everything written in Loom since that switch is lost; it prints the time first. It runs in the engine's unit and returns once that has started; `--wait` follows it to the end. |
 | `loom-deploy retry`                                                                                           | Runs a held release again after a fix.                                                                                                                                                                                                                                                            |
 | `loom-deploy cancel`                                                                                          | Stops a deploy that is still building or checking. Loom is not stopped.                                                                                                                                                                                                                           |
 | `loom-deploy adopt`                                                                                           | Makes the release it is run from the launcher's active version, with no probation. Used by `back`, at the cut-over and for a launcher protocol change.                                                                                                                                            |
+| `loom-deploy apk`                                                                                             | Offers the stored phone app APK that matches this release, or starts a build of one. After-accept and `back` do the same by themselves; run it to retry a failed build.                                                                                                                           |
 
 From a Loom thread, run `deploy` and `back` without `--wait` and follow them with `status`: Loom
 restarts under the command, and a turn resumed after the restart could otherwise run it a second

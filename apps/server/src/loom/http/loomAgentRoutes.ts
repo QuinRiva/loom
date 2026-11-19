@@ -1,7 +1,8 @@
 /**
  * REST routes beside `/mcp` for Loom's pi extension (session profile, `ask_user_question`, cache
- * warming, gate keep-alive) on the thread's MCP credential, which must carry `workstream`; and
- * `loom-deploy`'s `/loom/deploy/restarting` and `/loom/deploy/switch` on an environment bearer.
+ * warming, gate keep-alive) on the thread's MCP credential, which must carry `workstream`;
+ * `loom-deploy`'s `/loom/deploy/restarting` and `/loom/deploy/switch` on an environment bearer; and
+ * the phone app's APK download on a signed link alone.
  */
 import {
   AuthEnvironmentMaintainScope,
@@ -36,6 +37,7 @@ import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { isContinueLaunch } from "../../orchestration-v2/Orchestrator.loom.ts";
 import type { LoomSessionProfile } from "../../provider/Drivers/Pi/loomExtension.ts";
 import * as LoomDeploy from "../deploy/LoomDeploy.ts";
+import { MOBILE_APK_ROUTE } from "../deploy/mobileApp.ts";
 import { loomPaths, promptCapturePathsOf } from "../loomPaths.ts";
 import { readLaunchIdentity } from "../workstream/launchIdentity.ts";
 import { LoomCacheBroadcast } from "../projection/LoomCacheBroadcast.ts";
@@ -279,7 +281,7 @@ const deployRoute = <F extends Schema.Struct.Fields>(
     }),
   );
 
-/** `loom-deploy`'s two routes; the service is taken at build, where `ServerSelfUpdate` is. */
+/** `loom-deploy`'s two routes and the APK download; the service is taken at build, where `ServerSelfUpdate` is. */
 const deployRoutes = Layer.unwrap(
   Effect.gen(function* () {
     const deploy = yield* LoomDeploy.LoomDeploy;
@@ -309,6 +311,20 @@ const deployRoutes = Layer.unwrap(
                 ),
             }),
           ),
+      ),
+      // The phone's downloader and browser carry no session: the signed token is the credential.
+      HttpRouter.route(
+        "GET",
+        `${MOBILE_APK_ROUTE}/:token/:name`,
+        Effect.gen(function* () {
+          const file = yield* deploy.mobileApkFile((yield* HttpRouter.params).token ?? "");
+          const notFound = HttpServerResponse.text("Not Found", { status: 404 });
+          if (Option.isNone(file)) return notFound;
+          return yield* HttpServerResponse.file(file.value, {
+            contentType: "application/vnd.android.package-archive",
+            headers: { "cache-control": "private, no-store, no-transform" },
+          }).pipe(Effect.orElseSucceed(() => notFound));
+        }),
       ),
     ]);
   }),

@@ -79,6 +79,7 @@ import {
   threadListV2SearchArchivedItems, // loom
 } from "../threads/threadListV2";
 import { ArchivedSearchResultRow } from "../threads/ArchivedSearchResultRow.loom"; // loom
+import { LoomAppUpdateNotice } from "../updates/LoomAppUpdateNotice.loom"; // loom: phone app updates
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
 import {
@@ -762,6 +763,8 @@ export function HomeScreen(props: HomeScreenProps) {
   const v2ListHeader = (
     <>
       {listHeader}
+      {/* loom: a new build of the app is ready, or failed */}
+      <LoomAppUpdateNotice />
       {Platform.OS === "ios" && workspace ? (
         <ThreadListFilters
           gutter={sidebarSurface ? 8 : 0}

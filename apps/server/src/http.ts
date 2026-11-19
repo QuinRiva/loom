@@ -405,6 +405,7 @@ const layerUntracedRequests = Layer.succeed(HttpMiddleware.TracerDisabledWhen)((
     UNTRACED_REQUEST_PATHS.has(path) ||
     path.startsWith(`${WEBHOOK_ROUTE_PREFIX}/`) ||
     path.startsWith(`${ASSET_ROUTE_PREFIX}/`) ||
+    path.startsWith("/loom/mobile/apk/") || // loom: the phone app's signed APK links
     path.startsWith(`${ATTACHMENT_UPLOAD_ROUTE_PREFIX}/`)
   );
 });

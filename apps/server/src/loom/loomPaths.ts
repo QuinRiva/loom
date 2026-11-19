@@ -17,6 +17,8 @@ export const loomPaths = (config: Pick<ServerDerivedPaths, "stateDir">) => ({
   // The release runner and loom-deploy write these (plans/loom-deploy-redesign/plan.mdx §4.2).
   deployNoticePath: NodePath.join(config.stateDir, "deploy-notice.json"),
   deployStatusPath: NodePath.join(config.stateDir, "deploy-status.json"),
+  // loom-deploy's phone app build writes this (plans/mobile-self-hosted-updates/plan.mdx §3).
+  mobileAppPath: NodePath.join(config.stateDir, "mobile-app.json"),
 });
 
 export type LoomPaths = ReturnType<typeof loomPaths>;

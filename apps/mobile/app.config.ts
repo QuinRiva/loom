@@ -11,6 +11,10 @@ Object.assign(process.env, repoEnv);
 process.env.EXPO_NO_TYPESCRIPT_SETUP = "1";
 
 const APP_VARIANT = resolveAppVariant(repoEnv.APP_VARIANT);
+// loom: the commit this APK was built from, set by the deploy's APK build (apps/server/src/loom/deploy/mobile.ts)
+const loomBuild = repoEnv.LOOM_BUILD_SHA
+  ? { sha: repoEnv.LOOM_BUILD_SHA, committedAt: repoEnv.LOOM_BUILD_COMMITTED_AT }
+  : undefined;
 const isIosPersonalTeamBuild = repoEnv.T3CODE_IOS_PERSONAL_TEAM === "1";
 const runtimeVersionPolicy =
   process.env.MOBILE_VERSION_POLICY ??
@@ -307,6 +311,8 @@ const config: ExpoConfig = {
     predictiveBackGestureEnabled: true,
     // expo-sensors declares this for its pedometer, which the app does not use.
     blockedPermissions: ["android.permission.ACTIVITY_RECOGNITION"],
+    // loom: lets a deploy-built app hand a downloaded APK to Android's installer
+    ...(loomBuild ? { permissions: ["android.permission.REQUEST_INSTALL_PACKAGES"] } : {}),
     intentFilters: [
       {
         action: "VIEW",
@@ -462,6 +468,8 @@ const config: ExpoConfig = {
       process.env.T3CODE_FEATURE_SECRETS?.trim().toLowerCase() ?? "",
     ),
     iosPersonalTeamBuild: isIosPersonalTeamBuild,
+    // loom: omitted when unset, because a null here is embedded as {}
+    ...(loomBuild ? { loomBuild } : {}),
     relay: {
       url: repoEnv.T3CODE_RELAY_URL ?? null,
     },

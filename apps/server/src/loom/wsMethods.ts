@@ -20,6 +20,7 @@ import {
   type LoomGoalTaskRewriteNode,
   type LoomGoalGetInput,
   type LoomGoalUpdateInput,
+  type LoomMobileApkUrlInput,
   type LoomPromptCaptureInput,
   type LoomReviewAuthorshipInput,
   type LoomReviewDiffInput,
@@ -347,6 +348,15 @@ export const makeLoomWsHandlers = Effect.gen(function* () {
         Effect.catchTags({
           LoomDeployRefusal: (cause) =>
             Effect.fail(fail(LOOM_WS_METHODS.cancelDeploy, cause.reason, cause)),
+        }),
+      ),
+    // Phone app updates: the home notice and Settings → About, then the tap that downloads.
+    [LOOM_WS_METHODS.subscribeMobileApp]: () => deploy.mobileApp,
+    [LOOM_WS_METHODS.mobileApkUrl]: (input: LoomMobileApkUrlInput) =>
+      deploy.mobileApkUrl(input.sha).pipe(
+        Effect.catchTags({
+          LoomDeployRefusal: (cause) =>
+            Effect.fail(fail(LOOM_WS_METHODS.mobileApkUrl, cause.reason, cause)),
         }),
       ),
   };
