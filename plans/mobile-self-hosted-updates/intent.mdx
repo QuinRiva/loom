@@ -54,7 +54,7 @@ manager_sessions:
 - Before it is seen on a phone: "Build it, test the server half with a script that plays the phone's part, then I run the five-minute check".
 - Off the tailnet, which applies only if served code is built: "Say nothing, run the version it has, and check again as soon as it reconnects to Loom".
 - _Assumed:_ the server keeps the previous APK downloadable as the way back; redirect if wrong.
-- _Assumed:_ while an APK is still building (10 to 25 minutes after a deploy) the home screen stays quiet, since there is nothing for you to do yet. Settings → About says the app is behind and its build is being prepared. Redirect if wrong.
+- _Assumed:_ while an APK is still building (16 to 26 minutes after a deploy) the home screen stays quiet, since there is nothing for you to do yet. Settings → About says the app is behind and its build is being prepared. Redirect if wrong.
 - _Assumed:_ Android only, your one phone, the same "T3 Code Preview" app and signing key as today.
 - _Assumed:_ the notice reaches the app over its ordinary connection to Loom, so it appears wherever the app can reach Loom; redirect if wrong.
 
@@ -72,5 +72,5 @@ manager_sessions:
 
 - Does Android let an older Loom APK install over a newer one? As I understand its rule it refuses only a lower version number, and the three Loom APKs I found all carry the same one, so it should. I have not seen it done. Step 3 settles it.
 - Are 3 to 4 installs a week the real number? It counts every deploy that touched a file in today's app, however small the change. The first fortnight settles it.
-- How long does the deploy's own APK build take? The three hand builds on this machine took 8 to 22 minutes; the 6 minutes first quoted was one warm run. A build uses about 4 GB of scratch and keeps about 10 GB of caches on the second disk, which has 141 GB free and also holds Loom's database. It refuses to start with under 30 GB free there. The first few deploys settle the time.
+- _Settled:_ the deploy's own APK build takes 16 minutes, or 26 from empty caches, measured on two real builds. It keeps about 10 GB of caches on the second disk, which has 141 GB free and also holds Loom's database. It refuses to start with under 30 GB free there. It peaks at 22 to 27 GB of memory on a 62 GB machine, at low priority; whether agents feel that is for the first few deploys to show.
 - _For served code, if you later say yes:_ does the phone take an update from this server, over plain HTTP, at all? Does the updater fall back after a crash on opening, as its source says? Neither has been seen. A device settles both.

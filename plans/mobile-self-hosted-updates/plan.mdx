@@ -4,7 +4,7 @@ reader:
   knows: the brief and Carl's six answers in it; nothing of the deploy code, the phone app's code or the measurements this plan rests on
   after_first_screen: what is built and in which two pieces, the one rule that decides when an APK is built and offered, the two bets, what is proved before Carl's check and what only his phone can show, and that nothing here reopens the brief
 kicker: "Implementation plan · phone app updates, APK-first cut · 19 Nov 2026"
-status: approved
+status: done
 intent: plans/mobile-self-hosted-updates/intent.mdx
 manager_sessions:
   - id: 01a1f206-f328-746d-af20-4617b475feab
@@ -656,3 +656,21 @@ Its hand-back carries the build log, the six checks' output, the script's output
 - **The build shares a disk with the live database.** `/mnt/fast` is where the room is, and it is also where the database and its copies live. The 30 GB floor is what keeps a build from ever being the thing that fills it. The caches kept there grow slowly, with each new dependency version, and nothing prunes them.
 - **Load.** Gradle with an 8 GB heap on a machine that also runs agents. The unit is low priority and the machine has 62 GB; if it hurts, the heap is one flag.
 - **Left out on purpose:** a download progress bar, since the notice says "Downloading"; dismissing the notice; a web or desktop surface; any setting. Also left out is narrowing the rule further by comparing bundle contents. That would cost two to three minutes of bundling on every deploy, to save installs the fortnight has not yet shown to matter.
+
+## As built
+
+Built in two briefs as planned, on one PR. Where the build departed:
+
+- **A build takes 16 to 26 minutes, not 10 to 25.** Two real builds by the deploy's own path: 26 minutes from empty caches, 16 warm. Each used about two hours of CPU time and peaked at 22 to 27 GB of memory by systemd's count, which includes page cache.
+- **The build goes first under memory pressure,** because of that peak on a machine that also runs agents. The unit sets `OOMScoreAdjust=1000`.
+- **The build never installs Android SDK components.** Gradle is passed `-Pandroid.builder.sdkDownload=false`. The SDK is on the root disk, and Gradle would otherwise download a missing NDK or platform there. A missing component now fails the build and the runbook says how to recover.
+- **Nothing else reaches the root disk either:** `XDG_CACHE_HOME` under the mobile directory, `ELECTRON_SKIP_BINARY_DOWNLOAD=1` and `CI=1` for every step. `TMPDIR` is `<mobile dir>/tmp`, beside `build/`, since `git worktree add` needs `build/` empty.
+- **The job runs from the code that decided to build,** not from the release's own `cli.ts`. After going back to a release from before this feature, that release has no `apk-build` verb. The commit built is still the release's.
+- **A stuck build is stopped, not only reported:** the unit has `RuntimeMaxSec=90min`, and an unexpected error inside the job is recorded as a failure and removes its checkout.
+- **The 90-minute rule lives on the server only** (`mobileAppState` in `mobileApp.ts`), so every client agrees and an app that is behind still gets a later change to it. `loom-deploy status` does not reapply it; it says whether the build unit is really running.
+- **`appChanged` returns the reason or null,** so the deploy log says why an APK was built.
+- **`loom-deploy apk` reconciles the release it is run from,** as after-accept does.
+- **The notice and the About rows render on Android only;** without the guard an iPhone would be offered an APK.
+- **The home notice's browser link shows only for the APK the notice offers,** a defect found in review of the first brief.
+- **Two upstream hunks the plan did not list,** both marked: one line in `apps/server/src/http.ts` keeps the signed download path out of traces, and `knip.jsonc` lists the phone-playing script as an entry.
+- **Not exercised:** the call in `back()` itself. The function it calls was shown going back on the scratch copy through `apk`. Running `back()` needs launcher state and a kept database copy.
