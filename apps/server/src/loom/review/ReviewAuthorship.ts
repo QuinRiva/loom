@@ -10,7 +10,6 @@ import type {
   LoomReviewAuthorshipInput,
   LoomReviewAuthorshipResult,
   LoomReviewAuthorshipThread,
-  LoomReviewLineBlameInput,
   LoomReviewLineHistoryInput,
   LoomReviewLineHistoryResult,
 } from "@t3tools/contracts";
@@ -105,6 +104,14 @@ const parseCommits = (stdout: string): Array<LoomReviewAuthorshipCommit> =>
       };
     });
 
+/** A few working-tree lines of a thread's checkout, blamed without the branch's bound. */
+interface LineBlameInput {
+  readonly threadId: ThreadId;
+  readonly path: string;
+  readonly startLine: number;
+  readonly endLine: number;
+}
+
 export class ReviewAuthorship extends Context.Service<
   ReviewAuthorship,
   {
@@ -115,7 +122,7 @@ export class ReviewAuthorship extends Context.Service<
       input: LoomReviewLineHistoryInput,
     ) => Effect.Effect<LoomReviewLineHistoryResult, ReviewAuthorshipError>;
     readonly lineBlame: (
-      input: LoomReviewLineBlameInput,
+      input: LineBlameInput,
     ) => Effect.Effect<LoomReviewLineHistoryResult, ReviewAuthorshipError>;
     /**
      * The named commit and the selected lines' owners, each only if it lies on the diff's branch
@@ -391,9 +398,9 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  /** Unbounded blame of a few working-tree lines: asked when a card opens on unchanged lines. */
+  /** Unbounded blame of a few working-tree lines: who wrote lines a question says are not its own. */
   const lineBlame = Effect.fn("ReviewAuthorship.lineBlame")(
-    function* (input: LoomReviewLineBlameInput) {
+    function* (input: LineBlameInput) {
       const none = { commits: [], threads: [] };
       const root = yield* rootOf(input.threadId);
       if (root === null) return none;
