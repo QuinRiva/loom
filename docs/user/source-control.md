@@ -65,9 +65,16 @@ a thread that finished a while ago costs a full read of its conversation. Furthe
 same thread land in the same copy until that thread runs another turn; the next question then
 starts a fresh copy, and the earlier copy's marks go.
 
+Query author is offered on any line a thread on this branch wrote, whichever comparison is
+showing, so under **Since your message** you can still ask about lines changed before your
+message. On lines no thread on this branch wrote, the card offers the threads that changed the
+file instead: their copy answers about code it did not write, from what it knew of the file.
+
 Lines you asked about carry a **?** beside their line numbers, in the whole file and in the Diff
-panel, while the commits you asked about still own them. Select them and the card lists each
-question with **Open answer**. **Back to review** returns you to the thread you were reviewing in.
+panel, while the commits you asked about still own them; on lines the branch did not write, while
+they still read as they did and no thread on the branch has rewritten them. Select them and the
+card lists each question with **Open answer**. **Back to review** returns you to the thread you
+were reviewing in.
 When an answer settles something the thread should change, press **Promote to author** under it:
 a comment on those lines waits in that thread's composer for you to send, edit or delete. This
 needs a thread backed by Pi.

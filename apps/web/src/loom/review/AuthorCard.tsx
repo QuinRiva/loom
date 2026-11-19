@@ -40,7 +40,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { loomCommands } from "../loomGoalState";
 import { AUTHOR_COLOURS, NEUTRAL_AUTHOR_COLOUR, type AuthorGroup } from "./authorship";
-import { type CodeQuestion, marks } from "./codeQueryMarks";
+import { type CodeQuestion, lineText, marks } from "./codeQueryMarks";
 import { followReviewToAuthor, type ReviewFocus, useReviewFollowStore } from "./reviewFollowStore";
 import { loomReviewQueries } from "./reviewQueries";
 import type { useLoomAuthorship } from "./useLoomAuthorship";
@@ -183,41 +183,29 @@ function AuthorCard({
     text: "",
   });
   const { added: lines, unchanged, removes } = selectionLines(selected?.diff);
-  // Lines the comparison left unchanged: who last wrote them, asked only when they are selected.
-  const blamed = lines.length === 0 && !removes && unchanged.length > 0;
-  const blame = useEnvironmentQuery(
-    blamed && authorship !== null
-      ? revisionedQuery(
-          loomReviewQueries.lineBlame({
-            environmentId: reviewing.environmentId,
-            input: {
-              threadId: reviewing.threadId,
-              path: filePath,
-              startLine: Math.min(...unchanged),
-              endLine: Math.max(...unchanged),
-            },
-          }),
-          `${result?.headSha ?? ""}:${authors.diffHash ?? ""}`,
-        )
-      : null,
-  );
-  const writers = (blame.data?.commits ?? []).map((commit) => {
-    const row = rowOf(
-      commit,
-      blame.data?.threads ?? [],
-      (authors.branch ?? authorship)?.groups ?? [],
-    );
-    const date = new Date(commit.authoredAt).toLocaleDateString(undefined, {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-    return {
-      row: row.threadId === null ? { ...row, detail: date } : row,
-      // The whole-branch answer lists every branch commit that owns a line of the diff.
-      onBranch: result?.commits.some((candidate) => candidate.sha === commit.sha) === true,
-    };
+  const { branch } = authors;
+  // A selection the comparison shows unchanged: the branch threads that wrote those lines (before
+  // "Since your message", say); if none did, the branch threads that changed this file.
+  const unchangedOnly = lines.length === 0 && !removes && unchanged.length > 0;
+  const branchShas = unchangedOnly
+    ? [...new Set(unchanged.flatMap((line) => branch?.at(filePath, line)?.sha ?? []))]
+    : [];
+  const commitOf = (sha: string) => result?.commits.find((commit) => commit.sha === sha);
+  const groups = (branch ?? authorship)?.groups ?? [];
+  const ownerRows = branchShas.flatMap((sha) => {
+    const commit = commitOf(sha);
+    return commit && result ? [rowOf(commit, result.threads, groups)] : [];
   });
+  // Each thread by its newest commit in this file: commits arrive oldest first.
+  const newestByThread = new Map<string, LoomReviewAuthorshipCommit>();
+  if (unchangedOnly && branchShas.length === 0)
+    for (const owner of branch?.between(filePath, 1, Number.MAX_SAFE_INTEGER) ?? []) {
+      const commit = owner.sha && owner.group.kind === "thread" ? commitOf(owner.sha) : undefined;
+      if (commit) newestByThread.set(owner.group.key, commit);
+    }
+  const fileRows = result
+    ? [...newestByThread.values()].map((commit) => rowOf(commit, result.threads, groups))
+    : [];
   const owners = authorship ? lines.map((line) => authorship.at(filePath, line)) : [];
   const shas = [...new Set(owners.flatMap((owner) => (owner?.sha ? [owner.sha] : [])))];
   const current =
@@ -258,19 +246,18 @@ function AuthorCard({
         rows.findIndex((other) => other.threadId === row.threadId) === index,
     );
 
-  // The questions whose mark is on one of these lines, under their author's row.
-  // A selection of unchanged lines asks about them, owned by whoever wrote them on the branch.
-  const { branch } = authors;
+  // A selection of unchanged lines asks about them: of their branch owners, or with no owners (a
+  // thread that changed the file), which the server reads as a question about others' lines.
   const askLines = lines.length > 0 ? lines : unchanged;
-  const askOwners =
-    lines.length > 0
-      ? shas
-      : [...new Set(unchanged.flatMap((line) => branch?.at(filePath, line)?.sha ?? []))];
+  const askOwners = lines.length > 0 ? shas : branchShas;
+  // The questions whose mark is on one of these lines, under their author's row.
   const asked =
     branch === null
       ? []
       : authors.questions.filter((question) =>
-          askLines.some((line) => marks(question, filePath, line, branch.at(filePath, line))),
+          askLines.some((line) =>
+            marks(question, filePath, line, branch.at(filePath, line), lineText(fileDiff, line)),
+          ),
         );
 
   /** The main window goes to `threadId` at `at`, with this file or diff beside it as it is. */
@@ -359,7 +346,7 @@ function AuthorCard({
       </Button>
     </div>
   );
-  const renderRow = (row: AuthorRow, askable = true) => [
+  const renderRow = (row: AuthorRow) => [
     // A narrow card (the whole-file view's split layout) wraps the buttons under the name.
     <div key={row.key} className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
       <span
@@ -381,7 +368,7 @@ function AuthorCard({
         </div>
       </div>
       <div className="ms-auto flex shrink-0 gap-1">
-        {row.threadId !== null && askable && !commenting ? (
+        {row.threadId !== null && !commenting ? (
           <Button
             variant={asking === row.key ? "secondary" : "outline"}
             size="xs"
@@ -434,24 +421,28 @@ function AuthorCard({
         ) : lines.length === 0 ? (
           removes ? (
             <p className="text-muted-foreground">Removed lines have no recorded author.</p>
-          ) : blame.isPending ? (
-            <p className="text-muted-foreground">Finding who wrote these lines…</p>
-          ) : writers.length === 0 ? (
-            <p className="text-muted-foreground">These lines did not change in this comparison.</p>
-          ) : (
+          ) : ownerRows.length > 0 ? (
             <>
-              {/* Only a commit on the branch can be asked: the server asks only of those. */}
               <p className="text-muted-foreground">
-                {writers.every((writer) => writer.onBranch)
+                {unchanged.every((line) => branch?.at(filePath, line)?.sha)
                   ? "These lines changed on this branch, but not in this comparison."
-                  : writers.some((writer) => writer.onBranch)
-                    ? "Some of these lines are older than this branch; only the thread that changed them on the branch can be asked."
-                    : writers.some((writer) => writer.row.threadId !== null)
-                      ? "These lines are older than this branch. Query author is offered only on lines the branch changed."
-                      : "These lines are older than this branch and no thread wrote them, so there is no one to ask."}
+                  : "Some of these lines changed on this branch, but not in this comparison."}
               </p>
-              {writers.map((writer) => renderRow(writer.row, writer.onBranch))}
+              {ownerRows.map((row) => renderRow(row))}
             </>
+          ) : fileRows.length > 0 ? (
+            <>
+              <p className="text-muted-foreground">
+                No thread on this branch wrote these lines. Threads that changed this file:
+              </p>
+              {fileRows.map((row) => renderRow(row))}
+            </>
+          ) : (
+            <p className="text-muted-foreground">
+              {unchangedOnly
+                ? "No thread on this branch wrote these lines or changed this file, so there is no one to ask."
+                : "These lines did not change in this comparison."}
+            </p>
           )
         ) : current.length === 0 ? (
           <p className="text-muted-foreground">

@@ -33,15 +33,22 @@ const question = (fields: Partial<CodeQuestion>): CodeQuestion => ({
   askedAt: "2026-11-18T01:00:00.000Z",
   commitSha: "aaa",
   ownerShas: ["aaa"],
+  commitChanged: "lines",
   filePath: "src/config.ts",
   startLine: 2,
   endLine: 6,
+  excerpt: "",
   ...fields,
 });
-const marked = (q: CodeQuestion, runs: ReadonlyArray<[number, number, number]>) => {
+// The file as it reads now: line n is "line n", unless the test moves it.
+const marked = (
+  q: CodeQuestion,
+  runs: ReadonlyArray<[number, number, number]>,
+  text: (line: number) => string = (line) => `line ${line}`,
+) => {
   const authorship = authorshipOf(reply(runs));
-  return Array.from({ length: 10 }, (_, i) => i + 1).filter((line) =>
-    marks(q, "src/config.ts", line, authorship.at("src/config.ts", line)),
+  return Array.from({ length: 12 }, (_, i) => i + 1).filter((line) =>
+    marks(q, "src/config.ts", line, authorship.at("src/config.ts", line), text(line)),
   );
 };
 
@@ -72,5 +79,26 @@ describe("code question marks", () => {
   it("are not drawn for a commit outside the answer, or on another file", () => {
     expect(marked(question({ commitSha: "zzz", ownerShas: ["zzz"] }), [[1, 10, 0]])).toEqual([]);
     expect(marked(question({ filePath: "src/other.ts" }), [[1, 10, 0]])).toEqual([]);
+  });
+
+  it("on lines a thread only shares a file with, hold while the lines are unowned and unmoved", () => {
+    // Asked about lines 11 and 12, which no branch commit wrote, of a thread that changed the file.
+    const others = question({
+      commitChanged: "file",
+      ownerShas: [],
+      startLine: 11,
+      endLine: 12,
+      excerpt: "@@ -11,2 +11,2 @@\n line 11\n line 12",
+    });
+    expect(marked(others, [[1, 10, 0]])).toEqual([11, 12]);
+    // A branch commit now owns line 12: its mark goes.
+    expect(
+      marked(others, [
+        [1, 10, 0],
+        [12, 12, 1],
+      ]),
+    ).toEqual([11]);
+    // A line inserted above moved them down: the text no longer matches, so no mark, not a neighbour's.
+    expect(marked(others, [[1, 10, 0]], (line) => `line ${line - 1}`)).toEqual([]);
   });
 });

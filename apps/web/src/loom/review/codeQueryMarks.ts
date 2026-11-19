@@ -4,6 +4,7 @@
  * questions are unchanged, so the stamps restamp only when a question is asked or a thread leaves.
  */
 import { useAtomValue } from "@effect/atom-react";
+import type { FileDiffMetadata } from "@pierre/diffs";
 import {
   DOCUMENT_QUERY_ROLE,
   type EnvironmentId,
@@ -18,7 +19,14 @@ import type { LineAuthor } from "./authorship";
 
 export interface CodeQuestion extends Pick<
   LoomCodeQueryQuestion,
-  "askedAt" | "commitSha" | "ownerShas" | "filePath" | "startLine" | "endLine"
+  | "askedAt"
+  | "commitSha"
+  | "ownerShas"
+  | "commitChanged"
+  | "filePath"
+  | "startLine"
+  | "endLine"
+  | "excerpt"
 > {
   readonly queryThreadId: ThreadId;
   readonly authorThreadId: ThreadId;
@@ -45,30 +53,56 @@ function codeQuestionsOf(
             askedAt: question.askedAt,
             commitSha: question.commitSha,
             ownerShas: question.ownerShas,
+            commitChanged: question.commitChanged,
             filePath: question.filePath,
             startLine: question.startLine,
             endLine: question.endLine,
+            excerpt: question.excerpt,
           }))
         : [];
     })
     .toSorted((left, right) => left.askedAt.localeCompare(right.askedAt));
 }
 
+const withoutNewline = (text: string) => text.replace(/\r?\n$/, "");
+
+/** New-side `line`'s text in `diff`, when the diff holds it. */
+export function lineText(diff: FileDiffMetadata, line: number): string | undefined {
+  const hunk = diff.isPartial
+    ? diff.hunks.find(
+        (candidate) =>
+          line >= candidate.additionStart &&
+          line < candidate.additionStart + candidate.additionCount,
+      )
+    : undefined;
+  const text = diff.isPartial
+    ? hunk && diff.additionLines[hunk.additionLineIndex + line - hunk.additionStart]
+    : diff.additionLines[line - 1];
+  return text === undefined ? undefined : withoutNewline(text);
+}
+
 /**
- * Whether `question` marks new-side `line` of `path`, owned now by `owner`: only while one of the
- * commits that owned the asked lines still owns it, so a mark never sits on rewritten lines.
+ * Whether `question` marks new-side `line` of `path` (branch owner `owner`, reading `text`). Asked
+ * of the lines' writer: while one of those commits owns it. Asked of a thread that changed the
+ * file: while it has no branch owner and reads as when asked, since such lines move when lines
+ * above them do, and a mark drops rather than land on a neighbour.
  */
 export const marks = (
   question: CodeQuestion,
   path: string,
   line: number,
   owner: LineAuthor | null,
+  text: string | undefined,
 ) =>
   question.filePath === path &&
   line >= question.startLine &&
   line <= question.endLine &&
-  owner?.sha != null &&
-  question.ownerShas.includes(owner.sha);
+  (question.commitChanged === "file"
+    ? owner === null &&
+      text !== undefined &&
+      // The excerpt is the asked hunk: its header, then one line each with a one-character marker.
+      question.excerpt.split("\n")[1 + line - question.startLine]?.slice(1) === withoutNewline(text)
+    : owner?.sha != null && question.ownerShas.includes(owner.sha));
 
 const questionsAtom = Atom.family((environmentId: EnvironmentId) => {
   let previous = NO_QUESTIONS;

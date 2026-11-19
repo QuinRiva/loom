@@ -13,7 +13,7 @@ import {
   type AuthorGroup,
   type Authorship,
 } from "./authorship";
-import { type CodeQuestion, marks } from "./codeQueryMarks";
+import { type CodeQuestion, lineText, marks } from "./codeQueryMarks";
 
 export interface AuthorshipView {
   readonly authorship: Authorship;
@@ -77,7 +77,15 @@ function stamp(node: HTMLElement, diff: FileDiffMetadata, view: AuthorshipView |
     const owner = view?.branch.at(path, line) ?? null;
     row.toggleAttribute(
       "data-loom-asked",
-      asked.some((question) => marks(question, path, line, owner)),
+      asked.some((question) =>
+        marks(
+          question,
+          path,
+          line,
+          owner,
+          question.commitChanged === "file" ? lineText(diff, line) : undefined,
+        ),
+      ),
     );
   }
   if (view === null) return;
