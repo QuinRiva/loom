@@ -3,11 +3,13 @@ import type {
   CodeViewDiffItem,
   CodeViewItem,
   DiffLineAnnotation,
+  FileDiffEditCompleteEvent, // loom: inline diff editing
   FileDiffMetadata,
+  FileEditCompleteEvent, // loom: inline diff editing
   SelectedLineRange,
 } from "@pierre/diffs";
-import { EditProvider, type CodeViewHandle } from "@pierre/diffs/react";
-import { Editor, type EditorFactory } from "@pierre/diffs/edit"; // loom: SPIKE inline diff editing
+import { EditProvider, type CodeViewHandle } from "@pierre/diffs/react"; // loom: inline diff editing
+import { Editor, type EditorFocusOptions } from "@pierre/diffs/edit"; // loom: inline diff editing
 import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
 import { useState, type ReactNode, type Ref } from "react";
 
@@ -20,6 +22,7 @@ import {
 } from "~/reviewCommentContext";
 
 import type { AuthorCardSlot } from "~/loom/review/AuthorCard"; // loom: diff author query
+import { retypedComments } from "~/loom/review/typedComments"; // loom: inline diff editing
 import { nextFileCommentId } from "../files/fileCommentAnnotations";
 import { DiffCommentAnnotation } from "./DiffCommentAnnotation";
 import { StyledDiffCodeView, type StyledDiffCodeViewOptions } from "./StyledDiffCodeView";
@@ -103,24 +106,20 @@ interface AnnotatableCodeViewProps {
   onRevealSearchMatch: (fileKey: string) => void;
   /** loom: diff author query — selecting lines opens the draft as the author card. */
   authorCard?: AuthorCardSlot | undefined;
-  /** loom: SPIKE inline diff editing — the new side is editable; each change reports the whole new file. */
+  /** loom: inline diff editing — the new side takes typing while `active`. */
   loomEdit?:
     | {
-        /** False until the reader clicks into the new side: reading keeps the word highlights. */
+        /** False while reading: an edit session hides the new side's word marks. */
         active: boolean;
+        /** The editor is ready: put its caret where the reader clicked. */
+        onAttach: (editor: { focus: (options?: EditorFocusOptions) => void }) => void;
+        /** The whole new file, on every keystroke. */
         onChange: (contents: string) => void;
-        /** The session ended (Escape, focus left): the comparison as typed becomes the shown one. */
-        onComplete: (fileDiff: FileDiffMetadata) => void;
+        /** Typing ended with this comparison as typed: show it from now on, or keep the view. */
+        onComplete: (fileDiff: FileDiffMetadata, contents: string) => "accept" | "reject";
       }
     | undefined;
 }
-
-// loom: SPIKE inline diff editing
-const createDiffEditor: EditorFactory<DiffCommentAnnotationGroup, undefined> = (
-  editorType,
-  options,
-  editStateKey,
-) => new Editor(editorType, options, editStateKey);
 
 interface DiffSelectionContext {
   item: CodeViewItem<DiffCommentAnnotationGroup>;
@@ -145,7 +144,7 @@ export function AnnotatableCodeView({
   renderHeaderPrefix,
   onRevealSearchMatch,
   authorCard, // loom
-  loomEdit, // loom: SPIKE
+  loomEdit, // loom: inline diff editing
 }: AnnotatableCodeViewProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -218,7 +217,7 @@ export function AnnotatableCodeView({
         fileDiff,
         annotations,
         collapsed,
-        ...(loomEdit ? { edit: loomEdit.active } : {}), // loom: SPIKE
+        ...(loomEdit ? { edit: loomEdit.active } : {}), // loom: inline diff editing
         version: fnv1a32(
           `${fileVersion}:${collapsed ? "1" : "0"}:${loomEdit?.active ? "e" : ""}:${annotations
             .flatMap((annotation) =>
@@ -314,20 +313,42 @@ export function AnnotatableCodeView({
   const loomShown = (entry: DiffCommentAnnotationEntry) =>
     !authorCard || entry.kind !== "draft" || loomCommenting;
 
+  // loom: inline diff editing wraps the view in its editor's provider
   const view = (
     <StyledDiffCodeView<DiffCommentAnnotationGroup>
       key={codeViewKey}
+      // loom: inline diff editing — comments move with the lines typed above them
       {...(loomEdit
         ? {
             onItemEditChange: (event: { file: { contents: string } }) =>
               loomEdit.onChange(event.file.contents),
-            onItemEditComplete: ((event: { fileDiff?: FileDiffMetadata }) => {
-              if (event.fileDiff) {
-                event.fileDiff.cacheKey = `loom-file-change:typed:${Date.now()}`;
-                loomEdit.onComplete(event.fileDiff);
+            onItemEditComplete: (
+              event:
+                | FileDiffEditCompleteEvent<DiffCommentAnnotationGroup, undefined>
+                | FileEditCompleteEvent<DiffCommentAnnotationGroup, undefined>,
+              item: CodeViewItem<DiffCommentAnnotationGroup>,
+            ) => {
+              if (!("fileDiff" in event) || item.type !== "diff") return "reject";
+              if (loomEdit.onComplete(event.fileDiff, event.newFile?.contents ?? "") === "reject")
+                return "reject";
+              const filePath = resolveFileDiffPath(item.fileDiff);
+              for (const comment of retypedComments({
+                comments: reviewComments.filter(
+                  (comment) =>
+                    comment.kind === "line" &&
+                    comment.sectionId === sectionId &&
+                    comment.filePath === filePath &&
+                    (comment.fenceLanguage ?? "diff") === "diff",
+                ),
+                before: item.fileDiff,
+                after: event.fileDiff,
+                anchorsBefore: event.originalLineAnnotations,
+                anchorsAfter: event.lineAnnotations ?? event.originalLineAnnotations,
+              })) {
+                addReviewComment(composerDraftTarget, comment);
               }
               return "accept";
-            }) as never,
+            },
           }
         : {})}
       {...(viewerRef ? { viewerRef } : {})}
@@ -392,6 +413,26 @@ export function AnnotatableCodeView({
       }}
     />
   );
-  // loom: SPIKE inline diff editing
-  return loomEdit ? <EditProvider createEditor={createDiffEditor}>{view}</EditProvider> : view;
+  // loom: inline diff editing
+  return loomEdit ? (
+    <EditProvider
+      createEditor={(editorType, options, editStateKey) =>
+        new Editor(
+          editorType,
+          {
+            ...options,
+            onAttach: (editor, instance) => {
+              options.onAttach?.(editor, instance);
+              loomEdit.onAttach(editor);
+            },
+          },
+          editStateKey,
+        )
+      }
+    >
+      {view}
+    </EditProvider>
+  ) : (
+    view
+  );
 }

@@ -136,6 +136,7 @@ import { LoomMdxAuthorLine } from "~/loom/LoomMdxAuthorLine"; // loom: document 
 import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
 // loom: previews reopen where the reader left them after a thread switch.
 import {
+  carryFilePlace,
   fileScrollKey,
   readRememberedScroll,
   rememberedScrollRef,
@@ -1428,11 +1429,6 @@ export default function FilePreviewPanel({
     previewPath !== null && !isHostFile && !isMedia && !isPdf
       ? loomMarks?.files.get(previewPath)
       : undefined;
-  // loom: SPIKE — what a workspace mutation (an agent's write) refreshes, callable from a test driver
-  (window as unknown as { __spikeAgentWrote?: () => void }).__spikeAgentWrote = () => {
-    file.refresh();
-    loomMarks?.refresh();
-  };
   const loomShowsChange =
     loomChange !== undefined &&
     (loomChoice?.path === previewPath ? loomChoice.showChanges : renderedMode === null);
@@ -1546,9 +1542,11 @@ export default function FilePreviewPanel({
               marks={loomMarks}
               editing={!loomShowsChange}
               rendered={rendered}
-              onEditingChange={(editing) =>
-                setLoomChoice({ path: loomChange.path, showChanges: !editing })
-              }
+              onEditingChange={(editing) => {
+                // loom: Edit and Show changes keep the reader's line
+                if (!rendered) carryFilePlace(scrollKey, editing, revealRequestId);
+                setLoomChoice({ path: loomChange.path, showChanges: !editing });
+              }}
             />
           ) : null}
           {/* loom: query threads — "1 comment · 2 queries" on an MDX document */}
@@ -1697,7 +1695,7 @@ export default function FilePreviewPanel({
               working={file.data}
               composerDraftTarget={composerDraftTarget}
               scrollKey={`${scrollKey}:change`} // loom: remembered scroll position
-              // loom: SPIKE inline diff editing — the same conditions as the editor's
+              // loom: inline diff editing, under the editor's own conditions
               editTarget={
                 file.data && !file.data.truncated && !isHostFile && !unboundedLines && canWriteFiles
                   ? { cwd, onPendingChange }

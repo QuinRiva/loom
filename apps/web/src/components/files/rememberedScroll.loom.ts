@@ -18,6 +18,8 @@ interface RememberedScroll {
         readonly side?: "additions" | "deletions";
       }
     | undefined;
+  /** Change views: the new file's line at the top, where Edit opens the editor. */
+  newLine?: number | undefined;
 }
 
 const MAX_REMEMBERED = 200;
@@ -36,6 +38,21 @@ export function rememberScroll(key: string, entry: RememberedScroll) {
   remembered.set(key, entry);
   const oldest = remembered.keys().next().value;
   if (remembered.size > MAX_REMEMBERED && oldest !== undefined) remembered.delete(oldest);
+}
+
+/**
+ * Edit opens the editor on the line the comparison was showing, and Show changes returns the
+ * comparison to the editor's: the line at the top crosses over to the view being opened.
+ */
+export function carryFilePlace(scrollKey: string, toEditor: boolean, revealRequestId: number) {
+  const from = remembered.get(`${scrollKey}:${toEditor ? "change" : "source"}`);
+  const line = toEditor ? from?.newLine : from?.anchor?.line;
+  if (line === undefined) return;
+  rememberScroll(`${scrollKey}:${toEditor ? "source" : "change"}`, {
+    top: 0,
+    revealRequestId,
+    anchor: { line, offset: 0, ...(toEditor ? {} : { side: "additions" as const }) },
+  });
 }
 
 const filePrefix = (threadKey: string, filePath: string) => `${threadKey}\u0000${filePath}\u0000`;
