@@ -120,6 +120,9 @@ export function useLoomAppBuild() {
     browserFallback:
       fallback === null || installing !== null
         ? null
-        : () => void openInBrowser(fallback.environmentId, fallback.sha),
+        : {
+            sha: fallback.sha,
+            open: () => void openInBrowser(fallback.environmentId, fallback.sha),
+          },
   };
 }

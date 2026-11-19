@@ -40,8 +40,8 @@ function AndroidNotice() {
           tone={view.notice === "failed" ? "danger" : "default"}
         />
       </Pressable>
-      {apk && browserFallback ? (
-        <Pressable accessibilityRole="button" onPress={browserFallback} hitSlop={8}>
+      {apk && browserFallback?.sha === apk.sha ? (
+        <Pressable accessibilityRole="button" onPress={browserFallback.open} hitSlop={8}>
           <AppText textRole="footnote" className="px-3.5 text-foreground-muted underline">
             Download in the browser instead
           </AppText>

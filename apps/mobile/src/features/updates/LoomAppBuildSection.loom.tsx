@@ -71,7 +71,7 @@ function AndroidSection() {
         <SettingsRow
           icon="safari"
           label="Download in the browser instead"
-          onPress={browserFallback}
+          onPress={browserFallback.open}
         />
       ) : null}
     </SettingsSection>
