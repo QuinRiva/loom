@@ -830,7 +830,7 @@ index eb34dd4a774cb06add3280fe6abd5f0dc292505e..c55ba5551f29ba559034d7926c1b8904
  	* released.
  	*/
  	invalidateEditSessionLayout() {
-+		// Anchor the viewport before measured wrapped rows are dropped, or the top line is
++		// loom: anchor the viewport before measured wrapped rows are dropped, or the top line is
 +		// re-read from estimated heights and the view jumps on the first keystroke.
 +		this.getAdvancedVirtualizer()?.capturePendingLayoutAnchor();
  		this.getSimpleVirtualizer()?.markDOMDirty();
