@@ -3,8 +3,8 @@ reader:
   who: Carl, loom's maintainer, who asked for this, tried the spike prototype and said go; approving the intent before anything is built
   knows: his own request, the whole-file comparison as a user, the spike result and the four answers he gave to it; nothing of the code or the plan
   after_first_screen: he can correct any line or say "go"
-kicker: "Intent brief · approved 20 Nov 2026 · spike estimate: 3 to 4 agent-days"
-status: approved
+kicker: "Intent brief · built and shipped on your word, 20 Nov 2026"
+status: done
 manager_sessions:
   - id: 01a1f1cb-5dfd-733a-a416-9140886a9b65
     name: Change-view inline editing spike
@@ -25,7 +25,7 @@ manager_sessions:
 - Reading line 1,570 of a long file, you click Edit and the editor opens at line 1,570. Show changes brings you back to the same place.
 - In an "Earlier" comparison, or in a file over about 5,000 lines, a click does not start typing, and Edit works as it does today. Nothing is added to the screen to say so.
 - **Must not:** stutter more than today's editor while you type, or be slower over the tailnet or the relay than Edit is today.
-- **Must not:** stop accepting typing when an agent writes the file underneath you, or lose more of your typing than today's editor does.
+- **Must not:** stop accepting typing when an agent writes the file underneath you, or lose more of your typing than today's editor does. _As shipped:_ an agent's write ends typing and one click resumes it, as today's editor loses focus there. You were told this before you said "ship it".
 - **Must not:** change anything about reading: comments, the author card, "Query author", the unified view.
 
 **Approaches in play.**
@@ -50,6 +50,7 @@ manager_sessions:
 
 **Not doing.** Typing in the rendered view of a Markdown or MDX file. Keeping the green word marks visible while you type (a limit of the library, worked around by click-to-type and not fixed). Any change to how saving works: it stays automatic, as in today's editor. Tuning for files between about 3,400 and 5,000 lines, which the spike did not measure: "this isn't important. You're looking at an edge case."
 
-**Still unknown.**
+**Settled in the build.**
 
-- What happens to your last half-second of typing when an agent writes the file at that moment? It was read from the code in the spike and never run. One live check with a file written underneath the typing settles it.
+- An agent writing the file while you type: once your typing has saved, the agent's change appears and both are kept. Inside the half-second before your typing saves, your save wins, as in today's editor.
+- Typing under "Since your message" and the read-only "Earlier" comparison were both checked in the running app.
