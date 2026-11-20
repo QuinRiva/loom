@@ -40,7 +40,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { loomCommands } from "../loomGoalState";
 import { AUTHOR_COLOURS, NEUTRAL_AUTHOR_COLOUR, type AuthorGroup } from "./authorship";
-import { type CodeQuestion, marks } from "./codeQueryMarks";
+import { type CodeQuestion, lineText, marks } from "./codeQueryMarks";
 import { followReviewToAuthor, type ReviewFocus, useReviewFollowStore } from "./reviewFollowStore";
 import { loomReviewQueries } from "./reviewQueries";
 import type { useLoomAuthorship } from "./useLoomAuthorship";
@@ -73,25 +73,18 @@ interface CardSection {
   readonly title: string;
 }
 
-/** New-side numbers of the added lines a selection holds. */
-function addedLines(fileDiff: FileDiffMetadata, range: SelectedLineRange): number[] {
-  const diff = buildDiffReviewComment({
-    id: "",
-    sectionId: "",
-    sectionTitle: "",
-    filePath: "",
-    fileDiff,
-    range,
-    text: "",
-  })?.diff;
-  if (diff === undefined) return [];
-  const [header = "", ...lines] = diff.split("\n");
+/** New-side numbers of a selection's added and unchanged lines, and whether it removes any. */
+function selectionLines(diff: string | undefined) {
+  const added: number[] = [];
+  const unchanged: number[] = [];
+  let removes = false;
+  const [header = "", ...lines] = diff?.split("\n") ?? [];
   let line = Number(/\+(\d+)/.exec(header)?.[1] ?? 0);
-  return lines.flatMap((text) => {
-    if (text.startsWith("-")) return [];
-    const number = line++;
-    return text.startsWith("+") ? [number] : [];
-  });
+  for (const text of lines) {
+    if (text.startsWith("-")) removes = true;
+    else (text.startsWith("+") ? added : unchanged).push(line++);
+  }
+  return { added, unchanged, removes };
 }
 
 const colourOf = (group: AuthorGroup | undefined) =>
@@ -180,7 +173,39 @@ function AuthorCard({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { authorship, result } = authors;
-  const lines = addedLines(fileDiff, range);
+  const selected = buildDiffReviewComment({
+    id: "",
+    sectionId: section.id,
+    sectionTitle: section.title,
+    filePath,
+    fileDiff,
+    range,
+    text: "",
+  });
+  const { added: lines, unchanged, removes } = selectionLines(selected?.diff);
+  const { branch } = authors;
+  // A selection the comparison shows unchanged: the branch threads that wrote those lines (before
+  // "Since your message", say); if none did, the branch threads that changed this file.
+  const unchangedOnly = lines.length === 0 && !removes && unchanged.length > 0;
+  const branchShas = unchangedOnly
+    ? [...new Set(unchanged.flatMap((line) => branch?.at(filePath, line)?.sha ?? []))]
+    : [];
+  const commitOf = (sha: string) => result?.commits.find((commit) => commit.sha === sha);
+  const groups = (branch ?? authorship)?.groups ?? [];
+  const ownerRows = branchShas.flatMap((sha) => {
+    const commit = commitOf(sha);
+    return commit && result ? [rowOf(commit, result.threads, groups)] : [];
+  });
+  // Each thread by its newest commit in this file: commits arrive oldest first.
+  const newestByThread = new Map<string, LoomReviewAuthorshipCommit>();
+  if (unchangedOnly && branchShas.length === 0)
+    for (const owner of branch?.between(filePath, 1, Number.MAX_SAFE_INTEGER) ?? []) {
+      const commit = owner.sha && owner.group.kind === "thread" ? commitOf(owner.sha) : undefined;
+      if (commit) newestByThread.set(owner.group.key, commit);
+    }
+  const fileRows = result
+    ? [...newestByThread.values()].map((commit) => rowOf(commit, result.threads, groups))
+    : [];
   const owners = authorship ? lines.map((line) => authorship.at(filePath, line)) : [];
   const shas = [...new Set(owners.flatMap((owner) => (owner?.sha ? [owner.sha] : [])))];
   const current =
@@ -221,21 +246,18 @@ function AuthorCard({
         rows.findIndex((other) => other.threadId === row.threadId) === index,
     );
 
-  const selected = buildDiffReviewComment({
-    id: "",
-    sectionId: section.id,
-    sectionTitle: section.title,
-    filePath,
-    fileDiff,
-    range,
-    text: "",
-  });
+  // A selection of unchanged lines asks about them: of their branch owners, or with no owners (a
+  // thread that changed the file), which the server reads as a question about others' lines.
+  const askLines = lines.length > 0 ? lines : unchanged;
+  const askOwners = lines.length > 0 ? shas : branchShas;
   // The questions whose mark is on one of these lines, under their author's row.
   const asked =
-    authorship === null
+    branch === null
       ? []
       : authors.questions.filter((question) =>
-          lines.some((line) => marks(question, filePath, line, authorship.at(filePath, line))),
+          askLines.some((line) =>
+            marks(question, filePath, line, branch.at(filePath, line), lineText(fileDiff, line)),
+          ),
         );
 
   /** The main window goes to `threadId` at `at`, with this file or diff beside it as it is. */
@@ -264,7 +286,7 @@ function AuthorCard({
     if (row.threadId !== null) void follow(row.threadId, row.commit.authoredAt);
   };
   const ask = async (row: AuthorRow, question: string) => {
-    if (selected?.selection === undefined || lines.length === 0) return;
+    if (selected?.selection === undefined || askLines.length === 0) return;
     setPending(true);
     setError(null);
     const result = await codeQuery({
@@ -273,10 +295,10 @@ function AuthorCard({
         reviewThreadId: reviewing.threadId,
         baseRef: authors.baseRef,
         commitSha: row.commit.sha,
-        ownerShas: shas,
+        ownerShas: askOwners,
         filePath,
-        startLine: Math.min(...lines),
-        endLine: Math.max(...lines),
+        startLine: Math.min(...askLines),
+        endLine: Math.max(...askLines),
         selection: selected.selection,
         startIndex: selected.startIndex,
         endIndex: selected.endIndex,
@@ -397,15 +419,31 @@ function AuthorCard({
         {authorship === null ? (
           <p className="text-muted-foreground">Finding who wrote these lines…</p>
         ) : lines.length === 0 ? (
-          <p className="text-muted-foreground">
-            {/* A selection carried across comparisons can hold only unchanged lines. */}
-            {selected?.diff
-              .split("\n")
-              .slice(1)
-              .some((line) => line.startsWith("-"))
-              ? "Removed lines have no recorded author."
-              : "These lines did not change in this comparison."}
-          </p>
+          removes ? (
+            <p className="text-muted-foreground">Removed lines have no recorded author.</p>
+          ) : ownerRows.length > 0 ? (
+            <>
+              <p className="text-muted-foreground">
+                {unchanged.every((line) => branch?.at(filePath, line)?.sha)
+                  ? "These lines changed on this branch, but not in this comparison."
+                  : "Some of these lines changed on this branch, but not in this comparison."}
+              </p>
+              {ownerRows.map((row) => renderRow(row))}
+            </>
+          ) : fileRows.length > 0 ? (
+            <>
+              <p className="text-muted-foreground">
+                No thread on this branch wrote these lines. Threads that changed this file:
+              </p>
+              {fileRows.map((row) => renderRow(row))}
+            </>
+          ) : (
+            <p className="text-muted-foreground">
+              {unchangedOnly
+                ? "No thread on this branch wrote these lines or changed this file, so there is no one to ask."
+                : "These lines did not change in this comparison."}
+            </p>
+          )
         ) : current.length === 0 ? (
           <p className="text-muted-foreground">
             {uncommitted
@@ -416,7 +454,7 @@ function AuthorCard({
           </p>
         ) : (
           <>
-            {current.map(renderRow)}
+            {current.map((row) => renderRow(row))}
             {asked.filter((question) => !rowThreads.has(question.authorThreadId)).map(renderAsked)}
             {uncommitted ? (
               <p className="text-muted-foreground">Some of these lines are not committed yet.</p>
@@ -426,7 +464,7 @@ function AuthorCard({
         {earlier.length > 0 ? (
           <>
             <p className="text-muted-foreground">Earlier, these lines were written by</p>
-            {earlier.map(renderRow)}
+            {earlier.map((row) => renderRow(row))}
           </>
         ) : null}
         {commenting || asking !== null ? null : (

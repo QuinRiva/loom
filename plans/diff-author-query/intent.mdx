@@ -62,6 +62,18 @@ rest of the phases that we paused (with the query fork)". So, in both views:
   waiting in the real coder's composer for you to send.
 - One click returns you from the copy to the thread you were reviewing in.
 
+After using it you selected a line the branch had not changed and asked:
+"Did you fail to add the new ask stuff to the view I actually use?" The
+card had only said the line did not change. So, in both views:
+
+- Query author is offered on any line a thread wrote on this branch,
+  whichever comparison the view is on, and the "?" mark shows in both.
+- On a line no thread on this branch wrote, Query author is offered to the
+  threads that changed this file on the branch. Its copy says the lines are
+  not its own, and answers from what it knows of them and what their
+  history shows, without passing a guess off as the original author's
+  reason.
+
 **It must not.**
 
 - Name a thread that did not write the lines. No author shown beats a guess.
@@ -131,6 +143,18 @@ rest of the phases that we paused (with the query fork)". So, in both views:
 - _Assumed:_ the earlier author appears on the card, not on the hunk's own
   row as the mockup's "after Deploy server" note drew it. Redirect if you
   want it on the row.
+- Asked what should happen on a line the branch did not change, from four
+  options: "Let me ask this branch's coders about any line". The option
+  read: on an unchanged line, offer Query author to the threads that
+  changed this file, for questions like why they left it alone; the copy
+  would be answering about code it did not write.
+- On naming the author of lines from before the branch, and reaching the
+  threads behind them: "whilst "nice" to be able to see who wrote any line,
+  it's be way to cluttered in the current display, and link out to old
+  closed threads to directly ask them questions when they don't have the
+  context of the current goal, wouldn't be very useful." So on such a line
+  the card offers this branch's coders and says nothing of who first wrote
+  it.
 - _Assumed:_ the marker on asked-about lines is a mark in the line-number
   gutter. Selecting marked lines lists the questions on the card, each with
   a way to its answer. Redirect if you want the question shown beside the
@@ -151,7 +175,10 @@ rest of the phases that we paused (with the query fork)". So, in both views:
 
 **Not doing.** Authorship on GitHub's pull request page. Authors for
 uncommitted lines. Mobile. A view that steps through the branch one commit
-at a time.
+at a time. Showing who wrote lines from before the branch, or opening or
+asking the threads behind them. Having a copy consult such a thread: "The
+one consideration, which goes beyond the scope of this goal, works be the
+possibility of using consult thread."
 
 **Still unknown.**
 

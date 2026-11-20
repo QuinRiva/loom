@@ -13,7 +13,7 @@ import {
   type AuthorGroup,
   type Authorship,
 } from "./authorship";
-import { type CodeQuestion, marks } from "./codeQueryMarks";
+import { type CodeQuestion, lineText, marks } from "./codeQueryMarks";
 
 export interface AuthorshipView {
   readonly authorship: Authorship;
@@ -21,6 +21,8 @@ export interface AuthorshipView {
   readonly filter: string | null;
   /** Live code questions; a line is marked while one of them `marks` it. */
   readonly questions: ReadonlyArray<CodeQuestion>;
+  /** The whole-branch answer, unnarrowed: a mark holds on a line any comparison shows unchanged. */
+  readonly branch: Authorship;
 }
 
 const HUNK_LABEL = "data-loom-hunk-authors";
@@ -53,20 +55,42 @@ function stamp(node: HTMLElement, diff: FileDiffMetadata, view: AuthorshipView |
     if (owner === null) {
       row.removeAttribute("data-loom-author");
       row.removeAttribute("data-loom-dim");
-      row.removeAttribute("data-loom-asked");
       continue;
     }
     row.setAttribute("data-loom-author", authorMark(owner.group));
     row.toggleAttribute("data-loom-dim", view!.filter !== null && view!.filter !== owner.group.key);
+  }
+  const split = root.querySelector("[data-additions]") !== null;
+  // Marks: added lines, and unchanged ones (new side only) while a question is on this file or
+  // a mark from one is still drawn.
+  const asked = view?.questions.filter((question) => question.filePath === path) ?? [];
+  const markable =
+    asked.length > 0 || root.querySelector("[data-loom-asked]") !== null
+      ? ',[data-line-type^="context"]'
+      : "";
+  for (const row of root.querySelectorAll<HTMLElement>(
+    split
+      ? `[data-additions] :is([data-line-type="change-addition"]${markable})`
+      : `[data-line-type="change-addition"]${markable}`,
+  )) {
+    const line = Number(row.dataset.line ?? row.dataset.columnNumber);
+    const owner = view?.branch.at(path, line) ?? null;
     row.toggleAttribute(
       "data-loom-asked",
-      view!.questions.some((question) => marks(question, path, line, owner)),
+      asked.some((question) =>
+        marks(
+          question,
+          path,
+          line,
+          owner,
+          question.commitChanged === "file" ? lineText(diff, line) : undefined,
+        ),
+      ),
     );
   }
   if (view === null) return;
   // A separator above hunk N carries its expand index, once per column. Unified draws the
   // gutter's copy across the row; split draws the new side's code-column copy over that half.
-  const split = root.querySelector("[data-additions]") !== null;
   const separators = new Map<string, Element>();
   for (const separator of root.querySelectorAll<HTMLElement>(
     split
@@ -111,7 +135,8 @@ export function createAuthorshipStamps() {
       if (
         next?.authorship === view?.authorship &&
         next?.filter === view?.filter &&
-        next?.questions === view?.questions
+        next?.questions === view?.questions &&
+        next?.branch === view?.branch
       )
         return;
       view = next;

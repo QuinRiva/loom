@@ -104,6 +104,14 @@ const parseCommits = (stdout: string): Array<LoomReviewAuthorshipCommit> =>
       };
     });
 
+/** A few working-tree lines of a thread's checkout, blamed without the branch's bound. */
+interface LineBlameInput {
+  readonly threadId: ThreadId;
+  readonly path: string;
+  readonly startLine: number;
+  readonly endLine: number;
+}
+
 export class ReviewAuthorship extends Context.Service<
   ReviewAuthorship,
   {
@@ -113,20 +121,26 @@ export class ReviewAuthorship extends Context.Service<
     readonly lineHistory: (
       input: LoomReviewLineHistoryInput,
     ) => Effect.Effect<LoomReviewLineHistoryResult, ReviewAuthorshipError>;
+    readonly lineBlame: (
+      input: LineBlameInput,
+    ) => Effect.Effect<LoomReviewLineHistoryResult, ReviewAuthorshipError>;
     /**
      * The named commit and the selected lines' owners, each only if it lies on the diff's branch
-     * (between the merge base and HEAD), with the threads they name. A Query author check.
+     * (between the merge base and HEAD), with the threads they name, and whether the named commit
+     * changed `filePath` on the branch. A Query author check.
      */
     readonly commitAuthor: (input: {
       readonly threadId: ThreadId;
       readonly baseRef: string | null;
       readonly commitSha: string;
       readonly ownerShas: ReadonlyArray<string>;
+      readonly filePath: string;
     }) => Effect.Effect<
       {
         readonly commit: LoomReviewAuthorshipCommit | null;
         readonly owners: ReadonlyArray<LoomReviewAuthorshipCommit | null>;
         readonly threads: ReadonlyArray<LoomReviewAuthorshipThread>;
+        readonly changedFile: boolean;
       },
       ReviewAuthorshipError
     >;
@@ -384,12 +398,51 @@ const make = Effect.gen(function* () {
       ),
   );
 
+  /** Unbounded blame of a few working-tree lines: who wrote lines a question says are not its own. */
+  const lineBlame = Effect.fn("ReviewAuthorship.lineBlame")(
+    function* (input: LineBlameInput) {
+      const none = { commits: [], threads: [] };
+      const root = yield* rootOf(input.threadId);
+      if (root === null) return none;
+      const blame = yield* run(
+        root,
+        ["blame", "--incremental", `-L${input.startLine},${input.endLine}`, "--", input.path],
+        { timeoutMs: FILE_TIMEOUT_MS },
+      );
+      if (blame.exitCode !== 0) return none;
+      const owners = blame.stdout
+        .split("\n")
+        .flatMap((line) => {
+          const header = BLAME_HEADER.exec(line);
+          return header && !ZERO_SHA.test(header[1]!)
+            ? [[Number(header[2]), header[1]!] as const]
+            : [];
+        })
+        .toSorted((left, right) => left[0] - right[0]);
+      // `--no-walk=unsorted` keeps the order given: the lines' order.
+      const commits = yield* readCommits(root, [...new Set(owners.map(([, sha]) => sha))]);
+      return { commits, threads: yield* readThreads(commits) };
+    },
+    (effect, input) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new ReviewAuthorshipError({
+              threadId: input.threadId,
+              detail: typeof cause === "string" ? cause : "git failed",
+              ...(typeof cause === "string" ? {} : { cause }),
+            }),
+        ),
+      ),
+  );
+
   const commitAuthor = Effect.fn("ReviewAuthorship.commitAuthor")(
     function* (input: {
       readonly threadId: ThreadId;
       readonly baseRef: string | null;
       readonly commitSha: string;
       readonly ownerShas: ReadonlyArray<string>;
+      readonly filePath: string;
     }) {
       const root = yield* rootOf(input.threadId);
       const branch = root === null ? null : yield* branchOf(root, input.baseRef);
@@ -406,10 +459,24 @@ const make = Effect.gen(function* () {
         [...new Set([input.commitSha, ...input.ownerShas])].filter((sha) => onBranch.has(sha)),
       );
       const bySha = new Map(commits.map((commit) => [commit.sha, commit]));
+      const changedFile =
+        root !== null &&
+        branch !== null &&
+        onBranch.has(input.commitSha) &&
+        (yield* run(root, [
+          "log",
+          "--format=%H",
+          `${branch.mergeBase}..${branch.headSha}`,
+          "--",
+          input.filePath,
+        ])).stdout
+          .split("\n")
+          .includes(input.commitSha);
       return {
         commit: bySha.get(input.commitSha) ?? null,
         owners: input.ownerShas.map((sha) => bySha.get(sha) ?? null),
         threads: yield* readThreads(commits),
+        changedFile,
       };
     },
     (effect, input) =>
@@ -425,7 +492,7 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  return ReviewAuthorship.of({ authorship, lineHistory, commitAuthor });
+  return ReviewAuthorship.of({ authorship, lineHistory, lineBlame, commitAuthor });
 });
 
 export const layer = Layer.effect(ReviewAuthorship, make);

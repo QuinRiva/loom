@@ -101,6 +101,8 @@ describe("a code promotion", () => {
             askedAt,
             commitSha: "aaa",
             ownerShas: ["aaa"],
+            commitChanged: "lines",
+            writerShas: [],
             filePath: "src/config.ts",
             startLine: 4,
             endLine: 5,

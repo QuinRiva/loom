@@ -629,12 +629,12 @@ export type DocumentQueryPromoteInput = typeof DocumentQueryPromoteInput.Type;
 export const DocumentQueryPromoteResult = Schema.Struct({ dispatched: Schema.Literal(true) });
 export type DocumentQueryPromoteResult = typeof DocumentQueryPromoteResult.Type;
 
-// loom: code query threads (plans/code-query/plan.mdx §4). Query author on the author card asks
-// the thread that committed the selected lines, in its read-only fork. The server re-derives the
-// author from `commitSha` in `reviewThreadId`'s checkout; the rest is the question as recorded,
-// plus the selection's hunk (`diff`), which the message carries whole and the sidecar cut.
+// loom: code query threads (plans/code-query/plan.mdx §4): Query author asks the thread that
+// committed `commitSha`, which the server re-derives in `reviewThreadId`'s checkout. Empty
+// `ownerShas` asks about lines the branch left unchanged: `commitSha` must have changed `filePath`,
+// and the server reads the lines' writers itself. `diff` is the selection's hunk.
 export const CodeQueryInput = LoomCodeQueryQuestion.mapFields((fields) => ({
-  ...Struct.omit(fields, ["messageId", "askedAt", "excerpt"]),
+  ...Struct.omit(fields, ["messageId", "askedAt", "excerpt", "commitChanged", "writerShas"]),
   reviewThreadId: ThreadId,
   /** The base the view asked its authors for; null is the automatic base. */
   baseRef: Schema.NullOr(TrimmedNonEmptyString),

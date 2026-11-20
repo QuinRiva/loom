@@ -136,7 +136,7 @@ it.layer(TestLayer)("Loom review authorship", (it) => {
       git(worktree, "init", "-q", "-b", "main");
       write(worktree, "app.ts", ["a", "b", "c", "d", "e"]);
       write(worktree, "gone.ts", ["x", "y"]);
-      commit(worktree, "base", "Owner");
+      const base = commit(worktree, "base", "Owner");
       git(worktree, "checkout", "-q", "-b", "feature");
 
       const reviewer = yield* createThread(worktree, "Reviewer");
@@ -237,6 +237,34 @@ it.layer(TestLayer)("Loom review authorship", (it) => {
         rewritten.threads.map((thread) => thread.title),
         ["Reviewer", "Coder"],
       );
+
+      // Line blame is not bounded by the branch: a line older than it names its commit too, in
+      // line order; an uncommitted line names none.
+      const blamed = yield* authorship.lineBlame({
+        threadId: reviewer.threadId,
+        path: "app.ts",
+        startLine: 1,
+        endLine: 3,
+      });
+      assert.deepEqual(
+        blamed.commits.map((entry) => [entry.sha, entry.gitAuthor]),
+        [
+          [base, "Owner"],
+          [rewrite, "Loom agent"],
+        ],
+      );
+      assert.deepEqual(
+        blamed.threads.map((thread) => thread.title),
+        ["Reviewer"],
+      );
+      write(worktree, "app.ts", ["dirty", "B2", "c", "D1", "e", "f", "g", "h", "i"]);
+      const uncommitted = yield* authorship.lineBlame({
+        threadId: reviewer.threadId,
+        path: "app.ts",
+        startLine: 1,
+        endLine: 1,
+      });
+      assert.deepEqual(uncommitted.commits, []);
     }),
   );
 

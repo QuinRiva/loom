@@ -1,7 +1,7 @@
 /**
  * Code query threads on the real orchestrator and a real temp repository (plans/code-query/plan.mdx
- * §7, slice 2): the author is named from the commit or refused; one live query thread per author
- * run; a mid-turn author defers the fork; asking and promoting leave the author exactly as it was.
+ * §7): the author is named from the commit or refused, also for lines the branch left unchanged;
+ * one live query thread per author run; a deferred fork; the author is never changed.
  */
 // @effect-diagnostics nodeBuiltinImport:off -- the fixture repo is built with plain git and fs
 import * as NodeChildProcess from "node:child_process";
@@ -16,6 +16,7 @@ import {
   type CodeQueryInput,
   CommandId,
   DOCUMENT_QUERY_ROLE,
+  LoomCodeQueryQuestion,
   MessageId,
   ProjectId,
   ProviderDriverKind,
@@ -25,6 +26,7 @@ import { formatComposerContextReference } from "@t3tools/shared/composerContextR
 import { splitDocumentQueryKickoff } from "@t3tools/shared/documentQuery.loom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../../config.ts";
 import type { WorkstreamCaller } from "../../mcp/toolkits/workstream/authorisation.ts";
@@ -61,8 +63,9 @@ const commitLines = (
   lines: ReadonlyArray<string>,
   subject: string,
   trailers: ReadonlyArray<string>,
+  file = "app.ts",
 ) => {
-  NodeFS.writeFileSync(NodePath.join(cwd, "app.ts"), `${lines.join("\n")}\n`);
+  NodeFS.writeFileSync(NodePath.join(cwd, file), `${lines.join("\n")}\n`);
   git(cwd, "add", "-A");
   NodeChildProcess.execFileSync(
     "git",
@@ -77,6 +80,23 @@ const commitLines = (
     { cwd, env: { ...GIT_ENV, GIT_AUTHOR_NAME: "Loom agent" } },
   );
   return git(cwd, "rev-parse", "HEAD");
+};
+/** A commit as the blame service reads it. */
+const readCommit = (cwd: string, sha: string, threadIds: ReadonlyArray<string> = []) => {
+  const [subject = "", gitAuthor = "", authoredAt = ""] = git(
+    cwd,
+    "log",
+    "-1",
+    "--format=%s%x1f%an%x1f%aI",
+    sha,
+  ).split("\x1f");
+  return {
+    sha,
+    subject,
+    gitAuthor,
+    authoredAt,
+    threadIds: threadIds.map((id) => ThreadId.make(id)),
+  };
 };
 
 const TestLayer = Layer.mergeAll(
@@ -160,6 +180,7 @@ const asking = (
   ownerShas: ReadonlyArray<string>,
   line: number,
   question: string,
+  endLine = line,
 ): CodeQueryInput => ({
   reviewThreadId,
   baseRef: "main",
@@ -167,15 +188,39 @@ const asking = (
   ownerShas,
   filePath: "app.ts",
   startLine: line,
-  endLine: line,
-  selection: { start: line, side: "additions", end: line, endSide: "additions" },
+  endLine,
+  selection: { start: line, side: "additions", end: endLine, endSide: "additions" },
   startIndex: line,
-  endIndex: line,
-  rangeLabel: `+${line}`,
+  endIndex: endLine,
+  rangeLabel: endLine === line ? `+${line}` : `+${line} to +${endLine}`,
   sectionId: "loom-file-change",
   sectionTitle: "Changes",
   diff: `@@ -${line},1 +${line},1 @@\n-x\n+line ${line}`,
   question,
+});
+
+const decodeQuestion = Schema.decodeUnknownSync(LoomCodeQueryQuestion);
+it("a question recorded before unchanged lines could be asked still reads as a question about lines", () => {
+  const recorded = {
+    messageId: "message:old",
+    askedAt: "2026-11-18T00:00:00.000Z",
+    commitSha: "aaa",
+    ownerShas: ["aaa"],
+    filePath: "app.ts",
+    startLine: 2,
+    endLine: 2,
+    selection: { start: 2, side: "additions", end: 2, endSide: "additions" },
+    startIndex: 1,
+    endIndex: 1,
+    rangeLabel: "+2",
+    sectionId: "loom-file-change",
+    sectionTitle: "Changes",
+    excerpt: "+B",
+  };
+  assert.deepInclude(decodeQuestion(recorded), {
+    commitChanged: "lines",
+    writerShas: [],
+  });
 });
 
 it.layer(TestLayer)("Code query threads", (it) => {
@@ -183,7 +228,7 @@ it.layer(TestLayer)("Code query threads", (it) => {
     "a question forks the idle author; a second reuses it; Promote records; the author is untouched; its next run supersedes",
     () =>
       Effect.gen(function* () {
-        const { worktree, reviewThreadId } = yield* reviewRepo("main");
+        const { worktree, base, reviewThreadId } = yield* reviewRepo("main");
         const coder = ThreadId.make("code-query-coder");
         const fixer = ThreadId.make("code-query-fixer");
         // A role gives the author a sidecar row, as every real coder has, for the snapshot to compare.
@@ -257,9 +302,10 @@ it.layer(TestLayer)("Code query threads", (it) => {
         assert.equal(query.codeQuery?.questions[0]?.messageId, message.id);
 
         // Asked from the earlier-author row of lines the fixer rewrote: the coder's same thread,
-        // and the sentence says the lines are no longer as the coder wrote them.
+        // and the sentence says the lines are no longer as the coder wrote them. Line 1 in the
+        // range predates the branch, so it is never named as having rewritten them.
         const second = yield* askCodeQuery(
-          asking(reviewThreadId, byCoder, [byFixer], 2, "Why B1?"),
+          asking(reviewThreadId, byCoder, [byFixer], 1, "Why B1?", 2),
         );
         assert.deepEqual([second.created, second.queryThreadId], [false, first.queryThreadId]);
         const reused = (yield* messagesOf(first.queryThreadId)).find(
@@ -267,8 +313,9 @@ it.layer(TestLayer)("Code query threads", (it) => {
         );
         assert.match(
           reused?.text ?? "",
-          /^\[app\.ts \+2\]\(t3-context:\/\/v1\/review-comment\/.+\) An earlier version of these lines is from your commit .+ They have since been rewritten by commit .+"fix: rename B"/,
+          /^\[app\.ts \+1 to \+2\]\(t3-context:\/\/v1\/review-comment\/.+\) An earlier version of these lines is from your commit .+ They have since been rewritten by commit [0-9a-f]{12} "fix: rename B", so the hunk/,
         );
+        assert.notInclude(reused?.text ?? "", base.slice(0, 12));
         assert.lengthOf((yield* row(first.queryThreadId)).codeQuery?.questions ?? [], 2);
 
         // Promote: the RPC queues the human's turn; the tool records the words, the lines stay the
@@ -413,5 +460,151 @@ it.layer(TestLayer)("Code query threads", (it) => {
       assert.lengthOf(yield* messagesOf(queryThreadId), 1);
       assert.deepEqual((yield* row(queryThreadId)).attention, []);
     }),
+  );
+  it.effect(
+    "lines the branch left unchanged are asked of a thread that changed their file, never named as its own",
+    () =>
+      Effect.gen(function* () {
+        const { worktree, base, reviewThreadId } = yield* reviewRepo("unchanged");
+        const coder = ThreadId.make("code-query-file-coder");
+        const busy = ThreadId.make("code-query-file-busy");
+        const bystander = ThreadId.make("code-query-file-bystander");
+        yield* seedThread({ threadId: coder, title: "Feed coder", role: "coder" });
+        yield* seedRunningRun({ threadId: coder, driver: pi });
+        yield* completeSeededRun({ threadId: coder });
+        yield* seedThread({ threadId: busy, title: "Busy coder", role: "coder" });
+        yield* seedRunningRun({ threadId: busy, driver: pi });
+        yield* seedThread({ threadId: bystander, title: "Bystander" });
+        // Before the branch: a person adds other.ts, and the coder, on an earlier branch, line 5.
+        git(worktree, "checkout", "-q", "main");
+        commitLines(worktree, ["p", "q", "r"], "feat: other", [], "other.ts");
+        const ownOld = commitLines(worktree, ["a", "b", "c", "d", "E0"], "feat: E0", [coder]);
+        git(worktree, "checkout", "-q", "-B", "feature");
+        // On the branch: the coder and the busy thread change app.ts, the bystander other.ts.
+        const byCoder = commitLines(worktree, ["a", "B1", "c", "d", "E0"], "feat: B1", [coder]);
+        const byBystander = commitLines(
+          worktree,
+          ["P", "q", "r"],
+          "feat: P",
+          [bystander],
+          "other.ts",
+        );
+        const byBusy = commitLines(worktree, ["A", "B1", "c", "d", "E0"], "feat: A", [busy]);
+        const before = yield* authorState(coder);
+        assert.isNotNull(before.row);
+        const named = (sha: string, threadIds: ReadonlyArray<ThreadId>) => ({
+          sha,
+          subject: readCommit(worktree, sha).subject,
+          threadIds,
+        });
+        const firstQuestion = (queryThreadId: ThreadId) =>
+          Effect.map(messagesOf(queryThreadId), (sent) => {
+            const message = sent[0]!;
+            return {
+              split: splitDocumentQueryKickoff(message.id, message.text),
+              reference: formatComposerContextReference(message.context!.records[0]!),
+            };
+          });
+
+        // Line 4, base's: the coder's copy is told no line is its own, and who wrote them.
+        const asked = yield* askCodeQuery(asking(reviewThreadId, byCoder, [], 4, "Why d?"));
+        assert.deepInclude(asked, { created: true, authorThreadId: coder });
+        const first = yield* firstQuestion(asked.queryThreadId);
+        assert.deepEqual(first.split, {
+          overlay: buildCodeQueryOverlay({ authorThreadId: coder }),
+          question: buildCodeQueryQuestion({
+            reference: first.reference,
+            question: "Why d?",
+            commit: named(byCoder, [coder]),
+            commitChanged: "file",
+            owners: [readCommit(worktree, base)],
+          }),
+        });
+        assert.include(first.split?.question ?? "", "None of these lines are yours");
+        assert.deepInclude((yield* row(asked.queryThreadId)).codeQuery?.questions[0], {
+          commitSha: byCoder,
+          ownerShas: [],
+          commitChanged: "file",
+          writerShas: [base],
+          startLine: 4,
+        });
+
+        // Line 5, the coder's own from before the branch: named as its own, never as another's.
+        const own = yield* askCodeQuery(asking(reviewThreadId, byCoder, [], 5, "Why E0?"));
+        assert.deepEqual([own.created, own.queryThreadId], [false, asked.queryThreadId]);
+        const ownMessage = (yield* messagesOf(asked.queryThreadId)).find(
+          (m) => m.id === `message:server:loom:query:${asked.queryThreadId}:2`,
+        )!;
+        assert.equal(
+          ownMessage.text,
+          buildCodeQueryQuestion({
+            reference: formatComposerContextReference(ownMessage.context!.records[0]!),
+            question: "Why E0?",
+            commit: named(ownOld, [coder]),
+            owners: [readCommit(worktree, ownOld, [coder])],
+          }),
+        );
+        assert.include(ownMessage.text, "These lines are from your commit");
+        assert.deepInclude((yield* row(asked.queryThreadId)).codeQuery?.questions[1], {
+          commitSha: byCoder,
+          commitChanged: "file",
+          writerShas: [ownOld],
+        });
+
+        // Changed and older lines in one range: the older ones are named as another commit's.
+        const mixed = yield* askCodeQuery(
+          asking(reviewThreadId, byCoder, [byCoder], 2, "Why B1 and c?", 3),
+        );
+        assert.equal(mixed.queryThreadId, asked.queryThreadId);
+        const mixedMessage = (yield* messagesOf(asked.queryThreadId)).find(
+          (m) => m.id === `message:server:loom:query:${asked.queryThreadId}:3`,
+        )!;
+        assert.equal(
+          mixedMessage.text,
+          buildCodeQueryQuestion({
+            reference: formatComposerContextReference(mixedMessage.context!.records[0]!),
+            question: "Why B1 and c?",
+            commit: named(byCoder, [coder]),
+            owners: [named(byCoder, [coder]), named(base, [])],
+          }),
+        );
+        assert.include(mixedMessage.text, "; the rest are from commit");
+
+        // Refused: a thread whose branch commit did not change the file; lines the branch did
+        // change, sent as unchanged by a client that has not caught up.
+        const elsewhere = yield* Effect.flip(
+          askCodeQuery(asking(reviewThreadId, byBystander, [], 4, "Why d?")),
+        );
+        assert.include(elsewhere.message, "did not change app.ts on this branch");
+        const stale = yield* Effect.flip(
+          askCodeQuery(asking(reviewThreadId, byCoder, [], 2, "Why B1?")),
+        );
+        assert.include(stale.message, "The branch has changed");
+        // A changed line asked of a thread that changed the file but never these lines would be
+        // told it wrote an earlier version of them: refused while their history says otherwise.
+        const notEarlier = yield* Effect.flip(
+          askCodeQuery(asking(reviewThreadId, byCoder, [byBusy], 1, "Why A?")),
+        );
+        assert.include(notEarlier.message, "wrote neither these lines nor an earlier version");
+
+        assert.deepEqual(yield* authorState(coder), before);
+
+        // A mid-turn thread's fork launched later says what one launched at once would.
+        const deferred = yield* askCodeQuery(asking(reviewThreadId, byBusy, [], 3, "Why c?"));
+        assert.lengthOf(yield* messagesOf(deferred.queryThreadId), 0);
+        yield* completeSeededRun({ threadId: busy });
+        yield* settlePass;
+        const late = yield* firstQuestion(deferred.queryThreadId);
+        assert.equal(
+          late.split?.question,
+          buildCodeQueryQuestion({
+            reference: late.reference,
+            question: "Why c?",
+            commit: named(byBusy, [busy]),
+            commitChanged: "file",
+            owners: [readCommit(worktree, base)],
+          }),
+        );
+      }),
   );
 });

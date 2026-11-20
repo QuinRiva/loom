@@ -326,11 +326,28 @@ export const LoomCodeQueryQuestion = Schema.Struct({
   askedAt: IsoDateTime,
   /** The commit the card's row named; it decided the author, and may be an earlier author's. */
   commitSha: TrimmedNonEmptyString,
-  /** The commits owning the selected added lines when asked: a mark is drawn while they still do. */
+  /**
+   * The branch commits owning the selected added lines when asked: a mark is drawn while they still
+   * do. Empty for lines the branch left unchanged.
+   */
   ownerShas: Schema.Array(TrimmedNonEmptyString),
+  /**
+   * What `commitSha` changed: the lines (or an earlier version of them), or only their file, on a
+   * question about lines the branch left unchanged. Questions recorded before `file` read `lines`.
+   */
+  commitChanged: Schema.Literals(["lines", "file"]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("lines" as const)),
+  ),
+  /**
+   * On a `file` question: the commits that last wrote the selected lines when asked, from an
+   * unbounded blame, in line order. Any may predate the branch; none is the asked thread's.
+   */
+  writerShas: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   /** Worktree-relative. */
   filePath: TrimmedNonEmptyString,
-  /** First and last added line of the selection, new-side numbers. */
+  /** First and last added line of the selection (unchanged lines on a `file` question), new-side. */
   startLine: PositiveInt,
   endLine: PositiveInt,
   selection: LoomCodeQuerySelection,
