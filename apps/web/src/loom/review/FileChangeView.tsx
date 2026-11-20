@@ -10,6 +10,7 @@ import {
   type FileDiffMetadata,
   parseDiffFromFile,
 } from "@pierre/diffs";
+import type { EditorFocusOptions } from "@pierre/diffs/edit";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { Columns2Icon, EyeIcon, FileCode2Icon, PencilIcon, Rows3Icon } from "lucide-react";
@@ -30,11 +31,18 @@ import { Button } from "../../components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../components/ui/tooltip";
 import type { DraftId } from "../../composerDraftStore";
 import { useClientSettings } from "../../hooks/useSettings";
+import {
+  changeFileSaveSession,
+  type FilePendingListener,
+  useFileSaveSession,
+} from "../../components/files/fileSaveSessions";
+import { setProjectFileQueryData } from "../../components/files/projectFilesQueryState";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { useRenderedAppearance } from "../../hooks/useTheme";
 import { createGitDiffFileContentsLoader } from "../../lib/diffFileContents";
 import {
   buildFileDiffContentVersion,
+  fnv1a32,
   getRenderablePatch,
   resolveDiffThemeName,
 } from "../../lib/diffRendering";
@@ -50,6 +58,7 @@ import { ChangeRuler, LoomChangeCounter } from "./ChangeRuler";
 import {
   changeInRows,
   nearestChange,
+  newSideLine,
   rowsOnScreen,
   rulerChanges,
   rulerTotalRows,
@@ -111,9 +120,109 @@ function statusOfPatch(diff: string): LoomChangedFile["status"] | null {
   return diff ? "modified" : null;
 }
 
-type WholeFileState =
-  | { readonly key: string; readonly diff: FileDiffMetadata }
+/** Both sides as the loader read them under one comparison and revision. */
+type LoadedSides =
+  | {
+      readonly key: string;
+      readonly oldFile: FileContents | null;
+      readonly newFile: FileContents | null;
+    }
   | { readonly key: string; readonly error: string };
+
+/** The comparison on screen, and the two texts it was made from. */
+type ShownComparison = {
+  readonly path: string;
+  readonly old: string | null;
+  readonly text: string | null;
+} & ({ readonly diff: FileDiffMetadata } | { readonly error: string });
+
+/** Typing publishes the file to the rest of the app once it pauses this long. */
+const PUBLISH_PAUSE_MS = 400;
+
+function compare(path: string, oldFile: FileContents | null, newFile: FileContents | null) {
+  const texts = { path, old: oldFile?.contents ?? null, text: newFile?.contents ?? null };
+  try {
+    return { ...texts, diff: parseDiffFromFile(oldFile, newFile) };
+  } catch {
+    // Pierre refuses two identical sides; a whitespace-only change under hidden whitespace.
+    return { ...texts, error: "No line changes in this file under the current comparison." };
+  }
+}
+
+/** Where typing in the new side saves: the file as it is now, as the editor would save it. */
+export interface FileChangeEditTarget {
+  readonly environmentId: EnvironmentId;
+  readonly cwd: string;
+  /** The file's contents as the Files surface holds them, unsaved typing included. */
+  readonly working: string;
+  readonly onPendingChange: FilePendingListener;
+}
+
+/**
+ * Where a click on the new side's text puts the caret: its line, and the characters before the
+ * point clicked. Null off that text (the old side, a gutter, a deleted line) and after a drag that
+ * selected text to copy.
+ */
+function clickedCaret(event: MouseEvent): { line: number; character: number } | null {
+  const path = event.composedPath().filter((node) => node instanceof HTMLElement);
+  const line = path.find((node) => node.hasAttribute("data-line"));
+  if (
+    !line ||
+    !path.some(
+      (node) => node.hasAttribute("data-additions") || node.hasAttribute("data-unified"),
+    ) ||
+    path.some(
+      (node) => node.hasAttribute("data-column-number") || node.hasAttribute("data-gutter"),
+    ) ||
+    line.dataset.lineType?.includes("deletion")
+  ) {
+    return null;
+  }
+  const root = line.getRootNode();
+  const shadow = root instanceof ShadowRoot ? root : undefined;
+  const selection =
+    (shadow as { getSelection?: () => Selection | null } | undefined)?.getSelection?.() ??
+    document.getSelection();
+  if (selection && !selection.isCollapsed) return null;
+  const point = document.caretPositionFromPoint?.(
+    event.clientX,
+    event.clientY,
+    shadow ? { shadowRoots: [shadow] } : undefined,
+  );
+  let character = 0;
+  if (point && line.contains(point.offsetNode)) {
+    const before = document.createRange();
+    before.setStart(line, 0);
+    before.setEnd(point.offsetNode, point.offset);
+    character = before.toString().length;
+  }
+  return { line: Number(line.dataset.line), character };
+}
+
+/** The new side's editor, inside the code view's shadow root, has the focus. */
+function editorFocusedIn(view: HTMLElement): boolean {
+  let active = document.activeElement;
+  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+  const root = active?.getRootNode();
+  return (
+    active instanceof HTMLElement &&
+    active.isContentEditable &&
+    root instanceof ShadowRoot &&
+    view.contains(root.host)
+  );
+}
+
+/** Holds the file's save session while typing is possible, and reports whether a save is due. */
+function FileSaveLease({
+  target,
+  onPendingChange,
+}: {
+  target: { environmentId: EnvironmentId; cwd: string; relativePath: string };
+  onPendingChange: FilePendingListener;
+}) {
+  useFileSaveSession(target, onPendingChange);
+  return null;
+}
 
 /** Whose comparison this is and how to ask who wrote it (plans/diff-author-query). */
 export interface FileChangeReview {
@@ -145,6 +254,8 @@ export interface FileChangeViewProps {
   /** Where the reader's place in this file is remembered across a thread switch. */
   readonly scrollKey?: string;
   readonly review?: FileChangeReview;
+  /** Set when the new side is the file as it is now: a click there starts typing into it. */
+  readonly editTarget?: FileChangeEditTarget | null;
 }
 
 export function FileChangeView({
@@ -157,6 +268,7 @@ export function FileChangeView({
   statusPending = false,
   scrollKey,
   review,
+  editTarget = null,
 }: FileChangeViewProps) {
   const resolvedTheme = useRenderedAppearance(); // the diff worker pool resolves only this theme
   const layout = useReviewBaselineStore((state) => state.fileChangeLayout);
@@ -168,7 +280,8 @@ export function FileChangeView({
   const load = useStableCallback(loadDiffFiles);
   const [wholeRequestedFor, setWholeRequestedFor] = useState<string | null>(null);
   const mode = oversize && wholeRequestedFor !== file.path ? "patch" : "whole";
-  const [whole, setWhole] = useState<WholeFileState | null>(null);
+  const [loaded, setLoaded] = useState<LoadedSides | null>(null);
+  const [shown, setShown] = useState<ShownComparison | null>(null);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the whole file pair through the diff loader for the current file and revision
   useEffect(() => {
@@ -179,22 +292,15 @@ export function FileChangeView({
         if (cancelled) return;
         const side = (contents: FileContents | null) =>
           contents && { ...contents, cacheKey: `loom-file-change:${key}:${contents.cacheKey}` };
-        try {
-          setWhole({
-            key,
-            diff: parseDiffFromFile(
-              status === "added" ? null : side(oldFile),
-              status === "deleted" ? null : side(newFile),
-            ),
-          });
-        } catch {
-          // Pierre refuses two identical sides; a whitespace-only change under hidden whitespace.
-          setWhole({ key, error: "No line changes in this file under the current comparison." });
-        }
+        setLoaded({
+          key,
+          oldFile: status === "added" ? null : side(oldFile),
+          newFile: status === "deleted" ? null : side(newFile),
+        });
       },
       (error: unknown) => {
         if (cancelled) return;
-        setWhole({
+        setLoaded({
           key,
           error: error instanceof Error ? error.message : "Could not load this file's changes.",
         });
@@ -212,15 +318,60 @@ export function FileChangeView({
         })
       : null;
   // Keep the last whole file of this path on screen while a refreshed comparison reloads.
-  const wholeOnScreen = whole && whole.key.startsWith(`${file.path}\u0000`) ? whole : null;
+  const loadedOnScreen = loaded && loaded.key.startsWith(`${file.path}\u0000`) ? loaded : null;
+  const sides = loadedOnScreen && "oldFile" in loadedOnScreen ? loadedOnScreen : null;
+
+  // Typing (plans/inline-diff-editing). Where the new side is the file as it is now, it is read from
+  // the Files surface: the one copy that typing and an agent's writes both reach.
+  const writable = editTarget !== null && !oversize && status !== "deleted";
+  /** Where the click that started typing put the caret; null while reading. */
+  const [caret, setCaret] = useState<{ line: number; character: number } | null>(null);
+  const typing = writable && caret !== null;
+  /** A save is due: until it lands, the Files surface's copy may trail the typing. */
+  const [unsaved, setUnsaved] = useState(false);
+  /** The typed file last published to the Files surface, compared for the counter and ruler. */
+  const [typed, setTyped] = useState<{ text: string; diff: FileDiffMetadata | null } | null>(null);
+  const pendingRef = useRef<{ timer: ReturnType<typeof setTimeout>; publish: () => void } | null>(
+    null,
+  );
+  const text = writable ? editTarget.working : (sides?.newFile?.contents ?? null);
+  // Rebuilt when the file or the older side moved under the view; never on typing echoing back
+  // from the Files surface, which would reset the editor.
+  if (
+    mode === "whole" &&
+    sides &&
+    (shown?.path !== path ||
+      (!unsaved &&
+        (shown.old !== (sides.oldFile?.contents ?? null) ||
+          (shown.text !== text && text !== typed?.text))))
+  ) {
+    setShown(
+      compare(
+        path,
+        sides.oldFile,
+        writable && text !== null
+          ? {
+              name: path,
+              contents: text,
+              cacheKey: `loom-file-change:${path}:${fnv1a32(text)}:${text.length}`,
+            }
+          : sides.newFile,
+      ),
+    );
+    setTyped(null);
+    // An agent's write ends typing, as it takes the focus from the editor; a click resumes it.
+    if (typing) setCaret(null);
+  }
   const fileDiff =
     mode === "patch"
       ? patchDiff?.kind === "files"
         ? patchDiff.files[0]
         : undefined
-      : wholeOnScreen && "diff" in wholeOnScreen
-        ? wholeOnScreen.diff
-        : undefined;
+      : loadedOnScreen && "error" in loadedOnScreen
+        ? undefined
+        : shown?.path === path && "diff" in shown
+          ? shown.diff
+          : undefined;
 
   const authors = useLoomAuthorship({
     threadRef: review?.reviewing ?? null,
@@ -251,8 +402,71 @@ export function FileChangeView({
       ? reviewFocus
       : null;
 
+  const saveTarget = {
+    environmentId: editTarget?.environmentId ?? ("" as EnvironmentId),
+    cwd: editTarget?.cwd ?? "",
+    relativePath: path,
+  };
+  const onPendingChange = useStableCallback((relativePath: string, pending: boolean) => {
+    editTarget?.onPendingChange(relativePath, pending);
+    setUnsaved(pending);
+  });
+  // Publishing re-renders the whole Files surface (70 to 100 ms a keystroke on 770 lines), so the
+  // save takes every keystroke and the rest of the app hears at a pause.
+  const publish = (contents: string, diff: FileDiffMetadata | null) => {
+    clearTimeout(pendingRef.current?.timer);
+    pendingRef.current = null;
+    setTyped({ text: contents, diff });
+    setProjectFileQueryData(saveTarget.environmentId, saveTarget.cwd, path, contents);
+  };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- typing not yet published when the view closes reaches the Files surface, so the editor opens on it
+  useEffect(
+    () => () => {
+      clearTimeout(pendingRef.current?.timer);
+      pendingRef.current?.publish();
+    },
+    [],
+  );
+  const loomEdit = {
+    active: typing,
+    onAttach: (editor: { focus: (options?: EditorFocusOptions) => void }) => {
+      if (caret)
+        editor.focus({ lineNumber: caret.line, character: caret.character, preventScroll: true });
+    },
+    onChange: (contents: string) => {
+      // The editor reporting the file it was given, not typing.
+      if (!writable || (!unsaved && contents === editTarget.working)) return;
+      changeFileSaveSession(saveTarget, contents);
+      clearTimeout(pendingRef.current?.timer);
+      const counted = () => {
+        try {
+          return parseDiffFromFile(sides?.oldFile ?? null, { name: path, contents });
+        } catch {
+          return null;
+        }
+      };
+      pendingRef.current = {
+        timer: setTimeout(() => publish(contents, counted()), PUBLISH_PAUSE_MS),
+        publish: () =>
+          setProjectFileQueryData(saveTarget.environmentId, saveTarget.cwd, path, contents),
+      };
+    },
+    onComplete: (diff: FileDiffMetadata, contents: string) => {
+      // Nothing was typed, or an agent's write has since replaced it: the view stays as it is.
+      if (!pendingRef.current && (contents === shown?.text || contents !== editTarget?.working))
+        return "reject" as const;
+      diff.cacheKey = `loom-file-change:${path}:${fnv1a32(contents)}:${contents.length}`;
+      setShown((current) => current && { path, old: current.old, text: contents, diff });
+      if (pendingRef.current) publish(contents, diff);
+      else setTyped({ text: contents, diff });
+      return "accept" as const;
+    },
+  };
+
   const [codeView, setCodeView] = useState<AnnotatableCodeViewHandle | null>(null);
-  const changes = fileDiff ? rulerChanges(fileDiff, layout) : [];
+  // While typing, the counter and ruler follow the file as last published, at a pause in typing.
+  const counted = typing && typed?.diff ? typed.diff : fileDiff;
+  const changes = counted ? rulerChanges(counted, layout) : [];
   const openedRef = useRef<{ readonly key: string; readonly mode: typeof mode } | null>(null);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this file's change navigation with the shared store and restores and remembers the code view's scroll
   useEffect(() => {
@@ -335,6 +549,11 @@ export function FileChangeView({
           offset: itemTop + anchor.top - top,
           ...(anchor.side ? { side: anchor.side } : {}),
         },
+        newLine:
+          anchor &&
+          (anchor.side === "deletions" && counted
+            ? newSideLine(counted, anchor.lineNumber)
+            : anchor.lineNumber),
       });
     };
     // Which change is at the centre, read from the rows on screen once scrolling settles.
@@ -359,7 +578,7 @@ export function FileChangeView({
         useChangeNavigationStore.setState({ owner: null, count: 0 });
       }
     };
-  }, [changes, codeView, file.path, focus, layout, mode, scrollKey]);
+  }, [changes, codeView, counted, file.path, focus, layout, mode, scrollKey]);
 
   const notice =
     mode === "patch" ? (
@@ -379,9 +598,11 @@ export function FileChangeView({
     const error =
       mode === "patch"
         ? (patch.error ?? (patchDiff?.kind === "raw" ? patchDiff.reason : null))
-        : wholeOnScreen && "error" in wholeOnScreen
-          ? wholeOnScreen.error
-          : null;
+        : loadedOnScreen && "error" in loadedOnScreen
+          ? loadedOnScreen.error
+          : shown?.path === path && "error" in shown
+            ? shown.error
+            : null;
     return (
       <>
         {notice}
@@ -404,11 +625,28 @@ export function FileChangeView({
       {notice}
       {review ? <ReviewFollowLabel routed={review.routed} follow={follow} /> : null}
       <AuthorshipFileRow authors={authors} path={file.path} />
+      {writable ? <FileSaveLease target={saveTarget} onPendingChange={onPendingChange} /> : null}
       <div
         className="flex min-h-0 flex-1"
         data-loom-file-change={mode}
         data-loom-keys="[]"
+        onClickCapture={(event) => {
+          const at = writable && !typing ? clickedCaret(event.nativeEvent) : null;
+          if (at) setCaret(at);
+        }}
+        onBlur={(event) => {
+          if (!typing) return;
+          const view = event.currentTarget;
+          // Focus moving inside the code view's shadow root also blurs here; look once it settles.
+          setTimeout(() => {
+            if (!editorFocusedIn(view)) setCaret(null);
+          }, 0);
+        }}
         onKeyDown={(event) => {
+          if (event.key === "Escape" && typing) {
+            setCaret(null);
+            return;
+          }
           if (
             (event.key !== "[" && event.key !== "]") ||
             event.metaKey ||
@@ -443,6 +681,7 @@ export function FileChangeView({
           renderHeaderPrefix={() => null}
           onRevealSearchMatch={() => undefined}
           authorCard={authorCard}
+          loomEdit={loomEdit}
           unsafeCSSExtra={authors.css}
           options={{
             diffStyle: layout,
@@ -468,7 +707,7 @@ export function FileChangeView({
           <ChangeRuler
             codeView={codeView}
             changes={changes}
-            totalRows={rulerTotalRows(fileDiff, layout)}
+            totalRows={rulerTotalRows(counted ?? fileDiff, layout)}
           />
         ) : null}
       </div>
@@ -490,6 +729,7 @@ export function LoomFileChangeSurface({
   composerDraftTarget,
   scrollKey,
   workspaceMutationId,
+  editTarget = null,
 }: {
   environmentId: EnvironmentId;
   threadRef: ScopedThreadRef;
@@ -502,6 +742,8 @@ export function LoomFileChangeSurface({
   working: { readonly byteLength: number; readonly contents: string } | null;
   composerDraftTarget: ScopedThreadRef | DraftId;
   scrollKey: string;
+  /** Where typing saves, when the Files surface can write the file; null keeps it read-only. */
+  editTarget?: { readonly cwd: string; readonly onPendingChange: FilePendingListener } | null;
 }) {
   const getLoomContents = useAtomCommand(loomReviewQueries.fileContents);
   const getGitContents = useAtomCommand(reviewEnvironment.diffFileContents);
@@ -593,6 +835,12 @@ export function LoomFileChangeSurface({
       // A failed read falls back to the guess.
       statusPending={provisional && !fetchedStatus && gitPatch.error === null}
       scrollKey={scrollKey}
+      // Every comparison but an Earlier one ends at the file as it is now.
+      editTarget={
+        editTarget && working && (baseline.kind === "git" || baseline.intervalId === "live")
+          ? { environmentId, ...editTarget, working: working.contents }
+          : null
+      }
       review={{
         routed: routedRef,
         reviewing: threadRef,

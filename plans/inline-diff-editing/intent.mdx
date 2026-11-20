@@ -1,0 +1,56 @@
+---
+reader:
+  who: Carl, loom's maintainer, who asked for this, tried the spike prototype and said go; approving the intent before anything is built
+  knows: his own request, the whole-file comparison as a user, the spike result and the four answers he gave to it; nothing of the code or the plan
+  after_first_screen: he can correct any line or say "go"
+kicker: "Intent brief · built and shipped on your word, 20 Nov 2026"
+status: done
+manager_sessions:
+  - id: 01a1f1cb-5dfd-733a-a416-9140886a9b65
+    name: Change-view inline editing spike
+    role: intent
+    authored_at: 2026-11-19T05:39:53.819Z
+---
+
+# Reword a file where you read its changes, without clicking Edit
+
+**Goal.** "Being able to see what's changed and then edit the file directly in the change view seems to me like the best approach." When an agent's wording in a docstring or a prompt is not quite right, you fix it in the comparison with the original still beside it. Today you click Edit and lose both the comparison and your place.
+
+**You'll know it works when.**
+
+- You open a changed file from Files under "Since your message", "Changes (branch)" or "Uncommitted", click a word on the right-hand side and type. The file on disk has your wording about half a second later, and you never clicked Edit.
+- While you type, the left-hand side still shows the original. When you press Escape or click away, the red and green word marks come back and show your wording against the original.
+- A comment you left on a line still reaches the agent pointing at that line after you typed new lines in above it.
+- Once you stop typing, the "n of m" change counter and the change bar on the right edge agree with the file.
+- Reading line 1,570 of a long file, you click Edit and the editor opens at line 1,570. Show changes brings you back to the same place.
+- In an "Earlier" comparison, or in a file over about 5,000 lines, a click does not start typing, and Edit works as it does today. Nothing is added to the screen to say so.
+- **Must not:** stutter more than today's editor while you type, or be slower over the tailnet or the relay than Edit is today.
+- **Must not:** stop accepting typing when an agent writes the file underneath you, or lose more of your typing than today's editor does. _As shipped:_ an agent's write ends typing and one click resumes it, as today's editor loses focus there. You were told this before you said "ship it".
+- **Must not:** change anything about reading: comments, the author card, "Query author", the unified view.
+
+**Approaches in play.**
+
+- Typing starts on a click in the right-hand side and ends on Escape or a click elsewhere. It uses the editing support in the diff library the comparison is already drawn with. _Your pick, and what the spike prototyped._
+- Dropped: always typeable. The library hides the green word marks for as long as typing is on, and those marks are how you read a wording change.
+- Dropped: changed files open straight in the editor. Typing is immediate, but the comparison, which is why you opened the file, is gone.
+- Dropped: the editor shows bars beside the lines the agent changed. Cheaper, but it shows where the text changed and not what it said before.
+
+**Decided.** Your answers to the spike, quoted:
+
+- "Go: build option 3 in the click-to-type form, plus option 1." Option 1 is Edit keeping your place.
+- "Click to start, Escape or click away to finish."
+- Earlier comparisons: "Stay read-only; use Since your message or Edit to change the file."
+- Your condition on that: "Provided it only *past* states - If I'm comparing the current to the most recent (the last turn), or current to origin, then I would expect to be able to edit". So typing is on in every comparison whose right-hand side is the file as it is now. It is off only when both sides are past states.
+- Files over about 5,000 lines: "Stay read-only, Edit as today."
+
+- Changed Markdown and MDX files keep opening rendered, with typing behind Show changes: "That's fine - typically I want to view the rendered markdown".
+- No notice where typing is off: "I hate the constant adding of subtitles and warnings everywhere in the interface", and "I'm the sole user of this, so if it doesn't work for me, you don't need to keep telling me."
+- The bar for the build: "Stop trying to make everything perfect - we can changes things that don't work." Edge cases you have not hit are left until you report them.
+- _Assumed:_ web and desktop only, because the phone app has no whole-file comparison.
+
+**Not doing.** Typing in the rendered view of a Markdown or MDX file. Keeping the green word marks visible while you type (a limit of the library, worked around by click-to-type and not fixed). Any change to how saving works: it stays automatic, as in today's editor. Tuning for files between about 3,400 and 5,000 lines, which the spike did not measure: "this isn't important. You're looking at an edge case."
+
+**Settled in the build.**
+
+- An agent writing the file while you type: once your typing has saved, the agent's change appears and both are kept. Inside the half-second before your typing saves, your save wins, as in today's editor.
+- Typing under "Since your message" and the read-only "Earlier" comparison were both checked in the running app.

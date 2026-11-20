@@ -84,8 +84,12 @@ to browse everything again. Clear **Show change marks** in the chip's menu to us
 plain browser.
 
 Opening a changed file shows the whole file side by side, opened at its first change, so the code
-around each change is in view. Switch between side by side and unified in the file's header, and
-choose **Edit** to edit the file as usual; **Show changes** returns to the comparison. Documents
+around each change is in view. Switch between side by side and unified in the file's header. Click
+any text on the right-hand side to type into the file there; it saves as you type, as in the
+editor. Press Escape or click elsewhere to finish, and the comparison shows your wording against
+the original. Typing is off in an **Earlier** comparison and in a very large file. **Edit** opens
+the editor at the line you were reading, and **Show changes** returns to the comparison at the
+editor's line. Documents
 that render (Markdown, MDX, HTML and tables) open rendered instead, with **Show changes** in the
 header and **Rendered** to go back. A very large
 file opens on its changed lines, with **Show whole file** one click away. In the Diff panel,

@@ -65,6 +65,28 @@ export function nearestChange(changes: ReadonlyArray<RulerChange>, row: number):
   return best;
 }
 
+/** The new file's line level with an old file's line: its partner when unchanged, else where its change lands. */
+export function newSideLine(fileDiff: FileDiffMetadata, oldLine: number): number {
+  let shift = 0;
+  for (const hunk of fileDiff.hunks) {
+    if (oldLine < hunk.deletionStart) break;
+    let oldAt = hunk.deletionStart;
+    let newAt = hunk.additionStart;
+    for (const content of hunk.hunkContent) {
+      const [deleted, added] =
+        content.type === "context"
+          ? [content.lines, content.lines]
+          : [content.deletions, content.additions];
+      if (oldLine < oldAt + deleted)
+        return content.type === "context" ? newAt + oldLine - oldAt : newAt;
+      oldAt += deleted;
+      newAt += added;
+    }
+    shift = newAt - oldAt;
+  }
+  return oldLine + shift;
+}
+
 export const changeInRows = (change: RulerChange, first: number, last: number) =>
   change.start <= last && change.start + change.rows - 1 >= first;
 

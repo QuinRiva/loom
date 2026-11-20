@@ -1,7 +1,13 @@
 import { parseDiffFromFile } from "@pierre/diffs";
 import { describe, expect, it } from "vite-plus/test";
 
-import { changeInRows, nearestChange, rulerChanges, rulerTotalRows } from "./changeNavigation";
+import {
+  changeInRows,
+  nearestChange,
+  newSideLine,
+  rulerChanges,
+  rulerTotalRows,
+} from "./changeNavigation";
 
 // 40 lines: line 6 rewritten, lines 21 to 23 deleted, two lines inserted after the old line 33.
 const before = Array.from({ length: 40 }, (_, index) => `line ${index}`);
@@ -44,5 +50,13 @@ describe("nearestChange", () => {
   it("knows when a change is on screen", () => {
     expect(changeInRows(changes[1]!, 23, 40)).toBe(true);
     expect(changeInRows(changes[1]!, 24, 40)).toBe(false);
+  });
+});
+
+describe("newSideLine", () => {
+  it("follows an old line to the new file through deletions and insertions", () => {
+    expect([3, 6, 21, 23, 30, 34, 40].map((line) => newSideLine(fileDiff, line))).toEqual([
+      3, 6, 21, 21, 27, 33, 39,
+    ]);
   });
 });

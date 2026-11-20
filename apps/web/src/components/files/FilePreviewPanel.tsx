@@ -136,6 +136,7 @@ import { LoomMdxAuthorLine } from "~/loom/LoomMdxAuthorLine"; // loom: document 
 import { documentBaseDir, PlanDocumentContext } from "./mdx-plan/planDocument";
 // loom: previews reopen where the reader left them after a thread switch.
 import {
+  carryFilePlace,
   fileScrollKey,
   readRememberedScroll,
   rememberedScrollRef,
@@ -1541,9 +1542,11 @@ export default function FilePreviewPanel({
               marks={loomMarks}
               editing={!loomShowsChange}
               rendered={rendered}
-              onEditingChange={(editing) =>
-                setLoomChoice({ path: loomChange.path, showChanges: !editing })
-              }
+              onEditingChange={(editing) => {
+                // loom: Edit and Show changes keep the reader's line
+                if (!rendered) carryFilePlace(scrollKey, editing, revealRequestId);
+                setLoomChoice({ path: loomChange.path, showChanges: !editing });
+              }}
             />
           ) : null}
           {/* loom: query threads — "1 comment · 2 queries" on an MDX document */}
@@ -1692,6 +1695,12 @@ export default function FilePreviewPanel({
               working={file.data}
               composerDraftTarget={composerDraftTarget}
               scrollKey={`${scrollKey}:change`} // loom: remembered scroll position
+              // loom: inline diff editing, under the editor's own conditions
+              editTarget={
+                file.data && !file.data.truncated && !isHostFile && !unboundedLines && canWriteFiles
+                  ? { cwd, onPendingChange }
+                  : null
+              }
             />
           ) : relativePath && renderBrowserFile && absolutePath ? (
             <WorkspaceBrowserPreview

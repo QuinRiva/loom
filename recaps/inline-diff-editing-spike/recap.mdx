@@ -1,0 +1,230 @@
+---
+kicker: "Spike result · typing in the right-hand side of the whole-file comparison · 19 Nov 2026"
+reader:
+  who: Carl, loom's maintainer, who reads agent-written changes in the whole-file comparison daily and wants to reword docstrings and prompt text in place; deciding whether to commission a build
+  knows: the comparison as a user (old on the left, new on the right, the Edit button, the baselines by their on-screen names, comments and the author card); that he asked for a spike on typing in the right-hand side; the three options he was offered
+  after_first_screen: go, with the click-to-type form; what the build costs (about three to four agent-days) and gives up; the four calls that are his before a build starts
+---
+
+# Typing in the right-hand side works: build it, in the "click to type, Escape to finish" form
+
+**Recommendation: go.** In a throwaway prototype on the real app, you click any word in the right-hand side, type, and the file saves as it does from today's editor. The highlights follow your typing, and comments and the author card still work. Typing is **as smooth as today's editor up to about 3,400 lines**. The library hides the green word marks on the new side while you type. So typing starts on a click and ends on Escape: you read with the word marks, and they come back, recomputed, when you stop.
+
+<Stats
+  items={[
+    { "value": "≈ parity", "label": "smoothness while typing, up to 3,400 lines", "detail": "0 to 4 slow frames per 84 keystrokes, comparison and editor alike", "tone": "success" },
+    { "value": "100 to 200 ms", "label": "from click to typing", "detail": "19 to 12,400 lines", "tone": "success" },
+    { "value": "3 to 4 days", "label": "rough build size", "detail": "agent work plus review", "tone": "info" },
+    { "value": "2 to 5×", "label": "more slow frames above 5,000 lines", "detail": "12,400-line file opened whole", "tone": "warning" }
+  ]}
+/>
+
+<Callout focus title="What it means now">
+Four calls are yours before a build, in the form at the bottom:
+
+- go or not;
+- what typing does in an **Earlier** comparison (recommended: nothing, it stays read-only);
+- how typing starts and ends (recommended: a click, then Escape or click away);
+- whether files over about 5,000 lines stay read-only (recommended: yes).
+
+Either way, **Edit really does lose your place today** (confirmed: reading line 1,570, Edit opens at line 1), and fixing that is half a day whatever you choose.
+</Callout>
+
+## 1. What it looks like
+
+Reading, then a click on "which define" in the prompt, a reword to "that set", a second reword in the docstring, then Escape. The red and green word marks recompute to show your wording against the original.
+
+<Image src="shots/typing-in-comparison.gif" alt="Clicking into the right-hand side of the comparison, rewording two phrases, then pressing Escape" caption="Recorded from the prototype on the real app (a scratch repository, Changes (branch) baseline)" width={900} />
+
+<Columns>
+<Column label="Before the click: reading">
+
+<Image src="shots/reading-before-click.jpg" alt="The comparison with green word marks on the new side" />
+
+</Column>
+<Column label="After Escape: your edits, marks recomputed">
+
+<Image src="shots/after-escape.jpg" alt="The same comparison after two rewords; 'from' is no longer marked as changed because it now matches the original" />
+
+</Column>
+</Columns>
+
+Note line 7 after the edit: "from" is no longer marked, because your wording now matches the original there, and on line 18 only "set" is new.
+
+## 2. The options compared
+
+<Table
+  columns={["", "What you get", "What it gives up", "Rough size"]}
+  rows={[
+    { "tone": "success", "cells": [{ "md": "**3. Type in the comparison**", "badge": { "label": "RECOMMENDED", "tone": "success" } }, "See what changed and reword it in the same place; your change shows against the original as you go", "Large files (over about 5,000 lines) and Earlier comparisons stay read-only; word marks pause while you type", "3 to 4 agent-days" ] },
+    { "cells": [{ "md": "**1. Edit keeps your place**", "badge": { "label": "DO ANYWAY", "tone": "info" } }, "Edit opens the editor at the line you were reading, and Show changes returns there", "Still a mode switch: the comparison disappears while you type", "half a day" ] },
+    { "cells": [{ "md": "**2. Changed files open in the editor**", "badge": { "label": "REJECTED", "tone": "neutral" } }, "Typing is immediate", "You lose the side-by-side on open, which is the reason you open the file", "half a day" ] },
+    { "cells": [{ "md": "**Alternative: the editor marks changed lines**", "badge": { "label": "REJECTED", "tone": "neutral" } }, "Bars in the editor margin show which lines the agent touched", "You no longer see the old wording, which is what you judge a reword against", "1.5 to 2 days" ] }
+  ]}
+/>
+
+**Why option 3 over option 1.** Your use is "read what the agent wrote, fix the wording". Option 1 removes the hunt for your place. But it still swaps the comparison out when you start typing, so you reword without the original beside you. Option 3 keeps the original on the left and shows your wording against it as you go. The prototype shows it is buildable on the diff library the app already uses, as smooth as the editor on ordinary files. Option 1 is still worth doing, because large files and Earlier comparisons keep using Edit.
+
+**Why not the editor with change marks.** It is cheaper than option 3 and robust, but it shows only *where* the agent changed things, not what the text said before. For prompt wording the before is what you are judging.
+
+## 3. What the prototype answered
+
+<Table
+  filterable
+  columns={["Question", "Answer", "How we know"]}
+  rows={[
+    ["Does typing in the right-hand side work at all?", "Yes. Click, type, saved to the file on disk within about half a second, same as Edit.", { "badge": { "label": "ran", "tone": "success" } }],
+    ["Do the change highlights follow your typing?", "Yes: an edit to an unchanged line marks it changed on both sides; inserting lines shifts the pairing correctly. The green word marks on the new side pause while typing and return on Escape or click-away.", { "badge": { "label": "ran", "tone": "success" } }],
+    ["Does the caret stay put?", "Yes while you type. When an agent writes the file underneath you, the caret and focus are lost, exactly as in today's editor.", { "badge": { "label": "ran", "tone": "success" } }],
+    ["Is it smooth?", "Same as today's editor up to 3,400 lines; 2 to 5 times more slow frames on a 12,400-line file. See §4.", { "badge": { "label": "measured", "tone": "success" } }],
+    ["Same save as the editor, same behaviour when an agent writes?", "Same save path and timing (ran). An agent write after your save shows up and typing carries on (ran). If the agent writes while your last half-second of typing is unsaved, the last write wins, as in the editor today (read in code). One trap found and fixed: an agent write landing before the app re-read the file switched typing off.", { "badge": { "label": "ran", "tone": "success" } }],
+    ["Comments and the author card?", "Both work with typing on. A comment moves with its line as you insert text above it, but the reference sent to the agent keeps the old line number (a build fix).", { "badge": { "label": "ran", "tone": "success" } }],
+    ["Files over about 5,000 lines?", "They open showing only the changed lines, and stay read-only there. After Show whole file, typing works but with 2 to 5 times more slow frames.", { "badge": { "label": "measured", "tone": "success" } }],
+    ["Unified view?", "Works the same as side by side, and measured the same.", { "badge": { "label": "measured", "tone": "success" } }],
+    ["Earlier comparisons (between two past messages)?", "Read-only in the prototype: the right-hand side there is a snapshot, not the file. Options in the form at the bottom.", { "badge": { "label": "reasoned", "tone": "warning" } }],
+    ["Markdown and MDX prompts?", "Reached in one click: they open rendered, Show changes opens the comparison, and you type there. A paragraph is one long line, so a one-word fix marks the paragraph with the word highlighted.", { "badge": { "label": "ran", "tone": "success" } }],
+    ["Remote (relay, tunnel)?", "No worse than the editor: the same whole-file write after you pause, no extra reads for your own saves.", { "badge": { "label": "reasoned", "tone": "warning" } }],
+    ["Mobile?", "Out of scope: the phone app has no whole-file comparison.", { "badge": { "label": "read in code", "tone": "warning" } }],
+    ["Does Edit lose your place today?", "Yes: reading line 1,570 of a 3,400-line file, Edit opened at line 1; Show changes returned to 1,570.", { "badge": { "label": "ran", "tone": "success" } }]
+  ]}
+/>
+
+<Columns>
+<Column label="Markdown: opens rendered, Show changes to type">
+
+<Image src="shots/markdown-opens-rendered.jpg" alt="A changed markdown file opens rendered with a Show changes button" />
+
+</Column>
+<Column label="The agent's typo fixed in the comparison">
+
+<Image src="shots/markdown-fixed-in-comparison.jpg" alt="The same file in the comparison after deleting the s in 'binds'; both sides now read the same" />
+
+</Column>
+</Columns>
+
+<Details summary="More screenshots: word marks with typing always on, a comment while typing, unified view, Edit losing your place">
+
+The first version of the prototype had typing on all the time. The green word marks on the new side vanish for as long as typing is on, which is why the recommendation starts typing on a click.
+
+<Columns>
+<Column label="Read-only: green word marks">
+
+<Image src="shots/words-read-only.jpg" alt="Read-only comparison with green word marks on the new side" />
+
+</Column>
+<Column label="Typing always on: no green word marks">
+
+<Image src="shots/words-editing-on.jpg" alt="The same file with typing on: new side shows changed lines but not changed words" />
+
+</Column>
+</Columns>
+
+<Image src="shots/comment-with-editing.jpg" alt="A comment on line 19 after a line was typed in above it" caption="A comment made with typing on, which moved from line 18 to 19 when a line was typed above it" width={900} />
+
+<Image src="shots/unified.jpg" alt="Unified view with a typed line" caption="Unified view: the typed line and the caret, with the agent's line below it still marked" width={900} />
+
+<Columns>
+<Column label="Reading line 1,570 in the comparison">
+
+<Image src="shots/position-1-change-view.jpg" alt="The comparison scrolled to around line 1,570" />
+
+</Column>
+<Column label="After Edit: line 1">
+
+<Image src="shots/position-2-after-edit.jpg" alt="The editor open at the top of the file" />
+
+</Column>
+</Columns>
+
+</Details>
+
+## 4. Measurements
+
+Each run typed 84 characters at about 16 a second into a changed line, twice per file and view. A slow frame took over 50 ms, a visible stutter at 60 frames a second. "Blocked" is the total time the page could not respond. These ran on a development build in a headless browser on the VM, so absolute numbers are pessimistic. Compare the two views on the same file, not the rows.
+
+<Table
+  columns={["File", "Lines", "View", "Slow frames (run 1 / run 2)", "Blocked ms", "Worst keystroke ms"]}
+  rows={[
+    ["prompt-style Python", "19", "comparison", "0 / 1", "8 / 1", "48 / 48"],
+    ["", "", "editor today", "5 / 0", "47 / 0", "104 / 56"],
+    ["React component", "769", "comparison", "2 / 4", "24 / 120", "96 / 104"],
+    ["", "", "comparison, unified", "2 / 1", "44 / 0", "64 / 56"],
+    ["", "", "editor today", "2 / 5", "104 / 135", "80 / 128"],
+    ["server module", "3,405", "comparison", "3 / 1", "83 / 107", "120 / 96"],
+    ["", "", "comparison, unified", "3 / 1", "131 / 58", "80 / 72"],
+    ["", "", "editor today", "0 / 3", "12 / 113", "80 / 144"],
+    { "tone": "warning", "cells": ["large adapter, opened whole", "12,403", "comparison", "12 / 9", "623 / 362", "184 / 192"] },
+    ["", "", "editor today", "2 / 1", "112 / 62", "128 / 80"]
+  ]}
+/>
+
+**One trap a build must avoid.** The first wiring updated the app's copy of the file on every keystroke, which re-drew the whole Files panel. On the 769-line file that cost 25 slow frames, a one-second freeze and 801 ms blocked over the same 84 keystrokes. Waiting for a pause in typing before updating that copy brought it to parity. The slowness was the app's wiring, not the diff library.
+
+## 5. What a build involves
+
+Starting from the prototype (about 200 lines, two commits on this branch), a real build is these pieces. Rough total: **three to four agent-days** including review.
+
+<Table
+  columns={["Piece", "Why", "Size"]}
+  rows={[
+    ["Click to start typing, Escape or click-away to finish", "Keeps the word marks while reading; already working in the prototype", "small"],
+    ["Typing only when the right-hand side is the file", "Changes (branch), Uncommitted and Since your message; not Earlier, not a Sources filter that hides some edits", "small"],
+    ["One source of truth for the file", "So an agent's write and your typing reconcile without typing switching off (the trap found in the spike)", "medium"],
+    ["Recount the changes after typing", "The 'n of m' counter and the change bar on the right go stale while you type", "small"],
+    ["Comments keep their line", "The reference sent to the agent must follow the line, as the editor already does", "medium"],
+    ["Edit keeps your place (option 1)", "Large files and Earlier comparisons still go through Edit", "half a day"],
+    ["Live checks on a real thread, remote", "Verify over the tailnet and with an agent writing mid-edit", "half a day"]
+  ]}
+/>
+
+**Risks.** The diff library's editing is new surface, and the app would depend on more of it. The installed version (1.6.1, with a local patch) is already a step past the one this spike was briefed on. The library drops the new side's word marks during typing; click to type works around that rather than fixing it. Large files remain the weak spot.
+
+**What it gives up.** Typing in Earlier comparisons and in files over about 5,000 lines; both keep Edit. Word marks on the new side while you type.
+
+## 6. How to try it
+
+The prototype is on branch `t3/spike-inline-diff-editing`. Open a thread whose agent changed files, then **Files** in the right panel, and pick a file marked **M**. Click any text in the right-hand side and type; Escape or click elsewhere to finish. It saves to the real file, as Edit does. To compare with today's read-only view, run `localStorage.setItem("loom.spike.inlineEdit", "off")` in the browser console and reload.
+
+<QuestionForm
+  questions={[
+    {
+      "id": "go",
+      "title": "Build typing in the comparison?",
+      "mode": "single",
+      "options": [
+        { "id": "go", "label": "Go: build option 3 in the click-to-type form, plus option 1", "detail": "3 to 4 agent-days", "recommended": true },
+        { "id": "smaller", "label": "Do only option 1: Edit keeps your place", "detail": "half a day" },
+        { "id": "no", "label": "Neither" }
+      ],
+      "allowOther": true
+    },
+    {
+      "id": "earlier",
+      "title": "In an Earlier comparison (between two past messages), the right-hand side is a snapshot, not the file. What should typing do?",
+      "mode": "single",
+      "options": [
+        { "id": "readonly", "label": "Stay read-only; use Since your message or Edit to change the file", "recommended": true },
+        { "id": "edit-file", "label": "Typing edits the current file anyway", "detail": "Confusing: the right-hand side would stop matching the snapshot it claims to show" },
+        { "id": "swap", "label": "Clicking in switches the comparison to Since your message" }
+      ]
+    },
+    {
+      "id": "session",
+      "title": "How should typing start and end?",
+      "mode": "single",
+      "options": [
+        { "id": "click", "label": "Click to start, Escape or click away to finish", "detail": "Word marks while reading, not while typing", "recommended": true },
+        { "id": "always", "label": "Always typeable", "detail": "No word marks on the new side at all" }
+      ]
+    },
+    {
+      "id": "large",
+      "title": "Files over about 5,000 lines?",
+      "mode": "single",
+      "options": [
+        { "id": "readonly", "label": "Stay read-only, Edit as today", "recommended": true },
+        { "id": "whole", "label": "Typeable after Show whole file", "detail": "2 to 5 times more slow frames than the editor at 12,400 lines" }
+      ]
+    }
+  ]}
+/>
