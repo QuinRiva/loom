@@ -47,6 +47,7 @@ import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ProjectEnrichmentService from "../../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
+import * as ModelManifest from "../../provider/ModelManifest.ts";
 import * as ProviderInstanceRegistry from "../../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as SourceControlProviderRegistry from "../../sourceControl/SourceControlProviderRegistry.ts";
@@ -164,6 +165,7 @@ export const LoomOrchestratorTestLayer = Layer.mergeAll(
   Layer.provide(CheckpointStoreTestLayer),
   Layer.provide(ServerConfigLayer),
   Layer.provide(ServerSettings.layerTest()),
+  Layer.provide(ModelManifest.layerTest),
   Layer.provide(
     Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
       getInstance: (instanceId) =>

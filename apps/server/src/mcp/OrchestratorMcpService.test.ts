@@ -5346,7 +5346,8 @@ describe("OrchestratorMcpService thread list", () => {
             ),
           listActiveShellIndex: () =>
             Effect.succeed(
-              shells.map((thread) => ({
+              // loom: the index entry's `workstream` is the sidecar summary, not the shell's row
+              shells.map(({ workstream: _workstream, ...thread }) => ({
                 ...thread,
                 mayBeLive: isLiveSubagentShell(thread),
                 hasRemoteTasks: false,

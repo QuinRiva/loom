@@ -124,6 +124,7 @@ const CLIENT_THREAD_SUBSCRIPTION = {
 } satisfies Required<Omit<OrchestrationV2SubscribeThreadInput, "threadId" | "afterSequence">>;
 type ShellResumeField = "afterSequence" | "httpSnapshotFallback" | "knownProjectIdentities";
 const CLIENT_SHELL_SUBSCRIPTION = {
+  loom: true, // loom: the client opts in to goal items and snapshot goals
   requestCompletionMarker: true,
   omitIdleSubagents: true,
   omitOlderSettled: true,

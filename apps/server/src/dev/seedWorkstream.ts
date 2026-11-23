@@ -826,6 +826,7 @@ const main = Effect.gen(function* () {
           request: () => Effect.void,
           invalidate: () => Effect.void,
         }),
+        ServerConfig.layer(config),
       ),
     ),
     Layer.provideMerge(database),

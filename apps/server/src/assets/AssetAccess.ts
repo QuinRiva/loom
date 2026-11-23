@@ -1091,7 +1091,9 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
       ),
       Effect.orElseSucceed(() => null),
     );
-    return file ? ({ kind: "file", path: background.path, file } satisfies ResolvedAsset) : null;
+    return file
+      ? ({ kind: "file", path: background.path, file, mutable: true } satisfies ResolvedAsset) // loom: a theme can replace its background under the same URL
+      : null;
   }
 
   if (claims.kind === "native-app-icon") {

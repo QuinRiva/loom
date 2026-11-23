@@ -1427,7 +1427,7 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
               reference,
               relativePath:
                 result.totalMatched === 1 && result.items[0]
-                  ? toPosixPath(result.items[0].relativePath)
+                  ? toPosixPath(result.items[0].relativePath, hostIsWindows)
                   : null,
             })),
           ),

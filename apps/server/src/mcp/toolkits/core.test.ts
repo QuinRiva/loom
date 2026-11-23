@@ -800,13 +800,19 @@ it.effect("an MCP pin lands above every existing pin, as a client pin does", () 
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
   let targetPinnedAt: DateTime.Utc | null = null;
   const pinnedAt = DateTime.makeUnsafe("2026-11-10T00:00:00.000Z");
-  const indexEntry = (id: string, pinned: boolean, pinOrderKey: string | null) => ({
-    ...McpToolAccessTestkit.liveThreadShell(ThreadId.make(id)),
-    pinnedAt: pinned ? pinnedAt : null,
-    pinOrderKey,
-    mayBeLive: false,
-    hasRemoteTasks: false,
-  });
+  const indexEntry = (id: string, pinned: boolean, pinOrderKey: string | null) => {
+    // loom: the index entry's `workstream` is the sidecar summary, not the shell's row
+    const { workstream: _workstream, ...shell } = McpToolAccessTestkit.liveThreadShell(
+      ThreadId.make(id),
+    );
+    return {
+      ...shell,
+      pinnedAt: pinned ? pinnedAt : null,
+      pinOrderKey,
+      mayBeLive: false,
+      hasRemoteTasks: false,
+    };
+  };
   return Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
     const pin = server

@@ -1234,6 +1234,9 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
             IdAllocator.layer,
             layerNode,
             layerCheckpointStore,
+            Layer.mock(LoomStore.LoomStoreV2)({
+              getWorkstream: () => Effect.succeed(null),
+            } as never), // loom:
             Layer.mock(WorkspaceFolders.WorkspaceFolders)({
               forThread: () =>
                 Ref.get(folders).pipe(

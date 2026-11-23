@@ -76,7 +76,7 @@ const AuthFiles = Schema.Struct({ files: Schema.Array(AuthFile) });
 const AuthFileModels = Schema.Struct({
   models: Schema.Array(Schema.Struct({ id: Schema.String })),
 });
-export type CliproxyAuthFile = typeof AuthFile.Type; // loom
+export type CliproxyAuthFile = AuthFile; // loom
 // loom: the fields of a downloaded auth file the login record reads. The file
 // carries live tokens: only these are decoded, and the access token only to hash.
 const DownloadedAuthFile = Schema.Struct({
@@ -782,7 +782,7 @@ export const makeCliproxyApi = Effect.gen(function* () {
   const readAccounts = Effect.fn("CliproxyApi.readAccounts")(function* (
     hub: CliproxyHub,
     previous: ReadonlyArray<UsageLimitSourceAccount>, // loom: carry-forward source
-    accounts: ReadonlyArray<typeof AuthFile.Type>, // loom: listed once by the caller
+    accounts: ReadonlyArray<AuthFile>, // loom: listed once by the caller
     record: (email: string | undefined) => HubLoginRecord | undefined = () => undefined, // loom
   ): Effect.fn.Return<ReadonlyArray<UsageLimitSourceAccount>, UsageLimitSourceError> {
     const carried = carriedAccounts(previous, DateTime.toEpochMillis(yield* DateTime.now)); // loom

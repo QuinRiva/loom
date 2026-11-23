@@ -42,6 +42,7 @@ import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as EventSink from "./EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as LoomStore from "../loom/projection/LoomStore.ts"; // loom:
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
@@ -111,6 +112,7 @@ const layerFor = (state: State, options: Options) => {
         IdAllocator.layer,
         layerNode,
         layerCheckpointStore,
+        Layer.mock(LoomStore.LoomStoreV2)({ getWorkstream: () => Effect.succeed(null) } as never), // loom:
         WorkspaceFolders.layer.pipe(
           Layer.provide(Layer.mergeAll(layerProjects, layerTaskFolders, layerNode)),
         ),

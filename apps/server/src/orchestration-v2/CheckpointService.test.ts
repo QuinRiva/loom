@@ -31,12 +31,18 @@ import * as CheckpointService from "./CheckpointService.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as WorkspaceFolders from "../workspace/WorkspaceFolders.ts";
 
-const layerNoTrackedFolders = Layer.merge(
+// loom: CheckpointService reads a thread's workstream; these threads have none.
+const layerNoLoomWorkstream = Layer.mock(LoomStore.LoomStoreV2)({
+  getWorkstream: () => Effect.succeed(null),
+} as never);
+
+const layerNoTrackedFolders = Layer.mergeAll(
   NodeServices.layer,
   Layer.mock(WorkspaceFolders.WorkspaceFolders)({
     forThread: () => Effect.succeed({ folders: [], extraRoots: [] }),
     submodules: () => Effect.succeed([]),
   }),
+  layerNoLoomWorkstream, // loom:
 );
 
 it.effect(
@@ -241,6 +247,7 @@ it.effect(
           Layer.mergeAll(
             IdAllocator.layer,
             NodeServices.layer,
+            layerNoLoomWorkstream, // loom:
             Layer.mock(WorkspaceFolders.WorkspaceFolders)({
               forThread: () =>
                 Effect.succeed({

@@ -2982,6 +2982,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       const remoteName = branch ? (remoteNameByBranch.get(branch) ?? null) : null;
       return {
         isRepo: true,
+        hasPrimaryRemote: primaryRemoteName !== null, // loom: the batch reads it as upstream's hasAnyRemote does
         isDefaultBranch,
         branch,
         upstreamRef: tracking?.upstreamRef ?? null,

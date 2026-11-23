@@ -144,7 +144,15 @@ describe("resolveProjectSettings", () => {
         providerInstances: {
           [codex]: { driver: ProviderDriverKind.make("codex"), config: { customModels } },
         },
-        providerModelPreferences: { [codex]: { hiddenModels, modelOrder: [] } },
+        providerModelPreferences: {
+          // loom: the patch's value struct carries Loom's allow-list fields
+          [codex]: {
+            hiddenModels,
+            modelOrder: [],
+            selectedModels: [],
+            showOnlySelectedModels: false,
+          },
+        },
         projectSettingsOverrides: {
           [projectId]: { defaultModelSelection: createModelSelection(codex, "gpt-5.6-sol") },
         },

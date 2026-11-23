@@ -188,6 +188,10 @@ import * as ProjectService from "./project/ProjectService.ts";
 import { LoomCacheBroadcast } from "./loom/projection/LoomCacheBroadcast.ts"; // loom:
 import { LoomGoalBroadcast } from "./loom/projection/LoomGoalBroadcast.ts"; // loom:
 import { LoomStoreV2 } from "./loom/projection/LoomStore.ts"; // loom:
+import { LoomDeploy } from "./loom/deploy/LoomDeploy.ts"; // loom:
+import { LoomUsageLedger } from "./loom/economics/LoomUsageLedger.ts"; // loom:
+import { ReviewAuthorship } from "./loom/review/ReviewAuthorship.ts"; // loom:
+import { ReviewSnapshotService } from "./loom/review/ReviewSnapshotService.ts"; // loom:
 import { LoomThreadConsult } from "./loom/workstream/consult.ts"; // loom:
 import { ProviderHealthRegistry } from "./provider/ProviderHealthRegistry.ts"; // loom:
 import {
@@ -1015,6 +1019,11 @@ it.live.each([
         }),
         ProviderInstallationGate.layer,
         FetchHttpClient.layer,
+        // loom: Ws.layer serves Loom's methods too; the handshake reads none of these.
+        Layer.mock(LoomDeploy)({}),
+        Layer.mock(LoomUsageLedger)({}),
+        Layer.mock(ReviewAuthorship)({}),
+        Layer.mock(ReviewSnapshotService)({}),
       );
       const context = yield* Layer.build(
         HttpRouter.serve(Ws.layer, { disableListenLog: true }).pipe(
@@ -1327,19 +1336,22 @@ it.effect("access changes made while the snapshot loads reach the client after i
       );
     const revokedElsewhere = AuthSessionId.make("revoked-elsewhere");
     const responses = yield* Queue.unbounded<AuthAccessStreamEvent>();
-    const server = yield* RpcServer.makeNoSerialization(WsRpcGroup, {
-      ...WS_RPC_SERVER_OPTIONS,
-      onFromServer: (response) =>
-        response._tag === "Chunk"
-          ? Effect.forEach(
-              response.values,
-              (event) => Queue.offer(responses, event as AuthAccessStreamEvent),
-              {
-                discard: true,
-              },
-            )
-          : Effect.void,
-    }).pipe(
+    const server = yield* RpcServer.makeNoSerialization(
+      WsRpcGroup.omit(...Object.values(LOOM_WS_METHODS)), // loom: layerWsRpc serves upstream's methods
+      {
+        ...WS_RPC_SERVER_OPTIONS,
+        onFromServer: (response) =>
+          response._tag === "Chunk"
+            ? Effect.forEach(
+                response.values,
+                (event) => Queue.offer(responses, event as AuthAccessStreamEvent),
+                {
+                  discard: true,
+                },
+              )
+            : Effect.void,
+      },
+    ).pipe(
       Effect.provide(
         layerWsRpc(
           {
@@ -1890,6 +1902,7 @@ it.effect("a missing thread worktree gets its project's skills in the cwd snapsh
             IdAllocator.layer,
             Layer.mock(LegacyV1ThreadImporter.LegacyV1ThreadImporter)({}),
             Layer.mock(ThreadCommandExecutor.ThreadCommandExecutor)({}),
+            Layer.succeed(LoomStoreV2, {} as never), // loom: read only on project delete
           ),
         ),
       ),
@@ -1991,11 +2004,14 @@ it.effect("a git action that fails partway still refreshes the repository status
       Layer.mock(ServerEnvironment.ServerEnvironment)({}),
       Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
     );
-    const server = yield* RpcServer.makeNoSerialization(WsRpcGroup, {
-      ...WS_RPC_SERVER_OPTIONS,
-      onFromServer: (response) =>
-        response._tag === "Exit" ? Queue.offer(exits, response.exit) : Effect.void,
-    }).pipe(
+    const server = yield* RpcServer.makeNoSerialization(
+      WsRpcGroup.omit(...Object.values(LOOM_WS_METHODS)), // loom: layerWsRpc serves upstream's methods
+      {
+        ...WS_RPC_SERVER_OPTIONS,
+        onFromServer: (response) =>
+          response._tag === "Exit" ? Queue.offer(exits, response.exit) : Effect.void,
+      },
+    ).pipe(
       Effect.provide(
         layerWsRpc(
           {
@@ -2395,7 +2411,7 @@ it.effect.each([
         Exit.isFailure(exit) ? Cause.squash(exit.cause) : Array.from(exit.value),
         kinds,
       );
-    }).pipe(Effect.scoped, Effect.provide(ReplayTestLayer)),
+    }).pipe(Effect.scoped, provideLoomShellServices, Effect.provide(ReplayTestLayer)), // loom
 );
 
 const acpDriver = ProviderDriverKind.make("acpRegistry");
