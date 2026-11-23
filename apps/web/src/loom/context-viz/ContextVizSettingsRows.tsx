@@ -3,11 +3,13 @@
 import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contracts/settings";
 
 import { SettingResetButton, SettingsRow } from "../../components/settings/settingsLayout";
+import { useSearchableSetting } from "../../components/settings/settingsSearch";
 import { Switch } from "../../components/ui/switch";
 
 const ROWS = [
   {
     key: "contextWindowMeterEnabled",
+    searchId: "loom-context-meter",
     title: "Context meter",
     description:
       "The ring beside the send button: how full the context window is, what the thread has spent, and Compact.",
@@ -53,10 +55,11 @@ export function ContextVizSettingsRows({
   readonly settings: ContextVizSettings;
   readonly updateSettings: (patch: Partial<ContextVizSettings>) => void;
 }) {
+  const searchableSetting = useSearchableSetting();
   return ROWS.map((row) => (
     <SettingsRow
       key={row.key}
-      title={row.title}
+      {...("searchId" in row ? searchableSetting(row.searchId) : { title: row.title })}
       // The measure upstream's longer descriptions balance to, so the group reads as one list.
       description={<span className="block max-w-sm">{row.description}</span>}
       resetAction={

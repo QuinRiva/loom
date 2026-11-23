@@ -839,6 +839,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("deploy release restart update build main loom")],
     loomDeployOnly: true,
   },
+  // loom: the Context meter row (apps/web/src/loom/context-viz/ContextVizSettingsRows.tsx)
+  {
+    id: "loom-context-meter",
+    title: msg("Context meter"),
+    to: "/settings/maintenance",
+    searchTerms: [msg("context window indicator composer ring usage tokens compact")],
+  },
   {
     id: "provider-update-checks",
     title: msg("Provider update checks"),

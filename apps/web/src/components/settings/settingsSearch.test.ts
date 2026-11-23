@@ -100,6 +100,13 @@ describe("searchSettings", () => {
     }
   });
 
+  // loom: the Context meter row lives in Loom's settings rows
+  it("finds the Context meter by its old and new names", () => {
+    for (const query of ["context", "context window indicator", "context meter"]) {
+      expect(searchSettings(query).map((item) => item.id)).toContain("loom-context-meter");
+    }
+  });
+
   it("finds the Scheduled tasks page", () => {
     expect(searchSettings("scheduled tasks")[0]).toMatchObject({
       id: "scheduled-tasks",
