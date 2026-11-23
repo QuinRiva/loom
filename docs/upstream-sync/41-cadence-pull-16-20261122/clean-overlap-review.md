@@ -8,7 +8,7 @@ Loom carries on top of upstream at the branch tip, and dispositioned **n/a / kep
 adapted / DEFECT / loom behaviour changed**, as in docs 29, 39 and 40. Four read-only reviewers split
 the list by zone (Gate 2a to 2d) and ran alongside S3; each wrote its own section, joined here.
 
-**Result: 3 defects in 192 file rows, no Loom line lost.** The defects, each fixed before S4 (see the
+**Result: 3 defects in 201 rows (35 + 37 + 63 + 66), no Loom line lost.** The defects, each fixed before S4 (see the
 decision log's Gate 2 rows):
 
 | Gate | File | What a user would see | Fix |
