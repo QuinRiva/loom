@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import {
+  directoryBasesFromPaths,
   lookUpUnanchoredFile,
   type PathExistence,
   unanchoredCandidatePaths,
@@ -23,7 +24,8 @@ function lookUp(
   return lookUpUnanchoredFile({
     candidates: unanchoredCandidatePaths(`${ROOT}/${REFERENCE}`, REFERENCE, directoryBases),
     reference: REFERENCE,
-    stat: async (path) => (path in existence ? existence[path] : MISSING),
+    stat: async (path) =>
+      path in existence ? existence[path] : path === NAMED ? DIRECTORY : MISSING,
     locate: async () => located,
   });
 }
@@ -42,12 +44,20 @@ describe("lookUpUnanchoredFile", () => {
 
   it("opens a confirmed candidate without waiting on an index that is still scanning", async () => {
     const result = await lookUpUnanchoredFile({
-      candidates: [`${ROOT}/${REFERENCE}`],
+      candidates: [{ path: `${ROOT}/${REFERENCE}`, base: null }],
       reference: REFERENCE,
       stat: async () => FILE,
       locate: () => new Promise(() => {}),
     });
     expect(result).toEqual({ _tag: "Found", path: `${ROOT}/${REFERENCE}` });
+  });
+
+  it("searches a named path only once its stat says it is a directory", async () => {
+    const atNamed = `${NAMED}/${REFERENCE}`;
+    expect(await lookUp({ [NAMED]: FILE, [atNamed]: FILE }, null)).toEqual({ _tag: "NotFound" });
+    expect(await lookUp({ [NAMED]: undefined, [atNamed]: FILE }, null)).toEqual({
+      _tag: "Unverified",
+    });
   });
 
   it("does not open a directory in place of a file", async () => {
@@ -71,5 +81,27 @@ describe("lookUpUnanchoredFile", () => {
       _tag: "Unverified",
     });
     expect(await lookUp({}, undefined)).toEqual({ _tag: "Unverified" });
+  });
+});
+
+describe("directoryBasesFromPaths", () => {
+  it("keeps paths that could be folders, with or without a trailing separator", () => {
+    expect(
+      directoryBasesFromPaths([
+        "/wt/workbench/recaps/pr-4486-review",
+        "/home/carl/.t3/",
+        "/home/carl/.t3",
+        "/home/carl/data/v1.2/",
+        "/home/carl/data/README.md",
+        "/wt/recap.mdx",
+        "/wt/.env.local",
+        "/wt/Makefile",
+      ]),
+    ).toEqual([
+      "/wt/workbench/recaps/pr-4486-review",
+      "/home/carl/.t3",
+      "/home/carl/data/v1.2",
+      "/wt/Makefile",
+    ]);
   });
 });

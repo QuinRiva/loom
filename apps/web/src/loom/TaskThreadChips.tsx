@@ -11,6 +11,7 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   BotIcon,
   CodeIcon,
+  ListChecksIcon,
   MapIcon,
   NetworkIcon,
   ScanEyeIcon,
@@ -26,6 +27,7 @@ import { buildThreadRouteParams } from "../threadRoutes";
 /** The repo's `roles/` vocabulary; anything else falls back to the generic glyph. */
 const ROLE_ICONS: Record<string, typeof BotIcon> = {
   coder: CodeIcon,
+  "final-reviewer": ListChecksIcon,
   orchestrator: NetworkIcon,
   planner: MapIcon,
   researcher: SearchIcon,

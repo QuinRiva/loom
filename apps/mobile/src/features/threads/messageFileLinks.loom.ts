@@ -2,6 +2,7 @@ import {
   directoryBasesFromPaths,
   isAnchoredFileReference,
   unanchoredCandidatePaths,
+  type UnanchoredCandidate,
 } from "@t3tools/client-runtime/unanchored-file-references";
 import { stripRepeatedWorkspacePrefix } from "@t3tools/client-runtime/workspace-basename-lookup";
 import { renderCodexInlineDirectivesAsMarkdown } from "@t3tools/shared/codexMarkdownDirectives";
@@ -40,7 +41,7 @@ export function unanchoredFileLink(
   };
 }
 
-/** The folders a message names with a trailing separator, collected as web collects them. */
+/** The paths a message names that could be folders, collected as web collects them. */
 export function messageDirectoryBases(markdown: string, workspaceRoot: string): string[] {
   const targets = [
     ...extractInlineCodeSpans(markdown).flatMap((span) => inlineCodeFilePathCandidate(span) ?? []),
@@ -50,9 +51,12 @@ export function messageDirectoryBases(markdown: string, workspaceRoot: string): 
   ];
   return directoryBasesFromPaths(
     targets.flatMap((target) => {
-      if (!/[\\/]$/.test(target) || /^[A-Za-z][\w+.-]*:/.test(target)) return [];
+      if (/^[A-Za-z][\w+.-]*:/.test(target)) return [];
       const resolved = resolveFileLinkPath(workspaceRoot, target);
-      return resolved === null ? [] : [`${resolveWorkspaceFilePath(workspaceRoot, resolved)}/`];
+      const separator = /[\\/]$/.test(target) ? "/" : "";
+      return resolved === null
+        ? []
+        : [`${resolveWorkspaceFilePath(workspaceRoot, resolved)}${separator}`];
     }),
   );
 }
@@ -66,18 +70,21 @@ export function messageFileCandidates(
   link: UnanchoredFileLink,
   markdown: string | undefined,
   workspaceRoot: string,
-): string[] {
+): UnanchoredCandidate[] {
   const stripped = stripRepeatedWorkspacePrefix(link.reference, workspaceRoot);
   const [root, ...named] = unanchoredCandidatePaths(
     link.rootPath,
     link.reference,
     markdown === undefined ? [] : messageDirectoryBases(markdown, workspaceRoot),
   );
-  return [
-    ...new Set([
-      root!,
-      ...(stripped === null ? [] : [resolveWorkspaceFilePath(workspaceRoot, stripped)]),
-      ...named,
-    ]),
+  const candidates = [
+    root!,
+    ...(stripped === null
+      ? []
+      : [{ path: resolveWorkspaceFilePath(workspaceRoot, stripped), base: null }]),
+    ...named,
   ];
+  return candidates.filter(
+    ({ path }, index) => candidates.findIndex((c) => c.path === path) === index,
+  );
 }

@@ -113,7 +113,7 @@ Two consequences fall straight out of the map:
    bullet lands on every role file that carries it, in the same change —
    exactly the tool-def rule for shared parameters.
 
-7. **Built-in doctrine, project additions.** The seven roles ship with the
+7. **Built-in doctrine, project additions.** The built-in roles ship with the
    server (`roles/*.md` in the loom release, located from `roleOverlay.ts`'s
    own module path) and reach every project. A project adds only what is
    genuinely its own in `.t3code/roles/<role>.md`, found by walking up from

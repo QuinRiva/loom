@@ -18,14 +18,18 @@ export interface PathExistence {
 }
 
 /**
- * Directories named by an explicit directory reference (a trailing separator), in order. An
- * extensionless `README` is a plausible file, never guessed to be a directory.
+ * The paths a message names that could be directories, in order: one written with a trailing
+ * separator, or one whose last segment has no extension. A guess under one counts only once its
+ * stat says directory (`candidateExistence`), so an extensionless file like `Makefile` costs no
+ * child stats and a named file is never searched.
  */
 export function directoryBasesFromPaths(filePaths: Iterable<string>): string[] {
   return [
     ...new Set(
       [...filePaths].flatMap((filePath) =>
-        /[\\/]$/.test(filePath) ? [filePath.replace(/[\\/]+$/, "")].filter(Boolean) : [],
+        /[\\/]$/.test(filePath) || !/[^\\/.]\.[^\\/.]+$/.test(filePath)
+          ? [filePath.replace(/[\\/]+$/, "")].filter(Boolean)
+          : [],
       ),
     ),
   ];
@@ -36,13 +40,40 @@ export function unanchoredLocateReference(span: string): string {
   return splitFilePathPosition(span.trim().replaceAll("\\", "/")).path;
 }
 
-/** Stat candidates in priority order: the root resolution, then the span under each directory. */
+/** A stat candidate; `base` is the named path it sits under, null for the root resolution. */
+export interface UnanchoredCandidate {
+  readonly path: string;
+  readonly base: string | null;
+}
+
+/** Stat candidates in priority order: the root resolution, then the span under each named path. */
 export function unanchoredCandidatePaths(
   rootPath: string,
   reference: string,
   directoryBases: readonly string[],
-): string[] {
-  return [...new Set([rootPath, ...directoryBases.map((base) => `${base}/${reference}`)])];
+): UnanchoredCandidate[] {
+  const candidates = [
+    { path: rootPath, base: null },
+    ...directoryBases.map((base) => ({ path: `${base}/${reference}`, base })),
+  ];
+  return candidates.filter(
+    ({ path }, index) => candidates.findIndex((c) => c.path === path) === index,
+  );
+}
+
+const ABSENT: PathExistence = { exists: false, isDirectory: false };
+
+/**
+ * A candidate under a named path is unverified until that path's stat answers, and absent unless
+ * it is a directory: its own stat is only needed (or issued) once the base is one.
+ */
+function candidateExistence(
+  candidate: UnanchoredCandidate,
+  lookupExistence: (path: string) => PathExistence | undefined,
+): PathExistence | undefined {
+  if (candidate.base === null) return lookupExistence(candidate.path);
+  const base = lookupExistence(candidate.base);
+  return base?.isDirectory ? lookupExistence(candidate.path) : base && ABSENT;
 }
 
 /**
@@ -52,14 +83,14 @@ export function unanchoredCandidatePaths(
  * null when it matched none or several, so an ambiguous reference never binds.
  */
 export function selectUnanchoredPath(input: {
-  readonly candidates: readonly string[];
+  readonly candidates: readonly UnanchoredCandidate[];
   readonly lookupExistence: (path: string) => PathExistence | undefined;
   readonly located: string | null | undefined;
 }): string | null {
   for (const candidate of input.candidates) {
-    const existence = input.lookupExistence(candidate);
+    const existence = candidateExistence(candidate, input.lookupExistence);
     if (existence === undefined) return null;
-    if (existence.exists && !existence.isDirectory) return candidate;
+    if (existence.exists && !existence.isDirectory) return candidate.path;
   }
   if (!input.located || input.lookupExistence(input.located)?.exists === false) return null;
   return input.located;
@@ -78,19 +109,25 @@ export type UnanchoredLookupResult =
  * since it was indexed is not opened. `stat` and `locate` resolve undefined when they could not answer.
  */
 export async function lookUpUnanchoredFile(input: {
-  readonly candidates: readonly string[];
+  readonly candidates: readonly UnanchoredCandidate[];
   readonly reference: string;
   readonly stat: (path: string) => Promise<PathExistence | undefined>;
   readonly locate: (reference: string) => Promise<string | null | undefined>;
 }): Promise<UnanchoredLookupResult> {
   const settle = <A>(promise: Promise<A>) => promise.catch(() => undefined);
-  const stats = input.candidates.map((path) => settle(input.stat(path)));
+  const paths = input.candidates.flatMap(({ path, base }) =>
+    base === null ? [path] : [base, path],
+  );
+  const stats = new Map([...new Set(paths)].map((path) => [path, settle(input.stat(path))]));
   const locating = settle(input.locate(input.reference));
   const existence = new Map<string, PathExistence | undefined>();
   const lookupExistence = (path: string) => existence.get(path);
-  for (const [index, candidate] of input.candidates.entries()) {
-    existence.set(candidate, await stats[index]);
-    if (existence.get(candidate) === undefined) return { _tag: "Unverified" };
+  for (const candidate of input.candidates) {
+    if (candidate.base !== null) existence.set(candidate.base, await stats.get(candidate.base));
+    if (candidate.base === null || existence.get(candidate.base)?.isDirectory) {
+      existence.set(candidate.path, await stats.get(candidate.path));
+    }
+    if (candidateExistence(candidate, lookupExistence) === undefined) return { _tag: "Unverified" };
     const path = selectUnanchoredPath({
       candidates: input.candidates,
       lookupExistence,
