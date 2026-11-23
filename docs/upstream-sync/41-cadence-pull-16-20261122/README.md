@@ -8,7 +8,7 @@ manager_sessions:
 
 # 41: Cadence pull 16 (base `3fa57b92a2` → `upstream/main` `a09738fb43`, 2026-11-22)
 
-**Status: S0 written and gate-reviewed (`fixed_inline`, 23 Nov). Fifteen rows in §8.1 are Carl's; each has a recommended answer and S1 can start under them.**
+**Status: S0–S4 done; Gate 1, the S2a/S2b gates, Gate 2 (3 defects fixed and reviewed clean) all clean; `origin/main` caught up at `7e349022a8` (#592, #594); S4 ship-ready on `a638336044` (DL-2402). Final run on `fa5b764c79` (23 Nov): lockfile unchanged, typecheck, check, knip, build and the sweep green; every suite green except the tolerated `AntigravityInstallation` test and 7 of 8,066 web browser tests that fail only in a whole-suite run and pass alone, two of them failing the same way on `main` (follow-up 53). Node 26.13.1 active on the host (DL-2414). Carl's rulings DL-2410 to DL-2415 are recorded; the rest of §8.1 was applied as recommended (`follow-ups.md` row 12). Awaiting Carl's word to ship (`pnpm ship --merge-only`).**
 
 This is the runbook for pull 16, in pull 15's shape (doc 40) with two
 structural changes: S1 is one merge resolved by a lead and six lane coders

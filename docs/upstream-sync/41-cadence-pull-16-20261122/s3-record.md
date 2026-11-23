@@ -56,3 +56,23 @@ Decision rows DL-2320 to DL-2330; S2a's rows DL-2230 to DL-2260 and its gate row
 - The first boot of the copy resumed nine errored threads and started restart continuations, all refused by the foreign-home guard; on the cockpit itself those run for real at the deploy, as on any boot.
 - A copy boot holds a `systemd-inhibit` sleep lock on the host while it runs (upstream's keep-awake).
 - S4 on a cockpit copy: `migrate-dev-db` or another `VACUUM INTO`; the scripts used here (boot timer, shell reader, measurements) were scratch in `.artifacts/pull16-s3/`.
+
+### Final run on `fa5b764c79` (2026-11-23, 20:00 to 21:25)
+
+Thread `thread:mcp:445922c4-14d1-4f42-ab48-87eeac338861:workstream-spawn:99985213-dddc-47ac-8fb2-f12d810ab32c`. One sequential script from `vp i` to the mobile suite on the branch tip `fa5b764c79`; `feec784519` (DL-2414, DL-2415: `decision-log.md` and `deploy.md` only) landed during it and changes nothing the run covers. `origin/main` still `7e349022a8`. `LOOM_THREAD_ID` unset throughout. Node: the script ran every step under `N_PREFIX=~/.n n exec 26.13.1`; the host itself moved to 26.13.1 at 20:24:52 (DL-2414), mid server suite, and the re-runs after 21:02 used the host's 26.13.1 directly. The host was quiet (load 1 to 5) until the web suite, which drives the load to 12 to 19 by itself; from about 21:20 other threads were busy too (load 12 to 15 without this run).
+
+| Command | Result | Load (1 min) |
+| --- | --- | --- |
+| `vp i` twice | the usual `+4` and `e2e` notice, then "Done in 1.3s"; `pnpm-lock.yaml` sha256 `1af88b31…6cc5` before, between and after (the S3 value) | 2 to 3 |
+| `vp run typecheck` | 43/43 exit 0, 0 errors (36 cache hits); re-run without `--cache`: 43/43, 0 errors | 3 to 7 |
+| `vp check` | 0 errors, 17 warnings (the S3 set) | 7 |
+| `vp run knip:check` | green | 7 |
+| `pnpm build` | 8/8, 34 s | 6 to 7 |
+| `unmarkedsweep.sh` | clean vs `7e349022a8` | 4 to 6 |
+| `unmarkedsweep.sh --report` | clean vs `a09738fb43`; the one thin file, `DrainableWorker.test.ts` | 3 |
+| `apps/server` `vp test run` | 653 files / 10,461 tests: 10,444 pass, 16 skipped, **1 fail**, 48 min (the suite runs files one at a time). The fail is the tolerated `AntigravityInstallation.test.ts` "…16 KiB kernel" (DL-2326); `GitManager.test.ts` passes with `LOOM_THREAD_ID` unset | 1 to 5 |
+| shared · contracts · provider-core · provider-pi · client-runtime · `@t3tools/scripts` | 119 / 2,046 (2,041 pass, 5 skipped) · 34 / 233 · 23 / 294 · 15 / 270 · 196 / 2,473 · 45 / 330 (329 pass, 1 skipped): all pass | 2 to 8 |
+| `apps/web` unit + browser | 701 files / 8,066 tests: **8,059 pass, 7 fail in 6 files**, 6 min 23 s: `browserHistoryStore` ×2, `ChatView` "/side sends the draft's attachments…", `PullRequestCodeTab` "keeps a later test file folded…", `ProviderModelPicker` "keeps each registry image…" (15 s timeouts), `DocumentViewerApp` "draws a real plan at phone width…" and `DocumentViewerApp.network` "draws a document without a single network request…" (both a 1 s `vi.waitFor` for the document's `rendered` message) | 7 to 19 |
+| `apps/mobile` unit + react | 333 / 3,775: all pass | 6 to 15 |
+
+**The web failures, checked.** The six files alone at load 2.4: 6 files / 56 tests, all pass. A second full web run (load 12 to 19): 6 fail in 3 files, `browserHistoryStore` ×4 and the same two `DocumentViewerApp` tests. A third with `--maxWorkers=6` (load 7 to 18, others busy): 3 fail, two `Sidebar.browser.test.tsx` tests and `DocumentViewerApp.network`; `Sidebar`, `DocumentViewerApp.network` and `browserHistoryStore` alone at load 12: 3 files / 21 tests, all pass. A full web run on Loom's `main` (`7e349022a8`, a scratch worktree, load up to 19.7) fails both `DocumentViewerApp` tests the same way (the document reports only `ready` within 1 s), so those two predate the pull: the files are unchanged since `main`, and their 1 s wait is too short for a full plan's first render when the suite loads the host. `browserHistoryStore.browser.test.ts` and its store are byte-identical to upstream `a09738fb43`. Every other red was a different test in each run. No failure points at a commit since the full-gates run; nothing was fixed here. The two test-side causes are follow-up 53.
