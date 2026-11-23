@@ -136,6 +136,7 @@ import { IssueGlyph, issueStatePresentation } from "../issue/issuePresentation";
 // loom: 3d-3 — attention override, rollup badge, agent-started cue, prompt-cache liveness, S4.
 import { loomTopStatus } from "../Sidebar.logic.loom";
 import { LoomRollupBadge, useLoomSubThreadsUnsettled } from "../../loom/LoomRollupBadge";
+import { LoomGoalCountBadge } from "../../loom/LoomGoalCountBadge"; // loom: goal task count
 import { LoomSideThreadRows } from "../../loom/SideThreadRows"; // loom: side-thread sub-rows
 import { CacheFuelRing } from "../../loom/CacheFuelRing"; // loom: prompt-cache liveness
 import { CacheHoverBlock } from "../../loom/CacheHoverBlock"; // loom: prompt-cache liveness
@@ -1337,6 +1338,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       {prBadge}
       {issueBadge}
       <LoomRollupBadge threadKey={threadKey} /> {/* loom: 3d-3 sub-thread rollup */}
+      {/* loom: goal task count; the meta line only, so a single-line row keeps its title */}
+      <LoomGoalCountBadge thread={thread} />
       {diff ? (
         <span className="shrink-0 font-mono">
           <span className="text-diff-addition-foreground">
