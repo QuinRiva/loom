@@ -1,4 +1,4 @@
-## S4 record: agent-run smoke (2026-11-23)
+## S4 record: agent-run smoke (2026-11-23, re-run the same evening)
 
 Thread `thread:mcp:445922c4-14d1-4f42-ab48-87eeac338861:workstream-scaffold:ba3cffea-c2c8-4909-8786-5ebdec6eaff0:2`. Started on tree `757992457c`; the fixes that landed during the session are named where a result depends on them (`e66198b5eb` DL-2413, `d91d349a0f` DL-2400, `2166507d4a` DL-2401, `a638336044` DL-2402). Decision rows DL-2380 onward. Screenshots and working notes are in this worktree's gitignored `.artifacts/pull16-s4/`.
 
@@ -11,8 +11,8 @@ Thread `thread:mcp:445922c4-14d1-4f42-ab48-87eeac338861:workstream-scaffold:ba3c
 | # | Result | What it means for Carl |
 | --- | --- | --- |
 | Item 1 | **Failed, fixed, passes on re-run** | On the merged tree, a Loom child opened from Thread details opened beside its parent. Its MDX report then opened in the parent's panel, and an annotation landed in the **parent's** composer. Carl's DL-2412 fallback was applied (`e66198b5eb`, DL-2413), but it missed the second entry point: the root's "Subagent needs input · … · Open question" banner still opened the child beside it. That was a one-line slip, fixed here (`d91d349a0f`, DL-2400). Both entry points now navigate to the child, and an annotation on its report reaches the child |
-| 9a | **Failing; a fix is under review** | A steer sent seconds before a server restart (a deploy, a crash) reached the resumed turn **and** sat as "1 queued · <steer> · Send now". Carl's next send in that thread released it, and the agent answered it a second time. The first fix (`2166507d4a`) did not cover the common case and failed twice live. The second (`a638336044`, DL-2402) landed while this record was written and has not been re-run here. See "Journey 9" |
-| Others | Pass, or not run with the reason | Below. Nothing else found would stop the ship. Three small things go to `follow-ups.md` (rows 47 to 51) |
+| 9a | **Failed twice, fixed, passes on re-run** | A steer sent seconds before a server restart (a deploy, a crash) reached the resumed turn **and** sat as "1 queued · <steer> · Send now"; Carl's next send delivered it a second time. The first fix (`2166507d4a`) missed the common case. The second (`a638336044`, DL-2402) passes live: the resumed turn answers the steer once, nothing is queued, and the next message does not bring it back. A finished Loom child keeps the steer in its history and acts on it at its next turn. See "Journey 9a" |
+| Others | Pass, or not run with the reason | Below. Nothing found now stands between this tree and "ship it". Small things are in `follow-ups.md` (rows 47 to 52) |
 
 ### Carl's three rulings, checked live
 
@@ -32,13 +32,32 @@ Thread `thread:mcp:445922c4-14d1-4f42-ab48-87eeac338861:workstream-scaffold:ba3c
 | 4 | Chat | **Pass.** Bare-name file chips (`loader.ts`, `parser.ts`, `notes.md`, `pic.png`, `sample.pdf`) resolved at once after the turn. `[Add config loader](t3-thread://v1/seed-thread-coder-done)` rendered as Loom's thread mention (a router link whose copy text is the canonical link) in both the user message and the reply. `ABC-123` linked to the configured URL once the page was reloaded: `links.json` was added after the server started, and the config is read per connection by design. `/etc/hostname` in prose stayed as written, as a verified path link. Reply on the assistant message "DONE" showed "Replying to DONE" and sent; the agent quoted it back. Ring, popover and Compact: as above. **Finding (DL-2382, follow-up 49):** Compact on a session too small to compact showed pi's "Nothing to compact" as a Provider error **and** fired Loom's provider-error resume. The thread then got "Your previous turn was cut off by a provider error…", and the agent ran a turn (6.5 s). Pull 15 saw only the failure row |
 | 5 | Children | Plain click on a Loom child in Thread details **navigates** (DL-2412's fallback, so the runbook's "opens as a right-panel tab" no longer applies). The root's attention card for a `needs_guidance` child also navigates. A coder child had no `ask_user_question` until a human wrote in it (by design). It then asked a blocking question, and the root showed "Subagent needs input · S4 blocking asker · Open question" in its banner, while its sidebar row read "Waiting 2/3" with no `!`: banner only. ⌘/Ctrl-click on a side chat row gave no observable result in the headless tab (inconclusive; upstream behaviour) |
 | 6 | Right panel, v16 layout | **Not run live.** The preview browser has no layout saved by the current cockpit build (v16), and hand-writing one would only repeat S2b's throwaway test (DL-2283). Check after the deploy on Carl's own browser (follow-up 51) |
-| 7 | Files | **Pass** for the three viewers. The dev root's panel held an HTML artefact (it scrolls itself to paragraph 116 and stamps its load time), `pic.png` and `sample.pdf`. After an agent command, each kept the same DOM node and source: the iframe, the `<img>` and the PDF canvas, so none reloaded. **Pass**, production document viewer: `/document-viewer.html` from the built bundle, driven as the phone does (a `ReactNativeWebView` stub and an `init` message), rendered an `<Image>` block. It requested `/tmp/s4/shots/pic.png`, showed the image and caption, and reported `rendered ok=true` (`j7-document-viewer-image-prod.png`). An MDX annotation and its draft chip: item 1. The review count was not checked separately |
-| 8 | Diff | **Partly run.** The scope menu lists Changes, Uncommitted, Latest turn, Turn, Since your message, Earlier, Repo code, Everything and Commits; Uncommitted lists the changed files. Ctrl+F in the diff opens a Search field inside the diff view. Inline editing in the Files source view: a click placed the caret at the end of line 1, the typed text went in without the view moving, and Ctrl+S wrote the file (item 2). **Not run:** author chips and the author card (the seed's changes have no authored, modified lines), changed words solid, and B.10's full seven steps in the whole-file change view (follow-up 50) |
-| 9 | Pi | **9a, a resume after a restart with a stashed steer: fails pending DL-2402**; see below. Killing pi mid-tool: **pass**, exactly one resume (item 4). A stopped run offers no Resume: **pass** (Stop during `sleep 25` gave "Run interrupted · Stopped by user", with no Resume or Force stop). `/clear`: **pass** ("Your next message starts a fresh session", a New session divider, and the model answered NONE-SEEN when asked for earlier words). Titles through the hub: "Regenerate title" produced "Seed Workstream Fixture Scenarios" with the text-generation model `cliproxy/claude-sonnet-5-5`. Settings → Threads → Text generation model: the Pi tab lists the cliproxy models (Fable 5.2, Opus 5.5, Opus 5, Fable 5, Sonnet 5), and search finds Sonnet 5.5 (pooled). Usage → Limits lists the hub's five accounts under Session, Weekly and Weekly · Fable |
+| 7 | Files | **Pass** for the three viewers. The dev root's panel held an HTML artefact (it scrolls itself to paragraph 116 and stamps its load time), `pic.png` and `sample.pdf`. After an agent command, each kept the same DOM node and source: the iframe, the `<img>` and the PDF canvas, so none reloaded. **Pass**, production document viewer: `/document-viewer.html` from the built bundle, driven as the phone does (a `ReactNativeWebView` stub and an `init` message), rendered an `<Image>` block. It requested `/tmp/s4/shots/pic.png`, showed the image and caption, and reported `rendered ok=true` (`j7-document-viewer-image-prod.png`). An MDX annotation and its draft chip: item 1. **The review count was not produced:** the header count (`LoomMdxReviewCount`, "1 comment · 2 queries") shows only while annotations are pending in the draft. In the re-run, text-span selection in the rendered `.mdx` showed its Comment and Query buttons, but neither a real click nor synthetic pointer events from the preview tab opened the comment input. The block-level "Comment on this block" that worked in item 1 did not appear at that panel width, so no pending annotation could be created to count (follow-up 50) |
+| 8 | Diff | **Pass, with one small finding**; see "Journey 8" below |
+| 9 | Pi | **9a, a resume after a restart with a stashed steer: passes on `a638336044` (DL-2402)**; see below. Killing pi mid-tool: **pass**, exactly one resume (item 4). A stopped run offers no Resume: **pass** (Stop during `sleep 25` gave "Run interrupted · Stopped by user", with no Resume or Force stop). `/clear`: **pass** ("Your next message starts a fresh session", a New session divider, and the model answered NONE-SEEN when asked for earlier words). Titles through the hub: "Regenerate title" produced "Seed Workstream Fixture Scenarios" with the text-generation model `cliproxy/claude-sonnet-5-5`. Settings → Threads → Text generation model: the Pi tab lists the cliproxy models (Fable 5.2, Opus 5.5, Opus 5, Fable 5, Sonnet 5), and search finds Sonnet 5.5 (pooled). Usage → Limits lists the hub's five accounts under Session, Weekly and Weekly · Fable |
 | 10 | Settlement | **Not run live** (no real PR on a seeded root, as in pull 15). `ThreadSettlementService.test.ts` and `prToolkit.test.ts`: 64/64 on Node 26.13.1 |
 | 11 | Visibility | **Pass** at Hide all and at Zen. Scrolling the whole seeded root found Digest, Brief needed, Deadlock, Stall nudge, Attention, Thread notification, both gate notices and the Yield card. In a child, the consult card ("Consulted · Tool Availability Smoke Test · answered") and the answered question both show |
 | 12 | Title | **Recorded.** There is no default shortcut: `thread.regenerateTitle` is bindable as "Thread: Regenerate Title". The thread menu's "Regenerate title" on the Loom root "Deliver the workstream fixture" retitled it to "Seed Workstream Fixture Scenarios", with no guard (follow-up row 16 stands) |
 | 13 | Mobile | **Not run.** This host has no simulator or emulator. It rests on typecheck, `lint:mobile` and the unit tests, and on Carl's phone after the deploy rebuilds the APK (follow-up row 5) |
+
+### Journey 8: the diff and inline editing
+
+Setup: `src/long.ts` (400 long, wrapped lines) committed, then the root's agent changed six lines with `sed`. In Files, `long.ts` opened as the whole-file comparison (split, word wrap on, panel maximised), and "Next change" twice brought line 210 into view.
+- **Changed words** render as solid filled blocks ("tenant" in red, "TENANCY" in green).
+- **B.10's seven steps**, measured by the on-screen position of the text of lines 212 to 214:
+  1. A click mid-line placed the caret inside "rev|iew", and line 212 stayed at y=181.
+  2. Typing `xyz` moved nothing, immediately or 2.5 s later.
+  3. Enter moved nothing above the caret; the counter went from 4 of 6 to 4 of 7.
+  4. A review comment under line 213 ("WALNUT") moved down with line 213's text and kept its 130 px offset.
+  5. Escape moved nothing. The comparison shows "revxyz" and the split line, and the file on disk has them.
+  6. Edit opened the editor with line 212 at the top.
+  7. Ctrl+F while typing opened the built-in Search over the editor, with focus in it.
+- **Finding (follow-up 52):** after step 7, Escape closes the search but leaves focus on the page body, so the next keystroke is lost until a click.
+- **Unified layout:** a click or typing moved nothing, but Enter nudged the whole view down 10 to 20 px (half to one wrapped row). Loom's anchor line is in `patches/@pierre__diffs@1.7.0-beta.4.patch` (l.11). (`j8-inline-edit-comment-stays.png`)
+- **Authors:** uncommitted changes are attributed "uncommitted", by design (blame down to the merge base, `Loom-Thread` trailers). So I committed the change on a branch (`s4-auth`) with a `Loom-Thread` trailer naming the root.
+- Scope Changes showed "Written by ● Tool Availability Smoke Test 1 · uncommitted 13", a per-file author chip, and a hunk header naming the thread and commit.
+- Clicking line 5's number opened the author card: "Tool Availability Smoke Test + thread:mcp:…:2 · two threads · 201d13d s4: long.ts edits · Close". The second thread is this S4 thread, whose shell hook added its own trailer; a thread the database does not know shows by id (`j8-author-card.png`).
+- **Earlier:** the scope menu (Changes, Uncommitted, Latest turn, Turn, Since your message, Earlier, Repo code, Everything, Commits) and Ctrl+F in the diff list
 
 ### The eleven items the reviews added
 
@@ -65,7 +84,21 @@ Thread `thread:mcp:445922c4-14d1-4f42-ab48-87eeac338861:workstream-scaffold:ba3c
   - Root: steer APRICOT. Pi had written it into its session (07:57:35.753) before the shutdown reconcile (07:57:35.832), so Loom's stash read treated it as delivered, and upstream requeued it (held run 26). The resume answered "R3-done APRICOT". The held copy ran again after my next message ("You: APRICOT" at 7:05 PM; the agent answered it again).
   - Loom child "Add config loader" (outcome done): steer PLUM. The run was cancelled with no resume, the stash file was gone, and a held PLUM run waited for a press.
   - Evidence: dev `statev2.sqlite`, `orchestration_events` sequence 2358 to 2372 (child) and 2397 to 2421 (root).
-- **On `a638336044` (DL-2402):** landed while this record was written; **not re-run.** The orchestrator holds S4 for that re-run, of both the root and the finished-child case.
+- **On `a638336044` (DL-2402), passes.** Every steer below was sent while `sleep` was running and followed by `touch apps/server/src/bin.ts`.
+  - **Root "Tool Availability Smoke Test", PERSIMMON.** The stash was written and PERSIMMON was not yet in pi's session. Pi wrote it into its session at the abort (08:25:32.449), before the shutdown reconcile (.522).
+    - No `unread-steer` run was created, and the stash was cleared.
+    - The restart continuation (run 36) answered "R5-done PERSIMMON" once.
+    - The composer showed nothing queued. The cut turn shows "Steer · You · PERSIMMON · cancelled", although the steer was answered.
+    - The next message (NECTARINE) was answered alone.
+    - This settles the reviewer's live question: pi does not drop a queued steer at the abort, and the resumed turn answers a steer that sits only in pi's history.
+  - **A variant, MANGOSTEEN.** The restart hit just after the tool ended, once pi had already taken the steer: no requeue, and the resumed turn answered once.
+  - **Finished Loom child "Add config loader", QUANDONG.** First I removed the stale held PLUM copy left by the earlier failure. Pi again wrote the steer into its session at the abort (08:29:11.611, reconcile .755).
+    - The run was cancelled. There was no held run, no "1 queued" and no resume (only a restart-continuation metadata update), and the stash was cleared.
+    - What a parent or Carl sees: the steer bubble in the cut turn marked "cancelled", then nothing until the child's next turn. Nothing says it arrived.
+    - The next message ("Reply with the word OLIVE, plus any earlier word of mine you have not yet answered") was answered with "OLIVE / Unanswered words: PLUM and QUANDONG…". QUANDONG appears once in pi's history, with no separate redelivery.
+  - **A steer still queued in pi at the restart, on a thread that resumes:** could not be produced. In all three mid-tool tries pi had written the queued steer into its session at the abort.
+  - **Control, RAMBUTAN.** I moved the stash file away before the restart. Upstream's requeue then made a held run (39, `queueHeld`) with "1 queued · RAMBUTAN · Send now", while the resume answered it. Upstream's requeue therefore still works where Loom holds no stash, and DL-2402's clause is what suppresses it. I removed the held copy afterwards.
+  - **Journey 9's other restart and kill cases** passed on the first run (item 4, Stop, `/clear`). I tried a restart during a `bg_start` wait, but the send did not go through and it was not repeated; it is not in this pull's list.
 
 ### Also seen, not findings
 
@@ -78,16 +111,17 @@ Thread `thread:mcp:445922c4-14d1-4f42-ab48-87eeac338861:workstream-scaffold:ba3c
 
 ### Verdict
 
-**Not yet ship-ready, on one item: journey 9a.** A steer sent just before a restart is delivered twice, and the second fix (`a638336044`, DL-2402) is to be re-run here before Carl is asked. Everything else that gates the ship passed or is recorded as not run, with its reason.
+**Ship-ready.** The blocking item, journey 9a, passes on `a638336044`: a steer sent before a restart reaches the agent once. Everything else that gates the ship passed or is recorded as not run, with its reason.
 - The new-root tool list matches Carl's ruling.
 - Loom children navigate from both entry points, and annotations reach the child.
 - Killing pi gives one resume; Stop and `/clear` work.
+- Inline diff editing keeps the view still in split layout.
 - The ring, search, chips, links and visibility hold.
 - The production document viewer renders `<Image>`.
 
 Not exercised live:
 - journey 6's v16 layout (S2b's test);
-- journey 8's author chips and the full inline-editing steps;
+- journey 7's MDX review count (see its row);
 - journey 10's settlement (unit tests);
 - item 6 (a);
 - item 11 (unreachable);

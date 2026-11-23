@@ -100,8 +100,9 @@ In the order Carl would act:
       effect on the next page load;
     - pressing Compact on a short thread makes the agent take one
       unnecessary turn (follow-up 49).
-11. **Steers across the switch (S4, DL-2381).** The switch is a restart. A
-    steer Carl or a parent sends in the seconds before it, to a turn that is
-    running a tool, is the case S4 found delivered twice. If DL-2402 ships,
-    read one such thread after the deploy: no "1 queued · … · Send now" row
-    for a steer the resumed turn already answered.
+11. **Steers across the switch (S4, DL-2381, DL-2402).** The switch is a
+    restart. S4 verified that a steer sent seconds before it reaches the
+    resumed turn once. A finished child holds the steer in its history until
+    its next turn, and its bubble reads "cancelled". After the deploy, read
+    one thread that was steered during the switch: no "1 queued · … · Send
+    now" row for a steer the resumed turn already answered.
