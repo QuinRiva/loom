@@ -1,7 +1,7 @@
 /**
- * Thread-search eval: the 57 queries in `threadSearchQueries.json` against a COPY of a real
- * database (migrated and written in place), ranked by Loom lexical / semantic / fused under
- * both scopes and by upstream's trigram `search` and `searchThreads`. Usage: `--help`.
+ * Thread-search eval on a COPY of a real database (migrated in place): the 57 test queries in
+ * `threadSearchQueries.json` by Loom's rankings and upstream's, the cut-off for matches by meaning
+ * (with its 16 nonsense queries), and searches whose answer is a sub-thread. Usage: `--help`.
  */
 // Dev-only harness (not shipped): plain Node/JSON/Date keep it legible, matching `scripts/*.ts`.
 // @effect-diagnostics nodeBuiltinImport:off globalDateInEffect:off globalDate:off globalJsonInEffect:off globalConsoleInEffect:off globalConsole:off
@@ -29,9 +29,13 @@ import queries from "./threadSearchQueries.json" with { type: "json" };
 
 // Floors on the set's own corpus under `scope: "all"` (origin/main's ranking), whole percent.
 // Exact identifiers: all 8 in the top 3, and `exactR1` of them at #1. Re-baselined 23 Oct 2026.
-const FLOORS: Record<string, { r5?: number; r10?: number; mrr?: number; exactR1: number }> = {
+// `quiet`: nonsense queries listing nothing by meaning, for a model with a cut-off (24 Nov 2026).
+const FLOORS: Record<
+  string,
+  { r5?: number; r10?: number; mrr?: number; exactR1: number; quiet?: number }
+> = {
   local: { r5: 67, mrr: 0.5, exactR1: 7 },
-  vertex: { r5: 79, mrr: 0.58, exactR1: 8 },
+  vertex: { r5: 79, mrr: 0.58, exactR1: 8, quiet: 14 },
   none: { r10: 40, mrr: 0.27, exactR1: 7 },
   "openai-compatible": { exactR1: 8 },
 };
@@ -156,8 +160,11 @@ const main = Effect.gen(function* () {
     "upstream searchThreads",
   ] as const;
   type Side = (typeof SIDES)[number];
+  const TESTS = ["sampled", "plan", "exact", "deep"];
   const results: Array<{
     readonly query: (typeof queries)[number];
+    /** The roots-scope fusion's rank before the cut-off removed anything. */
+    readonly uncut: number | null;
     readonly ranks: Record<Side, number | null>;
     readonly ms: Partial<Record<Side | keyof typeof TIMED, number>>;
     readonly top: ReadonlyArray<string>;
@@ -170,7 +177,7 @@ const main = Effect.gen(function* () {
     const value = yield* effect;
     return [value, performance.now() - started] as const;
   });
-  for (const query of queries) {
+  for (const query of queries.filter((query) => TESTS.includes(query.source))) {
     if (!query.expected.some((id) => live.has(id))) {
       skipped++;
       console.log(`skipped (target gone): ${query.q}`);
@@ -179,13 +186,17 @@ const main = Effect.gen(function* () {
     const ranks = {} as Record<Side, number | null>;
     const ms: (typeof results)[number]["ms"] = {};
     let top: ReadonlyArray<string> = [];
+    let uncut: number | null = null;
     for (const scope of ["roots", "all"] as const) {
       const ranked = yield* search.rank(query.q, { scope });
       const fused = keep(ranked.fused, query.expected)!;
       ranks[`${scope} lexical`] = rankOf(keep(ranked.lexical, query.expected), query.expected);
       ranks[`${scope} semantic`] = rankOf(keep(ranked.semantic, query.expected), query.expected);
       ranks[`${scope} fused`] = rankOf(fused, query.expected);
-      if (scope === "roots") top = fused.slice(0, 5);
+      if (scope === "roots") {
+        top = fused.slice(0, 5);
+        uncut = rankOf(keep(ranked.voted, query.expected), query.expected);
+      }
     }
     for (const [name, input] of Object.entries(TIMED) as Array<
       [keyof typeof TIMED, (typeof TIMED)[keyof typeof TIMED]]
@@ -211,7 +222,7 @@ const main = Effect.gen(function* () {
       );
     ranks["upstream search"] = rankOf(ids(messages.matches), query.expected);
     ranks["upstream searchThreads"] = rankOf(ids(threads.matches), query.expected);
-    results.push({ query, ranks, ms, top });
+    results.push({ query, uncut, ranks, ms, top });
   }
 
   const groups: Record<string, ReadonlyArray<string>> = {
@@ -265,6 +276,83 @@ const main = Effect.gen(function* () {
       results.map((r) => r.ms[side] ?? 0),
     );
   console.log(`skipped ${skipped}`);
+
+  // What the cut-off for matches by meaning changes (plan §3): the roots-scope fusion without and
+  // with it, and how many nonsense queries still list a root on meaning alone.
+  const within = (rank: number | null, k: number) => rank !== null && rank <= k;
+  const count = (k: number, cut: boolean) =>
+    results.filter((r) => within(cut ? r.ranks["roots fused"] : r.uncut, k)).length;
+  const lostFrom = (k: number) =>
+    results.filter((r) => within(r.uncut, k) && !within(r.ranks["roots fused"], k));
+  const lost = lostFrom(10);
+  console.log(
+    `\ncut-off, roots fused over ${results.length} test queries: first place ` +
+      `${count(1, false)} -> ${count(1, true)}, in first five ${count(5, false)} -> ${count(5, true)}, ` +
+      `lost from first ten ${lost.length}, lost from first thirty ${lostFrom(30).length}` +
+      lostFrom(30)
+        .map((r) => `\n- lost: ${r.query.q} (#${r.uncut} before the cut-off)`)
+        .join(""),
+  );
+  const nonsense = [];
+  for (const query of queries.filter((query) => query.source === "nonsense")) {
+    const ranked = yield* search.rank(query.q, { scope: "roots" });
+    const worded = new Set(
+      ranked.hits.filter((hit) => hit.coverage === ranked.terms.length).map((hit) => hit.rootId),
+    );
+    const byMeaning = ranked.fused.filter((id) => !worded.has(id));
+    nonsense.push({
+      q: query.q,
+      byMeaning,
+      uncut: ranked.voted.filter((id) => !worded.has(id)).length,
+    });
+  }
+  const quiet = nonsense.filter((row) => row.byMeaning.length === 0).length;
+  console.log(
+    `nonsense queries listing nothing by meaning: ${quiet}/${nonsense.length}\n` +
+      "| nonsense query | rows by meaning, uncut | after the cut-off |\n|---|---|---|\n" +
+      nonsense.map((row) => `| ${row.q} | ${row.uncut} | ${row.byMeaning.length} |`).join("\n"),
+  );
+
+  // Searches whose answer is a sub-thread: does its workstream come back with nothing switched
+  // (the human default) and with Sub-threads on, and is the sub-thread among its rows there?
+  console.log(
+    "\n| sub-thread search | root, nothing switched | root, Sub-threads on | sub-thread row |\n|---|---|---|---|",
+  );
+  let found = 0;
+  let inRows = 0;
+  let subQueries = 0;
+  for (const query of queries.filter((query) => query.source === "subthread")) {
+    if (!query.expected.some((id) => live.has(id))) continue;
+    subQueries++;
+    const plain = yield* search.searchThreads({
+      query: query.q,
+      limit: 30,
+      ...TIMED["human default"],
+    });
+    const on = yield* search.searchThreads({
+      query: query.q,
+      limit: 30,
+      ...TIMED["sub-threads on"],
+    });
+    const at = (matches: typeof on.matches) =>
+      rankOf(
+        matches.map((match) => match.threadId),
+        query.expected,
+      );
+    const row = on.matches
+      .find((match) => query.expected.includes(match.threadId))
+      ?.subThreads?.findIndex((sub) => sub.threadId === query.subThread);
+    if (at(on.matches) !== null) found++;
+    if (row !== undefined && row >= 0) inRows++;
+    console.log(
+      `| ${query.q} | ${at(plain.matches) ?? "none"} | ${at(on.matches) ?? "none"} | ` +
+        `${row === undefined ? "-" : row < 0 ? "not in its 3" : `#${row + 1}`} |`,
+    );
+  }
+  console.log(
+    `sub-thread searches: workstream found with Sub-threads on ${found}/${subQueries}, ` +
+      `right sub-thread among its rows ${inRows}/${subQueries}`,
+  );
   // Per query, the top-5 hits each ranker has that another lacks.
   const within5 = (rank: number | null) => rank !== null && rank <= 5;
   const compared = [
@@ -321,6 +409,10 @@ const main = Effect.gen(function* () {
     floor.mrr !== undefined && headline.mrr < floor.mrr && `headline MRR < ${floor.mrr}`,
     exact.r1 < floor.exactR1 && `exact-identifier R@1 ${exact.r1}/${exact.n} < ${floor.exactR1}`,
     exact.r3 < exact.n && `exact-identifier R@3 ${exact.r3}/${exact.n}`,
+    lost.length > 0 && `${lost.length} expected roots left the first ten under the cut-off`,
+    floor.quiet !== undefined &&
+      quiet < floor.quiet &&
+      `nonsense listing nothing by meaning ${quiet}/${nonsense.length} < ${floor.quiet}`,
   ].filter(Boolean);
   console.log(
     failures.length === 0

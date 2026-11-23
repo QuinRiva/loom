@@ -756,7 +756,9 @@ export const searchThreadsWithOlderSettledRows = Effect.fn(
   const { olderSettledBefore, projectIds, environmentLabel, titlesOnly, ...request } =
     input.request;
   const messages: OrchestrationV2SearchThreadsResult =
-    titlesOnly === true ? { matches: [] } : yield* input.search(request);
+    titlesOnly === true
+      ? { matches: [] }
+      : yield* input.search(projectIds === undefined ? request : { ...request, projectIds }); // loom: the picker applies before the cut
   if (olderSettledBefore === undefined) return messages;
   // Ranked before the rows' transaction, so scoring never holds the shared reader.
   const threadIds = yield* input.searchOlderSettled({

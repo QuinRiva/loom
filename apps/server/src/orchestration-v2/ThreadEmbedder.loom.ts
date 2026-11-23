@@ -31,6 +31,16 @@ import { makeVertexProvider } from "./embedding/vertex.loom.ts";
 const SWEEP_INTERVAL = Duration.minutes(2);
 const BATCH = 8;
 const QUERY_TIMEOUT = Duration.seconds(2);
+/** Recent query vectors kept, so a filter flipped on the same words skips the provider call. */
+const QUERY_CACHE = 48;
+/**
+ * Per model, a root found only by meaning is listed when its cosine similarity is at least
+ * `similarity` and `aboveMean` over the query's mean similarity to every stored root; no entry, no
+ * cut. Fitted by the search harness (`threadSearchEval.loom.ts`), which prints what a refit needs.
+ */
+const CUTOFFS: Record<string, { readonly similarity: number; readonly aboveMean: number }> = {
+  "vertex/gemini-embedding-001": { similarity: 0.62, aboveMean: 0.045 },
+};
 
 export const providerFromSettings = (
   settings: ThreadSearchEmbeddingSettings,
@@ -121,12 +131,17 @@ const normalise = (vector: Float32Array) => {
 export class ThreadEmbedder extends Context.Service<
   ThreadEmbedder,
   {
-    /** Root thread ids nearest the query, best first, never one in `skip`; `undefined` = lexical-only. */
+    /**
+     * Root thread ids nearest the query, best first, never one in `skip`, and those of them close
+     * enough to list on meaning alone (the model's cut-off); `undefined` = lexical-only.
+     */
     readonly nearest: (
       query: string,
       k: number,
       skip?: ReadonlySet<string>,
-    ) => Effect.Effect<ReadonlyArray<string> | undefined>;
+    ) => Effect.Effect<
+      { readonly ids: ReadonlyArray<string>; readonly close: ReadonlySet<string> } | undefined
+    >;
     /** Bring the stored vectors in line with the root documents and provider. */
     readonly sweep: Effect.Effect<{ readonly embedded: number; readonly identity?: string }>;
   }
@@ -137,6 +152,7 @@ interface ProviderState {
   identity?: string;
   warned: boolean;
   readonly vectors: Map<string, Float32Array>;
+  readonly queries: Map<string, Float32Array>;
 }
 
 /** `currentProvider` is read at every sweep; a different provider resets the state. */
@@ -150,7 +166,7 @@ export const makeThreadEmbedder = Effect.fn("ThreadEmbedder.make")(function* (
   const resolveState = Effect.gen(function* () {
     const provider = yield* currentProvider;
     if (!state || state.provider !== provider)
-      state = { provider, warned: false, vectors: new Map() };
+      state = { provider, warned: false, vectors: new Map(), queries: new Map() };
     return state;
   });
 
@@ -264,42 +280,73 @@ export const makeThreadEmbedder = Effect.fn("ThreadEmbedder.make")(function* (
     ),
   );
 
-  /** Set by a failed query embed, cleared by the next success: one warning per outage. */
+  /** Set by a failed or timed-out query embed, cleared by the next success: one warning per outage. */
   let queryWarned = false;
-  const nearest = Effect.fn("ThreadEmbedder.nearest")(
-    function* (query: string, k: number, skip?: ReadonlySet<string>) {
-      const current = state;
-      if (!current?.provider || !current.identity) return undefined;
-      const [embedded] = yield* current.provider.embed([query], "query");
-      queryWarned = false;
-      const vector = normalise(embedded!);
-      return [...current.vectors]
-        .filter(([threadId]) => !skip?.has(threadId))
-        .map(([threadId, candidate]) => {
-          let score = 0;
-          for (let index = 0; index < vector.length; index++)
-            score += vector[index]! * candidate[index]!;
-          return [threadId, score] as const;
-        })
-        .toSorted((a, b) => b[1] - a[1])
-        .slice(0, k)
-        .map(([threadId]) => threadId);
-    },
-    Effect.timeoutOption(QUERY_TIMEOUT),
-    Effect.map(Option.getOrUndefined),
-    Effect.catch((error) =>
-      queryWarned
-        ? Effect.undefined
-        : Effect.sync(() => (queryWarned = true)).pipe(
-            Effect.andThen(
-              Effect.logWarning("thread-search.embedder.query-failed", {
-                error: String(error),
-              }),
-            ),
-            Effect.as(undefined),
-          ),
-    ),
-  );
+  const warnQuery = (fields: Record<string, unknown>) =>
+    queryWarned
+      ? Effect.undefined
+      : Effect.sync(() => (queryWarned = true)).pipe(
+          Effect.andThen(Effect.logWarning("thread-search.embedder.query-failed", fields)),
+          Effect.as(undefined),
+        );
+  /** Recently used queries stay cached; the least recent leaves first. */
+  const queryVector = Effect.fn("ThreadEmbedder.queryVector")(function* (
+    provider: EmbeddingProvider,
+    queries: Map<string, Float32Array>,
+    query: string,
+  ) {
+    const cached = queries.get(query);
+    queries.delete(query);
+    const vector = cached ?? normalise((yield* provider.embed([query], "query"))[0]!);
+    if (!cached) queryWarned = false;
+    queries.set(query, vector);
+    if (queries.size > QUERY_CACHE) queries.delete(queries.keys().next().value!);
+    return vector;
+  });
+
+  const nearest = Effect.fn("ThreadEmbedder.nearest")(function* (
+    query: string,
+    k: number,
+    skip?: ReadonlySet<string>,
+  ) {
+    const current = state;
+    if (!current?.provider || !current.identity) return undefined;
+    const started = yield* Clock.currentTimeMillis;
+    const found = yield* queryVector(current.provider, current.queries, query).pipe(
+      Effect.timeoutOption(QUERY_TIMEOUT),
+      Effect.catch((error) => warnQuery({ error: String(error) })),
+    );
+    if (found === undefined) return undefined;
+    if (Option.isNone(found))
+      return yield* warnQuery({
+        error: "timed out",
+        ms: (yield* Clock.currentTimeMillis) - started,
+      });
+    const vector = found.value;
+    let total = 0;
+    const scored = [...current.vectors].map(([threadId, candidate]) => {
+      let score = 0;
+      for (let index = 0; index < vector.length; index++)
+        score += vector[index]! * candidate[index]!;
+      total += score;
+      return [threadId, score] as const;
+    });
+    const ranked = scored
+      .filter(([threadId]) => !skip?.has(threadId))
+      .toSorted((a, b) => b[1] - a[1])
+      .slice(0, k);
+    const cutoff = CUTOFFS[current.provider.name];
+    const floor =
+      cutoff && Math.max(cutoff.similarity, total / (scored.length || 1) + cutoff.aboveMean);
+    return {
+      ids: ranked.map(([threadId]) => threadId),
+      close: new Set(
+        ranked.flatMap(([threadId, score]) =>
+          floor === undefined || score >= floor ? [threadId] : [],
+        ),
+      ),
+    };
+  });
 
   return ThreadEmbedder.of({ nearest, sweep });
 });

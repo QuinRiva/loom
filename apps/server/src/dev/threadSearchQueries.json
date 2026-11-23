@@ -511,5 +511,307 @@
     "project": "loom",
     "created": "2026-08-04",
     "source": "deep"
+  },
+  {
+    "q": "xylophone marmalade wombat",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "xylophone marmalade quokka",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "purple elephant trampoline recipe",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "zzqx flurb gnarp",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "best pizza in naples",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "how to knit a scarf",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "asdfgh qwerty",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "lorem ipsum dolor sit amet",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "weather forecast sydney tomorrow",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "champions league final score",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "sourdough starter hydration ratio",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "tax return deadline australia",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "guitar chord progression in d minor",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "kubernetes ingress tls termination",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "react native reanimated worklets crash",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "postgres vacuum autovacuum tuning",
+    "expected": [],
+    "title": "",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "nonsense"
+  },
+  {
+    "q": "Word to PDF without malforming",
+    "expected": [
+      "thread:mcp:3bbbc2d8-6430-49f9-96dc-6b06f19cede1:goal_continue:52b85765-d711-46d3-8b78-89da5bc8b01c"
+    ],
+    "subThread": "thread:mcp:c43bf8d5-1ec8-4cc0-9439-30cd527eb04a:workstream-spawn:43703949-9aad-4878-9d30-c1c36a294809",
+    "title": "Word to PDF without malforming",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "relevance cut-off semantic threshold",
+    "expected": ["3107ca1f-b67a-47e1-92f7-f7b8631b6d00"],
+    "subThread": "thread:mcp:b70985eb-14ee-4a91-9485-c4e9382e1c59:workstream-spawn:b7bb0b4a-5bb9-45dc-bee1-3f929a4e2713",
+    "title": "Pulls 12–14 dropped follow-ups sweep",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "why is the node missing from the packet",
+    "expected": [
+      "thread:mcp:1ed64d5e-92c8-4cd1-9772-58fbd53ee07b:goal_handoff:1a333d55-9314-4881-97d0-7b3a3f3fdfe8"
+    ],
+    "subThread": "thread:mcp:11dd7170-d249-4e50-b318-06c0214d14c9:workstream-spawn:44740723-9abb-4590-a35c-80f210bb3a25",
+    "title": "Packet-gap visualisation prototypes",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "martin approved the terraform pr how do I apply it",
+    "expected": [
+      "thread:mcp:de776576-443e-42e7-904c-bfa3dc99b78a:goal_handoff:97d2bc54-e916-4063-8aaf-644df6673f15"
+    ],
+    "subThread": "thread:mcp:095e56ae-1276-42d3-9bf9-d5af47379298:workstream-scaffold:e3942369-4e5e-4c74-8f59-a13ff4223fcc:0",
+    "title": "Tenant trees read from Exlake",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "delete the t3council scratch home",
+    "expected": ["db21946f-5e3e-4f6c-aa7a-dc2397b5dd3e"],
+    "subThread": "thread:mcp:400768e4-0ad5-46e1-94e9-651ef1f79dee:workstream-spawn:2499e776-4035-416d-a44a-45810e779dae",
+    "title": "Council capture, rounds 1 to 3",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "fork screen should explain each file's code changes",
+    "expected": [
+      "thread:mcp:077a5217-6894-4dd1-bcb5-be22cffb0541:goal_handoff:fcf81be7-3a38-4227-823a-3ee845c954fb"
+    ],
+    "subThread": "thread:mcp:5662e30c-e47e-4175-8b65-3425a4f16e4d:workstream-spawn:4f60f608-0a90-4bfc-8958-d005b9d662b6",
+    "title": "End-to-end: how the clean branch works",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "tenant business sector yardi only field",
+    "expected": [
+      "thread:mcp:3bbbc2d8-6430-49f9-96dc-6b06f19cede1:goal_continue:52b85765-d711-46d3-8b78-89da5bc8b01c"
+    ],
+    "subThread": "thread:mcp:5e892b41-cb0e-40f7-b51f-b421847dfbe1:workstream-scaffold:8d36f6c1-6182-4727-b362-b4c505a38290:0",
+    "title": "Revert overfitting to main",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "did aligning the erp loader with main help",
+    "expected": [
+      "thread:mcp:3bbbc2d8-6430-49f9-96dc-6b06f19cede1:goal_continue:52b85765-d711-46d3-8b78-89da5bc8b01c"
+    ],
+    "subThread": "thread:mcp:8423f7e2-0540-4bf0-9c03-b7f2db54cad0:workstream-spawn:7f3779f4-a945-41e8-9048-b5ad0b82b03d",
+    "title": "Gilbarco audit: old vs new loader",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "no reliance tag, do we have the right tag in the first place",
+    "expected": [
+      "thread:mcp:bf211b1c-1305-49f3-8880-778ffcdd97d5:goal_continue:c46ed9ec-5f63-4e8a-a67c-31f44ed21219"
+    ],
+    "subThread": "thread:mcp:a5dfee62-c9a2-4d33-8d15-9f6059503b4d:workstream-scaffold:443a2e0e-3d2e-40cc-8648-fce9f1dda0fb:0",
+    "title": "Tag definition boundaries, first batch",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "unnecessary text wrapping, not expanding to full width",
+    "expected": [
+      "thread:mcp:bf211b1c-1305-49f3-8880-778ffcdd97d5:goal_continue:c46ed9ec-5f63-4e8a-a67c-31f44ed21219"
+    ],
+    "subThread": "thread:mcp:a5dfee62-c9a2-4d33-8d15-9f6059503b4d:workstream-scaffold:c4ad6e91-22db-4775-a890-5a01c1dc3892:0",
+    "title": "v30 to v33 walkthrough page",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "read access to the billing export in bigquery",
+    "expected": ["e86073e5-23da-4a24-abee-026c69c45bd4"],
+    "subThread": "thread:mcp:bb83b172-945c-412e-971b-e65f11366232:workstream-spawn:0a66d620-2bb5-4236-b982-c34c028a480f",
+    "title": "Gemini Flash 3.8 spend breakdown",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "drop D1 and only do the trading name",
+    "expected": [
+      "thread:mcp:8bb882f0-14a4-4255-8e45-0042465eb817:goal_handoff:mirvac-adjudication-hillclimb-1"
+    ],
+    "subThread": "thread:mcp:6b29c389-71a1-4238-bc11-f3e3d5286f69:workstream-spawn:e95bb294-4afa-48b7-920d-5e7de9812fb8",
+    "title": "Trading name and reference-list fixes",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "do not switch branches, review-total-recall-memories",
+    "expected": ["d3c7c6a7-4445-4031-90ce-9472d5c6d94d"],
+    "subThread": "thread:mcp:2fca9004-88d1-40f1-af89-fe047d194f5d:workstream-scaffold:5afeb29d-4146-4d39-9a58-ca5a7f70dccb:0",
+    "title": "Command guards for known mistypes",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
+  },
+  {
+    "q": "leave the mobile thread list unchanged for side threads",
+    "expected": ["ca30824a-cba4-4e83-844d-226ba0c5aea2"],
+    "subThread": "thread:mcp:62127ca6-19d7-4a99-8bce-17cdac9a0fd1:workstream-scaffold:2dc166ca-8b51-40b3-8c4e-9754f66291b2:2",
+    "title": "Side-thread class implementation",
+    "archived": false,
+    "project": "",
+    "created": "",
+    "source": "subthread"
   }
 ]
