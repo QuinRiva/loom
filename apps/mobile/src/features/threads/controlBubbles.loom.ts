@@ -17,7 +17,7 @@ import { Atom } from "effect/reactivity";
 
 import { environmentThreadDetails } from "../../state/threads";
 
-export interface ControlMessages {
+interface ControlMessages {
   readonly cards: ReadonlyMap<string, ControlCardModel>;
   readonly bubbles: ReadonlyMap<string, ControlBubble>;
 }

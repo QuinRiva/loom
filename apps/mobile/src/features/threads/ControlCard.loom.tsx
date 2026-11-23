@@ -26,7 +26,7 @@ import { useOpenThreadLink } from "./useOpenThreadLink";
 
 /** Which channel it came from: a symbol, never a colour (web's inbox / speech bubbles). */
 const CHANNEL_SYMBOLS: Record<ControlCardModel["channel"], AppSymbolName> = {
-  "control-plane": "tray.and.arrow.down",
+  "control-plane": "tray",
   "inter-thread": "bubble.left.and.bubble.right",
 };
 
@@ -52,7 +52,7 @@ const SEVERITY_CLASSES: Record<ControlSeverity, { border: string; text: string; 
 const VISIBLE_DOCUMENTS = 3;
 
 /** Disclosure row ids, kept in the feed's expanded-rows state so they survive scrolling away. */
-export const controlCardRowIds = (messageId: string) => ({
+const controlCardRowIds = (messageId: string) => ({
   card: `control:${messageId}`,
   raw: `control-raw:${messageId}`,
   documents: (itemKey: string) => `control-documents:${messageId}:${itemKey}`,
@@ -183,7 +183,10 @@ function ControlCardEntry(props: {
   readonly onOpenDocument: (path: string) => void;
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
-  const { item, facts } = props.entry;
+  const { item } = props.entry;
+  // Line 2 carries the dispatcher's title, so line 1 is the bare verdict ("Fixed inline").
+  const status = item.status?.replaceAll("_", " ");
+  const verdict = status ? status.charAt(0).toUpperCase() + status.slice(1) : props.entry.facts;
   const childThreadId = item.threadId;
   // Only this entry's own sub-thread, never the all-threads list: the dispatcher titles items
   // with a generic verdict ("Completed"), so the live title says who reported.
@@ -212,9 +215,9 @@ function ControlCardEntry(props: {
         <Text numberOfLines={1} className="min-w-0 flex-1 font-t3-medium text-sm">
           {sender ?? item.title}
         </Text>
-        {facts ? (
+        {verdict ? (
           <Text numberOfLines={1} className="shrink-0 text-xs text-foreground-muted">
-            {facts}
+            {verdict}
           </Text>
         ) : null}
       </View>

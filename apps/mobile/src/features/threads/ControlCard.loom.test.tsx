@@ -110,7 +110,8 @@ it("starts collapsed, expands to excerpts and the raw text, and opens report, th
     // Collapsed: the header, the entry under its live title with its verdict, the chips; no markdown.
     expect(container.textContent).toContain("Digest");
     expect(container.textContent).toContain("Review: control card");
-    expect(container.textContent).toContain("Gate resolved · clean");
+    expect(container.textContent).toContain("Clean");
+    expect(container.textContent).not.toContain("Gate resolved · clean");
     expect(container.textContent).toContain("reviewer · Gate resolved (clean)");
     expect(container.textContent).toContain("control-card/plan.mdx");
     expect(container.textContent).toContain("options.html");
