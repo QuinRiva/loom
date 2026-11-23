@@ -114,7 +114,7 @@ export function isMarkdownPreviewFile(path: string): boolean {
 
 // loom: an `.mdx` opens in the document view, drawn by web's renderer.
 export function isMdxDocumentFile(path: string): boolean {
-  return /\.mdx$/i.test(path.split(/[?#]/, 1)[0] ?? "");
+  return /\.mdx$/i.test(path);
 }
 
 // loom: the read input a file screen uses; `.mdx` asks for web's document budget.
