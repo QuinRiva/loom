@@ -46,7 +46,7 @@ manager_sessions:
 
 **Not doing.** A cap on how many questions can be open. Closing questions by age. Any change to what your chat messages do to open questions. Telling the agent when you dismiss a question.
 
-**Still unknown.**
+**Settled during the build.**
 
-- Will agents withdraw unprompted, and only when they should? An eval case built from your example settles the first; a second case, where the open question still needs your decision, settles the other.
-- Does the Slack bridge retire its post when a question closes this way? Reading how it treats a dismissed question today settles it; a gap there is a small follow-up in its own repository.
+- Agents withdraw unprompted, and only when they should. In the eval, a case built from your example and one where new information settles the question both went from 0 of 5 to 10 of 10. An open question that still needs your decision was kept in 10 of 10, and in 20 further samples with two questions open.
+- The Slack bridge needs no change. It treats a withdrawal as it treats a dismissal and posts that the question was closed without an answer.
