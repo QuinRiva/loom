@@ -280,19 +280,19 @@ export function ComposerContextSheet(props: {
                 {record.mdxAnchor ? (
                   // loom: a document answer or comment has no diff; show what it says and where.
                   <>
-                    <ContextField label="Document" value={record.filePath} code />
-                    <ContextField label="Section" value={record.sectionTitle} />
+                    <ContextField label={gt("Document")} value={record.filePath} code />
+                    <ContextField label={gt("Section")} value={record.sectionTitle} />
                     <ContextField
                       label={
                         record.rangeLabel.startsWith("answer:")
-                          ? "Answer"
+                          ? gt("Answer", { $context: "noun, field label" })
                           : record.rangeLabel.startsWith("review:")
-                            ? "Verdict"
-                            : "Comment"
+                            ? gt("Verdict")
+                            : gt("Comment", { $context: "noun, field label" })
                       }
                       value={record.text}
                     />
-                    <ContextField label="Quoted" value={record.mdxAnchor.quotedText} />
+                    <ContextField label={gt("Quoted")} value={record.mdxAnchor.quotedText} />
                   </>
                 ) : !record.sectionId.startsWith("pull-request:") ? (
                   <>

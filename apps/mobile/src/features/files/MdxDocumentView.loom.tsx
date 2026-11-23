@@ -20,13 +20,13 @@ import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
-import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
+import { FilePreviewModal, type FilePreviewSource } from "../../components/ui/FilePreviewModal";
 import * as Dialog from "../../components/ui/Dialog";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
-import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
+import { VideoPreviewModal, type VideoPreviewSource } from "../../components/ui/VideoPreviewModal";
 import { resolveMarkdownMediaPreview } from "../../lib/markdownMedia";
 import { resolveMarkdownLinkPresentation } from "../../lib/markdownLinks";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
@@ -210,7 +210,10 @@ export function MdxDocumentView(props: {
         : workspace.threadId !== null
           ? { _tag: "media-file", threadId: workspace.threadId, path }
           : { _tag: "draft-workspace-file", cwd: workspace.cwd, path };
-    const url = resource === null ? null : await refreshAssetUrl(props.environmentId, resource);
+    const url =
+      resource === null
+        ? null
+        : await refreshAssetUrl(props.environmentId, resource).catch(() => null);
     deliver({ type: "image-url", id, url });
   };
 
