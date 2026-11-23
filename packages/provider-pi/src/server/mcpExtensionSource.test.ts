@@ -354,6 +354,13 @@ describe("Pi MCP bridge Loom-hidden tools", () => {
       bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot")?.exposure,
       "hidden",
     );
+    // Upstream makes each alias model-only and activates it beside its searchable tool; a
+    // withheld tool's alias must stay hidden and inactive, or the model could still call it.
+    assert.equal(
+      bridge.tools.find((tool) => tool.name === "mcp__t3_code__preview_snapshot")?.exposure,
+      "hidden",
+    );
+    assert.notInclude(bridge.getActiveTools(), "mcp__t3_code__preview_snapshot");
   });
 });
 

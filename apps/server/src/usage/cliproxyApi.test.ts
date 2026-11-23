@@ -400,9 +400,12 @@ describe("CLIProxyAPI built-in management API", () => {
               },
       });
       const api = yield* test.api;
+      // loom: a carried reading names the listed login it came from (U1)
       const good = (id: string, checkedAt: string) => ({
         id,
         driver: ProviderDriverKind.make("codex"),
+        email: "first@example.com",
+        workspaceId: "account-a",
         usageLimits: {
           checkedAt,
           windows: [{ id: "primary", kind: "session" as const, label: "5h", usedPercent: 40 }],
@@ -585,6 +588,8 @@ describe("CLIProxyAPI built-in management API", () => {
         {
           id: "first.json",
           driver: ProviderDriverKind.make("claudeAgent"),
+          email: "first@example.com", // loom: the listed login the reading came from (U1)
+          workspaceId: "account-a",
           usageLimits: {
             checkedAt: "2026-10-19T06:00:00.000Z",
             windows: [

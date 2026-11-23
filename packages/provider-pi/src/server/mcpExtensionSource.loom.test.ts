@@ -39,7 +39,7 @@ const TOOLS = [
 
 it("registers Loom's _meta prose and never forces the system prompt", async () => {
   const registered: Array<Registered> = [];
-  const handlers = new Map<string, (event: { systemPrompt: string }) => unknown>();
+  const handlers = new Map<string, Array<(event: object, ctx: object) => unknown>>();
   const source = NodeModule.stripTypeScriptTypes(
     PI_T3_MCP_EXTENSION_SOURCE.replace(/^import .*;$/gm, "").replace(
       "export default async function",
@@ -67,9 +67,10 @@ it("registers Loom's _meta prose and never forces the system prompt", async () =
     Type: { Unsafe: (schema: unknown) => schema },
     httpRequest: NodeHttp.request,
     pi: {
-      on: (name: string, handler: (event: { systemPrompt: string }) => unknown) =>
-        handlers.set(name, handler),
+      on: (name: string, handler: (event: object, ctx: object) => unknown) =>
+        handlers.set(name, [...(handlers.get(name) ?? []), handler]),
       registerTool: (tool: Registered) => registered.push(tool),
+      registerCommand: () => undefined,
     },
   });
 
@@ -85,6 +86,16 @@ it("registers Loom's _meta prose and never forces the system prompt", async () =
   // Any returned systemPrompt, even an unchanged one, makes pi force the prompt and collapse every
   // system message into one head with all current tools: each tool_search load would then resend
   // the tool list and rewrite the prompt cache instead of appending an inline tool addition.
-  assert.isUndefined(handlers.get("before_agent_start")?.({ systemPrompt: "BASE" }));
+  const ctx = { cwd: "/workspace", isProjectTrusted: () => true, ui: { notify: () => undefined } };
+  const beforeAgentStart = (event: object) =>
+    (handlers.get("before_agent_start") ?? []).map((handler) => handler(event, ctx));
+  assert.deepEqual(beforeAgentStart({ systemPrompt: "BASE" }), [undefined, undefined]);
+  // pi 1.5.1 passes prompt sections: upstream writes its orchestration and PR-linking rules there.
+  const sections = {};
+  assert.deepEqual(beforeAgentStart({ systemPrompt: "BASE", systemPromptOptions: { sections } }), [
+    undefined,
+    undefined,
+  ]);
+  assert.deepEqual(sections, {});
   server.close();
 });

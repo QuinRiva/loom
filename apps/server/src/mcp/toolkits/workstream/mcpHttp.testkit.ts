@@ -92,7 +92,8 @@ const stubServices = (stubs: McpServiceStubs) =>
     Layer.mock(AssetSigner.AssetSigner)({}),
     Layer.mock(Orchestrator.OrchestratorV2)(stubs.orchestrator ?? {}),
     Layer.mock(ProjectService.ProjectService)(stubs.projects ?? {}),
-    Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
+    // The /mcp middleware asks whether the caller's project has a forge; unknown keeps PR tools listed.
+    Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThreadShell: () => Effect.succeed(null) }),
     Layer.mock(DeviceService.DeviceService)({}),
     Layer.mock(ThreadManagementService.ThreadManagementService)(stubs.threadManagement ?? {}),
     Layer.mock(ProviderRegistry.ProviderRegistry)({}),

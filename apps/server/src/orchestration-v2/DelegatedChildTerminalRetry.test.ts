@@ -10,7 +10,6 @@ import {
   ThreadId,
   type OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
-import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as DateTime from "effect/DateTime";
@@ -32,6 +31,9 @@ const instanceId = ProviderInstanceId.make("claudeAgent");
 const modelSelection = { instanceId, model: "claude-test" };
 const parentThreadId = ThreadId.make("thread:delegated-terminal-retry-parent");
 const childError = "Failed to initialize session: No space left on device";
+// loom: Loom's digest thread ids carry no delegated-task prefix, so isDelegatedTaskThread is
+// always false here (B.6 IdAllocator row 2); the parent's only other thread is its child.
+const isDelegatedChild = (threadId: ThreadId) => threadId !== parentThreadId;
 
 type ParentRead = {
   readonly store: ProjectionStore.ProjectionStoreV2["Service"];
@@ -82,7 +84,7 @@ const runDelegation = (input: {
             },
             events: Stream.fromQueue(events),
             ensureThread: ({ threadId }) =>
-              IdAllocator.isDelegatedTaskThread(threadId)
+              isDelegatedChild(threadId)
                 ? Effect.fail(
                     new ProviderAdapter.ProviderAdapterEnsureThreadError({
                       driver,
@@ -157,11 +159,7 @@ const runDelegation = (input: {
               return yield* store.getThreadRecords(threadId, fields, filter);
             }),
           getRunMessage: (threadId, runId) => {
-            if (
-              !armed ||
-              !input.failChildRunMessage ||
-              !IdAllocator.isDelegatedTaskThread(threadId)
-            ) {
+            if (!armed || !input.failChildRunMessage || !isDelegatedChild(threadId)) {
               return store.getRunMessage(threadId, runId);
             }
             armed = false;

@@ -9,6 +9,7 @@ import {
   type OrchestrationProjectShell,
   type ThreadPullRequestLink,
   SourceControlProviderKind,
+  type LoomThreadShellFields, // loom: DL-471
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -115,6 +116,7 @@ interface HarnessOptions {
   readonly readFailure?: PullRequestService.PullRequestError;
   readonly readState?: PullRequestSummary["state"];
   readonly readChecksState?: PullRequestSummary["checksState"];
+  readonly workstream?: LoomThreadShellFields; // loom: the joined Loom row (DL-471)
 }
 
 const makeHarness = Effect.fn("makePullRequestWatchHarness")(function* (
@@ -129,7 +131,14 @@ const makeHarness = Effect.fn("makePullRequestWatchHarness")(function* (
     }),
     Layer.mock(Orchestrator.OrchestratorV2)({
       getThreadShell: (id) =>
-        Effect.succeed(id === thread?.id ? v2PullRequestThread(thread) : null),
+        Effect.succeed(
+          id === thread?.id
+            ? {
+                ...v2PullRequestThread(thread),
+                ...(options.workstream && { workstream: options.workstream }), // loom: DL-471
+              }
+            : null,
+        ),
       dispatch: (command) =>
         Ref.update(commands, (recorded) => [...recorded, command]).pipe(
           Effect.as({ sequence: 1, storedEvents: [] }),
@@ -316,6 +325,27 @@ describe("PullRequestWatchService", () => {
         .pipe(Effect.flip);
       expect(error).toMatchObject({ _tag: "PullRequestWatchFromSubagentError" });
       expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  // loom: DL-471 — every Loom child has subagent lineage, and a shipper child watches its own PR.
+  it.effect("lets a Loom child watch its own pull request", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        thread: {
+          ...makeThread([makeLink(1, { headBranch: "feature" })]),
+          lineage: {
+            rootThreadId: ThreadId.make("parent"),
+            parentThreadId: ThreadId.make("parent"),
+            relationshipToParent: "subagent",
+          },
+        },
+        workstream: { role: "shipper" } as LoomThreadShellFields,
+      });
+      yield* harness.setWatching(true, { repository: "t3tools/t3code", number: 1 });
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        { type: "thread.pull-request.watch", number: 1, watching: true },
+      ]);
     }),
   );
 });

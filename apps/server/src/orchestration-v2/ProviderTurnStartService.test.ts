@@ -464,6 +464,7 @@ function makeLocalCommandHarness(input: {
   readonly canForkWhileSourceRunning?: boolean;
   readonly exposesNativeTurnId?: boolean;
   readonly goalDriver?: "opencode" | "antigravity";
+  readonly driver?: "pi"; // loom: the sender-note skip (DL-2074)
   readonly worktreePath?: string;
   readonly worktreesDir?: string;
   readonly workspaceRoot?: string;
@@ -546,7 +547,8 @@ function makeLocalCommandHarness(input: {
   const providerThread: OrchestrationV2ThreadProjection["providerThreads"][number] = {
     id: providerThreadId,
     driver: ProviderDriverKind.make(
-      input.nativeGoals === undefined ? "codex" : (input.goalDriver ?? "opencode"),
+      input.driver ?? // loom
+        (input.nativeGoals === undefined ? "codex" : (input.goalDriver ?? "opencode")),
     ),
     providerInstanceId: newInstanceId,
     providerSessionId: input.missingProviderSession === true ? null : providerSessionId,
@@ -2261,6 +2263,33 @@ effectIt.effect("sends new steering text when restarting a manual continuation",
     expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe("New steering instruction");
     expect(harness.startRootRun.mock.calls[0]?.[0].resume).toBe(false);
   }),
+);
+
+// loom: pi's adapter labels a scheduled fire itself (provenance.loom.ts), so pi gets no second note (DL-2074).
+effectIt.effect.each([
+  { driver: "pi" as const, text: "Run the nightly sweep" },
+  {
+    driver: undefined,
+    text: expect.stringMatching(
+      /^\[T3 Code: scheduled task "nightly".*\n\nRun the nightly sweep$/s,
+    ),
+  },
+])(
+  "adds upstream's sender note to a scheduled fire unless the driver is pi: $driver",
+  ({ driver, text }) =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Run the nightly sweep",
+        scheduledTaskId: ScheduledTaskId.make("nightly"),
+        ...(driver === undefined ? {} : { driver }),
+        manualContinuation: true,
+        steeringRestart: true,
+        nativeResumeUnsupported: true,
+        sideChat: { contextRun: "delivered" },
+      });
+      yield* harness.start;
+      expect(harness.startTurn.mock.calls.map(([turn]) => turn.message.text)).toEqual([text]);
+    }),
 );
 
 effectIt.effect("refuses unsupported resume instead of manufacturing a user prompt", () =>
