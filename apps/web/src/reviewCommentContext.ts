@@ -160,6 +160,7 @@ function parseMdxAnchorReviewComment(
     kind: "mdx-anchor",
     id: attributes.id?.trim() || `review-comment:${index}:${sectionId}:${filePath}`,
     sectionId,
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- loom: a section label in the agent's context, not UI copy
     sectionTitle: attributes.sectionTitle?.trim() || "Review",
     filePath,
     rangeLabel: attributes.rangeLabel?.trim() || "annotation",
@@ -191,6 +192,7 @@ function parseReviewCommentContext(
     kind: "line",
     id: `review-comment:${index}:${sectionId}:${filePath}:${startIndex}:${endIndex}`,
     sectionId,
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- loom: a section label in the agent's context, not UI copy
     sectionTitle: attributes.sectionTitle?.trim() || "Review",
     filePath,
     startIndex: Math.min(startIndex, endIndex),

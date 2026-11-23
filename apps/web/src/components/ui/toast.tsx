@@ -1,7 +1,7 @@
 import { Spinner } from "~/components/ui/spinner";
 
 import { Toast } from "@base-ui/react/toast";
-import { msg, useGT } from "gt-react";
+import { msg, T, useGT } from "gt-react";
 import {
   useEffect,
   useState,
@@ -749,7 +749,7 @@ function Toasts({ position }: { position: ToastPosition }) {
         {/* loom: dismiss-all footer, revealed with the expanded stack. */}
         {liveToastCount >= 2 ? (
           <button
-            aria-label={`Dismiss all ${liveToastCount} notifications`}
+            aria-label={gt("Dismiss all {count} notifications", { count: liveToastCount })}
             className={toastClearAllClass}
             data-slot="toast-clear-all"
             onClick={dismissAllToasts}
@@ -762,7 +762,7 @@ function Toasts({ position }: { position: ToastPosition }) {
             type="button"
           >
             <XIcon className="size-3" strokeWidth={2.25} />
-            Clear all
+            <T>Clear all</T>
             <span className="font-medium text-foreground tabular-nums">{liveToastCount}</span>
           </button>
         ) : null}

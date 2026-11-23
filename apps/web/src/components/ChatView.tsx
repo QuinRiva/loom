@@ -3783,7 +3783,7 @@ export default function ChatView(props: ChatViewProps) {
                   hasStarted={timelineEntries.length > 0 || isSendBusy}
                   markdownCwd={gitCwd ?? undefined}
                   launchDisabled={isSendBusy}
-                  launchBlockedReason={activeEnvironmentUnavailable ? "Not connected" : null}
+                  launchBlockedReason={activeEnvironmentUnavailable ? gt("Not connected") : null}
                   bottomInset={scrollToEndClearance}
                   onLaunch={(brief) => {
                     promptRef.current = brief;
