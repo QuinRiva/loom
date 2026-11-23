@@ -28,10 +28,11 @@ describe("unanchoredFileLink", () => {
 
 describe("messageDirectoryBases", () => {
   // Web's order: inline code first, then links.
-  it("collects folders named by inline code, then by link, outside code blocks", () => {
+  it("collects paths that could be folders, inline code first, then links, outside code blocks", () => {
     const markdown = [
       "Files are in `/home/carl/wt/workbench/study/`: `results/a.md`.",
       "Also [out](/home/carl/out/) and `./local/`, not `README.md` or `https://x.y/`.",
+      "And `/home/carl/wt/workbench/recaps/pr-4486-review` without a slash.",
       "```",
       "`/home/carl/fenced/`",
       "```",
@@ -39,6 +40,7 @@ describe("messageDirectoryBases", () => {
     expect(messageDirectoryBases(markdown, ROOT)).toEqual([
       "/home/carl/wt/workbench/study",
       `${ROOT}/local`,
+      "/home/carl/wt/workbench/recaps/pr-4486-review",
       "/home/carl/out",
     ]);
   });
@@ -48,10 +50,10 @@ describe("messageFileCandidates", () => {
   it("tries the root, the path without a repeated project prefix, then named folders", () => {
     const root = "/repo/apps/web";
     const link = unanchoredFileLink("apps/web/src/x.ts", root)!;
-    expect(messageFileCandidates(link, "See `/repo/other/`.", root)).toEqual([
-      "/repo/apps/web/apps/web/src/x.ts",
-      "/repo/apps/web/src/x.ts",
-      "/repo/other/apps/web/src/x.ts",
+    expect(messageFileCandidates(link, "See `/repo/other`.", root)).toEqual([
+      { path: "/repo/apps/web/apps/web/src/x.ts", base: null },
+      { path: "/repo/apps/web/src/x.ts", base: null },
+      { path: "/repo/other/apps/web/src/x.ts", base: "/repo/other" },
     ]);
   });
 });

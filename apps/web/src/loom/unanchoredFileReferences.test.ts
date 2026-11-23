@@ -52,32 +52,38 @@ describe("isAnchoredFileReference", () => {
 });
 
 describe("collectMessageDirectoryBases", () => {
-  it("keeps explicit directory references, in order, and never guesses one from a file", () => {
+  it("keeps paths that could be folders, in order, with or without a trailing slash", () => {
     const metas = [
       resolveInlineCodeFileLinkMeta("~/reports/gold/", CWD),
       resolveInlineCodeFileLinkMeta("/home/carl/data/_findings/", CWD),
       resolveMarkdownFileLinkMeta("/home/carl/data/_findings/", CWD),
       resolveInlineCodeFileLinkMeta("/home/carl/data/README.md", CWD),
+      resolveInlineCodeFileLinkMeta("/home/carl/w/workbench/recaps/pr-4486-review", CWD),
+      resolveInlineCodeFileLinkMeta("recap.mdx", CWD),
     ].filter((meta) => meta !== null);
     expect(collectMessageDirectoryBases(metas)).toEqual([
       "/home/carl/reports/gold",
       "/home/carl/data/_findings",
+      "/home/carl/w/workbench/recaps/pr-4486-review",
     ]);
   });
 });
 
 describe("selectUnanchoredBinding", () => {
   const bases = ["/home/carl/data/_findings"];
+  const base = { "/home/carl/data/_findings": DIRECTORY };
 
   it("prefers the base directory, then message directories, in order", () => {
     expect(
       bind("verdict.md", bases, {
+        ...base,
         "/home/carl/w/verdict.md": MISSING,
         "/home/carl/data/_findings/verdict.md": FILE,
       })?.filePath,
     ).toBe("/home/carl/data/_findings/verdict.md");
     expect(
       bind("verdict.md", bases, {
+        ...base,
         "/home/carl/w/verdict.md": FILE,
         "/home/carl/data/_findings/verdict.md": FILE,
       })?.filePath,
@@ -86,13 +92,46 @@ describe("selectUnanchoredBinding", () => {
 
   it("waits on an unverified higher-priority candidate rather than binding past it", () => {
     expect(
-      bind("verdict.md", bases, { "/home/carl/data/_findings/verdict.md": FILE }, null),
+      bind("verdict.md", bases, { ...base, "/home/carl/data/_findings/verdict.md": FILE }, null),
+    ).toBeNull();
+    // The named path's own stat is unanswered, so its guess is too.
+    expect(
+      bind(
+        "verdict.md",
+        bases,
+        { "/home/carl/w/verdict.md": MISSING, "/home/carl/data/_findings/verdict.md": FILE },
+        "/home/carl/w/eval/verdict.md",
+      ),
+    ).toBeNull();
+  });
+
+  it("binds under a named folder written without a trailing slash", () => {
+    const folder = "/home/carl/w/workbench/recaps/pr-4486-review";
+    const named = [resolveInlineCodeFileLinkMeta(folder, CWD)].filter((meta) => meta !== null);
+    expect(
+      bind("recap.mdx", collectMessageDirectoryBases(named), {
+        "/home/carl/w/recap.mdx": MISSING,
+        [folder]: DIRECTORY,
+        [`${folder}/recap.mdx`]: FILE,
+      })?.filePath,
+    ).toBe(`${folder}/recap.mdx`);
+  });
+
+  it("does not search under a named path that is a file", () => {
+    expect(
+      bind(
+        "verdict.md",
+        ["/home/carl/w/Makefile"],
+        { "/home/carl/w/verdict.md": MISSING, "/home/carl/w/Makefile": FILE },
+        null,
+      ),
     ).toBeNull();
   });
 
   it("skips directories, since the chip is file-shaped", () => {
     expect(
       bind("verdict.md", bases, {
+        ...base,
         "/home/carl/w/verdict.md": DIRECTORY,
         "/home/carl/data/_findings/verdict.md": FILE,
       })?.filePath,

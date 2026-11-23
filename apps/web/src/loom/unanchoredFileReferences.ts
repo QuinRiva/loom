@@ -5,6 +5,7 @@ import {
   selectUnanchoredPath,
   unanchoredCandidatePaths,
   unanchoredLocateReference,
+  type UnanchoredCandidate,
 } from "@t3tools/client-runtime/unanchored-file-references";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
@@ -34,23 +35,30 @@ function positionSuffix(span: string): string {
   return line === undefined ? "" : `:${line}${column === undefined ? "" : `:${column}`}`;
 }
 
-/** Ordered stat candidates for an unanchored span, as metas: `rootMeta` first. */
+/** A stat candidate with the chip it would render. */
+export interface UnanchoredCandidateMeta extends UnanchoredCandidate {
+  readonly meta: MarkdownFileLinkMeta;
+}
+
+/** Ordered stat candidates for an unanchored span: `rootMeta` first. */
 export function unanchoredCandidates(
   span: string,
   rootMeta: MarkdownFileLinkMeta,
   directoryBases: readonly string[],
   cwd: string | undefined,
-): MarkdownFileLinkMeta[] {
+): UnanchoredCandidateMeta[] {
   const position = positionSuffix(span);
-  const candidates = [rootMeta];
-  for (const path of unanchoredCandidatePaths(
+  const candidates: UnanchoredCandidateMeta[] = [
+    { path: rootMeta.filePath, base: null, meta: rootMeta },
+  ];
+  for (const { path, base } of unanchoredCandidatePaths(
     rootMeta.filePath,
     unanchoredLocateReference(span),
     directoryBases,
   ).slice(1)) {
     const meta = resolveMarkdownFileLinkMeta(`${path}${position}`, cwd);
-    if (meta && !candidates.some((candidate) => candidate.filePath === meta.filePath)) {
-      candidates.push(meta);
+    if (meta && !candidates.some((candidate) => candidate.path === meta.filePath)) {
+      candidates.push({ path: meta.filePath, base, meta });
     }
   }
   return candidates;
@@ -58,20 +66,16 @@ export function unanchoredCandidates(
 
 /** The chip target for an unanchored span, or null for plain code; see `selectUnanchoredPath`. */
 export function selectUnanchoredBinding(input: {
-  candidates: readonly MarkdownFileLinkMeta[];
+  candidates: readonly UnanchoredCandidateMeta[];
   lookupExistence: (filePath: string) => PathExistence | undefined;
   located: string | null | undefined;
   span: string;
   cwd: string | undefined;
 }): MarkdownFileLinkMeta | null {
-  const path = selectUnanchoredPath({
-    candidates: input.candidates.map((meta) => meta.filePath),
-    lookupExistence: input.lookupExistence,
-    located: input.located,
-  });
+  const path = selectUnanchoredPath(input);
   if (path === null) return null;
-  const candidate = input.candidates.find((meta) => meta.filePath === path);
-  if (candidate) return candidate;
+  const candidate = input.candidates.find((candidate) => candidate.path === path);
+  if (candidate) return candidate.meta;
   return resolveMarkdownFileLinkMeta(`${path}${positionSuffix(input.span)}`, input.cwd);
 }
 
