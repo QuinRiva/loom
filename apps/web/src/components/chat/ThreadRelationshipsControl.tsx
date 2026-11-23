@@ -852,7 +852,7 @@ export function ThreadRelationshipsPanel(props: {
     const isSideChat = node?.thread?.lineage.sideChat === true && !isParent;
     const hint = relationshipHint(edge, props.threadId, isSideChat, m);
     const openProps =
-      isSideChat || (isSubagent && !isParent)
+      (isSideChat || (isSubagent && !isParent)) && node?.thread?.workstream == null // loom: a workstream child navigates, as sideThreadKindOf (DL-2413)
         ? trigger((intent) => openSideThreadRow(threadId, intent))
         : { onClick: () => openThread(threadId) };
     const RelationshipPopup = agent ? ThreadHoverCardPopup : TooltipPopup;

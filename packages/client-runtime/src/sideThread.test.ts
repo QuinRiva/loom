@@ -35,6 +35,12 @@ describe("sideThreadKindOf", () => {
       { ...lineage({ relationshipToParent: "subagent" }), creationSource: "provider" as const },
       "provider-subagent",
     ],
+    // loom: a workstream child navigates, unlike the side chat and subagents above (DL-2413).
+    [
+      "a Loom workstream child",
+      { ...lineage({ relationshipToParent: "subagent" }), workstream: {} },
+      null,
+    ],
     ["a fork", lineage({ relationshipToParent: "fork" }), null],
     ["a top-level thread", lineage({ parentThreadId: null }), null],
     // The flag alone does not make a tab: a side chat is beside some thread.

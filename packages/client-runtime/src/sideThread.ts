@@ -1,4 +1,8 @@
-import type { OrchestrationV2AppThread, SideThreadOpenTarget } from "@t3tools/contracts";
+import type {
+  OrchestrationV2AppThread,
+  OrchestrationV2ThreadShell, // loom: workstream exemption below
+  SideThreadOpenTarget,
+} from "@t3tools/contracts";
 
 /**
  * A thread that opens beside the one you are in. `linked` lives on a linked environment this client
@@ -13,11 +17,14 @@ export type SideThreadKind = "side-chat" | "subagent" | "provider-subagent" | "l
 export function sideThreadKindOf(
   thread:
     | (Pick<OrchestrationV2AppThread, "lineage"> &
-        Partial<Pick<OrchestrationV2AppThread, "creationSource">>)
+        Partial<Pick<OrchestrationV2AppThread, "creationSource">> &
+        Partial<Pick<OrchestrationV2ThreadShell, "workstream">>) // loom: workstream exemption
     | null
     | undefined,
 ): Exclude<SideThreadKind, "linked"> | null {
   if (!thread) return null;
+  // loom: a workstream child opens in the main view; beside its parent, annotating its report lands in the parent's composer (DL-2413).
+  if (thread.workstream != null) return null;
   if (thread.lineage.sideChat === true && thread.lineage.parentThreadId !== null) {
     return "side-chat";
   }
