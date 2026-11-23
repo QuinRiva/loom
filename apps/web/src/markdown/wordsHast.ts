@@ -573,7 +573,8 @@ const link = (href: string, label: string, properties: Element["properties"] = {
 function linkText(value: string, walk: Walk): ElementContent[] | null {
   let parts: ElementContent[] = [];
   let offset = 0;
-  for (const { index, path } of absoluteFilePathMatches(value)) {
+  // loom: with the prose path scan on, it links absolute paths too, in place rather than as a chip.
+  for (const { index, path } of walk.options.loomProsePaths ? [] : absoluteFilePathMatches(value)) {
     if (index > offset) parts.push({ type: "text", value: value.slice(offset, index) });
     parts.push(link(path, path));
     offset = index + path.length;
