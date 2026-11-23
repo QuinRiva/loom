@@ -1235,5 +1235,32 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         });
       }),
     );
+
+    it.effect("counts as a use of the index, so a refresh keeps it instead of releasing it", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-locate-refresh-" });
+        yield* writeTextFile(cwd, "src/index.ts");
+        let destroyed = 0;
+        const createFinder = FileFinder.create.bind(FileFinder);
+        vi.spyOn(FileFinder, "create").mockImplementation((options) => {
+          const created = createFinder(options);
+          if (created.ok) {
+            const destroy = created.value.destroy.bind(created.value);
+            created.value.destroy = () => {
+              destroyed += 1;
+              destroy();
+            };
+          }
+          return created;
+        });
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        yield* TestClock.adjust("1 hour");
+        yield* workspaceEntries.locateFiles({ cwd, references: ["index.ts"] });
+        yield* TestClock.adjust("6 minutes");
+        yield* workspaceEntries.refresh(cwd);
+
+        expect(destroyed).toBe(0);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
   });
 });

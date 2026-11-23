@@ -665,16 +665,12 @@ export const make = Effect.gen(function* () {
     "WorkspaceEntries.locateFiles",
   )(function* (input) {
     const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
+    const indexKey = WorkspaceSearchIndex.workspaceSearchIndexKey(normalizedCwd, "paths");
+    markSearched(indexKey, yield* Clock.currentTimeMillis); // loom: a chip lookup is a use, like search
     const located = yield* Effect.gen(function* () {
       const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
       return yield* searchIndex.locateFiles(input.references);
-    }).pipe(
-      Effect.provide(
-        workspaceSearchIndexes.get(
-          WorkspaceSearchIndex.workspaceSearchIndexKey(normalizedCwd, "paths"),
-        ),
-      ),
-    );
+    }).pipe(Effect.provide(workspaceSearchIndexes.get(indexKey)));
     return {
       entries: located.map(({ reference, relativePath }) => ({
         reference,
