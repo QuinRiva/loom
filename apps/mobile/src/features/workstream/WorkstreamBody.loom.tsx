@@ -12,12 +12,13 @@ import {
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import * as Haptics from "expo-haptics";
-import { useRef } from "react";
-import { FlatList, View } from "react-native";
+import { LegendList } from "@legendapp/list/react-native";
+import { View } from "react-native";
 
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { AppText as Text } from "../../components/ui/AppText";
 import { useNowMinuteMs } from "../../lib/clock";
+import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 import {
   type LaneLayout,
   type LaneRow,
@@ -136,8 +137,6 @@ export function WorkstreamBody(props: {
   const lanes = useAtomValue(laneLayoutAtom(JSON.stringify([key, Math.floor(props.width * 0.4)])));
   const now = useNowMinuteMs();
   const palette = useLanePalette();
-  const listRef = useRef<FlatList<LaneRow>>(null);
-  const restored = useRef(false);
 
   if (!view || !lanes)
     return (
@@ -163,9 +162,12 @@ export function WorkstreamBody(props: {
   const { plan, activity } = view.rollup;
 
   return (
-    <FlatList
-      ref={listRef}
+    <LegendList
+      renderScrollComponent={NativeScrollView}
       data={lanes.rows}
+      estimatedItemSize={52}
+      getItemType={(row) => row.kind}
+      initialScrollOffset={rememberedScrollOffset(key)}
       extraData={displays}
       keyExtractor={(row) => row.key}
       renderItem={({ item }) => {
@@ -208,14 +210,6 @@ export function WorkstreamBody(props: {
       contentContainerStyle={{ paddingBottom: props.bottomInset + 16 }}
       onScroll={(event) => rememberScrollOffset(key, event.nativeEvent.contentOffset.y)}
       scrollEventThrottle={100}
-      // The remembered offset is restored once, as soon as the content is tall enough for it.
-      onContentSizeChange={(_width, height) => {
-        if (restored.current) return;
-        const offset = rememberedScrollOffset(key);
-        if (offset > 0 && height < offset) return;
-        restored.current = true;
-        if (offset > 0) listRef.current?.scrollToOffset({ offset, animated: false });
-      }}
     />
   );
 }

@@ -816,7 +816,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
     }),
     WorkstreamNode: createNativeStackScreen({
       screen: WorkstreamNodeSheet,
-      options: sheetRoute({ detent: 0.5, androidMaxDetent: 0.9 }),
+      options: sheetRoute({ detent: 0.5, androidMaxDetent: 0.9, header: "none" }),
     }),
     GitOverview: createNativeStackScreen({
       screen: GitOverviewSheet,

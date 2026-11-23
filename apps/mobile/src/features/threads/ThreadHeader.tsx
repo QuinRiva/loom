@@ -38,9 +38,8 @@ export function ThreadHeader(props: {
   const gitMenu = useThreadGitMenuDefinition(props.gitControls);
   const terminalMenu = threadTerminalMenu(props.gitControls, m);
   const filesVisible = props.inspectorMode === "files" && panes.auxiliaryPaneVisible;
-  const actions: AppBarAction[] = [
-    ...(props.hasThreadCwd
-      ? [
+  const actions: AppBarAction[] = props.hasThreadCwd
+    ? [
         {
           accessibilityLabel: filesVisible ? gt("Close files") : gt("Open files"),
           icon: "folder",
@@ -50,30 +49,29 @@ export function ThreadHeader(props: {
           onPress: filesVisible ? toggleAuxiliaryPane : props.onOpenFilesInspector,
         },
       ]
-      : []),
-    ...(props.workstream ? [workstreamAppBarAction(props.workstream)] : []), // loom: workstream view
-  ];
+    : [];
+  if (props.workstream) actions.push(workstreamAppBarAction(props.workstream)); // loom: workstream view
   const menus = [gitMenu, terminalMenu].filter((menu): menu is AppBarMenu => menu !== null);
 
   return (
     <>
       <AppBar
-      title={props.title}
-      subtitle={props.subtitle}
-      onBackToList={goBack}
-      onCompose={props.draft ? undefined : startNewTask}
-      backInSplitView={
-        props.onReturnToThread
-          ? {
-              accessibilityLabel: gt("Return to chat"),
-              icon: "chevron.left",
-              onPress: props.onReturnToThread,
-            }
-          : undefined
-      }
-      actions={actions}
-      menus={menus}
-      hideBottomBorder
+        title={props.title}
+        subtitle={props.subtitle}
+        onBackToList={goBack}
+        onCompose={props.draft ? undefined : startNewTask}
+        backInSplitView={
+          props.onReturnToThread
+            ? {
+                accessibilityLabel: gt("Return to chat"),
+                icon: "chevron.left",
+                onPress: props.onReturnToThread,
+              }
+            : undefined
+        }
+        actions={actions}
+        menus={menus}
+        hideBottomBorder
       />
       {/* loom: workstream view */}
       <WorkstreamBreadcrumb entry={props.workstream ?? null} />

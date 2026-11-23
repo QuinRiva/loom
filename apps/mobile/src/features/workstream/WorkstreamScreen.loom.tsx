@@ -36,7 +36,6 @@ export function WorkstreamScreen({
       <AppBar
         title={view?.root.title ?? "Workstream"}
         subtitle={view ? workstreamSubtitle(view.rollup) : undefined}
-        sidebar={split}
         onBack={() =>
           navigation.canGoBack()
             ? navigation.goBack()

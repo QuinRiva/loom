@@ -15,13 +15,12 @@ import {
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { type StaticScreenProps, useNavigation } from "@react-navigation/native";
 import { useState } from "react";
-import { Platform, ScrollView, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { useNowMinuteMs } from "../../lib/clock";
 import { rootNavigationRef, whenRootNavigationReady } from "../../lib/rootNavigation";
-import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { PillButton, runWorkstreamCommand } from "./WorkstreamCards.loom";
 import { useWorkstreamCommands } from "./workstreamCommands.loom";
@@ -55,9 +54,6 @@ export function WorkstreamNodeSheet({ route }: StaticScreenProps<WorkstreamNodeS
   const node = view?.nodes.get(ThreadId.make(route.params.threadId));
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
-      {Platform.OS === "android" ? (
-        <NativeStackScreenOptions options={{ sheetCornerRadius: 28 }} />
-      ) : null}
       <ScrollView
         nestedScrollEnabled
         className="flex-1"

@@ -12,12 +12,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   AndroidHeaderIconButton,
   AndroidScreenHeader,
-} from "../../components/ui/AndroidScreenHeader";
+} from "../../components/ui/AndroidScreenHeader.android";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { rootNavigationRef } from "../../lib/rootNavigation";
+import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context";
 import { workspaceRoutesOf } from "../layout/workspace-overlay-routes";
-import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
 import { WorkstreamBody } from "./WorkstreamBody.loom";
 import { workstreamSubtitle } from "./workstreamCopy.loom";
 import {
@@ -52,11 +52,9 @@ function readPane(): string {
 
 const subscribe = (listener: () => void) => rootNavigationRef.addListener("state", listener);
 
-export function WorkstreamSidebarPane(props: {
-  readonly width: number;
-  /** Reveals a hidden left pane. */
-  readonly onReveal: () => void;
-}) {
+/** Drawn over the whole sidebar column, its workspace bar included; `bottomClearance` clears the floating tabs. */
+export function WorkstreamSidebarPane(props: { readonly bottomClearance: number }) {
+  const { layout, revealPrimarySidebar } = useAdaptiveWorkspaceLayout();
   const snapshot = useSyncExternalStore(subscribe, readPane, readPane);
   if (!snapshot) return null;
   const [routeKey, environmentId, rootId, open] = JSON.parse(snapshot) as PaneSnapshot;
@@ -78,8 +76,9 @@ export function WorkstreamSidebarPane(props: {
         environmentId={EnvironmentId.make(environmentId)}
         rootThreadId={ThreadId.make(rootId)}
         openThreadId={open}
-        width={props.width}
-        onReveal={props.onReveal}
+        width={layout.listPaneWidth ?? 0}
+        bottomClearance={props.bottomClearance}
+        onReveal={revealPrimarySidebar}
       />
     </RenderErrorBoundary>
   );
@@ -91,12 +90,12 @@ function PaneContent(props: {
   readonly rootThreadId: ThreadId;
   readonly openThreadId: string | null;
   readonly width: number;
+  readonly bottomClearance: number;
   readonly onReveal: () => void;
 }) {
   const { environmentId, rootThreadId } = props;
   const view = useAtomValue(workstreamViewAtom(workstreamKey(environmentId, rootThreadId)));
   const insets = useSafeAreaInsets();
-  const bottomClearance = useWorkspaceTabs()?.bottomClearance ?? 0;
   const reveal = useEffectEvent((_routeKey: string) => props.onReveal());
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a workstream newly put on the stack reveals a hidden left pane once; hiding it afterwards is the user's choice
   useEffect(() => reveal(props.routeKey), [props.routeKey]);
@@ -119,7 +118,6 @@ function PaneContent(props: {
             onPress: () => openWorkstreamChild(environmentId, rootThreadId, { split: true }),
           },
         ]}
-        compact
       />
       <ScreenContent insetHorizontal>
         <WorkstreamBody
@@ -128,7 +126,7 @@ function PaneContent(props: {
           selectedThreadId={props.openThreadId}
           width={props.width}
           split
-          bottomInset={Math.max(insets.bottom, bottomClearance)}
+          bottomInset={Math.max(insets.bottom, props.bottomClearance)}
         />
       </ScreenContent>
     </View>
