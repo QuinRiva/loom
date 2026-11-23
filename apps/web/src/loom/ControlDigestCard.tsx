@@ -30,14 +30,13 @@ import { verifyChipTargetBeforeOpen } from "./verifiedFileChips";
 import { useOpenDocumentLink } from "./openDocumentLink";
 
 import type { ControlBubble } from "@t3tools/client-runtime/state/loom/controlBubble";
-
 import {
-  CHANNEL_ICONS,
   type ControlCardItem,
   type ControlCardModel,
-  controlSummaryLine,
-  SEVERITY_CLASSES,
-} from "./controlMessages";
+  controlDocumentLabel,
+} from "@t3tools/client-runtime/state/loom/controlCard";
+
+import { CHANNEL_ICONS, SEVERITY_CLASSES } from "./controlMessages";
 
 /**
  * Who a kickoff, steer or short notice bubble speaks for: the channel's icon plus the bubble's
@@ -84,7 +83,7 @@ export function ControlDigestCardView({
   const severity = SEVERITY_CLASSES[model.severity];
   const { icon: ChannelIcon, word: channelWord } = CHANNEL_ICONS[model.channel];
   const items = model.kind === "card" ? model.items : [];
-  const summary = model.kind === "card" ? model.summary : controlSummaryLine(text);
+  const { summary } = model;
   // The card's body size: an excerpt's heading is bold body text, never a page heading.
   const markdown = (body: string) => (
     <ChatMarkdown
@@ -191,12 +190,6 @@ const OpenThreadGlyph = () => (
   </span>
 );
 
-/** A one-word name (`plan.mdx`, `README.md`) says what kind of file, not which: lead with its folder. */
-const documentLabel = ({ filePath, basename }: MarkdownFileLinkMeta) =>
-  /^[A-Za-z]+\.\w+$/.test(basename)
-    ? `${filePath.split("/").at(-2) ?? ""}/${basename}`.replace(/^\//, "")
-    : basename;
-
 const VISIBLE_DOCUMENTS = 3;
 
 /** A hover tooltip on one trigger element. */
@@ -266,7 +259,7 @@ function ReportDocumentChips({
                   environmentId !== null && revalidatePathExistence(environmentId, meta.filePath)
                 }
               >
-                <s className="text-muted-foreground">{documentLabel(meta)}</s>
+                <s className="text-muted-foreground">{controlDocumentLabel(meta.filePath)}</s>
               </Badge>
             ) : (
               <Badge
@@ -279,7 +272,7 @@ function ReportDocumentChips({
                   )
                 }
               >
-                {documentLabel(meta)}
+                {controlDocumentLabel(meta.filePath)}
               </Badge>
             )}
           </Tip>
@@ -295,7 +288,7 @@ function ReportDocumentChips({
 }
 
 function ControlDigestItem({
-  entry: { item, kindLabel },
+  entry: { item, facts },
   sender,
   expanded,
   roleWidth,
@@ -323,8 +316,6 @@ function ControlDigestItem({
       ? () => useRightPanelStore.getState().openFileAbsolute(threadRef, reportPath)
       : null;
   const open = openReport ?? openThread;
-  // Kind and status are two facts ("Finished · done"); a snake_case status reads as words.
-  const facts = [kindLabel, item.status?.replaceAll("_", " ")].filter(Boolean).join(" · ");
   const label = (
     <>
       {iconColumn ? (
@@ -351,11 +342,7 @@ function ControlDigestItem({
           Open report
         </span>
       ) : null}
-      {facts ? (
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {facts.charAt(0).toUpperCase() + facts.slice(1)}
-        </span>
-      ) : null}
+      {facts ? <span className="shrink-0 text-xs text-muted-foreground">{facts}</span> : null}
       {!openReport && openThread ? <OpenThreadGlyph /> : null}
     </>
   );

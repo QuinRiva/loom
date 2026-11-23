@@ -291,6 +291,10 @@
       "types": "./src/state/loom/controlBubble.ts",
       "default": "./src/state/loom/controlBubble.ts"
     },
+    "./state/loom/controlCard": {
+      "types": "./src/state/loom/controlCard.ts",
+      "default": "./src/state/loom/controlCard.ts"
+    },
     "./state/loom/deploy": {
       "types": "./src/state/loom/deploy.ts",
       "default": "./src/state/loom/deploy.ts"

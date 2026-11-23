@@ -31,6 +31,7 @@ const reactTests = [
   "src/components/ui/AndroidAnchoredMenu.android.test.tsx",
   "src/features/files/ZipArchiveView.test.tsx",
   "src/features/files/MdxDocumentView.loom.test.tsx", // loom: MDX on the phone
+  "src/features/threads/ControlCard.loom.test.tsx", // loom: control-plane cards
   "src/features/pull-requests/guide/useReviewGuide.test.tsx",
   "src/features/settings/SettingsServerControlsRouteScreen.test.tsx",
   "src/features/settings/SettingsScheduledTasksRouteScreen.test.tsx",

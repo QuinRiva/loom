@@ -41,7 +41,8 @@ import {
   ThreadModelSwitchDivider,
 } from "./thread-handoff-row";
 import { GuestBubbleTint, GuestMessageName } from "./guestMessageStyle";
-import { CONTROL_BUBBLE_CLASSES, useControlBubbles } from "./controlBubbles.loom"; // loom: 3d-3
+import { CONTROL_BUBBLE_CLASSES, useControlMessages } from "./controlBubbles.loom"; // loom: 3d-3
+import { ControlCardRow } from "./ControlCard.loom"; // loom: control-plane cards
 import { ThreadGuestPendingMessage, useThreadGuestShare } from "./ThreadGuestShareBar";
 import { LinkRequestCard } from "./LinkRequestCard";
 import { FeedbackRequestCard } from "./FeedbackRequestCard";
@@ -1985,7 +1986,7 @@ function renderFeedEntry(
     readonly terminalAssistantMessageIds: ReadonlySet<string>;
     readonly unsettledTurnId: RunId | null;
     readonly compactionLabelsByEntryId: ReadonlyMap<string, { title: string; compacting: string }>;
-    readonly controlBubbles: ReturnType<typeof useControlBubbles>; // loom: 3d-3
+    readonly controlMessages: ReturnType<typeof useControlMessages>; // loom: 3d-3
     readonly failedRunIds: ReadonlySet<RunId>;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
     readonly onToggleWorkGroup: (groupId: string, anchorKey?: string) => void;
@@ -2270,7 +2271,27 @@ function renderFeedEntry(
     const { message } = entry;
     const isUser = message.role === "user";
     const presentation = resolveUserMessagePresentation(message);
-    const loomBubble = isUser ? (props.controlBubbles.get(message.id) ?? null) : null; // loom: 3d-3
+    const loomBubble = isUser ? (props.controlMessages.bubbles.get(message.id) ?? null) : null; // loom: 3d-3
+    // loom: a control-plane arrival renders as its card, as on web.
+    const controlCard = isUser ? props.controlMessages.cards.get(message.id) : undefined;
+    if (controlCard) {
+      return (
+        <ControlCardRow
+          environmentId={props.environmentId}
+          threadId={props.threadId}
+          messageId={message.id}
+          text={message.text}
+          model={controlCard}
+          expandedRows={props.expandedWorkRows}
+          onToggleRow={(rowId) => props.onToggleWorkRow(rowId, entry.id)}
+          renderMarkdown={props.renderReasoning}
+          onOpenDocument={(path) =>
+            props.markdownLinkHandlers.onLinkPress(path, undefined, message.text)
+          }
+          iconColor={iconSubtleColor}
+        />
+      );
+    }
     const renderedText = presentation.text;
     const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
     const timestampLabel = props.formatMessageTime(isUser ? message.createdAt : message.updatedAt);
@@ -3908,7 +3929,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     () => threadFeedCompactionLabels(props.feed, m),
     [props.feed, m],
   );
-  const controlBubbles = useControlBubbles(props.environmentId, props.threadId); // loom: 3d-3
+  const controlMessages = useControlMessages(props.environmentId, props.threadId); // loom: 3d-3
   // LegendList does not invalidate visible rows when only the renderItem closure changes.
   // Include turn completion so unchanged message rows reveal their footer and spacing
   // even when the final message update arrives before the turn settles.
@@ -3940,7 +3961,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     contentWidth,
     skills: props.skills,
     workflowOpening,
-    controlBubbles, // loom: 3d-3
+    controlMessages, // loom: 3d-3
   };
   const reportHeaderMaterialVisibility = (visible: boolean) => {
     if (headerMaterialVisibleRef.current === visible) {
@@ -4417,7 +4438,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             terminalAssistantMessageIds,
             unsettledTurnId,
             compactionLabelsByEntryId,
-            controlBubbles, // loom: 3d-3
+            controlMessages, // loom: 3d-3
             failedRunIds,
             onCopyWorkRow,
             onToggleWorkGroup,
