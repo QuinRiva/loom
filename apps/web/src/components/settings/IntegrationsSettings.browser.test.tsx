@@ -34,7 +34,7 @@ const config = Schema.decodeSync(ServerConfig)({
   issues: [],
   providers: [],
   availableEditors: [],
-  remoteEditorSshHost: null,
+  remoteEditorSshHost: null, // loom: client-launched editor SSH host
   observability: {
     logsDirectoryPath: "/workspace/logs",
     localTracingEnabled: false,

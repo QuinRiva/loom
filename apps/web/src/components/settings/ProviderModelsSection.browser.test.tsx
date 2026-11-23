@@ -22,7 +22,7 @@ function section(props: Partial<ComponentProps<typeof ProviderModelsSection>>) {
       hiddenModels={[]}
       favoriteModels={[]}
       modelOrder={[]}
-      selectedModels={[]}
+      selectedModels={[]} // loom: allow-list mode (DL-913)
       showOnlySelectedModels={false}
       onChange={async () => true}
       onHiddenModelsChange={() => {}}

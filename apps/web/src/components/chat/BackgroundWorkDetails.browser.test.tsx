@@ -42,6 +42,7 @@ it("opens full command details for short labels and keeps pending tasks current"
       attention={null}
       syncPhase={null}
       goal={null}
+      // loom: ThreadNow reports the sync error of this thread
       threadRef={{ environmentId: EnvironmentId.make("test"), threadId: ThreadId.make("thread") }}
       work={backgroundWorkNowItem({
         environmentId: EnvironmentId.make("test"),
@@ -103,6 +104,7 @@ it("gives a subagent the same status as the background work line", async () => {
       attention={null}
       syncPhase={null}
       goal={null}
+      // loom: ThreadNow reports the sync error of this thread
       threadRef={{ environmentId: EnvironmentId.make("test"), threadId: ThreadId.make("thread") }}
       work={backgroundWorkNowItem({
         environmentId: EnvironmentId.make("test"),
