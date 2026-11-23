@@ -1,0 +1,367 @@
+---
+kicker: "Post-deploy recap · cadence pull 16 · merged as b9d92b0 (PR #595) · deployed 23 Nov 2026, 22:24 AEDT · read back 22:40 to 23:30"
+reader:
+  who: Carl, Loom's maintainer, the night he deployed pull 16, deciding what is left for him and whether anything the pull left behind was lost
+  knows: Loom and upstream T3 Code deeply as a user, that the pull merged and that he deployed it; none of the runbook's 56 leftovers by number, none of tonight's check reports
+  after_first_screen: the deploy did what was predicted (38 s of reconnecting, no errors since, the phone app built); the one act left for him on the host is restarting the cockpit once so the new launcher's first start is watched; the phone is still untested until he installs the app; every one of the 56 leftovers has an outcome and the open ones are issues on the board
+manager_sessions:
+  - id: 01a2083a-708b-768a-be8d-468a678fa5f4
+    name: Pull 16 post-deploy
+    role: recap
+    authored_at: 2026-11-23T12:11:36.880Z
+---
+
+# Pull 16's deploy went as predicted. One act is left for you: the new launcher has not started yet
+
+The deploy at 22:24 on 23 Nov did what the runbook said it would. Every client showed "reconnecting" for **38 seconds** against a 240 second limit, and the 28 upstream migrations ran in **10.8 seconds**. The server's journal has **no ERROR lines** since, and the phone app built at the first attempt.
+
+The pull recorded **56 leftovers**. **7 are done**, **25 are now 15 issues** on the board, and **17 I recommend leaving as they are**. **7 are waiting**: 4 on you and 3 on things that had not happened by 23:30.
+
+<Stats
+  items={[
+    { value: "38 s", label: "Clients reconnecting at the switch", tone: "success", detail: "Predicted 46 to 52 s from a copy on a loaded host; the limit is 240 s. About 17 s of it was copying the database, 10.8 s the migrations." },
+    { value: "0", label: "ERROR lines since the switch", tone: "success", detail: "13 warnings, every one predicted or older than the pull. The release it replaced logged 18 errors in its last week." },
+    { value: "17", label: "Issues filed, labelled post-pull", tone: "info", detail: "15 for 25 leftovers, 1 for the checks nobody could read tonight, 1 found by tonight's checks. #596 was filed before this session." },
+    { value: "17", label: "Leftovers left as they are", tone: "neutral", detail: "9 left as built, 8 dropped. Listed in §3; say so on any row to overrule." },
+    { value: "0", label: "Checks run on a phone", tone: "risk", detail: "Still true. The rebuilt app is ready to install; §2 has the six things to tap." },
+  ]}
+/>
+
+<Callout tone="decision" title="What needs you, in order" focus>
+1. **Restart the cockpit once, on purpose**, at a moment you choose: `systemctl --user restart loom-cockpit`. The deploy left the old launcher process running, as designed, so the new one has never started for real. Its first start will otherwise be at some reboot nobody is watching (§2, first card).
+2. **Install the phone app** from the in-app notice and tap through six things (§2, second card). Tell any thread the moment it has downloaded: one check has to be read within about 15 minutes.
+3. **Three glances in the browser**, a minute in total (§2, third card).
+4. **Three calls** where your answer changes what Loom carries: the context ring, the ten rulings you never answered, and Loom's switched-off CI (§2). An item left undecided takes its recommendation, and every recommendation here is to leave things as built.
+
+<Badge tone="success">deploy as predicted</Badge> <Badge tone="warning">new launcher not yet started</Badge> <Badge tone="risk">phone untested</Badge> <Badge tone="success">no leftover lost</Badge>
+</Callout>
+
+This covers the live cockpit as read between 22:40 and 23:30 on 23 Nov, read-only, and the pull's list of leftovers (`docs/upstream-sync/41-cadence-pull-16-20261122/follow-ups.md`, 56 rows). Nothing on the host was changed. Other projects' threads are described without their names, because this repository is public.
+
+## 1. What the deploy did, against what was predicted
+
+<Table
+  density="compact"
+  columns={["What", "Predicted", "Read back", ""]}
+  rows={[
+    ["Clients showing “reconnecting”", "46 to 52 s on a loaded copy; limit 240 s", "**37.6 s** from the old server handing off (22:26:48) to the new one listening (22:27:25)", { badge: { label: "as predicted", tone: "success" } }],
+    ["Upstream migrations 081 to 108", "27 to 39 s on a copy", "**10.8 s**; upstream's ledger at 108, Loom's unchanged at 1072", { badge: { label: "as predicted", tone: "success" } }],
+    ["Database size", "about 160 MB larger", "about **168 MB** larger (5.20 to 5.37 GB)", { badge: { label: "as predicted", tone: "success" } }],
+    ["Threads resumed by the first start", "The copy tried nine errored threads", "None of the old errored threads. The one turn the switch cut short was resumed once and finished at 22:38", { badge: { label: "as predicted", tone: "success" } }],
+    ["Slack bridge", "Restarts by itself", "Restarted 22:27:27, connected to Loom and Slack by 22:27:31, 362 threads mapped, posted to Slack at 22:53", { badge: { label: "as predicted", tone: "success" } }],
+    ["Node 26.13.1", "Server and bridge take it at the restart", "Server, its runner and the bridge run 26.13.1. The old launcher process still runs 26.12.1", { badge: { label: "as predicted", tone: "success" } }],
+    { tone: "warning", cells: ["Service launcher", "The old one keeps running until the next cockpit restart", "True: the launcher process dates from 17 Nov and was not restarted. `loom-deploy status` says protocol 4 regardless, because that field reports the reading tool's own number", { badge: { label: "yours, §2", tone: "warning" } }] },
+    ["Phone app", "Rebuilt from scratch; nobody knew if this machine could", "Built in **21 min 14 s**, all six post-build checks passed, the server offers it. The built file requests the install permission and carries the same signing key, so it installs over the old app", { badge: { label: "as predicted", tone: "success" } }],
+    ["Start-of-run snapshots under the new 5 s limit", "Unmeasured on the cockpit's worktrees", "**21 of 22** runs got one; captures take 0 to 2 s. One failed 5 s after boot, on the turn resumed at the switch", { badge: { label: "one miss", tone: "info" } }],
+    ["Children settling on the first sweep", "About five", "**63**, all finished children of roots that were already settled. Four roots of another project were settled by hand that afternoon, after the prediction was made", { badge: { label: "differs, as designed", tone: "info" } }],
+    ["Server's headless browser", "May need `playwright install chromium`", "Rendered a page. The server downloads its own pinned Chrome, so that fix would never have applied", { badge: { label: "works", tone: "success" } }],
+    ["Three upstream GitHub workflows", "Go live at the merge; must not touch Loom's PRs or issues", "`issue-vouch` ran twice and labelled nothing. `mobile-dev-client` skips itself on any repository but upstream's. `pr-limits` has not run yet and is in dry-run", { badge: { label: "one run to come", tone: "warning" } }],
+    ["Download token in logs", "Replaced by `REDACTED`", "A request with a made-up token was recorded as `/loom/mobile/apk/REDACTED/…`. No real download has happened yet", { badge: { label: "half read", tone: "warning" } }],
+    ["Keep-awake inhibitor", "Refused and noisy where polkit says no", "10 warnings since the switch. Already issue #596", { badge: { label: "as predicted", tone: "success" } }],
+    ["One-time scheduled tasks", "Delete themselves after their run", "This session's own task ran and is gone. It fired 4 minutes late, on code older than the pull; cause not found", { badge: { label: "as predicted", tone: "success" } }],
+  ]}
+/>
+
+**The one miss.** A coder's turn in another project was in flight at the switch. The new server resumed it at 22:27:28, and its start-of-run snapshot gave up 5.1 seconds later. In those seconds the server was also settling 63 threads, syncing 49 pull requests and taking the bridge's reconnect. That 11-minute run has no "changes since the start of this run" view.
+
+Every later capture in the same folder took 1 to 2 seconds. So this is what a turn resumed in the first seconds after a restart costs: none to a few runs per deploy. I recommend accepting it and have filed nothing.
+
+**Three things the runbook told the deployer were wrong.** The browser fix above does not apply. `loom-deploy status` cannot show which launcher is running. The Slack bridge posts no message for a deploy, and has not since mid-November. All three are notes for the next pull's runbook in issue #607.
+
+## 2. What needs you
+
+<Card
+  id="launcher"
+  eyebrow="ACT · ON THE HOST"
+  heading="Restart the cockpit once on purpose, or let the new launcher's first start be whenever the machine next restarts?"
+  tone="warning"
+  badge="RECOMMENDED · restart it yourself"
+  meta={["leftover 2", "about 40 s of reconnecting", "turns in flight are cut and resume"]}
+>
+  **Restart it yourself, at a quiet moment.** The launcher is the small process that starts the server and swaps releases. Upstream changed its protocol from 3 to 4 in this pull. A deploy never restarts it, so the one running tonight is still the old one. The new one first runs at the next `loom-cockpit` restart: a reboot, a crash, or you.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Value", "Source"]}
+    rows={[
+      ["Launcher process running now", "Started 17 Nov 14:11, never restarted, protocol 3, Node 26.12.1", "The service's main process, read 23 Nov 22:55"],
+      ["What the next restart starts", "The new release's launcher, protocol 4, Node 26.13.1", "The service's start command points at the current release"],
+      ["How well it is tested", "The pull's test of this hand-over passed 12 of 12 at protocol 4, and once with the old release as the one being left", "The pull's integration session"],
+      ["What has never happened", "The new launcher starting on this machine", "It has had no occasion to"],
+      ["Cost of doing it now", "About 40 s of reconnecting; running turns are cut short and resumed, as at a deploy", "Tonight's switch"],
+    ]}
+  />
+
+  **The act:** `systemctl --user restart loom-cockpit`, from a terminal on the host, not from a Loom thread. Then tell any thread to confirm the launcher process is the new release's. `loom-deploy status` cannot tell you: it printed 4 tonight with the old launcher running.
+
+  **If nothing is decided:** the first start happens unattended, most likely at a reboot, and if it fails the cockpit stays down until you notice.
+
+  <ReviewChoice itemId="launcher-restart" label="Restart the cockpit myself" placeholder="When, or why not…" />
+</Card>
+
+<Card
+  id="phone"
+  eyebrow="CHECK · YOUR PHONE"
+  heading="Nothing in this pull has run on a phone. Install the rebuilt app and tap six things"
+  tone="risk"
+  badge="ONLY YOU CAN RUN THIS"
+  meta={["leftovers 5, 7, 14", "app 2.3.0 is ready to install"]}
+>
+  This machine has no phone simulator, so the phone app rests on type checks, lint and unit tests, as in pulls 14 and 15. The Home screen's update notice offers the new build.
+
+  <Checklist
+    items={[
+      { id: "p-a", label: "Tap a relative file path in a chat: “Looking for…” shows; a file in a folder the message names opens; one in a sibling project or a folder the agent changed into opens too; a missing one says “File not found”" },
+      { id: "p-b", label: "Tap a link in one of your own messages" },
+      { id: "p-c", label: "Open an MDX document from a thread's files, from an attachment and from a zip; one whose image is missing shows a broken image, not a spinner" },
+      { id: "p-d", label: "A document answer in the composer's context sheet shows its Document, Section, Answer and Quoted labels" },
+      { id: "p-e", label: "A Home search that matches an archived root shows the row, and tapping it opens the thread" },
+      { id: "p-f", label: "The About screen's build section and the Home update notice are there" },
+    ]}
+  />
+
+  **Straight after the download, tell any thread.** The download link carries a token, and the server is meant to log it as `REDACTED`. That held for a made-up token tonight. On a real download it can only be read for about 15 minutes, because the server's trace files rotate out that fast (issue #612).
+
+  **One call rides on the first item.** A tapped path now goes through Loom's lookup and then upstream's wider one. Dropping Loom's would remove about 280 lines that conflict at every pull. It would also lose the “Looking for…” toast, the in-place “File not found” and matching against the folders a message names. I recommend keeping both unless the toast and the message turn out not to matter to you in use.
+
+  <ReviewChoice itemId="phone-two-lookups" label="Keep both file lookups on the phone" placeholder="What you saw on the phone…" />
+</Card>
+
+<Card
+  id="glances"
+  eyebrow="CHECK · YOUR BROWSER"
+  heading="Three glances that no agent's browser could give"
+  tone="warning"
+  badge="A MINUTE IN TOTAL"
+  meta={["leftovers 50, 51", "deploy note on Usage"]}
+>
+  - **The comment count on an MDX document.** Select a sentence in this document, comment on it, and read the Files panel header: it should say "1 comment". The pull's smoke test could not open the comment box in a headless browser, so this was never seen.
+  - **Your saved panel layout.** Upstream moved the right panel's saved state to a new version. If a panel you had closed stayed closed on your first load tonight, and a root still offers its Workstream, Context and Goal tasks tabs, this passed.
+  - **The Usage page** should now read 92 days back.
+
+  Say so on this card if any of the three is wrong; otherwise they are taken as fine.
+</Card>
+
+<Card
+  id="ring"
+  eyebrow="CALL · LEFTOVER 11"
+  heading="Keep the composer's context ring, or move to upstream's “Context window” row in Thread details?"
+  tone="info"
+  badge="RECOMMENDED · keep the ring"
+  meta={["two Loom-owned files carried each pull", "nothing changes if undecided"]}
+>
+  **Keep the ring.** You use it, it costs no space, and upstream's replacement costs a row of height in a card you also look at.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Value", "Source"]}
+    rows={[
+      ["What upstream did", "Deleted the ring and added a “Context window” row to the Thread details card, off by default", "Settings → Appearance → Thread details"],
+      ["What Loom did", "Kept the ring, its spend popover and its Compact button as two Loom-owned files", "The pull, under your ruling"],
+      ["Your words on the ring", "“I do look at it frequently - so I *do* need *some sort* of context view.”", "You, 23 Nov, as the pull's orchestrator quotes you"],
+      ["Your words on upstream's row", "“it would add vertical space to the card, whereas having it in it's current location is basically free”", "The same"],
+      ["What you have not done", "Seen upstream's row. It is on the deployed build now", ""],
+    ]}
+  />
+
+  **If you would rather drop the ring:** it is a deletion of those two files, and the spend breakdown needs another home first. **If nothing is decided:** the ring stays. The composer guide gains a pointer to upstream's row either way (issue #604).
+
+  <ReviewChoice itemId="context-ring" label="Keep the context ring" placeholder="After turning the row on…" />
+</Card>
+
+<Card
+  id="unanswered"
+  eyebrow="CALL · LEFTOVER 12"
+  heading="Ten of the fifteen questions the pull put to you were never answered. Do the seven that changed code stand as built?"
+  tone="info"
+  badge="RECOMMENDED · all stand"
+  meta={["built as recommended", "each has a way back"]}
+>
+  **Let them stand.** The batch you were given said an undecided item takes its recommendation, and the pull was built that way. Three of the ten needed no code. These are the seven that did, each with what undoes it:
+
+  <Table
+    density="compact"
+    columns={["Built as", "What undoes it"]}
+    rows={[
+      ["Upstream's sender note on agent-sent messages is skipped for pi, keeping Loom's author labels", "Two marked clauses"],
+      ["Loom's own screens stay English and are excluded from upstream's translation lint", "Wrapping about 1,100 strings"],
+      ["Upstream's agent tools for issues, feedback, themes and `send_to_user` are withheld", "One revert, plus prose telling agents about whatever is exposed"],
+      ["A pi session resumed in a moved worktree uses upstream's copy of the session file, not Loom's override", "One marked line and three recorded transcripts, about an hour"],
+      ["The usage hub keeps only Loom's rule for carrying an account's last good reading", "One function and one call"],
+      ["Changed words in a diff stay solid", "Two CSS values"],
+      ["The phone runs Loom's file lookup first and then upstream's", "About 15 lines (and see the phone card)"],
+    ]}
+  />
+
+  **If nothing is decided:** all seven stay.
+
+  <ReviewChoice itemId="unanswered-rulings" label="The seven stand as built" placeholder="Name any to change…" />
+</Card>
+
+<Card
+  id="ci"
+  eyebrow="CALL · LEFTOVER 19"
+  heading="Loom's GitHub CI has not run since 7 July. Bring it back, or keep the local gates as the only ones?"
+  tone="info"
+  badge="RECOMMENDED · keep the local gates"
+  meta={["older than this pull", "nothing ran on the merge commit"]}
+>
+  **Keep the local gates.** Every merge already passes format, lint, type checks and the unmarked-change check through `pnpm ship`, and bringing CI back is work plus a standing bill of noise, not a switch.
+
+  <Table
+    density="compact"
+    columns={["Fact", "Value", "Source"]}
+    rows={[
+      ["Why every run was cancelled", "All 114 runs from 30 Jun to 7 Jul waited 24 hours for a runner and were cancelled. The workflow asks for Blacksmith runners, a paid service upstream uses and the fork does not have", "`gh run view`, 23 Nov"],
+      ["Why nothing has run since", "The CI workflow was disabled by hand on 7 Jul. Not recorded by whom", "`gh workflow list`, 23 Nov"],
+      ["What only CI would run", "The translation catalogue check, the unused-code check and GraphQL generation", "The pull's runbook"],
+      ["What restoring it takes", "Pointing the workflow at GitHub's own runners and re-enabling it. The translation check would then list the Loom strings this pull wrapped inside upstream's components as untranslated, by design", "The pull's runbook; tonight's read"],
+    ]}
+  />
+
+  **If nothing is decided:** CI stays off and nothing is filed.
+
+  <ReviewChoice itemId="ci-off" label="Keep the local gates only" placeholder="If you want CI back…" />
+</Card>
+
+## 3. Left as they are unless you say otherwise
+
+Nothing is filed for these. Comment on a row to overrule it and it becomes an issue.
+
+<Table
+  density="compact"
+  columns={["#", "What it is", "", "Why"]}
+  rows={[
+    ["15", "Upstream's eight agent tools for its new Issues page are withheld", { badge: { label: "leave", tone: "neutral" } }, "Agents already read issues with `gh`, and `create_issue` would file straight into this public repository past the `report-loom-issue` skill's leak guard and duplicate check"],
+    ["16", "The thread menu's new “Regenerate title” retitles a Loom root, where sending a message deliberately does not", { badge: { label: "leave", tone: "neutral" } }, "It only runs when you choose it, and has no default shortcut. The smoke test's root went from “Deliver the workstream fixture” to “Seed Workstream Fixture Scenarios”"],
+    ["17", "Loom has no sentence of its own telling agents when to link a pull request (open since pull 14)", { badge: { label: "drop", tone: "neutral" } }, "Nobody has shown agents failing to link them, and a rule for something that already works is clutter"],
+    ["18", "Settings → Reclaim database space refuses on the cockpit and does nothing", { badge: { label: "leave", tone: "neutral" } }, "Hiding it is one more marked line to carry through every pull, for a button you will not press"],
+    ["56", "A message sent seconds before a restart is answered by the resumed turn but its bubble reads “cancelled”", { badge: { label: "leave", tone: "neutral" } }, "Nobody sent one during tonight's switch, so there were none. It takes a message inside a window of a few seconds per deploy"],
+    ["26", "Four Loom features stay single-folder on a project that covers several repositories", { badge: { label: "drop for now", tone: "neutral" } }, "No cockpit project uses several repositories. It becomes work the day one does"],
+    ["27", "Two borrowings for thread search: indexing the words of quoted citations, and dropping a 25 MB index upstream's new one mostly duplicates", { badge: { label: "drop", tone: "neutral" } }, "Nobody has missed a citation in search, and 25 MB of a 5.4 GB file is not worth a migration"],
+    ["33", "The guard against a newer command-line tool applying a Loom migration behind a running server compares only the highest number", { badge: { label: "drop", tone: "neutral" } }, "The reviewer who found it called it theoretical: migrations apply in order"],
+    ["39", "A changed default branch can show stale for up to five minutes", { badge: { label: "drop", tone: "neutral" } }, "Not seen. File it if it is"],
+    ["43", "Upstream's scenario test runner is untried here, and every install prints “Agent skills awaiting approval: e2e”", { badge: { label: "leave", tone: "neutral" } }, "One line of noise per install, against adopting a test runner nobody asked for"],
+    ["46", "A file chip on an absolute path with a leading or trailing space cannot open", { badge: { label: "drop", tone: "neutral" } }, "Older than the pull and very rare"],
+    ["47", "An idle Loom child the thread list leaves out still opens beside its parent, where a comment on its report would go to the parent", { badge: { label: "drop unless seen", tone: "neutral" } }, "Children of an active root are kept in the list, and the smoke test could not produce the case"],
+    ["55", "A Loom question shown beside a question from another provider was never seen live", { badge: { label: "drop", tone: "neutral" } }, "pi never raises one. It matters only if another provider is used with Loom threads"],
+  ]}
+/>
+
+The phone's two file lookups (14), the context ring (11), the unanswered rulings (12) and CI (19) are the other four of the seventeen; they have cards in §2.
+
+## 4. The issues filed
+
+All carry the `post-pull` label and sit in the triage queue of Loom's issue board. Two say <Badge tone="warning">needs you</Badge>: no agent starts those without your word, because they change text agents read. The rest are ordered by how likely you are to meet them.
+
+<Table
+  density="compact"
+  columns={["Issue", "Leftovers", "What it is, as you would meet it", "", "Size"]}
+  rows={[
+    { tone: "warning", cells: ["#597", "21, 22", "`AGENTS.md` does not tell agents that Loom's own screens stay English, and still says the database is “over 10 GB” (5.4 GB) and cites an exception retired in pull 6", { badge: { label: "needs you", tone: "warning" } }, "Text agents read. The new sentence depends on the English-only ruling in §2 standing"] },
+    { tone: "warning", cells: ["#599", "23", "Reply on an assistant message tells the agent to read the message with `t3_thread_read`, a tool pi does not have", { badge: { label: "needs you", tone: "warning" } }, "Text agents read; three wordings are in the issue"] },
+    ["#602", "29, 31", "Consult cards hide behind the fold in a finished run of more than 150 tool calls. You approved the fix: “Yep approved”, as the pull's orchestrator quotes you", "", "Small; one extra line covers pi's second tool name"],
+    ["#603", "30", "Copy thread on the web copies an `app.t3.codes` link, which is dead when pasted into Slack or a ticket. You: “Agree, let's do this - but it's a low priority item.”", "", "Small, low priority"],
+    ["#605", "28", "A goal an agent edits while your phone or browser is disconnected stays stale there until its next full reload. Upstream's cheaper reconnects make it more frequent", "", "Medium"],
+    ["#610", "48", "The Context panel counts pi's hidden second name for each tool: “108 tool schemas ≈31K”, with `workstream_spawn` listed twice", "", "Small; display only"],
+    ["#606", "49, 36", "Compact on a short thread wakes the agent for a turn it did not need, and a disabled Compact button no longer says why", "", "Small"],
+    ["#611", "52", "After Ctrl+F in the whole-file editor, Escape leaves focus on the page, so the next keystroke is lost", "", "Small"],
+    ["#600", "24", "Which hub account pool a thread used, and the hub's reset time on a turn that hit a limit, do not show for pi threads", "", "Larger than the leftover said: the hub matches on provider name and model ids, and pi's differ"],
+    ["#608", "40", "The lookup that turns a bare file name in chat into a chip calls a synchronous search that can wait on the file watcher, and with it the whole server", "", "Suspected, not seen"],
+    ["#612", "found tonight", "The server's trace files keep only about 15 minutes, so evidence of a slow turn or an incident is gone before anyone looks", "", "Not caused by this pull, by reading; three options in the issue"],
+    ["#598", "20, 32", "Two behaviours with no test that would fail if they broke: a child settling with its root, and thread search after a database compaction. No role or doc still promises that a shipper settles when its own PR merges", "", "Small"],
+    ["#609", "42, 53", "Tests that fail on this machine for reasons unrelated to any change, explained again at every pull", "", "Small each"],
+    ["#601", "25", "Loom's question summary keeps the old markdown parser in the main web bundle, and Loom's chips use their own tooltip", "", "Small; saving not measured"],
+    ["#604", "34, 35, 45, 11", "Wording: the phone's “Searching thread messages…”, two wrong passages in the source-control guide, three inaccurate comments, and a pointer to upstream's context row in the composer guide", "", "Trivial"],
+    ["#607", "37, 38, 41, 44", "For the next upstream pull: four things Loom carries that may no longer be needed, and the three wrong instructions in this pull's runbook", "", "A note for that pull's first session"],
+    ["#613", "2, 7, 9, 54", "The six checks nobody could read tonight (§5)", "", "Minutes each, when their moment comes"],
+    ["#596", "none", "The keep-awake inhibitor is refused under the cockpit's service and warns every few minutes. Filed before this session", "", "Noise, not a fault"],
+  ]}
+/>
+
+## 5. Not readable tonight
+
+Each is on issue #613 with what to read and what a pass looks like, so the owner is whoever next works the `post-pull` label. None blocks anything. If you would rather have them read than parked, say so here and I will schedule one short read for the morning of 25 Nov.
+
+<Table
+  density="compact"
+  columns={["Check", "Readable when", "A pass looks like"]}
+  rows={[
+    ["`pr-limits.yml`, the upstream workflow with a daily timer, runs for the first time", "After 24 Nov 16:23 AEDT", "Its log says what it would do, and no Loom pull request is labelled or closed. The variable that takes it out of dry-run is unset"],
+    ["The next one-time scheduled task fires on the new release (“Deploy redesign: readings…”)", "After 25 Nov 10:00 AEDT", "It ran at about its due time and its row is gone from the scheduled tasks"],
+    ["A finished Loom root with an open pull request stays active; one without settles (leftover 54)", "When such a pair next exists", "The first is still in the active list, the second settles within a minute. Tonight every finished root was already settled or reopened by you"],
+    ["The download token on a real download (leftover 7)", "Within 15 minutes of your install", "No token in the server's traces"],
+    ["The new launcher's first start (leftover 2)", "After the restart in §2", "The launcher process is the new release's"],
+    ["A message sent in the seconds around a restart", "A deploy where someone sends one", "The resumed turn answers it once and nothing is left queued"],
+  ]}
+/>
+
+## 6. Every leftover, with its outcome
+
+<Details summary="All 56 rows of the pull's follow-ups list">
+
+<Table
+  filterable
+  density="compact"
+  columns={["#", "Leftover", "Outcome", "Evidence or where it went"]}
+  rows={[
+    ["1", "First start on the real database", { badge: { label: "done", tone: "success" } }, "37.6 s; ledgers 108 and 1072; +168 MB (§1)"],
+    ["2", "The new service launcher has not started", { badge: { label: "yours", tone: "warning" } }, "Still the old process; §2 and #613"],
+    ["3", "The Slack bridge came back", { badge: { label: "done", tone: "success" } }, "Reconnected 22:27:30, posted 22:53"],
+    ["4", "The phone app built", { badge: { label: "done", tone: "success" } }, "21 min 14 s, six checks passed, install permission in the built file"],
+    ["5", "Nothing ran on a phone", { badge: { label: "yours", tone: "warning" } }, "§2, the six taps"],
+    ["6", "The server's headless browser", { badge: { label: "done", tone: "success" } }, "One page rendered on Chrome 158.0.8127.36"],
+    ["7", "The download token in logs", { badge: { label: "not readable yet", tone: "warning" } }, "Redacted for a made-up token; a real download is on #613"],
+    ["8", "Start-of-run snapshots on big worktrees", { badge: { label: "done", tone: "success" } }, "21 of 22 runs, 0 to 2 s each; the one miss is in §1"],
+    ["9", "Three upstream GitHub workflows", { badge: { label: "not readable yet", tone: "warning" } }, "Two ran and touched nothing; the third's first run is on #613"],
+    ["10", "Adopt upstream's agent pull-request and CI tools", { badge: { label: "done", tone: "success" } }, "Its own goal, “Upstream PR and CI tools for Loom agents”, opened 23 Nov"],
+    ["11", "The context ring, or upstream's row", { badge: { label: "left as is", tone: "neutral" } }, "§2; the user-guide sentence is in #604"],
+    ["12", "Ten questions with no recorded answer", { badge: { label: "left as is", tone: "neutral" } }, "§2"],
+    ["13", "Node 26.13.1 on the host", { badge: { label: "done", tone: "success" } }, "Server, runner and bridge run it"],
+    ["14", "Two file lookups on the phone", { badge: { label: "left as is", tone: "neutral" } }, "§2, the phone card"],
+    ["15", "Issue tools for agents", { badge: { label: "left as is", tone: "neutral" } }, "§3"],
+    ["16", "“Regenerate title” can retitle a Loom root", { badge: { label: "left as is", tone: "neutral" } }, "§3"],
+    ["17", "Loom's own wording on linking pull requests", { badge: { label: "dropped", tone: "neutral" } }, "§3"],
+    ["18", "The Reclaim button that cannot work on the cockpit", { badge: { label: "left as is", tone: "neutral" } }, "§3"],
+    ["19", "Loom's GitHub CI is off", { badge: { label: "left as is", tone: "neutral" } }, "§2"],
+    ["20", "A finished shipper no longer settles when its PR merges: stale promises and a test with no positive check", { badge: { label: "issue", tone: "info" } }, "#598"],
+    ["21", "`AGENTS.md` does not say how Loom handles UI strings", { badge: { label: "issue", tone: "info" } }, "#597"],
+    ["22", "Two stale lines in `AGENTS.md`", { badge: { label: "issue", tone: "info" } }, "#597"],
+    ["23", "Reply names a tool pi does not have", { badge: { label: "issue", tone: "info" } }, "#599"],
+    ["24", "Two upstream usage features do not reach pi threads", { badge: { label: "issue", tone: "info" } }, "#600"],
+    ["25", "Two pieces of Loom chat code on the old markdown stack", { badge: { label: "issue", tone: "info" } }, "#601"],
+    ["26", "Loom features on a multi-repository project", { badge: { label: "dropped", tone: "neutral" } }, "§3"],
+    ["27", "Two borrowings for thread search", { badge: { label: "dropped", tone: "neutral" } }, "§3"],
+    ["28", "A goal edited while a client was away stays stale", { badge: { label: "issue", tone: "info" } }, "#605"],
+    ["29", "Consult cards hide in very long runs", { badge: { label: "issue", tone: "info" } }, "#602"],
+    ["30", "Copy thread copies a link to T3's hosted site", { badge: { label: "issue", tone: "info" } }, "#603"],
+    ["31", "A consult under pi's second tool name gets no card", { badge: { label: "issue", tone: "info" } }, "#602"],
+    ["32", "Nothing tests that thread search survives a compaction", { badge: { label: "issue", tone: "info" } }, "#598"],
+    ["33", "A theoretical gap in the migration guard", { badge: { label: "dropped", tone: "neutral" } }, "§3"],
+    ["34", "The phone says it is searching “messages”", { badge: { label: "issue", tone: "info" } }, "#604"],
+    ["35", "`docs/user/source-control.md` reads wrongly in two places", { badge: { label: "issue", tone: "info" } }, "#604"],
+    ["36", "A disabled Compact button no longer says why", { badge: { label: "issue", tone: "info" } }, "#606"],
+    ["37", "File previews have two scroll memories", { badge: { label: "issue", tone: "info" } }, "#607, for the next pull"],
+    ["38", "The Files tree remembers open folders twice", { badge: { label: "issue", tone: "info" } }, "#607, for the next pull"],
+    ["39", "A changed default branch can show stale for five minutes", { badge: { label: "dropped", tone: "neutral" } }, "§3"],
+    ["40", "The file-chip lookup can wait on the file watcher", { badge: { label: "issue", tone: "info" } }, "#608"],
+    ["41", "Three marked lines for thread ids the cockpit does not have", { badge: { label: "issue", tone: "info" } }, "#607, for the next pull"],
+    ["42", "Four tests fail or flake on this host", { badge: { label: "issue", tone: "info" } }, "#609"],
+    ["43", "Upstream's scenario test runner is unproven on Loom", { badge: { label: "left as is", tone: "neutral" } }, "§3"],
+    ["44", "A private pi patch is now unused", { badge: { label: "issue", tone: "info" } }, "#607, for the next platform update"],
+    ["45", "Three small inaccuracies in code text", { badge: { label: "issue", tone: "info" } }, "#604"],
+    ["46", "A file chip on a path with a stray space cannot open", { badge: { label: "dropped", tone: "neutral" } }, "§3"],
+    ["47", "An idle Loom child the sidebar omits opens beside its parent", { badge: { label: "dropped", tone: "neutral" } }, "§3"],
+    ["48", "The Context panel overstates a pi thread's fixed cost", { badge: { label: "issue", tone: "info" } }, "#610"],
+    ["49", "A Compact with nothing to compact wakes the agent", { badge: { label: "issue", tone: "info" } }, "#606"],
+    ["50", "The MDX review count was not seen live", { badge: { label: "yours", tone: "warning" } }, "§2, the glances"],
+    ["51", "The saved panel layout was not loaded live", { badge: { label: "yours", tone: "warning" } }, "§2, the glances"],
+    ["52", "After a find in the code editor, Escape drops the keyboard", { badge: { label: "issue", tone: "info" } }, "#611"],
+    ["53", "The web browser test suite is never green in one run here", { badge: { label: "issue", tone: "info" } }, "#609"],
+    ["54", "Settlement of a finished root with and without an open PR", { badge: { label: "not readable yet", tone: "warning" } }, "No such pair tonight; #613"],
+    ["55", "A Loom question beside another provider's question", { badge: { label: "dropped", tone: "neutral" } }, "§3"],
+    ["56", "A message sent just before a restart reads “cancelled”", { badge: { label: "left as is", tone: "neutral" } }, "None during tonight's switch; §3"],
+  ]}
+/>
+
+</Details>
