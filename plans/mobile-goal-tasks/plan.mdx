@@ -4,7 +4,7 @@ reader:
   knows: the intent brief and its three pictures, and the web Tasks panel; not the mobile codebase, the measurements, or that no agent can run the Android app on this machine
   after_first_screen: "Two coder pieces in sequence and a delivery step build the brief's Tasks tab with nothing new from the server and one edited hunk in one upstream source file. The plan narrows four Assumed lines and reads two must-nots as being about behaviour. No agent can run the app today, so the on-screen checks are Carl's unless he turns on one VM setting, which is the one question at the end."
 kicker: "Implementation plan · mobile goal tasks · 24 Nov 2026"
-status: approved
+status: done
 intent: plans/mobile-goal-tasks/intent.mdx
 manager_sessions:
   - id: 01a20a78-d8ca-7716-8ebd-9c8f2bbd4c4d
@@ -599,3 +599,20 @@ gcloud compute instances update-from-file carl-dev --project test-ds-research \
     }
   ]}
 />
+
+## As built
+
+Built in three commits on `t3/mobile-goal-tasks-tab` (PR #617): the logic, the screen, and one fix after review. The review gate was clean. Where the build departs from the plan above, and why:
+
+- **Merged before anyone saw it on a screen.** The Delivery card held the merge for Carl's trial of a branch APK. Carl instead said "just ship it when it's done and i'll report back if I encounter issues", so it merged on his word, unseen on a device or an emulator. His answer to §10 was "Set it up", with the restart scheduled for 2am Wednesday 25 November Sydney time, so the emulator pass in §8 did not run before the merge. Everything in §8's "Carl's phone" column is still to be checked there.
+- **`findGoalTask` stayed in mobile** (`workstreamGoal.loom.ts`), not the shared package: only mobile uses it.
+- **The crumb moved** (`WorkstreamCrumb`, `workstreamCrumbAtom`) from `workstreamView.loom.ts` into `workstreamGoal.loom.ts`. It now reads the goal, and leaving it in place would have made the two files import each other.
+- **One state atom, not four.** Tab, filter, toggles and the jumped-to task live in one in-memory atom per workstream, with the same lifetime §6 gave them.
+- **The first-open rule waits only when the shell holds no sub-threads for the root.** With sub-threads already there it picks Graph at once; §6's "waits for that read to settle" would have shown a spinner on every first open.
+- **The first-open choice is saved once the switch is showing**, filling an empty choice and never overriding one. Without it a goal with no sub-threads opens on Tasks and flips to Graph when an agent spawns the first sub-thread.
+- **The header subtitle drops the settled count when there are no sub-threads**, so a goal-only root reads `Workstream` and not `Workstream · 0/0 settled`.
+- **The Home row changes two marked places in `thread-list-v2-items.tsx`**, the import and the render hunk, with the badge passed to `WorkstreamRowEntries` as a prop; the plan counted one hunk. The row's `useWorkstreamBadge` call stays because its accessibility label reads it.
+- **The Home count's icon is `checkmark.circle`**, not the mockup's checklist: the Android icon map is an upstream file with no checklist entry. Its touch area grows only up and down, 12 dp from the badge, so the two targets never overlap.
+- **A marked task holds only for the jump that set it.** The review found that the "THIS THREAD'S TASK" mark outlived its arrival on the cover screen; the Home badge, the header button and the root part of the sub-thread line now open through `openWorkstreamUnmarked`, which clears it.
+
+Left as built, both rare: the first open of a goal with no sub-threads shows a spinner while the phone is still reconnecting, and the Graph is drawn again once when a goal gets its first task while its screen is open.
