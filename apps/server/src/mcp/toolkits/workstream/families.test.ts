@@ -12,6 +12,7 @@ import { PreviewStandardToolkit } from "../preview/tools.ts";
 import { ProjectToolkit } from "../project/tools.ts";
 import { PullRequestsToolkit } from "../pullRequests/tools.ts";
 import { ThreadToolkit } from "../thread/tools.ts";
+import { ToolSearchToolkit } from "../toolSearch/tools.ts";
 import { WorktreeToolkit } from "../worktree/tools.ts";
 import { LOOM_TOOL_DEFS } from "./defs.ts";
 import {
@@ -85,20 +86,44 @@ describe("Loom tool families", () => {
     expect(HUMAN_INPUT).toEqual(["mcp__t3-code__ask_user_question"]);
   });
 
-  it("PULL_REQUESTS is upstream's PR toolkit, prefixed", () => {
-    expect(PULL_REQUESTS.toSorted()).toEqual(namesOf(PullRequestsToolkit).toSorted());
+  it("PULL_REQUESTS pins upstream's nine base PR tools and the rest of that toolkit is withheld", () => {
+    const toolkit = namesOf(PullRequestsToolkit);
+    expect(PULL_REQUESTS).toHaveLength(9);
+    expect(PULL_REQUESTS.filter((name) => !toolkit.includes(name))).toEqual([]);
+    expect(
+      toolkit.filter((name) => !(PULL_REQUESTS as ReadonlyArray<string>).includes(name)),
+    ).toEqual(UPSTREAM_WITHHELD_TOOLS.filter((name) => toolkit.includes(name)));
+    // pnpm ship stays the only way an agent merges (DL-2410).
+    for (const name of [
+      "pull_request_read",
+      "pull_request_list",
+      "pull_request_create",
+      "pull_request_update",
+      "pull_request_respond",
+      "pull_request_review",
+      "pull_request_merge",
+      "ci_logs",
+      "ci_rerun",
+    ])
+      expect(UPSTREAM_WITHHELD_TOOLS).toContain(`mcp__t3-code__${name}`);
     expect(PULL_REQUESTS).toContain("mcp__t3-code__link_pull_request");
   });
 
-  it("withholds exactly upstream's six orchestration-shaped toolkits and none of PR, preview or device", () => {
+  it("withholds exactly upstream's orchestration-shaped toolkits, tool search and the PR toolkit beyond its base, and none of preview or device", () => {
     const expected = [
-      OrchestratorToolkit,
-      ThreadToolkit,
-      ProjectToolkit,
-      AttachmentToolkit,
-      EnvironmentToolkit,
-      WorktreeToolkit,
-    ].flatMap(namesOf);
+      ...[
+        OrchestratorToolkit,
+        ThreadToolkit,
+        ProjectToolkit,
+        AttachmentToolkit,
+        EnvironmentToolkit,
+        WorktreeToolkit,
+        ToolSearchToolkit,
+      ].flatMap(namesOf),
+      ...namesOf(PullRequestsToolkit).filter(
+        (name) => !(PULL_REQUESTS as ReadonlyArray<string>).includes(name),
+      ),
+    ];
     expect(UPSTREAM_WITHHELD_TOOLS.toSorted()).toEqual(expected.toSorted());
     expect(UPSTREAM_WITHHELD_TOOLS).toContain("mcp__t3-code__delegate_task");
     expect(UPSTREAM_WITHHELD_TOOLS).toContain("mcp__t3-code__t3_background_wait");
@@ -114,9 +139,10 @@ describe("Loom tool families", () => {
       expect(UPSTREAM_WITHHELD_TOOLS).toContain(`mcp__t3-code__${name}`);
     expect(UPSTREAM_WITHHELD_TOOLS).not.toContain("mcp__t3-code__preview_act");
     expect(PULL_REQUESTS).toContain("mcp__t3-code__link_pull_requests");
-    const kept = new Set(
-      [PullRequestsToolkit, PreviewStandardToolkit, DeviceStandardToolkit].flatMap(namesOf),
-    );
+    const kept = new Set([
+      ...PULL_REQUESTS,
+      ...[PreviewStandardToolkit, DeviceStandardToolkit].flatMap(namesOf),
+    ]);
     expect(UPSTREAM_WITHHELD_TOOLS.filter((name) => kept.has(name))).toEqual([]);
     const loom: ReadonlySet<string> = new Set(LOOM_TOOL_DEFS.map((def) => agentToolName(def.name)));
     expect(UPSTREAM_WITHHELD_TOOLS.filter((name) => loom.has(name))).toEqual([]);
