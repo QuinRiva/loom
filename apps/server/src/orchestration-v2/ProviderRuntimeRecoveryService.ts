@@ -24,6 +24,7 @@ import * as EventSink from "./EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { LoomPiAdapterHooks } from "@t3tools/provider-pi/server/loom"; // loom: DL-2401
 import {
   restartContinuationBlocked,
   restartContinuationRun,
@@ -674,6 +675,10 @@ export const make = Effect.gen(function* () {
           },
         });
       }
+      // loom: steers pi stashed from a cut run are Loom's to redeliver, so they close here (DL-2401)
+      const loomStashedRunId = (yield* (yield* LoomPiAdapterHooks).steerStash.read(
+        projection.thread.id,
+      ))?.runId;
       for (const run of runs) {
         events.push({
           id: yield* allocateEventId(),
@@ -768,7 +773,8 @@ export const make = Effect.gen(function* () {
               candidate.type === "user_message" &&
               candidate.status === "pending" &&
               (candidate.inputIntent === "steer" ||
-                candidate.inputIntent === "promoted_queued_to_steer")
+                candidate.inputIntent === "promoted_queued_to_steer") &&
+              run.id !== loomStashedRunId // loom: DL-2401
             ) &&
             (candidate.status === "pending" ||
               candidate.status === "running" ||
