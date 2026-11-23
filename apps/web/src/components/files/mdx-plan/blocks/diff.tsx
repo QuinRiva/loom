@@ -262,10 +262,9 @@ const SIGN_COLOR: Record<DiffRowKind, string> = {
   context: "text-muted-foreground",
 };
 const SIGN: Record<DiffRowKind, string> = { added: "+", removed: "−", context: " " };
-// loom: changed-word emphasis — the diff panel's word-alt mix (`diffRendering.ts`
-// `:host`), over this block's card surface.
+// loom: changed-word emphasis, the diff panel's tint (`diffRendering.ts` `-emphasis`).
 const emphasisBg = (color: string) =>
-  `light-dark(color-mix(in srgb, var(--card) 55%, var(${color})), color-mix(in srgb, var(--card) 45%, var(${color})))`;
+  `light-dark(rgb(from var(${color}) r g b / 15%), rgb(from var(${color}) r g b / calc(20% + var(--appearance-contrast-boost, 0%) / 4)))`;
 const EMPHASIS_BG: Record<DiffRowKind, string | undefined> = {
   added: emphasisBg("--diff-addition"),
   removed: emphasisBg("--diff-deletion"),

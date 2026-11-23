@@ -661,7 +661,7 @@ function UserMessageReviewCommentCard({
                 diffStyle: "unified",
                 theme: resolveDiffThemeName(renderedAppearance),
                 preferredHighlighter: PREFERRED_HIGHLIGHTER,
-                // loom: the app's diff surface (theme tokens + solid word-diff emphasis), not the
+                // loom: the app's diff surface (theme tokens + word-diff emphasis), not the
                 // panel's sticky-header/selection chrome, which has no job in a quoted comment.
                 unsafeCSS: DIFF_SURFACE_THEME_UNSAFE_CSS,
               }}
