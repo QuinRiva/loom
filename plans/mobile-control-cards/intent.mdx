@@ -2,9 +2,9 @@
 reader:
   who: Carl, who asked for this in one sentence and approves its intent before anything is built; later, the planner, coder and reviewer held to it
   knows: the card on web as a daily user, and the phone app as a user; nothing of how either draws a message, and he has not said what exactly looks wrong on the phone
-  after_first_screen: he can say whether the picture on the left is what his phone shows, whether the picture on the right is what he asked for, and "go" or a correction
-kicker: "Intent brief · draft for your corrections · 23 Nov 2026"
-status: draft
+  after_first_screen: he can say what his phone shows today, what it will show, and that the first look at the built card is his, from an app built off the branch
+kicker: "Intent brief · approved 23 Nov 2026 · the one question answered"
+status: approved
 manager_sessions:
   - id: 01a2085c-8bf6-772f-a981-9ea33fb4a423
     name: Control-plane cards on mobile
@@ -56,32 +56,16 @@ manager_sessions:
 - **Web's card, redrawn for touch**, with everything web's card does: collapse, excerpts, raw text, open report, open sub-thread, document chips. The rule for which messages become cards and what each line says moves into the code web and phone already share, so the two cannot drift; only the drawing is new. _Your ask, as I read it, and the only approach left._
 - Dropped: the collapse alone, with report and document opening as a second step. It was worth it only if opening a report on the phone were a project of its own, and it is not: the phone already opens files outside the project folder, reports included, over the tailnet and the relay alike.
 
-**Decided.** "launch a hand off to build that too."
+**Decided.** "launch a hand off to build that too." Then your answer in this document, 23 Nov:
 
-- _Assumed:_ web's card is the design, and the phone departs from it only where a narrow touch screen forces it. Three such departures are in the picture. An entry takes two lines, because sender, role, title and verdict do not fit on one. Tapping an entry opens the report, where web shows "Open report" on hover. A missing document shows struck through with no hover text. Redirect if you want something other than web's card.
+- Is the left-hand picture what your phone shows: "Yes: the raw message, no card".
+
+- _Assumed:_ web's card is the design, and the phone departs from it only where a narrow touch screen forces it. Three such departures are in the picture. An entry takes two lines, because sender, role, title and verdict do not fit on one. Tapping an entry opens the report, where web shows "Open report" on hover. A document that has gone missing says so when you tap it, where web strikes it through beforehand. Redirect if you want something other than web's card.
 - _Assumed:_ you see the card first, because no agent can run the phone app. This machine has no virtualisation, no other device host is set up, and the app has no web version. Before your look, agents test the card's logic against real hand-back messages from your live threads and test the taps in a simulated render, which proves the wiring and not the looks.
 - _Assumed:_ your look comes from an app built off the branch, about 21 minutes to build, published as a GitHub pre-release and installed over your daily app, before anything lands on main. Redirect if you would rather it ship and reach you through the normal update.
 - _Assumed:_ cards start collapsed, as on web, including the old ones when you scroll back.
 - _Assumed:_ Android and your one phone are what gets checked. The same code serves iOS and nobody looks at it there.
 
 **Not doing.** Any change to web's card or to what the control plane sends. The goal task tree on the phone, which is separate work.
-
-**Questions for you.**
-
-<QuestionForm
-  questions={[
-    {
-      id: "what-is-wrong",
-      title: "Is the left-hand picture what your phone shows?",
-      subtitle:
-        "You said the cards are not displayed correctly. I read that as: the phone shows the full raw message where web shows a card. If you are seeing something else, such as a card that is drawn but broken, the work is different.",
-      mode: "single",
-      options: [
-        { id: "raw-text", label: "Yes: the raw message, no card", recommended: true },
-        { id: "something-else", label: "No, it is something else; I will send a screenshot" },
-      ],
-    },
-  ]}
-/>
 
 **Still unknown.** Nothing. The two things that were (whether the phone can open a report, and whether an agent can see the app running) were checked against today's code and this machine on 23 Nov, and are now the dropped approach and the first Assumed line above.
