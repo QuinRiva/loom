@@ -24,10 +24,10 @@ export type ProviderOrchestrationAdapterInfrastructure =
 export const layerIdAllocator = Layer.unwrap(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    // loom: the OR arm also keeps Loom's legacy digest ids, 'thread:' and 32 hex (DL-2237)
     const rows = yield* sql<{ readonly threadId: string }>`
       SELECT thread_id AS "threadId" FROM orchestration_v2_projection_threads
       WHERE thread_id LIKE 'thread:provider:%'
-        -- loom: Loom's legacy derived ids are digests: 'thread:' and 32 hex
         OR (length(thread_id) = 39 AND thread_id LIKE 'thread:%'
           AND NOT substr(thread_id, 8) GLOB '*[^0-9a-f]*')
     `.pipe(
