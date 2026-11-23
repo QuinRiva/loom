@@ -14,7 +14,7 @@ manager_sessions:
 
 # Thread search you can widen or narrow, with sub-threads as results you can open
 
-**Goal.** "I think we need to consider how search is designed - because I can imagine I'd want to be able to have filters (include vs exclude children for example)." Make search something you steer. A few visible switches say where it looks: sub-threads, archived, one project. With none touched it reads what you ruled on 26 Oct, minus the padding it lists today when nothing matches. **Switching sub-threads on has to list the sub-thread itself and open it.** A switch that only reads their text, which is what the October toggle would have been, changes almost nothing.
+**Goal.** "I think we need to consider how search is designed - because I can imagine I'd want to be able to have filters (include vs exclude children for example)." Make search something you steer. A few visible switches say where it looks: sub-threads, archived, one project. With none touched it reads what you ruled on 26 Oct, minus the padding it lists today when nothing matches. **Switching sub-threads on has to list the sub-thread itself and open it.** A switch that only reads their text, as the October toggle would have, adds little on the two rough measurements I have.
 
 <Stats
   items={[
@@ -22,13 +22,13 @@ manager_sessions:
       value: "1 of 57",
       label: "Test searches that change",
       tone: "warning",
-      detail: "Of the 57 searches the ranking was tested on in October, those whose first result differs when sub-threads' text is read as well. No top five differs",
+      detail: "Of the 57 searches the ranking was tested on in October, those whose first result differs when sub-threads' text is read as well. No top five differs. Every answer in that set is a top-level thread",
     },
     {
       value: "92%",
-      label: "Sub-thread titles that already find their parent",
+      label: "Sub-thread titles whose words search already reads",
       tone: "neutral",
-      detail: "369 of 400 from the last month, typed as a search: the parent matches through its own messages or a report",
+      detail: "For 369 of 400 from the last month, the parent's own text or a report under it contains every word of the title. A word count on the index, not a run of the search",
     },
     {
       value: "None",
@@ -45,8 +45,10 @@ manager_sessions:
   ]}
 />
 
+The 92% is generous in two ways. It does not check where the parent ranks, or whether it is among the rows a screen shows. And titles are the easy case: a sub-thread's report tends to repeat them, where words from deep inside its messages would score lower.
+
 <Callout tone="decision" title="What that means for your idea" focus>
-  Filters are worth having, but "include children" as a reading switch is the weak version. Most of what a sub-thread did is already found through its report. What is missing is seeing which sub-thread it was and landing in it. So this brief asks for three switches, sub-thread rows you can open, and a default that stops padding. Five questions at the end; a bare "go" takes the recommended answers.
+  Filters are worth having, but "include children" as a reading switch looks like the weak version. On these figures a sub-thread's words mostly sit in text search already reads, chiefly its report. What is certainly missing is seeing which sub-thread it was and landing in it. So this brief asks for three switches, sub-thread rows you can open, and a default that stops padding. Five questions at the end; a bare "go" takes the recommended answers.
 </Callout>
 
 <Table
@@ -140,7 +142,7 @@ Where the switches sit. You judge this one by trying it; the pictures are Cmd+K,
 - **Sub-thread rows.** One row per matching sub-thread under its top-level thread. Wins if you are after one particular sub-thread. _My pick._ Or one row per top-level thread naming its best sub-thread. Wins if several rows per workstream is the clutter you ruled out on 1 Oct. You try both.
 - **Stopping the padding.** Drop results matched by meaning that are not close enough, with the cut-off set on the 57 test searches. Or keep them in their own "Related" group under the word matches. A spike decides.
 - **Speed.** Show word matches at once and let rows matched by meaning join without moving the rows already shown. Wins if rows hold still; otherwise both arrive together as today.
-- Dropped: wiring the October toggle as ruled, where sub-threads' text is read and only top-level threads are listed. It changed 1 first place in 57. <Sidenote>Pull 13 decision log, ranker test of 26 Oct. Every answer in that set is a top-level thread, so it understates the case.</Sidenote>
+- Not my pick: wiring the October toggle as ruled, where sub-threads' text is read and only top-level threads are listed. It changed 1 first place in 57, and it still leaves you at the top of the parent. The first question lets you choose it. <Sidenote>Pull 13 decision log, ranker test of 26 Oct. Every answer in that set is a top-level thread, so it understates what the toggle adds.</Sidenote>
 - Dropped: upstream's own search. Pull 16 re-checked it: it reads the messages of about 650 active top-level threads and nothing archived, no sub-thread and no report.
 
 **Decided.** Your words, oldest first; the newest governs, and the first question asks where sub-threads now stand.
@@ -179,7 +181,7 @@ Where the switches sit. You judge this one by trying it; the pictures are Cmd+K,
         {
           id: "reading-only",
           label: "Still only top-level threads; sub-threads' text just helps find them",
-          detail: "The October toggle as ruled. It changed 1 first result in 57 test searches.",
+          detail: "The October toggle as ruled. It changed 1 first result in 57 test searches, all of which have a top-level thread as their answer.",
         },
         {
           id: "never",
@@ -293,7 +295,7 @@ Where the switches sit. You judge this one by trying it; the pictures are Cmd+K,
 **Still unknown.**
 
 - How often search fails you, and on which kind of miss. Nothing counts searches. Counting them for two weeks after the first cut settles it: what was typed, on which screen, which switches were on, whether a result was opened.
-- Whether switching sub-threads on puts the right sub-thread first. All 57 October test searches have a top-level thread as their answer; a dozen written from words that live only inside sub-threads settle it.
+- How much reading sub-threads' text adds for words from deep inside them, and whether the right sub-thread then comes first. Neither figure above measures it. A dozen searches written from words that live only inside sub-threads' messages, run through the real search, settle both.
 - How the server learns a plan exists. Documents are files in a project folder, signed with the session that wrote them, and nothing tells the server when one is written. A spike chooses between reading it when it is signed, when a thread links it, or by looking in `plans/`, `recaps/` and `explainers/`.
 - Where the cut-off for matches by meaning sits. There is none today; the 57 test searches plus a handful of nonsense ones set it.
 - Why three searches sent together each waited 2 s and came back without their matches by meaning. A timing run against Vertex settles whether it was a cold connection or a limit on parallel calls.
