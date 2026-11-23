@@ -37,25 +37,29 @@ it is tier 1 or 2 and belongs in a store — not in `useState` layered over the 
 **Automatic surface openers may _seed_ UI state, but must never _override_ a user's persisted
 choice, and effect ordering must never decide which surface is active.**
 
-Concretely, for the loom Workstream auto-open and the context-viz experiment's Context tab, which
-its Composition and Growth switches seed on pi threads (Goal tasks never auto-opens: the right panel
-reopens per thread exactly as the user left it):
+Concretely, for the two seeded tabs: Goal tasks, on any thread that belongs to a goal, and
+Workstream, once the thread has Loom children (gated on `autoOpenWorkstreamPanel`). Context is
+never seeded; it is opened from the tab strip:
 
 - Whether an auto-open has already fired is itself **durable per-thread state** (tier 1), keyed
   by `scopedThreadKey` — not a component-lifetime `useRef`. A ref guard is wiped by any remount
   (route change to a draft/settings/index view) and re-fires the opener, which is exactly how an
   automatic effect ends up overriding the user's selection.
-- The surface auto-opens **at most once per thread, ever**:
+- Each surface auto-opens **at most once per thread, ever**:
   - flag already set → no store write at all;
   - flag unset and no panel state for the thread → full open (add + activate + show), set flag;
   - flag unset but panel state already exists → add the tab **without** touching the active
     surface or `isOpen` (a non-activating seed — no focus steal), set flag.
 - The seed is **one atomic store transition** — one small `set`-based store action (marked
   `// loom:`), not a composition of public store calls — so it is a single persisted write. The
-  same action seeds both surfaces and, on a first visit, activates Workstream before Context by
-  explicit priority among the surfaces eligible at that moment, never by which effect ran first (a
-  surface whose eligibility arrives later is added without focus); with both panel switches off
-  it also takes the Context tab away, still as an automatic transition, and clears its flag.
+  same action seeds both surfaces and, on a first visit, activates Workstream before Goal tasks by
+  explicit priority among the surfaces eligible at that moment, never by which effect ran first;
+  with both Context panel switches off it also takes any Context tab away, still as an automatic
+  transition.
+- **The one focus change on existing state:** Workstream's first seed (a thread's first subtask,
+  typically) makes it the active tab when the panel is open and showing Goal tasks, the tab the
+  seed put in front. A closed panel or any other active tab gets Workstream added without focus.
+  Carl chose this.
 - Consequence: closing a tab or closing all surfaces permanently suppresses reseeding for that
   thread. That is intended — the explicit way back is the tab strip, not an effect re-firing.
 
@@ -70,9 +74,8 @@ automatic effect.
 
 **It is gone.** Upstream folded plans into the chat transcript and deleted `PlanSidebar`
 (#5558); cadence pull 6 adopted that deletion, so the `autoOpenPlanSidebar` setting, the `plan`
-right-panel surface, and the turn-scoped dismissal refs no longer exist. The seed-not-override
-policy above now has **no exceptions** — every automatic surface opener goes through
-`seedWorkstream`.
+right-panel surface, and the turn-scoped dismissal refs no longer exist. Every automatic surface
+opener goes through `seedWorkstream`, and the Workstream takeover above is its only focus change.
 
 Navigating by the Workstream panel is not an automatic opener but the user's own act: opening a
 thread from inside it brings the Workstream tab up open and in front in the destination thread,

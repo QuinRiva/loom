@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
 import { autoOpenLoomSurfaces } from "./useLoomRightPanelSurfaces";
-import { selectAutoOpenedSurfaces, useWorkstreamUiStore } from "./workstreamUiStore";
+import { useWorkstreamUiStore } from "./workstreamUiStore";
 
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
 const panel = () => selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
@@ -44,69 +44,87 @@ describe("rightPanelStore.seedWorkstream", () => {
   });
 });
 
-describe("the Context tab seed", () => {
-  const seed = (contextPanels: boolean, workstreamRoot = false) =>
+describe("the Goal tasks, Workstream and Context seeds", () => {
+  const seed = ({ goalThread = true, workstreamRoot = false, contextPanels = true } = {}) =>
     autoOpenLoomSurfaces(refA, {
+      goalThread,
       workstreamRoot,
       autoOpenWorkstreamPanel: true,
-      piThread: true,
       contextPanels,
     });
+  const ids = () => panel().surfaces.map((surface) => surface.id);
 
-  it("opens on Context on a fresh thread, and on Workstream when both are seeded", () => {
-    seed(true);
+  it("opens a fresh goal thread on Goal tasks, never Context; on Workstream when both are due", () => {
+    seed();
     expect(panel()).toEqual({
       isOpen: true,
-      activeSurfaceId: "context",
-      surfaces: [{ id: "context", kind: "context" }],
+      activeSurfaceId: "tasks",
+      surfaces: [{ id: "tasks", kind: "tasks" }],
     });
     useRightPanelStore.setState({ byThreadKey: {} });
     useWorkstreamUiStore.setState({ autoOpenedByThreadKey: {} });
-    seed(true, true);
+    seed({ workstreamRoot: true });
     expect(panel().activeSurfaceId).toBe("workstream");
-    expect(panel().surfaces.map((surface) => surface.id)).toEqual(["workstream", "context"]);
+    expect(ids()).toEqual(["tasks", "workstream"]);
   });
 
-  it("adds the tab beside existing state without stealing focus, once", () => {
+  it("the first child brings Workstream in front of the seeded Goal tab, once", () => {
+    seed();
+    seed({ workstreamRoot: true });
+    expect(panel().activeSurfaceId).toBe("workstream");
+    useRightPanelStore.getState().activateSurface(refA, "tasks");
+    seed({ workstreamRoot: true });
+    expect(panel().activeSurfaceId).toBe("tasks");
+  });
+
+  it("Workstream arrives behind another choice or a closed panel", () => {
+    seed();
+    useRightPanelStore.getState().open(refA, "diff");
+    seed({ workstreamRoot: true });
+    expect(panel().activeSurfaceId).toBe("diff");
+    useRightPanelStore.setState({ byThreadKey: {} });
+    useWorkstreamUiStore.setState({ autoOpenedByThreadKey: {} });
+    seed();
+    useRightPanelStore.getState().close(refA);
+    seed({ workstreamRoot: true });
+    expect(panel()).toMatchObject({ isOpen: false, activeSurfaceId: "tasks" });
+    expect(ids()).toEqual(["tasks", "workstream"]);
+  });
+
+  it("adds Goal tasks beside existing state without stealing focus; closed stays closed", () => {
     useRightPanelStore.getState().open(refA, "diff");
     useRightPanelStore.getState().close(refA);
-    seed(true);
+    seed();
     expect(panel()).toEqual({
       isOpen: false,
       activeSurfaceId: "diff",
       surfaces: [
         { id: "diff", kind: "diff" },
-        { id: "context", kind: "context" },
+        { id: "tasks", kind: "tasks" },
       ],
     });
-    useRightPanelStore.getState().closeSurface(refA, "context");
-    seed(true);
-    expect(panel().surfaces.map((surface) => surface.id)).toEqual(["diff"]);
+    useRightPanelStore.getState().closeSurface(refA, "tasks");
+    seed();
+    expect(ids()).toEqual(["diff"]);
   });
 
-  it("switches off: removes the tab and its flag as an automatic transition", () => {
+  it("switches off: removes a Context tab as an automatic transition", () => {
     useRightPanelStore.getState().open(refA, "diff");
-    seed(true);
-    useRightPanelStore.getState().activateSurface(refA, "context");
+    useRightPanelStore.getState().open(refA, "context");
     const revision = useRightPanelStore.getState().getUserActionRevision(refA);
-    seed(false);
+    seed({ goalThread: false, contextPanels: false });
     expect(panel()).toEqual({
       isOpen: true,
       activeSurfaceId: "diff",
       surfaces: [{ id: "diff", kind: "diff" }],
     });
-    expect(selectAutoOpenedSurfaces(useWorkstreamUiStore.getState(), refA)).toEqual({});
     expect(useRightPanelStore.getState().getUserActionRevision(refA)).toBe(revision);
-    seed(true);
-    expect(panel().surfaces.map((surface) => surface.id)).toEqual(["diff", "context"]);
   });
 
-  it("switches off on a thread with neither the tab nor its flag: no write", () => {
+  it("switches off on a thread without the tab: no write", () => {
     useRightPanelStore.getState().open(refA, "diff");
     const panels = useRightPanelStore.getState().byThreadKey;
-    const flags = useWorkstreamUiStore.getState().autoOpenedByThreadKey;
-    seed(false);
+    seed({ goalThread: false, contextPanels: false });
     expect(useRightPanelStore.getState().byThreadKey).toBe(panels);
-    expect(useWorkstreamUiStore.getState().autoOpenedByThreadKey).toBe(flags);
   });
 });

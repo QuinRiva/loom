@@ -9,8 +9,8 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import type { ViewBox } from "../lib/forkJoinLayout";
 import { resolveStorage } from "../lib/storage";
 
-/** Keyed by surface for the persisted shape: the Workstream and Context tabs are the seeded ones. */
-export type AutoOpenedSurfaces = { readonly workstream?: true; readonly context?: true };
+/** Keyed by surface for the persisted shape: the Goal tasks and Workstream tabs are the seeded ones. */
+export type AutoOpenedSurfaces = { readonly tasks?: true; readonly workstream?: true };
 
 export interface WorkstreamGraphView {
   readonly viewBox: ViewBox;
@@ -33,12 +33,7 @@ interface WorkstreamUiStoreState {
    */
   graphViewByKey: Readonly<Record<string, WorkstreamGraphView>>;
   setGraphView: (key: string, view: WorkstreamGraphView) => void;
-  /** `opened: false` clears the flag, so a surface removed by its switch reseeds when it is back on. */
-  markAutoOpened: (
-    ref: ScopedThreadRef,
-    surface: keyof AutoOpenedSurfaces,
-    opened?: boolean,
-  ) => void;
+  markAutoOpened: (ref: ScopedThreadRef, surface: keyof AutoOpenedSurfaces) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -61,14 +56,13 @@ export const useWorkstreamUiStore = create<WorkstreamUiStoreState>()(
         }),
       setGraphView: (key, view) =>
         set((state) => ({ graphViewByKey: { ...state.graphViewByKey, [key]: view } })),
-      markAutoOpened: (ref, surface, opened = true) =>
+      markAutoOpened: (ref, surface) =>
         set((state) => {
           const key = scopedThreadKey(ref);
-          const { [surface]: _previous, ...rest } = state.autoOpenedByThreadKey[key] ?? {};
           return {
             autoOpenedByThreadKey: {
               ...state.autoOpenedByThreadKey,
-              [key]: opened ? { ...rest, [surface]: true } : rest,
+              [key]: { ...state.autoOpenedByThreadKey[key], [surface]: true },
             },
           };
         }),
@@ -85,8 +79,9 @@ export const useWorkstreamUiStore = create<WorkstreamUiStoreState>()(
       // v2: the V1 panel slice (board/graph view, spawn draft) is gone — the
       // workstream surface is the graph and manual spawn has no V2 command.
       // v3: seeded query-thread promotions.
+      // v4: Goal tasks replaces Context as a seeded tab; a thread seeded before counts as seeded.
       name: "t3code:loom-workstream-ui:v1",
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
@@ -96,11 +91,18 @@ export const useWorkstreamUiStore = create<WorkstreamUiStoreState>()(
       }),
       migrate: (persisted) => {
         const state = persisted as {
-          autoOpenedByThreadKey?: Record<string, AutoOpenedSurfaces>;
+          autoOpenedByThreadKey?: Record<string, { readonly workstream?: true }>;
           seededPromotionIdsByThreadKey?: Record<string, ReadonlyArray<string>>;
         } | null;
         return {
-          autoOpenedByThreadKey: state?.autoOpenedByThreadKey ?? {},
+          autoOpenedByThreadKey: Object.fromEntries(
+            Object.entries(state?.autoOpenedByThreadKey ?? {}).map(
+              ([key, opened]): [string, AutoOpenedSurfaces] => [
+                key,
+                opened.workstream ? { tasks: true, workstream: true } : { tasks: true },
+              ],
+            ),
+          ),
           seededPromotionIdsByThreadKey: state?.seededPromotionIdsByThreadKey ?? {},
         };
       },
