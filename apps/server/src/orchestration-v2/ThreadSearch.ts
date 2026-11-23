@@ -220,8 +220,8 @@ export function buildSearchSnippet(text: string, matchStart: number): string {
 // Both paths narrow ASCII tokens with Latin-1 and Extended-A/B/Additional accent variants.
 // Without FTS5 trigrams, or for two-character CJK words, scan the same eligible messages;
 // accented queries and non-Latin case can still miss: "fermée"/"fermee", "ОШИБКА"/"ошибка".
-// loom: not exported; the EXPLAIN QUERY PLAN test that read it went with upstream's index (1065)
 const messageHitsQuery = (
+  // loom: not exported; its query-plan test went with upstream's index (1065)
   sql: SqlClient.SqlClient,
   { match, substrings, shortSpellings, projectId, excludedThreadIds }: typeof SearchRequest.Encoded,
 ) => sql`

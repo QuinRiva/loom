@@ -2896,7 +2896,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           ["config", "--get-regexp", "^(branch\\..*\\.(gh-merge-base|remote)|remote\\..*\\.url)$"],
           { allowNonZeroExit: true },
         ),
-        // loom: no remote, no default-branch lookup (as upstream's #40277 does per folder).
+        // loom: no remote, no default-branch lookup, as upstream's per-folder path does.
         primaryRemoteName
           ? Cache.get(defaultBranchCache, input.gitCommonDir)
           : Effect.succeed(null),
