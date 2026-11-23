@@ -172,30 +172,33 @@ Every later capture in the same folder took 1 to 2 seconds. So this is what a tu
 <Card
   id="unanswered"
   eyebrow="CALL · LEFTOVER 12"
-  heading="Ten of the fifteen questions the pull put to you were never answered. Do the seven that changed code stand as built?"
+  heading="Ten of the fifteen questions the pull put to you were never answered. Do they stand as built?"
   tone="info"
   badge="RECOMMENDED · all stand"
   meta={["built as recommended", "each has a way back"]}
 >
-  **Let them stand.** The batch you were given said an undecided item takes its recommendation, and the pull was built that way. Three of the ten needed no code. These are the seven that did, each with what undoes it:
+  **Let them stand.** The questions are in `recaps/pull16-rulings/recap.mdx`, the batch of fifteen you were given on 23 Nov. It said an undecided item takes its recommendation, and the pull was built that way. You answered five: the agent pull-request tools (1), the context ring (2), how a Loom child opens (3), Node on the host (14) and deploying `main` with the pull (15).
+
+  The other ten are below, by their card number in that document, so you can open the card for any you want to read again. Nine changed code, in seven places, each with what undoes it. The tenth, multi-repository projects (13), needed none.
 
   <Table
     density="compact"
-    columns={["Built as", "What undoes it"]}
+    columns={["Card", "The question, in short", "Built as", "What undoes it"]}
     rows={[
-      ["Upstream's sender note on agent-sent messages is skipped for pi, keeping Loom's author labels", "Two marked clauses"],
-      ["Loom's own screens stay English and are excluded from upstream's translation lint", "Wrapping about 1,100 strings"],
-      ["Upstream's agent tools for issues, feedback, themes and `send_to_user` are withheld", "One revert, plus prose telling agents about whatever is exposed"],
-      ["A pi session resumed in a moved worktree uses upstream's copy of the session file, not Loom's override", "One marked line and three recorded transcripts, about an hour"],
-      ["The usage hub keeps only Loom's rule for carrying an account's last good reading", "One function and one call"],
-      ["Changed words in a diff stay solid", "Two CSS values"],
-      ["The phone runs Loom's file lookup first and then upstream's", "About 15 lines (and see the phone card)"],
+      ["4", "Upstream now prefixes its own “sent by an agent” note to agent-sent messages", "Skipped for pi; Loom's author labels only", "Two marked clauses"],
+      ["5", "Loom and upstream each carry an account's last good usage reading forward, under different rules", "Loom's rule only", "One function and one call"],
+      ["6", "Changed words inside a modified diff line: solid block or upstream's faint tint", "Solid", "Two CSS values"],
+      ["7", "On the phone, a tapped relative file path: Loom's lookup, upstream's, or both", "Both, Loom's first", "About 15 lines (and see the phone card)"],
+      ["8", "Upstream's lint rejects plain English UI strings; Loom's own files fail it 1,096 times", "Loom's screens stay English and are excluded from the lint", "Wrapping about 1,100 strings"],
+      ["9, 10, 11", "Upstream's agent tools for its Issues page, for sending feedback to the T3 team, for the app's theme, and `send_to_user`", "All withheld from Loom agents", "One revert, plus prose telling agents about whatever is exposed"],
+      ["12", "A pi session resumed after its worktree moved: Loom's private patch or upstream's copy of the session file", "Upstream's", "One marked line and three recorded transcripts, about an hour"],
+      ["13", "A project can now cover several Git repositories; no cockpit project does", "Left reachable, unsupported by Loom's extras", "Nothing to undo"],
     ]}
   />
 
-  **If nothing is decided:** all seven stay.
+  **If nothing is decided:** all ten stay as built.
 
-  <ReviewChoice itemId="unanswered-rulings" label="The seven stand as built" placeholder="Name any to change…" />
+  <ReviewChoice itemId="unanswered-rulings" label="The ten stand as built" placeholder="Name any card number to change…" />
 </Card>
 
 <Card
