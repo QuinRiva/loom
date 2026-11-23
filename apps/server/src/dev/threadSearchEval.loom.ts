@@ -91,8 +91,28 @@ const pct = (count: number, n: number) => `${count}/${n} (${percent(count, n)}%)
 const main = Effect.gen(function* () {
   const settings = resolveSettings();
   const sql = yield* SqlClient.SqlClient;
+  const provider = providerFromSettings(settings, NodePath.join(stateDir, "models"));
+  // The harness holds each query's vector, so a timed search measures the local work, not Vertex.
+  const queryVectors = new Map<string, Float32Array>();
+  const embedMs: Array<number> = [];
   const embedder = yield* makeThreadEmbedder(
-    Effect.succeed(providerFromSettings(settings, NodePath.join(stateDir, "models"))),
+    Effect.succeed(
+      provider && {
+        name: provider.name,
+        embed: (texts: ReadonlyArray<string>, kind: "query" | "document") =>
+          kind === "document" || texts.length !== 1
+            ? provider.embed(texts, kind)
+            : queryVectors.has(texts[0]!)
+              ? Effect.succeed([queryVectors.get(texts[0]!)!])
+              : Effect.gen(function* () {
+                  const started = performance.now();
+                  const vectors = yield* provider.embed(texts, kind);
+                  embedMs.push(performance.now() - started);
+                  queryVectors.set(texts[0]!, vectors[0]!);
+                  return vectors;
+                }),
+      },
+    ),
   );
   const sweepStarted = Date.now();
   const sweep = yield* embedder.sweep;
@@ -119,6 +139,12 @@ const main = Effect.gen(function* () {
   console.log(corpus);
   const upstream = yield* makeUpstreamThreadSearch;
   yield* search.rank("warm up query"); // first query embed loads lazily
+  // The two searches §6 of plans/thread-search-filters/plan.mdx bounds: the human screens' default
+  // and Sub-threads on. The best of three runs per query, so one GC pause does not decide it.
+  const TIMED = {
+    "human default": { scope: "roots", includeArchived: false },
+    "sub-threads on": { scope: "all", subThreadRows: true },
+  } as const;
   const SIDES = [
     "roots lexical",
     "roots semantic",
@@ -133,7 +159,7 @@ const main = Effect.gen(function* () {
   const results: Array<{
     readonly query: (typeof queries)[number];
     readonly ranks: Record<Side, number | null>;
-    readonly ms: Partial<Record<Side, number>>;
+    readonly ms: Partial<Record<Side | keyof typeof TIMED, number>>;
     readonly top: ReadonlyArray<string>;
   }> = [];
   let skipped = 0;
@@ -151,17 +177,26 @@ const main = Effect.gen(function* () {
       continue;
     }
     const ranks = {} as Record<Side, number | null>;
-    const ms: Partial<Record<Side, number>> = {};
+    const ms: (typeof results)[number]["ms"] = {};
     let top: ReadonlyArray<string> = [];
     for (const scope of ["roots", "all"] as const) {
       const ranked = yield* search.rank(query.q, { scope });
-      const [, wall] = yield* timed(search.searchThreads({ query: query.q, limit: 30, scope }));
-      ms[`${scope} fused`] = wall;
       const fused = keep(ranked.fused, query.expected)!;
       ranks[`${scope} lexical`] = rankOf(keep(ranked.lexical, query.expected), query.expected);
       ranks[`${scope} semantic`] = rankOf(keep(ranked.semantic, query.expected), query.expected);
       ranks[`${scope} fused`] = rankOf(fused, query.expected);
       if (scope === "roots") top = fused.slice(0, 5);
+    }
+    for (const [name, input] of Object.entries(TIMED) as Array<
+      [keyof typeof TIMED, (typeof TIMED)[keyof typeof TIMED]]
+    >) {
+      let best = Infinity;
+      for (let run = 0; run < 3; run++)
+        best = Math.min(
+          best,
+          (yield* timed(search.searchThreads({ query: query.q, limit: 30, ...input })))[1],
+        );
+      ms[name] = best;
     }
     const [messages, messagesMs] = yield* timed(upstream.search({ query: query.q, limit: 50 }));
     const [threads, threadsMs] = yield* timed(
@@ -211,18 +246,24 @@ const main = Effect.gen(function* () {
     }
   }
 
+  const spread = (label: string, values: ReadonlyArray<number>) => {
+    const times = values.toSorted((a, b) => a - b);
+    if (times.length > 0)
+      console.log(
+        `${label}: p50 ${times[times.length >> 1]!.toFixed(1)} ms, ` +
+          `p90 ${times[Math.floor(times.length * 0.9)]!.toFixed(1)} ms, max ${times.at(-1)!.toFixed(1)} ms`,
+      );
+  };
+  spread(`embedding call alone (${embedMs.length} queries)`, embedMs);
   for (const side of [
-    "roots fused",
-    "all fused",
+    ...(Object.keys(TIMED) as Array<keyof typeof TIMED>),
     "upstream search",
     "upstream searchThreads",
-  ] as const) {
-    const times = results.map((r) => r.ms[side] ?? 0).toSorted((a, b) => a - b);
-    console.log(
-      `${side} wall time: p50 ${times[times.length >> 1]!.toFixed(1)} ms, ` +
-        `p90 ${times[Math.floor(times.length * 0.9)]!.toFixed(1)} ms, max ${times.at(-1)!.toFixed(1)} ms`,
+  ] as const)
+    spread(
+      `${side} wall time`,
+      results.map((r) => r.ms[side] ?? 0),
     );
-  }
   console.log(`skipped ${skipped}`);
   // Per query, the top-5 hits each ranker has that another lacks.
   const within5 = (rank: number | null) => rank !== null && rank <= 5;
