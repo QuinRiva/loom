@@ -217,7 +217,9 @@ export const workstreamSubtitle = (rollup: WorkstreamRollup) => {
   const flagged = workstreamBadgeOf(rollup).flagged;
   return join(
     "Workstream",
-    `${rollup.plan.columns.done + rollup.plan.columns.cancelled}/${rollup.plan.total} settled`,
+    // A goal's root before its first sub-thread has nothing to settle.
+    rollup.plan.total > 0 &&
+      `${rollup.plan.columns.done + rollup.plan.columns.cancelled}/${rollup.plan.total} settled`,
     rollup.activity.running > 0 && `${rollup.activity.running} running`,
     flagged > 0 && `${flagged} flagged`,
     rollup.plan.deadlocked !== null && "deadlocked",

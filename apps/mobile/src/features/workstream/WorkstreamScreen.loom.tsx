@@ -13,7 +13,7 @@ import { AppBar } from "../../components/ui/AppBar";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { WorkspaceEmptyDetail } from "../layout/WorkspaceEmptyDetail";
-import { WorkstreamBody } from "./WorkstreamBody.loom";
+import { WorkstreamTabbedBody } from "./WorkstreamTabs.loom";
 import { workstreamSubtitle } from "./workstreamCopy.loom";
 import { openWorkstreamChild, type WorkstreamRouteParams } from "./workstreamNavigation.loom";
 import { workstreamKey, workstreamViewAtom } from "./workstreamView.loom";
@@ -54,7 +54,7 @@ export function WorkstreamScreen({
         <WorkspaceEmptyDetail />
       ) : (
         <ScreenContent>
-          <WorkstreamBody
+          <WorkstreamTabbedBody
             environmentId={environmentId}
             rootThreadId={rootThreadId}
             selectedThreadId={null}

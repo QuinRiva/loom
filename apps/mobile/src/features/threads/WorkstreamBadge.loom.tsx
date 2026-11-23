@@ -2,22 +2,27 @@
  * loom: a root row's sub-thread rollup badge, web's `LoomRollupBadge` without its popover: settled
  * over total sub-threads, coloured by `workstreamBadgeTone`, with `· N!` when sub-threads wait on
  * the human. One badge map per environment (`workstreamBadgesAtom`, over the index the workstream
- * screen shares); a row re-renders only when its own badge changes.
+ * screen shares); a row re-renders only when its own badge changes. Also the goal's tasks count.
  */
 import { useAtomValue } from "@effect/atom-react";
 import type {
   WorkstreamBadge,
   WorkstreamBadgeTone,
 } from "@t3tools/client-runtime/state/loom/rollup";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, GoalId, ThreadId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
-import { Pressable } from "react-native";
+import { Pressable, View } from "react-native";
 
+import { RenderErrorBoundary } from "../../components/RenderErrorBoundary";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { cn } from "../../lib/cn";
 import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context";
-import { openWorkstream } from "../workstream/workstreamNavigation.loom";
+import {
+  openWorkstreamTasks,
+  openWorkstreamUnmarked,
+  useGoalTaskCount,
+} from "../workstream/workstreamGoal.loom";
 import { workstreamBadgesAtom } from "../workstream/workstreamView.loom";
 import {
   THREAD_LIST_V2_MONO_FONT as MONO_FONT,
@@ -74,7 +79,7 @@ export function WorkstreamBadgeView(props: {
         props.badge.flagged > 0 ? `, ${props.badge.flagged} need you` : ""
       }`}
       onPress={() =>
-        openWorkstream(props.environmentId, props.threadId, { split: layout.usesSplitView })
+        openWorkstreamUnmarked(props.environmentId, props.threadId, { split: layout.usesSplitView })
       }
       // Handle long-press so opening the row menu cannot also open the workstream on release.
       onLongPress={() => undefined}
@@ -102,5 +107,109 @@ export function WorkstreamBadgeView(props: {
         {props.badge.flagged > 0 ? ` · ${props.badge.flagged}!` : null}
       </Text>
     </Pressable>
+  );
+}
+
+/** The goal's `done/total` in a bordered pill, green when all are done; opens the screen on Tasks. */
+function GoalTasksCountView(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+  readonly goalId: GoalId;
+  readonly selected: boolean;
+  readonly mutedTextClassName: string;
+  readonly mutedTintClassName: string;
+}) {
+  const count = useGoalTaskCount(props.environmentId, props.goalId);
+  const { layout } = useAdaptiveWorkspaceLayout();
+  if (!count) return null;
+  const all = count.done === count.total;
+  return (
+    <Pressable
+      // Grown only vertically, and spaced past the badge's grown touch area, so the two never overlap.
+      className="-my-2.5 ml-1 py-2.5"
+      accessibilityRole="button"
+      accessibilityLabel={`Open tasks, ${count.done} of ${count.total} done`}
+      onPress={() =>
+        openWorkstreamTasks(props.environmentId, props.threadId, { split: layout.usesSplitView })
+      }
+      // Handle long-press so opening the row menu cannot also open the tasks on release.
+      onLongPress={() => undefined}
+      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+    >
+      <View
+        className={cn(
+          "flex-row items-center gap-1 rounded-full border px-2 py-px",
+          all ? "border-adaptive-emerald-600-400" : "border-border",
+        )}
+      >
+        <SymbolView
+          name="checkmark.circle"
+          size={12}
+          tintColorClassName={
+            props.selected
+              ? selectedThreadRowColors.mutedIconTintClassName
+              : all
+                ? "accent-adaptive-emerald-600-400"
+                : props.mutedTintClassName
+          }
+        />
+        <Text
+          className={cn(
+            "text-xs tabular-nums",
+            props.selected
+              ? selectedThreadRowColors.mutedForegroundClassName
+              : all
+                ? "text-adaptive-emerald-600-400"
+                : props.mutedTextClassName,
+          )}
+          style={{ fontFamily: MONO_FONT }}
+        >
+          {count.done}/{count.total}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/**
+ * A Home row's ways into its workstream: the sub-thread badge and the goal's tasks count (a
+ * top-level row whose goal the snapshot holds and has a task). A count that fails to render drops
+ * itself, not the row.
+ */
+export function WorkstreamRowEntries(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+  readonly badge: WorkstreamBadge | null;
+  /** The row's Loom goal when it is a top-level thread, else null. */
+  readonly goalId: GoalId | null | undefined;
+  readonly selected: boolean;
+  readonly mutedTextClassName: string;
+  readonly mutedTintClassName: string;
+}) {
+  return (
+    <>
+      {props.badge ? (
+        <WorkstreamBadgeView
+          environmentId={props.environmentId}
+          threadId={props.threadId}
+          badge={props.badge}
+          selected={props.selected}
+          mutedTextClassName={props.mutedTextClassName}
+          mutedTintClassName={props.mutedTintClassName}
+        />
+      ) : null}
+      {props.goalId ? (
+        <RenderErrorBoundary renderFallback={() => null}>
+          <GoalTasksCountView
+            environmentId={props.environmentId}
+            threadId={props.threadId}
+            goalId={props.goalId}
+            selected={props.selected}
+            mutedTextClassName={props.mutedTextClassName}
+            mutedTintClassName={props.mutedTintClassName}
+          />
+        </RenderErrorBoundary>
+      ) : null}
+    </>
   );
 }

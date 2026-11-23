@@ -1,0 +1,618 @@
+---
+reader:
+  who: the review gate checking this plan against the approved intent brief beside it, then the coders who build from it with none of the planning context
+  knows: the intent brief and its three pictures, and the web Tasks panel; not the mobile codebase, the measurements, or that no agent can run the Android app on this machine
+  after_first_screen: "Two coder pieces in sequence and a delivery step build the brief's Tasks tab with nothing new from the server and one edited hunk in one upstream source file. The plan narrows four Assumed lines and reads two must-nots as being about behaviour. No agent can run the app today, so the on-screen checks are Carl's unless he turns on one VM setting, which is the one question at the end."
+kicker: "Implementation plan · mobile goal tasks · 24 Nov 2026"
+status: done
+intent: plans/mobile-goal-tasks/intent.mdx
+manager_sessions:
+  - id: 01a20a78-d8ca-7716-8ebd-9c8f2bbd4c4d
+    name: Tasks tab implementation plan
+    role: plan
+    authored_at: 2026-11-23T22:39:54.845Z
+---
+
+# Build the phone's Tasks tab in two pieces; nothing new from the server, and its first live run is Carl's phone unless one VM setting changes
+
+Build the brief's read-only Tasks tab as **two coder pieces in sequence and one delivery step**. Everything the tab draws already reaches the phone. Goals and their task trees arrive on the connection that feeds the Home list, and so does an agent's tick, within the same second. The work is reading that data and drawing it. All of it lands in Loom-owned mobile files, apart from **one edited hunk in one upstream source file** and one export line.
+
+One pure function decides which rows the tab shows: finished tasks collapsed, counts, owning threads. Its rules were run against **all 449 real goals**. The typical goal opens on 3 rows and 9 in 10 on 12 or fewer. The 435-task goal opens on 279, in a list that only draws the rows on screen.
+
+<Stats
+  items={[
+    { value: "2 + 1", label: "Coder pieces + delivery", tone: "info", detail: "Logic and the shared helpers first, then everything on screen, then one PR and one APK" },
+    { value: "0", label: "Server or wire changes", tone: "success", detail: "Goals, tasks and live updates already reach the phone; nothing under apps/server or packages/contracts changes" },
+    { value: "1", label: "Upstream source file touched", tone: "success", detail: "The Home row's existing marked hunk in thread-list-v2-items.tsx; every other change is in a Loom-owned file" },
+    { value: "279 of 435", label: "Rows the largest goal opens on", tone: "info", detail: "Measured on its real tree; median goal 3 rows, 90th percentile 12" },
+    { value: "0", label: "Devices an agent can run", tone: "risk", detail: "No emulator runs on this VM without one setting only Carl can change; tested again today" },
+  ]}
+/>
+
+<Callout tone="decision" title="What the gate should check first" focus>
+  **Where the plan touches the brief**, each argued in §2. Four Assumed lines are narrowed:
+
+  - "has a goal" is read as "has a goal with at least one task";
+  - the Home count shows for goals the phone already holds;
+  - the tab you last used is remembered until the app restarts;
+  - three details drawn in the mockup but never put to Carl are settled here.
+
+  Two must-nots are read as being about behaviour. Two small helpers move out of web. A finished workstream, which cannot be opened on the phone today, shows its sub-threads on Graph.
+
+  **How it is verified.** Agents can test the row rules, render them from real goals in a browser, typecheck, and build the APK. They cannot open the app: the Android emulator refuses to start on this VM. Every check in the brief that needs a screen is therefore Carl's, on his phone. The exception is a yes to the one question in §10: an agent then runs the cover-width and unfolded checks first. The build does not wait on his answer.
+
+  <Badge tone="warning">4 Assumed lines narrowed</Badge> <Badge tone="info">2 must-nots read as behaviour</Badge> <Badge tone="risk">on-screen checks: Carl, unless §10 is yes</Badge>
+</Callout>
+
+<Columns columns={2}>
+  <Image src="shots/cover-tasks.png" alt="The approved Tasks tab on the cover display: a Graph and Tasks switch under the header, a needs-you card, the goal's title, objective and 9/31 done, then the open tasks with finished ones collapsed" caption="The approved design, unchanged by this plan." width={360} />
+  <Card heading="Scope, and what done means" tone="info">
+    **In:** the Graph | Tasks switch and the Tasks tab with its goal block, To do / All, tree and owning threads. The tasks count on the Home row. The workstream button for a goal with no sub-threads. The task named under a sub-thread's header, and the marked task when unfolded.
+
+    **Out, as the brief says:** any edit from the phone, a Tasks button in the thread header, the panel over the thread, a goal screen, the composer's pill, filtering the Graph by task, a rail item. Also not built: web's list of every thread on the goal under the tree. The brief does not mention it and the Graph tab covers it.
+
+    **Done means:** the static checks and the row rules' tests pass. The rows rendered from three real goals match the reference counts in §3. Web's goal panel renders as before. One PR is open and a release APK builds. Carl has tried the brief's checks on his phone.
+
+    One question at the end, for Carl. It does not hold the build.
+  </Card>
+</Columns>
+
+## 1. The build at a glance
+
+<Table
+  density="compact"
+  columns={["Piece", "What it delivers", "Builds on", "What an agent can verify"]}
+  rows={[
+    [
+      { badge: { label: "1 · Logic", tone: "info" }, md: "first, alone" },
+      "The shared helpers moved out of web; the row rules as one pure function; the atoms the tab, the Home count and the header line read; the tab's in-memory state and its openers",
+      "`createLoomGoalAtoms` (shared, only web instantiates it today), web's `countGoalTasks` and `anchoredThreadsByTask`, the workstream screen's per-environment index",
+      "The row rules' tests; the rules run on three real goals and rendered to a page at 412 and 320 px; reference row counts match; web's goal panel fixture renders identically"
+    ],
+    [
+      { badge: { label: "2 · Screen", tone: "info" }, md: "after 1" },
+      "The switch, the Tasks list and its rows, the Home count, the header button and line, the marked task and the jump to a task",
+      "`WorkstreamBody` unchanged as the Graph tab, `WorkstreamCards`, `rowCopy`, `LegendList`, the Home badge's press pattern, `WorkstreamBreadcrumb`",
+      "Typecheck, lint, bundle. Nothing on screen unless §10 is yes"
+    ],
+    {
+      tone: "warning",
+      cells: [
+        { badge: { label: "Delivery", tone: "warning" }, md: "after 2" },
+        "One feature PR, a branch APK with updates off, the checks handed to Carl; a device pass first if an emulator exists by then",
+        "`docs/operations/loom-android-apk.md`; the `test-t3-mobile` skill",
+        "The static gates; the APK's manifest; with a device, the checks in §8 marked for it"
+      ]
+    }
+  ]}
+/>
+
+Piece 2 is one coder by default. It splits cleanly if speed matters, into the tab (three new files and a one-line swap in two) and the ways in (the Home row, the badge file, the header line). The two share no files, and both only read what piece 1 wrote. Rough size: 800 to 1,000 new lines under `apps/mobile`, about 30 moved from `apps/web` to `packages/client-runtime`. No new dependency and no native change.
+
+No earlier plan is replaced. This is the follow-on `plans/mobile-workstream-view/plan.mdx` reserved; it replaces one line of that plan, "No Tasks control is shown", and nothing else in it.
+
+## 2. Where the plan touches the brief
+
+<Card heading="“Has a goal” is read as “has a goal with at least one task”" tone="warning" badge="ASSUMED LINES · NARROWED" meta={["55 of 202 recent goal threads have no tasks", "applies to the switch, the header button and the Home count"]}>
+
+> "The workstream button shows whenever a thread has a goal" · "A workstream whose root thread has no goal gets no switch"
+
+Of the 213 top-level threads created in the last 30 days, 202 have a goal and **55 of those goals have no tasks**. Loom derives a goal for a top-level thread from its first run or two, before anyone writes a task. Read literally, those threads would gain a workstream button and a Tasks tab that says "No tasks yet". So the switch, the extra case for the header button, and the Home count all appear when the goal has at least one task.
+
+The brief's check still passes for every goal that has something to show: "a thread that has a goal but no sub-threads yet has the workstream button in its header, and it opens on Tasks". 5 recent threads are in that state today.
+
+</Card>
+
+<Card heading="The Home count shows for goals the phone already holds" tone="warning" badge="CHECK · NARROWED AT ONE EDGE" meta={["every unsettled thread and the 25 most recently settled", "no request per row"]}>
+
+> "On Home, a goal's row shows its tasks count"
+
+The connection that fills the Home list carries the goal of every thread it carries. That is every unsettled thread, the 25 most recently settled, and every top-level thread of a goal that still has unsettled work. A row from further back, paged in from the older-settled shelf, arrives without its goal. Counting it would cost one request per row while scrolling history, against "must not slow the Home list". Such a row shows no count. Its thread's header button still opens the screen on Tasks, because one opened thread can afford the one request (`loom.goal.get`, an existing method).
+
+</Card>
+
+<Card heading="The tab you last used is remembered until the app restarts" tone="warning" badge="ASSUMED LINE · NARROWED" meta={["same lifetime as the Graph's folds and scroll position"]}>
+
+> "After that it opens on the tab you last used for that workstream."
+
+The choice lives in memory, per workstream, beside the Graph's open folds and scroll position, which already reset on restart. Persisting it means a stored map that grows by one entry per workstream ever opened. If Carl misses it after a restart, that is a small follow-up, not a redesign.
+
+</Card>
+
+<Card heading="Three details drawn in the mockup that Carl was never asked about" tone="info" badge="ASSUMED · AS DRAWN" meta={["confirmed with the designer", "redirect if wrong"]}>
+
+The brief says "the detail is as drawn". The designer confirmed what each drawn element was meant to do, and that none was put to Carl:
+
+- **A phase folds.** A task with sub-tasks is drawn with a chevron. Tapping the chevron's side of the row folds its subtree to that one row and its count; tapping the text shows the full text. Nothing starts folded, and there is no size rule for large goals.
+- **A lone top-level task is a caption.** 70 of the 449 goals have exactly one top-level task, which restates the goal. It is one line above the tree, and its sub-tasks start at the left edge. On All, order is the web panel's; those sub-tasks sit one indent step shallower than on web.
+- **An open task is never hidden.** A ticked task with something open beneath it (110 tasks in 35 goals) stays a visible row. So does a ticked task whose thread is still running or waiting on Carl. The mockup's code would have folded both; its goals did not have the case.
+
+</Card>
+
+<Card heading="“Must not change web, the Graph tab or the cards” is read as their behaviour" tone="info" badge="MUST-NOT · WORDING" meta={["web renders identically", "Graph and cards: no file edited"]}>
+
+**Web.** Two helpers, 27 lines, move to the shared package and web imports them from there (§5). What web draws is unchanged, and every web file touched is Loom-only. The workstream view's plan read the same words the same way.
+
+**Graph and cards.** `WorkstreamBody.loom.tsx`, `WorkstreamCards.loom.tsx` and `WorkstreamLaneRow.loom.tsx` are not edited. One thing the Graph shows does change.
+
+The phone's connection leaves out the sub-threads of a finished workstream, and today nothing loads them. Such a workstream has no badge and no header button, so it cannot be opened at all. Once the header button appears for its goal, the screen would open and its Graph would say "No sub-threads yet" about a workstream that had fifty. The screen therefore loads that workstream's sub-threads while it is open, as web does. <Sidenote>`threadFamilies.mount`, an existing request; web's hook is `apps/web/src/loom/useLoomThreadFamily.ts`.</Sidenote> For any workstream that can be opened today, nothing differs.
+
+</Card>
+
+<Table
+  density="compact"
+  columns={["", "The brief says", "This plan", "Why"]}
+  rows={[
+    [
+      { badge: { label: "answered", tone: "success" } },
+      "Check: an agent ticks a task; the phone shows it within a couple of seconds, also over the tunnel",
+      "Nothing to wire. The tab reads an atom that already updates.",
+      "§4: a tick is published to every connected client on the connection the Home list uses, over every transport."
+    ],
+    [
+      { badge: { label: "measured", tone: "success" } },
+      "Still unknown: does the 435-task goal open and scroll smoothly?",
+      "It opens on 279 rows in a list that draws only what is on screen; the rules cost under a millisecond on it. Smooth on his phone stays Carl's to see.",
+      "§3 and §4."
+    ],
+    [
+      { badge: "carried" },
+      "Still unknown: do the count and the badge both fit and hit well on a 412 dp Home row?",
+      "Built as drawn, with the two touch areas kept from overlapping. Seen first on a device.",
+      "Width and thumb reach cannot be judged from code. If it fails, the number without its own tap goes back to Carl, as the brief says."
+    ],
+    [
+      { badge: "carried" },
+      "Still unknown: what Carl's first run of the workstream screen changes",
+      "The switch is one row between the header and the list; a change to either moves it.",
+      "Nobody has seen that screen on a device yet."
+    ],
+    [
+      { badge: "kept" },
+      "“The cards' Answer and Accept done, and the long-press menu on a thread's row, work on Tasks as they do on Graph”",
+      "The same `WorkstreamCards` component heads the Tasks list; a thread row under a task opens the same sheet on long-press.",
+      "Reused, not rebuilt."
+    ],
+    [
+      { badge: "kept" },
+      "“Read-only”",
+      "No file in this build imports a goal write command, and a task row has no long-press.",
+      "Checked in §8 by a search of the mobile source."
+    ],
+    [
+      { badge: "kept" },
+      "“Android only is verified”",
+      "The tabbed body also replaces the body iOS draws; unbuilt and unseen there.",
+      "As with the workstream view."
+    ]
+  ]}
+/>
+
+## 3. What the tab shows: the row rules
+
+The tab is a flat list of rows computed from the goal's tree. One pure function decides the rows; the components only draw them. This is the part worth getting exactly right, because a mistake here hides work that is left.
+
+```text
+kind      row                                                              right
+caption   ○ Production GraphtusEnricher, built in small PRs Carl wa…
+task      ▾ First chunk: Stage 1 document typing from the doc tree…        5/20
+run         ✓ Intent brief covering the three phases, re-approved…         ▸
+task        ▾ Phase 1: basic typing from each document's summary…          3/10
+run           ✓ 3 finished                                                  ▸
+task          ▾ Carl rules on about 20 typed documents with a helper…       0/1
+task            ○ Offer "what the type extracts" and "is usually part…
+task          ○ Add building 1669 (Investa) to the documents typing is…
+thread          ● Doc-type Jira tickets with Carl        Needs you · 12m
+task        ▾ Phase 1b: measure which summary types best for its size…     1/3
+thread          ● Text-carrying summary on short forms   coder · bash · 3m
+```
+
+This is the real 31-task goal from the brief's pictures, on To do, as the function below orders it. The two thread rows have their state set, as in the mockup.
+
+### The rules
+
+1. **Order is the tree's own**: depth first, siblings in their stored order. That is the walk web's `TaskTree` does, so All lists every task in web's order.
+2. **A lone top-level task that has sub-tasks is a caption**: one line, with its ring or tick, and its sub-tasks start at depth 0. Any other goal starts at depth 0 with its top-level tasks.
+3. **On To do, a run of finished siblings is one row.** A task is _finished_ when it is ticked, every task beneath it is ticked, and no thread on it or beneath it is still live. The row reads `N finished`, where N counts every task in those subtrees. A run that is a single task with no sub-tasks shows that task's text on one muted line.
+4. **A ticked task that is not finished stays an ordinary row**, ticked and muted, with its count; its finished sub-tasks fold as in rule 3.
+5. **A run opens in place.** Tapped, its row stays as a heading with the chevron down, followed by its tasks as All would show them. Tapped again, it closes.
+6. **On All there are no runs.** Every task is a row. Finished ones are ticked and muted, not struck through.
+7. **A task with sub-tasks** is bold, cut at two lines, and carries `done/total` over the tasks beneath it, itself excluded. Tapping the left of the row, where the chevron sits, folds its subtree to that one row on either filter.
+8. **A task without sub-tasks** is cut at three lines. Tapping any task's text shows it in full; tapping again cuts it.
+9. **Under a task, its owning threads.** Each live thread is a two-line row: title and age or flag, then role and state, the same words the Graph's row uses. Then the finished ones. Exactly one, with no live thread beside it, is one muted line reading `title · role` that opens it. Otherwise the line reads `N threads finished` and opens in place to those lines.
+10. **One task can be marked** (`THIS THREAD'S TASK`, tinted). Unfolded, it is the task of the thread open on the right. On the cover screen, it is the task you arrived at from a thread's header line.
+11. **Indent is 15 dp a level, every level.** The deepest real tree is 9 levels, 7 indent steps once its lone top task is a caption, which leaves about 250 dp for text at 412 dp.
+
+A thread is _live_ when it has no outcome yet or carries a flag: `node.outcome === null || node.reasons.length > 0`. A task's owning threads are the non-archived threads the phone holds whose `workstream.goalId` is this goal and whose `workstream.anchorTaskId` is the task, oldest first. That is web's rule, moved to the shared package in §5.
+
+Above the rows, as the list's header, come the needs-you cards and then the goal block. The goal block is the goal's title, its objective cut at two lines until tapped, a progress bar with `9/31 done · 22 to go`, and the To do / All switch with its counts. To do is `total − done` and All is `total`, from the same `countGoalTasks` web's badge uses.
+
+### What the real goals need
+
+<Table
+  density="compact"
+  align={["left", "left", "left", "left"]}
+  columns={["Goals measured", "Rows on To do", "Rows on All", "Depth"]}
+  rows={[
+    ["All 449 goals with tasks", "median 3, 90th percentile 12, 95th 20, most 279", "median 9, 90th percentile 29, most 435", "median 2, 95th percentile 3, most 9"],
+    { tone: "neutral", cells: ["Pull 16 post-deploy verification session (9 tasks, 7 done): a typical goal", "4, of which 2 are runs", "9", "2"] },
+    { tone: "neutral", cells: ["Production GraphtusEnricher build plan (31 tasks, 9 done): the brief's large goal", "26, of which 4 are runs", "31", "5"] },
+    { tone: "neutral", cells: ["Mirvac audit via doc-tree: plan (435 tasks, 211 done): the largest", "279, of which 52 are runs", "435", "9"] }
+  ]}
+/>
+
+Counts are task rows before owning-thread rows are added, read from the live database on 24 November; the two live goals will drift by a row or two. Three goals open on more than 60 rows and one on more than 100. The typical goal's 4 rows fit the cover screen under the header, a card and the goal block, which is the brief's "open tasks are on screen without scrolling".
+
+### The contract
+
+```ts
+// apps/mobile/src/features/workstream/goalTaskRows.loom.ts
+export type TaskFilter = "todo" | "all";
+
+export type GoalTaskRow =
+  | { kind: "caption"; key: string; taskId: string; text: string; done: boolean }
+  | { kind: "task"; key: string; taskId: string; depth: number; text: string; done: boolean;
+      count: { done: number; total: number } | null;      // null without sub-tasks
+      folded: boolean; fullText: boolean; marked: boolean }
+  | { kind: "run"; key: string; depth: number; label: string; open: boolean }
+  | { kind: "thread"; key: string; threadId: ThreadId; depth: number; quiet: boolean }
+  | { kind: "threads"; key: string; depth: number; count: number; open: boolean };
+
+export function goalTaskRows(input: {
+  tasks: ReadonlyArray<LoomGoalTask>;
+  filter: TaskFilter;
+  /** What the person opened or folded: "fold:<taskId>", "run:<first taskId>", "text:<taskId>", "threads:<taskId>". */
+  toggled: ReadonlySet<string>;
+  threadsByTask: ReadonlyMap<string, ReadonlyArray<{ id: ThreadId; live: boolean }>>;
+  markedTaskId: string | null;
+}): ReadonlyArray<GoalTaskRow>;
+
+/** `toggled` without the folds that hide `taskId`, so a jump to it lands on a visible row. */
+export function unfoldTo(tasks: ReadonlyArray<LoomGoalTask>, taskId: string,
+  toggled: ReadonlySet<string>): ReadonlySet<string>;
+```
+
+Keys are the task id, `run:` plus the run's first task id, and `thread:` plus the thread id, so a row keeps its identity when a neighbour is ticked. The function reads structure only. What a thread row says (step, age, flag) is read from the thread at render, so a running step ticking over never re-runs it.
+
+<Details summary="The reference: rules 1 to 4 and 6 as 30 lines of Python, for the coder to check the TypeScript's row counts against">
+
+Save as `task_rows.py`, run anywhere on the cockpit VM with one or more goal ids. It opens the live database read-only. It ignores owning threads, folds and opened runs, so it gives the task-row counts in the table above.
+
+```python
+import collections, os, sqlite3, sys
+con = sqlite3.connect(f"file:{os.path.expanduser('~')}/.t3/cockpit/userdata/statev2.sqlite?mode=ro", uri=True)
+
+def load(goal_id):
+    rows = con.execute("""select task_id, parent_task_id, text, done from loom_goal_tasks
+        where goal_id = ? and deleted_at is null order by position""", (goal_id,)).fetchall()
+    ids, kids = {r[0] for r in rows}, collections.defaultdict(list)
+    for r in rows: kids[r[1] if r[1] in ids else None].append(r)
+    build = lambda r: dict(id=r[0], text=r[2], done=bool(r[3]), kids=[build(k) for k in kids[r[0]]])
+    return [build(r) for r in kids[None]]
+
+def size(task): return 1 + sum(size(k) for k in task["kids"])
+def finished(task): return task["done"] and all(finished(k) for k in task["kids"])
+
+def rows(tasks, todo, depth=0, top=True):
+    if top and len(tasks) == 1 and tasks[0]["kids"]:          # rule 2: a lone top-level task is a caption
+        return [("caption", 0, tasks[0]["text"])] + rows(tasks[0]["kids"], todo, 0, False)
+    out, i = [], 0
+    while i < len(tasks):
+        task = tasks[i]
+        if todo and finished(task):                             # rule 3: a run of finished siblings is one row
+            j = i
+            while j < len(tasks) and finished(tasks[j]): j += 1
+            n = sum(size(t) for t in tasks[i:j])
+            out.append(("run", depth, task["text"] if n == 1 else f"{n} finished")); i = j
+            continue
+        out.append(("task", depth, task["text"]))               # rule 4: ticked but not finished stays a row
+        out += rows(task["kids"], todo, depth + 1, False)
+        i += 1
+    return out
+
+for goal_id in sys.argv[1:]:
+    tasks, title = load(goal_id), con.execute("select title from loom_goals where goal_id = ?", (goal_id,)).fetchone()[0]
+    todo, everything = rows(tasks, True), rows(tasks, False)
+    print(f"{title}: To do {len(todo)} rows ({sum(r[0] == 'run' for r in todo)} runs) | All {len(everything)} rows")
+```
+
+The three goals in the table: `goal:emergent:thread:776f8a6d-54e8-49d9-97af-a9c9d76d7f98` (typical), `goal:emergent:3206ef0c-e52d-470c-a607-30280434c9a0` (31 tasks), `goal:1368ff00-e601-782f-6e88-3519fe7ec8ed` (435 tasks).
+
+</Details>
+
+## 4. What the phone reads, live updates, and what it costs
+
+**One source, already there.** The phone's connection is the shared one in `packages/client-runtime/src/state/shell.ts`, which asks every Loom server for goals. The snapshot it holds has a `goals` array beside `threads`. When any goal changes, the server sends the whole goal as a `goal.updated` item, and `applyLoomGoalItem` replaces it in that array. <Sidenote>`packages/client-runtime/src/state/shellGoals.loom.ts`; the server side is `LoomGoalBroadcast`, published to by the agents' task tools in `apps/server/src/mcp/toolkits/workstream/handlers/shared.ts` and by web's edits in `apps/server/src/loom/wsMethods.ts`.</Sidenote> The phone receives and stores all of this today and draws none of it.
+
+**Live updates need no wiring.** An agent's tick is published after its write and reaches every connected client on that same connection. The tab reads an atom derived from the snapshot, so the row turns to a tick and the counts move when the item lands. The tunnel and the relay carry the same socket as the tailnet. So the brief's "the same holds over the tunnel" is the claim that the Home list updates over the tunnel, which it does today. Only a phone off the home network can confirm it on screen.
+
+<Table
+  density="compact"
+  columns={["Surface", "Reads", "Recomputes when", "Re-renders"]}
+  rows={[
+    ["Home row count", "`goalCountAtom` per row, over one `goalCountsAtom` map per environment built from `snapshot.goals`", "A goal changes. Thread events, which arrive several times a second, do not touch it: the map hangs off the `goals` array, whose identity only changes with a goal item", "A row only when its own two numbers change"],
+    ["Tasks tab", "One `goalTasksViewAtom` for this environment and root: the goal, and the owning threads by task as shared `WorkstreamNode`s", "This goal changes, or a thread in the environment changes. Nodes keep their identity while their fields are equal, as the Graph's do", "The rows whose text, tick, count or thread state changed. Row components compare by value"],
+    ["The row rules", "The goal's tasks, the filter, what is toggled, which threads are live", "A tick, an added or removed task, a thread settling, a tap on a fold or the filter", "The list's row set"],
+    ["Header button and the line under a sub-thread's header", "`workstreamCrumbAtom`, which now also reads this thread's goal", "A shell change or a change to that goal", "Only when the root's title, the flagged count or the task's text changes"]
+  ]}
+/>
+
+**The 435-task goal.** Three things keep it smooth, and one is unchanged by this build:
+
+- The list is a `LegendList`, the virtualised list the Graph and the Home list use. It mounts the rows on screen and a margin, whether the goal has 9 tasks or 435. Rows give it their kind through `getItemType`, so it recycles like with like.
+- The row rules are one walk of the tree. On the 435-task goal the Python reference takes 0.5 ms; piece 1 times the TypeScript the same way (§7). They run on a change to the goal or a tap, never on scroll.
+- A tick repaints the changed rows only. Every `goal.updated` carries the whole goal with new object identities, so rows are compared by value, not identity.
+- Unchanged: each tick of that goal arrives as the whole goal, about 0.2 MB. The phone already receives and decodes it today whether or not the tab is open.
+
+**A goal the phone does not hold.** `createLoomGoalAtoms` already answers this. Its `goalAtom` returns the goal from the snapshot, else asks once with `loom.goal.get` and caches the answer. A later change arrives on the stream and joins the snapshot. The tab and the header button use `goalAtom`. The Home row uses only what the snapshot holds, as §2 argues.
+
+**Owning threads the phone does not hold.** The 435-task goal's 408 threads sit under 30 top-level threads. The tab shows the owning threads of the workstream it is opened on (loaded while the screen is open, §2) and of every other unsettled one. Threads under other finished workstreams of the same goal are absent. Web's panel has the same limit.
+
+## 5. Shared logic: what moves
+
+<Callout tone="decision" title="Move the two rules both clients need; keep the row rules in mobile">
+  Web and the phone must agree on two things: **how many tasks are done**, and **which threads own a task**. Those are `countGoalTasks` in `apps/web/src/loom/loomGoalState.ts` and `anchoredThreadsByTask` in `apps/web/src/loom/TaskThreadChips.tsx`, 27 lines with no JSX. They move to a new `packages/client-runtime/src/state/loom/goalTasks.ts`, beside `goals.ts`, and both clients import them from there. Collapsing runs and per-task rows are how the phone draws the tree; web does not use them, so they live in mobile, as the lane layout does.
+</Callout>
+
+<Table
+  density="compact"
+  columns={["In the shared goalTasks.ts", "Shape", "Web after the move"]}
+  rows={[
+    ["`countGoalTasks(tasks)`", "Unchanged", "`GoalTasksPanel.tsx` imports it from the shared module; `loomGoalState.ts` loses it"],
+    ["`anchoredThreadsByTask(threads, goalId, read)`", "Generic over the thread type: `read` returns a thread's `workstream`, whether it is archived and its creation time as a string. Web's threads and the phone's are different types, so the rule takes an accessor instead of a type", "`TaskThreadChips.tsx` keeps a three-line wrapper that passes web's accessor and its environment filter, so `GoalTasksPanel.tsx`'s call does not change"],
+    ["`findGoalTask(tasks, taskId)`", "New, six lines: the task a sub-thread is on, for the header line", "Not used by web"]
+  ]}
+/>
+
+The module imports types only, so the real-data check in §7 can load it with plain `node`. One trap carried from the workstream build: the phone's JavaScript engine lacks `toSorted`, which `anchoredThreadsByTask` uses today; the shared version copies and sorts. Assume the same of the other newer helpers (`toReversed`, `toSpliced`, `Object.groupBy`) in any file the phone runs, unless the mobile source already uses one.
+
+`createLoomGoalAtoms` needs no change. Mobile instantiates it once, as web does in `loomGoalState.ts`, with the phone's runtime and `threadEnvironment.snapshotAtom`.
+
+## 6. The screen, its state and the ways in
+
+**One wrapper, the Graph untouched.** A new `WorkstreamTabs.loom.tsx` takes the props `WorkstreamBody` takes. With no goal, or a goal with no tasks, it renders `WorkstreamBody` and nothing else: today's screen. Otherwise it renders the switch (`Graph`, `Tasks 9/31`) fixed above the list, then `WorkstreamBody` or the new `WorkstreamTasksBody`. Only the shown tab is mounted. `WorkstreamScreen.loom.tsx` and `WorkstreamSidebarPane.loom.tsx` each swap one element, so the cover screen and the unfolded left pane gain the tab together.
+
+**The Tasks list** mirrors the Graph's: a `LegendList` whose header starts with the same `WorkstreamCards`, then the goal block and the filter. A thread row opens the thread with `openWorkstreamChild`, and `openWorkstreamNodeSheet` on long-press. The sheet is given the thread's own root id, since an owning thread can sit under another workstream of the goal. A task row has no long-press.
+
+<Table
+  density="compact"
+  columns={["State, per workstream", "Values", "Lifetime", "Written by"]}
+  rows={[
+    ["Tab", "`graph`, `tasks`, or not yet chosen", "In memory, as the Graph's folds are", "The switch; the Home count and a task jump set it to `tasks`"],
+    ["Filter", "`todo` (the start), `all`", "In memory", "The To do / All switch; a jump to a finished task sets `all`"],
+    ["Toggled", "The set of keys in §3's contract", "In memory", "Taps on runs, chevrons, text and finished-thread lines"],
+    ["Focus", "A task id, and whether the list still owes a scroll to it", "In memory; the scroll is consumed once", "A tap on the task named under a sub-thread's header"],
+    ["Scroll offset", "A number, under its own key beside the Graph's", "In memory, the existing `rememberScrollOffset` map", "The list's scroll"]
+  ]}
+/>
+
+All of it sits in the tier `docs/architecture/loom-ui-state-tiers.md` gives the chat timeline's scroll. It survives remounts, the swap between the full screen and the left pane, and a visit to a thread. It resets on restart. That is what makes "Back returns you to the same spot" and "folding and unfolding keeps both" true. On the cover screen the route also stays mounted under the thread you open, as it does today.
+
+**The first open.** With no tab chosen yet: Graph when the workstream has sub-threads, else Tasks. For a finished workstream the sub-threads arrive a moment after the screen opens. The choice waits for that read to settle, which `threadFamilyRead` reports, instead of opening on Tasks and jumping to Graph.
+
+**Ways in.** No route or route parameter changes, so the navigation functions and their tests are untouched. An opener that wants Tasks sets the tab, then calls the existing `openWorkstream`.
+
+<Table
+  density="compact"
+  columns={["Way in", "Today", "After", "Where"]}
+  rows={[
+    ["Home badge (sub-threads)", "Opens the screen", "Unchanged: the tab last used, else the first-open rule", "No edit"],
+    [{ md: "**Home tasks count**", badge: { label: "new", tone: "accent" } }, "Absent", "`9/31` in a bordered pill, green when all done; opens the screen on Tasks", "`WorkstreamBadge.loom.tsx`; the one upstream hunk"],
+    ["Header button", "Only when the thread's workstream has sub-threads", "Also when its goal has tasks", "`workstreamCrumbAtom`"],
+    ["Line under a sub-thread's header", "`↑ in <root> · 1 flagged`, opens the screen", "Adds `· on <task>`, a second target that opens Tasks at that task and marks it", "`WorkstreamBreadcrumb.loom.tsx`"]
+  ]}
+/>
+
+**The upstream hunk.** `apps/mobile/src/features/threads/thread-list-v2-items.tsx` already has a marked hunk that renders `WorkstreamBadgeView` when the row has a badge. It becomes one unconditional element, `WorkstreamRowEntries`, defined in the Loom-owned badge file, which draws the badge, the count, both or nothing. It takes the row's `thread.source.workstream?.goalId` and shows the count for a top-level thread only. The hunk stays marked and gains no logic. The count follows the badge's press pattern: padding cancelled by negative margin, and a no-op long-press so the row's menu does not also fire. The two touch areas must not overlap.
+
+**Jumping to a task.** The tap sets the tab to `tasks` and, when the task is finished, the filter to `all`. It removes the folds above the task with `unfoldTo`, records the focus, and opens the workstream. The Tasks list then scrolls to that row once with `scrollToIndex`.
+
+## 7. The pieces, as work orders
+
+<Card heading="Piece 1 · Logic: shared helpers, row rules, atoms, state" tone="info" eyebrow="FIRST, ALONE" meta={["no UI", "touches three web files' imports", "one test file"]}>
+
+**Reuses.** `createLoomGoalAtoms` in `packages/client-runtime/src/state/loom/goals.ts`; `buildWorkstreamNodes`; `workstreamEnvironmentIndexAtom`, `workstreamKey` and `sameNode`'s approach in `apps/mobile/src/features/workstream/workstreamView.loom.ts`; `threadEnvironment.snapshotAtom` and `connectionAtomRuntime`; `openWorkstream`.
+
+**Adds, in order.**
+
+1. `packages/client-runtime/src/state/loom/goalTasks.ts` per §5, and its export in `packages/client-runtime/package.json`. Update `apps/web/src/loom/loomGoalState.ts`, `apps/web/src/loom/TaskThreadChips.tsx` and `apps/web/src/components/GoalTasksPanel.tsx` to use it. No re-export from web's files.
+2. `apps/mobile/src/features/workstream/goalTaskRows.loom.ts` per §3, with `goalTaskRows.loom.test.ts`.
+3. `apps/mobile/src/features/workstream/workstreamGoal.loom.ts`, holding:
+   - the phone's instance of the goal atoms;
+   - `goalCountsAtom` and the per-row `goalCountAtom`, shaped like `badgeAtom` in `WorkstreamBadge.loom.tsx`;
+   - `goalTasksViewAtom`: for a root, its goal (loading, missing, or absent when there is no goal or no task) and the owning threads by task as identity-stable `WorkstreamNode`s;
+   - the state atoms of §6 and `openWorkstreamTasks(environmentId, rootThreadId, { split, taskId })`.
+4. `workstreamView.loom.ts`: `WorkstreamCrumb` gains `hasTasks` and `task`, the id and text of the task a sub-thread is on, or null. `workstreamCrumbAtom` is non-null when the root has sub-threads or its goal has tasks.
+
+**The test, and why this one.** The row rules are pure, they decide what is hidden from "what is left", and nobody but Carl can watch them on a device. One file, one behaviour per case:
+
+- a run of finished siblings is one row counting every task in their subtrees, and a lone finished leaf keeps its text;
+- a ticked parent with an open descendant stays a row while its finished children fold;
+- a finished task with a live thread stays visible, with the thread under it;
+- a lone top-level task is a caption and its sub-tasks start at depth 0;
+- All lists every task in tree order with no runs;
+- an opened run lists its tasks and closes again; a folded parent hides its subtree on both filters;
+- a parent's count excludes itself; `unfoldTo` removes exactly the folds above a task.
+
+Nothing else in this piece gets a test: the atoms are wiring over tested or existing functions.
+
+**Verified by.**
+
+- `vp test run apps/mobile/src/features/workstream/goalTaskRows.loom.test.ts`; `vp run typecheck`; `vp check`.
+- **The real-data run.** A scratch `rows-check.ts` under `.artifacts/mobile-goal-tasks-check/`, run with plain `node` (v26 here runs TypeScript directly, and resolves the workspace import). It reads the three goals of §3 from the live database in place and read-only, as `AGENTS.md` allows:
+
+```bash
+sqlite3 -json "file:$T3CODE_HOME/userdata/statev2.sqlite?mode=ro" "
+  select task_id id, parent_task_id parentTaskId, text, done, position
+  from loom_goal_tasks where goal_id = '<goal id>' and deleted_at is null order by position" > goal.json
+```
+
+  It nests the rows by `parentTaskId`, calls `goalTaskRows` for both filters with nothing toggled and no threads, and prints the row counts. They must equal `python3 task_rows.py` for the same goal at that moment (§3: 4 and 9, 26 and 31, 279 and 435 on 24 November). It also times 1,000 runs on the 435-task goal: expect well under 1 ms a run on this VM, and report the number.
+- **The picture.** The same script writes one HTML page per goal and filter, each row drawn with the mockup's stylesheet. <Sidenote>`.artifacts/mobile-goal-tasks-2/c-tasks-tab.html`, gitignored; `gen.py` beside it generated it.</Sidenote> Look at each at 412 px and 320 px wide with the browser screenshot tool, beside the brief's `shots/cover-tasks.png`. This shows the rules on real trees. It is not the app.
+- **Web is unchanged.** Screenshot the preview harness's goal tasks panel before and after the move and compare. <Sidenote>`apps/web/src/preview/loomPreviewGroups.tsx` mounts `GoalPanelView`; the harness is described in `docs/web-component-preview.md`.</Sidenote>
+
+</Card>
+
+<Card heading="Piece 2 · Screen: the switch, the list, the Home count, the header line" tone="info" eyebrow="AFTER PIECE 1" meta={["one edited upstream hunk", "no tests"]}>
+
+**Reuses.**
+
+- `WorkstreamBody` as the Graph tab, unedited; `WorkstreamCards`; `PillButton`'s look for the two switches.
+- `LegendList` with `NativeScrollView`, `getItemType`, `initialScrollOffset` and `rememberScrollOffset`, as `WorkstreamBody` sets them up.
+- `rowCopy` and `rowTrailing` in `workstreamCopy.loom.ts` for a thread row's two lines; `useNowMinuteMs` for ages; the status colours the thread list uses.
+- `openWorkstreamChild`, `openWorkstreamNodeSheet`, `threadFamilies.mount` with `appAtomRegistry`.
+- The badge's press pattern and `useWorkstreamEntry` in `WorkstreamBreadcrumb.loom.tsx`.
+
+**Adds.**
+
+1. `WorkstreamTabs.loom.tsx`: the wrapper of §6, the switch and the first-open rule. It also holds the effect that keeps the root's sub-threads loaded while the screen or pane shows it, stated with its reason as web's `useLoomThreadFamily` does.
+2. `WorkstreamTasksBody.loom.tsx`: the list, its header (cards, goal block, filter), the loading and missing-goal lines, the one scroll to a focused task.
+3. `WorkstreamTaskRow.loom.tsx`: one memoised component per row kind, compared by value. Marks are drawn, not pressable: a ring or a tick is not a checkbox.
+4. `WorkstreamScreen.loom.tsx` and `WorkstreamSidebarPane.loom.tsx`: `WorkstreamBody` becomes `WorkstreamTabbedBody`. The pane passes the open thread so its task is marked.
+5. `apps/mobile/src/features/threads/WorkstreamBadge.loom.tsx`: `GoalTasksCountView` and `WorkstreamRowEntries`. Accessibility label: "Open tasks, 9 of 31 done".
+6. `apps/mobile/src/features/threads/thread-list-v2-items.tsx`: the existing marked hunk renders `WorkstreamRowEntries` (§6).
+7. `WorkstreamBreadcrumb.loom.tsx`: the task's name after the flagged count, as its own press target calling `openWorkstreamTasks` with the task id. The line stays one line; the task's text takes what the root title leaves and truncates.
+
+**Verified by.** `vp check`, `vp run typecheck`, `vp run lint:mobile`. `rg "goalTaskRewrite|goalUpdate" apps/mobile/src` finds nothing. On screen: nothing by an agent, unless §10 is yes.
+
+</Card>
+
+<Card heading="Delivery: one PR, one APK, a device pass if there is a device, the checks to Carl" tone="warning" eyebrow="AFTER PIECE 2" meta={["shipping waits for Carl's word", "the device pass is optional and slots in before the hand-back"]}>
+
+1. Read the whole diff once for what only a device would show. The Home count and the header line, which sit inside existing screens, fail to nothing and not to a crash. Every effect states its reason. The upstream hunk is marked. Nothing under `apps/server` or `packages/contracts` changed.
+2. `vp check`, `vp run typecheck`, `vp run lint:mobile`, `vp run check:changed`.
+3. **If `device_list` shows an Android device**, which means Carl said yes to §10 and the emulator is installed, run the device pass in §8 before anything goes to Carl. Attach its screenshots to the PR.
+4. One PR from a feature branch: `feat(mobile): read-only Tasks tab on the workstream screen`. It carries the brief, this plan and the rendered real-goal pages as its pictures. It is not merged until Carl says so.
+5. A branch APK for Carl to try before merge, built as `docs/operations/loom-android-apk.md` describes under "What the build runs". That means `APP_VARIANT=preview`, `T3CODE_MOBILE_UPDATES_ENABLED=0`, and `LOOM_BUILD_SHA` and `LOOM_BUILD_COMMITTED_AT` set. Build it as a background job in a second checkout made with `git worktree add` beside this one. It took 21 minutes and 22 to 27 GB of memory last time. Publish it as a GitHub pre-release on `QuinRiva/loom`, the way the last hand-built APKs went. It installs over his daily app, and needs no server deploy because the server does not change.
+6. Hand Carl the checks in §8 with, in plain words, what differs from the brief he approved: the four narrowed lines of §2.
+
+</Card>
+
+## 8. Verification: who can check what
+
+**Why no agent can open the app.** The Device panel lists one host, this VM, with Android unavailable. The VM has no hardware virtualisation (`/dev/kvm` is absent). The Android emulator was installed into a scratch folder today and started in software mode with its own force flag; it refused with "x86_64 emulation currently requires hardware acceleration". The app has no web build. So the route the `test-t3-mobile` skill describes stops at its first step, and the obstacle recorded in the workstream view's As built section still stands.
+
+<Table
+  density="compact"
+  columns={["The brief's check", "What an agent shows without a device", "With a device (§10 yes)", "Carl's phone"]}
+  rows={[
+    ["Home count; tap lands on Tasks with title, objective, count and open tasks", "Counts match web's rule by sharing it; the opener sets the tab before it navigates", "Tap the count on a seeded goal; screenshot at 412 dp", "Tap the count on a real goal; judge the two targets on the row"],
+    ["Typical goal: open tasks without scrolling; All in web's order and nesting", "The rendered page for the 9-task goal; All equals the tree walk, tested", "Screenshot both filters beside web's panel for the same goal", "Same, on his own goal"],
+    ["Large goal: per-task counts, a run opens in place, three lines until tapped", "Tests for counts and runs; the rendered page for the 31-task goal", "Tap a run and a long task", "Same"],
+    ["A thread under its task; tap; Back returns to the same spot", "The row rules place live threads, tested; the route stays mounted under a thread, as shipped", "Scroll, open a thread row, press Back", "Same"],
+    { tone: "warning", cells: ["An agent ticks a task; the phone follows within seconds; the same over the tunnel", "§4: by construction, the path that updates the Home list. Not seen", "Tick a task in the dev web app; screenshot the emulator before and after", "**Phone only for the tunnel.** With the tab open off the home network, have an agent tick a task"] },
+    { tone: "warning", cells: ["Graph as shipped; unfolded tasks left, thread right; fold and unfold keeps both", "`WorkstreamBody` and the cards are not edited; state lives outside the components", "A wide window (720 dp or more) shows the split; resize to fold and back", "**Phone only for the hinge and the real cover width.** Unfold on Tasks, open a thread, fold, Back, unfold"] },
+    ["A goal with no sub-threads has the header button, opening on Tasks", "The crumb rule is three lines over tested helpers", "Open such a thread on the seeded data", "Same"],
+    ["Must not: change a task from the phone", "No goal write command is imported anywhere under `apps/mobile/src`; marks are not pressable", "Tap, long-press and swipe a task; nothing changes on web", "Same"],
+    { tone: "warning", cells: ["Must not: slow Home or the workstream screen; the 435-task goal opens and scrolls without stutter", "§4's table; the timing and row counts from piece 1", "Scroll the 435-task goal on All on the emulator: a rough read only", "**Phone only.** Open and scroll that goal on All"] },
+    ["Must not: change web, Graph or cards; need anything new from the server; be lost at the next upstream pull", "Web's fixture identical; no diff under `apps/server` or `packages/contracts`; `pnpm ship`'s marker sweep passes; the three Graph and card files have no diff", "Nothing more", "Nothing"]
+  ]}
+/>
+
+**The device pass, if §10 is yes.** Follow `.agents/skills/test-t3-mobile/SKILL.md`.
+
+1. Seed the worktree's dev instance with real data: `vp run migrate-dev-db --base-dir <the dev runner's home> --root <a top-level thread of the 435-task goal>`. The command keeps recent projects and that one older workstream. Check with a query that the three goals of §3 are in the copy, and raise `--threads-per-project` if one is not.
+2. Install the dev client with `vp run mobile:install android`. The first time is a local build of 5 to 15 minutes, since Loom has no cloud build.
+3. Start Metro, pair with the skill's helper, and walk the "with a device" column twice. Once at the cover width, and once in a window at least 720 dp wide and 600 dp high, which is where the app splits.
+4. Tick tasks from the dev web app. The `goal` command line writes without telling connected clients.
+
+## 9. Risks
+
+- **The first run may still be Carl's phone.** A defect a five-second look would catch reaches him as an installed APK. The row rules are tested and rendered from real goals; the layout, the touch targets and the list's feel are not seen by anyone first unless §10 is yes.
+- **Two touch targets side by side on a 412 dp Home row.** The brief names the fallback: the number without its own tap, which is Carl's call.
+- **Rows vary in height** (one to three lines, plus thread rows), and the list estimates heights before it measures them. Back to the same spot on the cover screen does not depend on that, because the screen stays mounted. Restoring the offset after a fold, an unfold or a tab switch on a long list may land a row or two off.
+- **A finished workstream's sub-threads load after the screen opens.** The first-open rule waits for that read; if the read fails, the screen opens on Tasks and the Graph says there are no sub-threads, as it would today.
+- **The move in web is behaviour-neutral by intent, not by proof.** The typecheck and the fixture comparison are the evidence.
+- **The phone's JavaScript engine is not Node's.** The tests and the real-data run execute under Node. §5 names the array methods to avoid.
+- **The switch sits on a screen nobody has used.** Carl's first run of the workstream screen may move the header or the cards, and the switch with them.
+
+<Details summary="All touched files">
+
+<FileTree
+  title="By piece"
+  entries={[
+    { path: "packages/client-runtime/src/state/loom/goalTasks.ts", change: "added", note: "Piece 1. countGoalTasks, anchoredThreadsByTask, findGoalTask" },
+    { path: "packages/client-runtime/package.json", change: "modified", note: "Piece 1. One export; upstream-owned JSON, as every state/loom export is" },
+    { path: "apps/web/src/loom/loomGoalState.ts", change: "modified", note: "Piece 1. Loses countGoalTasks" },
+    { path: "apps/web/src/loom/TaskThreadChips.tsx", change: "modified", note: "Piece 1. anchoredThreadsByTask becomes a wrapper over the shared rule" },
+    { path: "apps/web/src/components/GoalTasksPanel.tsx", change: "modified", note: "Piece 1. One import; Loom-only file" },
+    { path: "apps/mobile/src/features/workstream/goalTaskRows.loom.ts", change: "added", note: "Piece 1. The row rules" },
+    { path: "apps/mobile/src/features/workstream/goalTaskRows.loom.test.ts", change: "added", note: "Piece 1" },
+    { path: "apps/mobile/src/features/workstream/workstreamGoal.loom.ts", change: "added", note: "Piece 1. Goal atoms, counts, the tab's view and state, the opener" },
+    { path: "apps/mobile/src/features/workstream/workstreamView.loom.ts", change: "modified", note: "Piece 1. The crumb's goal fields and rule" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamTabs.loom.tsx", change: "added", note: "Piece 2. The switch and the wrapper" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamTasksBody.loom.tsx", change: "added", note: "Piece 2. The list" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamTaskRow.loom.tsx", change: "added", note: "Piece 2. Row components" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamScreen.loom.tsx", change: "modified", note: "Piece 2. One element" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamSidebarPane.loom.tsx", change: "modified", note: "Piece 2. One element" },
+    { path: "apps/mobile/src/features/workstream/WorkstreamBreadcrumb.loom.tsx", change: "modified", note: "Piece 2. The task's name and its target" },
+    { path: "apps/mobile/src/features/threads/WorkstreamBadge.loom.tsx", change: "modified", note: "Piece 2. The count and the row's entries" },
+    { path: "apps/mobile/src/features/threads/thread-list-v2-items.tsx", change: "modified", note: "Piece 2. The one upstream source file: its existing marked hunk" }
+  ]}
+/>
+
+Not edited, and the gate can check that: `WorkstreamBody.loom.tsx`, `WorkstreamCards.loom.tsx`, `WorkstreamLaneRow.loom.tsx`, `workstreamNavigation.loom.ts`, `Stack.tsx`, `ThreadHeader.tsx`, `ThreadRouteScreen.tsx`, anything under `apps/server` or `packages/contracts`.
+
+</Details>
+
+## 10. One question for Carl
+
+It does not block the build. It is Carl's because it restarts his machine. It stands alone: nothing above needs reading to answer it.
+
+**What is being asked.** Agents have built several phone features without being able to run the phone app. The machine Loom runs on, `carl-dev`, cannot run an Android emulator, because emulators need a CPU feature that Google Cloud leaves off unless asked. Turning it on is one setting. It needs the machine restarted, which takes a few minutes and interrupts every thread running on it. Run from Cloud Shell or a laptop, not from the machine itself:
+
+```bash
+gcloud compute instances export carl-dev --project test-ds-research \
+  --zone australia-southeast1-a --destination carl-dev.yaml
+# add these two lines to carl-dev.yaml:
+#   advancedMachineFeatures:
+#     enableNestedVirtualization: true
+gcloud compute instances update-from-file carl-dev --project test-ds-research \
+  --zone australia-southeast1-a --source carl-dev.yaml --most-disruptive-allowed-action RESTART
+```
+
+**What it buys.** After the restart an agent installs the emulator, about 9 GB on a root disk with 295 GB free. It can then open the app, tap through a new screen at the cover width and in a wide window, and fix what it sees before an APK reaches the phone. That holds for this build and every later one.
+
+**What it does not buy.** The real hinge and cover dimensions of the Fold, how a target feels under a thumb, real scrolling smoothness, and anything over the tunnel away from home. Those stay checks on the phone.
+
+<QuestionForm
+  questions={[
+    {
+      id: "nested-virtualisation",
+      title: "Turn on nested virtualisation on carl-dev, so agents can run the Android app in an emulator before a build reaches your phone?",
+      subtitle: "One setting and a restart of a few minutes that interrupts every running thread. Without it, your phone is the first place any new phone screen is ever drawn, as it was for the workstream view. The Tasks tab is built either way.",
+      refs: [{ label: "10. One question for Carl", anchor: "10-one-question-for-carl" }, { label: "8. Verification: who can check what", anchor: "8-verification-who-can-check-what" }],
+      mode: "single",
+      options: [
+        {
+          id: "yes",
+          label: "Yes: I will run the two commands at a quiet moment, and an agent installs the emulator after the restart",
+          recommended: true,
+          detail: "Costs a few minutes of downtime once. Agents then run the cover-width and wide-window checks themselves for the Tasks tab and for later phone work, so fewer install-and-try rounds reach you."
+        },
+        {
+          id: "no",
+          label: "No: build it, hand me the APK, and I am the first to see it",
+          detail: "Nothing to set up and no restart. The row rules are tested and rendered from your real goals first; layout and touch are seen by you first, and a second APK round should be expected."
+        }
+      ]
+    }
+  ]}
+/>
+
+## As built
+
+Built in three commits on `t3/mobile-goal-tasks-tab` (PR #617): the logic, the screen, and one fix after review. The review gate was clean. Where the build departs from the plan above, and why:
+
+- **Merged before anyone saw it on a screen.** The Delivery card held the merge for Carl's trial of a branch APK. Carl instead said "just ship it when it's done and i'll report back if I encounter issues", so it merged on his word, unseen on a device or an emulator. His answer to §10 was "Set it up", with the restart scheduled for 2am Wednesday 25 November Sydney time, so the emulator pass in §8 did not run before the merge. Everything in §8's "Carl's phone" column is still to be checked there.
+- **`findGoalTask` stayed in mobile** (`workstreamGoal.loom.ts`), not the shared package: only mobile uses it.
+- **The crumb moved** (`WorkstreamCrumb`, `workstreamCrumbAtom`) from `workstreamView.loom.ts` into `workstreamGoal.loom.ts`. It now reads the goal, and leaving it in place would have made the two files import each other.
+- **One state atom, not four.** Tab, filter, toggles and the jumped-to task live in one in-memory atom per workstream, with the same lifetime §6 gave them.
+- **The first-open rule waits only when the shell holds no sub-threads for the root.** With sub-threads already there it picks Graph at once; §6's "waits for that read to settle" would have shown a spinner on every first open.
+- **The first-open choice is saved once the switch is showing**, filling an empty choice and never overriding one. Without it a goal with no sub-threads opens on Tasks and flips to Graph when an agent spawns the first sub-thread.
+- **The header subtitle drops the settled count when there are no sub-threads**, so a goal-only root reads `Workstream` and not `Workstream · 0/0 settled`.
+- **The Home row changes two marked places in `thread-list-v2-items.tsx`**, the import and the render hunk, with the badge passed to `WorkstreamRowEntries` as a prop; the plan counted one hunk. The row's `useWorkstreamBadge` call stays because its accessibility label reads it.
+- **The Home count's icon is `checkmark.circle`**, not the mockup's checklist: the Android icon map is an upstream file with no checklist entry. Its touch area grows only up and down, 12 dp from the badge, so the two targets never overlap.
+- **A marked task holds only for the jump that set it.** The review found that the "THIS THREAD'S TASK" mark outlived its arrival on the cover screen; the Home badge, the header button and the root part of the sub-thread line now open through `openWorkstreamUnmarked`, which clears it.
+
+Left as built, both rare: the first open of a goal with no sub-threads shows a spinner while the phone is still reconnecting, and the Graph is drawn again once when a goal gets its first task while its screen is open.

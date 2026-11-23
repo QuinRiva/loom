@@ -30,7 +30,7 @@ import { threadEnvironment } from "../../state/threads";
 /** The family key every per-workstream atom and the view-state map take. */
 export const workstreamKey = (environmentId: EnvironmentId, threadId: ThreadId) =>
   JSON.stringify([environmentId, threadId]);
-const parseKey = (key: string) => JSON.parse(key) as [EnvironmentId, ThreadId];
+export const parseWorkstreamKey = (key: string) => JSON.parse(key) as [EnvironmentId, ThreadId];
 
 export interface WorkstreamEnvironmentIndex {
   readonly threads: ReadonlyArray<OrchestrationV2ThreadShell>;
@@ -102,7 +102,7 @@ export interface WorkstreamView {
   readonly needsYou: ReadonlyArray<NeedsYouCard>;
 }
 
-const sameValue = (left: unknown, right: unknown) =>
+export const sameValue = (left: unknown, right: unknown) =>
   Object.is(left, right) ||
   (typeof left === "object" &&
     left !== null &&
@@ -110,7 +110,7 @@ const sameValue = (left: unknown, right: unknown) =>
     right !== null &&
     JSON.stringify(left) === JSON.stringify(right));
 
-const sameNode = (left: WorkstreamNode, right: WorkstreamNode) => {
+export const sameNode = (left: WorkstreamNode, right: WorkstreamNode) => {
   const keys = Object.keys(left) as Array<keyof WorkstreamNode>;
   return (
     keys.length === Object.keys(right).length &&
@@ -172,7 +172,7 @@ function needsYouOf(
 
 /** One workstream's screen, keyed by `workstreamKey(environmentId, rootId)`; null until loaded. */
 export const workstreamViewAtom = Atom.family((key: string) => {
-  const [environmentId, rootId] = parseKey(key);
+  const [environmentId, rootId] = parseWorkstreamKey(key);
   let previous: WorkstreamView | null = null;
   return Atom.make((get): WorkstreamView | null => {
     const index = get(workstreamEnvironmentIndexAtom(environmentId));
@@ -207,39 +207,6 @@ export const workstreamViewAtom = Atom.family((key: string) => {
     if (!unchanged) previous = next;
     return previous;
   }).pipe(Atom.withLabel(`loom-workstream-view:${key}`));
-});
-
-// The breadcrumb and header button on a thread screen
-
-export interface WorkstreamCrumb {
-  readonly rootId: ThreadId;
-  readonly rootTitle: string;
-  /** Sub-threads waiting on a human (the badge's `N!`). */
-  readonly flagged: number;
-  /** The thread is the root itself (header button, no breadcrumb). */
-  readonly isRoot: boolean;
-}
-
-/**
- * The workstream a thread belongs to, keyed by `workstreamKey(environmentId, threadId)`: a
- * sub-thread's root, or the thread itself when it has sub-threads. Null otherwise.
- */
-export const workstreamCrumbAtom = Atom.family((key: string) => {
-  const [environmentId, threadId] = parseKey(key);
-  let previous: WorkstreamCrumb | null = null;
-  return Atom.make((get): WorkstreamCrumb | null => {
-    const index = get(workstreamEnvironmentIndexAtom(environmentId));
-    const thread = index?.threadsById.get(threadId);
-    const rootId = thread?.lineage.rootThreadId ?? threadId;
-    const root = index?.threadsById.get(rootId);
-    const badge = get(workstreamBadgesAtom(environmentId)).get(rootId);
-    const next =
-      thread && root && badge && badge.total > 0
-        ? { rootId, rootTitle: root.title, flagged: badge.flagged, isRoot: rootId === threadId }
-        : null;
-    if (!sameValue(previous, next)) previous = next;
-    return previous;
-  }).pipe(Atom.withLabel(`loom-workstream-crumb:${key}`));
 });
 
 // View state: which folds are open and where the list was scrolled, per workstream. In memory

@@ -18,7 +18,7 @@ import { ScreenContent } from "../../components/ui/ScreenContent";
 import { rootNavigationRef } from "../../lib/rootNavigation";
 import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context";
 import { workspaceRoutesOf } from "../layout/workspace-overlay-routes";
-import { WorkstreamBody } from "./WorkstreamBody.loom";
+import { WorkstreamTabbedBody } from "./WorkstreamTabs.loom";
 import { workstreamSubtitle } from "./workstreamCopy.loom";
 import {
   closeWorkstream,
@@ -120,7 +120,7 @@ function PaneContent(props: {
         ]}
       />
       <ScreenContent insetHorizontal>
-        <WorkstreamBody
+        <WorkstreamTabbedBody
           environmentId={environmentId}
           rootThreadId={rootThreadId}
           selectedThreadId={props.openThreadId}

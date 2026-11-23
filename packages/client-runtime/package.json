@@ -307,6 +307,10 @@
       "types": "./src/state/loom/goalCommands.ts",
       "default": "./src/state/loom/goalCommands.ts"
     },
+    "./state/loom/goalTasks": {
+      "types": "./src/state/loom/goalTasks.ts",
+      "default": "./src/state/loom/goalTasks.ts"
+    },
     "./state/loom/goals": {
       "types": "./src/state/loom/goals.ts",
       "default": "./src/state/loom/goals.ts"

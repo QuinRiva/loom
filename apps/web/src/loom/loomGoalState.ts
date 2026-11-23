@@ -52,20 +52,3 @@ export async function readLoomGoal(
   );
   return result._tag === "Success" ? result.value.goal : null;
 }
-
-/** Done/total over a nested task tree. */
-export function countGoalTasks(tasks: LoomGoalShell["tasks"]): {
-  readonly done: number;
-  readonly total: number;
-} {
-  return tasks.reduce(
-    (acc, task) => {
-      const child = countGoalTasks(task.children);
-      return {
-        done: acc.done + (task.done ? 1 : 0) + child.done,
-        total: acc.total + 1 + child.total,
-      };
-    },
-    { done: 0, total: 0 },
-  );
-}
