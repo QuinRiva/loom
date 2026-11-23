@@ -1,0 +1,642 @@
+---
+reader:
+  who: the reviewer gating this plan against the approved intent brief beside it, then the coders who build from it
+  knows: the brief and the repo's AGENTS.md; none of the search code, the measurements behind this plan or the conversation that produced it
+  after_first_screen: what gets built in which layers, the two hard-to-reverse choices (the result shape on the wire and the cut-off rule) with the numbers behind them, and where the plan tightens the brief
+kicker: "Implementation plan · thread search with switches · 24 Nov 2026"
+status: draft
+intent: plans/thread-search-filters/intent.mdx
+manager_sessions:
+  - id: 01a20a65-71f9-7144-9edc-76362720dfbf
+    name: Search filters build plan
+    role: plan
+    authored_at: 2026-11-23T22:31:13.083Z
+---
+
+# Thread search with three switches: sub-thread rows inside the thirty, a measured cut-off, one PR
+
+Build the approved brief as **one PR in four layers**. The server's existing search gains three things. A result can carry up to **three sub-thread rows** under its top-level thread. The project filter applies **before** the cut to thirty rows. A result matched only by meaning is listed only when it is **close enough**. One shared filter state then drives a chip row in Cmd+K, the sidebar box and the phone's search, and the agents' `thread_search` gains one parameter. Nothing is migrated, re-indexed or re-ranked.
+
+<Stats
+  items={[
+    {
+      value: "0 of 57",
+      label: "Test searches that lose their thread",
+      tone: "success",
+      detail: "Under the chosen cut-off no expected thread leaves the first ten; first place 22 and first five 40, both unchanged",
+    },
+    {
+      value: "14 of 16",
+      label: "Nonsense searches that list nothing by meaning",
+      tone: "success",
+      detail: "Today all 16 fill the list. The two left show 1 and 2 rows",
+    },
+    {
+      value: "3",
+      label: "Sub-thread rows per workstream, to start",
+      tone: "neutral",
+      detail: "Holds every matching sub-thread in 82% of the cases measured; the rest fold behind one row that unfolds them",
+    },
+    {
+      value: "49 ms",
+      label: "Word-match step, before and after",
+      tone: "neutral",
+      detail: "Median over 67 searches on the cockpit index, with and without grouping by sub-thread; the wait a search has today is Vertex, about 0.45 s",
+    },
+  ]}
+/>
+
+<Columns>
+  <Column label="Cmd+K today">
+    <Screen
+      surface="popover"
+      html={
+        '<div style="box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:14px;height:100%"><div class="wf-box" style="padding:8px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">word to pdf without malforming</div><small>In messages</small><div class="wf-card" style="padding:8px 10px"><strong>Build Production GraphtusEnricher</strong><br /><small>Report: …Word to PDF without malforming…</small><br /><small class="wf-muted">Sub-thread: Enricher inherited-choices challenge</small></div><div class="wf-card" style="padding:8px 10px"><strong>Kador charge variance audit</strong> <span class="wf-pill">Archived</span><br /><small>Purpose: Answer the client\'s specific question…</small></div><div class="wf-card" style="padding:8px 10px"><strong>Missing-docs ship and handoffs</strong><br /><small>Purpose: Missing-docs ship and handoffs</small></div><small class="wf-muted">…and seven more found by meaning. None names the sub-thread titled with these words.</small></div>'
+      }
+    />
+  </Column>
+  <Column label="After, Sub-threads switched on">
+    <Screen
+      surface="popover"
+      html={
+        '<div style="box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:14px;height:100%"><div class="wf-box" style="padding:8px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">word to pdf without malforming</div><div style="display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden"><span class="wf-pill accent">Sub-threads</span><span class="wf-pill">Archived</span><span class="wf-pill">lease-extraction</span><div style="flex:1"></div><small>Reset</small></div><small>In messages</small><div class="wf-card" style="display:flex;flex-direction:column;gap:6px;padding:8px 10px"><strong>mirvac-graphtus-clean: step 2.3 onward</strong><div style="display:flex;gap:8px"><div style="width:2px;background:var(--wf-line)"></div><div style="min-width:0"><span>Word to PDF without malforming</span><br /><small class="wf-muted">Sub-thread title</small></div></div><div style="display:flex;gap:8px"><div style="width:2px;background:var(--wf-line)"></div><div style="min-width:0"><span>2.5 Other file kinds with Jacob</span><br /><small>You: …Word to PDF without malforming…</small></div></div></div><div class="wf-card" style="display:flex;flex-direction:column;gap:6px;padding:8px 10px"><strong>Mirvac v2 updates with Jacob: Paddle push…</strong><div style="display:flex;gap:8px"><div style="width:2px;background:var(--wf-line)"></div><div style="min-width:0"><span>Fresh causes: Invacare, Kawasaki, EEEZA, DHL</span><br /><small>Brief: …Word to PDF without malforming…</small></div></div><div style="display:flex;gap:8px"><div style="width:2px;background:var(--wf-line)"></div><div style="min-width:0"><span>Fresh causes: Paddle, Decjuba, CBA, CGI</span><br /><small>Brief: …Word to PDF without malforming…</small></div></div></div><div class="wf-card" style="display:flex;flex-direction:column;gap:6px;padding:8px 10px"><strong>Build Production GraphtusEnricher</strong><div style="display:flex;gap:8px"><div style="width:2px;background:var(--wf-line)"></div><div style="min-width:0"><span>Enricher inherited-choices challenge</span><br /><small>Report: …Word to PDF without malforming…</small></div></div></div></div>'
+      }
+    />
+  </Column>
+</Columns>
+
+Both pictures are the cockpit's own results for that search on 24 Nov: the left as the search ranks it today, the right with sub-threads read and grouped per thread. Excerpts are abridged. The rows found only by meaning on the left are gone on the right because of the cut-off, which applies with every switch off as well.
+
+<Callout tone="decision" title="What it means" focus>
+  **In scope:** everything in the brief's checks, on web, desktop, phone and the agent tool.
+
+  **Done** is the brief's checks passing live on web against real data, the search test harness showing no thread lost, and Carl's four checks on the phone.
+
+  **Two choices are hard to reverse:** the shape of a result on the wire (§2) and the cut-off rule (§3).
+
+  **This tightens the brief in five places,** listed in §10. The three a reader meets first: in Cmd+K the one project is the project of the thread you have open. A "Report:" result opens the sub-thread with its report document beside it. The nonsense check needs three fresh words, because the brief's own example is now written in this workstream's reports and rightly finds it.
+
+  **No question here is Carl's.** The two things he judges by trying, where the chips sit and how many sub-thread rows show, are each a one-line change.
+</Callout>
+
+## 1. The four layers
+
+A _top-level thread_ is one with no parent; a _sub-thread_ is any thread spawned under one. Search today returns one row per top-level thread, chosen by combining two rankings. A _word match_ means every word of the query appears in one piece of indexed text. A _match by meaning_ means the query's embedding is near the top-level thread's embedding, which Vertex computes on the cockpit. This plan does not change how the two are combined.
+
+<Table
+  density="compact"
+  columns={["Layer", "What it gains", "Where", "Reuses"]}
+  rows={[
+    [
+      "**Server search**",
+      "Sub-thread rows under a top-level row; project filter before the cut; the cut-off; a way to unfold one workstream; a log line when the embedding call times out",
+      "`apps/server/src/orchestration-v2/ThreadSearch.loom.ts`, `ThreadEmbedder.loom.ts`, `packages/contracts/src/threadSearch.ts`",
+      "The index, its triggers, the ranking, the `includeArchived` and `scope` inputs that already exist. No migration",
+    ],
+    [
+      "**Shared client state**",
+      "One filter object (sub-threads, archived, project), its default, and the pure functions that turn results into rows and a row into what it opens",
+      "`packages/client-runtime/src/state/loom/threadSearchFilters.ts` (new), marked hunks in `state/threadSearch.ts`",
+      "`createThreadSearchResultsAtomFamily` and its request key, which already carries a scope object",
+    ],
+    [
+      "**Surfaces**",
+      "A chip row and sub-thread rows on Cmd+K and the sidebar (web and desktop share the code), then the phone's Home list, thread drawer and iPad palette",
+      "New components under `apps/web/src/loom/` and `apps/mobile/src/features/threads/*.loom.tsx`; one mount line each in the upstream files",
+      "The existing result rows, excerpt labels, archived rows, and upstream's route that opens a thread the client holds no row for",
+    ],
+    [
+      "**Agents' tool**",
+      "`includeSubThreads` beside the existing `projectId` and `includeArchived`",
+      "`apps/server/src/mcp/toolkits/workstream/defs.ts`, `handlers/threadSearch.ts`",
+      "The tool's output format, unchanged",
+    ],
+  ]}
+/>
+
+This plan replaces two decisions of October's search plan: that a hit is always shown as its top-level thread, and that archived threads are listed by default. <Sidenote>`plans/thread-content-search/plan.mdx`, status done.</Sidenote> Its index and ranking stand, so nothing is marked superseded.
+
+## 2. The result on the wire
+
+This is the part contracts, both clients and the agent tool read, so it is settled first.
+
+<Callout tone="decision" title="Sub-thread rows are nested inside their top-level row, and count against the thirty">
+  A result stays one object per top-level thread, exactly as today. When the request asks for sub-thread rows, that object also carries `subThreads`: the sub-threads of that workstream with a word match of their own, best first, three at most. `subThreadsOmitted` says how many were held back. The server stops adding results when top-level rows plus sub-thread rows reach the limit, so a search never sends more than thirty rows.
+</Callout>
+
+<Columns>
+  <Card tone="success" badge="CHOSEN" heading="Nested under the top-level row" meta={["old clients unaffected", "upstream files barely move"]}>
+    Every existing consumer keeps reading the same top-level object. The palette, the sidebar and the phone each rank results by top-level thread today, in files that upstream rewrites at most pulls. Nested rows ride along with their parent, so that code is untouched. A phone build older than the server ignores the new keys.
+  </Card>
+  <Card tone="neutral" badge="REJECTED" heading="One flat row per sub-thread" meta={["changes what threadId means", "three client pipelines rewritten"]}>
+    Each row would be the thread it opens, which reads simply. But `threadId` means "the top-level thread" in every client today. Grouping rows back under their parent would become each client's job, and the top-level thread's title, project and dates would repeat on every row.
+  </Card>
+</Columns>
+
+<DataModel
+  entities={[
+    {
+      id: "input",
+      name: "OrchestrationSearchThreadsInput",
+      change: "modified",
+      note: "the search request; clients omit limit and the server uses 30",
+      fields: [
+        { name: "query", type: "string, 2 to 200 chars" },
+        { name: "limit", type: "int 1 to 50", nullable: true, change: "modified", note: "now counts top-level rows plus sub-thread rows" },
+        { name: "includeArchived", type: "boolean", nullable: true, note: "server default stays true; human surfaces now send false unless Archived is on" },
+        { name: "scope", type: "\"roots\" | \"all\"", nullable: true, note: "unchanged: roots reads top-level text and every report; all adds sub-threads' own text" },
+        { name: "subThreadRows", type: "boolean", nullable: true, change: "added", note: "with scope all: fill subThreads and count them against limit. Agents do not send it" },
+        { name: "projectId", type: "ProjectId", nullable: true, note: "unchanged; the agent tool's single project" },
+        { name: "projectIds", type: "ProjectId[]", nullable: true, change: "added", note: "already on the client request, where the server ignored it for messages; now filters before the cut" },
+        { name: "rootThreadId", type: "ThreadId", nullable: true, change: "added", note: "unfold: only this workstream, its sub-thread rows up to the limit" },
+      ],
+    },
+    {
+      id: "match",
+      name: "OrchestrationThreadSearchMatch",
+      change: "modified",
+      note: "one per top-level thread; every existing field keeps its meaning",
+      fields: [
+        { name: "threadId", type: "ThreadId", pk: true, note: "always the top-level thread" },
+        { name: "source, snippet, messageId, messageCreatedAt", type: "as today", note: "the best hit in scope for this top-level thread" },
+        { name: "matchedThreadId, matchedThreadTitle", type: "ThreadId, string", nullable: true, note: "as today: the sub-thread that best hit came from" },
+        { name: "reportPath", type: "string", nullable: true, change: "added", note: "set when source is report: the file to open beside the thread" },
+        { name: "subThreads", type: "SubThreadMatch[]", nullable: true, change: "added", note: "only when subThreadRows was sent; at most 3, or limit minus 1 when unfolding" },
+        { name: "subThreadsOmitted", type: "int", nullable: true, change: "added", note: "matching sub-threads not sent; a floor, see below" },
+      ],
+    },
+    {
+      id: "sub",
+      name: "OrchestrationThreadSearchSubThreadMatch",
+      change: "added",
+      fields: [
+        { name: "threadId", type: "ThreadId", pk: true, note: "the sub-thread; choosing the row opens it" },
+        { name: "title", type: "string" },
+        { name: "source", type: "OrchestrationThreadSearchSource", note: "title, purpose, brief, user, assistant or report" },
+        { name: "snippet", type: "string, at most 240" },
+        { name: "messageCreatedAt", type: "IsoDateTime", nullable: true },
+        { name: "messageId", type: "MessageId", nullable: true, note: "when the hit is the sub-thread's own message, so it opens at that message" },
+        { name: "reportPath", type: "string", nullable: true, note: "when source is report" },
+      ],
+    },
+  ]}
+  relations={[{ from: "match", to: "sub", kind: "1-n", label: "subThreads" }]}
+/>
+
+**Which sub-threads qualify.** A sub-thread gets a row when one of its own pieces of text holds every word of the query, the last word as a prefix. Its pieces are its title, purpose, brief, messages and report. That is the rule a top-level thread's word match already follows. Matches by meaning produce top-level rows only, because the embedding is one vector per top-level thread. The Archived switch looks at the top-level thread: a workstream is in or out as a whole.
+
+**The top-level row when sub-thread rows are present.** Its fields keep today's meaning, the best hit in scope, which under `scope: "all"` is often a sub-thread's text and so repeats the first sub-thread row. Clients draw the top-level row's own excerpt only when `matchedThreadId` is null, and otherwise show it as a heading over its sub-thread rows. Choosing the heading opens the top-level thread.
+
+**Why three.** Two probes ran read-only against the live index on 24 Nov, using the search's own SQL with its grouping changed from per top-level thread to per thread.
+
+<Table
+  density="compact"
+  columns={["Probe", "Result"]}
+  rows={[
+    ["67 searches: how many sub-threads match per workstream", "A workstream had at least one in 2,300 cases. In half of those it had one, in three-quarters three or fewer, at most 46"],
+    ["Share of those cases where every match fits", "Two rows: 73%. **Three rows: 82%.** Five rows: 91%"],
+    ["60 sub-threads, each searched by three long words from its final answer", "The right sub-thread was in its workstream's first three rows for 51, and first for 38"],
+  ]}
+/>
+
+**What "omitted" means.** The count comes from the same 1,000 best pieces of text the search reads today, so for a very broad query it is a floor. The clients word it "+N more sub-threads".
+
+**Unfolding.** Choosing "+N more sub-threads" sends the same query with `rootThreadId`. The server answers with that one workstream and up to 29 sub-thread rows, skipping the embedding call, so it returns in word-match time. On the client it is a second call of the existing search hook with that one field added, and its rows replace the three in place. The number three is the constant `SUB_THREAD_ROWS` in `ThreadSearch.loom.ts`.
+
+<Details summary="A result as it crosses the socket">
+
+<Json
+  title="One match with sub-thread rows (Sub-threads on)"
+  wrap
+  json={"{\n  \"threadId\": \"<top-level id>\",\n  \"projectId\": \"<project id>\",\n  \"title\": \"mirvac-graphtus-clean: step 2.3 onward\",\n  \"archivedAt\": null,\n  \"updatedAt\": \"2026-11-13T02:10:00.000Z\",\n  \"source\": \"title\",\n  \"snippet\": \"Word to PDF without malforming\",\n  \"messageCreatedAt\": null,\n  \"matchedThreadId\": \"<sub-thread id>\",\n  \"matchedThreadTitle\": \"Word to PDF without malforming\",\n  \"quality\": 1,\n  \"subThreads\": [\n    { \"threadId\": \"<sub-thread id>\", \"title\": \"Word to PDF without malforming\", \"source\": \"title\", \"snippet\": \"Word to PDF without malforming\", \"messageCreatedAt\": null },\n    { \"threadId\": \"<sub-thread id>\", \"title\": \"2.5 Other file kinds with Jacob\", \"source\": \"user\", \"snippet\": \"…convert Word to PDF without malforming…\", \"messageCreatedAt\": \"2026-11-12T23:41:00.000Z\", \"messageId\": \"<message id>\" }\n  ],\n  \"subThreadsOmitted\": 0\n}"}
+/>
+
+With no switch touched the object is today's, plus `reportPath` when `source` is `report`. A row is at most a 240-character excerpt and two titles, so thirty rows stay in the low kilobytes, as now.
+
+</Details>
+
+## 3. The cut-off for matches by meaning
+
+Today the embedding side returns its 50 nearest top-level threads with no threshold, so a query with no word match anywhere still fills the list.
+
+<Callout tone="decision" title="Listed by meaning alone: similarity of at least 0.62, and at least 0.06 above that query's average">
+  A thread with no word match is listed only when both hold. _Similarity_ is the cosine between the query's vector and the thread's. The _average_ is the mean similarity of that query to every stored thread vector, taken before any filter. Threads with a word match are never cut, and the order of what remains is today's order with the cut rows removed. The rule and its two numbers are set per embedding model, in one table.
+</Callout>
+
+The two parts catch different failures. Gibberish sits unusually close to everything, so its nearest threads clear an absolute bar while standing barely above their own average. A real but off-topic query is far from everything, so one thread can stand well clear of the average while still low in absolute terms.
+
+<Table
+  density="compact"
+  columns={["Query", "Nearest thread", "Similarity", "Above average", "Listed by meaning"]}
+  align={["left", "left", "right", "right", "left"]}
+  rows={[
+    [
+      "`how do I stop the model picker showing duplicate names`",
+      "This model picker is awful…",
+      "0.757",
+      "0.176",
+      { badge: { label: "yes, first of 6", tone: "success" }, md: "" },
+    ],
+    [
+      "`things to do with a toddler in europe` (a test search)",
+      "its expected thread",
+      "0.633",
+      "0.125",
+      { badge: { label: "yes", tone: "success" }, md: "an absolute bar of 0.64 loses it" },
+    ],
+    [
+      "the brief's three-word nonsense example",
+      "Query: mirvac-ingestion-plan.mdx",
+      "0.619",
+      "0.040",
+      { badge: { label: "no", tone: "neutral" }, md: "" },
+    ],
+    [
+      "the same with its last word changed",
+      "Query: mirvac-ingestion-plan.mdx",
+      "0.633",
+      "0.045",
+      { badge: { label: "no", tone: "neutral" }, md: "clears 0.62, fails the margin" },
+    ],
+    {
+      tone: "warning",
+      cells: [
+        "`zzqx flurb gnarp`",
+        "Garbled response query",
+        "0.657",
+        "0.071",
+        { badge: { label: "yes, 1 row", tone: "warning" }, md: "one of the two nonsense searches that still list anything" },
+      ],
+    },
+  ]}
+/>
+
+**What was run.** Eighty searches. Fifty-seven are the test searches the ranking was tested on in October. Sixteen are nonsense: gibberish, and real questions about pizza, knitting, football and the like. Seven are acceptance searches, the brief's examples among them. <Sidenote>The 57 are in `threadSearchQueries.json`, beside the harness.</Sidenote> Each was embedded through Vertex with the cockpit's settings and scored against the 1,030 stored vectors. The word-match side ran through the search's own SQL on the live index, read-only. Each candidate rule was applied as the build will apply it: to the combined ranking, removing only threads with no word match.
+
+<Table
+  density="compact"
+  columns={["Rule for a thread with no word match", "First place (of 57)", "In first five", "Lost from first ten", "Nonsense searches listing anything (of 16)", "Rows for a median real search"]}
+  align={["left", "right", "right", "right", "right", "right"]}
+  rows={[
+    ["None (today)", "22", "40", "0", "16, each a full list", "30"],
+    ["Similarity ≥ 0.62", "22", "40", "0", "4, up to 30 rows", "30"],
+    ["Similarity ≥ 0.66", "22", "39", "3", "0", "26"],
+    ["Similarity ≥ 0.66, or 5.5 standard deviations above average", "22", "40", "2", "0", "26"],
+    ["At least 0.07 above average", "22", "40", "1", "5", "15"],
+    {
+      tone: "success",
+      cells: [
+        { badge: { label: "chosen", tone: "success" }, md: "Similarity ≥ 0.62 **and** at least 0.06 above average" },
+        "22",
+        "40",
+        "0",
+        "2, with 1 and 2 rows",
+        "23",
+      ],
+    },
+    ["Similarity ≥ 0.63 and at least 0.07 above average", "22", "40", "1", "1", "14"],
+  ]}
+/>
+
+The chosen rule is the strictest one measured that loses no expected thread from the first ten. That is what the brief's must-not asks: the threads you find with no switch touched do not change, beyond the padding going. Each stricter rule buys a cleaner nonsense result at the price of a real thread.
+
+**What it does not settle.** The figures are on today's whole corpus, which has grown from 781 top-level threads on 26 Oct to 1,030. The harness's pass marks use the frozen October corpus, so 22 and 40 are baselines for comparison, not its headline numbers. The two numbers were fitted on these 80 searches for one model, `vertex/gemini-embedding-001`. Any other embedding provider gets no cut-off until someone measures it, and behaves as today. Sixteen nonsense queries is a small set; two of them still list one or two rows, both arguably related ("Garbled response query" for gibberish).
+
+**Dropped: a separate "Related" group.** The brief's alternative kept meaning-only rows under their own heading. Its check needs "No threads found" for a nonsense search, which needs a cut-off either way, and with one in place a second heading changes nothing about what is listed.
+
+**Where it goes.** `ThreadEmbedder.nearest` already scores every vector; it additionally returns which of its 50 pass the rule for the active model (all of them when the model has no entry). `rank` in `ThreadSearch.loom.ts` votes exactly as today, then drops a thread that has neither a full word match nor a pass. The harness gains the nonsense set and prints both columns above, so the next model change has numbers to set.
+
+## 4. The switches: one state, mounted three times
+
+<DataModel
+  entities={[
+    {
+      id: "filters",
+      name: "ThreadSearchFilters (client only)",
+      change: "added",
+      note: "packages/client-runtime/src/state/loom/threadSearchFilters.ts",
+      fields: [
+        { name: "subThreads", type: "boolean", default: "false", note: "on: scope all and subThreadRows" },
+        { name: "archived", type: "boolean", default: "false", note: "off: includeArchived false is sent" },
+        { name: "projectIds", type: "ProjectId[]", nullable: true, default: "none", note: "Cmd+K's project chip; the sidebar and phone pass their existing picker's choice" },
+      ],
+    },
+  ]}
+/>
+
+The state lives in the component that owns the search box, as `useState`. That is the fourth of the repo's four state tiers: state that means something only while the box is in use. <Sidenote>`docs/architecture/loom-ui-state-tiers.md`.</Sidenote> It returns to the default when the box is cleared or closed, as the brief assumes, and nothing is persisted. The sidebar's and phone's project pickers keep their own stored choice, as today.
+
+<Table
+  density="compact"
+  columns={["Surface", "Where the chips sit", "The project switch", "Reset"]}
+  rows={[
+    [
+      "**Cmd+K** (web, desktop)",
+      "One row between the input and the results, while the palette is searching threads (not in `>` command mode or a sub-menu)",
+      "A chip named after the project of the thread you have open. Absent when no thread is open. It also narrows the title matches above \"In messages\"",
+      "A Reset control at the end of the row while anything is on; closing the palette",
+    ],
+    [
+      "**Sidebar box**",
+      "One row under the search box, while it holds text",
+      "The existing project picker beside the box; its choice now reaches the server",
+      "Reset in the row; clearing the box or Esc",
+    ],
+    [
+      "**Phone** (Home list, thread drawer, iPad palette)",
+      "One row under the search field",
+      "The lists' existing project picker, as on the sidebar",
+      "Reset in the row; clearing the field",
+    ],
+  ]}
+/>
+
+<Columns>
+  <Column label="Sidebar box, Archived switched on">
+    <Screen
+      surface="panel"
+      html={
+        '<div style="box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:14px;height:100%"><div style="display:flex;gap:6px;align-items:center;white-space:nowrap"><div class="wf-box" style="flex:1;min-width:0;padding:6px 10px;overflow:hidden;text-overflow:ellipsis">model picker duplicate</div><span class="wf-btn">All projects</span><span class="wf-btn">+</span></div><div style="display:flex;gap:6px;align-items:center;white-space:nowrap"><span class="wf-pill">Sub-threads</span><span class="wf-pill accent">Archived</span><div style="flex:1"></div><small>Reset</small></div><div class="wf-card" style="padding:8px 10px"><strong>Filter and label model dropdown</strong> <span class="wf-pill">Archived</span><br /><small>Report: …model picker…duplicate…</small><br /><small class="wf-muted">Sub-thread: Model picker allow-list + backend labels</small></div><div class="wf-card" style="padding:8px 10px"><strong>Improve settings model selectors</strong> <span class="wf-pill">Archived</span><br /><small>Agent: …model picker…duplicate…</small></div><div class="wf-card" style="padding:8px 10px"><strong>platform-update favourites and patch check</strong><br /><small>Report: …model picker…duplicate…</small><br /><small class="wf-muted">Sub-thread: Review platform-update skill edit</small></div></div>'
+      }
+    />
+  </Column>
+  <Column label="Phone, nothing switched on">
+    <Screen
+      surface="mobile"
+      html={
+        '<div style="box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:14px;height:100%"><div class="wf-box" style="padding:8px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">model picker duplicate</div><div style="display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden"><span class="wf-pill">Sub-threads</span><span class="wf-pill">Archived</span></div><div class="wf-card" style="padding:8px 10px"><strong>platform-update favourites and patch check</strong><br /><small>Report: …model picker…duplicate…</small><br /><small class="wf-muted">Sub-thread: Review platform-update skill edit</small></div><div class="wf-card" style="padding:8px 10px"><strong>Pi 0.87 bump + Opus 5.5 / GPT-6 rollover</strong><br /><small>Report: …model picker…duplicate…</small><br /><small class="wf-muted">Sub-thread: Ship pi 0.87.1 + model rollover</small></div><div class="wf-card" style="padding:8px 10px"><strong>This model picker is awful, I have hundreds of…</strong></div><div style="flex:1"></div></div>'
+      }
+    />
+  </Column>
+</Columns>
+
+**What a chip row costs.** Cmd+K's result area is 329 px tall at 1440 by 900 and shows about five rows; a chip row takes roughly one of them. The sidebar shows about seventeen, so the row costs little there. With Sub-threads on, a workstream with three sub-thread rows fills about half of Cmd+K's visible area. That is the trade Carl judges when he tries the number three.
+
+**Cheap to move.** The chips are one presentational component per client, taking the filter object and a change handler: `ThreadSearchFilterChips` in `apps/web/src/loom/` and `ThreadSearchFilterChips.loom.tsx` on the phone. Each surface mounts it with one line, so a different position is moving that line. A filter button with a menu would be a second component with the same two props. Typed shorthand such as `in:sub` would be a parser that writes the same object. Labels live in the Loom components, which the translation lint exempts; nothing new is worded inside an upstream file.
+
+**The project switch is fixed at the source.** Clients already put `projectIds` in the request, but only when asking for older settled threads, and the server strips it before the message search runs. So the picker filters the thirty rows chosen across all projects. The client now always sends it, and one marked line in `searchThreadsWithOlderSettledRows` stops stripping it. <Sidenote>`apps/server/src/orchestration-v2/ThreadSearch.ts`, an upstream file.</Sidenote> `ThreadSearch.loom.ts` filters both rankings by it before either is cut, as it does for the agent tool's single `projectId` today.
+
+**Short words.** Three places refuse to send a search with no word of three letters: `searchMessages` in `packages/client-runtime/src/state/threadSearch.ts` and `canSearch` in each app's `state/queries.ts`. The rule suits upstream's own index, which Loom does not use. Each becomes one marked line calling a Loom predicate that passes any query of two or more characters, the contract's minimum. A one- or two-letter word is matched whole, never as a prefix. The server already does that, because expanding so short a prefix is slow.
+
+## 5. What a row opens
+
+Tinted rows are new or changed.
+
+<Table
+  density="compact"
+  columns={["Row chosen", "Opens", "Then"]}
+  rows={[
+    [
+      "A top-level thread whose own message matched",
+      "That thread",
+      "Find opens on the query at that message, as today",
+    ],
+    {
+      tone: "info",
+      cells: [
+        "A top-level thread whose excerpt is a sub-thread's \"Report:\" (Sub-threads off)",
+        "The sub-thread that wrote the report, from `matchedThreadId`",
+        "Web and desktop open `reportPath` in that thread's right panel. The phone opens the sub-thread",
+      ],
+    },
+    {
+      tone: "info",
+      cells: [
+        "A sub-thread row",
+        "That sub-thread",
+        "Find at the message when `messageId` is set. The report beside it when `source` is `report`",
+      ],
+    },
+    {
+      tone: "info",
+      cells: [
+        "\"+N more sub-threads\"",
+        "Nothing",
+        "That workstream's remaining rows unfold in place",
+      ],
+    },
+    [
+      "An archived top-level thread",
+      "The thread, without unarchiving, as today",
+      "No find, as today",
+    ],
+  ]}
+/>
+
+**Opening is navigation.** Upstream's newer behaviour opens a child thread beside its parent, in the right panel. Pull 16 tried that for Loom's sub-threads and exempted them. A document opened from a sub-thread shown that way lands in the parent's panel, and a comment on it reaches the parent. <Sidenote>`docs/upstream-sync/41-cadence-pull-16-20261122/decision-log.md`, DL-2412, DL-2413 and DL-2400.</Sidenote> So a sub-thread chosen from search navigates to `/$environmentId/$threadId` like every other Loom entry point, on both clients.
+
+**A sub-thread the client holds no row for already opens.** The client's thread list leaves out older settled threads, which is most sub-threads. `ThreadRouteView.tsx` handles a route to such a thread in two ways: upstream's `useOpenThreadFamily` fetches the thread's family, and Loom's `useAwaitingShelllessThread` fetches a single archived thread. On 24 Nov a dev instance on a slice of real data was driven to seven sub-threads by URL. Every one showed its conversation. None bounced to the home screen or stuck loading.
+
+<Table
+  density="compact"
+  columns={["Sub-thread", "In the client's list beforehand", "Result"]}
+  rows={[
+    ["Recent, under a live top-level thread", "yes", "Rendered"],
+    ["Recent but settled", "no", "Rendered"],
+    ["Old and settled (two, from August and October)", "no", "Rendered; within a second by in-app navigation"],
+    ["Not archived, under an archived top-level thread", "no", "Rendered"],
+    ["Archived, under a live top-level thread", "no", "Rendered, with the Unarchive bar"],
+    ["Archived, under an archived top-level thread", "no", "Rendered, with the Unarchive bar"],
+  ]}
+/>
+
+So the build adds no loading path of its own. One rough edge seen there is outside this work: an archived sub-thread's breadcrumb reads "Parent thread" where the parent's title should be.
+
+**Pick memory is unchanged.** Cmd+K remembers, for three weeks, which thread you picked for a query. A top-level row keeps recording that when its target is a sub-thread. A sub-thread row records none, as an archived row records none today.
+
+**Opening the report is the user's own act.** The tiers document allows a click handler to open a surface in the destination thread, as the Workstream panel does when it navigates. The report tab is opened with the right-panel store's existing `openFileAbsolute(threadRef, reportPath)` in the same handler that navigates, never by an effect. It is the file preview the Workstream panel already opens reports with, so it works over the relay and tunnel as that does.
+
+All of this is one pure function in the shared client state, from a row to its target: the thread, an optional find and an optional report path. Each client has a thin wrapper that performs it.
+
+## 6. Speed
+
+<Callout tone="decision" title="Results arrive together, as today; a switch flipped on an unchanged query answers in word-match time">
+  The embedder keeps the last few dozen query vectors in memory. Flipping a chip re-sends the same words with a different filter, so it reuses the vector and skips the 0.45 s Vertex call. A fresh query costs what it costs today.
+</Callout>
+
+**Why not word matches first.** The brief's version has rows matched by meaning "join without moving the rows already shown". They would then have to sit below the word matches, which is a different order from the combined ranking Carl ruled stays as it is. It also means two responses per search: up to sixty rows over the socket, or a new protocol for sending only the difference. And the part that feels instant already is. Title matches are ranked on the client and appear with each keystroke; only "In messages" waits.
+
+**What the build is held to.** The harness prints wall-time percentiles for the search; run on the same database copy before and after, the median and 90th percentile may not rise by more than a tenth. On the cockpit the word-match step measured 49 ms at the median and 108 ms at the 90th percentile over 67 searches. With sub-thread grouping it measured the same within a millisecond. Four agent searches traced on 24 Nov took 447 to 604 ms end to end.
+
+**The 2-second searches were not reproduced.** The brief records three searches sent together that each waited the 2 s limit and came back with word matches only. That batch was also the first search after a long idle, so "together" and "first" were never separated.
+
+<Table
+  density="compact"
+  columns={["Tried on 24 Nov", "Result", "Rules out"]}
+  rows={[
+    ["One search, then three sent together, through the cockpit's own `thread_search`", "603 ms, then 447, 580 and 604 ms, each with its matches by meaning", "Sending together as a sufficient cause"],
+    ["3, 6, 10, 30 and 60 embedding calls at once, straight to Vertex", "Every call answered HTTP 200, the slowest in 0.47 s", "A limit on parallel calls, at these sizes"],
+    ["A fresh process (new token, new connection), seven runs of one to three calls", "0.76 to 1.18 s", "A cold start alone reaching 2 s"],
+  ]}
+/>
+
+What is left is a transient: a slow answer from Vertex, a busy server, or a rate-limit reply. The Vertex adapter retries a rate-limit reply after a full second, which cannot finish inside the limit. Today a timeout logs nothing, which is why nobody could say. The build adds one warning per outage when the limit fires, with the elapsed time. The cause stays unknown until it recurs with that line in the log.
+
+## 7. The agents' tool
+
+`thread_search` gains `includeSubThreads` (default true, as the brief assumes; false reads top-level threads' own text and every report only), beside `projectId` and `includeArchived`, which it already has. Its handler maps false to `scope: "roots"`. It does not send `subThreadRows`, so `limit` still counts top-level threads and its output is unchanged, line for line.
+
+A new parameter is model-facing text. The coder loads the `llm-instruction-change` skill, where a new field counts as a rule change, and follows `evals/README.md`. That means running the `mcp-tool-use` cases that involve `thread_search` on the old and new definitions before the PR merges. The parameter's description says what to pass and what an omitted value does. The tool's main description is not reworded.
+
+## 8. Build order
+
+Six pieces. The first is alone because everything reads its contract. After it, pieces that share a number touch disjoint files and run side by side.
+
+<Steps>
+  <Step at="1" title="Contract, server search and harness" badge="alone, first">
+    - `packages/contracts/src/threadSearch.ts`: the fields in §2.
+    - `ThreadSearch.loom.ts`, filters: `projectIds` on both rankings; `rootThreadId`; the cut-off after the vote.
+    - `ThreadSearch.loom.ts`, sub-thread rows: when `subThreadRows` is set, the query's last step keeps the best piece of text per thread instead of per top-level thread. Keep three per workstream, count the rest, fetch excerpts for every row sent, stop at the row limit. Select `report_path` for report hits.
+    - `ThreadEmbedder.loom.ts`: which of the 50 pass, the per-model table, the query-vector cache, the timeout warning.
+    - `ThreadSearch.ts`: the one marked line for `projectIds`.
+    - Harness: the nonsense set, a dozen searches whose answer is a sub-thread, the two cut-off columns.
+  </Step>
+  <Step at="2a" title="Shared client state" badge="parallel with 2b">
+    `state/loom/threadSearchFilters.ts`: the filter type and default, the request fields for a filter, the predicate for short queries, rows from matches (top-level, sub-thread, fold), and a row's target. Marked hunks in `state/threadSearch.ts`: the scope type gains the Loom fields, the request always carries `includeArchived`, `scope`, `subThreadRows` and `projectIds`.
+  </Step>
+  <Step at="2b" title="Agents' tool" badge="parallel with 2a">
+    `defs.ts`, `handlers/threadSearch.ts`, the eval run in §7. Touches nothing the clients read.
+  </Step>
+  <Step at="3a" title="Web and desktop" badge="parallel with 3b">
+    - New in `apps/web/src/loom/`: the chips, the sub-thread and fold rows for the sidebar, the wrapper that opens a result.
+    - `CommandPalette.tsx`: the filter state and the mount.
+    - `CommandPaletteThreadItems.tsx`: filters into the search, sub-thread items after their top-level item, the project chip narrowing title items.
+    - `CommandPaletteResults.tsx`: an indented item.
+    - `Sidebar.tsx`: state, mount, rows and keyboard order from the shared row list, the two select handlers.
+    - `state/queries.ts`: the short-query line.
+  </Step>
+  <Step at="3b" title="Phone" badge="parallel with 3a">
+    `ThreadSearchFilterChips.loom.tsx` and a sub-thread row beside `ArchivedSearchResultRow.loom.tsx`; marked hunks in `HomeScreen.tsx`, `ThreadNavigationSidebar.tsx`, `keyboard/CommandPalette.tsx`, `threadListV2.ts` and `state/queries.ts`. If the shared row functions need a change, the web coder makes it and the phone coder asks.
+  </Step>
+  <Step at="4" title="Guide, seed and the live pass" badge="last">
+    Rewrite "Find and reference work" in `docs/user/thread-sidebar.md` to what ships. Index the seeded reports in `apps/server/src/dev/seedWorkstream.ts`. Run §9 live.
+  </Step>
+</Steps>
+
+**One PR.** A second PR for the phone would be safe, since an older phone build ignores the new keys and keeps today's behaviour. It is not clearly safer. The phone's share is small once the row logic is shared, and splitting leaves the phone listing archived threads by default while the desktop does not. If the phone's review drags, it is the piece to split off.
+
+<Details summary="All touched files">
+
+<FileTree
+  entries={[
+    { path: "packages/contracts/src/threadSearch.ts", change: "modified", note: "input and match fields of §2" },
+    { path: "apps/server/src/orchestration-v2/ThreadSearch.loom.ts", change: "modified", note: "project filter, sub-thread rows, row budget, unfold, cut-off, report path" },
+    { path: "apps/server/src/orchestration-v2/ThreadEmbedder.loom.ts", change: "modified", note: "pass set per model, query-vector cache, timeout warning" },
+    { path: "apps/server/src/orchestration-v2/ThreadSearch.ts", change: "modified", note: "upstream file: one marked line passing projectIds to the search" },
+    { path: "apps/server/src/orchestration-v2/ThreadSearch.loom.test.ts", change: "modified", note: "the four cases in §9" },
+    { path: "apps/server/src/dev/threadSearchEval.loom.ts", change: "modified", note: "nonsense set, sub-thread answers, cut-off columns" },
+    { path: "apps/server/src/dev/threadSearchQueries.json", change: "modified", note: "a dozen searches whose answer is a sub-thread" },
+    { path: "apps/server/src/dev/seedWorkstream.ts", change: "modified", note: "index the seeded reports" },
+    { path: "apps/server/src/mcp/toolkits/workstream/defs.ts", change: "modified", note: "includeSubThreads" },
+    { path: "apps/server/src/mcp/toolkits/workstream/handlers/threadSearch.ts", change: "modified", note: "maps it to scope" },
+    { path: "packages/client-runtime/src/state/loom/threadSearchFilters.ts", change: "added", note: "filter state, rows, targets" },
+    { path: "packages/client-runtime/src/state/threadSearch.ts", change: "modified", note: "upstream file: marked hunks in the scope type and request builder" },
+    { path: "apps/web/src/loom/ThreadSearchFilterChips.tsx", change: "added" },
+    { path: "apps/web/src/loom/SubThreadSearchResultRow.tsx", change: "added", note: "sidebar sub-thread row and fold row" },
+    { path: "apps/web/src/loom/openThreadSearchResult.ts", change: "added", note: "navigate, then find or report" },
+    { path: "apps/web/src/components/CommandPalette.tsx", change: "modified", note: "upstream: state and mount" },
+    { path: "apps/web/src/components/CommandPaletteThreadItems.tsx", change: "modified", note: "upstream: filters, sub-thread items" },
+    { path: "apps/web/src/components/CommandPaletteResults.tsx", change: "modified", note: "upstream: indented item" },
+    { path: "apps/web/src/components/Sidebar.tsx", change: "modified", note: "upstream: state, mount, rows, select" },
+    { path: "apps/web/src/state/queries.ts", change: "modified", note: "upstream: short-query line" },
+    { path: "apps/mobile/src/features/threads/ThreadSearchFilterChips.loom.tsx", change: "added" },
+    { path: "apps/mobile/src/features/threads/SubThreadSearchResultRow.loom.tsx", change: "added" },
+    { path: "apps/mobile/src/features/home/HomeScreen.tsx", change: "modified", note: "upstream" },
+    { path: "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx", change: "modified", note: "upstream" },
+    { path: "apps/mobile/src/features/threads/threadListV2.ts", change: "modified", note: "upstream: list items for sub-thread and fold rows" },
+    { path: "apps/mobile/src/features/keyboard/CommandPalette.tsx", change: "modified", note: "upstream" },
+    { path: "apps/mobile/src/state/queries.ts", change: "modified", note: "upstream: short-query line" },
+    { path: "docs/user/thread-sidebar.md", change: "modified", note: "the search section" },
+    { path: "plans/thread-search-filters/intent.mdx", change: "modified", note: "plan link, chosen and dropped approaches, settled unknowns" },
+  ]}
+/>
+
+</Details>
+
+## 9. Verification
+
+**A dev instance with a real index.** `vp run migrate-dev-db --base-dir <the dev home>` copies a slice of real threads and rebuilds the search index from them, reading each report from its file. A probe on 24 Nov found 339 report rows in such a slice of 415 threads, every row correctly keyed, so "Report:" hits work there.
+
+**Vertex in that instance.** A dev home has no embedding settings, so it boots on the local default model and replaces the copied Vertex vectors. The cut-off is set for the Vertex model and would never apply. Before the first boot, copy the `threadSearchEmbedding` object from the live `settings.json` into the dev home's. It holds a provider, project, location and model, no secret; a Loom shell already carries the Google credentials. If the instance has booted without it, rerun `migrate-dev-db`.
+
+**The synthetic seed.** `vp run dev:seed` writes its reports to files and never indexes them. The build fixes that with the call the real submit path uses, `upsertThreadSearchReport`, so either instance can show a "Report:" row.
+
+**The brief's checks, live on web,** each on Cmd+K and the sidebar box, through the dev-verify recipe in `docs/dev-site-testing.md`:
+
+<Table
+  density="compact"
+  columns={["Do", "See"]}
+  rows={[
+    ["Touch no switch; search a word that sits in an archived thread and in a sub-thread's messages only", "Neither is listed; the request carries `includeArchived: false` and no `scope`"],
+    ["Switch Sub-threads on; type a sub-thread's title", "The sub-thread under its top-level thread; choosing it shows the sub-thread's conversation; switching off removes the row"],
+    ["Switch Archived on", "Archived threads join, each marked Archived"],
+    ["Choose a project that holds few of the matches, then search a common word", "A full list from that project, where today it is what is left of thirty"],
+    ["Choose a row whose excerpt starts \"Report:\"", "The sub-thread that wrote it, with the report open beside it"],
+    ["Type three made-up words that no thread holds", "\"No threads found\""],
+    ["Type `how do I stop the model picker showing duplicate names`", "\"This model picker is awful…\" first or near it (needs the slice to hold that thread, else the harness line stands in)"],
+    ["Type `CI`", "Rows under \"In messages\""],
+    ["Switch anything on, then Reset; then clear or close the box", "Chips show what is on; both return to the default"],
+    ["Choose \"+N more sub-threads\" on a broad query with Sub-threads on", "That workstream's remaining rows appear in place; no response exceeds thirty rows"],
+  ]}
+/>
+
+The nonsense check uses fresh words each time. The brief's example phrase is now written in this workstream's own reports, so on real data a search for it rightly finds this workstream by its words.
+
+**The harness.** Run `node apps/server/src/dev/threadSearchEval.loom.ts --db <copy>/statev2.sqlite --provider vertex` on a `VACUUM INTO` copy of the cockpit database, before and after. Four things must hold:
+
+- it passes its existing marks;
+- no expected thread leaves the first ten;
+- at least 14 of its 16 nonsense searches list nothing by meaning;
+- the wall-time bound in §6 holds.
+
+The nonsense set is built at run time from odd words the index does not hold, so a phrase someone later writes into a thread cannot spoil it. The dozen sub-thread searches turn the brief's unknown about words deep inside sub-threads into a printed figure: how often the right sub-thread is among its workstream's three rows.
+
+**Tests, each for a named regression,** in `ThreadSearch.loom.test.ts` with its existing fixtures and stub embedder:
+
+- A project filter keeps another project's better matches from using up the limit. Catches the picker filtering after the cut again.
+- Two sub-threads matching under one top-level thread come back as two nested rows in order, a fourth is counted not sent, and rows never exceed the limit. Catches more than thirty rows over the socket.
+- A thread the stub embedder puts below the cut-off with no word match is not listed; one above it is. Catches the padding returning.
+- `rootThreadId` returns only that workstream.
+
+And one in client-runtime for the row-to-target function: a report hit targets the sub-thread and its report, not the top-level thread. No component render tests.
+
+**Carl's checks on the phone,** which agents cannot run:
+
+1. The chip row sits under the search field without pushing the first result off screen.
+2. With nothing switched no archived thread is listed; Archived on brings them back, marked.
+3. Sub-threads on: a sub-thread row under its top-level thread opens that sub-thread.
+4. A "Report:" result opens the sub-thread that wrote it.
+
+**Before the PR:** `vp check`, `vp run typecheck`, `vp run lint:mobile`, `vp run check:changed`, and before and after images of Cmd+K and the sidebar. Three title-only pickers share the search hook: linking a thread to a pull request, a scheduled task's destination, and `!` in the composer. They send no message search and are not changed; the live pass opens each once to confirm.
+
+## 10. Where this tightens the brief, risks, and what is carried forward
+
+**Tightened, not reopened.**
+
+- **One project in Cmd+K** is the project of the thread you have open, the reading the brief's own picture ("This project") gives. Any other project is the sidebar's picker.
+- **"Opens that sub-thread at its report"** is built as the sub-thread with its report document open in the right panel on web and desktop. On the phone it opens the sub-thread.
+- **The nonsense check** passes with any three words no thread holds, for the reason above.
+- **Thirty rows includes sub-thread rows.** With Sub-threads on and a broad query that is about eight top-level threads a search. It follows from the brief's must-not; the lever, if it feels thin in use, is the number three.
+- **A sub-thread row needs a word match.** A top-level thread found only by meaning shows no sub-thread rows.
+
+**Risks.**
+
+- **The cut-off is fitted to one model and 80 searches.** It lives in one table keyed by model, the harness prints what a refit needs, and a model with no entry behaves as today.
+- **Upstream files.** `Sidebar.tsx`, the three `CommandPalette*` files and four phone files are rewritten by upstream at most pulls. Logic stays in Loom files and the shared state; what lands in upstream files is state, one mount line and a map over rows, each marked.
+- **Find in a sub-thread opened cold.** Find at a message works today for a top-level thread already in the client's list. For a sub-thread whose rows arrive after navigation it relies on the find store's existing wait for the timeline. The live pass checks one. The fallback is to open without find, as archived threads do.
+- **Helper threads under Archived.** Document-query threads ("Query: recap.mdx") are archived by Loom itself and turn up often among matches by meaning. With Archived on they are listed, as the brief reads. One condition removes them if Carl finds them noise.
+- **Without embeddings.** When the embedding call times out, or no provider is set, search lists partial word matches as it does today. A nonsense search can then show a row for one matching word.
+
+**The brief's unknowns.**
+
+<Table
+  density="compact"
+  columns={["Unknown", "Now"]}
+  rows={[
+    ["Where the cut-off sits", { badge: { label: "settled", tone: "success" }, md: "§3; a harness check from here on" }],
+    ["Why three searches sent together waited 2 s", { badge: { label: "narrowed", tone: "warning" }, md: "§6: neither sending together nor a cold start reproduces it; a log line is added" }],
+    ["What reading sub-threads' text adds for words deep inside them", { badge: { label: "a check", tone: "info" }, md: "A rough probe in §2 (48 of 60 workstreams found without the switch, 60 with it; right sub-thread in the first three for 51); the harness's dozen hand-written searches replace it" }],
+    ["Whether a chip row fits the phone", { badge: { label: "Carl's check", tone: "neutral" }, md: "§9, check 1" }],
+    ["How often search fails, and on which kind of miss", { badge: { label: "carried forward", tone: "neutral" }, md: "Needs searches counted for a fortnight. Not in this PR: it writes what is typed to disk and is its own small change, proposed as a follow-up once the first cut is in use" }],
+  ]}
+/>

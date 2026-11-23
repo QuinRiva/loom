@@ -5,6 +5,7 @@ reader:
   after_first_screen: whether the goal is what he meant, and what he will be able to type and see that he cannot today
 kicker: "Intent brief · approved 24 Nov 2026"
 status: approved
+plan: plans/thread-search-filters/plan.mdx
 manager_sessions:
   - id: 01a206a6-a5ee-71a1-9ae1-dbe5d36d42bc
     name: Search filters intent brief
@@ -94,7 +95,7 @@ The Today column comes from `thread_search`, the search tool agents use, run on 
 - You switch **Sub-threads** on and type `Word to PDF without malforming`: the sub-thread is listed under its top-level thread, and choosing it opens the sub-thread. Switch it off and the row is gone.
 - You switch **Archived** on and archived threads join the list, marked. You pick one project in Cmd+K and get a full list from that project, not what is left of thirty rows chosen across every project.
 - You choose a result whose excerpt says "Report:" and land in the sub-thread that wrote it.
-- You type `xylophone marmalade wombat` and see "No threads found". A paraphrase still works: `how do I stop the model picker showing duplicate names` lists "This model picker is awful…" at or near the top.
+- You type `xylophone marmalade wombat` and see "No threads found". <Sidenote>Those three words are now written in this brief's own threads and reports, so on the cockpit they rightly find this workstream. The check uses three fresh words nobody has written.</Sidenote> A paraphrase still works: `how do I stop the model picker showing duplicate names` lists "This model picker is awful…" at or near the top.
 - You type `CI` and get message matches.
 - What is switched on shows beside the search box on every screen, and one action puts it back to the default.
 - An agent's `thread_search` takes the same narrowing as parameters.
@@ -138,9 +139,9 @@ Where the switches sit. You judge this one by trying it. The pictures are Cmd+K;
 - **Chips under the search box.** Wins if you want to see and flip a switch at a glance, on a phone as well. Costs one row of height. The words you type stay plain, which matters because they also drive title matching and highlighting.
 - **Typed in the query.** Wins if you never want to leave the keyboard, and it is the same on every screen. Loses on a phone keyboard and has to be remembered. It could come later as shorthand that flips the chips.
 - **A filter button with a menu.** Wins if a chip row crowds the phone. Loses because what is on hides behind a count.
-- **Sub-thread rows.** Chosen: one row per matching sub-thread under its top-level thread. How many one workstream may show before the rest fold away is yours to judge when you try it.
-- **Stopping the padding.** Drop results matched by meaning that are not close enough, with the cut-off set on the 57 test searches. Or keep them in their own "Related" group under the word matches. A spike decides.
-- **Speed.** Show word matches at once and let rows matched by meaning join without moving the rows already shown. Wins if rows hold still; otherwise both arrive together as today.
+- **Sub-thread rows.** Chosen: one row per matching sub-thread under its top-level thread. How many one workstream may show before the rest fold away is yours to judge when you try it. The build starts at three, with one row that unfolds the rest.
+- **Stopping the padding.** Chosen: drop results matched only by meaning that are not close enough. The cut-off was set on the 57 test searches and 16 nonsense ones. No test search loses its thread from the first ten, and 14 of the 16 nonsense searches list nothing by meaning. Dropped: a separate "Related" group under the word matches. "No threads found" needs a cut-off either way, and with one the extra heading changes nothing about what is listed.
+- **Speed.** Chosen: both arrive together, as today, and flipping a switch on the same words answers in about a tenth of a second. Dropped: showing word matches first. For rows to hold still, matches by meaning would have to sit below the word matches. That is a different order from the ranking you ruled stays as it is.
 - Dropped: wiring the October toggle as ruled, where sub-threads' text is read and only top-level threads are listed. It changed 1 first place in 57, and it still leaves you at the top of the parent. You chose sub-threads as results instead. <Sidenote>Pull 13 decision log, ranker test of 26 Oct. Every answer in that set is a top-level thread, so it understates what the toggle adds.</Sidenote>
 - Dropped: upstream's own search. Pull 16 re-checked it: it reads the messages of about 650 active top-level threads and nothing archived, no sub-thread and no report.
 
@@ -168,8 +169,7 @@ Where the switches sit. You judge this one by trying it. The pictures are Cmd+K;
 
 - How often search fails you, and on which kind of miss. Nothing counts searches. Counting them for two weeks after the first cut settles it: what was typed, on which screen, which switches were on, whether a result was opened.
 - How much reading sub-threads' text adds for words from deep inside them, and whether the right sub-thread then comes first. Neither figure above measures it. A dozen searches written from words that live only inside sub-threads' messages, run through the real search, settle both.
-- Where the cut-off for matches by meaning sits. There is none today; the 57 test searches plus a handful of nonsense ones set it.
-- Why three searches sent together each waited 2 s and came back without their matches by meaning. A timing run against Vertex settles whether it was a cold connection or a limit on parallel calls.
+- Why three searches sent together each waited 2 s and came back without their matches by meaning. Timing runs on 24 Nov ruled out both first guesses. Three sent together took about half a second each. Sixty calls at once to Vertex all answered in under half a second. A cold start took about one second. A timeout logs nothing today; the build adds a log line, and the cause waits for it to happen again.
 - Whether a chip row fits the phone's search field without pushing the first result off screen. Agents cannot run the phone app on this machine, so that check is yours.
 
 <Details summary="What each search does today, checked on 23 Nov">
