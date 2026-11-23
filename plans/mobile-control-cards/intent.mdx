@@ -53,12 +53,13 @@ manager_sessions:
 
 **Approaches in play.**
 
-- **Web's card, redrawn for touch.** The rule for which messages become cards and what each line says moves into the code web and phone already share, so the two cannot drift; only the drawing is new. _Your ask, as I read it._
-- **Collapse only**: the card and its entries, with no report or document opening. Wins if opening a report on the phone turns out to be a project of its own (see Still unknown); the links then follow as a second step.
+- **Web's card, redrawn for touch**, with everything web's card does: collapse, excerpts, raw text, open report, open sub-thread, document chips. The rule for which messages become cards and what each line says moves into the code web and phone already share, so the two cannot drift; only the drawing is new. _Your ask, as I read it, and the only approach left._
+- Dropped: the collapse alone, with report and document opening as a second step. It was worth it only if opening a report on the phone were a project of its own, and it is not: the phone already opens files outside the project folder, reports included, over the tailnet and the relay alike.
 
 **Decided.** "launch a hand off to build that too."
 
 - _Assumed:_ web's card is the design, and the phone departs from it only where a narrow touch screen forces it. Three such departures are in the picture. An entry takes two lines, because sender, role, title and verdict do not fit on one. Tapping an entry opens the report, where web shows "Open report" on hover. A missing document shows struck through with no hover text. Redirect if you want something other than web's card.
+- _Assumed:_ you see the card first, because no agent can run the phone app. This machine has no virtualisation, no other device host is set up, and the app has no web version. Before your look, agents test the card's logic against real hand-back messages from your live threads and test the taps in a simulated render, which proves the wiring and not the looks. Your look comes from an app built off the branch, about 21 minutes to build, published as a GitHub pre-release and installed over your daily app, before anything lands on main. Redirect if you would rather it ship and reach you through the normal update.
 - _Assumed:_ cards start collapsed, as on web, including the old ones when you scroll back.
 - _Assumed:_ Android and your one phone are what gets checked. The same code serves iOS and nobody looks at it there.
 - _Assumed:_ nothing is built on the unshipped branch that adds a workstream view to the phone; this lands on main by itself.
@@ -80,25 +81,7 @@ manager_sessions:
         { id: "something-else", label: "No, it is something else; I will send a screenshot" },
       ],
     },
-    {
-      id: "how-much",
-      title: "Everything web's card does, or the collapse first?",
-      subtitle:
-        "The collapse alone fixes the feed being swamped. Opening reports and documents from the card is what lets you act on a hand-back without going to a computer, and it is the part that may cost more on the phone.",
-      mode: "single",
-      options: [
-        {
-          id: "full",
-          label: "Everything: collapse, excerpts, raw text, open report, open sub-thread, document chips",
-          recommended: true,
-        },
-        { id: "collapse-first", label: "Collapse and excerpts now; opening reports and documents as a second step" },
-      ],
-    },
   ]}
 />
 
-**Still unknown.**
-
-- Can the phone open a report at all? Reports are files on the server, outside any project folder. An earlier phone design round reported that the phone's file screen opened project files only. The planner checks this on today's code. If it cannot, you get one question: add it, or have the entry open the sub-thread instead.
-- Can an agent see the card on a running phone app before you do? Earlier threads reported that this machine cannot run the Android app. If that still holds, agents check the card's logic with tests and the first look at it on a phone is yours. The planner then says how the build reaches your phone for that look: an app built from the branch, or the normal update after it ships and you deploy.
+**Still unknown.** Nothing. The two things that were (whether the phone can open a report, and whether an agent can see the app running) were checked against today's code and this machine on 23 Nov, and are now the dropped approach and the first Assumed line above.
