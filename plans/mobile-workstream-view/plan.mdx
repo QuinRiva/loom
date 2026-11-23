@@ -4,7 +4,7 @@ reader:
   knows: the intent brief beside this file and the web workstream panel; not the mobile codebase, the measurements, or that no agent can run the Android app
   after_first_screen: "Three coder pieces and a delivery step build the brief's screen with nothing new from the server. The plan changes two of the brief's Assumed lines and reads one must-not as being about web's behaviour. No agent can run the app, so every on-screen check is Carl's, on his phone, from the rebuilt APK."
 kicker: "Implementation plan · mobile workstream view · 11 Nov 2026"
-status: approved
+status: done
 intent: plans/mobile-workstream-view/intent.mdx
 manager_sessions:
   - id: 01a1c8f1-c556-7277-a6f3-d7d599cacb2d
@@ -712,3 +712,31 @@ It does not block the build. It is Carl's because it means changing a setting on
     }
   ]}
 />
+
+## As built
+
+Built 11 November 2026 on `t3/install-loom-android-mobile`, then carried onto main as of 23 November (two upstream pulls later) and shipped from `t3/mobile-missing-loom-features`. Where the build departs from this plan, and why:
+
+**Shipped without a device run.** Section 9 had Carl's phone as the first live run before shipping. On 23 November he chose "Bring it up to date and ship it", so the first live run is the shipped app. What agents checked instead: the pure logic by test, the lanes rendered from real data in a browser, web's workstream panel live on a seeded workstream, and a release APK that compiles and bundles. Nothing has been seen on a screen, and iOS has not been built.
+
+**From the original build**
+
+- `layoutLanes` takes a maximum gutter width in dp, not a slot count, because the lane count is only known after the layout runs.
+- Thread rows carry a `fold` field (not in the section 3 contract) so a sub-orchestrator's wave can draw its chevron and collapse. The gutter is always at least two lanes wide so folding never shifts the row text.
+- `buildWorkstreamNodes` takes an optional dependency index so the screen can build one sub-tree against the whole environment; web's call is unchanged.
+- Every `toSorted` in the moved rules became copy-and-`.sort`, because they now run on the phone's JS engine, which lacks it.
+- A new file, `laneGutterShapes.loom.ts`, holds the gutter as pure shapes so it could be rendered from real data in a browser before any phone saw it.
+- The pane's error boundary lives in the Loom file with a "Close workstream" way out, which keeps the upstream layout hunk to one element.
+- A hidden left pane is revealed once when a workstream route arrives; hiding it afterwards sticks.
+- On iOS a split layout draws the body in the detail column, since the pane is wired into the Android layout only.
+- The breadcrumb is rendered inside `ThreadHeader` through one `workstream` prop rather than wrapped beside it in `ThreadRouteScreen`, for a smaller upstream diff. The prop replaces the plan's `onOpenWorkstream`.
+- Cards: an Answer card shows the role, "asked 14m ago" and the question's title in a quote block, not its text; an Accept card omits the "Accept?" word, which its detail line already says. The graph heading counts blocked threads as "waiting".
+
+**From carrying it onto 23 November's main**
+
+- The breadcrumb no longer hides while typing: main removed the header's keyboard-compact mode (upstream #33599), so it shows whenever the header does.
+- The "Open workstream" header action is built by `workstreamAppBarAction()` and sits after Files in main's new `AppBar` action list.
+- The Loom change for Android Back from a child to the workstream is dropped: upstream #27653 made Back follow history, which does it. The test is kept.
+- Unfolded, the pane moved into `AndroidWorkspaceSidebar.android.tsx` and covers the whole sidebar column, its "Threads" bar included, because beside the thread list it would have sat under a second bar. The sidebar's new-thread button is now under the pane. The pane header is the standard two-line header; the one-line compact mode no longer exists.
+- The routes use main's presets: `Workstream` is `pageRoute()`, `WorkstreamNode` is a `sheetRoute` with the same 50% and 90% detents.
+- The lane list is a LegendList, not a FlatList (main's lint bans FlatList on mobile); the remembered scroll position is restored through `initialScrollOffset`.
