@@ -1,4 +1,4 @@
-// loom: the context-viz experiment's three per-device switches (Settings → Behavior), rendered from
+// loom: the context meter and the context-viz experiment's three per-device switches, rendered from
 // `LoomAutoOpenSettingsRows` so the upstream `SettingsPanels.tsx` gains no line.
 import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contracts/settings";
 
@@ -6,6 +6,12 @@ import { SettingResetButton, SettingsRow } from "../../components/settings/setti
 import { Switch } from "../../components/ui/switch";
 
 const ROWS = [
+  {
+    key: "contextWindowMeterEnabled",
+    title: "Context meter",
+    description:
+      "The ring beside the send button: how full the context window is, what the thread has spent, and Compact.",
+  },
   {
     key: "contextVizTimeline",
     title: "Context diagnostics: Timeline",

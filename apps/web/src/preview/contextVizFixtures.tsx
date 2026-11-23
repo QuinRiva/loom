@@ -79,6 +79,7 @@ function Composition(props: { initialLens?: "tokens" | "cost"; initialGrouped?: 
 
 function SettingsRows() {
   const [settings, setSettings] = useState({
+    contextWindowMeterEnabled: true,
     contextVizTimeline: true,
     contextVizComposition: true,
     contextVizGrowth: false,

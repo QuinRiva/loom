@@ -22,7 +22,11 @@ export const LOOM_AUTO_OPEN_RESTORE_DEFAULTS = {
 
 type LoomBehaviorSettings = Pick<
   UnifiedSettings,
-  "autoOpenWorkstreamPanel" | "contextVizTimeline" | "contextVizComposition" | "contextVizGrowth"
+  | "autoOpenWorkstreamPanel"
+  | "contextWindowMeterEnabled"
+  | "contextVizTimeline"
+  | "contextVizComposition"
+  | "contextVizGrowth"
 >;
 
 /** Spread into the changed-settings labels. */

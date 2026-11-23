@@ -55,7 +55,9 @@ import * as Schema from "effect/Schema";
 import { formatComposerModelMention } from "@t3tools/client-runtime/composer-model-mentions";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { deriveLatestContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window"; // loom: the composer context meter
+import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window"; // loom: the composer context meter
+import { resolveContextWindowModelDisplayName } from "~/loom/contextWindowMeter.logic"; // loom: the composer context meter
+import { providerSupportsManualCompaction } from "./compaction.logic"; // loom: the meter's Compact button
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { type FolderDropTarget, folderDropTarget, resolveDroppedFolderPath } from "./folderDrop";
 import { splitTransferredFiles } from "./workspaceFileDrop";
@@ -436,6 +438,8 @@ export interface ChatComposerProps {
 
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
+  activeContextWindow: ContextWindowSnapshot | null; // loom: the composer context meter (runbook 41 §6.1)
+  reserveContextWindowMeter: boolean; // loom: the composer context meter
 
   resolvedTheme: "light" | "dark";
   settings: UnifiedSettings;
@@ -623,12 +627,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     supportsQuestionAttachments,
   });
   const isServerThread = routeKind === "server" && props.activeThread !== undefined; // loom: the `/handoff` and `/retro` slash items
-  // loom: the composer context meter, a Loom-owned component since upstream deleted it (runbook 41 §6.1)
-  const activeContextWindow = deriveLatestContextWindowSnapshot(
-    contextWindowEntries,
-    contextWindowLiveUsage,
-    contextWindowProviderThread,
-  );
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const composerDraftTargetKey = composerTargetKey(composerDraftTarget);
   const {
@@ -4108,16 +4106,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     canOperateThread={canOperateThread}
                     // loom: the composer context meter (runbook 41 §6.1)
                     activeContextWindow={
-                      settings.contextWindowMeterEnabled ? activeContextWindow : null
+                      settings.contextWindowMeterEnabled ? props.activeContextWindow : null
                     }
                     spendThreadRef={routeKind === "server" ? routeThreadRef : null} // loom:
-                    reserveContextWindowMeter={reserveContextWindowMeter} // loom:
-                    activeThreadModelDisplayName={activeThreadModelDisplayName} // loom:
+                    reserveContextWindowMeter={props.reserveContextWindowMeter} // loom:
+                    activeThreadModelDisplayName={resolveContextWindowModelDisplayName(
+                      activeThreadModelSelection,
+                      modelOptionsByInstance,
+                    )} // loom:
                     compactDisabled={compactDisabled || noProviderAvailable || isSendBusy} // loom: the meter's Compact button
                     compactDisabledReason={
                       noProviderAvailable ? gt("Compacting is unavailable right now") : null // loom:
                     }
-                    onCompactContext={canOperateThread ? compactThreadContextStable : undefined} // loom:
+                    onCompactContext={
+                      canOperateThread && providerSupportsManualCompaction(selectedProviderEntry)
+                        ? compactThreadContextStable
+                        : undefined
+                    } // loom: hidden for a provider without /compact, as before the merge
                     pendingAction={pendingPrimaryAction}
                     isRunning={(phase === "running" || phase === "connecting") && !draftRunsLocally}
                     canInterrupt={canInterrupt}

@@ -367,6 +367,7 @@ import { modelFallbackBannerItem } from "./chat/ComposerUsageLimits";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import { resolveThreadSyncPhase } from "../threadSync";
 import { hasAvailableCompactionProvider } from "./chat/compaction.logic";
+import { shouldReserveContextWindowMeter } from "~/loom/contextWindowMeter.logic"; // loom: the composer context meter
 import {
   deriveLatestContextWindowSnapshot,
   hasDismissedResumeCompaction,
@@ -4001,6 +4002,16 @@ export default function ChatView(props: ChatViewProps) {
                                 projectName={activeProject?.title}
                                 compactThreadUnavailable={compactThreadUnavailable}
                                 compactDisabled={compactDisabled}
+                                // loom: the composer context meter (runbook 41 §6.1)
+                                activeContextWindow={activeContextWindow}
+                                reserveContextWindowMeter={shouldReserveContextWindowMeter({
+                                  meterEnabled: settings.contextWindowMeterEnabled,
+                                  detailLoading: threadDetailLoading,
+                                  threadStarted: threadHasStarted(serverThread),
+                                  providerReportsContextWindow: activeProviderStatus
+                                    ? activeProviderStatus.reportsContextWindow === true
+                                    : null,
+                                })}
                                 resolvedTheme={resolvedTheme}
                                 settings={settings}
                                 keybindings={keybindings}

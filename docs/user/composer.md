@@ -322,7 +322,7 @@ Earlier messages and diffs stay in the thread. Dismiss the notice above the
 composer to keep the current session instead.
 
 On web and desktop, the context meter shows context usage. <!-- loom: meter on by default --> It
-is on by default (turn it off under **Settings → Maintenance → Background activity**) and
+is on by default (turn off **Context meter** under **Settings → Maintenance → Background activity**) and
 appears once the provider reports usage. Open it for usage details and
 **Compact context** when the provider supports compaction.
 

@@ -7,7 +7,8 @@ import {
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 
-function providerSupportsManualCompaction(
+// loom: exported for the context meter's Compact button (runbook 41 §6.1)
+export function providerSupportsManualCompaction(
   provider: ProviderInstanceEntry | null | undefined,
 ): boolean {
   return provider?.snapshot.slashCommands.some((command) => command.name === "compact") ?? false;
