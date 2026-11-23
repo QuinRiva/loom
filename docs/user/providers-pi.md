@@ -7,7 +7,7 @@ extensions, skills, context files, and native session history.
 
 1. Install [Pi](https://pi.dev) on the machine running the T3 Code server. Pi requires Node.js
    22.19 or newer; its platform installers can install Node if needed. T3 Code supports Pi
-   0.80.5 or newer.
+   0.84.3 or newer.
 2. Run `pi` in a terminal, then `/login` to connect your model provider or configure its API key.
 3. Open T3 Code Settings, enable Pi, and refresh the provider.
 
@@ -37,11 +37,14 @@ update it through that manager instead. For example, a Nix profile installation 
 
 T3 Code discovers the models reported by Pi and exposes their supported thinking levels. The
 thinking picker marks the discovered active model's configured level as its default without
-overriding it. Other models keep their Pi defaults when no level is selected. Threads
+overriding it. Other models keep their Pi defaults when no level is selected. A model that lists
+`serviceTiers` (for example `[{ "id": "priority", "name": "Fast" }]`) in its Pi definition gets
+a speed picker with Standard plus those tiers. A chosen tier is sent as the request's
+`service_tier`; Standard sends none and leaves the endpoint's default. Threads
 use Pi's native session files for resume, rollback, and forks within the same Pi instance. Forks
 preserve the native conversation through the selected turn in the destination workspace.
 Switching providers uses portable conversation context. Extension
-dialogs appear in the T3 Code composer, and the composer context meter follows Pi's own usage
+dialogs appear in the T3 Code composer, and the thread details context window follows Pi's own usage
 reporting while a response streams and after it settles.
 
 Pi skills appear in the composer's `$` menu. This includes user skills and project skills that Pi

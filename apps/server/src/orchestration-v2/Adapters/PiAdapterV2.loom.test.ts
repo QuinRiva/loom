@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off
 // loom: the driver work item's adapter hunks (driver plan §2–§4): the Loom open-session field
-// reaches pi's argv, every resume carries cwdOverride, and the terminal tokenUsage carries the
+// reaches pi's argv, and the terminal tokenUsage carries the
 // turn's pi-priced costUsd (live frames its spend so far). Phase 3c: a pi quota error ends the turn as usage_limit with a reset
 // time that satisfies upstream's limit-recovery arm (3c-1).
 //
@@ -126,11 +126,21 @@ const makeFakePi = Effect.gen(function* () {
   const spawns: Array<ReadonlyArray<string>> = [];
   // The session file's bytes at the moment each switch_session frame reached pi.
   const switchedFiles: Array<string | null> = [];
+  // The `--session` file's bytes at the moment pi was spawned on it.
+  const spawnedFiles: Array<string | null> = [];
   const emit = (record: PiRpcRecord) =>
     Queue.offer(stdout, new TextEncoder().encode(`${JSON.stringify(record)}\n`));
   const spawner = ChildProcessSpawner.make((command) =>
     Effect.sync(() => {
-      if (ChildProcess.isStandardCommand(command)) spawns.push(command.args.map(String));
+      if (ChildProcess.isStandardCommand(command)) {
+        const args = command.args.map(String);
+        spawns.push(args);
+        const session = args[args.indexOf("--session") + 1];
+        if (args.includes("--session") && session !== undefined)
+          spawnedFiles.push(
+            NodeFS.existsSync(session) ? NodeFS.readFileSync(session, "utf8") : null,
+          );
+      }
       return ChildProcessSpawner.makeHandle({
         pid: ChildProcessSpawner.ProcessId(999_999_998),
         exitCode: Effect.never,
@@ -180,12 +190,13 @@ const makeFakePi = Effect.gen(function* () {
   );
   // pi's stdout ends: the process went away.
   const close = Queue.end(stdout);
-  return { spawner, emit, close, requests, promptCounts, spawns, switchedFiles };
+  return { spawner, emit, close, requests, promptCounts, spawns, switchedFiles, spawnedFiles };
 });
 
 const openRuntime = Effect.fnUntraced(function* (
   loom?: LoomOpenSessionFields,
   hooks?: LoomPiAdapterHooksShape,
+  resume?: { readonly initialNativeThreadId: string; readonly model: string },
 ) {
   const fake = yield* makeFakePi;
   const adapter = yield* makePiAdapterV2({
@@ -197,9 +208,11 @@ const openRuntime = Effect.fnUntraced(function* (
   const runtime = yield* adapter.openSession({
     threadId: THREAD_ID,
     providerSessionId: ProviderSessionId.make("provider-session-pi-loom"),
-    modelSelection,
+    modelSelection:
+      resume === undefined ? modelSelection : { instanceId: PI_INSTANCE_ID, model: resume.model },
     runtimePolicy,
     ...(loom === undefined ? {} : { loom }),
+    ...(resume === undefined ? {} : { initialNativeThreadId: resume.initialNativeThreadId }),
   });
   const events = yield* Queue.unbounded<ProviderAdapterV2Event>();
   yield* runtime.events.pipe(
@@ -298,22 +311,6 @@ describe("PiAdapterV2 (loom)", () => {
         LOOM.skills,
       );
       assert.equal(args[args.indexOf("/ext/loom.ts") - 1], "--extension");
-    }).pipe(Effect.scoped, Effect.provide(testLayer)),
-  );
-
-  it.effect("resumes with cwdOverride set to the session's cwd", () =>
-    Effect.gen(function* () {
-      const { fake, runtime } = yield* openRuntime();
-      const providerThread = yield* runtime.ensureThread({
-        threadId: THREAD_ID,
-        modelSelection,
-        runtimePolicy,
-      });
-      yield* runtime.resumeThread({ providerThread });
-      const switches = fake.requests.filter((request) => request["type"] === "switch_session");
-      assert.lengthOf(switches, 1);
-      assert.equal(switches[0]!["sessionPath"], SESSION_FILE);
-      assert.equal(switches[0]!["cwdOverride"], THREAD_CWD);
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
@@ -622,6 +619,27 @@ const resumeCodexHistoryUnder = Effect.fnUntraced(function* (model: string) {
 });
 
 describe("PiAdapterV2 (loom) — sanitiser before switch_session", () => {
+  // Upstream now resumes by spawning `pi --session <file>`, which loads the file before any frame.
+  it.effect(
+    "a spawn-time Anthropic-family resume starts pi on a file already rid of codex ids",
+    () =>
+      Effect.gen(function* () {
+        const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "loom-pi-spawn-resume-"));
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => NodeFS.rmSync(dir, { recursive: true, force: true })),
+        );
+        const sessionFile = NodePath.join(dir, "0001_codex.jsonl");
+        NodeFS.writeFileSync(sessionFile, CODEX_HISTORY);
+        const { fake } = yield* openRuntime(undefined, yield* liveHooks(false), {
+          initialNativeThreadId: sessionFile,
+          model: "cliproxy/claude-opus-5-5",
+        });
+        assert.lengthOf(fake.spawnedFiles, 1);
+        assert.notInclude(fake.spawnedFiles[0]!, "|");
+        assert.include(fake.spawnedFiles[0]!, "call_abc_fc_123");
+      }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
   it.effect("an Anthropic-family resume loads a file already rid of codex tool ids", () =>
     Effect.gen(function* () {
       const loaded = yield* resumeCodexHistoryUnder("cliproxy/claude-opus-5-5");

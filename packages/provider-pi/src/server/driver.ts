@@ -100,7 +100,8 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
     const httpClient = yield* HttpClient.HttpClient;
     const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
     const host = yield* ProviderHost.ProviderHost;
-    const { cwd } = host.paths;
+    // Pi runs extensions' session_start in its cwd; the server's cwd is $HOME on packaged desktop.
+    const probeCwd = pathService.join(host.paths.providerStatusCacheDir, "pi-status-probe");
     const processEnv = yield* mergeProviderInstanceEnvironment(environment);
     const continuationIdentity = defaultProviderContinuationIdentity({
       driverKind: DRIVER_KIND,
@@ -147,16 +148,25 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
           }),
       ),
     );
-    const textGeneration = yield* makePiTextGeneration(effectiveConfig, processEnv);
+    const textGeneration = yield* makePiTextGeneration(
+      effectiveConfig,
+      processEnv,
+      host.compatibility,
+    );
 
     // loom: Loom's templates for the slash-menu discovery pi (live hooks in loom/serverLayers.ts)
     const { promptTemplates } = yield* LoomPiAdapterHooks;
-    const checkProvider = checkPiProviderStatus(
-      effectiveConfig,
-      processEnv,
-      cwd,
-      promptTemplates, // loom:
-    ).pipe(
+    const checkProvider = fileSystem.makeDirectory(probeCwd, { recursive: true }).pipe(
+      Effect.ignore,
+      Effect.andThen(
+        checkPiProviderStatus(
+          effectiveConfig,
+          processEnv,
+          probeCwd,
+          host.compatibility,
+          promptTemplates, // loom:
+        ),
+      ),
       Effect.map(stampIdentity),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
     );

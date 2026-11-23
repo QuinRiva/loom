@@ -513,7 +513,7 @@ it.live(
         assert.strictEqual(failure._tag, "LoomLedgerReconciliationError");
       }).pipe(
         Effect.provide(
-          NodeSqliteClient.layer({ filename: dbPath, readerWorker: true, checkpointWorker: true }),
+          NodeSqliteClient.layer({ filename: dbPath, readerWorker: true, writerWorker: true }),
         ),
       );
 
@@ -533,7 +533,7 @@ it.live(
         );
       }).pipe(
         Effect.provide(
-          NodeSqliteClient.layer({ filename: dbPath, readerWorker: true, checkpointWorker: true }),
+          NodeSqliteClient.layer({ filename: dbPath, readerWorker: true, writerWorker: true }),
         ),
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
@@ -561,7 +561,7 @@ it.live("both lanes migrate and are idempotent on the worker-backed file path", 
       );
     }).pipe(
       Effect.provide(
-        NodeSqliteClient.layer({ filename: dbPath, readerWorker: true, checkpointWorker: true }),
+        NodeSqliteClient.layer({ filename: dbPath, readerWorker: true, writerWorker: true }),
       ),
     );
 
@@ -578,7 +578,7 @@ it.live("both lanes migrate and are idempotent on the worker-backed file path", 
       );
     }).pipe(
       Effect.provide(
-        NodeSqliteClient.layer({ filename: dbPath, readerWorker: true, checkpointWorker: true }),
+        NodeSqliteClient.layer({ filename: dbPath, readerWorker: true, writerWorker: true }),
       ),
     );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),

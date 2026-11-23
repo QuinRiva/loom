@@ -6,6 +6,8 @@ import {
   threadSearchMatchedSubThreadTitle,
 } from "@t3tools/client-runtime/state/loom/threadSearch";
 
+import { T, Var } from "gt-react-native"; // loom: the sub-thread line
+
 import { AppText as Text } from "../../components/ui/AppText";
 import { cn } from "../../lib/cn";
 
@@ -74,7 +76,9 @@ export function ThreadSearchMatchExcerpt(props: {
           className={cn(props.compact ? "text-sm" : "text-xs", mutedClassName)}
           numberOfLines={1}
         >
-          Sub-thread: {subThreadTitle}
+          <T>
+            Sub-thread: <Var>{subThreadTitle}</Var>
+          </T>
         </Text>
       )}
     </>

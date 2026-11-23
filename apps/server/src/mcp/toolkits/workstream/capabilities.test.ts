@@ -41,6 +41,16 @@ it.effect(
   () =>
     Effect.gen(function* () {
       const dispatched: Array<OrchestrationV2ServerCommand> = [];
+      const project = {
+        id: PROJECT_ID,
+        title: "Loom",
+        workspaceRoot: "/workspace/loom",
+        defaultModelSelection: null,
+        scripts: [],
+        repositoryIdentity: null,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:00.000Z",
+      };
       const mcp = yield* serveMcp(
         {
           orchestrator: {
@@ -62,17 +72,9 @@ it.effect(
           // Linking tools are hidden while the beta is off; on, the credential still refuses them.
           settings: { linkedEnvironmentsEnabled: true },
           projects: {
-            getShell: () =>
-              Effect.succeedSome({
-                id: PROJECT_ID,
-                title: "Loom",
-                workspaceRoot: "/workspace/loom",
-                defaultModelSelection: null,
-                scripts: [],
-                repositoryIdentity: null,
-                createdAt: "2026-10-01T00:00:00.000Z",
-                updatedAt: "2026-10-01T00:00:00.000Z",
-              }),
+            getShell: () => Effect.succeedSome(project),
+            // Upstream's link path locates the PR's repository among every project.
+            listShells: () => Effect.succeed([project]),
           },
         },
         { threadId: LOOM_TEST_THREAD, capabilities: ["workstream", "pull-requests"] },
@@ -81,7 +83,6 @@ it.effect(
       for (const [name, args] of [
         ["delegate_task", { task: "do it" }],
         ["t3_thread_send", { threadId: "other", message: "hi" }],
-        ["t3_background_wait", { taskIds: ["task-1"] }],
         ["t3_environment_link", { hint: "the other machine" }],
       ] as const) {
         const denied = yield* mcp.callTool(name, args);
@@ -89,6 +90,8 @@ it.effect(
           "capability_denied",
         );
       }
+      // Upstream now hides t3_background_wait from a credential without the background-wait grant.
+      expect((yield* mcp.listTools).map((tool) => tool.name)).not.toContain("t3_background_wait");
       const worktree = yield* mcp.callTool("t3_worktree_status", {});
       expect(worktree.isError, "t3_worktree_status").toBe(true);
 

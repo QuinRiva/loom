@@ -1,10 +1,14 @@
 import { assert, it } from "@effect/vitest";
 import {
+  EnvironmentId,
   EventId,
   MessageId,
+  NodeId,
   ProjectId,
   ProviderInstanceId,
+  RunId,
   ThreadId,
+  TurnItemId,
   type OrchestrationV2DomainEvent,
   type ThreadLinkedPullRequest,
 } from "@t3tools/contracts";
@@ -18,6 +22,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
+import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -127,6 +132,7 @@ const message = (
     readonly minute?: number;
     readonly streaming?: boolean;
     readonly createdBy?: "user" | "agent";
+    readonly runId?: RunId;
   } = {},
 ): OrchestrationV2DomainEvent => ({
   id: EventId.make(`message:${id}`),
@@ -139,7 +145,7 @@ const message = (
     creationSource: role === "user" ? "web" : "provider",
     id: MessageId.make(id),
     threadId,
-    runId: null,
+    runId: options.runId ?? null,
     nodeId: null,
     role,
     text,
@@ -148,6 +154,20 @@ const message = (
     createdAt: at(options.minute ?? 1),
     updatedAt: at(options.minute ?? 1),
   },
+});
+
+// The prefix and suffix are hidden selection context, not text the reader sees.
+const quote = serializeAssistantCitation({
+  version: 1,
+  environmentId: EnvironmentId.make("environment:local"),
+  threadId: ThreadId.make("thread:quoted"),
+  messageId: MessageId.make("quoted-answer"),
+  text: "A lighthouse guides ships safely through the darkness.",
+  comment: "what are you talking about",
+  start: 0,
+  end: 54,
+  prefix: "beacon01",
+  suffix: "harbor",
 });
 
 it.effect.each([true, false])(
@@ -276,6 +296,46 @@ it.layer(layerTest)("ThreadSearch", (it) => {
       assert.deepEqual((yield* search.search({ query: "ne%le" })).matches, []);
     }),
   );
+
+  it.effect("matches the readable text of quotes and their comments", () =>
+    Effect.gen(function* () {
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const search = yield* ThreadSearch.ThreadSearch;
+      const project = ProjectId.make("project:search-citation");
+      const threadId = ThreadId.make("thread:citation");
+      yield* createProject(project);
+      yield* Effect.forEach(
+        [
+          thread(threadId, project),
+          message(threadId, "citation", "user", `${quote} quiet silver lantern`),
+        ],
+        projections.apply,
+        { discard: true },
+      );
+      const snippets = (query: string) =>
+        Effect.map(search.search({ query }), (result) =>
+          result.matches
+            .filter((match) => match.threadId === threadId)
+            .map((match) => match.snippet),
+        );
+
+      const readable =
+        "A lighthouse guides ships safely through the darkness. Comment: what are you talking about quiet silver lantern";
+      assert.deepEqual(yield* snippets("what are you talking about"), [
+        `…${readable.slice(readable.indexOf("the darkness"))}`,
+      ]);
+      assert.deepEqual(yield* snippets("ships safely through"), [readable]);
+      assert.deepEqual(yield* snippets("beacon01"), []);
+      assert.deepEqual(yield* snippets("harbor"), []);
+
+      yield* projections.apply(message(threadId, "citation", "user", "quiet silver lantern"));
+      assert.deepEqual(yield* snippets("what are you talking about"), []);
+      assert.deepEqual(yield* snippets("lantern"), ["quiet silver lantern"]);
+    }),
+  );
+
+  // loom: upstream's quote-through-the-index case is dropped with its index, which 1065 removes
+  // (pull 16 B.3; DL-2239).
 
   it.effect("indexes a message when it finishes streaming and follows later edits", () =>
     Effect.gen(function* () {
@@ -514,22 +574,120 @@ it.layer(layerTest)("ThreadSearch filters before it ranks", (it) => {
 
   // loom: the apostrophe-folding test dropped with 069's index (1065), which Loom never reads.
 
-  it.effect("leaves out answers to an agent's question, which show in its card", () =>
+  it.effect("leaves out answers in their question card and turns the thread hides", () =>
     Effect.gen(function* () {
       const projections = yield* ProjectionStore.ProjectionStoreV2;
       const search = yield* ThreadSearch.ThreadSearch;
       const project = ProjectId.make("project:answers");
       const asked = ThreadId.make("thread:answers");
+      const rewound = ThreadId.make("thread:rewound");
+      const queued = ThreadId.make("thread:queued");
+      const stopped = ThreadId.make("thread:stopped");
+      const recovered = ThreadId.make("thread:recovered");
+      const run = (owner: ThreadId, status: "rolled_back" | "cancelled") =>
+        ({
+          id: EventId.make(`run:${owner}`),
+          type: "run.created",
+          threadId: owner,
+          runId: RunId.make(`run:${owner}`),
+          nodeId: NodeId.make(`node:${owner}`),
+          providerInstanceId,
+          occurredAt: at(2),
+          payload: {
+            id: RunId.make(`run:${owner}`),
+            threadId: owner,
+            ordinal: 1,
+            providerInstanceId,
+            modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
+            providerThreadId: null,
+            userMessageId: MessageId.make(`${owner}:prompt`),
+            rootNodeId: NodeId.make(`node:${owner}`),
+            activeAttemptId: null,
+            status,
+            requestedAt: at(1),
+            startedAt: at(1),
+            completedAt: at(2),
+            checkpointId: null,
+            contextHandoffId: null,
+          },
+        }) satisfies OrchestrationV2DomainEvent;
+      const shown = (owner: ThreadId, id: string, as: "turn_start" | "queued_turn" | "reply") =>
+        ({
+          id: EventId.make(`item:${id}`),
+          type: "turn-item.updated",
+          threadId: owner,
+          occurredAt: at(2),
+          payload: {
+            id: TurnItemId.make(id),
+            threadId: owner,
+            runId: RunId.make(`run:${owner}`),
+            nodeId: null,
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal: 1,
+            status: "completed",
+            title: null,
+            startedAt: at(1),
+            completedAt: at(1),
+            updatedAt: at(1),
+            messageId: MessageId.make(id),
+            text: "",
+            ...(as === "reply"
+              ? { type: "assistant_message", streaming: false }
+              : {
+                  type: "user_message",
+                  inputIntent: as,
+                  attachments: [],
+                  createdBy: "user",
+                  creationSource: "web",
+                }),
+          },
+        }) satisfies OrchestrationV2DomainEvent;
       yield* createProject(project);
       yield* Effect.forEach(
         [
           thread(asked, project),
           message(asked, "async-answer:request-1", "user", "use the albatross drive"),
+          thread(rewound, project),
+          run(rewound, "rolled_back"),
+          message(rewound, "rewound-reply", "assistant", "the albatross drive is ready", {
+            runId: RunId.make(`run:${rewound}`),
+          }),
+          thread(queued, project),
+          run(queued, "cancelled"),
+          message(queued, "queued-prompt", "user", "then mount the albatross drive", {
+            runId: RunId.make(`run:${queued}`),
+          }),
+          // A queued prompt usually has no item; an edited one has a queued item.
+          message(queued, "requeued-prompt", "user", "then eject the albatross drive", {
+            runId: RunId.make(`run:${queued}`),
+          }),
+          shown(queued, "requeued-prompt", "queued_turn"),
+          // A stopped turn keeps its prompt and whatever the agent already said.
+          thread(stopped, project),
+          run(stopped, "cancelled"),
+          message(stopped, "stopped-prompt", "user", "format the albatross drive", {
+            runId: RunId.make(`run:${stopped}`),
+          }),
+          shown(stopped, "stopped-prompt", "turn_start"),
+          thread(recovered, project),
+          run(recovered, "cancelled"),
+          message(recovered, "recovered-reply", "assistant", "the albatross drive is formatted", {
+            runId: RunId.make(`run:${recovered}`),
+          }),
+          shown(recovered, "recovered-reply", "reply"),
         ],
         projections.apply,
         { discard: true },
       );
-      assert.deepEqual((yield* search.search({ query: "albatross" })).matches, []);
+      assert.deepEqual(
+        (yield* search.search({ query: "albatross" })).matches
+          .map((match) => match.messageId)
+          .sort(),
+        [MessageId.make("recovered-reply"), MessageId.make("stopped-prompt")],
+      );
     }),
   );
 
@@ -540,6 +698,7 @@ it.layer(layerTest)("ThreadSearch filters before it ranks", (it) => {
       const project = ProjectId.make("project:heron");
       const labeled = ThreadId.make("thread:heron-label");
       const addressOnly = ThreadId.make("thread:heron-address");
+      const mention = ThreadId.make("thread:heron-mention");
       yield* createProject(project);
       yield* Effect.forEach(
         [
@@ -547,6 +706,13 @@ it.layer(layerTest)("ThreadSearch filters before it ranks", (it) => {
           message(labeled, "heron-label", "assistant", "See [the heron plan](https://x.dev/a) now"),
           thread(addressOnly, project),
           message(addressOnly, "heron-address", "user", "Read [this](https://heron.dev/b)"),
+          thread(mention, project),
+          message(
+            mention,
+            "heron-mention",
+            "user",
+            String.raw`Fix [\_\_init\_\_.py](pkg/__init__.py) and [\_café\_.py](pkg/_caf%C3%A9_.py)`,
+          ),
         ],
         projections.apply,
         { discard: true },
@@ -556,6 +722,13 @@ it.layer(layerTest)("ThreadSearch filters before it ranks", (it) => {
         matches.map((match) => [match.threadId, match.snippet]),
         [[labeled, "See the heron plan now"]],
       );
+      for (const query of ["__init__.py", "_café_.py"]) {
+        const mentions = yield* search.search({ query });
+        assert.deepEqual(
+          mentions.matches.map((match) => [match.threadId, match.snippet]),
+          [[mention, "Fix __init__.py and _café_.py"]],
+        );
+      }
     }),
   );
   // loom: the newest-10,000-index-hits test dropped with 069's index (1065), which Loom never reads.
@@ -583,12 +756,22 @@ it.layer(layerTest)("ThreadSearch.searchOlderSettled", (it) => {
           thread(id("elsewhere"), other, { title: "Kestrel nest", settledAt: old }),
           thread(id("note"), project, { title: "Unrelated", settledAt: old }),
           thread(id("new-note"), project, { title: "Unrelated", settledAt: at(50) }),
+          thread(id("archived"), project, {
+            title: "Kestrel nest",
+            settledAt: old,
+            archivedAt: old,
+          }),
+          thread(id("archived-note"), project, {
+            title: "Unrelated",
+            settledAt: old,
+            archivedAt: old,
+          }),
         ],
         projections.apply,
         { discard: true },
       );
       const before = DateTime.formatIso(at(30));
-      const messageThreadIds = [id("new-note"), id("note"), id("old")];
+      const messageThreadIds = [id("new-note"), id("note"), id("archived-note"), id("old")];
       assert.sameMembers(
         [...(yield* search.searchOlderSettled({ query: "kestrel", before, messageThreadIds }))],
         [id("old"), id("elsewhere"), id("note")],

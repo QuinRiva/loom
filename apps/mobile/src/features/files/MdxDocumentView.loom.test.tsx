@@ -68,8 +68,8 @@ vi.mock("../../components/ui/Button", () => ({
 vi.mock("../../components/ui/EmptyState", () => ({ EmptyState: () => null }));
 vi.mock("../../components/ui/AppActivityIndicator", () => ({ AppActivityIndicator: () => null }));
 vi.mock("../../components/ui/Dialog", () => ({ alert: vi.fn() }));
-vi.mock("../../components/FilePreviewModal", () => ({ FilePreviewModal: () => null }));
-vi.mock("../../components/VideoPreviewModal", () => ({ VideoPreviewModal: () => null }));
+vi.mock("../../components/ui/FilePreviewModal", () => ({ FilePreviewModal: () => null }));
+vi.mock("../../components/ui/VideoPreviewModal", () => ({ VideoPreviewModal: () => null }));
 vi.mock("../../lib/markdownMedia", () => ({ resolveMarkdownMediaPreview: () => null }));
 vi.mock("../../lib/markdownLinks", () => ({ resolveMarkdownLinkPresentation: () => null }));
 vi.mock("../../lib/openExternalUrl", () => ({ tryOpenExternalUrl: vi.fn() }));

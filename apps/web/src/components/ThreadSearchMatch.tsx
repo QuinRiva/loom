@@ -1,3 +1,5 @@
+import { T, useGT, useMessages, Var } from "gt-react"; // loom: Var for the sub-thread line
+import { searchMatchHintLabel } from "@t3tools/shared/paletteSearchCopy";
 import {
   findSearchTokenRanges,
   splitSearchText,
@@ -27,9 +29,13 @@ function HighlightedSearchText(props: { text: string; ranges: ReadonlyArray<Sear
 
 /** Why a row matched when its title does not show it: the field and its match. */
 export function SearchMatchHintLine(props: { hint: SearchMatchHint }) {
+  const gt = useGT();
+  const messages = useMessages();
   return (
     <span className="truncate text-xs text-muted-foreground/85">
-      <span className="text-muted-foreground/70">{props.hint.label}:</span>{" "}
+      <span className="text-muted-foreground/70">
+        {gt("{label}:", { label: searchMatchHintLabel(props.hint.field, messages) })}
+      </span>{" "}
       <HighlightedSearchText text={props.hint.text} ranges={props.hint.ranges} />
     </span>
   );
@@ -59,7 +65,9 @@ export function ThreadSearchMatchExcerpt(props: {
       </span>
       {subThreadTitle === null ? null : (
         <span className="truncate text-xs text-muted-foreground/60">
-          Sub-thread: {subThreadTitle}
+          <T>
+            Sub-thread: <Var>{subThreadTitle}</Var>
+          </T>
         </span>
       )}
     </>

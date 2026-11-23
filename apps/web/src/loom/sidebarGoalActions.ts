@@ -6,6 +6,7 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import type {
   ContextMenuItem,
+  ContextMenuSource,
   EnvironmentId,
   LocalApi,
   LoomGoalShell,
@@ -39,7 +40,11 @@ type LoomGoalMenuId = "loom-goal" | "loom-goal:tasks" | "loom-goal:rename";
  */
 export const showWithLoomGoalMenu =
   (api: LocalApi, goal: LoomGoalShell | null) =>
-  <Id extends string>(items: readonly ContextMenuItem<Id>[], position?: { x: number; y: number }) =>
+  <Id extends string>(
+    items: readonly ContextMenuItem<Id>[],
+    position?: { x: number; y: number },
+    source?: ContextMenuSource,
+  ) =>
     api.contextMenu.show<Id | LoomGoalMenuId>(
       goal === null
         ? items
@@ -58,6 +63,7 @@ export const showWithLoomGoalMenu =
             ),
           ],
       position,
+      source,
     );
 
 export function useLoomGoalActions() {

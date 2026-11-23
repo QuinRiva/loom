@@ -7,13 +7,18 @@
 import { AttachmentToolkit } from "../attachment/tools.ts";
 import { DeviceToolkit } from "../device/tools.ts";
 import { EnvironmentToolkit } from "../environment/tools.ts";
+import { FeedbackToolkit } from "../feedback/tools.ts";
 import { HtmlToolkit } from "../html/tools.ts";
+import { IssuesToolkit } from "../issues/tools.ts";
+import { MessageToolkit } from "../message/tools.ts";
 import { OrchestratorToolkit } from "../orchestrator/tools.ts";
 import { PreviewToolkit } from "../preview/tools.ts";
 import { PreviewControlsToolkit } from "../previewControls/tools.ts";
 import { ProjectToolkit } from "../project/tools.ts";
 import { PullRequestsToolkit } from "../pullRequests/tools.ts";
+import { ThemeToolkit } from "../theme/tools.ts";
 import { ThreadToolkit } from "../thread/tools.ts";
+import { ToolSearchToolkit } from "../toolSearch/tools.ts";
 import { WorktreeToolkit } from "../worktree/tools.ts";
 
 /** The name upstream's bridge registers an MCP tool under in pi. */
@@ -71,8 +76,22 @@ export const HUMAN_INPUT = prefixed(["ask_user_question"] as const);
 /** What a child's profile adds once a person has written to it: a reader to ask, and its parent to tell. */
 export const ENGAGED_CHILD_TOOLS = [...HUMAN_INPUT, agentToolName("notify_thread")];
 
-/** Upstream's PR toolkit, resident for orchestrator and shipper (seam 13). */
-export const PULL_REQUESTS = namesOf(PullRequestsToolkit);
+/**
+ * Upstream's base PR tools, resident for orchestrator and shipper (seam 13). Pinned, not read from
+ * the toolkit: pull 16 added PR and CI writes, `pull_request_merge` among them, which would merge
+ * past `pnpm ship`'s gates; the rest of the toolkit is withheld (pull 16 §4.2, DL-2410).
+ */
+export const PULL_REQUESTS = prefixed([
+  "link_pull_request",
+  "link_pull_requests",
+  "unlink_pull_request",
+  "unlink_pull_requests",
+  "list_thread_pull_requests",
+  "watch_pull_request",
+  "unwatch_pull_request",
+  "write_pull_request_guides",
+  "read_pull_request_guide",
+] as const);
 
 /** Upstream's scheduled-task tools, carved out of the withheld OrchestratorToolkit for the roles that name them. */
 export const SCHEDULING = prefixed([
@@ -96,14 +115,26 @@ export const TOOLSETS = {
  * adds to these toolkits is withheld by construction. Most also fail on the
  * server, whose Loom credential lacks `orchestration`.
  */
-export const UPSTREAM_WITHHELD_TOOLS = namesOf(
-  OrchestratorToolkit,
-  ThreadToolkit,
-  ProjectToolkit,
-  AttachmentToolkit,
-  EnvironmentToolkit,
-  WorktreeToolkit,
-);
+export const UPSTREAM_WITHHELD_TOOLS = [
+  ...namesOf(
+    OrchestratorToolkit,
+    ThreadToolkit,
+    ProjectToolkit,
+    AttachmentToolkit,
+    EnvironmentToolkit,
+    WorktreeToolkit,
+    // Listed only to sessions that ask for deferred exposure, which pi never does.
+    ToolSearchToolkit,
+    // Pull 16 §8.1: issue tools, agent feedback, theme and send_to_user stay off Loom threads.
+    IssuesToolkit,
+    FeedbackToolkit,
+    ThemeToolkit,
+    MessageToolkit,
+  ),
+  ...namesOf(PullRequestsToolkit).filter(
+    (name) => !(PULL_REQUESTS as ReadonlyArray<string>).includes(name),
+  ),
+];
 
 /**
  * The families a thread reaches by `tool_search`, each with the model-facing phrase that announces

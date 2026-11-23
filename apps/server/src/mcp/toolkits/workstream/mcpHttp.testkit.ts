@@ -20,6 +20,13 @@ import * as AssetSigner from "../../../assets/AssetSigner.ts";
 import * as ServerSecretStore from "../../../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../../../config.ts";
 import * as DeviceService from "../../../device/DeviceService.ts";
+import { EnvironmentThemeService } from "../../../environmentTheme.ts";
+import { FeedbackStore } from "../../../feedback/FeedbackStore.ts";
+import { GitManager } from "../../../git/GitManager.ts";
+import { IssueService } from "../../../issue/IssueService.ts";
+import { ThreadIssueService } from "../../../orchestration-v2/ThreadIssueService.ts";
+import { PullRequestService } from "../../../pullRequest/PullRequestService.ts";
+import { TaskFolders } from "../../../workspace/TaskFolders.ts";
 import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
@@ -85,7 +92,8 @@ const stubServices = (stubs: McpServiceStubs) =>
     Layer.mock(AssetSigner.AssetSigner)({}),
     Layer.mock(Orchestrator.OrchestratorV2)(stubs.orchestrator ?? {}),
     Layer.mock(ProjectService.ProjectService)(stubs.projects ?? {}),
-    Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
+    // The /mcp middleware asks whether the caller's project has a forge; unknown keeps PR tools listed.
+    Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThreadShell: () => Effect.succeed(null) }),
     Layer.mock(DeviceService.DeviceService)({}),
     Layer.mock(ThreadManagementService.ThreadManagementService)(stubs.threadManagement ?? {}),
     Layer.mock(ProviderRegistry.ProviderRegistry)({}),
@@ -109,6 +117,13 @@ const stubServices = (stubs: McpServiceStubs) =>
     Layer.mock(RemoteDelegation.RemoteDelegation)({}),
     Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({}),
     Layer.mock(DocumentText.DocumentText)({}),
+    Layer.mock(EnvironmentThemeService)({}),
+    Layer.mock(FeedbackStore)({}),
+    Layer.mock(GitManager)({}),
+    Layer.mock(IssueService)({}),
+    Layer.mock(ThreadIssueService)({}),
+    Layer.mock(PullRequestService)({}),
+    Layer.mock(TaskFolders)({}),
     loomToolkitServiceStubs(stubs.loomStore, stubs.consult),
   );
 

@@ -35,7 +35,6 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import { LoomStoreV2 } from "./projection/LoomStore.ts";
 import {
-  awaitStoredEvent,
   dispatch,
   LoomOrchestratorTestLayer,
   seedThread,
@@ -237,7 +236,9 @@ it.layer(TestLayer)("Loom PR toolkit", (it) => {
   );
 
   it.effect(
-    "settle-on-merge settles a done childless shipper, never a root with a live child",
+    // Upstream's rule (pull 16 §6.5, taken): a child is a settlement candidate only once its
+    // parent has settled, so a merge settles neither the done shipper nor its busy root.
+    "settle-on-merge settles neither a done shipper under an active root nor a root with a live child",
     () =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -283,11 +284,6 @@ it.layer(TestLayer)("Loom PR toolkit", (it) => {
 
         const settlement = yield* ThreadSettlementService.ThreadSettlementServiceV2;
         yield* settlement.start();
-        yield* awaitStoredEvent({
-          afterSequence: 0,
-          threadId: shipper,
-          predicate: (event) => event.type === "thread.settled",
-        });
         yield* settlement.drain;
 
         const settled = (threadId: ThreadId) =>
@@ -295,7 +291,7 @@ it.layer(TestLayer)("Loom PR toolkit", (it) => {
             orchestrator.getThreadProjection(threadId),
             (projection) => projection.thread.settledAt !== null,
           );
-        assert.isTrue(yield* settled(shipper));
+        assert.isFalse(yield* settled(shipper));
         assert.isFalse(yield* settled(root));
         assert.isFalse(yield* settled(live));
       }).pipe(Effect.scoped),

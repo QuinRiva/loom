@@ -17,7 +17,7 @@ are numbered in the order they were written.
 ## A pull's runbook
 
 From pull 12 (`37-…`) on, a runbook is a directory, not a file. The latest is
-[`40-cadence-pull-15-20261108/`](40-cadence-pull-15-20261108/); a new pull's S0
+[`41-cadence-pull-16-20261122/`](41-cadence-pull-16-20261122/); a new pull's S0
 starts from its shape:
 
 ```
@@ -26,6 +26,8 @@ NN-cadence-pull-<n>-<date>/
                           one row per session with the files it reads
   00-headline.md …        one file per numbered section, prefixed by its number
   a-….md, b-….md …        one file per appendix
+  b01-….md … b13-….md     from pull 16: Appendix B's zone files, a resolution per conflict hunk
+  tools/                  from pull 16: the measurement scripts Appendix A runs
   decision-log.md         the ledger: one table, a row per decision, cited as DL-nnnn
   s3-record.md, s4-record.md, deploy.md     session records and deploy notes
   clean-overlap-review.md, clean-overlap-zones.md   Gate 2's tables and zone lists

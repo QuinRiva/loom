@@ -38,6 +38,7 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as WorkspaceFolders from "../workspace/WorkspaceFolders.ts";
 import {
   dispatch,
   LoomOrchestratorTestLayer,
@@ -54,7 +55,15 @@ const CheckpointStoreLive = CheckpointStore.layer.pipe(
   Layer.provide(NodeServices.layer),
 );
 const TestLayer = Layer.mergeAll(
-  CheckpointService.layer.pipe(Layer.provide(IdAllocator.layer)),
+  CheckpointService.layer.pipe(
+    Layer.provide(IdAllocator.layer),
+    Layer.provide(
+      Layer.mock(WorkspaceFolders.WorkspaceFolders)({
+        forThread: () => Effect.succeed({ folders: [], extraRoots: [] }),
+        submodules: () => Effect.succeed([]),
+      }),
+    ),
+  ),
   ProjectionStore.layer,
   ProjectStore.layer,
 ).pipe(
@@ -274,6 +283,7 @@ it.layer(TestLayer)("Loom turn baseline in a shared checkout", (it) => {
         const isolated = isCheckpointRestoreIsolated(
           { id: root, worktreePath: cwd },
           { cwd },
+          null,
           dependencies,
         );
         assert.isTrue(yield* isolated);

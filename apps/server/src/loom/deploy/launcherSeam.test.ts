@@ -668,8 +668,8 @@ it.layer(NodeServices.layer)("upstream's runtime prune", (it) => {
 });
 
 it("the launcher protocol is the one Loom's runner and adopt were written for", () => {
-  // A new number means a deploy across it needs deploy/README.md's protocol-change procedure.
-  assert.equal(SERVICE_LAUNCHER_PROTOCOL, 3);
+  // A new number: deploy/README.md's "A launcher protocol change" decides how to deploy across it.
+  assert.equal(SERVICE_LAUNCHER_PROTOCOL, 4);
 });
 
 it("the trial start's log lines are still in their source files as written", () => {

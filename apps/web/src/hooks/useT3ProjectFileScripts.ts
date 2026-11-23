@@ -20,13 +20,7 @@ export function useT3ProjectFileState(
   environmentId: EnvironmentId,
   cwd: string | null,
 ): T3ProjectFileState {
-  const query = useProjectFileQuery(
-    environmentId,
-    cwd ?? "",
-    T3_PROJECT_FILE_NAME,
-    undefined, // loom: useProjectFileQuery takes a maxBytes argument before enabled
-    cwd !== null,
-  );
+  const query = useProjectFileQuery(environmentId, cwd ?? "", T3_PROJECT_FILE_NAME, cwd !== null);
   const contents = query.data && !query.data.truncated ? query.data.contents : null;
   const isPending = query.isPending;
   if (contents === null) {

@@ -108,6 +108,8 @@ const LoomPiAdapterHooksLive = Layer.effect(
             Effect.provide(stashContext),
           ),
         read: (threadId) => PendingSteering.read(threadId).pipe(Effect.provide(stashContext)),
+        mirroredRun: (threadId) =>
+          PendingSteering.mirroredRun(threadId).pipe(Effect.provide(stashContext)),
       },
       cache: cache.update,
       promptTemplates: [CATCHUP_TEMPLATE_PATH],

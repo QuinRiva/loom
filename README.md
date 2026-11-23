@@ -68,7 +68,7 @@ Loom and T3 Code have grown alongside each other, and the line between them has 
 
 ## Running it
 
-Prerequisites: Node 24, git ≥ 2.41, and the [`vp`](https://viteplus.dev/guide/) CLI.
+Prerequisites: Node 26, git ≥ 2.41, and the [`vp`](https://viteplus.dev/guide/) CLI.
 
 ```bash
 git clone https://github.com/QuinRiva/loom

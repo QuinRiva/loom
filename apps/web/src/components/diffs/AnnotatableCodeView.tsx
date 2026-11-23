@@ -8,7 +8,7 @@ import type {
   FileEditCompleteEvent, // loom: inline diff editing
   SelectedLineRange,
 } from "@pierre/diffs";
-import { EditProvider, type CodeViewHandle } from "@pierre/diffs/react"; // loom: inline diff editing
+import { EditProvider, type CodeViewHandle, type CodeViewProps } from "@pierre/diffs/react"; // loom: inline diff editing
 import { Editor, type EditorFocusOptions } from "@pierre/diffs/edit"; // loom: inline diff editing
 import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
 import { useState, type ReactNode, type Ref } from "react";
@@ -93,6 +93,7 @@ interface AnnotatableCodeViewProps {
   composerDraftTarget: ScopedThreadRef | DraftId;
   options: StyledDiffCodeViewOptions<DiffCommentAnnotationGroup>;
   viewerRef?: Ref<AnnotatableCodeViewHandle>;
+  onScroll?: CodeViewProps<DiffCommentAnnotationGroup, undefined>["onScroll"];
   className?: string;
   renderCodeViewFooter?: () => ReactNode;
   unsafeCSSExtra?: string;
@@ -103,7 +104,7 @@ interface AnnotatableCodeViewProps {
     fileKey: string,
     collapsed: boolean,
   ) => ReactNode;
-  onRevealSearchMatch: (fileKey: string) => void;
+  onFileCollapsedChange: (fileKey: string, collapsed: boolean) => void;
   /** loom: diff author query — selecting lines opens the draft as the author card. */
   authorCard?: AuthorCardSlot | undefined;
   /** loom: inline diff editing — the new side takes typing while `active`. */
@@ -136,13 +137,14 @@ export function AnnotatableCodeView({
   composerDraftTarget,
   options,
   viewerRef,
+  onScroll,
   className,
   renderCodeViewFooter,
   unsafeCSSExtra,
   renderHeaderMetadata,
   renderHeaderFilenameSuffix,
   renderHeaderPrefix,
-  onRevealSearchMatch,
+  onFileCollapsedChange,
   authorCard, // loom
   loomEdit, // loom: inline diff editing
 }: AnnotatableCodeViewProps) {
@@ -352,6 +354,7 @@ export function AnnotatableCodeView({
           }
         : {})}
       {...(viewerRef ? { viewerRef } : {})}
+      {...(onScroll ? { onScroll } : {})}
       {...(className ? { className } : {})}
       {...(unsafeCSSExtra ? { unsafeCSSExtra } : {})}
       {...(renderHeaderMetadata
@@ -364,7 +367,6 @@ export function AnnotatableCodeView({
       items={items}
       selectedLines={selectedLines}
       onSelectedLinesChange={setSelectedLines}
-      onRevealSearchMatch={(item) => onRevealSearchMatch(item.id)}
       options={{
         ...options,
         enableGutterUtility: draft === null,
@@ -372,6 +374,8 @@ export function AnnotatableCodeView({
         enableLineSelection: draft === null || (authorCard !== undefined && draftText === ""),
         onGutterUtilityClick: beginComment,
         ...(authorCard ? { onLineSelectionEnd: beginComment } : {}), // loom
+        onItemCollapsedChange: (_item, nextItem) =>
+          onFileCollapsedChange(nextItem.id, nextItem.collapsed === true),
       }}
       renderHeaderFilenameSuffix={(item) =>
         item.type === "diff" ? renderHeaderFilenameSuffix(item.fileDiff) : null

@@ -1,11 +1,19 @@
-// loom: the context-viz experiment's three per-device switches (Settings → Behavior), rendered from
+// loom: the context meter and the context-viz experiment's three per-device switches, rendered from
 // `LoomAutoOpenSettingsRows` so the upstream `SettingsPanels.tsx` gains no line.
 import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contracts/settings";
 
 import { SettingResetButton, SettingsRow } from "../../components/settings/settingsLayout";
+import { useSearchableSetting } from "../../components/settings/settingsSearch";
 import { Switch } from "../../components/ui/switch";
 
 const ROWS = [
+  {
+    key: "contextWindowMeterEnabled",
+    searchId: "loom-context-meter",
+    title: "Context meter",
+    description:
+      "The ring beside the send button: how full the context window is, what the thread has spent, and Compact.",
+  },
   {
     key: "contextVizTimeline",
     title: "Context diagnostics: Timeline",
@@ -47,16 +55,17 @@ export function ContextVizSettingsRows({
   readonly settings: ContextVizSettings;
   readonly updateSettings: (patch: Partial<ContextVizSettings>) => void;
 }) {
+  const searchableSetting = useSearchableSetting();
   return ROWS.map((row) => (
     <SettingsRow
       key={row.key}
-      title={row.title}
+      {...("searchId" in row ? searchableSetting(row.searchId) : { title: row.title })}
       // The measure upstream's longer descriptions balance to, so the group reads as one list.
       description={<span className="block max-w-sm">{row.description}</span>}
       resetAction={
         settings[row.key] !== DEFAULT_UNIFIED_SETTINGS[row.key] ? (
           <SettingResetButton
-            label={row.title.toLowerCase()}
+            ariaLabel={`Reset ${row.title.toLowerCase()} to default`}
             onClick={() => updateSettings({ [row.key]: DEFAULT_UNIFIED_SETTINGS[row.key] })}
           />
         ) : null

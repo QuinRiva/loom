@@ -12,6 +12,8 @@ const legacyTable =
 const legacyReaders = ["orchestration-v2/legacy/", "persistence/Migrations/"] as const;
 const legacyReaderFiles: Record<string, string> = {
   "serverSettings.ts": "one-time provider history for settings migration",
+  "persistence/DatabaseMaintenance.ts":
+    "upstream's legacy-database removal counts V1 threads not yet in V2 before deleting it",
   // loom: Loom survivors that name V1 tables (DL-179), each recorded in doc 29.
   "workspace/foreignHomeGuard.loom.ts": "boot detection over copied V1 worktree paths (DL-81)",
   "cli/loomMigrate.loom.ts":

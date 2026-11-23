@@ -12,7 +12,7 @@ import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { useState } from "react";
 
-import { searchableSetting } from "../components/settings/settingsSearch";
+import { useSearchableSetting } from "../components/settings/settingsSearch";
 import { SettingsRow } from "../components/settings/settingsLayout";
 import { Button } from "../components/ui/button";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
@@ -79,6 +79,7 @@ function LoomDeployRow({ environmentId }: { environmentId: EnvironmentId }) {
   const state = useLoomDeploy(environmentId);
   const canDeploy = useAtomValue(loomCommands.startDeploy.permissionAtom(environmentId));
   const [busy, setBusy] = useState(false);
+  const searchableSetting = useSearchableSetting();
   if (state === null) return null;
   const { row, bridgeFault } = deployWords(state, deployClock);
   if (row === null) return null;

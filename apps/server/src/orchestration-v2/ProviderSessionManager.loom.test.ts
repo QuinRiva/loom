@@ -37,6 +37,7 @@ import { LoomStoreV2 } from "../loom/projection/LoomStore.ts";
 import { SCHEDULING } from "../mcp/toolkits/workstream/families.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
@@ -170,6 +171,7 @@ const openWith = (
           CommandOutputHub.layer.pipe(Layer.provide(Layer.merge(eventSink, stores))),
           mcpRegistry,
           McpProviderSessions.layer,
+          ProviderInstallationGate.layer,
           stores,
           ...(composer === undefined ? [] : [composer]),
           ...(loomStore === undefined ? [] : [loomStore]),

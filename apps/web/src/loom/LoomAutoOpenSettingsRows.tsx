@@ -22,7 +22,11 @@ export const LOOM_AUTO_OPEN_RESTORE_DEFAULTS = {
 
 type LoomBehaviorSettings = Pick<
   UnifiedSettings,
-  "autoOpenWorkstreamPanel" | "contextVizTimeline" | "contextVizComposition" | "contextVizGrowth"
+  | "autoOpenWorkstreamPanel"
+  | "contextWindowMeterEnabled"
+  | "contextVizTimeline"
+  | "contextVizComposition"
+  | "contextVizGrowth"
 >;
 
 /** Spread into the changed-settings labels. */
@@ -50,7 +54,7 @@ export function LoomAutoOpenSettingsRows({
         resetAction={
           settings.autoOpenWorkstreamPanel !== DEFAULT_AUTO_OPEN ? (
             <SettingResetButton
-              label="auto-open workstream"
+              ariaLabel="Reset auto-open workstream to default"
               onClick={() => updateSettings({ autoOpenWorkstreamPanel: DEFAULT_AUTO_OPEN })}
             />
           ) : null

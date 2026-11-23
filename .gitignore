@@ -44,6 +44,7 @@ artifacts/mobile-e2e/
 render.html
 render-*.png
 artifacts/mobile-behavior/
+scripts/.e2e/
 .github/pr-assets/
 native/**/target/
 node_modules/
@@ -58,3 +59,5 @@ __pycache__/
 
 # loom: consult_manager fork transcripts are scratch, never source
 .pi/manager/consult-sessions/
+
+/packages/ssh/.ssh-launcher-test-*/

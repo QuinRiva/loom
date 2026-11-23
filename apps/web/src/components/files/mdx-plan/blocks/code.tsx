@@ -1,10 +1,5 @@
 import { IconCode, IconEye } from "@tabler/icons-react";
-import {
-  CHAT_MARKDOWN_REHYPE_PLUGINS,
-  CHAT_MARKDOWN_REMARK_PLUGINS,
-} from "@t3tools/shared/markdownPipeline";
 import { isValidElement, type ReactNode, useState } from "react";
-import { defaultUrlTransform } from "react-markdown";
 import { z } from "zod";
 
 import { createMarkdownRenderer } from "~/components/chat/markdownRenderer";
@@ -70,14 +65,31 @@ const codeMdx: BlockMdxConfig<CodeData> = {
 
 const DEFAULT_CODE_MAX_LINES = 30;
 
-// The chat's markdown pipeline with the document's own image resolution, not `ChatMarkdown`,
+// The chat's markdown renderer with the document's own image resolution, not `ChatMarkdown`,
 // whose links and chips reach for a live environment the phone's viewer page does not have.
 const renderMarkdown = createMarkdownRenderer({
-  remarkPlugins: CHAT_MARKDOWN_REMARK_PLUGINS,
-  rehypePlugins: CHAT_MARKDOWN_REHYPE_PLUGINS,
+  markdown: { math: false, breaks: false, escapeHtml: false, insights: false, extensions: {} },
   components: { img: PlanMarkdownImage },
-  urlTransform: defaultUrlTransform,
+  urlTransform: safeUrl,
 });
+
+// react-markdown's defaultUrlTransform (as ChatMarkdown's private copy): relative URLs, and
+// absolute ones with a safe protocol.
+const SAFE_PROTOCOL = /^(?:https?|ircs?|mailto|xmpp)$/i;
+function safeUrl(value: string): string {
+  const colon = value.indexOf(":");
+  const before = (character: string) => {
+    const at = value.indexOf(character);
+    return at !== -1 && colon > at;
+  };
+  return colon === -1 ||
+    before("/") ||
+    before("?") ||
+    before("#") ||
+    SAFE_PROTOCOL.test(value.slice(0, colon))
+    ? value
+    : "";
+}
 
 function CodeBody({ code, language, wrap }: { code: string; language: string; wrap: boolean }) {
   const html = useShikiHtml(code, language);
@@ -181,7 +193,7 @@ function CodeRead({ data, blockId }: PlanBlockReadProps<CodeData>) {
       )}
       {rendered ? (
         <div className="plan-code-markdown chat-markdown px-4 py-3 text-sm leading-relaxed">
-          {renderMarkdown(shownCode, true)}
+          {renderMarkdown.element(renderMarkdown.parse(shownCode))}
         </div>
       ) : (
         <CodeBody code={shownCode} language={language} wrap={wrap} />

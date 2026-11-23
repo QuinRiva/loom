@@ -21,12 +21,13 @@ import {
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- derive ids are synchronous, so the hash must be too.
+import * as NodeCrypto from "node:crypto";
+
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-// @effect-diagnostics-next-line nodeBuiltinImport:off -- loom: deriveId needs a sync digest.
-import * as NodeCrypto from "node:crypto"; // loom: deriveId
 
 import { randomUuidV4 } from "./randomUuid.ts";
 
@@ -142,6 +143,11 @@ export interface IdAllocatorV2Derive {
     readonly nativeThreadId: string;
     readonly providerInstanceId?: ProviderInstanceId;
   }) => ThreadId;
+  readonly subagentThread: (input: {
+    readonly driver: ProviderDriverKind;
+    readonly nativeThreadId: string;
+    readonly providerInstanceId?: ProviderInstanceId;
+  }) => ThreadId;
   readonly run: (input: { readonly threadId: ThreadId; readonly ordinal: number }) => RunId;
   readonly runAttempt: (input: {
     readonly runId: RunId;
@@ -224,6 +230,18 @@ export function deriveThreadFromProviderThread(input: {
   );
 }
 
+// Agents quote subagent thread ids back to thread tools, and the native id often
+// nests the parent's encoded ids, so hash it to a short stable id instead. Adapters
+// re-derive child ids on resume, so a child stored under its legacy id keeps it.
+const makeDeriveSubagentThread =
+  (legacyThreadIds: ReadonlySet<string>): IdAllocatorV2Derive["subagentThread"] =>
+  (input) => {
+    const legacy = deriveThreadFromProviderThread(input);
+    if (legacyThreadIds.has(legacy)) return legacy;
+    const digest = NodeCrypto.createHash("sha256").update(legacy).digest("hex").slice(0, 16);
+    return ThreadId.make(`thread:subagent:${digest}`);
+  };
+
 export function deriveProviderThread(input: {
   readonly driver: ProviderDriverKind;
   readonly providerInstanceId?: ProviderInstanceId;
@@ -266,14 +284,20 @@ const randomId =
     );
 
 // loom: every derive entry is deriveId (bounded digest), not joinId.
+const DELEGATED_TASK_THREAD_PREFIX = joinId("thread", "delegated-task", "");
+
+export const isDelegatedTaskThread = (threadId: ThreadId): boolean =>
+  threadId.startsWith(DELEGATED_TASK_THREAD_PREFIX);
+
 export const derive: IdAllocatorV2Derive = {
   providerSession: (input) =>
     ProviderSessionId.make(
       deriveId("provider-session", "provider-instance", input.providerInstanceId, "shared"),
     ),
   delegatedTaskNode: (input) => NodeId.make(deriveId("node", "delegated-task", input.commandId)),
+  // loom: digested, but under upstream's prefix, which isDelegatedTaskThread reads
   delegatedTaskThread: (input) =>
-    ThreadId.make(deriveId("thread", "delegated-task", input.commandId)),
+    ThreadId.make(deriveId(DELEGATED_TASK_THREAD_PREFIX.slice(0, -1), input.commandId)),
   delegatedTaskMessage: (input) =>
     MessageId.make(deriveId("message", "delegated-task", input.commandId)),
   delegatedTaskTurnItem: (input) =>
@@ -281,6 +305,7 @@ export const derive: IdAllocatorV2Derive = {
   createdThreadTurnItem: (input) =>
     TurnItemId.make(deriveId("turn-item", "created-thread", input.commandId)),
   threadFromProviderThread: deriveThreadFromProviderThread,
+  subagentThread: makeDeriveSubagentThread(new Set()),
   run: (input) => RunId.make(deriveId("run", "thread", input.threadId, "ordinal", input.ordinal)),
   runAttempt: (input) =>
     RunAttemptId.make(deriveId("run-attempt", "run", input.runId, "attempt", input.attemptOrdinal)),
@@ -396,3 +421,18 @@ export const layer: Layer.Layer<IdAllocatorV2> = Layer.succeed(
     derive,
   }),
 );
+
+/** For adapters: subagent threads already stored under a legacy derived id keep that id. */
+export const layerWithLegacySubagentThreads = (
+  legacyThreadIds: ReadonlySet<string>,
+): Layer.Layer<IdAllocatorV2> =>
+  Layer.effect(
+    IdAllocatorV2,
+    Effect.gen(function* () {
+      const base = yield* IdAllocatorV2;
+      return IdAllocatorV2.of({
+        allocate: base.allocate,
+        derive: { ...base.derive, subagentThread: makeDeriveSubagentThread(legacyThreadIds) },
+      });
+    }),
+  ).pipe(Layer.provide(layer));

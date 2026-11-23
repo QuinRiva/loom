@@ -17,6 +17,7 @@ import type * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import type * as SqlClient from "effect/sql/SqlClient";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 
@@ -52,6 +53,8 @@ type ProviderInstanceRegistryHydrationEnv =
   | SecureRandom.SecureRandom
   // The Claude runner counts its CLIs as running agents for port discovery.
   | PortScanner.PortDiscovery
+  // Adapter ids read which subagent threads predate short ids.
+  | SqlClient.SqlClient
   // loom: the Pi-only registry's `BuiltInDriversEnv` no longer carries what the
   // adapter infrastructure below needs (upstream's driver union did).
   | ProviderEventLoggers.ProviderEventLoggers
@@ -137,6 +140,9 @@ export const seedDevReplayInstance = Effect.fn(
 const vaultConfigs = (settings: ServerSettings) =>
   Object.entries(settings.secretProviders).map(([id, { kind, config }]) => [id, kind, config]);
 
+// A host built earlier (for the ACP registry) lacks PortDiscovery; build this one fresh.
+export const providerHostLayer = Layer.fresh(ProviderHostLive.layer);
+
 export const layerSettingsWatcher = (
   settingsChanges: Stream.Stream<ServerSettings>,
   // The settings the registry was built from: a change queued during startup differs from these.
@@ -213,7 +219,7 @@ export const layer: Layer.Layer<
     }).pipe(
       Layer.provide(ProviderOrchestrationAdapterInfrastructure.layer),
       Layer.provide(AcpRegistrySupport.layerFromHost),
-      Layer.provide(ProviderHostLive.layer),
+      Layer.provide(providerHostLayer),
       Layer.provide(Layer.succeed(HostProcess.Environment, hostEnvironment)),
       Layer.provide(SecretResolver.layer),
     );

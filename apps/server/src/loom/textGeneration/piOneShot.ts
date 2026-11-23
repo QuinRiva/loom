@@ -12,7 +12,11 @@ import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/process";
 
 import { ServerConfig } from "../../config.ts";
-import { makePiRpcConnection, parsePiModelSlug } from "@t3tools/provider-pi/server/rpc";
+import {
+  makePiRpcConnection,
+  piRecordField,
+  resolvePiModelSlug,
+} from "@t3tools/provider-pi/server/rpc";
 import { buildPiRpcLaunch, resolvePiLaunchArgs } from "@t3tools/provider-pi/server/mcpInjection";
 import { resolveLoomPiBinaryPath } from "@t3tools/provider-pi/server/loom";
 import { deriveProviderInstanceConfigMap } from "../../provider/ProviderInstanceRegistryHydration.ts";
@@ -57,6 +61,7 @@ export const makePiOneShot = Effect.gen(function* () {
         mcpSession: undefined,
         extensionPath: undefined,
         ephemeral: true,
+        shortLived: true,
         disableExtensions: false,
         disableTools: true,
       });
@@ -68,7 +73,10 @@ export const makePiOneShot = Effect.gen(function* () {
       });
       const model = input.model ?? selection.model;
       if (model !== "default") {
-        const parsed = parsePiModelSlug(model);
+        const inventory = yield* connection
+          .request({ type: "get_available_models" })
+          .pipe(Effect.orElseSucceed(() => undefined));
+        const parsed = resolvePiModelSlug(model, piRecordField(inventory, "models"));
         if (parsed === null) return yield* fail(`Bad Pi model '${model}'.`);
         yield* connection.request({ type: "set_model", ...parsed });
       }

@@ -75,6 +75,7 @@ const LaunchStub = Layer.effect(
           };
         }).pipe(Effect.orDie),
       checkWorktreeBase: () => Effect.die("unused"),
+      isNonGitProject: () => Effect.die("unused"),
       retryPreparation: () => Effect.die("unused"),
       prepareRun: () => Effect.die("unused"),
     });

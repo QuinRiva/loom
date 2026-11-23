@@ -3,6 +3,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { PI_DEFAULT_MODEL } from "@t3tools/contracts";
+import { noCompatibilityPolicy } from "@t3tools/provider-core/server/compatibility";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
@@ -96,7 +97,7 @@ it.effect("hands both slash-menu discoveries Loom's prompt templates", () =>
   Effect.gen(function* () {
     spawnedArgs.length = 0;
     const settings = { enabled: true, binaryPath: "pi", launchArgs: "", customModels: [] };
-    yield* checkPiProviderStatus(settings, {}, undefined, ["/p/catchup.md"]);
+    yield* checkPiProviderStatus(settings, {}, undefined, noCompatibilityPolicy, ["/p/catchup.md"]);
     yield* discoverPiCommandsForCwd(settings, {}, "/w", ["/p/catchup.md"]);
     const rpcSpawns = spawnedArgs.filter((args) => args.includes("rpc"));
     assert.lengthOf(rpcSpawns, 2);

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { MessagesSquareIcon } from "lucide-react"; // loom:
 import { ContextChipLabel } from "../ContextChip";
@@ -15,6 +16,7 @@ export function ThreadTagChipContent(props: { label: string }) {
 }
 
 export function FileTagChipContent(props: {
+  icon?: ReactNode;
   path: string;
   label: string;
   theme: "light" | "dark";
@@ -23,12 +25,14 @@ export function FileTagChipContent(props: {
 }) {
   return (
     <>
-      <WorkspaceEntryIcon
-        path={props.path}
-        environmentId={props.environmentId}
-        cwd={props.cwd}
-        theme={props.theme}
-      />
+      {props.icon ?? (
+        <WorkspaceEntryIcon
+          path={props.path}
+          environmentId={props.environmentId}
+          cwd={props.cwd}
+          theme={props.theme}
+        />
+      )}
       <ContextChipLabel>{props.label}</ContextChipLabel>
     </>
   );

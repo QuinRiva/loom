@@ -36,6 +36,7 @@ export * from "./projectClone.ts";
 export * from "./speech.ts";
 export * from "./pullRequest.ts";
 export * from "./pullRequestReviewGuide.ts";
+export * from "./issue.ts";
 export * from "./orchestrationDispatch.ts";
 export * from "./orchestrationProject.ts";
 export * from "./orchestrationV2.ts";
@@ -54,6 +55,7 @@ export * from "./t3ProjectFile.ts";
 export * from "./editor.ts";
 export * from "./project.ts";
 export * from "./plan.ts"; // loom: MDX plan annotation contracts
+export * from "./workspaceFolders.ts";
 export * from "./filesystem.ts";
 export * from "./agentSessions.ts";
 export * from "./assets.ts";
@@ -74,6 +76,7 @@ export * from "./rpc.loom.ts"; // loom: seam 21 ws methods
 export * from "./contextUsage.loom.ts"; // loom: context-viz experiment
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
+export * from "./agentFeedback.ts";
 export * from "./secretReference.ts";
 export * from "./settingsSecretValue.ts";
 export * from "./clientRpcPermissions.ts";

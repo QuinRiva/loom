@@ -130,7 +130,7 @@ describe("ProjectSetupScriptRunner (loom)", () => {
         threadId: "thread-1",
         terminalId: "setup-setup",
         data: expect.stringMatching(
-          /^ \( pnpm install --frozen-lockfile\r\); printf '\\n__T3_SETUP_DONE___[0-9a-f]{32}:%s\\n' "\$\?"\r$/,
+          /^ \( __t3_command=\$\(printf '%b_' 'pnpm install --frozen-lockfile'\); eval "\$\{__t3_command%_\}" \); printf '\\n__T3_SETUP_DONE___[0-9a-f]{32}:%s\\n' "\$\?"\r$/,
         ) as unknown as string,
       });
     }).pipe(Effect.provide(NodeServices.layer)),
