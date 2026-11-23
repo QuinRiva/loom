@@ -73,16 +73,29 @@ const deliveredSince = Effect.fn("pendingSteering.deliveredSince")(
   Effect.orElseSucceed((): ReadonlyArray<string> => []),
 );
 
+const load = Effect.fn("pendingSteering.load")(function* (threadId: ThreadId) {
+  const fs = yield* FileSystem.FileSystem;
+  return yield* decodeStash(yield* fs.readFileString(yield* stashFile(threadId)));
+});
+
+/**
+ * The run the stash was mirrored from, even when pi's session shows its steers delivered since:
+ * each steer pi accepted for that run is still queued or already in pi's session. Null with none.
+ */
+export const mirroredRun = Effect.fn("pendingSteering.mirroredRun")(
+  function* (threadId: ThreadId) {
+    return (yield* load(threadId)).runId;
+  },
+  Effect.orElseSucceed(() => null),
+);
+
 /**
  * The stash: its run, and the steers pi has not delivered in send order joined by a blank line
  * (one redelivery carries them all); null when there is none.
  */
 export const read = Effect.fn("pendingSteering.read")(
   function* (threadId: ThreadId) {
-    const fs = yield* FileSystem.FileSystem;
-    const { runId, steering, transcript } = yield* decodeStash(
-      yield* fs.readFileString(yield* stashFile(threadId)),
-    );
+    const { runId, steering, transcript } = yield* load(threadId);
     const pending = [...steering];
     if (transcript !== null)
       for (const text of yield* deliveredSince(transcript.file, transcript.offset)) {

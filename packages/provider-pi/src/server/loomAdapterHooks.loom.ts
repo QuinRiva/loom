@@ -55,6 +55,8 @@ export interface LoomPiAdapterHooksShape {
     readonly read: (
       threadId: ThreadId,
     ) => Effect.Effect<{ readonly runId: string | null; readonly text: string } | null>;
+    /** The run the stash was mirrored from, even once pi's session holds all its steers. */
+    readonly mirroredRun: (threadId: ThreadId) => Effect.Effect<string | null>;
   };
   /** New facts about the thread's prompt cache (`LoomCacheBroadcast.update`). */
   readonly cache: (threadId: ThreadId, patch: LoomThreadCachePatch) => Effect.Effect<void>;
@@ -66,7 +68,11 @@ export interface LoomPiAdapterHooksShape {
 export const passthroughLoomPiAdapterHooks: LoomPiAdapterHooksShape = {
   classifier: () => Effect.succeed({ usageLimit: false }),
   sanitiser: () => Effect.void,
-  steerStash: { write: () => Effect.void, read: () => Effect.succeed(null) },
+  steerStash: {
+    write: () => Effect.void,
+    read: () => Effect.succeed(null),
+    mirroredRun: () => Effect.succeed(null),
+  },
   cache: () => Effect.void,
   promptTemplates: [],
 };

@@ -339,7 +339,7 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
   );
 
   it.effect(
-    "a stashed steer upstream would also requeue reaches the resumed turn once; an unstashed one keeps upstream's requeue (DL-2401)",
+    "across a deploy, a steer pi queued or already took reaches the resumed turn once; an unstashed one keeps upstream's requeue (DL-2401, DL-2402)",
     () =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -408,40 +408,69 @@ it.layer(StashTestLayer)("Loom restart recovery: stashed steers (seam 20)", (it)
           ]);
           return { threadId, runId, messageId, text };
         });
-        const stashedSteer = yield* steered("stashed");
-        yield* stash(stashedSteer.threadId, stashedSteer.text);
+        // Pi still queues one; pi wrote the other into its session as the shutdown aborted the turn
+        // (a steer sent during a tool call), after the last mirror, so the stash reads empty.
+        const queued = yield* steered("stashed");
+        yield* stash(queued.threadId, queued.text);
+        const delivered = yield* steered("delivered");
+        const fs = yield* FileSystem.FileSystem;
+        const session = (yield* Path.Path).join(
+          (yield* ServerConfig.ServerConfig).stateDir,
+          "twice-pi-session.jsonl",
+        );
+        yield* fs.writeFileString(session, `${JSON.stringify({ type: "session" })}\n`);
+        yield* PendingSteering.write(
+          delivered.threadId,
+          delivered.runId,
+          [delivered.text],
+          session,
+        );
+        yield* fs.writeFileString(
+          session,
+          `${JSON.stringify({ type: "message", message: { role: "user", content: delivered.text } })}\n`,
+          { flag: "a" },
+        );
+        assert.isNull(yield* PendingSteering.read(delivered.threadId));
         const unstashed = yield* steered("unstashed");
 
-        // Startup in order: reconciliation, upstream's unread-steer requeue, Loom's pass.
-        yield* (yield* ProviderRuntimeRecoveryService).reconcile("startup");
+        // A deploy in order: shutdown, then startup's reconcile, upstream's unread-steer requeue
+        // and Loom's pass.
+        const recovery = yield* ProviderRuntimeRecoveryService;
+        yield* recovery.prepareForShutdown;
+        yield* recovery.reconcile("shutdown");
+        yield* recovery.recover;
         yield* orchestrator.recoverDelegatedTasks;
         yield* loomStartupRecovery.pipe(Effect.provide(ServerSettings.layerTest()));
         yield* (yield* OrchestrationEffectWorkerV2).drain();
-        // The next send would release or requeue a leftover copy.
-        yield* dispatch({
-          type: "message.dispatch",
-          commandId: CommandId.make("twice-next"),
-          threadId: stashedSteer.threadId,
-          messageId: MessageId.make("message:twice-next"),
-          text: "Next.",
-          attachments: [],
-          dispatchMode: { type: "queue_after_active" },
-          createdBy: "user",
-          creationSource: "web",
-        });
 
-        const projection = yield* orchestrator.getThreadProjection(stashedSteer.threadId);
-        const continuation = projection.messages.find(
-          (message) => message.id === `message:restart-continuation:${stashedSteer.runId}`,
-        );
-        assert.include(continuation?.text, stashedSteer.text);
-        assert.isFalse(projection.runs.some((run) => run.userMessageId === stashedSteer.messageId));
-        const item = projection.turnItems.find(
-          (candidate) =>
-            candidate.type === "user_message" && candidate.messageId === stashedSteer.messageId,
-        );
-        assert.deepInclude(item, { runId: stashedSteer.runId, status: "cancelled" });
-        assert.isFalse(yield* stashed(stashedSteer.threadId));
+        for (const steer of [queued, delivered]) {
+          // The next send would release or requeue a leftover copy.
+          yield* dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make(`twice-next:${steer.threadId}`),
+            threadId: steer.threadId,
+            messageId: MessageId.make(`message:twice-next:${steer.threadId}`),
+            text: "Next.",
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            createdBy: "user",
+            creationSource: "web",
+          });
+          const projection = yield* orchestrator.getThreadProjection(steer.threadId);
+          const continuation = projection.messages.find(
+            (message) => message.id === `message:restart-continuation:${steer.runId}`,
+          );
+          // The queued steer rides the continuation; the delivered one is in the session it resumes.
+          if (steer === queued) assert.include(continuation!.text, steer.text);
+          else assert.notInclude(continuation!.text, steer.text);
+          assert.isFalse(projection.runs.some((run) => run.userMessageId === steer.messageId));
+          const item = projection.turnItems.find(
+            (candidate) =>
+              candidate.type === "user_message" && candidate.messageId === steer.messageId,
+          );
+          assert.deepInclude(item, { runId: steer.runId, status: "cancelled" });
+          assert.isFalse(yield* stashed(steer.threadId));
+        }
 
         // No stash: upstream's held requeue is the only copy, and the continuation carries none.
         const control = yield* orchestrator.getThreadProjection(unstashed.threadId);

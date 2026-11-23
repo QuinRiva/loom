@@ -675,10 +675,10 @@ export const make = Effect.gen(function* () {
           },
         });
       }
-      // loom: steers pi stashed from a cut run are Loom's to redeliver, so they close here (DL-2401)
-      const loomStashedRunId = (yield* (yield* LoomPiAdapterHooks).steerStash.read(
+      // loom: a cut run's steers pi accepted are in its session or Loom's stash, not unread (DL-2402)
+      const loomStashedRunId = yield* (yield* LoomPiAdapterHooks).steerStash.mirroredRun(
         projection.thread.id,
-      ))?.runId;
+      );
       for (const run of runs) {
         events.push({
           id: yield* allocateEventId(),
@@ -774,7 +774,7 @@ export const make = Effect.gen(function* () {
               candidate.status === "pending" &&
               (candidate.inputIntent === "steer" ||
                 candidate.inputIntent === "promoted_queued_to_steer") &&
-              run.id !== loomStashedRunId // loom: DL-2401
+              run.id !== loomStashedRunId // loom: DL-2401, DL-2402
             ) &&
             (candidate.status === "pending" ||
               candidate.status === "running" ||
