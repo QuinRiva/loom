@@ -1323,7 +1323,6 @@ function RenderedMarkdownSurface({
 }: Omit<
   EditableFileSurfaceProps,
   | "resolvedTheme"
-  | "composerDraftTarget"
   | "revealLine"
   | "revealRequestId"
   | "wordWrap"

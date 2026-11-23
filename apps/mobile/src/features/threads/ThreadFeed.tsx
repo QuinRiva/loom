@@ -325,6 +325,7 @@ import {
   fileRoutePathSegments,
   isAbsolutePath,
   resolveFileLinkPath,
+  resolveWorkspaceFilePath,
   resolveWorkspaceRelativeFilePath,
 } from "../files/filePath";
 import { waitForThreadShell } from "./threadForkNavigation";
@@ -2862,7 +2863,7 @@ function UserMessageContent(props: UserMessageContentProps) {
   });
   const onLinkPress = (href: string) => {
     const reference = parseComposerContextHref(href);
-    if (!reference) return props.linkHandlers.onLinkPress?.(href, props.text); // loom: props.text
+    if (!reference) return props.linkHandlers.onLinkPress?.(href, undefined, props.text); // loom: props.text
     const record = props.context?.records.find(
       (record) => record.contextId === reference.contextId,
     );

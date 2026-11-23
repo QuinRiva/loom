@@ -622,7 +622,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activePendingUserInput: incomingPendingUserInputs[0] ?? null,
     supportsQuestionAttachments,
   });
-  const isServerThread = routeKind === "server" && props.activeThreadShell !== null; // loom: the `/handoff` and `/retro` slash items
+  const isServerThread = routeKind === "server" && props.activeThread !== undefined; // loom: the `/handoff` and `/retro` slash items
   // loom: the composer context meter, a Loom-owned component since upstream deleted it (runbook 41 §6.1)
   const activeContextWindow = deriveLatestContextWindowSnapshot(
     contextWindowEntries,
