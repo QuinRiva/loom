@@ -199,8 +199,17 @@ function UnanchoredFileChip(props: {
   const located = locateKey ? lookupLocated(locateKey) : null;
   // The index's answer is also stat'd so a file deleted since it was indexed
   // drops back to plain code; the binding does not wait on that stat.
-  const paths = [...candidates.map((meta) => meta.filePath), ...(located ? [located] : [])];
-  const lookupExistence = usePathExistence(environmentId, paths);
+  const lookupExistence = usePathExistence(environmentId, [
+    ...candidates.map(({ base, path }) => base ?? path),
+    ...(located ? [located] : []),
+  ]);
+  // A guess under a named path is stat'd only once that path is a confirmed directory.
+  usePathExistence(
+    environmentId,
+    candidates.flatMap(({ base, path }) =>
+      base !== null && lookupExistence(base)?.isDirectory ? [path] : [],
+    ),
+  );
   // No connected environment (the `/preview` harness): nothing can be
   // verified, so the syntactic resolution renders as before.
   const meta =
