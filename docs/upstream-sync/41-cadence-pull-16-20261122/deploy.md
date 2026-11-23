@@ -35,21 +35,26 @@ In the order Carl would act:
    installed protocol-3 launcher, so the hand procedure in
    `deploy/README.md` ("A launcher protocol change") is not needed (§6.7).
    If the new runner refuses the context, the launcher puts back the old
-   release and the old database by itself. S3 runs the seam test at protocol
-   4 and, if it can, once with the running release's launcher. The old
+   release and the old database by itself. S3 ran the seam test at protocol
+   4 (12/12) and once with the running release's launcher, adopt and
+   runner as the release being left (12/12, DL-2321). The old
    protocol-3 launcher process keeps running after the switch; the
    protocol-4 launcher starts at the next `loom-cockpit` restart, and the
    unit file is not rewritten.
 5. **First boot runs upstream migrations 081 to 108** (the live database is
-   at 80 / 1072) and no Loom migration. Estimated 20 to 90 seconds of extra
-   start time (index builds over the 2 GB turn-items table; §5.5), during
-   which every client shows "reconnecting". The deploy puts itself back if
-   the server is not up within 240 s (`deploy.json` `startTimeoutSeconds`);
-   the "checking" trial start runs on a slice of the database and does not
-   time the migrations. **S3 replaces this estimate with a measurement** on a
-   copy of the cockpit database. The file grows about 200 MB (4.73 → about
-   4.95 GB). Nothing a Loom migration created is touched; 083 drops one
-   upstream index nothing in Loom reads.
+   at 80 / 1072) and no Loom migration. **Measured by S3** on a `VACUUM INTO`
+   copy of the cockpit database (4.86 GB), with the built server on Node
+   26.13.1 and the host's load average between 28 and 41: the server
+   answered **52 s** after spawn with the copy out of the page cache and
+   **46 s** with it cached; the migrations themselves took 39 s and 27 s,
+   most of it 082 (16 s, an index over the turn items) and 081 (1 to 11 s).
+   Every later boot takes 5 to 7 s. During the first boot every client shows
+   "reconnecting". The deploy's limit is 240 s (`deploy.json`
+   `startTimeoutSeconds`), so nothing needs raising; the "checking" trial
+   start runs on a slice of the database and does not time the migrations.
+   The file grows about 160 MB (4.86 → 5.02 GB on the copy). Nothing a Loom
+   migration created is touched; 083 drops one upstream index nothing in
+   Loom reads (DL-2324).
 6. **At first boot Carl is asked nothing.** Browsers, the phone app and the
    Slack bridge stay signed in: device approval (#36419) covers only T3
    Connect devices, the cockpit has no `cloud-connect` session or pairing
@@ -76,8 +81,10 @@ In the order Carl would act:
    back` restore the pre-switch database copy, so old code never meets the
    new schema through the deploy tools; the cost is Loom writes since the
    switch. If old code were started by hand on the migrated database it
-   would run (the old migrator skips ids at or below the highest recorded;
-   the new columns and count triggers are ignored or harmless); S3 confirms
-   that on its copy.
+   runs: S3 started release `6be88bb` on its migrated copy, which listened
+   in 14 s, logged one warning that 081 to 108 are unknown to it and served
+   the thread list. It also warns once that it ignores the `mod+f`
+   `preview.find` key binding the new build adds to `keybindings.json`,
+   which `back` does not restore; harmless (DL-2325).
 10. **What Carl will notice:** §0's list. S4 confirms it live and amends
     this file.
