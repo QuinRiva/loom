@@ -372,6 +372,12 @@ const LOOM_TOOL_SPECS = {
       includeArchived: Schema.optionalKey(
         described(Schema.Boolean, "Default true. False drops archived roots and their subtrees."),
       ),
+      includeSubThreads: Schema.optionalKey(
+        described(
+          Schema.Boolean,
+          "Default true. False drops sub-threads' own text (title, purpose, brief, messages, final answers) and goal tasks from the search; every workstream report, a sub-thread's included, is still searched.",
+        ),
+      ),
     }),
     "throw",
     { readOnly: true, idempotent: true },

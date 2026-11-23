@@ -25,7 +25,7 @@ export const threadSearch = Effect.fn("LoomToolkit.threadSearch")(function* (
       limit: input.limit ?? 10,
       includeArchived: input.includeArchived ?? true,
       // Carl's ruling: an agent searches sub-threads too; the human surfaces default to roots.
-      scope: "all",
+      scope: input.includeSubThreads === false ? "roots" : "all",
       ...(input.projectId === undefined ? {} : { projectId: ProjectId.make(input.projectId) }),
     }),
   );

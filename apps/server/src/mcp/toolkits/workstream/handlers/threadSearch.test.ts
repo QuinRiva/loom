@@ -42,4 +42,36 @@ it.layer(HandlerTestLayer)("thread search", (it) => {
       assert.equal(none.text, 'No thread matches "wombat".');
     }),
   );
+
+  it.effect("includeSubThreads false drops a sub-thread's own text and keeps its report", () =>
+    Effect.gen(function* () {
+      const root = ThreadId.make("search-roots-only");
+      yield* seedThread({ threadId: root });
+      const child = spawnedId(
+        (yield* callAs(root, "workstream_spawn", {
+          role: "researcher",
+          title: "Bilby tariff survey",
+          purpose: "Survey the tariffs.",
+        })).text,
+      );
+      yield* callAs(child, "workstream_submit", {
+        markdown: "<!-- response -->\nThe numbat surcharge is double-counted.\n<!-- /response -->",
+      });
+
+      const byTitle = yield* callAs(root, "thread_search", { query: "bilby tariff" });
+      assert.include(byTitle.text, `matched title of sub-thread «Bilby tariff survey» (${child}):`);
+
+      const rootsOnly = yield* callAs(root, "thread_search", {
+        query: "bilby tariff",
+        includeSubThreads: false,
+      });
+      assert.equal(rootsOnly.text, 'No thread matches "bilby tariff".');
+
+      const report = yield* callAs(root, "thread_search", {
+        query: "numbat surcharge",
+        includeSubThreads: false,
+      });
+      assert.include(report.text, `matched report of sub-thread «Bilby tariff survey» (${child}):`);
+    }),
+  );
 });
