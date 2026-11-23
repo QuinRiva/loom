@@ -213,14 +213,6 @@ const MermaidFilePreview = lazy(() =>
 
 const FILE_EXPLORER_STORAGE_KEY = "t3code.fileExplorerOpen";
 const RENDER_MARKDOWN_STORAGE_KEY = "t3code.renderMarkdown";
-// loom: the MDX plan read budget.
-/**
- * Read budget requested for `.mdx` plan previews (8 MiB — the server clamps to
- * its plan ceiling). A fully evidence-embedded decision document crosses the
- * 1 MiB default cap; only this path opts into the larger payload, so every other
- * preview keeps the default exposure.
- */
-const MDX_PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
 const RENDER_BROWSER_FILE_STORAGE_KEY = "t3code.renderBrowserFile";
 const RENDER_TABLE_STORAGE_KEY = "t3code.renderTable";
 type FilePostRender = <LAnnotation>(
@@ -1511,10 +1503,6 @@ export default function FilePreviewPanel({
   const isHostFile =
     attachment !== undefined || (relativePath !== null && isHostPath(relativePath));
   const isMdx = relativePath !== null && isMdxPreviewFile(relativePath); // loom:
-  // loom: request the larger read budget for `.mdx` plans only, so an evidence-
-  // heavy decision document reaches the renderer intact instead of being chopped
-  // at the 1 MiB default cap. Every other preview keeps the default exposure.
-  const readMaxBytes = isMdx ? MDX_PREVIEW_MAX_BYTES : undefined;
   const fileAccess = useFilesystemReadAccess(environmentId, m);
   const { canReadFiles } = fileAccess;
   const canWriteFiles = useEnvironmentScope(environmentId, AuthFilesystemWriteScope);
@@ -1522,7 +1510,6 @@ export default function FilePreviewPanel({
     environmentId,
     cwd,
     relativePath,
-    readMaxBytes, // loom: MDX read budget
     attachment === undefined && relativePath !== null,
     m,
   );
@@ -1625,11 +1612,11 @@ export default function FilePreviewPanel({
   const truncatedReadShown =
     file.data?.truncated === true && (draft || isMarkdown || isMermaid || isHtml);
   // loom: two independent reasons the preview can show less than the file holds: the server's
-  // read cap (8 MB with an explicit maxBytes) on the surfaces that render the truncated read,
+  // read cap (8 MB for an .mdx, see getProjectFileQueryAtom) on the surfaces that render the truncated read,
   // and this panel's line cap, which reaches only the elided raw text surface.
   const previewNotices = [
     truncatedReadShown
-      ? `Preview limited to the first ${readMaxBytes ? "8 MB" : "1 MB"} of a ${file.data?.byteLength.toLocaleString()} byte file.`
+      ? `Preview limited to the first ${isMdx ? "8 MB" : "1 MB"} of a ${file.data?.byteLength.toLocaleString()} byte file.`
       : null,
     unboundedLines && showsRawText && (truncatedReadShown || !file.data?.truncated)
       ? `Lines longer than ${UNBOUNDED_LINE_LENGTH.toLocaleString()} characters are shown to their first ${LONG_LINE_RENDER_CAP.toLocaleString()}, and this file is read-only here. Open it in an editor to see or change it in full.`

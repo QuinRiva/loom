@@ -20,6 +20,9 @@ import { useFilesystemReadAccess } from "~/state/filesystem";
 import { projectEnvironment } from "~/state/projects";
 import { useProjectPathSearch } from "~/state/queries";
 import { revisionedQuery } from "~/state/revisionedQuery";
+import { isMdxPreviewFile } from "./filePreviewMode"; // loom: MDX read budget
+
+const MDX_PREVIEW_MAX_BYTES = 8 * 1024 * 1024; // loom: MDX read budget
 
 const EMPTY_PROJECT_FILE_PATH = "";
 const EMPTY_PROJECT_ENTRIES_QUERY_ATOM = Atom.make(
@@ -73,7 +76,6 @@ export function getProjectFileQueryAtom(
   environmentId: EnvironmentId,
   cwd: string,
   relativePath: string | null,
-  maxBytes?: number, // loom: larger budget for the .mdx plan preview
 ) {
   return projectEnvironment.readFile({
     environmentId,
@@ -81,7 +83,12 @@ export function getProjectFileQueryAtom(
       cwd,
       relativePath: relativePath ?? EMPTY_PROJECT_FILE_PATH,
       ...(relativePath === T3_PROJECT_FILE_NAME ? { allowMissing: true } : {}),
-      maxBytes, // loom: larger budget for the .mdx plan preview
+      // loom: an evidence-heavy .mdx plan crosses the 1 MiB default (the server clamps to its
+      // plan ceiling). Keyed off the path so every reader, the save's confirmation included,
+      // shares one query per file.
+      ...(relativePath !== null && isMdxPreviewFile(relativePath)
+        ? { maxBytes: MDX_PREVIEW_MAX_BYTES }
+        : {}),
     },
   });
 }
@@ -272,7 +279,6 @@ export function useProjectFileQuery(
   environmentId: EnvironmentId,
   cwd: string,
   relativePath: string | null,
-  maxBytes?: number,
   enabled = true,
   resolve: MessageResolver = m,
 ): ProjectFileQueryState {
@@ -282,7 +288,7 @@ export function useProjectFileQuery(
   const isQueryEnabled = enabled;
   const atom =
     enabled && canReadFiles
-      ? getProjectFileQueryAtom(environmentId, cwd, relativePath, maxBytes) // loom: maxBytes
+      ? getProjectFileQueryAtom(environmentId, cwd, relativePath)
       : EMPTY_PROJECT_FILE_QUERY_ATOM;
   const result = useAtomValue(atom);
   const refreshAtom = useAtomRefresh(atom);
