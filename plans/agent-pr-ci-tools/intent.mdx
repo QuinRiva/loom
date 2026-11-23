@@ -50,7 +50,20 @@ Counts are bash calls agents typed between 2 and 23 Nov, read from the live data
   ]}
 />
 
-Upstream's own eval points the same way. On Sonnet both routes pass the same tasks and `gh` uses about 10% fewer tokens. The tools win only where `gh` is rate-limited, signed out, or the host is not GitHub, and none of those is Loom's situation.
+**Why upstream built them, and why that does not carry over.** The tools are not make-work: upstream's PRs give four reasons, each measured, and three of them are about situations Loom is not in.
+
+<Table
+  density="compact"
+  columns={["Upstream's reason", "Their evidence", "In Loom"]}
+  rows={[
+    ["`gh` spends the user's own GitHub quota and needs the user signed in; the tools go through T3's own GitHub app", "About 18,000 `gh` and `cafe` commands in 45 days on three machines. With `gh` rate-limited or signed out, the shell route passed 0 to 1 of 3 runs", "Does not apply. Loom's server signs in with the same `gh` credential the agents use, so a tool call spends the same quota. One rate-limit error in three weeks."],
+    ["The tools work on every host T3 supports, including upstream's own git.cafe", "Agents never found the `cafe` command unless told: 0 of 3", "Does not apply. Every project here is on GitHub."],
+    ["Weaker and GPT models handle `gh` badly", "On two GPT models the shell route failed one call per task and polled for up to 18 model calls; the tools cut tokens 27% and 38%", "Mostly does not apply. Your PR work runs on Claude, where upstream's own result is a tie: both routes pass 27 of 27, and `gh` uses about 10% fewer tokens."],
+    { "tone": "info", "cells": ["Review threads are awkward by shell", "1,435 hand-written GraphQL reads of review threads; 660 replies and resolves", "Applies, at a smaller scale: this is the pair in the table above."] }
+  ]}
+/>
+
+The scale differs too: upstream counted about 400 such commands a day, Loom about 40. One limit on my side: upstream ran the two routes against each other on the same tasks, while Loom's figures are counts of what agents happened to do, so they show the shell route is not failing, not that it is the cheapest possible.
 
 <Callout tone="risk" title="Found on the way: in Loom's checkout these tools can aim at upstream's public repository">
   The tools pick their target repository from the git remotes and prefer the one named `upstream`, which in Loom is `pingdotgg/t3code`. What points them at `QuinRiva/loom` instead is a git setting that `pnpm ship` rewrites on every run, so on this VM they aim correctly today. On a fresh clone, an exposed create, reply or review tool would act on upstream's public repository under your account. The researcher confirmed this by running the resolver on Loom's real remotes with and without the setting; no call was made to GitHub. Any exposure has to pin the repository first.
