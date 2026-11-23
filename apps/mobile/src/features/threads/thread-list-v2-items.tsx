@@ -95,7 +95,7 @@ import {
 import { QueuedMessageIcon } from "./queued-message-icon";
 import { shouldRecedeThreadRow } from "./thread-row-emphasis";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
-import { useWorkstreamBadge, WorkstreamBadgeView } from "./WorkstreamBadge.loom"; // loom: 3d-3
+import { useWorkstreamBadge, WorkstreamRowEntries } from "./WorkstreamBadge.loom"; // loom: 3d-3, goal tasks count
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 import { pullRequestStatus } from "../pull-requests/pullRequestStatus";
@@ -1588,16 +1588,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         ) : (
           <View className="flex-1" />
         )}
-        {workstreamBadge ? ( // loom: 3d-3 sub-thread rollup
-          <WorkstreamBadgeView
-            environmentId={thread.environmentId}
-            threadId={thread.id}
-            badge={workstreamBadge}
-            selected={selected}
-            mutedTextClassName={rowAppearance.mutedForegroundClassName}
-            mutedTintClassName={rowAppearance.mutedIconTintClassName}
-          />
-        ) : null}
+        <WorkstreamRowEntries // loom: 3d-3 sub-thread rollup, and the goal's tasks count
+          environmentId={thread.environmentId}
+          threadId={thread.id}
+          badge={workstreamBadge}
+          // loom: the tasks count is for top-level rows only
+          goalId={thread.lineage.parentThreadId === null ? thread.source.workstream?.goalId : null}
+          selected={selected}
+          mutedTextClassName={rowAppearance.mutedForegroundClassName}
+          mutedTintClassName={rowAppearance.mutedIconTintClassName}
+        />
         {pr ? (
           <Pressable
             // Padding cancelled by negative margin grows the touch target into
