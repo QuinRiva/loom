@@ -1,0 +1,292 @@
+---
+kicker: "Ship-readiness recap · cadence pull 16 · upstream a09738fb43, 3,335 commits · branch t3/next-upstream-pull · 23 Nov 2026"
+reader:
+  who: Carl, Loom's maintainer, deciding whether to say "ship it" for pull 16
+  knows: Loom and upstream T3 Code deeply as a user, and the pull in outline from the orchestrator's messages; none of the runbook, its records, its session reports or their shorthand
+  after_first_screen: the tree is ready, on one run of every check on the final code (8 of 27,948 tests fail, none from the merge) and a live smoke test (24 checks, 15 passed first time, 2 defects fixed and re-run, 6 not run); nothing ran on a phone and the real first start is untimed, each with what covers it; nothing is left for him on the host; his word lands it with pnpm ship --merge-only, and the deploy is a separate act he starts
+manager_sessions:
+  - id: 01a207f4-07b8-7325-9b23-0f4959772a2f
+    name: Pull 16 ship-readiness recap
+    role: recap
+    authored_at: 2026-11-23T10:39:53.230Z
+---
+
+# Pull 16 is ready to land. Nothing ran on a phone, and only the deploy can prove the rest
+
+**The merged tree is ready.** One run of every check, start to finish on the code that ships, ended with **8 failures in 27,948 tests, none caused by the merge**. A live smoke test of **24 checks** passed **15 first time**, found **two real defects that were fixed and re-run to a pass**, and **could not run six**. **Nothing ran on a phone.** Nothing is left for you on the host. Your word lands it: `pnpm ship --merge-only`.
+
+The eight failures are why this is not a literally all-green run. One is a server test that fails the same way on untouched upstream on this machine. Seven are web browser tests that time out only when the whole suite runs at once: a different handful each run, all passing alone, two failing identically on `main` today. Getting to all green is test repair, not merge repair.
+
+<Stats
+  items={[
+    { value: "8 of 27,948", label: "Tests failing, one run on the final code", tone: "success", detail: "1 server test that also fails on clean upstream here; 7 of 8,066 web browser tests that fail only in a whole-suite run. 22 skipped.", badge: { label: "none from the merge", tone: "success" } },
+    { value: "24", label: "Live smoke checks", tone: "info", detail: "15 passed first time · 3 pass after the two fixes · 6 not run, in whole or in part" },
+    { value: "2", label: "Defects found live, fixed, re-run", tone: "warning", detail: "A message delivered twice after a restart (two attempts to fix), and a comment on a child's report landing in the parent" },
+    { value: "0", label: "Checks run on a phone", tone: "risk", detail: "No simulator or emulator on this machine. Typecheck, lint and 3,775 unit tests stand in until you install the rebuilt app." },
+    { value: "46 to 52 s", label: "First start, copy of your database", tone: "success", detail: "28 upstream migrations against the deploy's 240 s limit, on a heavily loaded host; 16 s on a quiet one. The real switch is untimed." },
+  ]}
+/>
+
+<Callout tone="decision" title="What it means now" focus>
+- **To land it, say "ship it"** (the form at the end takes it). The pull's orchestrator, or a shipper thread it starts, runs `pnpm ship --merge-only`. That re-runs lint, typecheck and the check that no Loom change went unmarked, opens the pull request and merges it as a merge commit, never rebased. Nothing deploys.
+- **The deploy is separate and yours to start:** `loom-deploy deploy`, which the orchestrator runs when you ask. Expect every client to show "reconnecting" for about a minute while 28 migrations run. Both of your host rulings are already applied: Node 26.13.1 has been active since 20:24 on 23 Nov, and `main`'s newer pull requests ride with this deploy.
+- **Rolling back** with `loom-deploy back` returns to the build you run today and its database as it was at the switch. That build is #589, so a rollback also takes away #590, #591, #592 and #594, and discards what threads wrote after the switch.
+- **Three things only you can check, after the deploy:** the phone app, that your saved right-panel layout loads, and that the comment count shows on an MDX plan (§2).
+
+<Badge tone="success">ready to land</Badge> <Badge tone="risk">phone untested</Badge> <Badge tone="warning">real first start untimed</Badge> <Badge tone="warning">new launcher not yet started</Badge>
+</Callout>
+
+This covers the branch as it stands. The full run was on commit `fa5b764c79`; the only commits since are edits to the pull's own notes and this document. Two questions are at the end: whether to land it, and when the deploy starts.
+
+## 1. What was proven
+
+The first eight rows are one evening run on the final code. It replaced an afternoon run made while other threads kept the machine at load 30 and above, which failed 3 server and 9 web tests. The last five rows were done earlier in the day on the branch as it then stood.
+
+<Table
+  density="compact"
+  columns={["Check", "Result", "What it showed, and how to read it"]}
+  rows={[
+    ["Install, run twice", { badge: { label: "pass", tone: "success" } }, "The lockfile is byte-identical before, between and after. The install from nothing, with every dependency folder deleted first, was the afternoon run's and gave the same lockfile"],
+    ["Typecheck, all 43 packages", { badge: { label: "pass", tone: "success" } }, "0 errors, and again with the cache off"],
+    ["Lint and format, unused-code check, production build", { badge: { label: "pass", tone: "success" } }, "0 errors; 8 of 8 build tasks. 17 lint warnings, all on upstream's own lines"],
+    ["Nothing of Loom's lost in the merge", { badge: { label: "pass", tone: "success" } }, "Every Loom change to an upstream file still carries its marker; no name Loom added is missing; all 3,749 lines Loom had added to the 170 silently merged files are present. The marker check is from the evening run, the other two from earlier in the day. Text being present is not behaviour being right; that is what the review and the smoke test below are for"],
+    ["Server tests", { badge: { label: "1 fail", tone: "warning" } }, "10,461 tests: 10,444 pass, 16 skipped. The one failure, `AntigravityInstallation` \"16 KiB kernel\", fails identically on a clean checkout of upstream on this machine. Not Loom's, not the merge's"],
+    ["Six shared packages", { badge: { label: "pass", tone: "success" } }, "5,646 tests, 6 skipped"],
+    { tone: "warning", cells: ["Web unit and browser tests", { badge: { label: "7 fail", tone: "warning" } }, "8,066 tests: 8,059 pass. Run whole, this suite alone drives a quiet 16-core machine to load 12 to 19 and a few browser tests time out. Three full runs failed 7, 6 and 3 tests, a different set each time, and every failing file passes alone. Two (`DocumentViewerApp` at phone width and with no network) fail the same way on `main` before the pull; a third regular is upstream's own test, unchanged"] },
+    ["Phone app unit tests", { badge: { label: "pass", tone: "success" } }, "3,775 tests. Unit tests only. Nothing ran on a device (§2)"],
+    ["Review of the 170 files git merged without a conflict", { badge: { label: "3 defects, fixed", tone: "warning" } }, "201 rows read by four reviewers. The three fixes were reviewed clean by a fifth (§4)"],
+    ["First start on a copy of the cockpit database", { badge: { label: "pass", tone: "success" } }, "28 upstream migrations; the server answered in 52 s cold and 46 s warm, against a 240 s limit. Measured with other work loading the machine to load 28 to 41. A second copy, at load 3 to 5, answered in 16 s. Later starts take 5 to 7 s. Loom's own migration ledger was untouched and the file grew about 160 MB"],
+    ["Today's release on the migrated database", { badge: { label: "pass", tone: "success" } }, "Started in 14 s and served the thread list. Only matters if old code is ever started by hand. The deploy tools restore the pre-switch database anyway"],
+    ["The deploy's hand-over between launchers", { badge: { label: "pass", tone: "success" } }, "Its test passes 12 of 12, and 12 of 12 with today's release as the one being left. A test, not a real switch (§2)"],
+    { tone: "warning", cells: ["Live smoke test, 24 checks", { badge: { label: "2 defects, fixed", tone: "warning" } }, "15 passed first time; 6 not run. Driven in a browser on a seeded instance and on a copy of the cockpit database, with real turns on Haiku. Most checks ran before the last four fix commits; what those commits touch was re-run after them, and the full test run above came after all of them"] },
+  ]}
+/>
+
+<Details summary="All 24 smoke checks, one line each">
+
+The first thirteen are the journeys planned for every pull; the last eleven were added by this pull's reviewers.
+
+<Table
+  density="compact"
+  columns={["Check", "Result", "Note"]}
+  rows={[
+    ["A new root's tool list; a shipper child watching its pull request; a scheduled task carrying one author line", { badge: { label: "pass", tone: "success" } }, ""],
+    ["Sidebar: the sub-thread badge, the \"Needs you\" pill, \"Waiting\", the Goal submenu by mouse and by keyboard", { badge: { label: "pass", tone: "success" } }, ""],
+    ["Command palette and search on the cockpit copy: an archived thread and a child's report, found and opened", { badge: { label: "pass", tone: "success" } }, ""],
+    ["Chat: file chips, a thread mention, a ticket link, a path link, Reply, the context ring with its spend popover and Compact", { badge: { label: "pass", tone: "success" } }, "One finding: Compact on a short thread (§5)"],
+    { tone: "warning", cells: ["Opening a Loom child from inside its parent", { badge: { label: "failed, fixed", tone: "warning" } }, "The same defect as the report comment below"] },
+    ["A right-panel layout saved by today's build loads", { badge: { label: "not run", tone: "neutral" } }, ""],
+    ["Files: an HTML page keeps its scroll, an image and a PDF do not reload during an agent command; an image block in the production document viewer", { badge: { label: "part", tone: "neutral" } }, "All passed, but the comment count on an MDX document could not be produced"],
+    ["Diff: scopes, author chips and card, find, solid changed words, the seven inline-editing steps", { badge: { label: "pass", tone: "success" } }, "One finding: keyboard focus after find (§5)"],
+    { tone: "warning", cells: ["Pi across restarts: a message sent just before a restart; killing pi mid-command gives one resume; Stop offers no Resume; `/clear`; titles, the model list and usage limits through the hub", { badge: { label: "failed, fixed", tone: "warning" } }, "The message before a restart, twice. The rest passed first time"] },
+    ["A finished root with an open pull request stays active", { badge: { label: "not run", tone: "neutral" } }, "No real pull request on a test instance; 64 unit tests pass"],
+    ["With tool calls hidden, consult cards, questions and Loom's control cards still show", { badge: { label: "pass", tone: "success" } }, ""],
+    ["Regenerate title on a Loom root", { badge: { label: "pass", tone: "success" } }, "It ran, and what it does was recorded: it retitles the root, with no guard (§5)"],
+    { tone: "risk", cells: ["The phone app", { badge: { label: "not run", tone: "risk" } }, ""] },
+    { tone: "warning", cells: ["Commenting on a child's MDX report reaches the child", { badge: { label: "failed, fixed", tone: "warning" } }, ""] },
+    ["An `.mdx` preview keeps refreshing after a save and an agent's rewrite", { badge: { label: "pass", tone: "success" } }, ""],
+    ["File chips appear straight after a turn", { badge: { label: "pass", tone: "success" } }, ""],
+    ["Killing pi mid-command gives exactly one resume notice", { badge: { label: "pass", tone: "success" } }, ""],
+    ["One integration test the reviewers asked for by name (budget transfer)", { badge: { label: "pass", tone: "success" } }, ""],
+    ["Open-questions rail: Stop with a typed answer keeps the draft and the question", { badge: { label: "part", tone: "neutral" } }, "Passed. A Loom question beside a non-Loom one could not be built on this machine"],
+    ["Model picker: hidden models stay out, and search ranks them last", { badge: { label: "pass", tone: "success" } }, ""],
+    ["Clearing a stack of three toasts", { badge: { label: "pass", tone: "success" } }, ""],
+    ["Chat links on real data", { badge: { label: "pass", tone: "success" } }, ""],
+    ["Settings search finds the context ring's switch", { badge: { label: "pass", tone: "success" } }, ""],
+    ["Forking an imported thread that has no runs", { badge: { label: "not run", tone: "neutral" } }, "No path in the app reaches it"],
+  ]}
+/>
+
+</Details>
+
+## 2. What was not checked, and what covers each
+
+The phone is the largest gap by a distance. It is the same gap as pulls 14 and 15, but this pull changes far more of the phone app. "Row" is the row of the pull's follow-ups list that carries the item. <Sidenote>`docs/upstream-sync/41-cadence-pull-16-20261122/follow-ups.md`</Sidenote>
+
+<Table
+  columns={["Not checked", "Why not", "What stands in for it", "Who settles it, and how"]}
+  rows={[
+    { tone: "risk", cells: ["**Anything on a phone**", "This machine has no simulator or emulator", "Typecheck, the mobile lint and 3,775 unit tests. The document viewer the phone embeds was driven the way the phone drives it and drew an image. One phone defect in this pull was fixed without the app ever running", "**You, on your phone**, after installing the rebuilt app: the six checks in §7. Row 5"] },
+    { tone: "risk", cells: ["**Whether the phone app builds**", "The deploy rebuilds it from scratch (React Native 0.88.1, Expo 58, two new native modules). Nobody can tell in advance whether this machine's Android toolchain suits them", "Nothing. If the build fails, the app you have keeps working against the new server", "The deploy's build log, read back the morning after. Row 4"] },
+    { tone: "warning", cells: ["**The first start on the real database**", "Only copies were started", "46 to 52 s on a loaded machine against a 240 s limit", "The morning-after check reads the real time. On the real start the server also resumes errored threads for real; the copy tried nine and was refused only because it was a copy. Row 1"] },
+    { tone: "warning", cells: ["**The new service launcher actually starting**", "The deploy keeps the old launcher process running. The new one first starts at the next restart of the cockpit service, which may be days later and unattended", "The hand-over test, 12 of 12 twice. It also hit one refusal on a path the session judged no real switch takes", "Checked after the deploy and again after that first restart. Row 2"] },
+    ["**Your saved right-panel layout**", "The test browser had no layout saved by today's build", "An automated test that migrates a saved layout", "You, on first load: a closed panel stays closed, and a root still offers Workstream, Context and Goal tasks. Row 51"],
+    ["**The comment count on an MDX document**", "The headless browser could not open the comment box from a text selection. Commenting on a whole block worked and reached the right thread", "Nothing live", "You: select a sentence on any plan, comment, read the count in the Files header. Row 50"],
+    ["**A finished root with an open pull request stays active**", "A test instance has no real pull request, as in pull 15", "64 unit tests", "You would see a root leave your active list while its pull request is open. No row carries it"],
+    ["**The server's own headless browser on the deployed build**", "Its browser library moved a version and may want a browser build the host lacks", "The web tests ran on this host after one install of that browser", "One HTML preview from a thread on the new release. Row 6"],
+  ]}
+/>
+
+Five more checks can only be read from the live install. They are for the morning-after session, not for you:
+
+- the Slack bridge coming back (row 3);
+- the phone app's download token staying out of logs (row 7);
+- start-of-run snapshots fitting their new 5 s limit on the big worktrees (row 8);
+- three upstream GitHub workflows that go live on Loom's repository at the merge (row 9);
+- the new release running on Node 26.13.1 (row 13).
+
+## 3. What you will notice on the first day
+
+This is the list the pull opened with, corrected by what the pull ended up doing. "Seen live" means the smoke test watched it happen; the rest is from reading upstream's changes.
+
+<Columns columns={3}>
+<Card heading="New" tone="info">
+
+- **Long threads open faster**, and the thread list shows while the connection opens. On the copy of your database the list's first read took 1.7 s for 662 threads; at pull 15 it was 2.6 s for 474.
+- **Sidebar rows show the machine name** on their second line, not the git branch (the branch moves to the hover card), and gain linked-issue chips.
+- **An Issues page** for the project's GitHub repository, and an Issues tab on the phone.
+- **Reply** on an assistant message (seen live), @-mention a model, quotes as inset cards.
+- **Chat renders through a new engine.** Loom's file chips, thread mentions, ticket links and path links were seen live.
+- **Cmd+F in the Diff panel** is the viewer's own find, and a pull-request link in chat opens the panel at the comment or line it names.
+- **HTML previews keep their scroll** during agent commands (seen live).
+- **Usage history reads 92 days back.**
+- **Settings gains** a language picker (English only), keep-awake while agents work, and several rows that are empty or inert on the cockpit.
+
+</Card>
+<Card heading="Gone or moved" tone="warning">
+
+- **Plan mode is gone:** the Build/Plan toggle, `/plan` and `/default`. Loom's plans, `/handoff` and `/retro` are unaffected.
+- **Tool-call visibility** moved from Labs to Settings, Chat, Activity.
+- **The context ring's on/off switch** moved to Settings, Maintenance. Searching Settings for "context" finds it (seen live).
+- **No more "copied" toasts**; snoozed threads stop sending completion notifications.
+- **A stopped pi run no longer offers Resume** (seen live).
+- **Loom children settle when their parent settles**, not after five idle days. About five settle on the first sweep.
+- **One-time scheduled tasks remove themselves** after they run. "Deploy redesign: readings…" is due 25 Nov 10:00 AEDT and fires on whichever build is live then.
+
+</Card>
+<Card heading="Unchanged, where the pull opened by saying otherwise" tone="success">
+
+- **A Loom child still opens in the main view** when clicked in Thread details or from a root's "Subagent needs input · Open question" banner. The opening list said it would open beside its parent; the smoke test showed that sending your comments to the wrong thread, so your fallback applied. A side chat does open beside.
+- **The composer's context ring stays**, with its spend popover and Compact (seen live).
+- **Agents' tools are unchanged.** A new root lists 52 tools, with the nine pull-request tools it has today and none of upstream's nine new ones (seen live).
+- **The author line agents read on a message**, and the solid changed-word highlight in diffs, stay as they are. These two follow the runbook's recommendation, not a ruling of yours (§6).
+
+</Card>
+</Columns>
+
+## 4. Defects the pull's own checks found and fixed
+
+Five would have reached you. Three were found by reading the files git merged silently, and two only by driving the app. All are fixed on the branch. The three from reading and the restart fix were each reviewed by a separate thread; the child-report fix was checked by re-running it live.
+
+<Table
+  columns={["What you would have seen", "How often", "Found by", "The fix"]}
+  rows={[
+    { tone: "risk", cells: ["**A message delivered twice after a restart.** A message you, or one agent to another, sent in the seconds before a restart reached the resumed turn and also sat as \"1 queued · Send now\". Your next send delivered it again as its own turn", "At every deploy and every crash, on each thread that was messaged just before it", "The live smoke test", "**Two attempts.** The first passed its own test and its review, then failed live twice: pi had already written the message into its session before the server's shutdown pass looked, a timing the test did not model. The second passes live: answered once, nothing queued, no redelivery"] },
+    { tone: "risk", cells: ["**A comment on a child's report landed in the parent's composer.** A Loom child opened from Thread details sat beside its parent, its MDX report opened in the parent's panel, and \"Comment on this block\" went to the parent", "Every time, on that path", "The live smoke test, on the case you asked to have tested", "Loom children are exempt from opening beside, as you ruled. The first fix missed the \"Open question\" banner, a one-line slip caught on the re-run"] },
+    ["**File chips arriving late.** On a big worktree, a bare file name in chat became a chip a second or two late", "After each turn or file save, in a thread with no @-mention in the last 15 minutes", "Review of the silently merged files", "One marked line, with a test that failed before it"],
+    ["**A stale `.mdx` preview.** After you edited and saved an `.mdx` in the Files panel's source view, the panel stopped showing later changes to it, such as an agent's rewrite, until a reload", "After each such save. `.md` and code files were never affected", "Review of the silently merged files", "One query per file, whoever reads it. Seen live in the smoke test"],
+    ["**Raw source on the phone.** An `.mdx` file with `#` or `?` in its name opened as raw source", "Only with such a name", "Review of the silently merged files", "One line, checked by calling the function. The phone app was not run"],
+  ]}
+/>
+
+One smaller repair came out of the same review: Settings search no longer found the context ring's switch after it moved, and now does.
+
+## 5. Known small issues that ship
+
+None of these blocks landing. Each has a row in the follow-ups list unless the last column says otherwise.
+
+<Table
+  density="compact"
+  columns={["What you might see", "How often, and what it costs", "Row"]}
+  rows={[
+    ["Pressing **Compact** on a short thread shows \"Nothing to compact\" as a provider error, and the agent then runs a turn it did not need", "Rare; a few cents each", "49"],
+    ["In the whole-file editor, **Escape after a find** leaves the keyboard on the page, so the next keystroke is lost until you click. In unified layout, Enter nudges the view by half a line to a line; split layout holds still", "Each find while editing", "52"],
+    ["The **Context panel overstates** a pi thread's fixed cost: \"108 tool schemas ≈31K\", with `workstream_spawn` listed twice", "Every pi thread; display only, agents are not charged for it", "48"],
+    ["A message sent **just before a restart shows as \"cancelled\"** in the cut turn, although the resumed turn answered it. A finished child does not resume, so it acts on the message only at its next turn and nothing says it arrived", "Per deploy, on each thread messaged just before it", "None yet; it is in the deploy notes"],
+    ["An **idle Loom child the sidebar leaves out** still opens beside its parent, where a comment on its report would go to the parent", "Should be rare; it could not be produced", "47"],
+    ["**Regenerate title** in the thread menu retitles a Loom root, whose title Loom otherwise deliberately keeps", "Only if you press it", "16"],
+    ["A disabled **Compact** button no longer says why", "Cosmetic", "36"],
+    ["The **web browser test suite is never fully green in one run** on this machine", "A re-run and a by-hand check whenever someone wants proof of one green run", "53"],
+  ]}
+/>
+
+## 6. Your rulings, and the ten that took the recommendation
+
+Of the fifteen questions the pull put to you, five have your answer. <Sidenote>Decision log rows DL-2410 to DL-2415.</Sidenote>
+
+<Table
+  columns={["Question", "Your words", "What the pull did"]}
+  rows={[
+    ["Upstream's nine new agent tools for pull requests and CI", "\"I think you're right that we should be done work like this after the merge lands, I think the issue in the past was that we were failing to do this for up work after the merge lands.\"", "Withheld all nine, so `pnpm ship` stays the only way an agent merges. Adopting them is its own goal, opened the day this lands (§7)"],
+    ["The composer's context ring, which upstream deleted", "\"I do look at it frequently - so I *do* need *some sort* of context view.\"", "Kept the ring. Whether it is still worth carrying is yours once you have turned on upstream's replacement, a \"Context window\" row in Thread details, on the deployed build. Keeping it until then is the orchestrator's timing, not your decision. Row 11"],
+    ["A Loom child opening beside its parent", "\"Yeah, let's take this approach\", on taking upstream's behaviour unless annotating a child's report failed in the smoke test", "It failed, so Loom children are exempt and open in the main view (§4)"],
+    ["Node 26.13.1 on the cockpit host", "\"Upgrade the host now\"", "Done at 20:24 on 23 Nov; reversed by `n 26.12.1`. Services already running take it at their next restart, which the deploy is"],
+    ["Deploying `main` on its own before the pull lands", "\"No separate deploy; let them ride with the pull\"", "One deploy. A regression after it may belong to #590, #591, #592 or #594, not to upstream"],
+  ]}
+/>
+
+**The other ten have no recorded answer from you.** The batch you were given said an undecided item takes its recommendation, and the pull was built that way:
+
+- agents read Loom's author labels, not upstream's new sender note;
+- Loom's own screens stay English, outside upstream's translation lint;
+- upstream's agent tools for issues, for feedback, and for the theme and `send_to_user` are withheld (three questions);
+- a pi session resumed in a moved worktree uses upstream's method, not Loom's patch;
+- the usage hub carries a last good reading forward by Loom's rule alone;
+- changed words in a diff stay solid;
+- the phone runs both file lookups, Loom's first;
+- multi-repository projects stay reachable and unsupported.
+
+Row 12 of the follow-ups list says what undoes each. For most it is a single revert or a few marked lines; for the pi resume, about an hour. The morning-after document puts them to you again as one item.
+
+## 7. The deploy, and what happens after the merge
+
+<Steps>
+  <Step at="At the merge" title="Only one thing changes outside the code.">
+    Three upstream GitHub workflows become active on Loom's repository, one with a daily schedule that only reports unless a repository variable is set. The cockpit keeps running today's build until you deploy. From then on, the next deploy of `main` for any reason is this deploy.
+  </Step>
+  <Step at="Same day" title="The orchestrator opens the goal for upstream's pull-request and CI tools.">
+    The proposed order: the read tools and the CI log reader first, with an eval. Create and merge wait for your call against `pnpm ship`'s gates. This goal and the next-morning session answer something you said. "I think the issue in the past was that we were failing to do this for up work after the merge lands."
+  </Step>
+  <Step at="When you choose" title="You start the deploy." tone="warning">
+    An ordinary `loom-deploy deploy`. It builds on Node 26.13.1 and rebuilds the phone app from scratch. At the switch every client shows "reconnecting" while the 28 migrations run. Agent turns in flight are cut and resumed. You are asked nothing: browsers, the phone app and the Slack bridge stay signed in.
+  </Step>
+  <Step at="After the deploy" title="Your checks: a browser, then the phone." tone="warning">
+    In the browser, three things. Your right-panel layout loads as you left it. A comment on a plan shows in the Files header count. A thread you messaged during the switch has no "1 queued · Send now" row for a message it already answered.
+
+    On the phone, after installing the rebuilt app from the in-app notice:
+
+    - Tap a relative file path in a chat. "Looking for…" shows, then the file opens, whether it sits in a folder the message names or in a sibling project. A missing one says "File not found".
+    - Tap a link in one of your own messages.
+    - Open an MDX document from a thread's files, from an attachment and from a zip. One whose image is missing shows a broken image, not a spinner.
+    - A document answer in the composer's context sheet shows its Document, Section, Answer and Quoted labels.
+    - A Home search that matches an archived root shows the row, and tapping it opens the thread.
+    - The About screen's build section and the Home update notice are there.
+  </Step>
+  <Step at="Next morning" title="A fresh session reads the deploy back and writes you one decision document.">
+    Scheduled by the orchestrator when the shipper reports the merge. It reads the deploy's checks from the live install, gives every one of the 53 rows of the follow-ups list an outcome, and writes `recaps/pull-16-post-deploy/recap.mdx`. It reads the live install, so it has something to read only once the deploy has happened.
+  </Step>
+</Steps>
+
+## 8. Your answer
+
+<QuestionForm
+  questions={[
+    {
+      id: "land-pull-16",
+      title: "Land pull 16 on main now?",
+      subtitle: "Landing runs pnpm ship --merge-only: a merge commit, never rebased, and nothing deploys. The evidence is in §1 and what could not be checked is in §2.",
+      refs: [
+        { label: "1. What was proven", anchor: "1-what-was-proven" },
+        { label: "2. What was not checked, and what covers each", anchor: "2-what-was-not-checked-and-what-covers-each" },
+      ],
+      mode: "single",
+      allowOther: true,
+      options: [
+        { id: "ship", label: "Ship it: merge pull 16 into main now", recommended: true, detail: "8 of 27,948 tests fail and none is the merge's; both defects found live are fixed and re-run; the phone and the real first start are settled by the deploy, not by waiting." },
+        { id: "hold", label: "Hold: something needs correcting or checking first", detail: "Say what in the write-in. A literally all-green test run, for one, means repairing two Loom test waits and deciding about one flaky upstream test first." },
+      ],
+    },
+    {
+      id: "deploy-timing",
+      title: "When does the deploy start?",
+      subtitle: "The deploy is a separate act and is yours to start. It restarts the cockpit: about a minute of \"reconnecting\", and agent turns in flight are cut and resumed. The checks after it need you at a browser and with your phone.",
+      refs: [{ label: "7. The deploy, and what happens after the merge", anchor: "7-the-deploy-and-what-happens-after-the-merge" }],
+      mode: "single",
+      allowOther: true,
+      options: [
+        { id: "later", label: "Merge only: I will start the deploy myself when I have a quiet few minutes", recommended: true, detail: "Say roughly when in the write-in if you know. The read-back session is set for the morning after the merge and has something to read only once the deploy has happened." },
+        { id: "now", label: "Run loom-deploy deploy for me straight after the merge", detail: "The orchestrator's own thread restarts under it, as every thread does." },
+      ],
+    },
+  ]}
+/>
