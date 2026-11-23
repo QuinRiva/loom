@@ -1,5 +1,5 @@
 ---
-kicker: "Post-deploy recap · cadence pull 16 · merged as b9d92b0 (PR #595) · deployed 23 Nov 2026, 22:24 AEDT · read back 22:40 to 23:30"
+kicker: "Post-deploy recap · cadence pull 16 · merged as b9d92b0 (PR #595) · deployed 23 Nov 2026, 22:24 AEDT · read back 22:40 to 23:30 · your 24 Nov rulings added"
 reader:
   who: Carl, Loom's maintainer, the night he deployed pull 16, deciding what is left for him and whether anything the pull left behind was lost
   knows: Loom and upstream T3 Code deeply as a user, that the pull merged and that he deployed it; none of the runbook's 56 leftovers by number, none of tonight's check reports
@@ -31,7 +31,7 @@ The pull recorded **56 leftovers**. **7 are done**, **25 are now 15 issues** on 
 1. **Restart the cockpit once, on purpose**, at a moment you choose: `systemctl --user restart loom-cockpit`. The deploy left the old launcher process running, as designed, so the new one has never started for real. Its first start will otherwise be at some reboot nobody is watching (§2, first card).
 2. **Install the phone app** from the in-app notice and tap through six things (§2, second card). Tell any thread the moment it has downloaded: one check has to be read within about 15 minutes.
 3. **Three glances in the browser**, a minute in total (§2, third card).
-4. **Three calls** where your answer changes what Loom carries: the context ring, the ten rulings you never answered, and Loom's switched-off CI (§2). An item left undecided takes its recommendation, and every recommendation here is to leave things as built.
+4. **Three calls** where your answer changes what Loom carries: the context ring, the two agent-tool questions still unanswered, and Loom's switched-off CI (§2). An item left undecided takes its recommendation, and every recommendation here is to leave things as built.
 
 <Badge tone="success">deploy as predicted</Badge> <Badge tone="warning">new launcher not yet started</Badge> <Badge tone="risk">phone untested</Badge> <Badge tone="success">no leftover lost</Badge>
 </Callout>
@@ -172,33 +172,35 @@ Every later capture in the same folder took 1 to 2 seconds. So this is what a tu
 <Card
   id="unanswered"
   eyebrow="CALL · LEFTOVER 12"
-  heading="Ten of the fifteen questions the pull put to you were never answered. Do they stand as built?"
+  heading="On 24 Nov you answered eight of the ten questions the pull had built without your answer. Two are left: do they stand as built?"
   tone="info"
-  badge="RECOMMENDED · all stand"
-  meta={["built as recommended", "each has a way back"]}
+  badge="RECOMMENDED · the two stand"
+  meta={["seven accepted", "one changed: diff tint", "two unanswered"]}
 >
-  **Let them stand.** The questions are in `recaps/pull16-rulings/recap.mdx`, the batch of fifteen you were given on 23 Nov. It said an undecided item takes its recommendation, and the pull was built that way. You answered five: the agent pull-request tools (1), the context ring (2), how a Loom child opens (3), Node on the host (14) and deploying `main` with the pull (15).
-
-  The other ten are below, by their card number in that document, so you can open the card for any you want to read again. Nine changed code, in seven places, each with what undoes it. The tenth, multi-repository projects (13), needed none.
+  **Let the last two stand.** The questions are in `recaps/pull16-rulings/recap.mdx`, the batch of fifteen you were given on 23 Nov; the numbers below are its card numbers. Before the merge you answered five (cards 1, 2, 3, 14 and 15). The pull built the other ten on their recommendations. On 24 Nov you accepted seven of those and overruled one.
 
   <Table
     density="compact"
-    columns={["Card", "The question, in short", "Built as", "What undoes it"]}
+    columns={["Card", "The question, in short", "Built as", "Your answer, 24 Nov"]}
     rows={[
-      ["4", "Upstream now prefixes its own “sent by an agent” note to agent-sent messages", "Skipped for pi; Loom's author labels only. Your follow-up on 24 Nov, naming the task and its scheduler on scheduled-task prompts, is issue #615", "Two marked clauses"],
-      ["5", "Loom and upstream each carry an account's last good usage reading forward, under different rules", "Loom's rule only", "One function and one call"],
-      ["6", "Changed words inside a modified diff line: solid block or upstream's faint tint", "Solid", "Two CSS values"],
-      ["7", "On the phone, a tapped relative file path: Loom's lookup, upstream's, or both", "Both, Loom's first", "About 15 lines (and see the phone card)"],
-      ["8", "Upstream's lint rejects plain English UI strings; Loom's own files fail it 1,096 times", "Loom's screens stay English and are excluded from the lint", "Wrapping about 1,100 strings"],
-      ["9, 10, 11", "Upstream's agent tools for its Issues page, for sending feedback to the T3 team, for the app's theme, and `send_to_user`", "All withheld from Loom agents", "One revert, plus prose telling agents about whatever is exposed"],
-      ["12", "A pi session resumed after its worktree moved: Loom's private patch or upstream's copy of the session file", "Upstream's", "One marked line and three recorded transcripts, about an hour"],
-      ["13", "A project can now cover several Git repositories; no cockpit project does", "Left reachable, unsupported by Loom's extras", "Nothing to undo"],
+      ["4", "Upstream now prefixes its own “sent by an agent” note to agent-sent messages", "Skipped for pi; Loom's author labels only", { badge: { label: "accepted", tone: "success" }, md: "Your follow-up is issue #615" }],
+      ["5", "Loom and upstream each carry an account's last good usage reading forward, under different rules", "Loom's rule only", { badge: { label: "accepted", tone: "success" } }],
+      { tone: "warning", cells: ["6", "Changed words inside a modified diff line: solid block or upstream's faint tint", "Solid", { badge: { label: "overruled", tone: "warning" }, md: "Upstream's tint" }] },
+      ["7", "On the phone, a tapped relative file path: Loom's lookup, upstream's, or both", "Both, Loom's first", { badge: { label: "accepted", tone: "success" } }],
+      ["8", "Upstream's lint rejects plain English UI strings; Loom's own files fail it 1,096 times", "Loom's screens stay English and are excluded from the lint", { badge: { label: "accepted", tone: "success" } }],
+      ["10", "Upstream's agent tool for sending feedback to the T3 team", "Withheld from Loom agents", { badge: { label: "accepted", tone: "success" } }],
+      ["12", "A pi session resumed after its worktree moved: Loom's private patch or upstream's copy of the session file", "Upstream's", { badge: { label: "accepted", tone: "success" } }],
+      ["13", "A project can now cover several Git repositories; no cockpit project does", "Left reachable, unsupported by Loom's extras", { badge: { label: "accepted", tone: "success" } }],
+      ["9", "Upstream's eight agent tools for its Issues page", "Withheld from Loom agents", { badge: { label: "unanswered", tone: "neutral" } }],
+      ["11", "Upstream's agent tools for the app's theme, and `send_to_user`", "Withheld from Loom agents", { badge: { label: "unanswered", tone: "neutral" } }],
     ]}
   />
 
-  **If nothing is decided:** all ten stay as built.
+  **Card 6, in your words:** "Just take upstream's - they fixed the same bug we fixed, T3 Code has a better *considered* design than loom (for UI elements), and I never made a proactive choice on the colours." The change is on this recap's branch and lands with it: changed words in every diff become a faint tint that follows the contrast slider.
 
-  <ReviewChoice itemId="unanswered-rulings" label="The ten stand as built" placeholder="Name any card number to change…" />
+  **If nothing is decided on 9 and 11:** both sets of tools stay withheld. Exposing either is one line, plus prose telling agents about it.
+
+  <ReviewChoice itemId="unanswered-rulings" label="Cards 9 and 11 stay withheld" placeholder="Name either to expose…" />
 </Card>
 
 <Card
@@ -320,7 +322,7 @@ Each is on issue #613 with what to read and what a pass looks like, so the owner
     ["9", "Three upstream GitHub workflows", { badge: { label: "not readable yet", tone: "warning" } }, "Two ran and touched nothing; the third's first run is on #613"],
     ["10", "Adopt upstream's agent pull-request and CI tools", { badge: { label: "done", tone: "success" } }, "Its own goal, “Upstream PR and CI tools for Loom agents”, opened 23 Nov"],
     ["11", "The context ring, or upstream's row", { badge: { label: "left as is", tone: "neutral" } }, "§2; the user-guide sentence is in #604"],
-    ["12", "Ten questions with no recorded answer", { badge: { label: "left as is", tone: "neutral" } }, "§2"],
+    ["12", "Ten questions with no recorded answer", { badge: { label: "left as is", tone: "neutral" } }, "You answered eight on 24 Nov: seven as built, the diff tint to upstream's. Two stay as built unless you say (§2)"],
     ["13", "Node 26.13.1 on the host", { badge: { label: "done", tone: "success" } }, "Server, runner and bridge run it"],
     ["14", "Two file lookups on the phone", { badge: { label: "left as is", tone: "neutral" } }, "§2, the phone card"],
     ["15", "Issue tools for agents", { badge: { label: "left as is", tone: "neutral" } }, "§3"],
