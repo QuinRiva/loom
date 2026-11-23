@@ -185,7 +185,7 @@ Every later capture in the same folder took 1 to 2 seconds. So this is what a tu
     density="compact"
     columns={["Card", "The question, in short", "Built as", "What undoes it"]}
     rows={[
-      ["4", "Upstream now prefixes its own “sent by an agent” note to agent-sent messages", "Skipped for pi; Loom's author labels only", "Two marked clauses"],
+      ["4", "Upstream now prefixes its own “sent by an agent” note to agent-sent messages", "Skipped for pi; Loom's author labels only. Your follow-up on 24 Nov, naming the task and its scheduler on scheduled-task prompts, is issue #615", "Two marked clauses"],
       ["5", "Loom and upstream each carry an account's last good usage reading forward, under different rules", "Loom's rule only", "One function and one call"],
       ["6", "Changed words inside a modified diff line: solid block or upstream's faint tint", "Solid", "Two CSS values"],
       ["7", "On the phone, a tapped relative file path: Loom's lookup, upstream's, or both", "Both, Loom's first", "About 15 lines (and see the phone card)"],
@@ -255,7 +255,7 @@ The phone's two file lookups (14), the context ring (11), the unanswered rulings
 
 ## 4. The issues filed
 
-All carry the `post-pull` label and sit in the triage queue of Loom's issue board. Two say <Badge tone="warning">needs you</Badge>: no agent starts those without your word, because they change text agents read. The rest are ordered by how likely you are to meet them.
+All carry the `post-pull` label and sit in the triage queue of Loom's issue board. Three say <Badge tone="warning">needs you</Badge>: no agent starts those without your word, because they change text agents read. The rest are ordered by how likely you are to meet them.
 
 <Table
   density="compact"
@@ -278,6 +278,7 @@ All carry the `post-pull` label and sit in the triage queue of Loom's issue boar
     ["#604", "34, 35, 45, 11", "Wording: the phone's “Searching thread messages…”, two wrong passages in the source-control guide, three inaccurate comments, and a pointer to upstream's context row in the composer guide", "", "Trivial"],
     ["#607", "37, 38, 41, 44", "For the next upstream pull: four things Loom carries that may no longer be needed, and the three wrong instructions in this pull's runbook", "", "A note for that pull's first session"],
     ["#613", "2, 7, 9, 54", "The six checks nobody could read tonight (§5)", "", "Minutes each, when their moment comes"],
+    { tone: "warning", cells: ["#615", "12", "A scheduled-task prompt's first line names neither the task nor the thread that scheduled it. Raised by you on card 4 of the rulings document, after this recap was written", { badge: { label: "needs you", tone: "warning" } }, "Small; text agents read, so an eval first"] },
     ["#596", "none", "The keep-awake inhibitor is refused under the cockpit's service and warns every few minutes. Filed before this session", "", "Noise, not a fault"],
   ]}
 />
