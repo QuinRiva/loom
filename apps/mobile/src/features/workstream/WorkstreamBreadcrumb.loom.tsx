@@ -14,7 +14,8 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context";
 import { openWorkstream } from "./workstreamNavigation.loom";
-import { type WorkstreamCrumb, workstreamCrumbAtom, workstreamKey } from "./workstreamView.loom";
+import { type WorkstreamCrumb, workstreamCrumbAtom } from "./workstreamGoal.loom";
+import { workstreamKey } from "./workstreamView.loom";
 
 const noCrumbAtom = Atom.make<WorkstreamCrumb | null>(null);
 

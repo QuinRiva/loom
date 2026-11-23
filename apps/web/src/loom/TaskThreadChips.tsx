@@ -5,6 +5,7 @@
  * human reading a stalled task row needs to see.
  */
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { anchoredThreadsByTask as anchoredThreadsByTaskOf } from "@t3tools/client-runtime/state/loom/goalTasks";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, GoalId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -37,27 +38,21 @@ const ROLE_ICONS: Record<string, typeof BotIcon> = {
 
 export type AnchoredThreadsByTask = ReadonlyMap<string, ReadonlyArray<EnvironmentThreadShell>>;
 
-/** Goal tasks → the threads anchored to them, oldest first (a fork sits after its source). */
-export function anchoredThreadsByTask(
+/** Goal tasks → the threads anchored to them in this environment, oldest first. */
+export const anchoredThreadsByTask = (
   shells: ReadonlyArray<EnvironmentThreadShell>,
   goalId: GoalId,
   environmentId: EnvironmentId,
-): AnchoredThreadsByTask {
-  const byTask = new Map<string, EnvironmentThreadShell[]>();
-  for (const thread of shells
-    .filter(
-      (thread) =>
-        thread.environmentId === environmentId &&
-        thread.archivedAt === null &&
-        thread.source.workstream?.goalId === goalId &&
-        thread.source.workstream.anchorTaskId !== null,
-    )
-    .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))) {
-    const taskId = thread.source.workstream!.anchorTaskId!;
-    byTask.set(taskId, [...(byTask.get(taskId) ?? []), thread]);
-  }
-  return byTask;
-}
+): AnchoredThreadsByTask =>
+  anchoredThreadsByTaskOf(
+    shells.filter((thread) => thread.environmentId === environmentId),
+    goalId,
+    (thread) => ({
+      workstream: thread.source.workstream,
+      archived: thread.archivedAt !== null,
+      createdAt: thread.createdAt,
+    }),
+  );
 
 export function TaskThreadChip({
   thread,

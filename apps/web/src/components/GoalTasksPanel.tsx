@@ -3,6 +3,7 @@
  * `/goal`. Every write goes through a `loom.goal.*` ws method and arrives back on the goal
  * stream, so the panel never patches local state: an edit round-trips like an agent's.
  */
+import { countGoalTasks } from "@t3tools/client-runtime/state/loom/goalTasks";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, LoomGoalShell, LoomGoalTask } from "@t3tools/contracts";
 import { PlusIcon, XIcon } from "lucide-react";
@@ -11,7 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { LinkifiedText } from "../loom/referenceLinks";
 import { GoalThreadsSection } from "../loom/GoalThreadsSection";
 import { goalTaskRewriteFor, type GoalTaskEdit } from "../loom/goalTaskEdits";
-import { countGoalTasks, loomCommands, useLoomGoal } from "../loom/loomGoalState";
+import { loomCommands, useLoomGoal } from "../loom/loomGoalState";
 import {
   type AnchoredThreadsByTask,
   anchoredThreadsByTask,

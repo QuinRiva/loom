@@ -1,0 +1,93 @@
+---
+reader:
+  who: Carl, Loom's maintainer, who approved what the phone's Tasks tab is for and how he will check it; and the planner and reviewer who work under it
+  knows: the web Tasks panel from daily use, the mockup page he chose from and his own answers on it; not the mobile codebase, the designer's report or its labels
+  after_first_screen: "On my phone I tap a goal's tasks count on Home and land on a Tasks tab of the workstream screen that shows what is left to do; I can read everything and change nothing."
+kicker: "Intent brief · approved 24 Nov 2026"
+status: approved
+plan: plans/mobile-goal-tasks/plan.mdx
+manager_sessions:
+  - id: 01a20a5e-1d62-73ab-9bc7-8adee5a020b9
+    name: Tasks tab intent brief
+    role: intent
+    authored_at: 2026-11-23T21:49:27.809Z
+---
+
+# A goal's tasks on your phone: a read-only Tasks tab on the workstream screen
+
+**Goal.** "The workstream view has landed, so can't we just proceed with C now?" C is the mockup's Tasks tab on the workstream screen. On 9 November you ranked the phone's gaps as the workstream view, "probably followed by the goal view". The first shipped on 23 November and this is the second. It answers "where is this goal at" from the phone, one tap from Home and without opening a thread: how much is done, what is left and which thread is on it.
+
+<Columns columns={2}>
+  <Image src="shots/cover-tasks.png" alt="The workstream screen on the cover display with a Graph and Tasks switch under its header, a needs-you card, the goal's title, objective and 9/31 done count, then the open tasks with finished ones collapsed" caption="Cover screen, from the mockup you chose. Your Production GraphtusEnricher goal, 31 tasks." width={412} />
+  <Card heading="What you get" tone="info">
+    **A Graph | Tasks switch** under the workstream screen's header, the one new control on that screen. The needs-you cards stay on top of both tabs.
+
+    **On Tasks:** the goal's own title, objective and done count, then the tree. It opens on **what is left**: each run of finished tasks is one line in place, reading `✓ 3 finished`. A To do / All switch shows everything.
+
+    **On each task:** a task with sub-tasks carries its own count, such as `3/10`. A task whose thread is running or waiting on you shows that thread as a row you can tap. Finished threads shrink to a grey line.
+
+    **Read-only.** Nothing on the tab ticks, renames, adds or removes a task.
+
+    **Reached from** the three ways into the workstream screen that exist: the Home badge, the header button, the line under a sub-thread's header. One is added, a **tasks count on the Home row** that lands on Tasks.
+
+    **Unfolded,** the tasks take the left column and the thread you tap opens on the right, with its task marked in the tree.
+  </Card>
+</Columns>
+
+<Details summary="Two more frames from the mockup: the Home count, and unfolded">
+  <Columns columns={2}>
+    <Image src="shots/home-count.png" alt="The Home thread list with each goal's row carrying the existing sub-thread badge and, beside it, a tasks count such as 9/31" caption="Home: the sub-thread badge exists today; the tasks count beside it is the addition." width={412} />
+    <Image src="shots/unfolded-tasks.png" alt="Unfolded: the Tasks tab in the left column with one task marked as this thread's task, and that thread open on the right" caption="Unfolded: tasks left, thread right, the open thread's task marked." width={640} />
+  </Columns>
+</Details>
+
+**You'll know it works when.**
+
+- On Home, a goal's row shows its tasks count, such as `9/31`. You tap it and land on the Tasks tab with the goal's title, objective and done count on top and the open tasks under them, without opening a thread.
+- On a typical goal of yours (about nine tasks, two open), the open tasks are on screen without scrolling. You switch to All and every task is there, in the order and nesting the web panel shows for that goal.
+- On a large goal (31 tasks, five levels deep), each task with sub-tasks shows its own done count, `✓ 3 finished` opens in place when tapped, and a long task is cut at three lines until you tap it.
+- A task whose thread is running or waiting on you shows that thread under it. You tap it, read the thread, and Back returns you to the same spot in the tree.
+- With the tab open, an agent ticks a task. Within a couple of seconds it reads finished on the phone and the counts move, without a refresh. The same holds over the tunnel, away from your home network.
+- You switch to Graph and it is the screen as shipped, cards included. Unfolded, tasks sit on the left and the thread you tap opens on the right; folding and unfolding keeps both.
+- A thread that has a goal but no sub-threads yet has the workstream button in its header, and it opens on Tasks.
+- **Must not:** let anything on the phone change a task. No tap, long-press or swipe ticks, renames, adds or removes one. Must not slow the Home list or the workstream screen; your largest goal (435 tasks) opens and scrolls without stutter. Must not change web, the Graph tab or the cards. Must not need anything new from the server. Must not be lost at the next upstream pull: it lands in Loom's own files or marked hunks.
+
+**Approaches in play.**
+
+- **Your pick.** A Tasks tab on the workstream screen. Wins because it is one tap from Home, keeps your place when you visit a thread, sits beside the thread when unfolded, and adds the least: one switch and one count.
+- Dropped: a panel that slides up over the open thread (A on the mockup page). You must open a thread first, it shows seven or eight tasks in the lower 60% of the cover screen, and it closes when you tap the thread a task belongs to.
+- Dropped: a goal screen of its own (B). Its case was not having to wait for the workstream view. 111 of your 116 recent goals have one root thread, so it would be a second destination for the same piece of work.
+
+**Decided.**
+
+- "The workstream view has landed, so can't we just proceed with C now?" You were then offered the same tab held until you had tried the workstream screen on your phone, and chose "Tasks tab on the workstream screen". So: the tab, built now, not waiting on that first run.
+- "Read-only". The form said web lets you tick, rename, add and remove tasks. Of 2,678 tasks changed in 30 days, every latest change lines up with an agent's tool call. Agents read the tree as the record of what is done, so a mis-tap matters.
+- What the tab opens on: "Open on what is left; each run of finished tasks is one line in place". The other option was everything, as the web panel shows it. A To do / All switch sits above the tree.
+- A tasks count on a goal's Home row: "Yes: show the count, and tapping it opens the workstream screen on Tasks". The other options were the count with no tap of its own, and no count.
+
+_Assumed_ (redirect if wrong):
+
+- Read-only means the tasks. The cards' Answer and Accept done, and the long-press menu on a thread's row, work on Tasks as they do on Graph.
+- The detail is as drawn: all nesting levels, three lines of task text then tap for the rest, and collapsed runs that open in place. Every task with sub-tasks has a done count, where web has only the overall one.
+- The first time, the screen opens on Graph, as it does today, or on Tasks when there are no sub-threads to graph. After that it opens on the tab you last used for that workstream. The Home tasks count always lands on Tasks.
+- A workstream whose root thread has no goal gets no switch and looks exactly as it does today.
+- The workstream button shows whenever a thread has a goal, not only once it has sub-threads. Every goal starts with none, and today that leaves no way in.
+- The line under a sub-thread's header also names the task that thread is on, and tapping the task opens Tasks at it. That is the one answer to "which task is this thread on" you get without leaving the thread. It adds no height.
+- No navigation-rail item. On the workstream view you answered "Revisit with the goal view"; revisited, the Home count you chose is the extra way in.
+- Android only is verified, as with the workstream view.
+
+**Not doing.**
+
+- Editing from the phone: ticking, renaming, adding or removing tasks, or changing the goal's title or objective.
+- A Tasks button in the thread header, the panel over the thread, a separate goal screen.
+- The pill above the composer. That is the provider's own `/goal`, not a Loom goal, and it stays as it is.
+- Showing only one task's threads on the Graph tab.
+- Anything designed for the 435-task goal beyond collapsing; it only has to stay smooth.
+
+This is the follow-on the workstream view's brief reserved under its own Not doing, "a **Tasks** segment beside Graph at the top of this same screen". One difference from that brief: it called the slot reserved, and the screen that shipped has no tab row, so the switch is new.
+
+**Still unknown.**
+
+- What your first run of the workstream screen changes. Nothing on that screen has been seen on a device. The switch sits between its header and its cards, so a change to either moves the tab. Your first run on the phone settles it, whenever it happens; it does not hold this up.
+- Whether the count and the badge both fit and are easy to hit on a 412 dp Home row whose status text is already cut short. Settled on your phone at near-done. If they do not, the number without its own tap is the fallback, and that choice comes back to you.
+- Whether the 435-task goal opens and scrolls smoothly on the phone. The plan measures it against that goal's real data before the build reaches you.
