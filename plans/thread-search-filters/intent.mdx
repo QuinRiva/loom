@@ -1,0 +1,346 @@
+---
+reader:
+  who: Carl, who asked for search to be reconsidered and approves this intent before anything is planned or built
+  knows: his own search rulings of 1 Oct and 26 Oct and the audit's one-paragraph card; none of the search code, the pull runbooks or their vocabulary
+  after_first_screen: whether the goal is what he meant, and what he will be able to type and see that he cannot today
+kicker: "Intent brief · draft for your corrections · 23 Nov 2026"
+status: draft
+manager_sessions:
+  - id: 01a206a6-a5ee-71a1-9ae1-dbe5d36d42bc
+    name: Search filters intent brief
+    role: intent
+    authored_at: 2026-11-23T04:44:53.407Z
+---
+
+# Thread search you can widen or narrow, with sub-threads as results you can open
+
+**Goal.** "I think we need to consider how search is designed - because I can imagine I'd want to be able to have filters (include vs exclude children for example)." Make search something you steer. A few visible switches say where it looks: sub-threads, archived, one project. With none touched it reads what you ruled on 26 Oct, minus the padding it lists today when nothing matches. **Switching sub-threads on has to list the sub-thread itself and open it.** A switch that only reads their text, which is what the October toggle would have been, changes almost nothing.
+
+<Stats
+  items={[
+    {
+      value: "1 of 57",
+      label: "Test searches that change",
+      tone: "warning",
+      detail: "Of the 57 searches the ranking was tested on in October, those whose first result differs when sub-threads' text is read as well. No top five differs",
+    },
+    {
+      value: "92%",
+      label: "Sub-thread titles that already find their parent",
+      tone: "neutral",
+      detail: "369 of 400 from the last month, typed as a search: the parent matches through its own messages or a report",
+    },
+    {
+      value: "None",
+      label: "Sub-threads you can open from search",
+      tone: "risk",
+      detail: "No screen lists a sub-thread as a result; a hit inside one opens the top of its parent",
+    },
+    {
+      value: "0.5 s",
+      label: "Wait per search today",
+      tone: "neutral",
+      detail: "Spent waiting for Vertex to match by meaning; matching your words alone takes about 0.1 s",
+    },
+  ]}
+/>
+
+<Callout tone="decision" title="What that means for your idea" focus>
+  Filters are worth having, but "include children" as a reading switch is the weak version. Most of what a sub-thread did is already found through its report. What is missing is seeing which sub-thread it was and landing in it. So this brief asks for three switches, sub-thread rows you can open, and a default that stops padding. Five questions at the end; a bare "go" takes the recommended answers.
+</Callout>
+
+<Table
+  density="compact"
+  columns={["You type", "Today", "After"]}
+  rows={[
+    [
+      "`Word to PDF without malforming`, the title of a sub-thread from 12 Nov",
+      "No row names it. Cmd+K, the sidebar and the phone never read a sub-thread's title, brief or messages. An agent's search finds it first.",
+      "With **Sub-threads** on it is listed under \"mirvac-graphtus-clean: step 2.3 onward\", and choosing it opens the sub-thread.",
+    ],
+    [
+      "`relevance cut-off semantic threshold`, words from a sub-thread's report",
+      "Listed as \"Post-upstream-merge deferred decisions audit\" with \"Report: … Relevance cut-off on the semantic side …\" and \"Sub-thread: Pulls 12–14 dropped follow-ups sweep\". Choosing it opens the top of the parent; you find the sub-thread yourself.",
+      "Choosing it opens that sub-thread at its report.",
+    ],
+    {
+      tone: "risk",
+      cells: [
+        "`xylophone marmalade wombat`, words that are nowhere",
+        "Eight of eight requested rows come back, the nearest by meaning: \"Mirvac field adjudication hill-climb\", \"Investigate Langfuse XML Rendering\" and six more.",
+        "\"No threads found\".",
+      ],
+    },
+    [
+      "Words from a plan, recap or explainer you read",
+      "Found only when a message or report happens to repeat them. The documents themselves are not read.",
+      "The thread that wrote it, with a \"Plan: …\" excerpt; choosing it opens the document.",
+    ],
+    [
+      "`CI`",
+      "Web and phone: nothing under **In messages**, because a search with no word of three or more letters is never sent. The agents' search does return matches for it.",
+      "Message matches, as for any other search.",
+    ],
+  ]}
+/>
+
+The Today column comes from `thread_search`, the search tool agents use, run on the cockpit on 23 Nov, and from the code each screen runs. I did not drive your browser or phone.
+
+**You'll know it works when.**
+
+- You touch no switch, and Cmd+K, the sidebar search and the phone's thread search find what they find today. That is a top-level thread's own messages, purpose and goal, and every sub-thread's report, with archived threads included and marked.
+- You switch **Sub-threads** on and type `Word to PDF without malforming`: the sub-thread is listed under its top-level thread, and choosing it opens the sub-thread. Switch it off and the row is gone.
+- You switch **Archived** off and the archived rows leave. You pick one project in Cmd+K and get a full list from that project, not what is left of thirty rows chosen across every project.
+- You choose a result whose excerpt says "Report:" and land in the sub-thread that wrote it.
+- You type words from a plan you read and the thread that wrote it is listed; choosing it opens the plan.
+- You type `xylophone marmalade wombat` and see "No threads found". A paraphrase still works: `how do I stop the model picker showing duplicate names` still lists "This model picker is awful…" near the top.
+- You type `CI` and get message matches.
+- What is switched on shows beside the search box on every screen, and one action puts it back to the default.
+- An agent's `thread_search` takes the same narrowing as parameters.
+- **Must not:**
+  - change which threads you find with no switch touched, beyond the padding going and plans arriving;
+  - take longer to show results than today, or send more over the socket than the thirty rows a search returns now; <Sidenote>Six agent searches traced on the cockpit, 23 Nov. Three run alone took 0.44 to 0.52 s; three sent together each waited the 2 s limit and came back with word matches only.</Sidenote>
+  - leave a switch on out of sight, so a later search silently misses things;
+  - go back over old threads to re-read them.
+
+**Approaches in play.**
+
+Where the switches sit. You judge this one by trying it; the pictures are Cmd+K, and the sidebar box and the phone's search field follow the same choice.
+
+<Columns columns={3}>
+  <Column label="A row of chips (my pick)">
+    <Screen
+      surface="popover"
+      html={
+        '<div style="box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:14px;height:100%"><div class="wf-box" style="padding:8px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">word to pdf</div><div style="display:flex;gap:6px;white-space:nowrap;overflow:hidden"><span class="wf-pill accent">Sub-threads</span><span class="wf-pill accent">Archived</span><span class="wf-pill">This project</span></div><small>In messages</small><div class="wf-card" style="padding:8px 10px"><strong>mirvac-graphtus-clean: step 2.3 onward</strong><br /><small>Sub-thread: Word to PDF without malforming</small></div><div class="wf-card" style="padding:8px 10px"><strong>Kador charge variance audit</strong> <span class="wf-pill">Archived</span><br /><small>Sub-thread: Historic March PDF charge extractor</small></div></div>'
+      }
+    />
+  </Column>
+  <Column label="Typed in the query">
+    <Screen
+      surface="popover"
+      html={
+        '<div style="box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:14px;height:100%"><div class="wf-box" style="padding:8px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">word to pdf <span style="color:var(--wf-accent)">in:sub project:lease</span></div><small style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">in:sub &nbsp; -archived &nbsp; project:name</small><small>In messages</small><div class="wf-card" style="padding:8px 10px"><strong>mirvac-graphtus-clean: step 2.3 onward</strong><br /><small>Sub-thread: Word to PDF without malforming</small></div><div class="wf-card" style="padding:8px 10px"><strong>Kador charge variance audit</strong> <span class="wf-pill">Archived</span><br /><small>Sub-thread: Historic March PDF charge extractor</small></div></div>'
+      }
+    />
+  </Column>
+  <Column label="A filter button and menu">
+    <Screen
+      surface="popover"
+      html={
+        '<div style="box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:14px;height:100%"><div style="display:flex;gap:6px;align-items:center;white-space:nowrap"><div class="wf-box" style="flex:1;min-width:0;padding:8px 10px;overflow:hidden;text-overflow:ellipsis">word to pdf</div><span class="wf-btn">Filters · 2</span></div><div class="wf-card" style="display:flex;flex-direction:column;gap:6px;padding:8px 10px"><div style="display:flex;gap:8px;white-space:nowrap"><strong>[x]</strong><span>Sub-threads</span></div><div style="display:flex;gap:8px;white-space:nowrap"><strong>[x]</strong><span>Archived</span></div><div style="display:flex;gap:8px;white-space:nowrap"><span>[ ]</span><span>This project only</span></div></div><small>In messages</small><div class="wf-card" style="padding:8px 10px"><strong>mirvac-graphtus-clean: step 2.3 onward</strong><br /><small>Sub-thread: Word to PDF without malforming</small></div></div>'
+      }
+    />
+  </Column>
+</Columns>
+
+- **Chips under the search box.** Wins if you want to see and flip a switch at a glance, on a phone as well. Costs one row of height. The words you type stay plain, which matters because they also drive title matching and highlighting.
+- **Typed in the query.** Wins if you never want to leave the keyboard, and it is the same on every screen. Loses on a phone keyboard and has to be remembered. It could come later as shorthand that flips the chips.
+- **A filter button with a menu.** Wins if a chip row crowds the phone. Loses because what is on hides behind a count.
+- **Sub-thread rows.** One row per matching sub-thread under its top-level thread. Wins if you are after one particular sub-thread. _My pick._ Or one row per top-level thread naming its best sub-thread. Wins if several rows per workstream is the clutter you ruled out on 1 Oct. You try both.
+- **Stopping the padding.** Drop results matched by meaning that are not close enough, with the cut-off set on the 57 test searches. Or keep them in their own "Related" group under the word matches. A spike decides.
+- **Speed.** Show word matches at once and let rows matched by meaning join without moving the rows already shown. Wins if rows hold still; otherwise both arrive together as today.
+- Dropped: wiring the October toggle as ruled, where sub-threads' text is read and only top-level threads are listed. It changed 1 first place in 57. <Sidenote>Pull 13 decision log, ranker test of 26 Oct. Every answer in that set is a top-level thread, so it understates the case.</Sidenote>
+- Dropped: upstream's own search. Pull 16 re-checked it: it reads the messages of about 650 active top-level threads and nothing archived, no sub-thread and no report.
+
+**Decided.** Your words, oldest first; the newest governs, and the first question asks where sub-threads now stand.
+
+- 1 Oct, on sub-threads as results: "I can't imagine that I would *ever* want to find a sub-thread this way … enabling sub-threads to appear in the result is just going to clutter the result with things I'm not looking for."
+- 26 Oct, on what you look for: "if I'm looking for something it's almost certainly something I've seen before: a root message or a report/plan I've read". The record of that ruling puts sub-thread content behind an "include sub-threads" toggle; that phrase is the runbook's, not yours.
+- 26 Oct, on agents: "it's possible that when an agent uses the tool, it may get value from finding/searching sub-threads".
+- 26 Oct, on ranking: "Loom hybrid, as it stands".
+- 23 Nov: "all the stuff here that's trying to support "old" threads, or backport stuff to threads I'm never going to touch, is safe to drop".
+- _Assumed:_ that last line covers documents too, so plans written before this ships are not gone back for. Redirect if wrong.
+- _Assumed:_ the agents' search keeps reading sub-threads by default and gains the same switches as parameters, since it already has the project and archived ones. Redirect if wrong.
+- _Assumed:_ a switch lasts while the search box is in use and returns to the default when you clear or close it, so a forgotten one never hides results. The sidebar's project picker keeps its own memory, as today.
+- _Assumed:_ the short-word fix is folded in, as you allowed; it is one condition.
+- _Assumed:_ nothing is built before upstream pull 16 merges. It rewrites the same Cmd+K, sidebar and phone files, and removes nothing this brief relies on.
+
+**Not doing.** Changing how results are ranked, apart from that cut-off. Re-reading or back-filling old threads. Searching tool calls, command output or an agent's messages other than its last of each turn. The find box inside a thread. The title-only pickers (Link to thread on a pull request, a scheduled task's destination, `!` in the composer). A settings page for any of it.
+
+**Questions for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "sub-thread-results",
+      title: "When you switch sub-threads on, what should a result be?",
+      subtitle:
+        "On 1 Oct you ruled sub-threads out as results (clutter); on 26 Oct you put their content behind a toggle; your new ask names include or exclude children. This asks where that stands now.",
+      mode: "single",
+      allowOther: true,
+      options: [
+        {
+          id: "openable",
+          label: "The sub-thread itself, listed under its top-level thread, and choosing it opens the sub-thread",
+          recommended: true,
+          detail: "Off until you switch it on, so the everyday list stays free of sub-threads.",
+        },
+        {
+          id: "reading-only",
+          label: "Still only top-level threads; sub-threads' text just helps find them",
+          detail: "The October toggle as ruled. It changed 1 first result in 57 test searches.",
+        },
+        {
+          id: "never",
+          label: "Leave sub-threads out of my search altogether",
+          detail: "Agents keep reading them; you keep reaching them through reports.",
+        },
+      ],
+    },
+    {
+      id: "which-switches",
+      title: "Which switches do you want in the first cut?",
+      subtitle:
+        "Search can already tell all of these apart. The server accepts the first three today and no screen sends them.",
+      mode: "multi",
+      allowOther: true,
+      options: [
+        { id: "sub-threads", label: "Sub-threads in or out", recommended: true },
+        {
+          id: "archived",
+          label: "Archived threads in or out",
+          recommended: true,
+          detail: "Today they are always in, marked Archived, and listed last in the sidebar.",
+        },
+        {
+          id: "project",
+          label: "One project",
+          recommended: true,
+          detail:
+            "The sidebar and phone lists have a project picker, but it trims the thirty rows chosen across every project, so a project search can come back thin. Cmd+K has none.",
+        },
+        {
+          id: "documents-only",
+          label: "Only reports and plans, no chat",
+          detail: "Cheap: every piece of text is already labelled by what it is.",
+        },
+        {
+          id: "mine-only",
+          label: "Only what I wrote",
+          detail:
+            "Cheap for top-level threads. Inside sub-threads the same label covers what an orchestrator wrote to its child.",
+        },
+        {
+          id: "date",
+          label: "Last active within a period",
+          detail: "Cheap: every thread carries its last-activity date.",
+        },
+      ],
+    },
+    {
+      id: "default-reach",
+      title: "With no switch touched, what does search read?",
+      subtitle:
+        "This is what you get every time you just type. It currently follows your 26 Oct ruling.",
+      mode: "single",
+      allowOther: true,
+      options: [
+        {
+          id: "as-ruled",
+          label: "Top-level threads' own text and every report, archived included and marked, sub-threads off",
+          recommended: true,
+          detail: "Your 26 Oct ruling, unchanged.",
+        },
+        {
+          id: "archived-off",
+          label: "The same, but archived threads stay out until switched on",
+          detail: "365 of your 1,019 top-level threads are archived.",
+        },
+        {
+          id: "everything",
+          label: "Everything, sub-threads included, until switched off",
+          detail: "6,570 sub-threads join the list by default.",
+        },
+      ],
+    },
+    {
+      id: "plans",
+      title: "Should plans, recaps and explainers be found by their words?",
+      subtitle:
+        "On 26 Oct you described what you look for as a root message or a report/plan you have read. Reports are searched today; the documents are not. This is the largest piece of work in the brief, because the server has to learn when a document is written and which thread wrote it.",
+      mode: "single",
+      options: [
+        {
+          id: "yes-now",
+          label: "Yes, in this work, for documents written from then on",
+          recommended: true,
+        },
+        {
+          id: "yes-later",
+          label: "Yes, as its own later piece of work, after the switches",
+          detail: "The switches and the default ship sooner.",
+        },
+        { id: "no", label: "No, reports and messages are enough" },
+      ],
+    },
+    {
+      id: "where-you-search",
+      title: "Where do you search from most?",
+      subtitle:
+        "Nothing records your searches. Cmd+K remembers which thread you picked for a query, and the cockpit holds no such picks, which suggests the sidebar or the phone. The answer decides which screen the switches are designed on first.",
+      mode: "multi",
+      allowOther: true,
+      options: [
+        { id: "palette", label: "Cmd+K on web or desktop" },
+        { id: "sidebar", label: "The sidebar search box" },
+        { id: "phone", label: "The phone" },
+      ],
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- How often search fails you, and on which kind of miss. Nothing counts searches. Counting them for two weeks after the first cut settles it: what was typed, on which screen, which switches were on, whether a result was opened.
+- Whether switching sub-threads on puts the right sub-thread first. All 57 October test searches have a top-level thread as their answer; a dozen written from words that live only inside sub-threads settle it.
+- How the server learns a plan exists. Documents are files in a project folder, signed with the session that wrote them, and nothing tells the server when one is written. A spike chooses between reading it when it is signed, when a thread links it, or by looking in `plans/`, `recaps/` and `explainers/`.
+- Where the cut-off for matches by meaning sits. There is none today; the 57 test searches plus a handful of nonsense ones set it.
+- Why three searches sent together each waited 2 s and came back without their matches by meaning. A timing run against Vertex settles whether it was a cold connection or a limit on parallel calls.
+- Whether a chip row fits the phone's search field without pushing the first result off screen. Agents cannot run the phone app on this machine, so that check is yours.
+
+<Details summary="What each search does today, checked on 23 Nov">
+
+<Table
+  density="compact"
+  columns={["Where", "What it can match", "What a hit shows and opens", "What narrows it today"]}
+  rows={[
+    [
+      "**Cmd+K** (web, desktop, iPad keyboard)",
+      "Top-level threads by title, branch, pull request number and project name. Then up to 10 rows under **In messages** from those threads' own messages, purpose and goal and from every sub-thread's report. Archived threads appear only through that second part.",
+      "The top-level thread's row with an excerpt labelled You, Agent, Purpose, Goal, Brief or Report, and a \"Sub-thread:\" line when a report matched. Opens the top-level thread, at the message when the match is its own message.",
+      "Nothing. Typing `>` switches to commands.",
+    ],
+    [
+      "**Sidebar search box**",
+      "The same two parts: title matches first, then up to 30 message matches, then archived rows last.",
+      "The same row and excerpt; an archived thread opens without being unarchived.",
+      "The project picker beside it, applied after the server has chosen its 30 rows across every project.",
+    ],
+    [
+      "**Phone** (Home list and thread drawer)",
+      "The same matches as the sidebar.",
+      "The same labels; opens the thread and jumps to the message for its own messages.",
+      "The lists' project picker, applied the same way.",
+    ],
+    [
+      "**Agents' `thread_search`**",
+      "Everything above plus sub-threads' titles, purposes, briefs and messages, and goal tasks. 10 rows by default, 50 at most.",
+      "The top-level thread, the kind of text, the sub-thread's name and id, and the path of its report.",
+      "Project, archived in or out, and how many rows.",
+    ],
+    {
+      tone: "risk",
+      cells: [
+        "**Nowhere**",
+        "Plans, recaps and explainers. Tool calls and command output. An agent's messages other than its last of each turn. Automated notices.",
+        "",
+        "",
+      ],
+    },
+  ]}
+/>
+
+The cockpit holds 1,019 top-level threads (365 archived) and 6,570 sub-threads. Its searchable text is about 115 MB in 70,126 pieces. Reports are 34 MB of it. Only an agent's search reads another 50 MB. That is sub-threads' briefs (23 MB), their final answers (18 MB), what was written to them (7 MB), and their titles, purposes and goal tasks.
+
+</Details>
