@@ -413,6 +413,12 @@ export const make = Effect.gen(function* () {
       .toSorted()
       .reduceRight((inner, cwd) => withRemoteWriteLock(cwd, inner), effect);
   const repositoryKeyByCwdRef = yield* Ref.make(new Map<string, string>());
+  // loom: the repository batch's per-cwd record of refs at its last local read
+  const withoutKey = (all: ReadonlyMap<string, string>, cwd: string) => {
+    const next = new Map(all);
+    next.delete(cwd);
+    return next;
+  };
 
   const getCachedStatus = Effect.fn("VcsStatusBroadcaster.getCachedStatus")(function* (
     cwd: string,
@@ -748,6 +754,8 @@ export const make = Effect.gen(function* () {
     options?: {
       readonly refreshUpstream?: boolean;
       readonly policyCwds?: ReadonlyArray<string>;
+      /** Refs each cwd's last local read saw; skips the re-read while they hold. */
+      readonly refsAtLocalRead?: Ref.Ref<ReadonlyMap<string, string>>;
     },
   ) {
     const poller = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
@@ -806,7 +814,20 @@ export const make = Effect.gen(function* () {
                 );
           if (pulled !== null) return;
           // Base refs and merge bases can move without changing divergence counts.
-          yield* refreshLocalStatusCore(entry.cwd);
+          // loom: upstream's skip of a re-read when no ref moved, ported onto the batch
+          const refsAtLocalRead = options?.refsAtLocalRead;
+          const refs =
+            refsAtLocalRead === undefined
+              ? null
+              : yield* workflow.readLocalStatusRefSnapshot(entry.cwd);
+          const seen = refsAtLocalRead && (yield* Ref.get(refsAtLocalRead)).get(entry.cwd);
+          if (refs === null || refs !== seen) {
+            if (refsAtLocalRead)
+              yield* Ref.update(refsAtLocalRead, (all) => withoutKey(all, entry.cwd));
+            yield* refreshLocalStatusCore(entry.cwd);
+            if (refsAtLocalRead && refs !== null)
+              yield* Ref.update(refsAtLocalRead, (all) => new Map(all).set(entry.cwd, refs));
+          }
           yield* updateCachedRemoteStatus(entry.cwd, remoteRead, { publish: true });
         }),
       { discard: true },
@@ -847,6 +868,7 @@ export const make = Effect.gen(function* () {
     // missed read would exit the loop for good and wedge the repo).
     yield* Deferred.await(registered);
     const consecutiveFailuresRef = yield* Ref.make(0);
+    const refsAtLocalRead = yield* Ref.make<ReadonlyMap<string, string>>(new Map());
     const readCycle = Effect.gen(function* () {
       const poller = (yield* SynchronizedRef.get(pollersRef)).get(repositoryKey);
       if (!poller) return null;
@@ -896,6 +918,7 @@ export const make = Effect.gen(function* () {
           cwds, // loom: upstream's stale-poll race fix, on the batch path (DL-99)
           refreshRepositoryRemoteStatus(repositoryKey, cwds, {
             refreshUpstream: cycle.enabled.some(({ interval }) => !Duration.isZero(interval)),
+            refsAtLocalRead,
           }),
         ).pipe(Effect.exit);
         if (Exit.isSuccess(exit)) {

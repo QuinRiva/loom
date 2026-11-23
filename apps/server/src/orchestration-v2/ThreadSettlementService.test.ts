@@ -2393,10 +2393,10 @@ describe("ThreadSettlementServiceV2 finished Loom roots", () => {
             settledAt === null ? [] : [DateTime.makeUnsafe(settledAt)],
           );
           // A finished root with a branch always waits for the lookup; an inactive ordinary
-          // thread settles before it.
+          // thread settles before it. A closed or merged answer is confirmed by a fresh read.
           assert.strictEqual(
             (yield* Ref.get(fixture.branchCalls)).length,
-            finished && branch !== null ? 1 : 0,
+            finished && branch !== null ? (pr === "merged" || pr === "closed" ? 2 : 1) : 0,
           );
         }).pipe(Effect.provide(fixture.layer));
       }),

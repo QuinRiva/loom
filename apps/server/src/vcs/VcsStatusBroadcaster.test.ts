@@ -1036,6 +1036,10 @@ describe("VcsStatusBroadcaster", () => {
           localStatus: () =>
             Effect.succeed({ ...baseLocalStatus, isDefaultRef: true, refName: "main" }),
           currentBranch: () => Effect.succeed("main"), // loom: upstream's readRemoteStatus reads it
+          // loom: upstream's refresh reads ref snapshots and divergence before any status
+          readLocalStatusRefSnapshot: () => Effect.succeed("refs"),
+          readRefSnapshot: () => Effect.succeed("refs"),
+          upstreamDivergence: () => Effect.succeed(null),
           remoteStatus: () => Effect.succeed({ ...baseRemoteStatus, behindCount: 2 }),
           invalidateLocalStatus: () => Effect.void,
           invalidateRemoteStatus: () => Effect.void,
@@ -1443,6 +1447,10 @@ describe("VcsStatusBroadcaster", () => {
           localStatus: ({ cwd }) =>
             Effect.succeed({ ...baseLocalStatus, refName: refNames.get(cwd) ?? null }),
           currentBranch: (cwd) => Effect.succeed(refNames.get(cwd) ?? null),
+          // loom: upstream's refresh reads ref snapshots and divergence before any status
+          readLocalStatusRefSnapshot: () => Effect.succeed("refs"),
+          readRefSnapshot: () => Effect.succeed("refs"),
+          upstreamDivergence: () => Effect.succeed(null),
           remoteStatuses: (input) =>
             Effect.sync(() => {
               batchCalls += 1;
@@ -1596,20 +1604,20 @@ describe("VcsStatusBroadcaster", () => {
       );
       yield* Deferred.await(subscribed);
       state.currentRemoteStatus = remoteStatusWithPr;
-      yield* TestClock.adjust("30 seconds");
+      yield* TestClock.adjust("36 seconds"); // loom: past the poll jitter (up to 20%)
       yield* Queue.take(remoteUpdates);
       const localCalls = state.localStatusCalls;
       const remoteCalls = state.remoteStatusCalls;
 
       state.currentRemoteStatus = baseRemoteStatus;
-      yield* TestClock.adjust("30 seconds");
+      yield* TestClock.adjust("36 seconds"); // loom: past the poll jitter (up to 20%)
       yield* Queue.take(remoteUpdates);
       assert.equal(state.remoteStatusCalls, remoteCalls + 1);
       assert.equal(state.localStatusCalls, localCalls);
 
       state.refSnapshot = "fetched";
       state.currentRemoteStatus = remoteStatusWithPr;
-      yield* TestClock.adjust("30 seconds");
+      yield* TestClock.adjust("36 seconds"); // loom: past the poll jitter (up to 20%)
       yield* Queue.take(remoteUpdates);
       assert.equal(state.localStatusCalls, localCalls + 1);
     }).pipe(Effect.provide(layerTestFor(state)), Effect.scoped);

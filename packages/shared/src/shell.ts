@@ -540,8 +540,20 @@ export function withLocalNodeModulesBin(
     platform === "win32"
       ? (Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH")
       : "PATH";
-  const merged = mergePathValues(localBin, env[pathKey] ?? readEnvPath(env), platform);
-  return { ...env, ...(merged ? { [pathKey]: merged } : {}) };
+  // Inherited entries stay verbatim: an empty one means the child's cwd, which a merge would drop.
+  const delimiter = pathDelimiterForPlatform(platform);
+  const localKey = normalizePathEntryForComparison(localBin, platform);
+  const inherited = (env[pathKey] ?? readEnvPath(env) ?? "")
+    .split(delimiter)
+    .filter(
+      (entry) =>
+        normalizePathEntryForComparison(
+          sanitizePathEntry(trimPathEntry(entry, platform), platform),
+          platform,
+        ) !== localKey,
+    );
+  const merged = [localBin, ...(inherited.length === 1 && inherited[0] === "" ? [] : inherited)];
+  return { ...env, [pathKey]: merged.join(delimiter) };
 }
 
 function resolvePathEnvironmentVariable(env: NodeJS.ProcessEnv): string {

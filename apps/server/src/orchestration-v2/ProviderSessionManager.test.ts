@@ -160,11 +160,13 @@ const layerPausingAttachEventSink = (pause: {
     }),
   ).pipe(Layer.provide(layerTestEventSink));
 
-const layerReleaseRecordedEventSink = (recorded: Deferred.Deferred<void>) =>
+// loom: `afterWrites` skips an adapter's own error report, which upstream now persists before the release.
+const layerReleaseRecordedEventSink = (recorded: Deferred.Deferred<void>, afterWrites = 1) =>
   Layer.effect(
     EventSink.EventSinkV2,
     Effect.gen(function* () {
       const delegate = yield* EventSink.EventSinkV2;
+      let writes = 0;
       return EventSink.EventSinkV2.of({
         ...delegate,
         write: (input) =>
@@ -176,7 +178,7 @@ const layerReleaseRecordedEventSink = (recorded: Deferred.Deferred<void>) =>
                   (event) =>
                     event.type === "provider-session.updated" &&
                     (event.payload.status === "stopped" || event.payload.status === "error"),
-                )
+                ) && ++writes === afterWrites
                   ? Deferred.succeed(recorded, undefined)
                   : Effect.void,
               ),
@@ -719,7 +721,10 @@ function layerTest(input: {
           : input.failReleaseEventWrites
             ? layerFailingReleaseEventSink
             : input.releaseRecorded !== undefined
-              ? layerReleaseRecordedEventSink(input.releaseRecorded)
+              ? layerReleaseRecordedEventSink(
+                  input.releaseRecorded,
+                  input.failEventStreamAfterError === undefined ? 1 : 2, // loom
+                )
               : layerTestEventSink;
   const layerRegistry = Layer.unwrap(
     makeProviderAdapter(input.state, {

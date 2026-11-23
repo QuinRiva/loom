@@ -1355,7 +1355,10 @@ it.effect("refuses to spawn a client-launched editor on the server", () =>
       layerTest({
         platform: "linux",
         env: { LOOM_ZED_SSH_HOST: "unseen_training" },
-        onSpawn: () => assert.fail("must not spawn a client-launched editor"),
+        // Upstream's launcher reads the systemd user environment first; only an editor spawn fails.
+        onSpawn: (command) => {
+          if (command.command !== "busctl") assert.fail("must not spawn a client-launched editor");
+        },
       }),
     ),
   ),

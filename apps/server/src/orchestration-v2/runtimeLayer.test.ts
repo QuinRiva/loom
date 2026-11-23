@@ -5651,7 +5651,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         yield* seedProject({
           projectId,
           title: "Watch pass",
-          workspaceRoot: "/workspace/watch-pass",
+          workspaceRoot: `/workspace/watch-pass-${busy}`, // loom: one active project per root (1018)
           defaultModelSelection: null,
           createdAt: "2026-10-01T00:00:00.000Z",
         });
@@ -5924,7 +5924,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       yield* seedProject({
         projectId,
         title: "Watch owed",
-        workspaceRoot: "/workspace/watch-owed",
+        workspaceRoot: `/workspace/watch-owed-${initialStatus}`, // loom: one active project per root (1018)
         defaultModelSelection: null,
         createdAt: "2026-10-01T00:00:00.000Z",
       });
@@ -6762,7 +6762,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         yield* seedProject({
           projectId,
           title: "Watch pending checks",
-          workspaceRoot: "/workspace/watch-covers",
+          workspaceRoot: `/workspace/watch-covers-${coversDetail}`, // loom: one active project per root (1018)
           defaultModelSelection: null,
           createdAt: "2026-10-01T00:00:00.000Z",
         });
@@ -9480,7 +9480,8 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
         const threadId = ThreadId.make(`runtime-layer-worktree-left-for-checkout:${next}`);
-        const checkoutRoot = `${process.cwd()}/src`;
+        // loom: one active project per root (1018), so each case checks out its own directory
+        const checkoutRoot = `${process.cwd()}/${next === "a new message" ? "src" : "integration"}`;
         yield* seedProject({
           projectId: ProjectId.make(`${threadId}:project`),
           title: "Checkout",
