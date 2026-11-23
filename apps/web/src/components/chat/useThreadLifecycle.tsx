@@ -510,7 +510,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     // A subagent or side chat opens beside this thread or in its place; its own parent, like any
     // other thread, only in its place.
     if (
-      (intent !== undefined || sideThreadKindOf(shell) !== null) &&
+      (intent !== undefined || sideThreadKindOf(shell?.source) !== null) && // loom: the source carries `workstream` (DL-2400)
       activeThread?.lineage.parentThreadId !== threadId
     ) {
       openSideThread({
