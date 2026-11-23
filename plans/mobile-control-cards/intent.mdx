@@ -1,0 +1,104 @@
+---
+reader:
+  who: Carl, who asked for this in one sentence and approves its intent before anything is built; later, the planner, coder and reviewer held to it
+  knows: the card on web as a daily user, and the phone app as a user; nothing of how either draws a message, and he has not said what exactly looks wrong on the phone
+  after_first_screen: he can say whether the picture on the left is what his phone shows, whether the picture on the right is what he asked for, and "go" or a correction
+kicker: "Intent brief · draft for your corrections · 23 Nov 2026"
+status: draft
+manager_sessions:
+  - id: 01a2085c-8bf6-772f-a981-9ea33fb4a423
+    name: Control-plane cards on mobile
+    role: intent
+    authored_at: 2026-11-23T12:26:03.727Z
+---
+
+# On the phone, a hand-back from sub-threads collapses to the same card as on web
+
+**Goal.** "the control plane collapsable "cards" (the things I see when reports get delivered back) - are not displayed correctly". On the phone, a message from the control plane reads as it does on web: one line per sub-thread saying who reported and with what verdict, the detail one tap away, and the report openable from the card.
+
+<Columns>
+<Column label="Today, as the code reads">
+
+<Screen
+  surface="mobile"
+  caption="The whole message the agent received, in a tinted bubble with a sender label. Drawn from the code; I have not seen your phone."
+  html={
+    '<div style="display:flex;flex-direction:column;gap:10px;padding:14px;height:100%;box-sizing:border-box"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap;border-bottom:1.4px solid var(--wf-line);padding-bottom:8px"><span>‹</span><strong style="overflow:hidden;text-overflow:ellipsis">Mobile parity build</strong></div><p style="margin:0">Both coders are running. I will hear back when they finish.</p><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex:1;min-height:0"><small style="color:var(--wf-ok)">Control plane</small><div style="border-radius:14px;padding:10px 12px;background:var(--wf-accent-soft);font-size:12px;line-height:1.45;overflow:hidden;flex:1;min-height:0"><div>[T3 Workstream control plane]</div><div style="margin-top:6px">FYI digest: the following items completed and were fully routed since you last heard.</div><div style="margin-top:6px">✅ reviewer thread:mcp:5f0c21a4-88… Gate resolved (clean)</div><div style="word-break:break-all">Report: /home/Carl/.t3/cockpit/userdata/workstream-reports/thread_mcp_5f0c21a4-88….md</div><div style="margin-top:6px">## Round 2 is ready for shipping approval: 0 must-fix, 3 nice-to-have</div><div>The coder fixed both must-fix findings from round 1. What remains is optional…</div><div style="margin-top:6px">☑️ planner thread:mcp:91be7d02-4c… Completed</div><div style="word-break:break-all">Report: /home/Carl/.t3/cockpit/userdata/workstream-reports/thread_mcp_91be7d02-4c….md</div><div style="margin-top:6px"># Browser tools exposure plan</div><div>Two options, one recommended. The first exposes…</div></div><small class="wf-muted">continues for several screens</small></div></div>'
+  }
+/>
+
+</Column>
+<Column label="After">
+
+<Screen
+  surface="mobile"
+  caption="Collapsed. Tapping the top line opens each sub-thread's excerpt; tapping an entry opens its report."
+  html={
+    '<div style="display:flex;flex-direction:column;gap:10px;padding:14px;height:100%;box-sizing:border-box"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap;border-bottom:1.4px solid var(--wf-line);padding-bottom:8px"><span>‹</span><strong style="overflow:hidden;text-overflow:ellipsis">Mobile parity build</strong></div><p style="margin:0">Both coders are running. I will hear back when they finish.</p><div class="wf-card" style="padding:0;display:flex;flex-direction:column"><div style="display:flex;align-items:center;gap:6px;padding:8px 10px;white-space:nowrap;font-size:12px"><span class="wf-muted">Digest</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">FYI digest: the following items completed</span><span class="wf-muted">⌄</span></div><div style="border-top:1.4px solid var(--wf-line);padding:8px 10px;display:flex;flex-direction:column;gap:4px"><div style="display:flex;align-items:center;gap:6px;white-space:nowrap;font-size:12px"><span>✅</span><strong style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Review: control card</strong><span class="wf-muted">Clean</span><span class="wf-muted">↗</span></div><small style="padding-left:22px">reviewer · Gate resolved (clean)</small><div style="padding-left:22px;display:flex;gap:4px;flex-wrap:wrap"><span class="wf-chip" style="font-size:11px">followups-review-2.md</span></div></div><div style="border-top:1.4px solid var(--wf-line);padding:8px 10px;display:flex;flex-direction:column;gap:4px"><div style="display:flex;align-items:center;gap:6px;white-space:nowrap;font-size:12px"><span>☑️</span><strong style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">Browser tools plan</strong><span class="wf-muted">Done</span><span class="wf-muted">↗</span></div><small style="padding-left:22px">planner · Completed</small><div style="padding-left:22px;display:flex;gap:4px;flex-wrap:wrap"><span class="wf-chip" style="font-size:11px">browser-tools-exposure/plan.mdx</span><span class="wf-chip" style="font-size:11px">browser-tools-options.html</span></div></div></div><p style="margin:0">The review is clean and the plan is back. Reading the plan now.</p><div style="flex:1"></div><div style="display:flex;gap:8px;align-items:center;border:1.4px solid var(--wf-line);border-radius:999px;padding:8px 12px"><span class="wf-muted" style="flex:1">Message</span><span class="wf-muted">↑</span></div></div>'
+  }
+/>
+
+</Column>
+</Columns>
+
+**You'll know it works when.** In an orchestrating thread, on your phone:
+
+- A hand-back arrives as one compact card: a top line saying what arrived, then one entry per sub-thread with its name and verdict. It no longer fills several screens.
+- You tap the top line and each entry opens to its excerpt. The exact text the agent received is one more tap away.
+- You tap an entry and its report opens to read. The arrow beside it opens the sub-thread instead.
+- Documents a report names show as chips under its entry, and a chip opens the document.
+- A message that needs you (a rework round, an attention flag, a deadlock) is told apart from a routine one by its colour and label, as on web.
+- Kickoff briefs, orchestrator steers and short notices stay the labelled bubbles they are today.
+- **Must not:** change the text the agent received, since the card is only a way of showing it. Hide a message of a type the app does not know; that one shows its full text. Make a long thread slower to scroll. Card a message on the phone that web leaves as a bubble, or the reverse.
+
+**Approaches in play.**
+
+- **Web's card, redrawn for touch.** The rule for which messages become cards and what each line says moves into the code web and phone already share, so the two cannot drift; only the drawing is new. _Your ask, as I read it._
+- **Collapse only**: the card and its entries, with no report or document opening. Wins if opening a report on the phone turns out to be a project of its own (see Still unknown); the links then follow as a second step.
+
+**Decided.** "launch a hand off to build that too."
+
+- _Assumed:_ web's card is the design, and the phone departs from it only where a narrow touch screen forces it. Three such departures are in the picture. An entry takes two lines, because sender, role, title and verdict do not fit on one. Tapping an entry opens the report, where web shows "Open report" on hover. A missing document shows struck through with no hover text. Redirect if you want something other than web's card.
+- _Assumed:_ cards start collapsed, as on web, including the old ones when you scroll back.
+- _Assumed:_ Android and your one phone are what gets checked. The same code serves iOS and nobody looks at it there.
+- _Assumed:_ nothing is built on the unshipped branch that adds a workstream view to the phone; this lands on main by itself.
+
+**Not doing.** Any change to web's card or to what the control plane sends. The goal task tree on the phone, which is separate work.
+
+**Questions for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "what-is-wrong",
+      title: "Is the left-hand picture what your phone shows?",
+      subtitle:
+        "You said the cards are not displayed correctly. I read that as: the phone shows the full raw message where web shows a card. If you are seeing something else, such as a card that is drawn but broken, the work is different.",
+      mode: "single",
+      options: [
+        { id: "raw-text", label: "Yes: the raw message, no card", recommended: true },
+        { id: "something-else", label: "No, it is something else; I will send a screenshot" },
+      ],
+    },
+    {
+      id: "how-much",
+      title: "Everything web's card does, or the collapse first?",
+      subtitle:
+        "The collapse alone fixes the feed being swamped. Opening reports and documents from the card is what lets you act on a hand-back without going to a computer, and it is the part that may cost more on the phone.",
+      mode: "single",
+      options: [
+        {
+          id: "full",
+          label: "Everything: collapse, excerpts, raw text, open report, open sub-thread, document chips",
+          recommended: true,
+        },
+        { id: "collapse-first", label: "Collapse and excerpts now; opening reports and documents as a second step" },
+      ],
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- Can the phone open a report at all? Reports are files on the server, outside any project folder. An earlier phone design round reported that the phone's file screen opened project files only. The planner checks this on today's code. If it cannot, you get one question: add it, or have the entry open the sub-thread instead.
+- Can an agent see the card on a running phone app before you do? Earlier threads reported that this machine cannot run the Android app. If that still holds, agents check the card's logic with tests and the first look at it on a phone is yours. The planner then says how the build reaches your phone for that look: an app built from the branch, or the normal update after it ships and you deploy.
