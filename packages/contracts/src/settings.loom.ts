@@ -121,7 +121,7 @@ export const LoomClientSettingsFields = {
   contextVizTimeline: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   contextVizComposition: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   contextVizGrowth: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  // The composer context ring, kept by Loom after upstream deleted it (#33131): default on, and
+  // The composer context ring, kept by Loom after upstream deleted it: default on, and
   // the same key so an existing opt-out still decodes.
   contextWindowMeterEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 } as const;

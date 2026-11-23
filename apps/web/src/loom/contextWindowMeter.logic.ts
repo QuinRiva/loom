@@ -1,5 +1,5 @@
-// loom: the composer context meter's logic, Loom-owned since upstream deleted the meter (#33131;
-// runbook 41 §6.1). The meter is English-only like every Loom surface.
+// loom: the composer context meter's logic, Loom-owned since upstream deleted the meter
+// (runbook 41 §6.1). The meter is English-only like every Loom surface.
 import type { ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
 
 import { getDisplayModelName, type ModelEsque } from "~/components/chat/providerIconUtils";
