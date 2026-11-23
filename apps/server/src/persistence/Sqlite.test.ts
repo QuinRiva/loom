@@ -20,6 +20,13 @@ import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerOwnership from "../serverOwnership.ts";
 import { migrationManifest, runMigrations } from "./Migrations.ts";
+// loom: a Loom home carries the fork ledger beside upstream's.
+import {
+  loomMigrationEntries,
+  loomMigrationsTable,
+  reconcileMigrationLedgers,
+  runLoomMigrations,
+} from "./LoomMigrations.ts";
 import * as SqlitePersistence from "./Sqlite.ts";
 
 const workerData = vi.hoisted((): Array<unknown> => []);
@@ -128,6 +135,7 @@ it.effect("upgrades an existing database on a read-write worker connection", () 
     yield* Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* sql`PRAGMA journal_mode = WAL;`;
+      yield* reconcileMigrationLedgers(); // loom: an upstream-only ledger past 32 reads as pre-split
       yield* runMigrations({ toMigrationInclusive: 81 });
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: dbPath })));
     const startedBefore = workerData.length;
@@ -192,13 +200,29 @@ const ownT3Home = Effect.fn(function* () {
   );
 });
 
-const migrateTo = (toMigrationInclusive?: number) =>
+// loom: a current home has both ledgers current; a partial upstream lane leaves Loom's empty.
+const migrateTo = (toMigrationInclusive?: number, toLoomMigrationInclusive?: number) =>
   Effect.gen(function* () {
     const { dbPath } = yield* ServerConfig.ServerConfig;
-    yield* runMigrations({ toMigrationInclusive }).pipe(
-      Effect.provide(NodeSqliteClient.layer({ filename: dbPath })),
-    );
+    yield* Effect.gen(function* () {
+      yield* reconcileMigrationLedgers();
+      yield* runMigrations({ toMigrationInclusive });
+      if (toMigrationInclusive === undefined) {
+        yield* runLoomMigrations({ toMigrationInclusive: toLoomMigrationInclusive });
+      }
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: dbPath })));
   });
+
+const latestRecordedLoomMigrationId = Effect.gen(function* () {
+  const { dbPath } = yield* ServerConfig.ServerConfig;
+  const rows = yield* Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    return yield* sql<{ readonly id: number }>`
+      SELECT MAX(migration_id) AS id FROM ${sql(loomMigrationsTable)}
+    `;
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: dbPath })));
+  return rows[0]?.id;
+});
 
 const latestRecordedMigrationId = Effect.gen(function* () {
   const { dbPath } = yield* ServerConfig.ServerConfig;
@@ -226,6 +250,26 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("layerCliConfig",
       );
 
       assert.equal(yield* latestRecordedMigrationId, recorded);
+      assert.equal(opened._tag, "Failure");
+      if (opened._tag === "Failure") {
+        assert.instanceOf(opened.failure, SqlitePersistence.ServerOwnsDatabaseError);
+      }
+    }).pipe(Effect.scoped, Effect.provide(layerT3Home)),
+  );
+
+  // loom: upstream's gate reads only its own ledger; a Loom migration behind a running server is a schema change too.
+  it.effect("does not apply a pending Loom migration to a T3 home a running server owns", () =>
+    Effect.gen(function* () {
+      const recorded = Math.max(...loomMigrationEntries.map(([id]) => id)) - 1;
+      yield* migrateTo(undefined, recorded);
+      yield* ownT3Home();
+
+      const opened = yield* Effect.void.pipe(
+        Effect.provide(SqlitePersistence.layerCliConfig),
+        Effect.result,
+      );
+
+      assert.equal(yield* latestRecordedLoomMigrationId, recorded);
       assert.equal(opened._tag, "Failure");
       if (opened._tag === "Failure") {
         assert.instanceOf(opened.failure, SqlitePersistence.ServerOwnsDatabaseError);
