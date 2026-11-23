@@ -255,6 +255,18 @@ export function openWorkstreamTasks(
   openWorkstream(environmentId, rootThreadId, { split: options.split });
 }
 
+/** Opens the workstream from the Home badge or a thread's header: no task arrived at, none marked. */
+export function openWorkstreamUnmarked(
+  environmentId: EnvironmentId,
+  rootThreadId: ThreadId,
+  options: { readonly split: boolean },
+) {
+  const atom = workstreamTasksStateAtom(workstreamKey(environmentId, rootThreadId));
+  const state = appAtomRegistry.get(atom);
+  if (state.focus !== null) appAtomRegistry.set(atom, { ...state, focus: null });
+  openWorkstream(environmentId, rootThreadId, options);
+}
+
 // The breadcrumb and header button on a thread screen
 
 export interface WorkstreamCrumb {

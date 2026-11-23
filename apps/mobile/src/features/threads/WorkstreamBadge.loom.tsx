@@ -18,8 +18,11 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { cn } from "../../lib/cn";
 import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context";
-import { openWorkstreamTasks, useGoalTaskCount } from "../workstream/workstreamGoal.loom";
-import { openWorkstream } from "../workstream/workstreamNavigation.loom";
+import {
+  openWorkstreamTasks,
+  openWorkstreamUnmarked,
+  useGoalTaskCount,
+} from "../workstream/workstreamGoal.loom";
 import { workstreamBadgesAtom } from "../workstream/workstreamView.loom";
 import {
   THREAD_LIST_V2_MONO_FONT as MONO_FONT,
@@ -76,7 +79,7 @@ export function WorkstreamBadgeView(props: {
         props.badge.flagged > 0 ? `, ${props.badge.flagged} need you` : ""
       }`}
       onPress={() =>
-        openWorkstream(props.environmentId, props.threadId, { split: layout.usesSplitView })
+        openWorkstreamUnmarked(props.environmentId, props.threadId, { split: layout.usesSplitView })
       }
       // Handle long-press so opening the row menu cannot also open the workstream on release.
       onLongPress={() => undefined}

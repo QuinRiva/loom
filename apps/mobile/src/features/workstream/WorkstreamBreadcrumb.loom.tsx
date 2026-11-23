@@ -13,9 +13,9 @@ import type { AppBarAction } from "../../components/ui/AppBar.types";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context";
-import { openWorkstream } from "./workstreamNavigation.loom";
 import {
   openWorkstreamTasks,
+  openWorkstreamUnmarked,
   type WorkstreamCrumb,
   workstreamCrumbAtom,
 } from "./workstreamGoal.loom";
@@ -50,7 +50,7 @@ export function useWorkstreamEntry(
   return {
     crumb,
     open: () => {
-      openWorkstream(environmentId, crumb.rootId, { split });
+      openWorkstreamUnmarked(environmentId, crumb.rootId, { split });
       reveal();
     },
     openTask: (taskId) => {
