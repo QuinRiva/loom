@@ -1450,14 +1450,8 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         // Pi tags every phase of a call made through ctx.executeTool, such as from a codemode script.
         const parentToolCallId = recordString(event, "parentToolCallId");
         if (toolCallId === undefined) return;
-        if (phase === "update" && (toolName === "bash" || toolName === "powershell")) {
-          yield* emitCommandOutputDelta(turn, toolCallId, event["partialResult"]);
-          return;
-        }
-        if (phase === "start") {
-          turn.toolArgs.set(toolCallId, event["args"]);
-        }
-        // loom: tracked so finalizeTurn can end a call whose end never comes (Pi died mid-call);
+        // loom: tracked so finalizeTurn can end a call whose end never comes (Pi died mid-call),
+        // keeping a shell's latest partial, since its streamed deltas are never persisted;
         // a subagent's partial result would read its unfinished tasks as done, so it keeps none.
         if (phase === "end") turn.openTools.delete(toolCallId);
         else
@@ -1465,6 +1459,13 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             toolName,
             result: toolName === "subagent" ? undefined : event["partialResult"],
           });
+        if (phase === "update" && (toolName === "bash" || toolName === "powershell")) {
+          yield* emitCommandOutputDelta(turn, toolCallId, event["partialResult"]);
+          return;
+        }
+        if (phase === "start") {
+          turn.toolArgs.set(toolCallId, event["args"]);
+        }
         const args = event["args"] ?? turn.toolArgs.get(toolCallId);
         const emittedAt = yield* DateTime.now;
         const startedAt = turn.toolStartedAt.get(toolCallId) ?? emittedAt;

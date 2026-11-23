@@ -5025,11 +5025,9 @@ describe("PiAdapterV2", () => {
         toolName: "bash",
         partialResult: { content: [{ type: "text", text: "partial" }] },
       });
+      // Upstream streams a shell's partial output as deltas, not as item updates.
       yield* takeEvent(
-        (event) =>
-          event.type === "turn_item.updated" &&
-          event.turnItem.type === "command_execution" &&
-          event.turnItem.output === "partial",
+        (event) => event.type === "command_output.delta" && event.chunk === "partial",
       );
       yield* fake.closeStdout;
       const ended = yield* takeEvent(
@@ -5038,6 +5036,7 @@ describe("PiAdapterV2", () => {
           event.turnItem.type === "command_execution" &&
           event.turnItem.status !== "running",
       );
+      // The streamed deltas are live only, so the ending update carries the last partial.
       assert.isTrue(
         ended.type === "turn_item.updated" &&
           ended.turnItem.type === "command_execution" &&

@@ -2,7 +2,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
-import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
 import * as Queue from "effect/Queue";
@@ -328,7 +327,9 @@ describe("PiProvider", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("marks models that only load with Pi extensions as unusable for text generation", () =>
+  // loom: §8.2 — no `--no-extensions` probe, so the hub's extension-registered models keep text
+  // generation (upstream's probe and its cases, which marked them unusable, are dropped: DL-2072).
+  it.effect("keeps models that only load with Pi extensions usable for text generation", () =>
     Effect.gen(function* () {
       const spawner = yield* piDiscoverySpawner(
         {
@@ -338,6 +339,7 @@ describe("PiProvider", () => {
           ],
         },
         { models: [{ provider: "anthropic", id: "claude-sonnet-4" }] },
+        Effect.die("Pi was probed without extensions"),
       );
       const snapshot = yield* checkPiProviderStatus(settings).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
@@ -347,67 +349,10 @@ describe("PiProvider", () => {
         [
           ["default", undefined],
           ["anthropic/claude-sonnet-4", undefined],
-          ["demo/demo-model", false],
-        ],
-      );
-      assert.equal(snapshot.supportsTextGeneration, undefined);
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect.each([
-    { label: "exits before answering", extensionFreeInventory: exitsWithoutExtensions },
-    { label: "lists no models", extensionFreeInventory: { models: [] } },
-  ])("makes Pi unusable for text generation when Pi without extensions $label", (row) =>
-    Effect.gen(function* () {
-      const spawner = yield* piDiscoverySpawner(
-        { models: [{ provider: "demo", id: "extension-model" }] },
-        row.extensionFreeInventory,
-      );
-      const snapshot = yield* checkPiProviderStatus({
-        ...settings,
-        launchArgs: "--provider demo --model extension-model",
-        customModels: ["local/custom-alias"],
-      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
-      assert.equal(snapshot.status, "ready");
-      assert.equal(snapshot.auth.status, "authenticated");
-      // Pi default and custom models still run in chat, so the picker keeps them.
-      assert.deepEqual(
-        snapshot.models.map((model) => model.slug),
-        ["default", "demo/extension-model", "local/custom-alias"],
-      );
-      assert.equal(snapshot.supportsTextGeneration, false);
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.effect("preserves normal discovery when the extension-free model listing times out", () =>
-    Effect.gen(function* () {
-      const modelRequested = yield* Deferred.make<void>();
-      const spawner = yield* piDiscoverySpawner(
-        { models: [{ provider: "demo", id: "demo-model" }] },
-        null,
-        Deferred.succeed(modelRequested, undefined).pipe(Effect.asVoid),
-      );
-      const fiber = yield* checkPiProviderStatus(settings).pipe(
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-        Effect.forkChild,
-      );
-      yield* Deferred.await(modelRequested);
-      yield* TestClock.adjust("5 seconds");
-      const snapshot = yield* Fiber.join(fiber);
-      assert.equal(snapshot.status, "ready");
-      assert.equal(snapshot.auth.status, "authenticated");
-      assert.deepEqual(
-        snapshot.models.map((model) => [model.slug, model.supportsTextGeneration]),
-        [
-          ["default", undefined],
           ["demo/demo-model", undefined],
         ],
       );
       assert.equal(snapshot.supportsTextGeneration, undefined);
-      assert.include(
-        snapshot.slashCommands.map((command) => command.name),
-        "compact",
-      );
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
