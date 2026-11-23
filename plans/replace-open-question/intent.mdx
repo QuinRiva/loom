@@ -1,0 +1,64 @@
+---
+reader:
+  who: Carl, who reported the gap and approves the intent before anything is built
+  knows: his own report and the open-questions list above the composer; nothing of the code
+  after_first_screen: he can correct any line or say "go"
+kicker: "Intent brief · draft for your corrections · 24 Nov 2026"
+status: draft
+manager_sessions:
+  - id: 01a20a5e-0135-728e-b23b-836b0b34059a
+    name: Replace Superseded Agent Questions
+    role: intent
+    authored_at: 2026-11-23T21:47:54.768Z
+---
+
+# A new question takes the place of the one it replaces
+
+**Goal.** "We don't seem to have a mechanism to replace earlier questions - I answered an earlier question, then was immediately presented with a question that *should* have replaced it." When an agent's new question makes one of its open questions stale, the stale one stops being offered to you.
+
+**What happened.** On 23 Nov the thread designing the phone's goal task tree asked "Where the goal's task tree lives on the phone". Half an hour later, after PR #614 merged, it asked a second question that opens "This replaces the earlier placement question". Both cards stayed open for eight hours. You typed an answer into the first, then met the second 90 seconds later. The agent had no way to close the first: today a question closes only when you answer or dismiss it.
+
+**How often.** Rarely, so this is sized as a small fix. Since 4 Nov agents have asked 207 questions that left them free to keep working. 31 were asked while an earlier one on the same thread was open. Only yours says it replaces another; two more look like a re-ask from their titles, unconfirmed.
+
+**You'll know it works when.**
+
+- An agent asks a question and says which open question it replaces. The earlier card leaves your open questions at once, on the web and on the phone. The phone shows the oldest open question first, so today it shows the stale one.
+- In the conversation, the earlier question reads as replaced and names its successor. It does not read as unanswered, or as dismissed by you.
+- **Must not:** close a question you have already answered; close a question asked by another thread; remove the earlier question's text from the conversation.
+
+**Approaches in play.**
+
+- The new question names the one it replaces, and asking it closes the old one in the same step. Wins if replacement is the whole need. It is one optional field on the tool agents already use. The old card closes the way a dismissed one does today, so every screen that shows questions already copes. _Recommended._
+- A separate withdraw action for any of the agent's open questions, with or without a successor. Wins if questions also go stale with nothing to replace them. Its cost: an agent could remove a question you meant to answer.
+- Dropped: closing an older question when a new one looks similar. The agent knows what it replaces and can say so; a matcher would misfire.
+- Dropped: showing the newest question first. You would still be offered the stale one next.
+
+**Decided.**
+
+- _Assumed:_ a replacement closes a whole card. Your first card held two questions and only one was stale, so the agent re-asks in the new card whatever still stands. Redirect if single questions inside a card should be replaceable.
+- _Assumed:_ questions that stop the agent until you answer are out of scope. The agent is waiting inside that question and cannot ask another.
+- _Assumed:_ an answer you are part-way through typing is lost if its card is replaced under you. Too rare to build for; redirect if wrong.
+
+**Not doing.** A cap on how many questions can be open. Closing questions by age. Any change to what your chat messages do to open questions.
+
+**Questions for you.**
+
+<QuestionForm
+  questions={[
+    {
+      id: "withdraw",
+      title: "Should an agent also be able to close one of its open questions with nothing replacing it?",
+      subtitle: "The case is a question the agent's own work has overtaken: it went ahead on its assumption and the decision is made. Today those cards wait for you to dismiss them.",
+      mode: "single",
+      options: [
+        { id: "replace-only", label: "No: an agent can only replace a question with a new one", recommended: true, detail: "Every question that leaves your list has a successor you can answer. Overtaken questions stay until you dismiss them." },
+        { id: "withdraw-too", label: "Yes: it can also withdraw one, giving a reason shown in the conversation", detail: "Fewer dead cards, but a question can leave your list without you having seen it." },
+      ],
+    },
+  ]}
+/>
+
+**Still unknown.**
+
+- Will agents use it unprompted? The agent in your example already said in prose that it was replacing a question. An eval case built from that exchange settles whether the tool's wording is enough.
+- Does the Slack bridge retire its post when a question closes this way? Reading how it treats a dismissed question today settles it; a gap there is a small follow-up in its own repository.
