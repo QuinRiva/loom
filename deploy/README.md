@@ -119,18 +119,27 @@ pushes to every open client:
 
 ## A launcher protocol change
 
-Upstream numbers its launcher protocol (3 today). A pull that raises it fails
-`apps/server/src/loom/deploy/launcherSeam.test.ts`, and a deploy across it is refused before
-anything stops. That one deploy is done by hand, with no probation and no automatic return:
+Upstream numbers its launcher protocol (4 since pull 16; `SERVICE_LAUNCHER_PROTOCOL` in
+`apps/server/src/cloud/serviceProtocol.ts`). `apps/server/src/loom/deploy/launcherSeam.test.ts` pins
+the number, so a pull that raises it fails that test until someone reads what changed. There are two
+cases:
 
-1. `loom-deploy deploy`: it builds and trial-starts the new release, is refused at the switch,
-   and leaves the release in the store.
-2. `systemctl --user stop loom-cockpit`.
-3. Copy `statev2.sqlite` and its `-wal` and `-shm` files somewhere safe.
-4. Run the new release's own `~/loom-releases/releases/<id>/deploy/loom-deploy adopt`.
-5. `systemctl --user start loom-cockpit` and check `loom-deploy status`.
+- **The new release still runs under the installed launcher** (`SupportedLauncherProtocol` lists
+  the old number, as it listed 3 when 4 arrived). The deploy is an ordinary `loom-deploy deploy`.
+  The installed launcher keeps running and starts the new release's runner; the new launcher takes
+  over only at the next `loom-cockpit` restart, and the unit file is not rewritten. If the runner
+  refuses the launcher's context, the launcher puts back the old release and database by itself.
+- **It does not.** A deploy across it is refused before anything stops, and that one deploy is done
+  by hand, with no probation and no automatic return:
 
-Going back is the same steps with the old release's `loom-deploy adopt` and the saved copy.
+  1. `loom-deploy deploy`: it builds and trial-starts the new release, is refused at the switch,
+     and leaves the release in the store.
+  2. `systemctl --user stop loom-cockpit`.
+  3. Copy `statev2.sqlite` and its `-wal` and `-shm` files somewhere safe.
+  4. Run the new release's own `~/loom-releases/releases/<id>/deploy/loom-deploy adopt`.
+  5. `systemctl --user start loom-cockpit` and check `loom-deploy status`.
+
+  Going back is the same steps with the old release's `loom-deploy adopt` and the saved copy.
 
 ## The way back to the old mechanism
 
