@@ -138,13 +138,7 @@ export function mergeShellSnapshotProjects(
 
 export function applyShellStreamEvent(
   snapshot: OrchestrationV2ShellSnapshot,
-  event: Exclude<
-    OrchestrationV2ShellStreamItem,
-    | { readonly kind: "snapshot" }
-    | { readonly kind: "synchronized" }
-    | { readonly kind: "consult.updated" } // loom: kept off the snapshot (shell.ts)
-    | { readonly kind: "cache.updated" } // loom: kept off the snapshot (shell.ts)
-  >,
+  event: ShellStreamEvent | LoomGoalShellStreamItem, // loom: goal items apply ungated
 ): OrchestrationV2ShellSnapshot {
   // loom: goal items are unsequenced and apply before the sequence gate
   if (isLoomGoalShellStreamItem(event)) return applyLoomGoalItem(snapshot, event);
@@ -229,13 +223,9 @@ function batchRows<T extends { readonly id: unknown }>(rows: ReadonlyArray<T>) {
   };
 }
 
-export type ShellStreamEvent = Exclude<
+export type ShellStreamEvent = Extract<
   OrchestrationV2ShellStreamItem,
-  | { readonly kind: "snapshot" }
-  | { readonly kind: "synchronized" }
-  | { readonly kind: "consult.updated" } // loom: kept off the snapshot (shell.ts)
-  | { readonly kind: "cache.updated" } // loom: kept off the snapshot (shell.ts)
-  | LoomGoalShellStreamItem // loom: unsequenced; shell.ts applies them before the batch
+  { readonly sequence: number }
 >;
 
 /** Apply ordered deltas with one index and at most one new array per collection. */

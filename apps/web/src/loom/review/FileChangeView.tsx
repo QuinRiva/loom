@@ -679,7 +679,7 @@ export function FileChangeView({
           composerDraftTarget={composerDraftTarget}
           renderHeaderFilenameSuffix={() => null}
           renderHeaderPrefix={() => null}
-          onRevealSearchMatch={() => undefined}
+          onFileCollapsedChange={() => undefined}
           authorCard={authorCard}
           loomEdit={loomEdit}
           unsafeCSSExtra={authors.css}

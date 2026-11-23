@@ -1,5 +1,6 @@
 import type { UsageProviderKind } from "@t3tools/contracts";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { providerColors } from "./providerColors";
 
 // loom: pi first
 export const PROVIDER_ORDER: readonly UsageProviderKind[] = [
@@ -30,18 +31,7 @@ export const PROVIDER_LABEL: Record<UsageProviderKind, string> = {
 };
 
 export function useProviderColors(): Record<UsageProviderKind, string> {
-  const { themeAppearance: scheme } = useAppearancePreferences();
-  return {
-    claude: "#d97757",
-    codex: scheme === "dark" ? "#e6e6e6" : "#3c3c43",
-    grok: scheme === "dark" ? "#a1a1aa" : "#52525b",
-    // loom: the one saturated band, matching web's --primary in each scheme.
-    pi: scheme === "dark" ? "#7aa2ff" : "#3d5afe",
-    cursor: "#8b8b8b",
-    opencode: "#5b9bbd",
-    antigravity: "#8c7bd1",
-    muse: "#0866ff",
-  };
+  return providerColors(useAppearancePreferences().themeAppearance);
 }
 
 export function useUsageMixColors() {

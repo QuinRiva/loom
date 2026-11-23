@@ -100,6 +100,8 @@ export const PER_INSTANCE_TABLES: ReadonlyArray<string> = [
   "provider_session_runtime",
   "auth_sessions",
   "auth_pairing_links",
+  // Absolute task-folder roots on this machine, which removing a task folder deletes.
+  "task_folders",
 ];
 
 /** Shared by several threads, so selected by session binding rather than by its nullable `thread_id`. */

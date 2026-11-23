@@ -183,8 +183,8 @@ export const planThreadDeletion = Effect.fn("ThreadDeletion.planThreadDeletion")
   }
 
   for (const session of projection.providerSessions) {
-    // loom: a deleted thread keeps no binding rows (DL-74); the event alone unbinds a session that
-    // is already stopped or errored — the detach effect below is only for a live process
+    // loom: a deleted thread keeps no binding rows (DL-74): the event unbinds every session; an
+    // errored one can still own a live runtime, so only a stopped one skips the detach effect
     yield* emitEvent({
       type: "provider-session.detached",
       threadId: command.threadId,
@@ -197,7 +197,7 @@ export const planThreadDeletion = Effect.fn("ThreadDeletion.planThreadDeletion")
         reason: "Thread deleted.",
       },
     });
-    if (session.status === "stopped" || session.status === "error") continue; // loom: DL-74
+    if (session.status === "stopped") continue; // loom: DL-74
     effects.push({
       id: `effect:${command.commandId}:provider-session.detach:${session.id}`,
       commandId: command.commandId,

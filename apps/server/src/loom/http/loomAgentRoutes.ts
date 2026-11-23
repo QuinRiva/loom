@@ -325,6 +325,9 @@ const deployRoutes = Layer.unwrap(
             headers: { "cache-control": "private, no-store, no-transform" },
           }).pipe(Effect.orElseSucceed(() => notFound));
         }),
+        // The token is the credential: spans and request logs record it as REDACTED. `"*"` would
+        // redact only a `*` wildcard segment, which this path does not have.
+        { redactedParams: ["token"] },
       ),
     ]);
   }),

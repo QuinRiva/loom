@@ -82,8 +82,7 @@ The model picker lists the models the agent reports. If the agent reports none, 
 your own model IDs under **Custom models** in the instance settings.
 
 Other settings the agent offers, such as reasoning effort or approval mode, appear in the
-composer's model picker, beside the model list, like they do for built-in providers. Agents with their own plan and
-build modes follow T3 Code's Plan and Build toggle. Models and options that change while an agent
+composer's model picker, beside the model list, like they do for built-in providers. Models and options that change while an agent
 is running update the picker without waiting for another provider probe.
 
 ## Commands and skills
@@ -129,8 +128,8 @@ remain agent-specific.
 ## Checkpoints
 
 Checkpoint rollback restores your files as usual. ACP agents cannot rewind their own conversation,
-so the next turn after a rollback starts a fresh agent session that no longer remembers the
-conversation from before the checkpoint.
+so the next turn after a rollback starts a fresh agent session and T3 Code sends it the kept
+conversation, without the turns you rolled back.
 
 Registry instances are not used for T3's app-owned text generation, such as thread titles, commit
 messages, branch names, or pull request descriptions. Configure a text-generation-capable provider

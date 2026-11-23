@@ -1,5 +1,5 @@
 // No T3 imports inside the string; resolve Pi and typebox from the user's Pi install.
-// loom: no T3_CODE_ORCHESTRATION_INSTRUCTIONS import: Pi gets no orchestration instructions (DL-905).
+// loom: no T3_CODE_ORCHESTRATION_INSTRUCTIONS or PULL_REQUEST_LINKING_INSTRUCTIONS import: Pi gets no orchestration instructions (DL-905).
 
 export const PI_T3_MCP_EXTENSION_FILENAME = "pi-t3-mcp-extension.ts";
 
@@ -7,6 +7,7 @@ export const T3_MCP_URL_ENV = "T3_MCP_URL";
 export const T3_MCP_BEARER_ENV = "T3_MCP_BEARER_TOKEN";
 export const T3_PI_RUNTIME_MODE_ENV = "T3_PI_RUNTIME_MODE";
 export const T3_PI_MCP_EXTENSION_PATH_ENV = "T3_PI_MCP_EXTENSION_PATH";
+export const PI_T3_SERVICE_TIER_COMMAND = "t3-service-tier";
 // loom: JSON array of unprefixed t3-code tool names the bridge registers `hidden` (Loom's withheld tools).
 export const T3_LOOM_HIDDEN_TOOLS_ENV = "T3_LOOM_HIDDEN_TOOLS"; // loom:
 
@@ -15,6 +16,7 @@ export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
 
 export const PI_T3_MCP_EXTENSION_SOURCE = `\
 import { stripFrontmatter, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import * as NodeCrypto from "node:crypto";
 // loom: node:http for post(); see there
 import { request as httpRequest } from "node:http";
 import * as NodeFSP from "node:fs/promises";
@@ -26,6 +28,7 @@ const TOKEN_ENV = ${JSON.stringify(T3_MCP_BEARER_ENV)};
 const RUNTIME_MODE_ENV = ${JSON.stringify(T3_PI_RUNTIME_MODE_ENV)};
 const EXTENSION_PATH_ENV = ${JSON.stringify(T3_PI_MCP_EXTENSION_PATH_ENV)};
 const LOOM_HIDDEN_TOOLS_ENV = ${JSON.stringify(T3_LOOM_HIDDEN_TOOLS_ENV)}; // loom:
+const SERVICE_TIER_COMMAND = ${JSON.stringify(PI_T3_SERVICE_TIER_COMMAND)};
 const PROTOCOL = "2025-06-18";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const FILE_CHANGE_TOOLS = new Set(${JSON.stringify(PI_FILE_CHANGE_TOOLS)});
@@ -63,12 +66,19 @@ function runtimeMode(): RuntimeMode {
     : "full-access";
 }
 
+// T3 keys "Always allow this session" on this text, so a cut summary ends with the
+// full input's hash: calls that differ only past the cut get separate grants.
 function toolInputSummary(input: unknown): string {
+  let text: string;
   try {
-    return JSON.stringify(input, null, 2).slice(0, 4_000);
+    text = JSON.stringify(input, null, 2) ?? String(input);
   } catch {
-    return String(input).slice(0, 4_000);
+    text = String(input);
   }
+  if (text.length <= 4_000) return text;
+  const hash = NodeCrypto.createHash("sha256").update(text, "utf16le").digest("hex");
+  return text.slice(0, 4_000) + "\\n... " + (text.length - 4_000) +
+    " more characters not shown (sha256 " + hash + ")";
 }
 
 function parseSseOrJson(body: string, contentType: string): JsonRpcResponse {
@@ -319,23 +329,43 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     };
   });
 
-  // Workaround for an upstream Pi context-budgeting bug: pi-ai reuses the
-  // previous response's usage even when a fork's instructions/tools differ,
-  // then reserves almost all remaining context for output. OpenRouter can
-  // reject even a short conversation. Remove this cap when Pi accounts for
-  // the current request prefix reliably (api/simple-options + utils/estimate).
+  // Pi has no service tier setting, so T3 sets one through this command before each turn.
+  // Only a tier the active model advertises is sent; Standard sends none.
+  let serviceTier: string | undefined;
+  pi.registerCommand(SERVICE_TIER_COMMAND, {
+    description: "Set the service tier T3 Code sends with provider requests",
+    handler: async (args) => {
+      serviceTier = args.trim() || undefined;
+    },
+  });
+
   pi.on("before_provider_request", (event, ctx) => {
-    if (ctx.model?.provider !== "openrouter") return;
     const payload = event.payload;
     if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return;
     const replacement = { ...payload } as Record<string, unknown>;
     let changed = false;
-    for (const key of ["max_tokens", "max_completion_tokens"]) {
-      const limit = replacement[key];
-      if (typeof limit === "number" && Number.isFinite(limit) && limit > 32_768) {
-        replacement[key] = 32_768;
-        changed = true;
+    // Workaround for an upstream Pi context-budgeting bug: pi-ai reuses the
+    // previous response's usage even when a fork's instructions/tools differ,
+    // then reserves almost all remaining context for output. OpenRouter can
+    // reject even a short conversation. Remove this cap when Pi accounts for
+    // the current request prefix reliably (api/simple-options + utils/estimate).
+    if (ctx.model?.provider === "openrouter") {
+      for (const key of ["max_tokens", "max_completion_tokens"]) {
+        const limit = replacement[key];
+        if (typeof limit === "number" && Number.isFinite(limit) && limit > 32_768) {
+          replacement[key] = 32_768;
+          changed = true;
+        }
       }
+    }
+    const tiers = (ctx.model as { serviceTiers?: unknown } | undefined)?.serviceTiers;
+    if (
+      serviceTier !== undefined &&
+      Array.isArray(tiers) &&
+      tiers.some((tier) => tier?.id === serviceTier)
+    ) {
+      replacement.service_tier = serviceTier;
+      changed = true;
     }
     if (changed) return replacement;
   });
@@ -345,9 +375,11 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   // keep their normal meaning without replacing or shadowing Pi's runtime.
   // Only Pi's own search is known to be read-only. An extension that replaces
   // it keeps the name, and cannot discover deferred tools either.
+  // OmO reports Pi's builtin search with angle brackets around the same path.
+  const BUILTIN_TOOL_SEARCH_PATHS = new Set(["builtin:tool-search", "<builtin:tool-search>"]);
   const hasBuiltinToolSearch = () =>
     typeof pi.getAllTools === "function" &&
-    pi.getAllTools().some((tool) => tool.name === "tool_search" && tool.sourceInfo?.path === "builtin:tool-search");
+    pi.getAllTools().some((tool) => tool.name === "tool_search" && BUILTIN_TOOL_SEARCH_PATHS.has(tool.sourceInfo?.path ?? ""));
 
   const readOnlyMcpTools = new Set<string>();
   const isReadOnlyMcpTool = (name: string) => {
@@ -395,30 +427,45 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   // bridge as the credential owner: mcp.json overrides native registrations.
   const supportsExposure = "registerMcpServer" in pi && typeof pi.registerMcpServer === "function";
   const directTools = new Set(["orchestrator_capabilities", "delegate_task", "task_status"]);
+  const ALIAS_PREFIX = "mcp__t3_code__";
   let deferOptionalTools = supportsExposure;
   // loom: the upstream tools this thread's role withholds (withheldFrom), from the session composer.
   const loomHiddenTools = new Set<string>(JSON.parse(env(LOOM_HIDDEN_TOOLS_ENV) ?? "[]")); // loom:
+  const isDeferred = (name: string) => deferOptionalTools && !directTools.has(name);
+  // An alias follows its public tool: gone when --exclude-tools removed it,
+  // off while a direct one is off.
+  const followsPublicTool = (
+    name: string,
+    registered: ReadonlySet<string>,
+    active: ReadonlyArray<string>,
+  ) =>
+    !loomHiddenTools.has(name) && // loom: a withheld tool's alias is never activated or callable
+    registered.has("mcp__t3-code__" + name) &&
+    (isDeferred(name) || active.includes("mcp__t3-code__" + name));
   let catalog: ReadonlyArray<McpTool> = [];
 
   const client = createMcpClient(endpoint, token);
   let started: Promise<void> | undefined;
 
   const registerTools = () => {
-    // Preserve public names for saved loadouts and tool selectors. Hidden
-    // canonical names reserve ownership against Pi's configured MCP servers.
-    const prefixes = supportsExposure ? ["mcp__t3-code__", "mcp__t3_code__"] : ["mcp__t3-code__"];
+    // Preserve public names for saved loadouts and tool selectors. The alias,
+    // Pi's own MCP name for T3, reserves it against Pi's configured MCP servers.
+    // model-only keeps it out of codemode; it hides its own declaration.
+    const prefixes = supportsExposure ? ["mcp__t3-code__", ALIAS_PREFIX] : ["mcp__t3-code__"];
     readOnlyMcpTools.clear();
     for (const tool of catalog) {
       const name = tool.name;
       for (const prefix of prefixes) {
-        if (tool.annotations?.readOnlyHint === true) readOnlyMcpTools.add(\`\${prefix}\${name}\`);
-        const exposure = prefix === "mcp__t3_code__" || loomHiddenTools.has(name) ? "hidden" : // loom: withheld tools unreachable, even by tool_search
-          deferOptionalTools && !directTools.has(name) ? "deferred" : "direct";
+        const toolName = \`\${prefix}\${name}\`;
+        if (tool.annotations?.readOnlyHint === true) readOnlyMcpTools.add(toolName);
+        const isAlias = prefix === ALIAS_PREFIX;
+        // loom: withheld tools unreachable under both names, even by tool_search; checked before the alias
+        const exposure = loomHiddenTools.has(name) ? "hidden" : isAlias ? "model-only" : isDeferred(name) ? "deferred" : "direct";
         const loom = (tool as { readonly _meta?: Record<string, unknown> })._meta; // loom: Loom's prose (P3-2)
         const loomSnippet = loom?.["loom/promptSnippet"]; // loom:
         const loomGuidelines = loom?.["loom/promptGuidelines"]; // loom:
         pi.registerTool({
-          name: \`\${prefix}\${name}\`,
+          name: toolName,
           label: name,
           description: tool.description ?? name,
           ...(typeof loomSnippet === "string" ? { promptSnippet: loomSnippet } : {}), // loom:
@@ -426,7 +473,15 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
           parameters: jsonSchemaToTypebox(tool.inputSchema),
           ...(supportsExposure ? { outputSchema: mcpOutputSchema(tool) } : {}),
           ...(supportsExposure ? { exposure } : {}),
+          ...(isAlias ? { prepareLoadout: () => ({ hiddenDeclarations: [toolName] }) } : {}),
           async execute(_toolCallId, params, signal) {
+            // Another extension may switch the public tool off after reconciliation.
+            if (
+              isAlias &&
+              !followsPublicTool(name, new Set(pi.getAllTools().map((tool) => tool.name)), pi.getActiveTools())
+            ) {
+              return { content: [{ type: "text", text: \`Tool \${toolName} not found\` }], details: {}, isError: true };
+            }
             const result = await client.callTool(
               name,
               (params ?? {}) as Record<string, unknown>,
@@ -475,7 +530,6 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     const exposureChanged = deferOptionalTools !== hasToolSearch;
     deferOptionalTools = hasToolSearch;
     if (exposureChanged) registerTools();
-    const active = pi.getActiveTools();
     // Completion gateways can silently drop calls to undeclared tools named
     // in history or guidance. Eagerly load T3 schemas, including after tree
     // restores, while retaining deferred exposure for Pi's allowlist rules.
@@ -484,8 +538,18 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       ...(hasToolSearch ? ["tool_search"] : []),
       ...(ctx.model?.api === "openai-completions" ? catalog.map((tool) => "mcp__t3-code__" + tool.name) : []),
     ];
-    const missing = required.filter((name) => !active.includes(name));
-    if (missing.length > 0) pi.setActiveTools([...active, ...missing]);
+    const current = pi.getActiveTools();
+    const missing = required.filter((name) => !current.includes(name));
+    if (missing.length > 0) pi.setActiveTools([...current, ...missing]);
+    // An alias is callable only while active.
+    const registered = new Set(pi.getAllTools().map((tool) => tool.name));
+    const loaded = pi.getActiveTools();
+    const aliases = catalog
+      .filter((tool) => registered.has(ALIAS_PREFIX + tool.name) && followsPublicTool(tool.name, registered, loaded))
+      .map((tool) => ALIAS_PREFIX + tool.name);
+    const kept = loaded.filter((name) => !name.startsWith(ALIAS_PREFIX) || aliases.includes(name));
+    const added = aliases.filter((name) => !loaded.includes(name));
+    if (added.length > 0 || kept.length !== loaded.length) pi.setActiveTools([...kept, ...added]);
   };
 
   // Tree navigation restores its saved loadout after session_start.
