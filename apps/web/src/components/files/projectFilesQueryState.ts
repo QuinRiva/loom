@@ -333,7 +333,7 @@ export function useProjectAbsoluteFileQuery(
   const refresh = () => refreshAtom();
   return {
     data: Option.getOrNull(AsyncResult.value(result)),
-    error: errorMessage(result),
+    error: errorMessage(failureCause(result), m),
     isPending: result.waiting,
     refresh,
   };
@@ -354,7 +354,7 @@ export function useProjectAbsoluteDirectoryQuery(
   const refresh = () => refreshAtom();
   return {
     data: Option.getOrNull(AsyncResult.value(result)),
-    error: errorMessage(result),
+    error: errorMessage(failureCause(result), m),
     isPending: result.waiting,
     refresh,
   };

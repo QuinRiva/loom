@@ -14,6 +14,7 @@ const prompt: PendingUserInput = {
   requestId: RuntimeRequestId.make("question-shortcuts"),
   createdAt: "2026-10-31T00:00:00.000Z",
   dismissible: false,
+  blocking: true,
   responseCapability: "live",
   questions: [
     {

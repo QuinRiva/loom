@@ -56,7 +56,7 @@ export function ContextVizSettingsRows({
       resetAction={
         settings[row.key] !== DEFAULT_UNIFIED_SETTINGS[row.key] ? (
           <SettingResetButton
-            label={row.title.toLowerCase()}
+            ariaLabel={`Reset ${row.title.toLowerCase()} to default`}
             onClick={() => updateSettings({ [row.key]: DEFAULT_UNIFIED_SETTINGS[row.key] })}
           />
         ) : null

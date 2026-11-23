@@ -50,7 +50,7 @@ export function LoomAutoOpenSettingsRows({
         resetAction={
           settings.autoOpenWorkstreamPanel !== DEFAULT_AUTO_OPEN ? (
             <SettingResetButton
-              label="auto-open workstream"
+              ariaLabel="Reset auto-open workstream to default"
               onClick={() => updateSettings({ autoOpenWorkstreamPanel: DEFAULT_AUTO_OPEN })}
             />
           ) : null

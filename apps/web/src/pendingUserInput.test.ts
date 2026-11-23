@@ -32,6 +32,7 @@ describe("projectPendingUserInputAnswer", () => {
   // regression: #28022, #36293 review comment and preview annotation chips in an answer reached the agent as bare links
   it("sends thread draft chips with their full content", () => {
     const reviewComment = {
+      kind: "line" as const, // loom: review comments are a union on kind
       id: "file-comment-1",
       sectionId: "branch",
       sectionTitle: "Changes",

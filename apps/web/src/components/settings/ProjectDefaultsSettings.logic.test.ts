@@ -102,7 +102,12 @@ describe("resolveDefaultModelSettingsPresentation", () => {
       ],
       {
         providerModelPreferences: {
-          [claudeId]: { hiddenModels: ["claude-opus-4-8"], modelOrder: [] },
+          [claudeId]: {
+            hiddenModels: ["claude-opus-4-8"],
+            modelOrder: [],
+            selectedModels: [],
+            showOnlySelectedModels: false,
+          },
         },
       },
     );

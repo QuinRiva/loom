@@ -22,11 +22,15 @@ function section(props: Partial<ComponentProps<typeof ProviderModelsSection>>) {
       hiddenModels={[]}
       favoriteModels={[]}
       modelOrder={[]}
+      selectedModels={[]}
+      showOnlySelectedModels={false}
       onChange={async () => true}
       onHiddenModelsChange={() => {}}
       onFavoriteModelsChange={() => {}}
       onToggleFavorite={() => {}}
       onModelOrderChange={() => {}}
+      onSelectedModelsChange={() => {}}
+      onShowOnlySelectedModelsChange={() => {}}
       {...props}
     />
   );
