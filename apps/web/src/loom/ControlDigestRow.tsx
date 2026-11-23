@@ -19,7 +19,7 @@ import {
   type ControlBubble,
 } from "@t3tools/client-runtime/state/loom/controlBubble";
 
-import { controlCardModel } from "./controlMessages";
+import { controlCardModel } from "@t3tools/client-runtime/state/loom/controlCard";
 import { useLoomMessageFields } from "./loomMessageFields";
 
 export const ControlDigestRow = memo(function ControlDigestRow({

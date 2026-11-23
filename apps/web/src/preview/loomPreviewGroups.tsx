@@ -20,7 +20,7 @@ import { OpenQuestionsRail } from "../loom/openQuestions/OpenQuestionsRail";
 
 import { GoalPanelView } from "../components/GoalTasksPanel";
 import { ControlDigestCardView } from "../loom/ControlDigestCard";
-import { controlCardModel } from "../loom/controlMessages";
+import { controlCardModel } from "@t3tools/client-runtime/state/loom/controlCard";
 import { GoalThreadsSection } from "../loom/GoalThreadsSection";
 import { LoomTimelineRowView } from "../loom/LoomTimelineRowView";
 import type { LoomTimelineRow } from "../loom/loomTimelineRows";

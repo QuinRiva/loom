@@ -1,7 +1,7 @@
 import { loomSeedControlMessages } from "@t3tools/shared/loomSeedFixture.loom";
 import { describe, expect, it } from "vite-plus/test";
 
-import { controlCardModel } from "./controlMessages";
+import { controlCardModel } from "./controlCard.ts";
 
 const seed = loomSeedControlMessages({
   coderDone: "a.md",
@@ -15,22 +15,22 @@ describe("controlCardModel", () => {
       const model = controlCardModel({ origin: "control_notice", controlPayload: payload }, text);
       expect(model?.kind, key).toBe("card");
       return model?.kind === "card"
-        ? [key, model.label, model.items.map((entry) => entry.kindLabel)]
+        ? [key, model.label, model.items.map((entry) => entry.facts)]
         : [key];
     });
     expect(labels).toEqual([
       [
         "digest",
         "Digest",
-        ["finished", "gate resolved", "recovered", "slow tool", "spinning", "dead"],
+        ["Finished · done", "Gate resolved · clean", "Recovered", "Slow tool", "Spinning", "Dead"],
       ],
-      ["yield", "Yield", [null]],
+      ["yield", "Yield", ["Quiescent"]],
       ["notice-gate-rework", "Rework round", [null]],
       ["notice-gate-reverify", "Re-verify", [null]],
       ["notice-brief-needed", "Brief needed", [null]],
       ["notice-deadlock", "Deadlock", [null]],
       ["notice-stall-nudge", "Stall nudge", [null]],
-      ["notice-attention", "Attention", [null]],
+      ["notice-attention", "Attention", ["Needs guidance"]],
       ["notice-notify", "Thread notification", [null]],
     ]);
   });
