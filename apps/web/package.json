@@ -83,7 +83,6 @@
     "property-information": "^7.2.0",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "react-markdown": "^10.1.0",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "catalog:",
     "remark-mdx": "^3.1.1",

@@ -1,3 +1,17 @@
+diff --git a/dist/components/VirtualizedFileDiff.js b/dist/components/VirtualizedFileDiff.js
+index 2a22f35..1294609 100644
+--- a/dist/components/VirtualizedFileDiff.js
++++ b/dist/components/VirtualizedFileDiff.js
+@@ -561,6 +561,9 @@ var VirtualizedFileDiff = class extends FileDiff {
+ 		return super.isLineInCollapsedContext(lineNumber, side, expandedHunks);
+ 	}
+ 	invalidateEditSessionLayout() {
++		// loom: anchor the viewport before measured wrapped rows are dropped, or the top line is
++		// re-read from estimated heights and the view jumps (Escape ends an edit session this way).
++		this.getAdvancedVirtualizer()?.capturePendingLayoutAnchor();
+ 		this.getSimpleVirtualizer()?.markDOMDirty();
+ 		this.invalidateLayout({
+ 			forceSimpleRecompute: this.isSimpleMode(),
 diff --git a/dist/editor/editor.js b/dist/editor/editor.js
 index b4c280390b52434f63fbe7916d81b150d9006fb4..db87ba385f927d793a80d908cd575216d22a09a7 100644
 --- a/dist/editor/editor.js
