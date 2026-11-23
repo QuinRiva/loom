@@ -295,8 +295,9 @@ export const derive: IdAllocatorV2Derive = {
       deriveId("provider-session", "provider-instance", input.providerInstanceId, "shared"),
     ),
   delegatedTaskNode: (input) => NodeId.make(deriveId("node", "delegated-task", input.commandId)),
+  // loom: digested, but under upstream's prefix, which isDelegatedTaskThread reads
   delegatedTaskThread: (input) =>
-    ThreadId.make(deriveId("thread", "delegated-task", input.commandId)),
+    ThreadId.make(deriveId(DELEGATED_TASK_THREAD_PREFIX.slice(0, -1), input.commandId)),
   delegatedTaskMessage: (input) =>
     MessageId.make(deriveId("message", "delegated-task", input.commandId)),
   delegatedTaskTurnItem: (input) =>
