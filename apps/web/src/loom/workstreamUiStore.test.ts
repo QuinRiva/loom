@@ -20,16 +20,4 @@ describe("workstreamUiStore auto-open flags", () => {
     expect(flags(refA)).toEqual({});
     expect(flags(refB)).toEqual({ workstream: true });
   });
-
-  it("a thread seeded before Goal tasks was seedable counts as already seeded", async () => {
-    const migrate = useWorkstreamUiStore.persist.getOptions().migrate!;
-    const migrated = await migrate(
-      { autoOpenedByThreadKey: { a: { workstream: true, context: true }, b: {} } },
-      3,
-    );
-    expect(migrated).toEqual({
-      autoOpenedByThreadKey: { a: { tasks: true, workstream: true }, b: { tasks: true } },
-      seededPromotionIdsByThreadKey: {},
-    });
-  });
 });

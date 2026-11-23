@@ -59,7 +59,7 @@ never seeded; it is opened from the tab strip:
 - **The one focus change on existing state:** Workstream's first seed (a thread's first subtask,
   typically) makes it the active tab when the panel is open and showing Goal tasks, the tab the
   seed put in front. A closed panel or any other active tab gets Workstream added without focus.
-  Carl chose this so a new thread starts on its goal and moves to the graph once it has one.
+  Carl chose this.
 - Consequence: closing a tab or closing all surfaces permanently suppresses reseeding for that
   thread. That is intended — the explicit way back is the tab strip, not an effect re-firing.
 
