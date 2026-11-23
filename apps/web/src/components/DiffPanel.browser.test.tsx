@@ -74,12 +74,16 @@ vi.mock("~/state/entities", () => ({
   useThreadCheckpointSummaries: () => state.checkpoints,
   useQuietThreadVisibleTurnItems: () => [],
   useQuietThreadProjection: () => null,
+  waitForThreadShell: async () => true, // loom: Loom's author card imports it
 }));
 vi.mock("~/state/filesystem", () => ({
   useFilesystemReadAccess: () => ({ canReadFiles: true, isPending: false, error: null }),
   filesystemEnvironment: {},
 }));
-vi.mock("~/hooks/useThreadRouteTarget", () => ({ useThreadRouteRef: () => state.threadRef }));
+vi.mock("~/hooks/useThreadRouteTarget", () => ({
+  useThreadRouteRef: () => state.threadRef,
+  useThreadRouteTarget: () => null, // loom: Loom's review imports reach the toast stack
+}));
 vi.mock("~/hooks/useSettings", () => ({
   useClientSettings: (select: (settings: ClientSettings) => unknown) =>
     select({ ...DEFAULT_CLIENT_SETTINGS, diffFilesCollapsed: state.diffFilesCollapsed }),
@@ -98,6 +102,7 @@ vi.mock("~/state/queries", () => ({
     isPending: false,
   }),
   useDebouncedValue: <A,>(value: A) => value,
+  useProjectPathSearch: vi.fn(), // loom: Loom's review imports reach projectFilesQueryState
 }));
 vi.mock("~/state/use-atom-command", () => ({ useAtomCommand: () => async () => {} }));
 vi.mock("~/editorPreferences", () => ({ useOpenInPreferredEditor: () => async () => {} }));

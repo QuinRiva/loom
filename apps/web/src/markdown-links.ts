@@ -9,7 +9,7 @@ import {
 import { parseFileUrlHref, splitFilePathPosition } from "@t3tools/shared/fileLinks";
 
 import { formatWorkspaceRelativePath } from "./filePathDisplay";
-import { isTerminalLinkActivation, splitPathAndPosition } from "./terminal-links"; // loom: splitPathAndPosition
+import { isTerminalLinkActivation } from "./terminal-links";
 
 export interface MarkdownFileLinkMeta {
   filePath: string;
@@ -248,7 +248,7 @@ export function isLinkablePathText(rawText: string): boolean {
     WINDOWS_UNC_PATH_PATTERN.test(text) ||
     text.startsWith("/");
   const hasRelativeIntent = RELATIVE_PATH_INTENT_PATTERN.test(text);
-  const { path, line } = splitPathAndPosition(text);
+  const { path, line } = splitFilePathPosition(text); // loom: upstream's, so `:42-64` ranges pass
   const hasPosition = line !== undefined;
   const extension = extensionOf(basenameOfPath(path));
   const hasKnownExtension = extension !== null && KNOWN_INLINE_FILE_EXTENSIONS.has(extension);

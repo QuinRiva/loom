@@ -112,6 +112,7 @@ describe("resolveDefaultModelSettingsPresentation", () => {
       },
     );
     expect(row.providerNote).toBeNull();
-    expect(row.selection).toMatchObject({ instanceId: claudeId, model: "claude-sonnet-5" });
+    // loom: an explicit saved default keeps a model hidden in the picker (DL-913); upstream swaps it.
+    expect(row.selection).toMatchObject({ instanceId: claudeId, model: "claude-opus-4-8" });
   });
 });

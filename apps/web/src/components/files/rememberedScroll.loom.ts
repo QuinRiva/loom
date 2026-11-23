@@ -29,6 +29,11 @@ const remembered = new Map<string, RememberedScroll>();
 /** The key each scroller last finished restoring, so a re-attach on re-render never re-arms it. */
 const settled = new WeakMap<Element, string>();
 
+/** Positions are module state, so tests that reopen one path start from a clean slate. */
+export function resetRememberedScrollsForTests() {
+  remembered.clear();
+}
+
 export function readRememberedScroll(key: string) {
   return remembered.get(key);
 }
@@ -126,8 +131,9 @@ export function rememberedScrollRef(
         anchor && lineTop !== undefined ? lineTop + anchor.offset : (saved?.top ?? 0),
       );
     };
-    // Not "already at target": a re-render re-attaches mid-hold, and the hold must resume.
-    let restoring = !holdRestore && settled.get(scroller) !== key;
+    // Not "already at target": a re-render re-attaches mid-hold, and the hold must resume. With
+    // nothing remembered there is nothing to hold, and holding the top would fight a find or a drag.
+    let restoring = saved !== undefined && !holdRestore && settled.get(scroller) !== key;
     let anchorTimer: ReturnType<typeof setTimeout> | undefined;
     const onScroll = () => {
       if (restoring) return;

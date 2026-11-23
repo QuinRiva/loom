@@ -162,6 +162,7 @@ vi.mock(import("./projectFilesQueryState"), async (original) => ({
 }));
 
 import FilePreviewPanel from "./FilePreviewPanel";
+import { resetRememberedScrollsForTests } from "./rememberedScroll.loom"; // loom:
 
 const environmentId = EnvironmentId.make("markdown-preview-test");
 const threadRef = { environmentId, threadId: ThreadId.make("thread") };
@@ -177,6 +178,7 @@ function setup() {
   let mints = 0;
   state.mintUrl.mockReset().mockImplementation(async () => `/assets/report.docx?mint=${++mints}`);
   state.writeFile.mockReset().mockResolvedValue(AsyncResult.success(undefined));
+  resetRememberedScrollsForTests(); // loom: a reopened path would return to the last test's place
   return {
     [Symbol.dispose]() {
       for (const [index, key] of keys.entries()) {

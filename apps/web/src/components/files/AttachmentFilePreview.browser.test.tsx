@@ -1659,10 +1659,8 @@ it("keeps a workspace PDF open across URL renewals and reloads it when the file 
       expiresAt: 0,
       fileRevision: "one",
     });
-    refresh.mockReset().mockResolvedValue(null);
     await screen.rerender(preview("second"));
-    // loom: a workspace mutation re-mints through useAssetUrlRefresh, not a keyed URL state.
-    expect(refresh).toHaveBeenCalledOnce();
+    expect(assetUrlState).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), "second");
     expect(screen.container.querySelector("iframe")).toBe(opened);
 
     assetUrlState.mockReturnValue({

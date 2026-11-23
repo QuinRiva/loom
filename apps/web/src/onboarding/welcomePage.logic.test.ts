@@ -67,7 +67,8 @@ describe("groupWelcomeAgents", () => {
     const acpRegistry = ProviderDriverKind.make("acpRegistry");
     const settings: Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides"> = {
       providerInstances: {
-        [ProviderInstanceId.make("pi")]: { driver: ProviderDriverKind.make("pi") },
+        // loom: Pi-first, an unconfigured pi is on (DL-84), so this computer turns it off itself.
+        [ProviderInstanceId.make("pi")]: { driver: ProviderDriverKind.make("pi"), enabled: false },
         [ProviderInstanceId.make("registry")]: { driver: acpRegistry },
       },
       projectSettingsOverrides: {
