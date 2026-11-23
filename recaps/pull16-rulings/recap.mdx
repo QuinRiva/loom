@@ -1,0 +1,689 @@
+---
+kicker: "Decision batch · cadence pull 16 · upstream a09738fb43, 3,335 commits · 15 rulings · 23 Nov 2026"
+reader:
+  who: Carl, Loom's maintainer, ruling on the fifteen questions pull 16 leaves to him, in one sitting
+  knows: Loom and upstream T3 Code deeply as a user and maintainer; none of the pull's runbook, the researchers' reports, the orchestrating thread or upstream's fortnight of PRs
+  after_first_screen: there are fifteen decisions and "all as recommended" is a complete answer; seven change something he would notice and six are housekeeping; two need an action on the host; six are already being acted on in the merge and overruling one later costs minutes to an hour; and what waits on each of the rest
+manager_sessions:
+  - id: 01a205bb-3000-778b-a1aa-acc2c6429e35
+    name: Pull 16 rulings batch for Carl
+    role: recap
+    authored_at: 2026-11-23T00:22:36.395Z
+---
+
+# Pull 16 needs fifteen rulings, and the recommended answers keep Loom behaving as it does today, bar one click
+
+Upstream shipped 3,335 commits in a fortnight, and fifteen things in them need a ruling from you. Each has a recommendation from the pull's runbook, reviewed independently before the merge started, and **"all as recommended" is a complete answer**. Under those answers **nothing you have today is taken away and one click behaves differently**: a child thread clicked from inside its parent opens beside it. Your agents' tools and the author line they read on a message stay exactly as today. **Two items need you on the host**: Node 26.13.1, and a deploy of `main` before the pull lands.
+
+<Stats
+  items={[
+    { "value": "15", "label": "Decisions", "detail": "\"All as recommended\" answers every one. The last block of this page takes it in one click." },
+    { "value": "7", "label": "You would notice", "tone": "info", "detail": "5 on screen, 2 in what agents can do or read. The agent merge tool is the one that matters most." },
+    { "value": "6", "label": "Housekeeping", "detail": "Nothing you use changes under any sensible answer." },
+    { "value": "2", "label": "Need the host", "tone": "warning", "detail": "One command each. The orchestrator runs it on your word, not before." },
+    { "value": "6", "label": "Already being acted on", "tone": "accent", "detail": "Overruling one after the merge costs minutes; two of them about an hour." }
+  ]}
+/>
+
+<Callout tone="decision" title="What it means now" focus>
+  The merge has started without waiting for you, on the runbook's and the orchestrator's judgement that every one of the fifteen is cheap to reverse.
+
+  - **Six are being resolved in the merge now, under their recommendations** (cards 2, 4, 5, 6, 7 and 12). They are the context meter, the sender note, the usage hub rule, the diff highlight, the phone's file paths and the Pi resume. Overruling one later costs minutes; the context meter and the Pi resume cost about an hour each.
+  - **Seven are needed later. Until you answer, the work that needs each one waits there.** The four agent-tool items (1, 9, 10, 11) are needed before the server-side integration work writes your agents' tool lists. The translation lint (8) is needed before the web-side integration work, and nothing commits or ships until it is applied. Node (14) is needed before the full test-and-build run, and the deploy order (15) before the PR is merged.
+  - **Two need nothing from you unless you disagree** (3 and 13): child threads opening beside their parent, and multi-repository projects.
+
+  When you send your answers, an item you left undecided takes its recommendation. On a card, Accept takes the recommended answer; to choose another option, pick Reject and name the option in the note.
+</Callout>
+
+## 1. All fifteen at a glance
+
+Each of these is a question because of what upstream shipped. It replaces, duplicates or collides with a Loom feature, or it changes what a Loom agent's tools or prompt contain, or it needs an action on the host. Pull 15 had none. The recommendations are the runbook's, not yours: card 2 quotes your words and marks them, and nowhere else is a preference assumed. Behind the runbook are sixteen research reports on the fortnight's upstream changes; "the researcher" on a card is the one who covered that area.
+
+"Where it stands" refers to the pull's order of work. First the merge itself. Then server-side and web-side integration work, which makes each half compile and pass its tests. Then a full test-and-build run from a fresh install, then smoke tests and the PR. The numbers are the card numbers in §2 to §4.
+
+<Table
+  filterable
+  density="compact"
+  columns={["#", "Decision", "Kind", "Recommended answer", "Where it stands", "Overruling it after the merge costs"]}
+  rows={[
+    ["1", "**Agent PR and CI tools**: nine new, one of which merges a pull request", { "badge": { "label": "you would notice", "tone": "info" } }, "Withhold all nine", "Waits for you before agents' tool lists are written", "Minutes: one list and its test"],
+    ["2", "**The composer context meter**, deleted upstream", { "badge": { "label": "you would notice", "tone": "info" } }, "Keep it as a Loom-owned component", "In the merge now, on the keep side", "About an hour (a deletion)"],
+    ["3", "**Opening a Loom child from inside a thread**", { "badge": { "label": "you would notice", "tone": "info" } }, "Take upstream's: it opens beside its parent", "Nothing needed unless you disagree", "One to four marked lines"],
+    ["4", "**Upstream's sender note** on agent-sent messages", { "badge": { "label": "you would notice", "tone": "info" } }, "Keep Loom's author labels only", "In the merge now", "Minutes to run both; replacing Loom's labels is a fleet-wide prompt change at any time"],
+    ["5", "**Usage hub**: which last-good-reading rule", { "badge": { "label": "you would notice", "tone": "info" } }, "Loom's rule only", "In the merge now", "Small: one function and one call"],
+    ["6", "**Diff changed-word highlight** strength", { "badge": { "label": "you would notice", "tone": "info" } }, "Keep Loom's solid block", "In the merge now", "Two CSS values"],
+    ["7", "**Phone**: tapping a relative file path in a chat", { "badge": { "label": "you would notice", "tone": "info" } }, "Run both lookups, Loom's first", "In the merge now", "About 15 lines in one file"],
+    ["8", "**Translation lint** on Loom's own surfaces", { "badge": "housekeeping" }, "Loom's files stay English and are excluded", "Waits for you before the web-side integration work", "One block to remove, then the full wrap-everything job"],
+    ["9", "**Agent issue tools**: eight new", { "badge": "housekeeping" }, "Withhold", "Waits for you before agents' tool lists are written", "One line"],
+    ["10", "**Agent feedback tool** (`t3_feedback`)", { "badge": "housekeeping" }, "Withhold, leave the mode off", "Waits for you before agents' tool lists are written", "One line"],
+    ["11", "**Agent theme tools and `send_to_user`**", { "badge": "housekeeping" }, "Withhold all three", "Waits for you before agents' tool lists are written", "One line each"],
+    ["12", "**A Pi session resumed in a different folder**", { "badge": "housekeeping" }, "Take upstream's, drop Loom's line", "In the merge now", "About an hour"],
+    ["13", "**Multi-repository projects**", { "badge": "housekeeping" }, "Leave reachable, unsupported by Loom's extras", "Nothing needed unless you disagree", "Nothing now"],
+    ["14", "**Node 26.13.1 on this host**", { "badge": { "label": "host action", "tone": "warning" } }, "Upgrade before the full test-and-build run", "Waits for your word before that run", "Nothing; `n 26.12.1` reverses it"],
+    ["15", "**Deploy `main` (#590, #591) before the pull lands**", { "badge": { "label": "host action", "tone": "warning" } }, "Deploy `main` first", "Waits for your word before the PR is merged", "Nothing, but the choice ends when the PR merges"]
+  ]}
+/>
+
+## 2. Seven you would notice
+
+Five are on screen, two are in what your agents can do or read. Card 1 is the one where doing nothing changes how your agents can land code.
+
+<Card
+  id="card-pr-ci-tools"
+  eyebrow="1 · AGENT PR AND CI TOOLS"
+  heading="Upstream added nine agent tools for pull requests and CI, one of which merges. Should Loom agents get none of them, the three read-only ones, or all nine?"
+  tone="info"
+  badge="recommend: withhold all nine"
+  meta={["how agents can land code", "waits for you before agents' tool lists are written", "overruling later: minutes"]}
+>
+  **Recommended: withhold all nine.** Your agents' tools stay exactly as they are today, and `pnpm ship` stays the one merge path they are handed, with its rebase, `vp check`, typecheck and unmarked-hunk sweep. No Loom role file or tool description changes.
+
+  **Who it touches, and how you would notice.** Left alone, the merge loads all nine into every new root, orchestrator, shipper and free-text-role thread from its first turn. That is about **340 of the 1,560** threads created since 1 Nov. You would see tool rows such as `pull_request_merge` or `ci_rerun` in a thread. The researcher predicts the first drift on the failure path (a prediction, not something observed). The day `pnpm ship` aborts, an agent merges by tool instead of stopping to tell you, and the PR lands without ship's checks.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["The nine new tools", "Reads: `pull_request_read`, `pull_request_list`, `ci_logs`. Writes: `pull_request_create`, `pull_request_update`, `pull_request_respond`, `pull_request_review`, `pull_request_merge`, `ci_rerun`.", "Upstream #26751, #26752, #38973"],
+      ["What agents have today", "Nine PR tools, all upstream's, none of which opens or merges a PR: `link_pull_request`, `link_pull_requests`, `unlink_pull_request`, `unlink_pull_requests`, `list_thread_pull_requests`, `watch_pull_request`, `unwatch_pull_request`, `write_pull_request_guides`, `read_pull_request_guide`. Opening and merging go through `pnpm ship`, which drives `gh`.", "Loom's tree before the merge"],
+      ["Why they arrive without anyone choosing", "Loom defines its PR tool family as whatever is in upstream's PR toolkit (`PULL_REQUESTS = namesOf(PullRequestsToolkit)`), so nine becomes eighteen with no Loom line changing. The test for this family asserts only that it equals upstream's toolkit, so it still passes. The Loom test that does fail after the merge is about the other new toolkits (cards 9 to 11).", "Loom's `families.ts`; runbook §4.2"],
+      ["What holds `pull_request_merge` back", "It refuses only if the PR's head has moved from the commit the agent named. It can enable auto-merge and land a whole GitHub stack. No setting, flag or project policy gates it. Pi asks for approval only outside full-access mode, and all but 3 of the 1,577 threads created since 1 Nov run full-access.", "Upstream's handler code; live database"],
+      ["A project's merge policy", "`.t3code/ship.json` says who may merge. The default is `human` (agents stop at an open PR); Loom's own is `agent`. `pnpm ship` reads it. Nothing on the server does, so with the tool exposed a human-only project is protected by role prose alone.", "Loom's shipping doc; runbook §4.1"],
+      ["What stops an agent merging outside `pnpm ship` today", "Role prose only. An agent's shell already holds the `gh` sign-in that `pnpm ship` merges with, so `gh pr merge` is possible today and against the role files. What exposure adds is a merge action loaded in the tool list and described as the way to do it.", "Not in the runbook's row; follows from the shipping doc"]
+    ]}
+  />
+
+  **The rule at stake**, from the runbook (it is the pull doctrine's rule, carried from earlier pulls):
+
+  > The standing rule is that nothing an agent reads changes inside a pull.
+
+  <Table
+    density="compact"
+    columns={["Option", "What your agents can do", "What you gain or lose"]}
+    rows={[
+      { "tone": "info", "cells": [{ "badge": { "label": "recommended", "tone": "success" }, "md": "**Withhold all nine**" }, "Exactly today's tools. `gh pr view` and `gh run view --log-failed` keep doing the read jobs.", "Nothing lost. One merge path with its gates. No Loom prose changes."] },
+      ["**Expose the three read-only ones** (`pull_request_read`, `pull_request_list`, `ci_logs`)", "Shippers get compact PR state and failing-log tails without parsing `gh` output.", "About 1.5 KB more in every PR-role turn. The runbook rates this worth doing as a follow-up with an eval; `ci_logs` is the one with a real edge over `gh`."],
+      ["**Expose all nine** (what the merge does if nobody acts)", "Open, edit, review, respond to, merge and re-run CI by tool.", "A merge by tool skips `pnpm ship`'s rebase, `vp check`, typecheck and unmarked-hunk sweep. A human-only merge policy is held by role prose alone. About 4.7 KB more per PR-role turn."]
+    ]}
+  />
+
+  **What changes if you accept.** In `apps/server/src/mcp/toolkits/workstream/families.ts` the PR family is written out as its nine existing names instead of "whatever upstream has". The nine new names join the withheld list, and the test beside it is updated. Nothing else.
+
+  **If you change your mind after the merge:** one list in `families.ts` and its test, minutes of work. Only threads started after that deploy pick it up.
+
+  <Details summary="How tool exposure works in Loom, and why a new upstream tool reaches Loom threads by default">
+    Two layers decide what a Loom agent is offered.
+
+    **On the server**, a tool call is allowed or refused by the capabilities on the thread's credential. Loom threads hold the `pull-requests` capability, which is all the nine new tools ask for; the write tools also need a live run owned by the caller. That is why these nine would work, while the issue tools of card 9 would be listed and refused.
+
+    **On the pi side**, every tool the server lists is registered as reachable through pi's own tool search. The exceptions are a tool the role's profile loads from the first turn, and a tool Loom's withheld list hides. It is a deny list: anything new that upstream registers is offered to Loom threads until someone withholds it. Upstream added 23 agent tools this fortnight. Cards 1, 9, 10 and 11 cover the 21 that would otherwise reach a Loom agent, and the other two are already hidden by construction.
+
+    **Who would have the nine loaded.** Four kinds of thread load the PR family from their first turn. Counted since 1 Nov: no role 138, shipper 67, orchestrator 18, free-text roles 113. The free-text roles are reader, writer, handoff-drafter, slack-inbox and final-reviewer. Together that is the "about 340". A thread launched before the deploy keeps its recorded tool list.
+
+    **Upstream's prompt text about these tools.** Upstream also tells pi agents "When pull_request_* tools are listed, use them, not gh" (upstream #31727). The pull keeps that block out of pi's system prompt under every option here; it is carried as a standing ruling, not a question.
+  </Details>
+
+  <ReviewChoice itemId="pr-ci-tools" label="1 · Agent PR and CI tools: withhold all nine" placeholder="To choose another option, Reject and name it: the read-only three, or all nine…" />
+</Card>
+
+<Card
+  id="card-context-meter"
+  eyebrow="2 · COMPOSER CONTEXT METER"
+  heading="Upstream deleted the composer's context ring, its popover and its setting. Keep the meter as a Loom-owned component, or take the deletion?"
+  tone="info"
+  badge="recommend: keep it, Loom-owned"
+  meta={["what you see in the composer", "in the merge now, on the keep side", "overruling later: about an hour"]}
+>
+  **Recommended: keep it as a Loom-owned component.** It is the one place that shows context at a glance and the workstream spend breakdown together. The cost is two Loom files and two marked hunks in composer files that upstream keeps reshaping.
+
+  **Who it touches.** You, in every thread: the small ring in the composer ("24% · 240k/1m"). The popover behind it holds tokens, cost, the Compact button and Loom's spend breakdown (own, subtree, per branch).
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["What upstream deleted", "The ring, its popover, its logic file and the `contextWindowMeterEnabled` setting, in a clean-up of the Labs settings.", "Upstream #33131"],
+      ["Upstream's replacement", "A \"Context window\" row inside the Thread details popover, off by default (Settings → Appearance → Thread details). Compact remains at `/compact` and in the command palette.", "Upstream's tree at the target"],
+      ["What Loom hangs on the meter", "It is on by default, and its popover is the only place the spend breakdown (`LoomContextSpend`) is mounted.", "Loom's tree before the merge"],
+      ["Why the meter is on by default", "An agent set it in the September pull (v0.0.43), because the meter was then the only context display and the only route to Compact on pi. Neither reason holds now.", "The researcher's findings, from that pull's record"],
+      ["What else shows spend", "Per-thread cost on workstream cards and quick facts, under every option. The subtree and per-branch breakdown is only in the popover.", "Runbook §6.1"],
+      ["What else shows context", "Loom's context rail and Context tab: pi threads only, only once opened, and no spend.", "Runbook §6.1"]
+    ]}
+  />
+
+  **Your words on it.** The spend breakdown was built after you wrote, in the Post V2 bug-fixes thread:
+
+  > We used to have the cost breakdown, including cost breakdowns for subthreads. That's all disappeared.
+
+  You have not said where the breakdown should live, so the recommendation rests on it having no other home, not on a stated preference for the composer.
+
+  <Table
+    density="compact"
+    columns={["Option", "What you see or lose"]}
+    rows={[
+      { "tone": "info", "cells": [{ "badge": { "label": "recommended", "tone": "success" }, "md": "**Keep the meter**" }, "It becomes a Loom-owned component and nothing changes in the composer. Its switch moves from the deleted Labs section to Loom's Context diagnostics settings rows; an existing opt-out survives because the setting keeps its key."] },
+      ["**Take upstream's deletion**", "No ring. Context usage takes a click and a setting. The subtree spend breakdown has no home."],
+      ["**Take the deletion and re-home the spend block** in Thread details, with upstream's Context window row on by default", "Context and the spend breakdown are both still there, one click away instead of at a glance. The researcher's note: if you no longer use the popover, this is the cheaper end state."],
+      ["**Rely on the context rail and tab alone**", "Pi threads only, only once opened, no spend breakdown."]
+    ]}
+  />
+
+  **What changes if you accept.** The component moves to `apps/web/src/loom/ContextWindowMeter.tsx` with a small logic file beside it. The setting becomes a Loom-owned field with the same key, and four user docs name the switch's new place.
+
+  **If you change your mind after the merge:** the merge is on the keep side, which is the cheap side. Going from keep to delete later is a deletion, about an hour. The other direction (delete now, want it back later) would mean re-porting the component from pull 15's tree, about half a day, which is why the merge started with keep.
+
+  <ReviewChoice itemId="context-meter" label="2 · Context meter: keep it as a Loom-owned component" placeholder="To choose another option, Reject and name it: take the deletion, re-home the spend block, or rail and tab only…" />
+</Card>
+
+<Card
+  id="card-child-opening"
+  eyebrow="3 · OPENING A LOOM CHILD"
+  heading="A Loom child clicked from inside its parent thread would now open beside the parent, as a tab in the right panel. Take that, or keep today's navigation?"
+  tone="info"
+  badge="recommend: take upstream's"
+  meta={["the one recommended answer that changes a habit", "nothing needed unless you disagree", "overruling later: one to four lines"]}
+>
+  **Recommended: take upstream's behaviour.** The usual ways into a child do not change, and one setting reverses it.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["What upstream did", "Subagent threads open beside their parent, as a tab in the right panel with its own composer. A Loom child is such a thread.", "Upstream #39515"],
+      ["The two places it applies", "A plain click on a child in Thread details' lineage list, and a click on the parent's \"a child needs your input\" item. Web and desktop only; the phone is unchanged.", "Runbook §6.5"],
+      ["What still navigates as today", "The sidebar badge, the workstream panel, control cards and `t3-thread://` chips.", "Runbook §6.5"],
+      ["The ways out", "⌘-click navigates. Settings → Chat → \"Open subagents and side chats in\" switches the default.", "Upstream's settings at the target"],
+      ["How often you open a child from those two places", "**Not measured.** The researcher could not count it. If it is a habit, the third option below costs one line.", "The researcher's findings"]
+    ]}
+  />
+
+  <Table
+    density="compact"
+    columns={["Option", "What you see or lose"]}
+    rows={[
+      { "tone": "info", "cells": [{ "badge": { "label": "recommended", "tone": "success" }, "md": "**Take upstream's**" }, "From those two places a child opens beside its orchestrator, with a composer. A plain click there no longer navigates."] },
+      ["**Exempt Loom children**", "Today's navigation for Loom children; the panel for other side threads. Four marked lines to carry at every pull."],
+      ["**Make \"main view\" Loom's default**", "Today's navigation for every side thread: Loom children, side chats and provider subagents. One marked line."]
+    ]}
+  />
+
+  **If you change your mind after the merge:** one to four marked lines, or flip the setting yourself in the meantime.
+
+  <ReviewChoice itemId="child-opening" label="3 · Opening a Loom child: take upstream's, beside its parent" placeholder="To choose another option, Reject and name it: exempt Loom children, or default to main view…" />
+</Card>
+
+<Card
+  id="card-sender-note"
+  eyebrow="4 · UPSTREAM'S SENDER NOTE"
+  heading="Upstream now prefixes its own 'sent by an agent, not the user' note to agent-sent messages. Loom already labels every message by author. Keep Loom's labels only, switch to upstream's, or run both?"
+  tone="info"
+  badge="recommend: keep Loom's labels only"
+  meta={["what agents read on a message", "in the merge now", "overruling later: minutes to run both"]}
+>
+  **Recommended: keep Loom's labels and skip upstream's note.** It is the only answer that changes no text an agent reads, and Loom's labels already name every case upstream's note names.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["Upstream's note", "`[T3 Code: the agent in T3 thread \"…\" sent this message, not the user.]`, with scheduled-task and MCP-tool variants. Only on messages that did not come from the human.", "Upstream #39306"],
+      ["Loom's labels", "`[From your parent orchestrator (an agent)]`, `[Scheduled-task prompt, written earlier by the human]`, `[From the human]` in a child thread, and so on. The addendum every Loom agent gets tells it to weigh a message by that first line.", "Loom's tree before the merge"],
+      ["What happens with no action", "Both run. Upstream's two call sites merged without a conflict, so nothing flags it.", "Runbook §4.3"]
+    ]}
+  />
+
+  A scheduled-task fire on a pi root, with both running:
+
+  <Code
+    language="text"
+    wrap
+    code={"[Scheduled-task prompt, written earlier by the human]\n\n[T3 Code: scheduled task \"…\" sent this prompt, not the user typing in this chat.]\n\n(the prompt)\n"}
+  />
+
+  <Table
+    density="compact"
+    columns={["Option", "What your agents read"]}
+    rows={[
+      { "tone": "info", "cells": [{ "badge": { "label": "recommended", "tone": "success" }, "md": "**Keep Loom's labels only**" }, "Exactly what they read today. Upstream's note is skipped."] },
+      ["**Take upstream's note and delete Loom's labels**", "Every role file and the addendum lose the anchor they are written around, and a human's message in a child thread is no longer labelled at all, because upstream labels only non-human senders."],
+      ["**Run both**", "Two author lines, one above the other, on every agent-sent, scheduled and tool-sent message."]
+    ]}
+  />
+
+  **What changes if you accept.** Two marked call sites pass the text through unchanged, and one Loom test checks that a scheduled fire carries one label.
+
+  **If you change your mind after the merge:** running both is two call sites, minutes. Replacing Loom's labels with upstream's note is a fleet-wide prompt change with evals whenever it is done; it is not merge work.
+
+  <ReviewChoice itemId="sender-note" label="4 · Sender note: keep Loom's labels only" placeholder="To choose another option, Reject and name it: upstream's note in place of Loom's labels, or both…" />
+</Card>
+
+<Card
+  id="card-usage-last-good"
+  eyebrow="5 · USAGE HUB"
+  heading="Loom and upstream each now carry an account's last good usage reading forward when a read is refused, under different rules, and both are in the merged tree. Which rule runs?"
+  tone="info"
+  badge="recommend: Loom's rule only"
+  meta={["Usage → Limits and the subscription meter", "in the merge now", "overruling later: one function, one call"]}
+>
+  **Recommended: Loom's rule only, plus upstream's identity check.** Upstream's rule does less (no age limit, no notion of being signed out), and running both is a visible regression.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["Loom's rule", "Carries the last good reading for up to 30 minutes when Anthropic refuses the read. Never for a signed-out login. Never stale bars for the one-year token seat. Takes a fresher reading from the hub's traffic headers when there is one.", "Loom's `cliproxyApi.ts`"],
+      ["Upstream's rule", "Hands back the previous reading with no age limit, as long as the endpoint, auth file, driver, email and workspace match. It has no notion of sign-in.", "Upstream #38397"],
+      ["The seat this bites on", "The cockpit has one one-year token seat (`lifetimeDays: 365` in its hub logins file).", "The cockpit's hub logins file"],
+      ["One new line under the recommended answer", "When that seat has had no traffic for 30 minutes, Usage → Limits shows \"cannot read its usage, and the hub has seen no traffic for 30 minutes\". It is true and it is one line. It comes from upstream's new per-account failure notice, which the pull takes.", "Upstream #36939; runbook §6.4"]
+    ]}
+  />
+
+  <Table
+    density="compact"
+    columns={["Option", "What you see on Usage → Limits and the meter"]}
+    rows={[
+      { "tone": "info", "cells": [{ "badge": { "label": "recommended", "tone": "success" }, "md": "**Loom's rule only**" }, "As today, plus the one new line above. With upstream's identity check added, a reused auth-file name can no longer show the previous login's bars."] },
+      ["**Both**", "A signed-out account keeps its old bars and a healthy look, so \"Signed out, log in again\" never appears in the meter, the composer banner or Usage → Limits. The one-year seat shows bars hours old. An outage longer than 30 minutes stays invisible."],
+      ["**Upstream's only, with two Loom guards**", "Bars hold indefinitely under refusals, so there is no 30-minute outage signal. A browser login loses the windows its traffic headers lack (Loom's own comment names the Fable weekly window)."]
+    ]}
+  />
+
+  **If you change your mind after the merge:** small, one function and one call.
+
+  <ReviewChoice itemId="usage-last-good" label="5 · Usage hub: Loom's last-good-reading rule only" placeholder="To choose another option, Reject and name it: both, or upstream's with two Loom guards…" />
+</Card>
+
+<Card
+  id="card-diff-highlight"
+  eyebrow="6 · DIFF CHANGED-WORD HIGHLIGHT"
+  heading="Changed words inside a modified diff line: keep Loom's solid block, or take upstream's faint tint?"
+  tone="info"
+  badge="recommend: keep Loom's solid block"
+  meta={["Diff panel, PR code tab, whole-file view, MDX diffs", "in the merge now", "overruling later: two CSS values"]}
+>
+  **Recommended: keep Loom's.** The runbook's reason: Loom #307 was a deliberate change to the surface agent work is reviewed on. Upstream's version is a contrast-setting nicety, not a disagreement about the look.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["Loom's look", "A solid block, GitHub-style: a 55% colour mix in light mode, 45% in dark.", "Loom #307"],
+      ["Upstream's look", "A faint tint over the row: 15% in light mode, 20% in dark, and it follows the appearance contrast slider. Upstream fixed the same underlying bug Loom #307 fixed.", "Upstream #28947"],
+      ["What a plain merge does", "Upstream declares its tint where it overrides Loom's, so Loom's look would be gone with no conflict to flag it.", "The researcher's findings"],
+      ["What keeping Loom's costs", "That one colour no longer follows the contrast slider.", "Runbook §8.1"]
+    ]}
+  />
+
+  <Table
+    density="compact"
+    columns={["Option", "What you see"]}
+    rows={[
+      { "tone": "info", "cells": [{ "badge": { "label": "recommended", "tone": "success" }, "md": "**Keep Loom's**" }, "As today in the Diff panel, the PR code tab, the whole-file comparison and MDX diff blocks."] },
+      ["**Take upstream's**", "The faint tint returns, as before Loom #307, and follows the contrast setting."]
+    ]}
+  />
+
+  **If you change your mind after the merge:** two CSS values.
+
+  <ReviewChoice itemId="diff-highlight" label="6 · Diff highlight: keep Loom's solid block" placeholder="To take upstream's faint tint instead, Reject and say so…" />
+</Card>
+
+<Card
+  id="card-phone-file-paths"
+  eyebrow="7 · PHONE: RELATIVE FILE PATHS"
+  heading="On the phone, tapping a relative file path in a chat: Loom and upstream each built a lookup into the same function in the same week. Run both, or pick one?"
+  tone="info"
+  badge="recommend: run both, Loom's first"
+  meta={["phone app only", "in the merge now", "overruling later: about 15 lines"]}
+>
+  **Recommended: run both, Loom's first.** Nothing is lost, and paths only upstream can resolve start opening too.
+
+  **Who it touches.** You, on the phone, tapping a path an agent wrote relative to somewhere other than the project root. The researcher rates that common in a monorepo with subfolder projects and in agent worktrees.
+
+  <Table
+    density="compact"
+    columns={["Option", "What you see or lose"]}
+    rows={[
+      { "tone": "info", "cells": [{ "badge": { "label": "recommended", "tone": "success" }, "md": "**Run both, Loom's first**" }, "Loom's \"Looking for…\" toast, its check of the folders the message names and \"File not found\" in place, as today. Paths only upstream resolves (a sibling project's file, a checkout the agent `cd`'d into) now open too."] },
+      ["**Upstream's only**", "Loses the toast, the in-place not-found message and matching against folders the message names. Removes about 280 Loom lines. The runbook suggests revisiting this in a later clean-up."],
+      ["**Loom's only**", "Loses upstream's wider search (the thread's project, then other projects, then the agent's working directories), and conflicts again at every pull."]
+    ]}
+  />
+
+  **If you change your mind after the merge:** about 15 lines in one file. No agent can check this one on this host (it has no phone emulator), so the proof is your own phone after you install the rebuilt app.
+
+  <ReviewChoice itemId="phone-file-paths" label="7 · Phone file paths: run both lookups, Loom's first" placeholder="To choose another option, Reject and name it: upstream's only, or Loom's only…" />
+</Card>
+
+## 3. Six that are housekeeping
+
+Nothing you use day to day changes under any sensible answer to these. Card 8 is the one with a deadline: nothing commits or ships after the merge until it is applied.
+
+<Card
+  id="card-translation-lint"
+  eyebrow="8 · TRANSLATION LINT"
+  heading="Upstream's new lint rule rejects any plain English UI string, and Loom's own files fail it 1,096 times. Exclude Loom's files and stay English, or wrap and translate everything?"
+  tone="neutral"
+  badge="recommend: English-only, excluded"
+  meta={["no visible change either way", "waits for you before the web-side integration work", "gates every commit until applied"]}
+>
+  **Recommended: Loom's own files stay English and are excluded from the rule, and a Loom string inside an upstream component is wrapped like its neighbours.** It is the only option that costs nothing at every future pull, and a translated Loom UI has no reader today.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["What upstream did", "Translated web, mobile and the desktop shell into nine languages. English stays the default, so you see no language change; Settings gains a Language picker.", "Upstream #37893"],
+      ["The gate", "A lint rule, `t3code/no-untranslated-copy`, at error. `vp check` runs it, so it gates `pnpm ship`, and the pre-commit hook lints staged files.", "Upstream's root `vite.config.ts`"],
+      ["Loom's failures", "**1,096 in 121** Loom-only files: 530 in `apps/web/src/loom/`, 275 in the dev-only preview fixtures, 242 in other web files, 25 on mobile, 24 in the shared client package. Plus 42 to 44 Loom lines inside 19 upstream files. Upstream's own 2,893 files: 0.", "An exact run of upstream's rule over Loom's tree"],
+      ["Until it is settled", "Every agent commit or ship that touches a Loom surface fails after the merge.", "Runbook §5.1"],
+      ["What translating would cost", "About 1,100 call sites now. After that, every Loom PR with UI text regenerates twenty catalogue files of 0.3 to 1 MB each, which upstream edits in nearly every UI PR, so they conflict at every pull. The translations themselves (about 1,000 strings in nine languages) would still have to be written by hand.", "The researcher's findings"]
+    ]}
+  />
+
+  <Table
+    density="compact"
+    columns={["Option", "What it means"]}
+    rows={[
+      { "tone": "info", "cells": [{ "badge": { "label": "recommended", "tone": "success" }, "md": "**English-only, excluded**" }, "No visible change. A non-English user would see upstream's surfaces translated and Loom's in English. Nothing extra in future Loom PRs."] },
+      ["**Wrap and translate every Loom string**", "Days of work now, catalogue churn in every Loom PR with UI text, and catalogue conflicts at every pull."],
+      ["**Turn the rule off**", "Not workable: upstream's 78 suppression comments for the rule would then fail the unused-suppression check."]
+    ]}
+  />
+
+  **What changes if you accept.** One marked block of eleven path patterns in the root `vite.config.ts`, and about 42 one-token wraps of Loom strings that sit inside upstream components. Upstream's catalogues are taken as they are at every pull. An upstream bullet that merged itself into Loom's `AGENTS.md` (translate every new key into every locale) is deleted, because it contradicts this answer. The Loom sentence that replaces it is a follow-up PR, since it is text agents read.
+
+  **If you change your mind after the merge:** removing the exclusion is one block, and then the wrap-everything job is due in full.
+
+  <Details summary="The exclusion block, as it would be written">
+    <Code
+      filename="vite.config.ts (root), inside the rule's excludeFiles"
+      language="ts"
+      wrap
+      code={"// loom: Loom's own surfaces are English-only (runbook 41 §5.1); upstream's strings stay gated.\n\"apps/web/src/loom/**\",\n\"apps/web/src/preview/**\",\n\"apps/web/src/components/files/mdx-plan/**\",\n\"apps/web/src/components/files/AbsoluteDirectoryPanel.tsx\",\n\"apps/web/src/components/Workstream*.tsx\",\n\"apps/web/src/components/GoalTasksPanel.tsx\",\n\"apps/web/src/components/chat/Staged*.tsx\",\n\"apps/web/src/lib/workstreamPresentation.ts\",\n\"apps/web/src/threadRouteLineage.ts\",\n\"packages/client-runtime/src/state/loom/**\",\n\"**/*.loom.{ts,tsx}\",\n"}
+    />
+
+    Every one of these paths is absent from upstream, so the patterns never exempt an upstream file, and together they cover all 121 Loom-only files the rule flags.
+  </Details>
+
+  <ReviewChoice itemId="translation-lint" label="8 · Translation lint: Loom's files stay English, excluded" placeholder="To wrap and translate everything instead, Reject and say so…" />
+</Card>
+
+<Card
+  id="card-issue-tools"
+  eyebrow="9 · AGENT ISSUE TOOLS"
+  heading="Upstream's new Issues page comes with eight agent tools. Withhold them from Loom agents, or expose them?"
+  tone="neutral"
+  badge="recommend: withhold"
+  meta={["agents' tool lists", "waits for you before agents' tool lists are written", "overruling later: one line"]}
+>
+  **Recommended: withhold now, and decide exposure as a follow-up with the read-and-link subset in mind.** You still get the Issues page and linked issues in the UI either way; they do not depend on these tools.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["The eight tools", "`list_issues`, `read_issue`, `create_issue`, `comment_on_issue`, `set_issue_state`, `link_issue`, `unlink_issue`, `list_thread_issues`.", "Upstream #19270"],
+      ["With no action", "They are listed to every Loom thread and every call fails, because Loom threads do not hold the capability the tools ask for.", "Runbook §4.1"],
+      ["What exposing would allow", "`create_issue` on the Loom project files straight into the public `QuinRiva/loom` repository, past the `report-loom-issue` skill's leak guard, labels and duplicate check.", "The researcher's findings"],
+      ["Why exposure cannot ride in this pull", "It needs a new capability phrase in Loom's tool prose, and the runbook's rule is that nothing an agent reads changes inside a pull.", "Runbook §8.1"]
+    ]}
+  />
+
+  **If you change your mind after the merge:** one line in `families.ts`, plus the prose and an eval if the answer is to expose. The subset the runbook has in mind for later is `read_issue`, `link_issue` and `list_thread_issues`.
+
+  <ReviewChoice itemId="issue-tools" label="9 · Agent issue tools: withhold" placeholder="To expose them (all, or read and link only), Reject and say which…" />
+</Card>
+
+<Card
+  id="card-feedback-tool"
+  eyebrow="10 · AGENT FEEDBACK TOOL"
+  heading="Upstream's `t3_feedback` tool lets an agent report T3 Code problems to the T3 team. Withhold it from Loom agents and leave the mode off?"
+  tone="neutral"
+  badge="recommend: withhold, leave off"
+  meta={["agents' tool lists", "waits for you before agents' tool lists are written", "overruling later: one line"]}
+>
+  **Recommended: withhold it and leave the mode off.** A Loom problem goes through the `report-loom-issue` skill, and a report about a fork is no use to upstream's maintainers.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["Where a report goes", "To the T3 team's analytics endpoint, `ingest.t3.codes`, not to you. Telemetry is on in the cockpit.", "Upstream #35871; the cockpit server's environment"],
+      ["What a report carries", "The kind and subject (any tool name, Loom's `workstream_*` included); up to 300 characters each of expected, actual and workaround, scrubbed of paths, secrets and emails; an outline of the last turns (who spoke, which tools ran, no text); and the conversation text, up to 16 KB, only if ticked on the approval card.", "The researcher's findings"],
+      ["The switch", "Off by default (Settings → Labs → Agent feedback). While it is off the tool is hidden.", "Upstream's settings at the target"],
+      ["If it stays listed and the switch is ever turned on", "The tool shows to Loom agents but refuses them, because it needs a capability Loom threads do not hold. A `t3 feedback` command run from a shell would still send a report.", "Runbook §8.1"]
+    ]}
+  />
+
+  **If you change your mind after the merge:** one line.
+
+  <ReviewChoice itemId="feedback-tool" label="10 · Agent feedback tool: withhold, leave the mode off" placeholder="To leave it listed, Reject and say so…" />
+</Card>
+
+<Card
+  id="card-theme-send-tools"
+  eyebrow="11 · THEME TOOLS AND SEND_TO_USER"
+  heading="Upstream lets an agent read and set the app's theme, and adds `send_to_user`. Withhold all three from Loom agents?"
+  tone="neutral"
+  badge="recommend: withhold all three"
+  meta={["agents' tool lists", "waits for you before agents' tool lists are written", "overruling later: one line each"]}
+>
+  **Recommended: withhold all three.** No Loom workflow needs them, and you still theme the app from Settings.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["The theme tools", "`t3_theme_read` and `t3_theme_set`: an agent reads and sets the app's theme colours and CSS.", "Upstream #35247"],
+      ["`send_to_user`", "A workaround for a Claude behaviour (summarising what it wrote before a tool call) that pi does not have.", "Upstream #36384"],
+      ["With no action", "`t3_theme_read` and `send_to_user` work for Loom agents; `t3_theme_set` is listed and refused.", "Runbook §4.1"],
+      ["What exposing would mean", "An agent could restyle the app mid-session. It needs new Loom prose, which cannot ride in this pull.", "Runbook §8.1"]
+    ]}
+  />
+
+  **If you change your mind after the merge:** one line each.
+
+  <ReviewChoice itemId="theme-send-tools" label="11 · Theme tools and send_to_user: withhold all three" placeholder="To expose any of the three, Reject and name them…" />
+</Card>
+
+<Card
+  id="card-pi-resume-folder"
+  eyebrow="12 · PI RESUME IN A NEW FOLDER"
+  heading="When a thread's worktree was moved or re-made, Loom resumes the same Pi session file through a private patch to pi. Upstream now copies the session into the new folder with pi's own `--fork`. Take upstream's?"
+  tone="neutral"
+  badge="recommend: take upstream's"
+  meta={["rare: 0 of 1,050 pi threads in a fortnight", "in the merge now", "overruling later: about an hour"]}
+>
+  **Recommended: take upstream's and drop Loom's line.** It removes a dependency on a private pi patch for a case that did not occur once in a fortnight.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["The case", "A thread's worktree was moved, or reaped and re-made, so the folder recorded in its Pi session differs from the thread's folder.", "Runbook §6.3"],
+      ["How often", "Of 1,050 pi threads active since 8 Nov, **none** hit it.", "Live cockpit database, read-only, 22 Nov"],
+      ["Loom's way", "The same session file, resumed in the new folder through Loom's private pi patch (patch 0001).", "Loom's tree before the merge"],
+      ["Upstream's way", "Copies the session into the new folder with stock `pi --fork`: full history, and a new session file on that first resume. `$PI_SESSION_FILE`, the context views and consults follow the new file; the old file stays on disk.", "Upstream #36586"]
+    ]}
+  />
+
+  <Table
+    density="compact"
+    columns={["Option", "What it means"]}
+    rows={[
+      { "tone": "info", "cells": [{ "badge": { "label": "recommended", "tone": "success" }, "md": "**Take upstream's**" }, "Same history after a moved worktree, in a new session file. Loom's pi patch 0001 is then unused and retired at the next platform update."] },
+      ["**Keep Loom's override**", "The same session file is kept. The private patch stays."],
+      ["**Both**", "Upstream forks first, so Loom's line does nothing."]
+    ]}
+  />
+
+  **If you change your mind after the merge:** one marked line in the Pi adapter and Loom's override back in three recorded test transcripts, about an hour.
+
+  <ReviewChoice itemId="pi-resume-folder" label="12 · Pi resume in a new folder: take upstream's fork" placeholder="To keep Loom's override instead, Reject and say so…" />
+</Card>
+
+<Card
+  id="card-multi-repo"
+  eyebrow="13 · MULTI-REPOSITORY PROJECTS"
+  heading="A project can now cover several Git repositories, and no cockpit project qualifies. Leave the feature reachable although Loom's extras do not support it, hide it, or do the Loom work now?"
+  tone="neutral"
+  badge="recommend: leave it reachable"
+  meta={["nothing you use triggers it", "nothing needed unless you disagree", "overruling later: nothing now"]}
+>
+  **Recommended: leave it reachable.** Nothing you use triggers it, and hiding it costs marked lines at every pull to suppress a feature nobody has hit.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["What switches it on", "A project with repositories inside its folder, a folder added in Settings → Projects → Repositories, a `.code-workspace` file or a worktree layout setting. Every live cockpit project was walked: none qualifies.", "Upstream #35925; live cockpit database"],
+      ["The only visible change today", "An empty Repositories section in Settings → Projects.", "Runbook §6.6"],
+      ["What would stay single-folder on such a project", "Four Loom extras: pi is not told about the other folders; Loom review and authorship cover only the thread's folder; start-of-run baselines cover only the root; and the setup-state file is not written when the project folder is not itself a repository, so agents would read \"no setup configured\".", "The researcher's findings"]
+    ]}
+  />
+
+  <Table
+    density="compact"
+    columns={["Option", "What you see or lose"]}
+    rows={[
+      { "tone": "info", "cells": [{ "badge": { "label": "recommended", "tone": "success" }, "md": "**Leave it reachable**" }, "Nothing changes for today's projects, and Loom's extras stay single-folder on a project that does qualify. The follow-up is the folder list in pi's prompt."] },
+      ["**Hide the entry points**", "Loses upstream's Repositories settings, its `.code-workspace` offers and the `--track` flag. Marked lines to carry at every pull."],
+      ["**Do the Loom work now**", "Large, and the pi part is prompt text, which cannot ride in a pull."]
+    ]}
+  />
+
+  <ReviewChoice itemId="multi-repo" label="13 · Multi-repository projects: leave reachable" placeholder="To choose another option, Reject and name it: hide the entry points, or do the Loom work now…" />
+</Card>
+
+## 4. Two that need the host
+
+Both are actions only you can take or authorise, because this host is also the live cockpit. Neither is run unless you say so. The runbook's order is the deploy of `main` first, then Node.
+
+<Card
+  id="card-node-upgrade"
+  eyebrow="14 · NODE 26.13.1 ON THIS HOST"
+  heading="Upstream moved to Node 26.13.1, and this host is also the live cockpit. Upgrade it before the full test-and-build run, download it and activate at deploy, or stay on 26.12.1?"
+  tone="warning"
+  badge="recommend: upgrade before the full run"
+  meta={["host action: one command", "waits for your word before the full test-and-build run", "reversible with n 26.12.1"]}
+>
+  **Recommended: upgrade before the full test-and-build run.** It is one reversible command, and it puts the tests and the deploy build on the Node that upstream tests and ships on.
+
+  **What the orchestrator can do for you.** The upgrade is one command, `n 26.13.1`, and it is not run without your word. Accept on this card is that word: the orchestrator then runs it just before the full test-and-build run. To have it sooner, or to run it yourself, say so in the note.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["What the command moves", "Node here is managed by `n` (active: 26.12.1). The deploy config, the cockpit service and the Slack bridge service all take Node from it, so `n 26.13.1` moves tests and builds at once, and the live cockpit, the Slack bridge and agent shells at their next restart.", "Runbook §5.3"],
+      ["What differs in 26.13.1", "Its SQLite stores one JSON pattern differently (a sub-query result passed into `json_set` is stored as a string). Upstream fixed its own migration 026 for it.", "Upstream #34576"],
+      ["Loom's exposure", "Loom's migration 1066 has that pattern twice. It already ran on the cockpit on 27 Oct, so the live database is unaffected. It gets the same one-line fix under every option, for fresh and dev databases.", "Runbook §5.3"],
+      ["What enforces the version", "Nothing. The repo does not refuse 26.12.1.", "Runbook §5.3"],
+      ["Precedent", "Pull 13 did the same: \"Upgrade the host now, the VM at deploy\". Host and VM are now one machine.", "Runbook §8.1, citing pull 13"]
+    ]}
+  />
+
+  <Table
+    density="compact"
+    columns={["Option", "What it means"]}
+    rows={[
+      { "tone": "info", "cells": [{ "badge": { "label": "recommended", "tone": "success" }, "md": "**Upgrade before the full run**" }, "One command, reversible with `n 26.12.1`. The full run and the deploy build are on upstream's Node; live services follow at their next restart."] },
+      ["**Download only, activate at deploy**", "Live services stay on 26.12.1 until the deploy. Every command of the full run needs an `n exec` prefix."],
+      ["**Stay on 26.12.1**", "Works today. The full run then tests a runtime upstream no longer runs."]
+    ]}
+  />
+
+  **If you change your mind later:** no cost; `n 26.12.1` puts it back.
+
+  <ReviewChoice itemId="node-upgrade" label="14 · Node 26.13.1: upgrade this host before the full run" placeholder="Accept is your word to run n 26.13.1 before the full run. To choose another option, Reject and name it…" />
+</Card>
+
+<Card
+  id="card-deploy-main-first"
+  eyebrow="15 · DEPLOY MAIN FIRST"
+  heading="The cockpit runs the build from before inline diff editing (#590) and Query author on any line (#591). Deploy `main` on its own before this pull lands, or let both ride with the pull's deploy?"
+  tone="warning"
+  badge="recommend: deploy main first"
+  meta={["host action: one deploy", "waits for your word before the PR is merged", "no cost to decide either way"]}
+>
+  **Recommended: deploy `main` first.** The pull 16 deploy is then upstream-only, a rollback returns to a build that has both features, and a regression is easier to attribute.
+
+  **What the orchestrator can do for you.** It runs `loom-deploy deploy` and follows it with `loom-deploy status`, but only when you name the moment, because a deploy restarts Loom under every running thread. Accept here settles the order; write "now" in the note, or tell the orchestrator later, to start it. The choice ends when the pull's PR merges, because from then on `main` is the pull.
+
+  <Table
+    density="compact"
+    columns={["Fact", "The literal value", "Where it comes from"]}
+    rows={[
+      ["What the cockpit runs", "Release `20261120-015646-6be88bb`, which is Loom #589.", "The cockpit's release store, 22 Nov"],
+      ["What `main` adds", "#590 (typing into the whole-file comparison) and #591 (Query author on any line): 43 files, no migration.", "Runbook, deploy notes"],
+      ["What a deploy does to running work", "Loom restarts under the command, so running turns are interrupted and resume afterwards, the threads doing this merge included. The moment is yours to pick.", "Not in the runbook's row; `deploy/README.md`"]
+    ]}
+  />
+
+  <Table
+    density="compact"
+    columns={["Option", "What it means"]}
+    rows={[
+      { "tone": "info", "cells": [{ "badge": { "label": "recommended", "tone": "success" }, "md": "**Deploy `main` first**" }, "Two deploys. The second is upstream-only, and `loom-deploy back` from it returns to a build with #590 and #591."] },
+      ["**Let them ride with the pull**", "One deploy fewer. A rollback loses both features along with the pull, and a regression is harder to attribute."]
+    ]}
+  />
+
+  <ReviewChoice itemId="deploy-main-first" label="15 · Deploy main (#590, #591) before the pull lands" placeholder="Accept settles the order; write now to start the deploy. To let both ride with the pull, Reject and say so…" />
+</Card>
+
+## 5. What the recommended answers defer, and what the pull changes whichever way you rule
+
+Five of the recommendations park something for after the pull. None needs an answer now.
+
+<Table
+  density="compact"
+  columns={["From card", "Deferred to a follow-up", "Why it cannot ride in the pull"]}
+  rows={[
+    ["1", "Expose the three read-only PR and CI tools (`pull_request_read`, `pull_request_list`, `ci_logs`) to shipper and orchestrator roles.", "It changes agents' tool lists, so it wants an eval."],
+    ["9", "Issue tools for agents, read and link only, and whether Loom bug filing stays on `report-loom-issue` alone.", "New tool prose and an eval."],
+    ["8", "One sentence in Loom's `AGENTS.md` saying Loom's own UI text stays English.", "Text agents read, so its own PR."],
+    ["13", "Tell pi about a multi-repository project's other folders.", "Prompt text."],
+    ["7", "Revisit keeping only upstream's phone lookup.", "Worth doing once upstream's is seen to cover Loom's cases."]
+  ]}
+/>
+
+<Details summary="What you will see change on deploy whichever way you rule (the pull's own changes, none of them a question)">
+  Under the recommended answers, what stays as today is the context ring and its spend popover, the solid changed-word highlight, your agents' tool lists and the author line they read. The rest of the pull arrives regardless:
+
+  - **Long threads open 2 to 10 times faster**; the thread list shows while the connection opens, and a reconnect resumes without downloading the list again.
+  - **Sidebar rows show the machine name** on their second line instead of the git branch (the branch moves to the hover card), and gain linked-issue chips.
+  - **An Issues page** for the project's GitHub repository, with issues linked to threads, and an Issues tab on the phone.
+  - **Plan mode is gone** (the Build/Plan toggle, `/plan`, `/default`). Loom's plans and `/handoff`, `/retro` are unaffected.
+  - **Tool-call visibility moves** from Labs to Settings → Chat → Activity.
+  - **Reply** on an assistant message, **@-mention a model** in the composer, and quotes in sent messages shown as inset cards.
+  - **Chat markdown renders through a new engine**: smoother scroll and streaming.
+  - **Cmd+F in the Diff panel** uses the viewer's own find; a PR link in chat opens the PR panel at the comment, line, checks or commits it names.
+  - **No more "copied" toasts**; snoozed threads stop sending completion notifications.
+  - **A stopped pi run no longer offers Resume**; pi resumes are faster.
+  - **Loom children settle when their parent settles**, not after five idle days. About five settle on the first sweep.
+  - **One-time scheduled tasks remove themselves** after they run. The cockpit's "Deploy redesign: readings…" task is due 24 Nov 23:00 UTC and fires on whichever build is live then.
+  - **On the host:** 28 upstream migrations run on first boot, estimated at 20 to 90 seconds of extra downtime (a measurement replaces the estimate before the ship). The database grows about 200 MB. The phone app is rebuilt from scratch, and you install it from the in-app notice.
+
+  The full list is in `docs/upstream-sync/41-cadence-pull-16-20261122/00-headline.md`, and the table these fifteen cards come from is in `docs/upstream-sync/41-cadence-pull-16-20261122/08-pre-rulings.md`.
+</Details>
+
+## 6. One answer for the whole batch
+
+If the recommendations are right as they stand, this is the only thing to click. If you ruled differently on some cards, pick the second option so the two do not contradict.
+
+<QuestionForm
+  questions={[
+    {
+      "id": "all-as-recommended",
+      "title": "Take the recommended answer on all fifteen?",
+      "subtitle": "Each card above carries the runbook's recommendation. Under them nothing you have today is taken away, and one click behaves differently: a child thread clicked from inside its parent opens beside it. The two host actions are Node 26.13.1 and a deploy of main.",
+      "mode": "single",
+      "options": [
+        { "id": "all", "label": "Yes, all fifteen as recommended", "recommended": true, "detail": "Agents' tools and message labels stay as today, the context meter stays, and Loom's files stay English. The orchestrator upgrades Node just before the full test-and-build run, and deploys main when you name the moment." },
+        { "id": "except", "label": "As recommended, except the cards I marked Reject or Discuss", "detail": "Every card you left untouched takes its recommendation." }
+      ]
+    }
+  ]}
+/>
