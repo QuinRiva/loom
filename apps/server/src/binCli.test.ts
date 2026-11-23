@@ -11,7 +11,8 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { migrationManifest, runMigrations } from "./persistence/Migrations.ts";
+import { migrationManifest } from "./persistence/Migrations.ts";
+import { runAllMigrations } from "./persistence/LoomMigrations.ts"; // loom:
 import {
   makePersistedServerRuntimeState,
   persistServerRuntimeState,
@@ -25,7 +26,7 @@ it.live("keeps migration warnings out of JSON thread output", () =>
     yield* fs.makeDirectory(stateDir);
     yield* Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
+      yield* runAllMigrations(); // loom: a Loom home carries both ledgers
       const futureId = Math.max(...migrationManifest.map(([id]) => id)) + 1;
       yield* sql`
         INSERT INTO effect_sql_migrations (migration_id, name)

@@ -51,9 +51,15 @@ const listedPaths = (command: Command.Command.Any, path: string): ReadonlyArray<
   ),
 ];
 
+// loom: Loom's own commands are not upstream's feedback subjects; their reports go to report-loom-issue.
+const isLoomCommand = (path: string) =>
+  /^t3 (goal|loom-migrate)( |$)/.test(path) || path === "t3 doctor reclaim-tool-images";
+
 it("feedback subjects name every listed t3 command", () => {
   expect([...T3_CLI_COMMANDS].sort()).toEqual(
-    [...listedPaths(makeCli({ cloudEnabled: true }), "t3")].sort(),
+    [...listedPaths(makeCli({ cloudEnabled: true }), "t3")]
+      .filter((path) => !isLoomCommand(path)) // loom
+      .sort(),
   );
 });
 

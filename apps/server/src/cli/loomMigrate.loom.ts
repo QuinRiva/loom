@@ -198,11 +198,18 @@ const SHARED_ROWS: Record<string, (ids: string) => string> = {
 };
 
 const NO_SELECTION: Selection = { threads: "()", goals: "()" };
+// Upstream's item counts, kept by triggers on the rows they count: importing those rows rebuilds them.
+const TRIGGER_MAINTAINED_TABLES = [
+  "orchestration_v2_projection_turn_item_counts",
+  "orchestration_v2_projection_thread_item_counts",
+];
+
 const movedTables = (schema: SliceSchema) =>
   schema.tables
     .map((table) => table.name)
     .filter(
       (name) =>
+        !TRIGGER_MAINTAINED_TABLES.includes(name) &&
         !schema.cleared.has(name) &&
         !schema.virtualTables.includes(name) &&
         selectionWhere(name, schema.threadIdNullable.get(name), "main", NO_SELECTION) !== null,

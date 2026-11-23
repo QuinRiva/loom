@@ -27,6 +27,9 @@ export const layerIdAllocator = Layer.unwrap(
     const rows = yield* sql<{ readonly threadId: string }>`
       SELECT thread_id AS "threadId" FROM orchestration_v2_projection_threads
       WHERE thread_id LIKE 'thread:provider:%'
+        -- loom: Loom's legacy derived ids are digests: 'thread:' and 32 hex
+        OR (length(thread_id) = 39 AND thread_id LIKE 'thread:%'
+          AND NOT substr(thread_id, 8) GLOB '*[^0-9a-f]*')
     `.pipe(
       Effect.catch((cause) =>
         Effect.logWarning("orchestration-v2.legacy-subagent-thread-ids-unavailable", {
