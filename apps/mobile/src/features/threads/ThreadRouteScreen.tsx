@@ -121,6 +121,7 @@ import {
   threadRouteOpensDraft,
 } from "./thread-route-hydration";
 import { ThreadHeader } from "./ThreadHeader";
+import { useWorkstreamEntry } from "../workstream/WorkstreamBreadcrumb.loom"; // loom: workstream view
 import { resumeThread } from "./resume-thread";
 import {
   useAndroidWorkspaceBack,
@@ -377,6 +378,11 @@ function ThreadRouteContent(
     selectedEnvironmentConnection,
   } = useThreadSelection();
   useRememberThreadProject(selectedThreadProject);
+  // loom: workstream view — the header's workstream action and the breadcrumb under it.
+  const workstream = useWorkstreamEntry(
+    selectedThread?.environmentId ?? null,
+    selectedThread?.id ?? null,
+  );
   const canOperateThread = useEnvironmentScope(
     selectedThread?.environmentId ?? null,
     AuthOrchestrationOperateScope,
@@ -1048,6 +1054,7 @@ function ThreadRouteContent(
                 inspectorMode={inspectorMode}
                 onOpenFilesInspector={handleOpenFilesInspector}
                 onReturnToThread={props.onReturnToThread}
+                workstream={workstream} // loom: workstream view
               />
             )
           }

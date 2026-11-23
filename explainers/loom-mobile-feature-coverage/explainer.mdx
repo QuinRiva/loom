@@ -1,0 +1,146 @@
+---
+kicker: "Explainer · Loom mobile app feature coverage · checked against main"
+reader:
+  who: Carl, Loom's maintainer, about to install Loom's own Android build
+  knows: every Loom feature from daily use on web; not the code layout or which pieces reached mobile
+  after_first_screen: "On my phone I'll see which threads need me, who wrote each message, and search everything; I won't have the workstream or goal panels, the cost views, or properly rendered plans, and a Needs-you flag won't buzz my phone."
+---
+
+# On your phone, Loom is a status board and a chat, not a cockpit
+
+The phone app is upstream's mobile app with a thin Loom layer on top: about 620 changed lines in 19 files, against more than a hundred Loom-only files on web. <Sidenote>`git diff fa31b66bbb HEAD --stat -- apps/mobile` (fa31b66bbb is the upstream commit Loom last merged).</Sidenote> That layer covers three things: **the thread list tells you when a thread needs you**, **the chat tells you who wrote each message**, and **search finds everything**. Everything that steers a workstream (the workstream and goal panels, task trees, marking a child done, cost views, document comments) is web only.
+
+<Columns columns={3}>
+  <Card heading="You'll have" tone="success" badge="on mobile">
+    Loom flags on thread rows (Needs you, Accept?, Yielded, Error). A sub-thread count on each root. Labels on kickoff briefs, orchestrator steers and control-plane notices. Search across briefs, reports, goals, sub-threads and archived threads. Agent questions, with how long they have waited. Failing hub logins on the Usage page.
+  </Card>
+  <Card heading="Partly" tone="warning" badge="degraded">
+    Control-plane digests show as long raw text, not compact cards. MDX plans and recaps open, but their blocks (tables, cards, callouts) are lost or show as raw tag text. Loom's default questions (the ones the agent carries on past) show inside the thread but not on the list. The sub-thread count can't be tapped.
+  </Card>
+  <Card heading="You won't have" tone="risk" badge="web only">
+    Workstream panel, goal tasks panel, goal create and rename. Sub-threads in the list. Live consult cards. Handoff receipts. Comments and queries on documents. Cost views, spend, the context-window panel, the usage meter. `/handoff` and `/retro`. Push alerts for Needs you or Accept?.
+  </Card>
+</Columns>
+
+<Callout tone="warning" title="The one gap that changes how you use it">
+A **Needs you** or **Accept?** flag never sends a push alert, and neither does an agent's question when the agent carries on without waiting for the answer (Loom's default). The phone shows the flag when you open the app; it won't come to you. Push alerts are upstream's, they need a T3 Connect sign-in, and they cover finished, failed, approval and blocking-question events only.
+</Callout>
+
+Everything the agents do on the server (spawning, routing, review gates, scheduled tasks) keeps running whichever client you use. Replying in a thread from the phone clears its Needs-you or Accept? flag, exactly as on web. <Sidenote>`apps/server/src/orchestration-v2/Orchestrator.loom.ts:350`: a human's turn or steer clears the thread's flags.</Sidenote>
+
+How to read the tables below: **Full** means it works as on web, **Partly** says what is missing, **Missing** says what you see instead. In the Checked column, **code** means I traced it in the source and **inferred** means I reasoned from the code but did not run the app on a device. Upstream features both clients share (projects, chat, diffs, pull requests, terminal, snooze, scheduled tasks, side chats, thread links, upstream's daily usage chart, push alerts for upstream states) are not listed.
+
+## 1. Thread list and search
+
+<Table
+  density="compact"
+  columns={["Loom feature", "On your phone", "What you see", "Checked"]}
+  rows={[
+    ["Flag replaces the upstream status on a row", { badge: { label: "Full", tone: "success" } }, "Rows read **Needs you**, **Accept?**, **Yielded** or **Error** instead of Waiting or Ready, in web's colours. A flagged thread stays out of the Working group.", "code"],
+    ["Waiting question shown on the row", { badge: { label: "Partly", tone: "warning" } }, "A question the agent waits on shows its topic and age (\"Scope · 3m\"). A question the agent carried on past shows nothing on the row; see section 4.", "code"],
+    ["Sub-thread count on a root", { badge: { label: "Partly", tone: "warning" } }, "`3/5 · 2!` (settled of total, then how many need you). Tapping it does nothing: web's popover listing the flagged children isn't there.", "code"],
+    ["Sub-threads listed under their root", { badge: { label: "Missing", tone: "risk" } }, "Only roots appear. You reach a sub-thread by tapping a thread link in the parent's chat (inferred).", "code"],
+    ["Search over briefs, reports, goals, sub-threads and archived threads", { badge: { label: "Full", tone: "success" } }, "Home and sidebar search show labelled excerpts (\"Sub-thread: Review · Report: …\") and archived roots. A sub-thread hit opens its root.", "code"],
+    ["Cache-warmth ring and spend on rows", { badge: { label: "Missing", tone: "risk" } }, "Nothing; the row has no ring.", "code"],
+  ]}
+/>
+
+## 2. Workstreams and goals
+
+<Table
+  density="compact"
+  columns={["Loom feature", "On your phone", "What you see", "Checked"]}
+  rows={[
+    { tone: "risk", cells: ["Workstream panel (board, graph, history; mark done, clear flags, stop, open report)", { badge: { label: "Missing", tone: "risk" } }, "No entry point. To clear a flag, reply in the thread; to accept or stop a child, say so to the orchestrator in chat.", "code"] },
+    { tone: "risk", cells: ["Goal tasks panel, goal create and rename, a goal's threads", { badge: { label: "Missing", tone: "risk" } }, "No entry point; nothing on the phone shows goals or tasks.", "code"] },
+    ["Link from a sub-thread back to its parent", { badge: { label: "Missing", tone: "risk" } }, "A sub-thread opens as an ordinary thread with a normal composer and no breadcrumb.", "inferred"],
+    ["Launch offer and brief preview on a held, not-yet-started child", { badge: { label: "Missing", tone: "risk" } }, "An empty conversation.", "inferred"],
+    ["Reports", { badge: { label: "Partly", tone: "warning" } }, "The hand-back summary arrives in the parent's chat as a labelled message. The report file sits outside the project folder, so the phone's file browser can't open it.", "inferred"],
+    ["Live consult cards", { badge: { label: "Missing", tone: "risk" } }, "Probably just the tool call as a generic work-log entry.", "code · inferred"],
+  ]}
+/>
+
+## 3. Inside a thread: the chat
+
+<Table
+  density="compact"
+  columns={["Loom feature", "On your phone", "What you see", "Checked"]}
+  rows={[
+    ["Who wrote a message", { badge: { label: "Full", tone: "success" } }, "Kickoff briefs, orchestrator steers, thread notifications and control-plane notices carry a label (\"Kickoff brief\", \"Orchestrator\", \"Control plane\") and a tint, so they don't look like yours.", "code"],
+    ["Control-plane digests and notices as compact cards", { badge: { label: "Partly", tone: "warning" } }, "The label and tint, then the notice's raw text in the bubble. Web collapses it into a short card (\"Digest: 3 finished\", \"Rework round\").", "code"],
+    ["Handoff receipts (\"continued in …\") and promoted-query rows", { badge: { label: "Missing", tone: "risk" } }, "Nothing in the timeline.", "code"],
+    ["Model-change divider", { badge: { label: "Missing", tone: "risk" } }, "Nothing.", "code"],
+    ["File chips for absolute paths outside the project", { badge: { label: "Missing", tone: "risk" } }, "Upstream turns a backticked path inside the project into a tappable link. A path outside it, such as a report under the T3 home folder, stays plain code text.", "inferred"],
+  ]}
+/>
+
+## 4. Agent questions
+
+Loom now lets an agent ask and carry on without waiting (the default), or ask and stop until you answer. The phone treats the two differently.
+
+<Table
+  density="compact"
+  columns={["Loom feature", "On your phone", "What you see", "Checked"]}
+  rows={[
+    ["A question the agent stops for", { badge: { label: "Partly", tone: "warning" } }, "Upstream's question card above the composer, with Loom's \"Asked 3h ago\". The **Recommended** badge on an option is missing.", "code"],
+    { tone: "warning", cells: ["A question the agent carried on past (web's open-questions rail)", { badge: { label: "Partly", tone: "warning" } }, "Inside the thread, the same card shows the oldest pending question, one at a time. Web lists them all with the stopped-for ones first. The thread list shows nothing and no push arrives, so you only find it by opening the thread.", "code"] },
+  ]}
+/>
+
+## 5. Plans, recaps and other documents
+
+<Table
+  density="compact"
+  columns={["Loom feature", "On your phone", "What you see", "Checked"]}
+  rows={[
+    [".md files open rendered", { badge: { label: "Full", tone: "success" } }, "Markdown files open in the rendered view by default (a Loom change; upstream opens source).", "code"],
+    { tone: "warning", cells: ["MDX plans, recaps and explainers", { badge: { label: "Partly", tone: "warning" } }, "Prose, headings, lists and plain markdown tables read fine; the frontmatter is hidden. The renderer strips component tags it recognises, and a block whose content sits in its attributes (tables, cards, stats, diagrams) is either lost or shows as raw text such as `<Table columns={[…`.", "inferred"] },
+    ["Comments, Query and decision capture on a document", { badge: { label: "Missing", tone: "risk" } }, "No annotation layer; a question form or review choice is never rendered as a form.", "code"],
+    ["Loom's change marks and review baseline on diffs", { badge: { label: "Missing", tone: "risk" } }, "Upstream's diff review, without Loom's change ruler or baseline chip.", "code"],
+  ]}
+/>
+
+The tag-stripping is in the phone's markdown preprocessor. <Sidenote>`apps/mobile/src/lib/markdownDocument.ts`, `htmlTagMarkdown`: any tag other than a link, image, `<summary>`, `<br>`, `<p>`, `<div>` or `<details>` becomes an empty string.</Sidenote> Exactly how a given plan looks has not been tried on a device.
+
+## 6. Usage and cost
+
+<Table
+  density="compact"
+  columns={["Loom feature", "On your phone", "What you see", "Checked"]}
+  rows={[
+    ["pi as its own usage provider", { badge: { label: "Full", tone: "success" } }, "pi listed first on the Usage page, in its own colour.", "code"],
+    ["Hub login health (failing, dead or due logins)", { badge: { label: "Partly", tone: "warning" } }, "A red alert box of text lines at the top of Usage. No **Log in…** button and no reminder above the composer.", "code"],
+    ["Always-on usage meter in the header", { badge: { label: "Missing", tone: "risk" } }, "Nothing; open the Usage page instead.", "code"],
+    ["Top threads by cost, per-thread and per-workstream spend", { badge: { label: "Missing", tone: "risk" } }, "Upstream's daily cost and token chart only.", "code"],
+    ["Context-window panel and cache-warmth ring", { badge: { label: "Missing", tone: "risk" } }, "Nothing.", "code"],
+  ]}
+/>
+
+## 7. Alerts, toasts and composer commands
+
+<Table
+  density="compact"
+  columns={["Loom feature", "On your phone", "What you see", "Checked"]}
+  rows={[
+    { tone: "risk", cells: ["Push alert when a thread is flagged Needs you or Accept?", { badge: { label: "Missing", tone: "risk" } }, "No alert. The server's alert feed ignores Loom's flag events; you may get upstream's generic \"finished\" alert when the agent's turn ends.", "code (flag) · inferred (finished alert)"] },
+    ["Deploy and handoff toasts", { badge: { label: "Missing", tone: "risk" } }, "Nothing.", "code"],
+    ["`/handoff` and `/retro`", { badge: { label: "Missing", tone: "risk" } }, "The phone has no intercept, so the text is sent to the agent as an ordinary message and no handoff drafter starts. What the agent then does with it is untested.", "code · inferred"],
+    ["Thread tabs", { badge: { label: "Missing", tone: "risk" } }, "The phone's own navigation (home list, back stack).", "code"],
+  ]}
+/>
+
+<Callout tone="info" title="Push alerts need T3 Connect">
+Upstream's mobile guide says background alerts need a T3 Connect sign-in with the environment linked, and that a direct or Tailscale connection alone gives no push. <Sidenote>`docs/user/mobile-notifications.md`.</Sidenote> Whether a self-built Loom APK can receive them at all is a question for the install thread; if it can't, the phone shows state only while the app is open.
+</Callout>
+
+## 8. What this means for you
+
+- **Use the phone to watch and to reply.** The thread list's flags plus the sub-thread count tell you which root to open; replying there clears its flag.
+- **Open the app to find work; it won't come to you.** Flags and carried-past questions don't push. Check the list rather than waiting for a buzz.
+- **Read plans and recaps on web.** On the phone, anything built from blocks (tables, cards, stats) is lost or garbled; plain prose is fine.
+- **Accepting, closing out or restructuring a workstream** (mark done, stop, goal edits) has no button on the phone: say it to the orchestrator in chat, or wait for web.
+
+## 9. Open edges
+
+- Nothing here was run on a device, because no simulator or phone was available. A short session on the installed APK would settle the **inferred** rows: open an MDX plan from a chat link, open a sub-thread from a thread link, and type `/handoff` into a pi thread.
+- The phone last gained Loom features in pull 13 and the mobile workstream-state change after it. Nothing Loom added on web since has been brought across; the open-questions rail is the most recent.

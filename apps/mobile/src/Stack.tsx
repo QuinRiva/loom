@@ -156,6 +156,9 @@ import { deriveLayout } from "./lib/layout";
 import { useNativeLayoutMetrics } from "./native/native-layout-metrics";
 import { isPresentedRoute } from "./native/workspace-stack-projection";
 import { workspaceDetailRouter } from "./features/layout/workspace/workspace-detail-selection";
+// loom: the workstream screen and its long-press sheet (plans/mobile-workstream-view).
+import { WorkstreamScreen } from "./features/workstream/WorkstreamScreen.loom";
+import { WorkstreamNodeSheet } from "./features/workstream/WorkstreamNodeSheet.loom";
 
 const settingsPage = () => pageRoute({ itemStyle: "standard" });
 
@@ -804,6 +807,16 @@ const RootStackConfig = createWorkspaceStackNavigator({
     ThreadGuestShare: createNativeStackScreen({
       screen: ThreadGuestShareSheet,
       options: sheetRoute({ detent: 0.5 }),
+    }),
+    // loom: the workstream screen and its node sheet, which closes when a child opens from it.
+    Workstream: createNativeStackScreen({
+      screen: WorkstreamScreen,
+      linking: `${THREAD_LINKING_PREFIX}/workstream`,
+      options: pageRoute(),
+    }),
+    WorkstreamNode: createNativeStackScreen({
+      screen: WorkstreamNodeSheet,
+      options: sheetRoute({ detent: 0.5, androidMaxDetent: 0.9, header: "none" }),
     }),
     GitOverview: createNativeStackScreen({
       screen: GitOverviewSheet,

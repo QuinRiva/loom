@@ -20,6 +20,7 @@ import { WorkspaceTabsContext, useWorkspaceTabs } from "./WorkspaceTabsContext";
 import { WorkspaceTabPanes } from "./WorkspaceTabPanes";
 import { WorkspaceThreadSidebar } from "./WorkspaceThreadSidebar";
 import { WorkspaceAppBarScope } from "../../../components/ui/WorkspaceAppBar.android";
+import { WorkstreamSidebarPane } from "../../workstream/WorkstreamSidebarPane.loom"; // loom: the unfolded workstream pane
 
 /** The Home route in the sidebar column: the selected tab's list. */
 export function AndroidWorkspaceSidebar() {
@@ -88,6 +89,10 @@ export function AndroidWorkspaceSidebar() {
           )
         }
       />
+      {/* loom: the workstream covers the threads tab's column, bar included, while its route is on the stack. */}
+      {workspace.state.selectedTab === "threads" ? (
+        <WorkstreamSidebarPane bottomClearance={bottomClearance} />
+      ) : null}
     </WorkspaceAppBarScope>
   );
 }

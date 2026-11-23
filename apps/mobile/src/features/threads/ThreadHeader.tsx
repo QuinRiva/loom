@@ -13,6 +13,11 @@ import {
   useThreadGitMenuDefinition,
   type ThreadGitControlsProps,
 } from "./ThreadGitControls";
+import {
+  WorkstreamBreadcrumb,
+  workstreamAppBarAction,
+  type WorkstreamEntry,
+} from "../workstream/WorkstreamBreadcrumb.loom"; // loom: workstream view
 
 export function ThreadHeader(props: {
   readonly title: string;
@@ -23,6 +28,7 @@ export function ThreadHeader(props: {
   readonly hasThreadCwd: boolean;
   readonly inspectorMode: ThreadInspectorMode | null;
   readonly onOpenFilesInspector: () => void;
+  readonly workstream?: WorkstreamEntry | null; // loom: workstream view
 }) {
   const gt = useGT();
   const m = useMessages();
@@ -44,26 +50,31 @@ export function ThreadHeader(props: {
         },
       ]
     : [];
+  if (props.workstream) actions.push(workstreamAppBarAction(props.workstream)); // loom: workstream view
   const menus = [gitMenu, terminalMenu].filter((menu): menu is AppBarMenu => menu !== null);
 
   return (
-    <AppBar
-      title={props.title}
-      subtitle={props.subtitle}
-      onBackToList={goBack}
-      onCompose={props.draft ? undefined : startNewTask}
-      backInSplitView={
-        props.onReturnToThread
-          ? {
-              accessibilityLabel: gt("Return to chat"),
-              icon: "chevron.left",
-              onPress: props.onReturnToThread,
-            }
-          : undefined
-      }
-      actions={actions}
-      menus={menus}
-      hideBottomBorder
-    />
+    <>
+      <AppBar
+        title={props.title}
+        subtitle={props.subtitle}
+        onBackToList={goBack}
+        onCompose={props.draft ? undefined : startNewTask}
+        backInSplitView={
+          props.onReturnToThread
+            ? {
+                accessibilityLabel: gt("Return to chat"),
+                icon: "chevron.left",
+                onPress: props.onReturnToThread,
+              }
+            : undefined
+        }
+        actions={actions}
+        menus={menus}
+        hideBottomBorder
+      />
+      {/* loom: workstream view */}
+      <WorkstreamBreadcrumb entry={props.workstream ?? null} />
+    </>
   );
 }

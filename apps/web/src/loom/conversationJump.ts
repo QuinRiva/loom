@@ -12,7 +12,7 @@ import { create } from "zustand";
 
 import type { MessagesTimelineRow } from "../components/chat/MessagesTimeline.logic";
 import type { MessagesTimelineHistoryControls } from "../components/chat/MessagesTimeline";
-import type { ConversationAnchor } from "../lib/workstreamPresentation";
+import type { ConversationAnchor } from "@t3tools/client-runtime/state/loom/workstreamNodes";
 import type { TimelineEntry } from "../session-logic";
 import { isConsultToolItem } from "./consultTool";
 

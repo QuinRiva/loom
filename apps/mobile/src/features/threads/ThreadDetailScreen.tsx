@@ -159,6 +159,7 @@ import {
   pendingThreadMessageJump,
   subscribeThreadMessageJump,
 } from "./threadMessageJump";
+import { useDispatchJump } from "../workstream/dispatchJump.loom"; // loom: workstream view
 import {
   clearThreadComposerError,
   threadComposerErrorsAtom,
@@ -925,6 +926,13 @@ function ThreadDetailBody(
     devicePreviews.length > 0 ||
     browserTabs.tabs.length > 0;
   const selectedThreadFeed = props.selectedThreadFeed;
+  // loom: workstream view — "Show where it was dispatched" opens this thread at the spawn.
+  useDispatchJump(
+    selectedThreadKey,
+    selectedThreadFeed,
+    props.historyControls,
+    contentPresentationKind === "ready",
+  );
   // A palette message result opens the thread at that message: earlier
   // history loads until the message is in the feed, which then scrolls to it.
   const jumpMessageId = useSyncExternalStore(subscribeThreadMessageJump, () =>

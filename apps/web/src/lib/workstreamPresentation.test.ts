@@ -3,113 +3,18 @@ import { EventId, type OrchestrationV2ThreadShell, type ThreadId } from "@t3tool
 import { describe, expect, it } from "vite-plus/test";
 
 import { loomPreviewThreads } from "../preview/loomFixtures";
-import {
-  buildNodeContextMenuItems,
-  buildTimelineRows,
-  buildWorkstreamNodes,
-  describeOutcomeVerdict,
-  getActivity,
-  getGateWaitLabel,
-  getNodeStateWord,
-  wrapLabel,
-} from "./workstreamPresentation";
+import { buildWorkstreamNodes } from "@t3tools/client-runtime/state/loom/workstreamNodes";
+import { buildTimelineRows, getNodeStateWord, wrapLabel } from "./workstreamPresentation";
 
 const T = LOOM_SEED.threads;
 const shells: ReadonlyArray<OrchestrationV2ThreadShell> = Object.values(loomPreviewThreads);
 const nodes = buildWorkstreamNodes(shells);
 const node = (id: ThreadId) => nodes.get(id)!;
 
-const patch = (
-  shell: OrchestrationV2ThreadShell,
-  fields: Partial<NonNullable<OrchestrationV2ThreadShell["workstream"]>>,
-  shellFields: Partial<OrchestrationV2ThreadShell> = {},
-): OrchestrationV2ThreadShell => ({
-  ...shell,
-  ...shellFields,
-  workstream: { ...shell.workstream!, ...fields },
-});
-
-describe("buildWorkstreamNodes", () => {
-  it("derives every plan column from the fixture", () => {
-    expect(node(T.stagedRoot).column).toBe("held");
-    expect(node(T.blocked).column).toBe("blocked");
-    expect(node(T.unbriefed).column).toBe("blocked");
-    expect(nodes.get("seed-thread-ready" as ThreadId)!.column).toBe("ready");
-    expect(node(T.gateCoder).column).toBe("in_progress");
-    expect(node(T.coderDone).column).toBe("done");
-    expect(node(T.cancelledLead).column).toBe("cancelled");
-  });
-
-  it("reads attention as stored ∪ derived, highest first", () => {
-    expect(node(T.quiescent).reasons).toEqual(["awaiting_orchestrator"]);
-    expect(node(T.unbriefed).reasons).toEqual(["brief-needed"]);
-    expect(nodes.get("seed-thread-awaiting-input" as ThreadId)!.reasons).toEqual([]);
-  });
-
-  it("names a waiting question and its age on the card (S4)", () => {
-    expect(getActivity(nodes.get("seed-thread-awaiting-input" as ThreadId)!)).toMatch(
-      /^waiting for your input · Parser · \d+[smhd]$/,
-    );
-  });
-
-  it("an archived unfinished dependency still gates; an archived done one releases", () => {
-    const archivedAt = loomPreviewThreads.root.createdAt;
-    const archivedOpen = patch(loomPreviewThreads.quiescent, {}, { archivedAt });
-    expect(
-      buildWorkstreamNodes([archivedOpen, loomPreviewThreads.blocked]).get(T.blocked)!.column,
-    ).toBe("blocked");
-    const archivedDone = patch(loomPreviewThreads.quiescent, { outcome: "done" }, { archivedAt });
-    expect(
-      buildWorkstreamNodes([archivedDone, loomPreviewThreads.blocked]).get(T.blocked)!.column,
-    ).toBe("ready");
-  });
-});
-
-describe("outcome controls", () => {
-  it("puts accept done and cancel in an open node's menu, reopen in a settled one's, and no release or lane item", () => {
-    const ids = buildNodeContextMenuItems(node(T.quiescent)).map((item) => item.id);
-    expect(ids).toEqual([
-      "open",
-      "dispatch",
-      "history",
-      "report",
-      "outcome:done",
-      "outcome:cancelled",
-      "clear-flags",
-    ]);
-    expect(buildNodeContextMenuItems(node(T.coderDone)).map((item) => item.id)).toContain(
-      "outcome:reopen",
-    );
-  });
-});
-
 describe("the gated pair", () => {
-  it("the coder holds the open rework round; the reviewer waits on it", () => {
-    expect(getGateWaitLabel(node(T.gateCoder), nodes)).toEqual({
-      label: "reworking round 1",
-      word: "reworking ⟲1",
-      active: true,
-    });
-    expect(getGateWaitLabel(node(T.gateReviewer), nodes)).toEqual({
-      label: "waiting on rework",
-      word: "waiting ⟲1",
-      active: false,
-    });
+  it("names each party's leg in its state word", () => {
     expect(getNodeStateWord(node(T.gateCoder), nodes)).toBe("reworking ⟲1");
     expect(getNodeStateWord(node(T.gateReviewer), nodes)).toBe("waiting ⟲1");
-  });
-
-  it("describes verdicts", () => {
-    expect(describeOutcomeVerdict({ outcome: "needs_rework", decision: "loop", round: 1 })).toEqual(
-      {
-        label: "needs rework ⟲1",
-        tone: "warning",
-      },
-    );
-    expect(
-      describeOutcomeVerdict({ outcome: "quiescent", decision: "yield", round: 0 })?.tone,
-    ).toBe("info");
-    expect(describeOutcomeVerdict({ outcome: "done", decision: "terminal", round: 0 })).toBeNull();
   });
 });
 
