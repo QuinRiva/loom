@@ -7,10 +7,14 @@ import { describe, expect, it } from "vite-plus/test";
 import { AttachmentToolkit } from "../attachment/tools.ts";
 import { DeviceStandardToolkit } from "../device/tools.ts";
 import { EnvironmentToolkit } from "../environment/tools.ts";
+import { FeedbackToolkit } from "../feedback/tools.ts";
+import { IssuesToolkit } from "../issues/tools.ts";
+import { MessageToolkit } from "../message/tools.ts";
 import { OrchestratorToolkit } from "../orchestrator/tools.ts";
 import { PreviewStandardToolkit } from "../preview/tools.ts";
 import { ProjectToolkit } from "../project/tools.ts";
 import { PullRequestsToolkit } from "../pullRequests/tools.ts";
+import { ThemeToolkit } from "../theme/tools.ts";
 import { ThreadToolkit } from "../thread/tools.ts";
 import { ToolSearchToolkit } from "../toolSearch/tools.ts";
 import { WorktreeToolkit } from "../worktree/tools.ts";
@@ -109,7 +113,7 @@ describe("Loom tool families", () => {
     expect(PULL_REQUESTS).toContain("mcp__t3-code__link_pull_request");
   });
 
-  it("withholds exactly upstream's orchestration-shaped toolkits, tool search and the PR toolkit beyond its base, and none of preview or device", () => {
+  it("withholds exactly upstream's orchestration-shaped toolkits, tool search, issues, feedback, theme, send_to_user and the PR toolkit beyond its base, and none of preview or device", () => {
     const expected = [
       ...[
         OrchestratorToolkit,
@@ -119,6 +123,10 @@ describe("Loom tool families", () => {
         EnvironmentToolkit,
         WorktreeToolkit,
         ToolSearchToolkit,
+        IssuesToolkit,
+        FeedbackToolkit,
+        ThemeToolkit,
+        MessageToolkit,
       ].flatMap(namesOf),
       ...namesOf(PullRequestsToolkit).filter(
         (name) => !(PULL_REQUESTS as ReadonlyArray<string>).includes(name),
