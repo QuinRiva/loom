@@ -75,8 +75,12 @@ row below, §7, then its zone files. A gate reviewer: its row below.
 Order: S0 → S1 lead opens → S1 lanes 1 to 6 in parallel → S1 lead closes
 (the one merge commit) → Gate 1 (two reviewers) → S2a and S2b in parallel →
 S3 → Gate 2 (four reviewers) → S4, with a review of Gate 2's fixes in
-parallel → shipper. Every session reads §1 first and greps the decision log
-for its files.
+parallel → shipper → the post-deploy session. Every session reads §1 first
+and greps the decision log for its files. Anything a session leaves for after
+the merge is a row in [`follow-ups.md`](follow-ups.md), cited from wherever it
+was found: what it is in words a reader outside the pull can follow, where it
+came from, and what it needs (a check after the deploy, Carl's call, or agent
+work). A session that leaves nothing adds no row.
 
 | Session | Reads | Delivers | Definition of done |
 | --- | --- | --- | --- |
@@ -91,6 +95,7 @@ for its files.
 | Gate 2 ×4: clean-overlap review | §3.2 [`03-sizing.md`](03-sizing.md), §8.3 [`08-pre-rulings.md`](08-pre-rulings.md), Appendix C [`c-silent-overlap.md`](c-silent-overlap.md) (its table says which zones and which files each of 2a to 2d reads first), the "Silently merged files" lists in the zone files; writes `clean-overlap-review.md` | A disposition per file (doc 29's method) for the 172 silently merged files and the named unmarked files | Disposition table per file; every DEFECT fixed before S4 |
 | S4: agent-run smoke (a review of Gate 2's fixes runs in parallel) | §4.5, §6 [`06-seams.md`](06-seams.md), §10; [pull 15's S4 record](../40-cadence-pull-15-20261108/s4-record.md) for the base journeys; writes `s4-record.md` | Pull 15's S4 journeys on a seeded dev-verify instance and on a cockpit copy, plus the journeys below | Passes, or a list of what does not with DL rows; `deploy.md` amended |
 | Shipper | [`deploy.md`](deploy.md) | `pnpm ship --merge-only` on Carl's approval | PR merged, branch deleted. The deploy is Carl's, with `deploy.md` |
+| Post-deploy (a new thread on main; the orchestrator schedules it when the shipper reports the merge: `schedule_task`, `once` for the next morning, `bindToCurrentThread` false, prompt as in "After the merge" in `../README.md`) | [`follow-ups.md`](follow-ups.md), [`deploy.md`](deploy.md); "After the merge" in [`../README.md`](../README.md) | What `deploy.md` says happens at and after the switch, and the check rows, read back from the live install, read-only; an outcome for every row of `follow-ups.md`; a `post-pull` issue for each open item worth acting on; `recaps/pull-16-post-deploy/recap.mdx` for Carl | Every check has a result or a named owner; every row has an outcome; no open item is recorded only in the runbook, a thread or a task tree; Carl has the document |
 
 ### S2b's `/preview` screenshot pass
 
