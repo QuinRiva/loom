@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import {
   deriveProviderThread,
   IdAllocatorV2,
+  isDelegatedTaskThread,
   layer,
 } from "@t3tools/provider-core/server/IdAllocator";
 
@@ -35,9 +36,14 @@ it.effect("derived ids are a bounded, deterministic digest separated by kind", (
       derive.runAttempt({ runId: run, attemptOrdinal: 1 }),
       derive.rootNodeAttempt({ runId: run, attemptOrdinal: 1 }),
       derive.runSignalTurnItem({ runId: run, signal: "interrupt-request" }),
-      derive.delegatedTaskThread({ commandId: CommandId.make(`command:${threadId}`) }),
     ];
     for (const id of chain) assert.isAtMost(id.length, 53);
+    // A delegated child keeps upstream's prefix, which isDelegatedTaskThread reads, over its digest.
+    const delegated = derive.delegatedTaskThread({
+      commandId: CommandId.make(`command:${threadId}`),
+    });
+    assert.match(delegated, /^thread:delegated-task:[0-9a-f]{32}$/);
+    assert.isTrue(isDelegatedTaskThread(delegated));
 
     assert.match(
       yield* allocate.event({
