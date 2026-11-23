@@ -48,7 +48,8 @@ In the order Carl would act:
    answered **52 s** after spawn with the copy out of the page cache and
    **46 s** with it cached; the migrations themselves took 39 s and 27 s,
    most of it 082 (16 s, an index over the turn items) and 081 (1 to 11 s).
-   Every later boot takes 5 to 7 s. During the first boot every client shows
+   Every later boot takes 5 to 7 s. S4's own copy (a fresh `VACUUM INTO`, so
+   cached, at load 3 to 5) ran them in 14 s and listened at 16 s. During the first boot every client shows
    "reconnecting". The deploy's limit is 240 s (`deploy.json`
    `startTimeoutSeconds`), so nothing needs raising; the "checking" trial
    start runs on a slice of the database and does not time the migrations.
@@ -71,7 +72,10 @@ In the order Carl would act:
    settle on the first sweep (§6.5); one-time scheduled tasks delete
    themselves after their run, and the cockpit's "Deploy redesign:
    readings…" task is due **24 Nov 23:00 UTC**, so it fires on whichever
-   build is live then; the Usage page reads 92 days back; three upstream
+   build is live then (S4: the inhibitor needs polkit; where it is refused,
+   as under S4's dev runner, it logs "keep-awake sleep inhibitor stopped …
+   Interactive authentication required" at WARN on each backed-off retry
+   while agents work, which is noise, not a fault); the Usage page reads 92 days back; three upstream
    GitHub workflows become active on the fork at merge (`pr-limits.yml` has a
    daily cron and is dry-run unless a repository variable is set).
 8. **After:** Carl installs the rebuilt APK from the in-app notice.
@@ -86,5 +90,18 @@ In the order Carl would act:
    the thread list. It also warns once that it ignores the `mod+f`
    `preview.find` key binding the new build adds to `keybindings.json`,
    which `back` does not restore; harmless (DL-2325).
-10. **What Carl will notice:** §0's list. S4 confirms it live and amends
-    this file.
+10. **What Carl will notice:** §0's list, confirmed live by S4
+    (`s4-record.md`), plus:
+    - a Loom child clicked in Thread details, or from a root's "Subagent
+      needs input · Open question" banner, opens in the main view, not
+      beside its parent (DL-2412's fallback, DL-2413, DL-2400); a side chat
+      still opens beside;
+    - a `.t3code/links.json` added or changed while the server runs takes
+      effect on the next page load;
+    - pressing Compact on a short thread makes the agent take one
+      unnecessary turn (follow-up 49).
+11. **Steers across the switch (S4, DL-2381).** The switch is a restart. A
+    steer Carl or a parent sends in the seconds before it, to a turn that is
+    running a tool, is the case S4 found delivered twice. If DL-2402 ships,
+    read one such thread after the deploy: no "1 queued · … · Send now" row
+    for a steer the resumed turn already answered.

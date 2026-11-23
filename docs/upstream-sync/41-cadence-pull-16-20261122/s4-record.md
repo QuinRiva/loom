@@ -1,0 +1,94 @@
+## S4 record: agent-run smoke (2026-11-23)
+
+Thread `thread:mcp:445922c4-14d1-4f42-ab48-87eeac338861:workstream-scaffold:ba3cffea-c2c8-4909-8786-5ebdec6eaff0:2`. Started on tree `757992457c`; the fixes that landed during the session are named where a result depends on them (`e66198b5eb` DL-2413, `d91d349a0f` DL-2400, `2166507d4a` DL-2401, `a638336044` DL-2402). Decision rows DL-2380 onward. Screenshots and working notes are in this worktree's gitignored `.artifacts/pull16-s4/`.
+
+- **Seeded instance.** `vp run dev:seed --home-dir .t3/dev-instances/13970`, then `pnpm dev --home-dir .t3 --port 13970` under `n exec 26.13.1` (the host stays on 26.12.1) with every `PI_*`, `T3_*`, `T3CODE_*` and `LOOM_*` variable unset. The cockpit's `settings.json` (minus project auto-pull, guest sharing and project overrides), `keybindings.json`, `hub-logins.json` and the hub's management-key secret were copied in; the default model and every workstream preset were set to Haiku 5.5 (pooled). Every real turn ran on Haiku 5.5 (pooled). To the seed I added a committed `.t3code/links.json` (`ABC-123` pattern), two source files, an image, a PDF, an HTML artefact and a markdown control file.
+- **Cockpit copy.** `sqlite3 -readonly … "VACUUM INTO …"` of the live database (3 min 8 s, 4.99 GB) into `.t3/s4-copy/userdata/`, with `settings.json` and `keybindings.json`. It was served by the production bundle (`pnpm build`, then `env -i … node apps/server/dist/bin.mjs serve --base-dir .t3/s4-copy --port 13987` on Node 26.13.1). The log showed "chosen by --base-dir", migrations finished 14 s after the first log line and the server listened at 16.4 s, at load 3 to 5. The foreign-home guard was engaged. The server was stopped by its PID and the copy deleted.
+- **Browser.** T3's preview tab. Its screenshots lag the page by seconds, so every result below was read from the DOM, the dev database or the pi session file, with screenshots as illustration only.
+
+### What Carl would see, in one place
+
+| # | Result | What it means for Carl |
+| --- | --- | --- |
+| Item 1 | **Failed, fixed, passes on re-run** | On the merged tree, a Loom child opened from Thread details opened beside its parent. Its MDX report then opened in the parent's panel, and an annotation landed in the **parent's** composer. Carl's DL-2412 fallback was applied (`e66198b5eb`, DL-2413), but it missed the second entry point: the root's "Subagent needs input · … · Open question" banner still opened the child beside it. That was a one-line slip, fixed here (`d91d349a0f`, DL-2400). Both entry points now navigate to the child, and an annotation on its report reaches the child |
+| 9a | **Failing; a fix is under review** | A steer sent seconds before a server restart (a deploy, a crash) reached the resumed turn **and** sat as "1 queued · <steer> · Send now". Carl's next send in that thread released it, and the agent answered it a second time. The first fix (`2166507d4a`) did not cover the common case and failed twice live. The second (`a638336044`, DL-2402) landed while this record was written and has not been re-run here. See "Journey 9" |
+| Others | Pass, or not run with the reason | Below. Nothing else found would stop the ship. Three small things go to `follow-ups.md` (rows 47 to 51) |
+
+### Carl's three rulings, checked live
+
+| Ruling | Result |
+| --- | --- |
+| DL-2410: the nine base PR tools, none of upstream's new PR and CI tools | **Pass.** A new pi root's effective prompt lists 52 public tools. The nine base PR tools are present; there is no `pull_request_read/list/create/update/respond/review/merge`, `ci_logs`, `ci_rerun`, issue, theme, feedback or `send_to_user` tool. The model's own list agreed. The same capture also lists 56 `mcp__t3_code__*` alias tools as "selected". Their declarations are not sent: the first call cost 45,830 tokens with a 100-token prompt, against 45,853 for a cockpit root with 52 tools. But the Context panel counts all 108 as schemas (≈31K, "workstream_spawn" listed twice) (DL-2383, follow-up 48) |
+| DL-2411: the composer context ring stays | **Pass.** The ring ("Context window 4.6% used") opens its popover: window 46k/1m, Spend $0.05 split into this thread and the three children by name, and Compact context. Compact reached pi. See the Compact finding under Journey 4 (`j4-context-ring-popover.png`) |
+| DL-2412: a Loom child opens beside its parent, unless the annotation fails | **The fallback fired** (item 1 above). Loom children now navigate from both entry points. A `/side` side chat still opens beside its thread from Thread details, as upstream ships it |
+
+### The thirteen journeys of §9
+
+| # | Journey | Result |
+| --- | --- | --- |
+| 1 | Tools | **Pass**, tool list as above. A shipper child ("S4 shipper watch", Haiku) called `watch_pull_request` on QuinRiva/loom#592. The call was accepted (`"watching":false,"state":"merged"`; no open PR could be watched without side effects). A once-only scheduled task fired on the pi root at 18:12:17 with exactly one author line: `[Scheduled-task prompt, written earlier by an agent]` |
+| 2 | Sidebar | **Pass.** The root badge read **`4/10 · 2!`**, not the runbook's `4/9 · 1!`: the seed gained a held planner on 11 Nov (`f5ed70f583`), after pull 15. The label read "10 sub-threads, 4 settled, 0 running, 2 blocked, 2 need you", once, on first load (DL-2384). "Plan the migration (needs guidance)" showed "Needs you" in the inbox. A root with unsettled children read "Waiting". The Goal submenu opened by mouse hover (Open goal tasks, Rename goal…). Shift+F10 on the focused row opened the menu with Goal focused, and ArrowRight opened the submenu with "Open goal tasks" focused |
+| 3 | Palette and search (copy) | **Pass.** Cmd+K "results of that trace look weird": the archived root "Handoff: The results of that trace look weird…" was the top hit, labelled Archived. Opening it showed one Syncing state (about 300 ms) and then the thread. A child-report phrase ("first boot on a copy of the cockpit's database fits easily") found "Start next upstream sync pull · Report: …" |
+| 4 | Chat | **Pass.** Bare-name file chips (`loader.ts`, `parser.ts`, `notes.md`, `pic.png`, `sample.pdf`) resolved at once after the turn. `[Add config loader](t3-thread://v1/seed-thread-coder-done)` rendered as Loom's thread mention (a router link whose copy text is the canonical link) in both the user message and the reply. `ABC-123` linked to the configured URL once the page was reloaded: `links.json` was added after the server started, and the config is read per connection by design. `/etc/hostname` in prose stayed as written, as a verified path link. Reply on the assistant message "DONE" showed "Replying to DONE" and sent; the agent quoted it back. Ring, popover and Compact: as above. **Finding (DL-2382, follow-up 49):** Compact on a session too small to compact showed pi's "Nothing to compact" as a Provider error **and** fired Loom's provider-error resume. The thread then got "Your previous turn was cut off by a provider error…", and the agent ran a turn (6.5 s). Pull 15 saw only the failure row |
+| 5 | Children | Plain click on a Loom child in Thread details **navigates** (DL-2412's fallback, so the runbook's "opens as a right-panel tab" no longer applies). The root's attention card for a `needs_guidance` child also navigates. A coder child had no `ask_user_question` until a human wrote in it (by design). It then asked a blocking question, and the root showed "Subagent needs input · S4 blocking asker · Open question" in its banner, while its sidebar row read "Waiting 2/3" with no `!`: banner only. ⌘/Ctrl-click on a side chat row gave no observable result in the headless tab (inconclusive; upstream behaviour) |
+| 6 | Right panel, v16 layout | **Not run live.** The preview browser has no layout saved by the current cockpit build (v16), and hand-writing one would only repeat S2b's throwaway test (DL-2283). Check after the deploy on Carl's own browser (follow-up 51) |
+| 7 | Files | **Pass** for the three viewers. The dev root's panel held an HTML artefact (it scrolls itself to paragraph 116 and stamps its load time), `pic.png` and `sample.pdf`. After an agent command, each kept the same DOM node and source: the iframe, the `<img>` and the PDF canvas, so none reloaded. **Pass**, production document viewer: `/document-viewer.html` from the built bundle, driven as the phone does (a `ReactNativeWebView` stub and an `init` message), rendered an `<Image>` block. It requested `/tmp/s4/shots/pic.png`, showed the image and caption, and reported `rendered ok=true` (`j7-document-viewer-image-prod.png`). An MDX annotation and its draft chip: item 1. The review count was not checked separately |
+| 8 | Diff | **Partly run.** The scope menu lists Changes, Uncommitted, Latest turn, Turn, Since your message, Earlier, Repo code, Everything and Commits; Uncommitted lists the changed files. Ctrl+F in the diff opens a Search field inside the diff view. Inline editing in the Files source view: a click placed the caret at the end of line 1, the typed text went in without the view moving, and Ctrl+S wrote the file (item 2). **Not run:** author chips and the author card (the seed's changes have no authored, modified lines), changed words solid, and B.10's full seven steps in the whole-file change view (follow-up 50) |
+| 9 | Pi | **9a, a resume after a restart with a stashed steer: fails pending DL-2402**; see below. Killing pi mid-tool: **pass**, exactly one resume (item 4). A stopped run offers no Resume: **pass** (Stop during `sleep 25` gave "Run interrupted · Stopped by user", with no Resume or Force stop). `/clear`: **pass** ("Your next message starts a fresh session", a New session divider, and the model answered NONE-SEEN when asked for earlier words). Titles through the hub: "Regenerate title" produced "Seed Workstream Fixture Scenarios" with the text-generation model `cliproxy/claude-sonnet-5-5`. Settings → Threads → Text generation model: the Pi tab lists the cliproxy models (Fable 5.2, Opus 5.5, Opus 5, Fable 5, Sonnet 5), and search finds Sonnet 5.5 (pooled). Usage → Limits lists the hub's five accounts under Session, Weekly and Weekly · Fable |
+| 10 | Settlement | **Not run live** (no real PR on a seeded root, as in pull 15). `ThreadSettlementService.test.ts` and `prToolkit.test.ts`: 64/64 on Node 26.13.1 |
+| 11 | Visibility | **Pass** at Hide all and at Zen. Scrolling the whole seeded root found Digest, Brief needed, Deadlock, Stall nudge, Attention, Thread notification, both gate notices and the Yield card. In a child, the consult card ("Consulted · Tool Availability Smoke Test · answered") and the answered question both show |
+| 12 | Title | **Recorded.** There is no default shortcut: `thread.regenerateTitle` is bindable as "Thread: Regenerate Title". The thread menu's "Regenerate title" on the Loom root "Deliver the workstream fixture" retitled it to "Seed Workstream Fixture Scenarios", with no guard (follow-up row 16 stands) |
+| 13 | Mobile | **Not run.** This host has no simulator or emulator. It rests on typecheck, `lint:mobile` and the unit tests, and on Carl's phone after the deploy rebuilds the APK (follow-up row 5) |
+
+### The eleven items the reviews added
+
+| # | Item | Result |
+| --- | --- | --- |
+| 1 | A child's report opened from beside its parent | **Failed on `757992457c`** (`item1-annotation-lands-in-parent.png`). Cause: `FilePreviewPanel`'s `composerDraftTarget` is the panel host's, and `hostRightPanel` hosts a child shown beside its parent in the parent's panel. In that view the child's panel tabs were the parent's (Workstream, Context). **Re-run on `e66198b5eb`:** a plain click on the lineage row navigated to "Add config loader". Its `recap.mdx` opened in the child's own panel ("Comments go to this thread"). "Comment on this block" put the chip in the child's composer, and a sent turn answered LYCHEE. The "Open question" banner still opened the child beside its parent, because `useThreadLifecycle` passed the client shell, which keeps `workstream` under `.source`. Fixed in `d91d349a0f` (DL-2400) and re-run: it navigates. Control: a `/side` side chat still opens beside. Not seen here: the known gap of an idle Loom child the shell leaves out, since the seed has none (follow-up 47) |
+| 2 | Stale `.mdx` preview | **Pass.** The Files panel refreshes on agent activity, not on bare shell writes. A shell append showed neither for the `.mdx` nor for the `.md` control: the same behaviour, upstream's. With an agent writing: after a saved source-view edit of `recap.mdx` (" TWICE", written to disk), the child's agent appended "Agent line DATEPALM.", and both the source and rendered views showed it without a reload. Control: the root's agent appended to `docs/notes.md`, and the panel showed it |
+| 3 | File chips after a turn | **Pass** (journey 4): chips appeared at once after a turn with no @-mention |
+| 4 | Kill pi mid-shell-command | **Pass.** SIGKILL of the root's pi (pid confirmed by its cwd and its `bash -c sleep 45; echo KILLTEST-done` child) gave "Provider error: Pi process exited unexpectedly". Exactly **one** control-plane notice followed ("Your previous turn was cut off by a provider error…", `workstream.liveness.error-resumed`), and upstream's continuation did not also fire. The agent re-ran the command and replied KILLTEST-done |
+| 5 | `transferBudgetV2.integration.test.ts` | **Pass**, 1/1 on Node 26.13.1 |
+| 6 | Open-questions rail | (a) **Not run.** A pi thread raises no non-Loom question for the composer, and the Replay "question" scenario cannot call Loom's tools, so the two cannot coexist on this host (DL-2386). (b) **Pass.** With a non-blocking Loom question open and a command running, I typed "Teal please" into the rail and pressed Stop: "Run interrupted · Stopped by user", the draft kept, and "2 open questions" still showing. Answering afterwards delivered "Teal please" once and the agent took it. The blocking single-choice case (journey 5) landed "Pear" as the tool result |
+| 7 | Model picker | **Pass.** The Pi tab (31 models) holds no hidden model. A slug search for `claude-haiku-4-5-20251001` lists the unhidden carl, carl3 and caaarl variants first, then the hidden "Claude Haiku 4.5 · anthropic" and "(pooled)" last. A name search ("haiku") puts the hidden ones at the tail |
+| 8 | Toasts | **Pass.** No natural action here raised two toasts at once (copy and settle raise none), so three were raised through the app's own `toastManager`. Hovering expanded the stack to "Clear all 3" ("Dismiss all 3 notifications"), and clicking cleared all three (`item8-toasts-clear-all.png`) |
+| 9 | Chat links on real data | **Pass** (journey 4). The thread mention, `ABC-123` and the absolute path were checked on the seeded instance, which holds real turns from this session; the copy's foreign-home guard prevents new turns there |
+| 10 | Settings search and the ring | **Pass.** Search "context" gives "Context meter · Maintenance" first; choosing it opens `/settings/maintenance#loom-context-meter` with the row in view. The ring: journey 4 |
+| 11 | A run-less imported thread forks | **Not reachable from the UI.** On the copy, "Building 002338 Kirana tenant gap" (16 messages, 0 runs) offers no "Fork from this response" on any message and no fork in its thread menu; a thread with runs does offer it. `thread_fork` forks the calling thread, which always has runs. DL-2073's guard is therefore unreachable by a user today (DL-2385) |
+
+### Journey 9a: a steer before a restart (DL-2381)
+
+- **On `d91d349a0f`.** Root "Tool Availability Smoke Test", turn in `sleep 30; echo RESTART-done`, steer GUAVA, `pending-steering/<thread>.json` written, then the server restarted (`touch apps/server/src/bin.ts`). The turn resumed ("T3 Code restarted and resumed this turn") and replied "RESTART-done GUAVA". The pi session holds one GUAVA user message.
+  - At boot, upstream's #39018 (`command:unread-steer:<run>:<message>`) also made run 12 (`queued`, `queueHeld: true`) and moved the steer onto it. The composer showed "1 queued · GUAVA · Send now".
+  - My next Enter released it (the typed KIWI stayed in the composer): "You: GUAVA" at 6:30 PM, and the agent answered GUAVA again.
+- **On `2166507d4a` (DL-2401), still failing.**
+  - Root: steer APRICOT. Pi had written it into its session (07:57:35.753) before the shutdown reconcile (07:57:35.832), so Loom's stash read treated it as delivered, and upstream requeued it (held run 26). The resume answered "R3-done APRICOT". The held copy ran again after my next message ("You: APRICOT" at 7:05 PM; the agent answered it again).
+  - Loom child "Add config loader" (outcome done): steer PLUM. The run was cancelled with no resume, the stash file was gone, and a held PLUM run waited for a press.
+  - Evidence: dev `statev2.sqlite`, `orchestration_events` sequence 2358 to 2372 (child) and 2397 to 2421 (root).
+- **On `a638336044` (DL-2402):** landed while this record was written; **not re-run.** The orchestrator holds S4 for that re-run, of both the root and the finished-child case.
+
+### Also seen, not findings
+
+- The server's keep-awake inhibitor fails under the dev runner with "Failed to inhibit: Interactive authentication required" and logs a WARN each time it retries, with backoff, while agents work (`deploy.md` item 7).
+- The web console logged one React "flushSync was called from inside a lifecycle method".
+- The Files panel shows a cached read for a file whose content changed on disk outside an agent turn, until an agent turn or a reload. This is the same for `.md` and `.mdx`, as upstream ships it.
+- The command guard blocked an agent's foreground `sleep 60`; the agent moved it to `bg_start`. That is the guard working.
+- After a `/clear`, Enter in a composer with a slash-command popup recently closed sometimes did not send on the first press. Not chased.
+- `node --watch` restarts caused by the steer-fix coders' edits showed one "Primary environment request failed during fetch-session-state (HTTP 502)" error page, which a reload cleared. Development only.
+
+### Verdict
+
+**Not yet ship-ready, on one item: journey 9a.** A steer sent just before a restart is delivered twice, and the second fix (`a638336044`, DL-2402) is to be re-run here before Carl is asked. Everything else that gates the ship passed or is recorded as not run, with its reason.
+- The new-root tool list matches Carl's ruling.
+- Loom children navigate from both entry points, and annotations reach the child.
+- Killing pi gives one resume; Stop and `/clear` work.
+- The ring, search, chips, links and visibility hold.
+- The production document viewer renders `<Image>`.
+
+Not exercised live:
+- journey 6's v16 layout (S2b's test);
+- journey 8's author chips and the full inline-editing steps;
+- journey 10's settlement (unit tests);
+- item 6 (a);
+- item 11 (unreachable);
+- mobile.
