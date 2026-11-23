@@ -7,18 +7,23 @@ Nothing here is run by a session of this pull.
 
 In the order Carl would act:
 
-1. **Before this pull lands: deploy `main` on its own** (§8.1, recommended).
-   The cockpit runs `20261120-015646-6be88bb` (#589). `main` adds #590
-   (typing into the whole-file comparison) and #591 (Query author on any
-   line): 43 files, no migration; #591 removes the `loom.review.lineBlame`
-   RPC. Then the pull 16 deploy is upstream-only and `loom-deploy back`
-   returns to a release that has both.
-2. **Before S3: Node 26.13.1 on this host** (§8.1, recommended): `n 26.13.1`
-   (user-level, prefix `~/.n`; `n 26.12.1` reverses it). This host is the
-   cockpit machine, and the deploy config, the cockpit unit and the bridge
-   unit all put `~/.n/bin` first, so the live cockpit and the Slack bridge
-   run on it from their next restart. Nothing enforces the exact version at
-   install or boot.
+1. **`main`'s newer Loom PRs ride with this pull's deploy** (Carl, 23 Nov,
+   DL-2415: "No separate deploy; let them ride with the pull"). The cockpit
+   runs `20261120-015646-6be88bb` (#589). The branch carries #590 (typing
+   into the whole-file comparison), #591 (Query author on any line; it
+   removes the `loom.review.lineBlame` RPC), #592 (bare file names resolve
+   under a folder the message names) and #594 (the final-reviewer role), none
+   with a migration. So `loom-deploy back` from the pull's release returns to
+   a build without those four, and a regression after the deploy may be
+   theirs rather than upstream's.
+2. **Node 26.13.1 is active on this host** (Carl, 23 Nov, DL-2414: "Upgrade
+   the host now"; `N_PREFIX=~/.n n 26.13.1` at 20:24 AEDT, reversed by
+   `n 26.12.1`). The deploy config, the cockpit unit and the bridge unit all
+   put `~/.n/bin` first, so the deploy builds and runs on it; the cockpit and
+   the Slack bridge that were already running stay on 26.12.1 until their
+   next restart, which the deploy is. Nothing enforces the exact version at
+   install or boot. S3's full run and S4 used 26.13.1 through `n exec`
+   before it was activated (DL-2323).
 3. **The build.** Nothing new to install by hand: `vp i` brings Effect 4.1.5
    and the new packages. Two things to watch. Playwright moves to 1.64.1; if
    it wants a Chromium revision other than the two on this host, the
