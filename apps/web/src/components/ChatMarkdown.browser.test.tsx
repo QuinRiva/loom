@@ -591,6 +591,7 @@ describe("ChatMarkdown workspace file opens", () => {
       cwd: "/repo-a",
       threadRef: scratchThread,
     });
+    using _verify = unverifiedChipTargets(); // loom: a click re-verifies its target first
     await act(async () => screen.container.querySelector("a")!.click());
 
     await vi.waitFor(() =>
@@ -657,10 +658,18 @@ describe("ChatMarkdown workspace file opens", () => {
       </>,
     );
     const [cited, otherLink] = screen.container.querySelectorAll("a");
+    // loom: a click re-verifies its target first (unverifiable here), so each open lands a tick later.
+    using _verify = unverifiedChipTargets();
     await act(async () => cited!.click());
-    expect(workspaceSearch).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(workspaceSearch).toHaveBeenCalledOnce()); // loom:
     if (action === "open a link in another panel") {
       await act(async () => otherLink!.click());
+      // loom: the other panel's open lands after its own re-verify.
+      await vi.waitFor(() =>
+        expect(
+          selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, other),
+        ).not.toBeNull(),
+      );
     } else {
       unhost();
     }

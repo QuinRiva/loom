@@ -154,6 +154,11 @@ import { issueTrackerEnvironment } from "../state/issueTrackers";
 import { useEnvironmentQuery } from "../state/query";
 import { readThreadShell, useProjects } from "../state/entities";
 import { useOpenDocumentLink } from "../loom/openDocumentLink"; // loom: document links
+import { useReferenceLinkRules } from "../loom/referenceLinks"; // loom: project reference links
+import {
+  compileReferenceLinks,
+  type ReferenceLinker,
+} from "@t3tools/client-runtime/reference-links"; // loom:
 import { serverEnvironment } from "../state/server";
 import { shellEnvironment } from "../state/shell";
 import { assetEnvironment } from "../state/assets";
@@ -246,6 +251,7 @@ import {
 } from "~/loom/verifiedFileChips";
 // loom: loose path scanning in plain prose and inside fenced code blocks.
 import { decorateCodeBlockPaths, SCANNED_PATH_LINK_CLASS_NAME } from "~/loom/codePathDecorations";
+import { PROSE_FILE_PATH_TAG } from "~/loom/chatPathScan"; // loom: bare path links in prose
 // loom: unanchored inline-code references chip only once a file is confirmed.
 import { isAnchoredFileReference } from "~/loom/unanchoredFileReferences";
 
@@ -1219,8 +1225,7 @@ const CITATION_ENDS_BLOCK = new RegExp(
 
 // loom: an anchor rather than upstream's basename chip so the sentence keeps the path as
 // written, matching the fence decorator. `data-markdown-copy` keeps a copied selection
-// carrying the raw path instead of a `[text](href)` link. Not mounted until the prose-path
-// scan is ported onto the Words renderer (runbook 41 §6.2, S2b).
+// carrying the raw path instead of a `[text](href)` link. `wordsHast` injects the tag.
 function ProseFilePath({
   node,
   children,
@@ -1228,9 +1233,15 @@ function ProseFilePath({
   node?: HastElement | undefined;
   children?: ReactNode;
 }) {
-  const { environmentId, scannedPaths, openScannedPath } = use(ChatMarkdownRendererContext);
+  const { environmentId, scannedPaths, openScannedPath, isStreaming } = use(
+    ChatMarkdownRendererContext,
+  );
   const rawText = plainHastText(node) || nodeToPlainText(children);
-  const meta = useVerifiedScannedPath(environmentId, scannedPaths.resolveMeta(rawText.trim()));
+  // Inert while streaming: a half-written path is not looked up, and the parse is reused once it ends.
+  const meta = useVerifiedScannedPath(
+    environmentId,
+    isStreaming ? null : scannedPaths.resolveMeta(rawText.trim()),
+  );
   if (!meta) return rawText;
   return (
     <a
@@ -2009,8 +2020,13 @@ const CHAT_MARKDOWN_COMPONENTS = {
     );
   },
 } satisfies MarkdownComponents;
+// loom: the prose path scan's custom tag, which `MarkdownComponents` (intrinsic tags only) cannot name.
+Object.assign(CHAT_MARKDOWN_COMPONENTS, { [PROSE_FILE_PATH_TAG]: ProseFilePath });
 
 const markdownOptions = new WeakMap<MarkdownExtensions, Map<string, WordsHastOptions>>();
+// loom: one cache-key id per compiled reference linker (compileReferenceLinks caches by rules).
+const referenceLinkerIds = new WeakMap<ReferenceLinker, number>();
+let nextReferenceLinkerId = 0;
 
 /** One options object per configuration, so equal messages share a renderer and its cache. */
 function wordsOptions(
@@ -2019,7 +2035,10 @@ function wordsOptions(
 ): WordsHastOptions {
   let byFlags = markdownOptions.get(extensions);
   if (!byFlags) markdownOptions.set(extensions, (byFlags = new Map()));
-  const key = `${+flags.math}${+flags.breaks}${+flags.escapeHtml}${+flags.insights}`;
+  const linker = flags.loomReferenceLinks; // loom: reference links and prose paths
+  if (linker && !referenceLinkerIds.has(linker))
+    referenceLinkerIds.set(linker, nextReferenceLinkerId++);
+  const key = `${+flags.math}${+flags.breaks}${+flags.escapeHtml}${+flags.insights}${+!!flags.loomProsePaths}:${linker ? referenceLinkerIds.get(linker) : ""}`;
   let options = byFlags.get(key);
   if (!options) byFlags.set(key, (options = { ...flags, extensions }));
   return options;
@@ -2093,6 +2112,7 @@ function markdownIslandOptions(state: ChatMarkdownComponentState): MarkdownIslan
         case "pre":
         case "details":
         case "table":
+        case PROSE_FILE_PATH_TAG: // loom: bare path links in prose
           return true;
         case "blockquote":
           return GITHUB_ALERT_PRESENTATIONS[String(node.properties.dataAlert ?? "")] !== undefined;
@@ -2199,11 +2219,14 @@ function ChatMarkdown({
   const bindMarkdownRef = (node: HTMLElement | null) => {
     markdownRef.current = node;
   };
+  const referenceLinkRules = useReferenceLinkRules(); // loom: project reference links
   const markdown = wordsOptions(extensions, {
     math: componentState.mathEnabled,
     breaks: lineBreaks,
     escapeHtml: !parseRawHtml,
     insights: renderInsights && text.includes("★ Insight"),
+    loomReferenceLinks: compileReferenceLinks(referenceLinkRules), // loom: project reference links
+    loomProsePaths: true, // loom: bare path links in prose (inert while streaming, in ProseFilePath)
   });
   const blocks = streamingBlocks ?? [text];
 

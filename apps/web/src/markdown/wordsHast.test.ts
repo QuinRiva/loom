@@ -2,6 +2,8 @@ import type { Element, Root } from "hast";
 import { toHtml } from "hast-util-to-html";
 import { describe, expect, it } from "vite-plus/test";
 
+import { compileReferenceLinks } from "@t3tools/client-runtime/reference-links"; // loom:
+
 import {
   codexDirectiveSources,
   markdownReferenceDefinitions,
@@ -276,6 +278,38 @@ describe("wordsHast", () => {
     );
     expect(html).toContain('<code data-inline-code="" dir="ltr">#13</code>');
     expect(html).toContain('src="https://forge.dev/api/attachments/1"');
+  });
+
+  // loom: project reference links (`.t3code/links.json`), split in prose after a change request's own autolinks.
+  it("links project references in prose, not in code or an authored link", () => {
+    const html = wordsHtml("PE-2368 and #305, `PE-1`, [PE-2](https://x.dev) and #12.", {
+      loomReferenceLinks: compileReferenceLinks([
+        { pattern: "\\bPE-\\d+\\b", url: "https://jira.example/browse/$0" },
+        { pattern: "#([1-9]\\d*)\\b", url: "https://gh.example/issues/$1" },
+      ]),
+      extensions: {
+        changeRequest: {
+          repositoryUrl: "https://forge.dev/o/r",
+          autolinks: (text) =>
+            [...text.matchAll(/#12\b/g)].map((match) => ({
+              index: match.index,
+              text: match[0],
+              label: match[0],
+              url: "https://forge.dev/o/r/pull/12",
+              kind: "reference" as const,
+            })),
+        },
+      },
+    });
+    expect(
+      [...html.matchAll(/<a href="([^"]+)"[^>]*>([^<]+)<\/a>/g)].map((m) => `${m[2]} -> ${m[1]}`),
+    ).toEqual([
+      "PE-2368 -> https://jira.example/browse/PE-2368",
+      "#305 -> https://gh.example/issues/305",
+      "PE-2 -> https://x.dev",
+      "#12 -> https://forge.dev/o/r/pull/12",
+    ]);
+    expect(html).toContain('<code data-inline-code="" dir="ltr">PE-1</code>');
   });
 
   it("renders math as SVG, and keeps money as text", () => {

@@ -18,6 +18,8 @@ import {
   sanitizeChatHast,
 } from "@t3tools/shared/markdownHast";
 
+import { splitReferenceLinks, type ReferenceLinker } from "@t3tools/client-runtime/reference-links"; // loom: project reference links
+import { rehypeChatFilePaths } from "../loom/chatPathScan"; // loom: bare path links in prose
 import { rehypeChipPunctuation } from "../components/chat/markdownChipPunctuation";
 import { rehypeHeadingIds } from "../components/chat/markdownFragments";
 import { rehypeTextDirection } from "../components/chat/markdownTextDirection";
@@ -54,6 +56,10 @@ export interface WordsHastOptions {
   /** `★ Insight ───` blocks render as insight callouts. */
   readonly insights: boolean;
   readonly extensions: MarkdownExtensions;
+  // loom: the project's reference links (`.t3code/links.json`, e.g. `ABC-123`), linked in prose.
+  readonly loomReferenceLinks?: ReferenceLinker | null;
+  // loom: bare path text in prose becomes a `t3-file-path` island (`chatPathScan.ts`).
+  readonly loomProsePaths?: boolean;
 }
 
 const CODEX_DIRECTIVES = ["codex-file-citation", "codex-followup", "artifact-template"];
@@ -593,6 +599,16 @@ function linkText(value: string, walk: Walk): ElementContent[] | null {
       if (start < part.value.length) linked.push({ type: "text", value: part.value.slice(start) });
       return linked;
     });
+  }
+  const referenceLinker = walk.options.loomReferenceLinks; // loom: project reference links
+  if (referenceLinker) {
+    parts = parts.flatMap(
+      (part): ElementContent[] =>
+        (part.type === "text" &&
+          splitReferenceLinks(part.value, referenceLinker)?.map(({ text, url }) =>
+            url === undefined ? { type: "text", value: text } : link(url, text),
+          )) || [part],
+    );
   }
   return parts.length === 1 && parts[0]!.type === "text" ? null : parts;
 }
@@ -1141,6 +1157,7 @@ export function wordsHast(text: string, options: WordsHastOptions): Root {
   addHeadingIds(hast);
   addTextDirection(hast as never);
   groupChipPunctuation(hast as never);
+  if (options.loomProsePaths) rehypeChatFilePaths()(hast as never); // loom: after sanitising, which drops the tag
   return hast;
 }
 
