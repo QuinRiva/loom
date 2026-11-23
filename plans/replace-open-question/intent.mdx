@@ -23,8 +23,9 @@ manager_sessions:
 **You'll know it works when.**
 
 - An agent asks a question and says which open question it replaces. The earlier card leaves your open questions at once, on the web and on the phone. The phone shows the oldest open question first, so today it shows the stale one.
-- In the conversation, the earlier question reads as replaced and names its successor. It does not read as unanswered, or as dismissed by you.
+- If the question it names is already answered or dismissed, the new one simply opens and the agent is told so.
 - **Must not:** close a question you have already answered; close a question asked by another thread; remove the earlier question's text from the conversation.
+- **Must not cost:** "are we adding substantial tokens to reduce friction (which is real but rare)". The whole addition to what agents read is one optional field on the question tool, about 35 tokens. No list of open questions is sent to the agent, per turn or per call.
 
 **Approaches in play.**
 
@@ -53,6 +54,16 @@ manager_sessions:
       options: [
         { id: "replace-only", label: "No: an agent can only replace a question with a new one", recommended: true, detail: "Every question that leaves your list has a successor you can answer. Overtaken questions stay until you dismiss them." },
         { id: "withdraw-too", label: "Yes: it can also withdraw one, giving a reason shown in the conversation", detail: "Fewer dead cards, but a question can leave your list without you having seen it." },
+      ],
+    },
+    {
+      id: "replaced-label",
+      title: "Should the conversation mark the earlier question as replaced, naming the one that took its place?",
+      subtitle: "Without it the change is server-only and the earlier question shows as a dismissed one does today. With it, the web and phone conversation views both change.",
+      mode: "single",
+      options: [
+        { id: "no-label", label: "No: it shows as a dismissed question does today", recommended: true, detail: "The smallest build for a rare case. The new question's own text already says what it replaces." },
+        { id: "label", label: "Yes: mark it replaced and name its successor, on web and phone", detail: "Clearer when you read the conversation back later; roughly doubles the build." },
       ],
     },
   ]}
