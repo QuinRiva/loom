@@ -3,7 +3,7 @@ reader:
   who: Carl, who asked for search to be reconsidered and approves this intent before anything is planned or built
   knows: his own search rulings of 1 Oct and 26 Oct and the audit's one-paragraph card; none of the search code, the pull runbooks or their vocabulary
   after_first_screen: whether the goal is what he meant, and what he will be able to type and see that he cannot today
-kicker: "Intent brief · your 23 Nov answers folded in · one question left"
+kicker: "Intent brief · your 23 Nov answers folded in · say go to approve"
 status: draft
 manager_sessions:
   - id: 01a206a6-a5ee-71a1-9ae1-dbe5d36d42bc
@@ -48,7 +48,7 @@ manager_sessions:
 The 92% is generous in two ways. It does not check where the parent ranks, or whether it is among the rows a screen shows. And titles are the easy case: a sub-thread's report tends to repeat them, where words from deep inside its messages would score lower.
 
 <Callout tone="decision" title="What that means for your idea" focus>
-  Filters are worth having, but "include children" as a reading switch looks like the weak version. On these figures a sub-thread's words mostly sit in text search already reads, chiefly its report. What is certainly missing is seeing which sub-thread it was and landing in it. So this brief asks for three switches, sub-thread rows you can open, and a default that leaves archived threads out and stops padding. Your answers of 23 Nov are folded in below. One question is left at the end: whether the documents you read are searched as reports already are.
+  Filters are worth having, but "include children" as a reading switch looks like the weak version. On these figures a sub-thread's words mostly sit in text search already reads, chiefly its report. What is certainly missing is seeing which sub-thread it was and landing in it. So this brief asks for three switches, sub-thread rows you can open, and a default that leaves archived threads out and stops padding. Your answers of 23 Nov are folded in below and nothing is open: say "go", or correct a line.
 </Callout>
 
 <Table
@@ -154,51 +154,17 @@ Where the switches sit. You judge this one by trying it. The pictures are Cmd+K;
 - 23 Nov, on a sub-thread result: "The sub-thread itself, listed under its top-level thread, and choosing it opens the sub-thread". With the switch on, this replaces the 1 Oct line.
 - 23 Nov, on the switches: sub-threads, archived, one project. "I would almost always want to exclude archived threads."
 - 23 Nov, on what search reads with no switch touched: "top-level threads and every report, not sub-threads or archived. If I've archived a thread - that means I have manually identified that thread as low value and something i'm unlikely to ever need to look at, so including it in search results by default seems counterproductive." This replaces "archived included" from 26 Oct. Loom also archives two kinds of helper thread by itself, handoff drafters (91 of the 365 archived top-level threads) and document-query threads; they leave the default list too.
-- 23 Nov, on plans. While you took them to be costly: "Adding plans and reports to the search is probably not that valuable, so it sounds like it's probably not worth doing." Then, told that reports are searched today: "If it's already built than that's great - plans/reports/recaps/intent briefs/explainers should all be treated the same." Reports are built. The other four are not, and that is the question at the end.
+- 23 Nov, on plans. While you took them to be costly: "Adding plans and reports to the search is probably not that valuable, so it sounds like it's probably not worth doing." Then, told that reports are searched today: "If it's already built than that's great - plans/reports/recaps/intent briefs/explainers should all be treated the same." Reports are built and stay. The other four are not, and told what they would cost: "OK - no let's leave out all the mdx docs then."
 - 23 Nov, on where you search: the sidebar search box and Cmd+K.
 - _Assumed:_ the agents' search keeps reading sub-threads and archived threads by default and gains the same switches as parameters; it can already switch archived off. Redirect if wrong.
 - _Assumed:_ a switch lasts while the search box is in use and returns to the default when you clear or close it, so a forgotten one never hides results. The sidebar's project picker keeps its own memory, as today.
 - _Assumed:_ the short-word fix is folded in, as you allowed; it is one condition.
 - _Assumed:_ nothing is built before upstream pull 16 merges. It rewrites the same Cmd+K, sidebar and phone files, and removes nothing this brief relies on.
 
-**Not doing.** Changing how results are ranked, apart from that cut-off. Re-reading or back-filling old threads. Searching tool calls, command output or an agent's messages other than its last of each turn. The find box inside a thread. The title-only pickers (Link to thread on a pull request, a scheduled task's destination, `!` in the composer). A settings page for any of it.
-
-**Question for you.**
-
-<QuestionForm
-  questions={[
-    {
-      id: "documents",
-      title: "Should plans, intent briefs, recaps and explainers be searched as reports are?",
-      subtitle:
-        "Reports cost nothing because Loom's server writes each report itself when a thread hands back, and indexes it then. A plan, brief, recap or explainer is written by the agent straight into the project folder, so the server never sees its text. It does see the thread sign the document, with the file's path (225 documents since 8 Oct). Searching them means reading the file at that moment, one index migration, a new excerpt label, and opening the document from a result on web and phone. My estimate is about as much work again as the three switches. It shares nothing with them, so it can ship separately.",
-      mode: "single",
-      allowOther: true,
-      options: [
-        {
-          id: "later",
-          label: "Yes, as its own piece of work after the switches ship",
-          recommended: true,
-          detail: "The switches and the archived default land sooner; documents follow under this same brief.",
-        },
-        {
-          id: "now",
-          label: "Yes, in the same build as the switches",
-          detail: "One build, roughly twice the size.",
-        },
-        {
-          id: "no",
-          label: "No, leave documents out; reports and messages are enough",
-          detail: "A document is then found only when a message or report repeats its words.",
-        },
-      ],
-    },
-  ]}
-/>
+**Not doing.** Searching plans, intent briefs, recaps and explainers. Changing how results are ranked, apart from that cut-off. Re-reading or back-filling old threads. Searching tool calls, command output or an agent's messages other than its last of each turn. The find box inside a thread. The title-only pickers (Link to thread on a pull request, a scheduled task's destination, `!` in the composer). A settings page for any of it.
 
 **Still unknown.**
 
-- Whether reading a document when its thread signs it is enough. An edit made after signing would be missed unless the file is read again at the thread's later turns. A spike on last month's 225 signed documents settles it, and only matters if you answer yes above.
 
 - How often search fails you, and on which kind of miss. Nothing counts searches. Counting them for two weeks after the first cut settles it: what was typed, on which screen, which switches were on, whether a result was opened.
 - How much reading sub-threads' text adds for words from deep inside them, and whether the right sub-thread then comes first. Neither figure above measures it. A dozen searches written from words that live only inside sub-threads' messages, run through the real search, settle both.
