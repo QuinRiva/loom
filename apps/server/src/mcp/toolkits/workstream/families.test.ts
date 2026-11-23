@@ -86,8 +86,11 @@ describe("Loom tool families", () => {
     expect(registered).toContain("mcp__t3-code__html_preview");
   });
 
-  it("HUMAN_INPUT names only the extension's mcp__t3-code__ask_user_question", () => {
-    expect(HUMAN_INPUT).toEqual(["mcp__t3-code__ask_user_question"]);
+  it("HUMAN_INPUT names only the extension's question tools", () => {
+    expect(HUMAN_INPUT).toEqual([
+      "mcp__t3-code__ask_user_question",
+      "mcp__t3-code__withdraw_question",
+    ]);
   });
 
   it("PULL_REQUESTS pins upstream's nine base PR tools and the rest of that toolkit is withheld", () => {

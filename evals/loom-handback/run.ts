@@ -22,7 +22,10 @@ import {
 } from "../../apps/server/src/mcp/toolkits/workstream/families.ts";
 import { LOOM_TOOL_PROSE } from "../../apps/server/src/mcp/toolkits/workstream/prose.ts";
 import { renderNotifyDisposition } from "../../apps/server/src/mcp/toolkits/workstream/render.ts";
-import { ASK_USER_QUESTION_PARAMETERS } from "../../apps/server/src/provider/Drivers/Pi/loomExtension.ts";
+import {
+  ASK_USER_QUESTION_PARAMETERS,
+  WITHDRAW_QUESTION_PARAMETERS,
+} from "../../apps/server/src/provider/Drivers/Pi/loomExtension.ts";
 import {
   BG_START_PARAMETERS,
   BG_WAIT_PARAMETERS,
@@ -165,6 +168,11 @@ const mcpTools: ReadonlyArray<ToolDef> = [
     name: agentToolName("ask_user_question"),
     description: LOOM_TOOL_PROSE.ask_user_question.description,
     input_schema: ASK_USER_QUESTION_PARAMETERS,
+  },
+  {
+    name: agentToolName("withdraw_question"),
+    description: LOOM_TOOL_PROSE.withdraw_question.description,
+    input_schema: WITHDRAW_QUESTION_PARAMETERS,
   },
 ];
 

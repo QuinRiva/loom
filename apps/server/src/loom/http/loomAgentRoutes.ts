@@ -1,5 +1,5 @@
 /**
- * REST routes beside `/mcp` for Loom's pi extension (session profile, `ask_user_question`, cache
+ * REST routes beside `/mcp` for Loom's pi extension (session profile, the human-input tools, cache
  * warming, gate keep-alive) on the thread's MCP credential, which must carry `workstream`;
  * `loom-deploy`'s `/loom/deploy/restarting` and `/loom/deploy/switch` on an environment bearer; and
  * the phone app's APK download on a signed link alone.
@@ -44,7 +44,11 @@ import { LoomCacheBroadcast } from "../projection/LoomCacheBroadcast.ts";
 import { LoomStoreV2 } from "../projection/LoomStore.ts";
 import { loadRoleOverlay } from "../prompt/roleOverlay.ts";
 import { DOCUMENT_QUERY_CLIENT_LABEL } from "../query/queryPosture.ts";
-import { ASK_COULD_NOT_PRESENT, openAskUserQuestion } from "../userInput/askUserQuestion.ts";
+import {
+  ASK_COULD_NOT_PRESENT,
+  openAskUserQuestion,
+  withdrawAskUserQuestion,
+} from "../userInput/askUserQuestion.ts";
 import { LoomAskWaiters } from "../userInput/askWaiters.ts";
 
 const LOOM_AGENT_ROUTE_PREFIX = "/loom/agent";
@@ -175,6 +179,23 @@ const askRoute = HttpRouter.route(
         readonly blocking?: unknown;
       };
       return HttpServerResponse.jsonUnsafe(yield* openAskUserQuestion(caller, body));
+    }).pipe(
+      Effect.catchTags({ LoomAskError: (error) => Effect.succeed(reply(409, error.message)) }),
+    ),
+  ),
+);
+
+const withdrawRoute = HttpRouter.route(
+  "POST",
+  `${LOOM_AGENT_ROUTE_PREFIX}/user-input/withdraw`,
+  asWritingCaller((caller) =>
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const body = (yield* request.json.pipe(Effect.orElseSucceed(() => ({})))) as {
+        readonly header?: unknown;
+        readonly reason?: unknown;
+      };
+      return HttpServerResponse.jsonUnsafe(yield* withdrawAskUserQuestion(caller, body));
     }).pipe(
       Effect.catchTags({ LoomAskError: (error) => Effect.succeed(reply(409, error.message)) }),
     ),
@@ -334,6 +355,13 @@ const deployRoutes = Layer.unwrap(
 );
 
 export const LoomAgentRoutesLive = Layer.merge(
-  HttpRouter.addAll([profileRoute, askRoute, waitRoute, cacheWarmingRoute, gateKeepAliveRoute]),
+  HttpRouter.addAll([
+    profileRoute,
+    askRoute,
+    withdrawRoute,
+    waitRoute,
+    cacheWarmingRoute,
+    gateKeepAliveRoute,
+  ]),
   deployRoutes,
 );

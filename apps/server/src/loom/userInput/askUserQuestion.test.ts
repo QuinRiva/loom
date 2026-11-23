@@ -36,7 +36,11 @@ import {
   seedThread,
   writeEvents,
 } from "../testkit/loomOrchestratorLayer.ts";
-import { openAskUserQuestion, reactToAskEvent } from "./askUserQuestion.ts";
+import {
+  openAskUserQuestion,
+  reactToAskEvent,
+  withdrawAskUserQuestion,
+} from "./askUserQuestion.ts";
 import { LoomAskWaiters, makeLoomAskWaiters } from "./askWaiters.ts";
 
 const QUESTIONS = [
@@ -420,7 +424,10 @@ it.layer(LoomOrchestratorTestLayer)("Loom mcp__t3-code__ask_user_question", (it)
           toolCallId: "call-ask-stack-2",
           questions: [{ ...QUESTIONS[0], header: "Docs" }],
         });
-        assert.include(second.rendered, '"Docs"; 1 other question is open.');
+        assert.include(
+          second.rendered,
+          '"Docs"; 1 other question is open. If this one replaces any of them, withdraw those with mcp__t3-code__withdraw_question.',
+        );
         const orchestrator = yield* Orchestrator.OrchestratorV2;
         assert.deepEqual(
           (yield* orchestrator.getThreadShell(threadId))?.openQuestions?.map(
@@ -462,6 +469,97 @@ it.layer(LoomOrchestratorTestLayer)("Loom mcp__t3-code__ask_user_question", (it)
           blocking: true,
         }).pipe(Effect.flip);
         assert.include(refused.message, `already has pending runtime request ${approvalId}`);
+      }),
+    ),
+  );
+
+  it.effect(
+    "withdrawing closes the caller's own open card by any of its headers, as a dismissal",
+    () =>
+      fresh(
+        Effect.gen(function* () {
+          const { threadId, requestId } = yield* askOn("ask-withdraw", false);
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const withdrawn = yield* withdrawAskUserQuestion(callerOf(threadId), {
+            header: "  extras ",
+            reason: "The changelog bump settles which extras ship.",
+          });
+          assert.deepEqual(withdrawn, { rendered: 'Withdrawn: "extras".' });
+          assert.deepEqual((yield* orchestrator.getThreadShell(threadId))?.openQuestions ?? [], []);
+          const projection = yield* orchestrator.getThreadProjection(threadId);
+          const request = projection.runtimeRequests.find((entry) => entry.id === requestId);
+          assert.equal(request?.decision, "cancel");
+          // The question's text stays in the conversation; nothing is sent to the agent.
+          assert.isTrue(projection.turnItems.some((item) => item.type === "user_input_request"));
+          assert.isFalse(
+            projection.messages.some((message) => message.id.startsWith("async-answer:")),
+          );
+
+          const again = yield* withdrawAskUserQuestion(callerOf(threadId), {
+            header: "Ship",
+            reason: "Settled.",
+          });
+          assert.equal(
+            again.rendered,
+            'No open question on this thread has the header "Ship"; it has been answered or dismissed, or was asked under another header. Nothing was closed.',
+          );
+        }),
+      ),
+  );
+
+  it.effect("withdrawing never closes an answered, a blocking or another thread's question", () =>
+    fresh(
+      Effect.gen(function* () {
+        const { threadId, requestId: answered } = yield* askOn("ask-withdraw-kept", false);
+        yield* respond(threadId, answered);
+        const { requestId: blocking } = yield* openAskUserQuestion(callerOf(threadId), {
+          toolCallId: "call-ask-withdraw-kept-blocking",
+          questions: [{ ...QUESTIONS[0], header: "Deploy" }],
+          blocking: true,
+        });
+        const { threadId: other, requestId: othersOpen } = yield* askOn(
+          "ask-withdraw-other",
+          false,
+        );
+        for (const header of ["Ship", "Deploy"]) {
+          const result = yield* withdrawAskUserQuestion(callerOf(threadId), {
+            header,
+            reason: "Settled.",
+          });
+          assert.include(result.rendered, "Nothing was closed.");
+        }
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const status = (thread: ThreadId, id: RuntimeRequestId) =>
+          Effect.map(orchestrator.getThreadProjection(thread), (projection) =>
+            projection.runtimeRequests.find((request) => request.id === id),
+          );
+        assert.equal((yield* status(threadId, answered))?.status, "resolved");
+        assert.isUndefined((yield* status(threadId, answered))?.decision);
+        assert.equal((yield* status(threadId, blocking))?.status, "pending");
+        assert.equal((yield* status(other, othersOpen))?.status, "pending");
+      }),
+    ),
+  );
+
+  it.effect("of two open cards under one header, withdrawing closes the older", () =>
+    fresh(
+      Effect.gen(function* () {
+        const { threadId, requestId: older } = yield* askOn("ask-withdraw-twice", false);
+        const { requestId: newer } = yield* openAskUserQuestion(callerOf(threadId), {
+          toolCallId: "call-ask-withdraw-twice-2",
+          questions: [QUESTIONS[0]],
+        });
+        yield* withdrawAskUserQuestion(callerOf(threadId), {
+          header: "Ship",
+          reason: "Re-asked with the new release date.",
+        });
+        assert.deepEqual(
+          (yield* (yield* Orchestrator.OrchestratorV2).getThreadShell(
+            threadId,
+          ))?.openQuestions?.map((question) => question.id),
+          [newer],
+        );
+        assert.notEqual(older, newer);
       }),
     ),
   );

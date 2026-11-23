@@ -233,6 +233,8 @@ export type Check =
       readonly quotes: ReadonlyArray<string>;
       readonly allQuotes?: boolean;
     }
+  /** A withdraw_question call naming the open question by this header. */
+  | { readonly kind: "withdraws"; readonly header: string }
   /** Exactly one document_query_promote, carrying a comment and this `exchangeAt` copied exactly. */
   | { readonly kind: "promotes"; readonly exchangeAt: string }
   /**
@@ -410,6 +412,21 @@ export const grade = (check: Check, observed: Observed): Grade => {
       return submits.some((call) => check.repeats(String(call.input.markdown ?? "")))
         ? verdict(false, "repeated the report")
         : verdict(true, "submitted only what changed");
+    }
+    case "withdraws": {
+      const withdrawals = named(calls, "withdraw_question");
+      if (withdrawals.length === 0) {
+        const other = calls.find((call) => !LOOKING.has(call.name) && !looking.includes(call.name));
+        return verdict(
+          false,
+          other === undefined ? "no withdraw" : `called ${other.name.replace(LOOM, "")}`,
+        );
+      }
+      return withdrawals.some(
+        (call) => normalise(String(call.input.header ?? "")).trim() === normalise(check.header),
+      )
+        ? verdict(true, "withdrew the stale question")
+        : verdict(false, "withdrew another header");
     }
     case "promotes": {
       const promotes = named(calls, "document_query_promote");

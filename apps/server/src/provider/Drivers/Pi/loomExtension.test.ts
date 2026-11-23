@@ -12,6 +12,7 @@ import * as NodeVM from "node:vm";
 import { assert, describe, it } from "@effect/vitest";
 
 import { HUMAN_INPUT_REFUSAL, LOOM_PREAMBLE } from "../../../loom/prompt/prose.ts";
+import { HUMAN_INPUT } from "../../../mcp/toolkits/workstream/families.ts";
 import { assembleLoomExtensionSource, LOOM_EXTENSION_PARTS } from "./loomExtension.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
@@ -164,7 +165,7 @@ describe("Loom pi extension", () => {
     await pi.emit("session_start");
     pi.search(SPAWN);
     const loaded = pi.order();
-    assert.deepEqual(loaded.slice(-2), [ASK, SPAWN]);
+    assert.deepEqual(loaded.slice(-3), [...HUMAN_INPUT, SPAWN]);
 
     await pi.emit("before_agent_start");
 
@@ -208,12 +209,14 @@ describe("Loom pi extension", () => {
     );
   });
 
-  it("hides mcp__t3-code__ask_user_question on a child nobody has written to, and offers it once a person has", async () => {
+  it("hides the question tools on a child nobody has written to, and offers them once a person has", async () => {
     let current = profile();
     const pi = await load(serving(() => current));
     await pi.emit("session_start");
-    assert.equal(pi.exposure(ASK), "hidden");
-    assert.notInclude(pi.active(), ASK);
+    for (const name of HUMAN_INPUT) {
+      assert.equal(pi.exposure(name), "hidden");
+      assert.notInclude(pi.active(), name);
+    }
     const refusal = await pi.call(ASK, { questions: [] }).then(
       () => undefined,
       (error: Error) => error.message,
@@ -222,8 +225,26 @@ describe("Loom pi extension", () => {
 
     current = profile({ humanEngaged: true });
     await pi.emit("before_agent_start");
-    assert.equal(pi.exposure(ASK), "direct");
-    assert.include(pi.active(), ASK); // the human-engaged cue is the tool itself (P3-5)
+    for (const name of HUMAN_INPUT) {
+      assert.equal(pi.exposure(name), "direct");
+      assert.include(pi.active(), name); // the human-engaged cue is the tool itself (P3-5)
+    }
+  });
+
+  it("mcp__t3-code__withdraw_question posts the header and reason and returns the server's text", async () => {
+    const posts: Array<unknown> = [];
+    const pi = await load((url, init) => {
+      if (url.endsWith("/loom/agent/session-profile"))
+        return response(200, profile({ humanEngaged: true }));
+      assert.isTrue(url.endsWith("/user-input/withdraw"));
+      posts.push(JSON.parse(init.body!));
+      return response(200, { rendered: 'Withdrawn: "Ship".' });
+    });
+    await pi.emit("session_start");
+    const input = { header: "Ship", reason: "The release was cancelled." };
+    const result = await pi.call("mcp__t3-code__withdraw_question", input);
+    assert.equal(result.content[0]!.text, 'Withdrawn: "Ship".');
+    assert.deepEqual(posts, [input]);
   });
 
   it("keeps pi's default surface and warns once when the profile is unavailable", async () => {

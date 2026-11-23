@@ -1,7 +1,7 @@
 /**
  * Loom's `/mcp` tools: input schema, error mode and hints, prose from `prose.ts`. The Effect schema
  * is the single source, so handler input types and the served JSON `parameters` cannot drift.
- * `ask_user_question` is registered by Loom's pi extension, not here.
+ * `ask_user_question` and `withdraw_question` are registered by Loom's pi extension, not here.
  */
 import { LoomCancelReason } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -18,10 +18,10 @@ export class LoomToolError extends Schema.TaggedError<LoomToolError>()("LoomTool
   message: Schema.String,
 }) {}
 
-// ask_user_question and the bg_* job tools are pi-extension tools, not served over MCP.
+// The human-input tools and the bg_* job tools are pi-extension tools, not served over MCP.
 export type LoomMcpToolName = Exclude<
   LoomProseToolName,
-  "ask_user_question" | "bg_start" | "bg_wait"
+  "ask_user_question" | "withdraw_question" | "bg_start" | "bg_wait"
 >;
 
 const described = <S extends Schema.Top>(schema: S, description: string) =>

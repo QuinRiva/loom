@@ -71,7 +71,7 @@ export const HISTORY = prefixed(["thread_search"] as const);
 export const DOCUMENT_QUERY = prefixed(["document_query_promote"] as const);
 
 /** The structured-question surface, registered by Loom's extension rather than /mcp. */
-export const HUMAN_INPUT = prefixed(["ask_user_question"] as const);
+export const HUMAN_INPUT = prefixed(["ask_user_question", "withdraw_question"] as const);
 
 /** What a child's profile adds once a person has written to it: a reader to ask, and its parent to tell. */
 export const ENGAGED_CHILD_TOOLS = [...HUMAN_INPUT, agentToolName("notify_thread")];

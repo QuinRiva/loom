@@ -44,7 +44,7 @@ export interface LoomSessionProfile {
 }
 
 const json = JSON.stringify;
-const proseOf = (tool: "ask_user_question") => {
+const proseOf = (tool: "ask_user_question" | "withdraw_question") => {
   const prose = LOOM_TOOL_PROSE[tool];
   return {
     description: prose.description,
@@ -173,22 +173,44 @@ export const ASK_USER_QUESTION_PARAMETERS = {
   additionalProperties: false,
 };
 
+export const WITHDRAW_QUESTION_PARAMETERS = {
+  type: "object",
+  properties: {
+    header: {
+      type: "string",
+      minLength: 1,
+      description:
+        "The header of the open question to close, as you wrote it. The whole card it was asked in closes.",
+    },
+    reason: {
+      type: "string",
+      minLength: 1,
+      description:
+        "One sentence the reader can follow without this thread's context: what settled the question, or which question replaces it.",
+    },
+  },
+  required: ["header", "reason"],
+  additionalProperties: false,
+};
+
 /**
  * `mcp__t3-code__ask_user_question` over `POST …/ask`, which returns an open question's result at
  * once; a blocking ask then long-polls `GET …/wait` (25 s slices; a dropped poll re-attaches).
+ * `mcp__t3-code__withdraw_question` (`POST …/withdraw`) shares its exposure.
  */
 const askUserQuestionPart: LoomExtensionPart = {
   name: "askUserQuestion",
   source: `
 const prose = ${json(proseOf("ask_user_question"))};
 const REFUSAL = ${json(HUMAN_INPUT_REFUSAL)};
-// Registered hidden (so tool_search cannot surface it) until a human has written to the
-// thread; the profile part's apply() calls syncHumanInput() each turn to re-register it direct.
+// Registered hidden (so tool_search cannot surface them) until a human has written to the
+// thread; the profile part's apply() calls syncHumanInput() each turn to re-register them direct.
 let askExposure;
 const registerAsk = (exposure) => {
   if (askExposure === exposure) return;
   askExposure = exposure;
   pi.registerTool({ ...askTool, exposure });
+  pi.registerTool({ ...withdrawTool, exposure });
 };
 ctx.syncHumanInput = () => registerAsk(ctx.humanInputRefused?.() === false ? "direct" : "hidden");
 const askTool = {
@@ -214,6 +236,16 @@ const askTool = {
       }
       if (!result.pending) return { content: [{ type: "text", text: result.rendered }], details: undefined };
     }
+  },
+};
+const withdrawTool = {
+  name: ${json(agentToolName("withdraw_question"))},
+  label: "Withdraw Question",
+  ...${json(proseOf("withdraw_question"))},
+  parameters: ${json(WITHDRAW_QUESTION_PARAMETERS)},
+  async execute(_toolCallId, params, signal) {
+    const { rendered } = await loomFetch(ctx, "POST", "/user-input/withdraw", { header: params?.header, reason: params?.reason }, signal);
+    return { content: [{ type: "text", text: rendered }], details: undefined };
   },
 };
 registerAsk("hidden");
