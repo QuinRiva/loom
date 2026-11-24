@@ -359,6 +359,7 @@ function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
     <figure
       data-plan-block-id={blockId}
       data-plan-block-type="diff"
+      data-diff-mode={mode}
       className="my-4 overflow-hidden rounded-lg border border-border bg-card"
     >
       <figcaption className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-2xs">
@@ -395,12 +396,12 @@ function DiffRead({ data, blockId }: PlanBlockReadProps<DiffData>) {
           No changes
         </div>
       ) : mode === "split" ? (
-        // One 1fr/1fr grid so each SplitRow pair shares a row and stays height-aligned
-        // when one side wraps. Unwrapped, the grid scrolls horizontally; wrapped,
-        // `min-w-0 flex-1` lets cells shrink.
+        // One grid so each SplitRow pair shares a row and stays height-aligned when one
+        // side wraps. Unwrapped, the grid scrolls horizontally; wrapped, zero-minimum
+        // columns hold equal halves so a long unbroken token breaks instead of widening one.
         <div
           className="grid overflow-x-auto font-mono text-xs"
-          style={{ gridTemplateColumns: "1fr 1fr" }}
+          style={{ gridTemplateColumns: wrap ? "repeat(2, minmax(0, 1fr))" : "1fr 1fr" }}
         >
           {shownPairs.map((pair) => (
             <Fragment key={pairKey(pair)}>

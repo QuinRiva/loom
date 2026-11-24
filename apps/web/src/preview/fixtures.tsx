@@ -1434,6 +1434,85 @@ const mdxCardBleedFixture: PreviewFixture = {
 };
 
 /**
+ * loom: a split `<Diff>` inside a top-level `<TabsBlock>`/`<Card>` widens the
+ * container like `<Columns>` does; wrapped, its panes stay equal halves even with
+ * a long dotted import path. Mirrors the recap Carl hit.
+ */
+const MDX_SPLIT_DIFF_BEFORE = [
+  '"""One document of a building\'s graph with its content.',
+  "",
+  "Exlake has no such class. The client composes it from two reads: the document's node in a graph, and the document's",
+  "content rows.",
+  '"""',
+  "",
+  "from pydantic import BaseModel",
+  "",
+  "from exlake_client.models.graphtus_document_content_row import GraphtusDocumentContentRow",
+  "from exlake_client.models.graphtus_graph import GraphtusGraphNode",
+  "",
+  "",
+  "def document_tree(document: GraphtusGraphNode, content: list[GraphtusDocumentContentRow]) -> GraphtusDocumentTree:",
+  '    """The tree of one document, from its node and content rows read from exlake."""',
+].join("\n");
+const MDX_SPLIT_DIFF_AFTER = [
+  '"""One document of a building\'s graph with its content.',
+  "",
+  "Exlake has no such class. The client composes it from two reads: the document's node and its content nodes in a graph,",
+  "and the document's content rows.",
+  '"""',
+  "",
+  "from pydantic import BaseModel, ValidationError",
+  "",
+  "from exlake_client.models.graphtus_document_content_row import GraphtusDocumentContentRow",
+  "from exlake_client.models.graphtus_external_reference import (",
+  "    EXTERNAL_REFERENCE_ATTRIBUTE,",
+  "    ExternalReference,",
+  ")",
+  "from exlake_client.models.graphtus_graph import GraphtusGraphNode, GraphtusNodeAttributeRow",
+  "",
+  "",
+  "def document_tree(document: GraphtusGraphNode, content: list[GraphtusDocumentContentRow],",
+  "                  nodes: list[GraphtusGraphNode]) -> GraphtusDocumentTree:",
+  '    """The tree of one document, from its node, content rows and the graph\'s nodes read from exlake."""',
+].join("\n");
+const splitDiff = (mode: "split" | "unified", wrap: boolean) =>
+  `<Diff filename="data-pipeline-jobs/libs/clients/exlake/exlake_client/models/graphtus_document_tree.py" language="python" mode="${mode}" wrap={${wrap}} before={${JSON.stringify(MDX_SPLIT_DIFF_BEFORE)}} after={${JSON.stringify(MDX_SPLIT_DIFF_AFTER)}} />`;
+const MDX_SPLIT_DIFF_FIXTURE_SOURCE = [
+  "# Split diffs in containers",
+  "",
+  "## 2. The changes",
+  "",
+  "<TabsBlock>",
+  '<Tab label="The read (split, wrapped)">',
+  "**The tree gains `externalReferences`, required, in document order.** This intro stays at the reading measure while the split diff below takes the full width.",
+  "",
+  splitDiff("split", true),
+  "</Tab>",
+  '<Tab label="Unwrapped">',
+  splitDiff("split", false),
+  "</Tab>",
+  "</TabsBlock>",
+  "",
+  '<Card eyebrow="Unified" heading="A unified diff keeps the reading column until switched to Split">',
+  splitDiff("unified", true),
+  "</Card>",
+  "",
+  "## A bare split diff",
+  "",
+  splitDiff("split", false),
+].join("\n");
+
+const mdxSplitDiffFixture: PreviewFixture = {
+  id: "mdx-split-diff-containers",
+  title: "Split diff in tabs and cards (bleed)",
+  description:
+    "A top-level <TabsBlock> or <Card> holding a split <Diff> takes the whole bleed budget, like one holding <Columns>; its intro stays at the measure. Wrapped, the two panes are equal halves and never scroll sideways, even past the long dotted import. The unified card keeps the measure until toggled to Split.",
+  render: () => (
+    <PlanPanelPreview key="mdx-split-diff-containers" source={MDX_SPLIT_DIFF_FIXTURE_SOURCE} />
+  ),
+};
+
+/**
  * loom: word-level emphasis in `<Diff>` — one sentence rewritten inside a long
  * prose paragraph, a one-token code change, and a rewritten line sharing too
  * few words to pair (must fall back to whole-line rows).
@@ -1684,6 +1763,7 @@ export const PREVIEW_GROUPS: ReadonlyArray<PreviewGroup> = [
     fixtures: [
       mdxMarkdownFixture,
       mdxCardBleedFixture,
+      mdxSplitDiffFixture,
       mdxGlossaryFixture,
       mdxQuestionRefsFixture,
       mdxWideBlockFixture,

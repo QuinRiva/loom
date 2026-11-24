@@ -1958,23 +1958,25 @@ code {
   width: max(100%, var(--bleed-target));
 }
 
-/* loom: a top-level Card/Details/Tabs keeps the measure unless a <Columns> sits
-   directly in its body; then it takes the whole budget, so a batch of cards has
-   exactly two widths. The body's other children stay at the reading column
+/* loom: a top-level Card/Details/Tabs keeps the measure unless a side-by-side
+   comparison (a <Columns> or a split-mode <Diff>) sits directly in its body; then
+   it takes the whole budget, so a batch of cards has exactly two widths. That
+   comparison fills it; the body's other children stay at the reading column
    (max-w-4xl less px-6). */
 .plan-mdx > [data-plan-bleed="container"] {
   width: 100%;
 }
 .plan-mdx
   > [data-plan-bleed="container"]:not(details:not([open])):has(
-    > :is(.plan-card-body, .plan-details-body, .plan-tab-panel) > [data-plan-block-type="columns"]
+    > :is(.plan-card-body, .plan-details-body, .plan-tab-panel)
+      > :is([data-plan-block-type="columns"], [data-diff-mode="split"])
   ) {
   width: max(100%, var(--bleed-target));
 }
 .plan-mdx
   > [data-plan-bleed="container"]
   > :is(.plan-card-body, .plan-details-body, .plan-tab-panel)
-  > :not([data-plan-block-type="columns"]) {
+  > :not([data-plan-block-type="columns"], [data-diff-mode="split"]) {
   max-width: 53rem;
 }
 
