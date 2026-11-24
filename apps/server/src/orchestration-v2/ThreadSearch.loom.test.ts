@@ -343,11 +343,12 @@ layer("ThreadSearch", (it) => {
       yield* thread("far", "beta");
       yield* thread("worded", "nebula notes");
       // The model the cut-off table holds: listed by meaning at similarity >= 0.62 and >= 0.045
-      // above the query's mean (here 0.5, so 0.62 decides).
+      // above the query's mean.
       const embedder = yield* makeThreadEmbedder(
         Effect.succeed({
           ...stubProvider({
             nebula: [1, 0],
+            comet: [0.8, 0.6],
             alpha: [1, 0],
             beta: [0.5, Math.sqrt(0.75)],
             "nebula notes": [0, 1],
@@ -356,11 +357,17 @@ layer("ThreadSearch", (it) => {
         }),
       );
       yield* embedder.sweep;
-      const ids = (yield* search("nebula").pipe(
-        Effect.provideService(ThreadEmbedder, embedder),
-      )).map((match) => match.threadId);
-      // "far" (0.5) is cut; "worded" stays on its word match though it is the farthest vector.
-      assert.sameMembers(ids, ["close", "worded"]);
+      const ids = (query: string) =>
+        search(query).pipe(
+          Effect.provideService(ThreadEmbedder, embedder),
+          Effect.map((matches) => matches.map((match) => match.threadId)),
+        );
+      // Mean 0.5, so 0.62 decides: "far" (0.5) is cut; "worded" stays on its word match
+      // though it is the farthest vector.
+      assert.sameMembers(yield* ids("nebula"), ["close", "worded"]);
+      // Mean 0.77, so the margin decides: "close" (0.8) clears 0.62 and the mean, but by less
+      // than 0.045, and is cut; "far" (0.92) stays.
+      assert.deepStrictEqual(yield* ids("comet"), ["far"]);
     }),
   );
 
