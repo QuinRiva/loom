@@ -330,7 +330,6 @@ export function buildFileDiffEntries(files: ReadonlyArray<FileDiffMetadata>) {
   });
 }
 
-// loom: the two `-emphasis` declarations below carry Loom's solid changed-word colours (DL-2154).
 export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
 [data-diffs-header],
 [data-diff],
@@ -367,10 +366,10 @@ export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
   );
   --diffs-bg-addition-hover-override: color-mix(in srgb, var(--code-background) 85%, var(--diff-addition));
   /* Pierre resolves emphasis on the host, before the diff's overrides can inherit. */
-  /* loom: changed words read as a solid block, GitHub-style (Loom #307; runbook 41 §8.1 D1). */
+  /* Light emphasis stays above t3-light's readable syntax luminance floor. */
   --diffs-bg-addition-emphasis: light-dark(
-    color-mix(in srgb, var(--code-background) 55%, var(--diff-addition)),
-    color-mix(in srgb, var(--code-background) 45%, var(--diff-addition))
+    rgb(from var(--diffs-addition-base) r g b / 15%),
+    rgb(from var(--diffs-addition-base) r g b / calc(20% + var(--appearance-contrast-boost, 0%) / 4))
   );
 
   --diffs-bg-deletion-override: light-dark(
@@ -386,10 +385,9 @@ export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
     var(--code-background) 85%,
     var(--diff-deletion)
   );
-  /* loom: changed words read as a solid block, GitHub-style (Loom #307; runbook 41 §8.1 D1). */
   --diffs-bg-deletion-emphasis: light-dark(
-    color-mix(in srgb, var(--code-background) 55%, var(--diff-deletion)),
-    color-mix(in srgb, var(--code-background) 45%, var(--diff-deletion))
+    rgb(from var(--diffs-deletion-base) r g b / 15%),
+    rgb(from var(--diffs-deletion-base) r g b / calc(20% + var(--appearance-contrast-boost, 0%) / 4))
   );
 
   background-color: var(--diffs-bg) !important;
