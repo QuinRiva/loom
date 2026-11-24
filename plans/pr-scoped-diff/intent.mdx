@@ -1,9 +1,9 @@
 ---
 reader:
-  who: Carl, who asked for a design and decides here whether this is the right thing to build, and how much of it
-  knows: the Diff tab as a user (its left dropdown, the base picker reading "Automatic", the thread details card), stacked PRs and his own habit of reviewing every PR before it is opened; none of Loom's internal names, none of the earlier plans recently, no agent report from this work
-  after_first_screen: for the two unpushed graph-enrichment PRs, what he would be able to open that he cannot today, and the five decisions he is being asked for
-kicker: "Intent brief · draft for your corrections · 24 Nov 2026"
+  who: Carl, who asked for a design, then asked whether a thread and worktree per PR is the better way; he decides here which way to go and how much to build
+  knows: the Diff tab and Files list as a user, stacked PRs, orchestrators and their child threads, his own habit of reviewing every PR before it is opened; none of Loom's internal names, none of the earlier plans recently
+  after_first_screen: that his own suggestion answers his question and the earlier per-PR list only half answers it, what Loom lacks for it, and the three decisions he is being asked for
+kicker: "Intent brief · second draft, after your question · 24 Nov 2026"
 status: draft
 manager_sessions:
   - id: 01a20be9-455b-752f-be77-0cae99955154
@@ -12,188 +12,160 @@ manager_sessions:
     authored_at: 2026-11-24T05:09:18.981Z
 ---
 
-# See exactly what one PR will contain, before it is pushed
+# Review one PR while the next is being built
 
-**Goal.** "the current diff view isn't sufficient, particularly in the case of stacked PRs and an agent doing work on multiple PRs". "I want to be able to view what is included in a PR". For each PR a piece of work is preparing, you open that PR's changes and nothing else, measured against the branch it will be opened against. You do not need to know branch names, and it does not matter which branch the shared worktree has checked out.
-
-Your graph-enrichment work on fathom-platform, as it stood on 24 Nov: two PRs built and not pushed, both cut from the branch of #4513, in one worktree.
+**Goal.** "I want to be able to view what is included in a PR", and now the sharper form: "how do I review PR1 or PR2 whilst PR3 is being worked on?" Your suggestion answers it and the first draft of this brief did not: "have an orchestrator delegate to other orchestrator's, that each create their own worktrees and branches". Each PR of a series gets its own thread, worktree and branch. You open that thread to see exactly that PR, and it can act on your comments while the later PRs carry on.
 
 <Table
   density="compact"
-  columns={["PR", "In the Diff tab today", "What you would see"]}
+  columns={["Your question", "A thread and worktree per PR (your suggestion)", "One shared worktree with a per-PR list (the first draft)"]}
   rows={[
     [
-      "**PE-2845** Exlake edge types. Checked out. It is the branch in your screenshot, since renamed.",
-      "\"Changes\" on Automatic shows **36 files**, because it compares against main and so includes #4512 and #4513. The right 7 files appear only if you pick `PE-2838-graph-enrichment-summary-with-text` by name.",
-      { "md": "Listed by name. **7 files, +73 −15**, with nothing to pick.", "tone": "success" }
+      "See PR 1 alone while PR 3 is being built",
+      { "md": "Open PR 1's thread. Its Diff tab and Files list show only PR 1, **as they work today**.", "tone": "success" },
+      "Pick PR 1 from a new list. Read-only, because the files on disk are PR 3's."
     ],
     [
-      "**PE-2844** Trees carry mentions. Not checked out.",
-      { "md": "**Cannot be shown.** The tab reads only the checked-out branch.", "tone": "risk" },
-      { "md": "Listed by name. **16 files, +127 −31**, while PE-2845 stays checked out.", "tone": "success" }
+      "Get PR 1 fixed after you comment",
+      { "md": "Its thread fixes it in its own worktree while PR 3 carries on.", "tone": "success" },
+      { "md": "**Waits** for PR 3's agent to give up the worktree, or interrupts it.", "tone": "risk" }
+    ],
+    [
+      "Talk about one PR",
+      { "md": "To that PR's thread. The top orchestrator still holds the whole piece of work.", "tone": "success" },
+      "To the one orchestrator, which relays."
+    ],
+    [
+      "What Loom has to gain",
+      "A child thread that can start in its own worktree and branch. Today a child always starts in its parent's.",
+      "A new list, a way to read a branch that is not checked out, and a rule for which of the repository's 650 branches are this work's PRs."
+    ],
+    [
+      "What it costs you",
+      "About 4 GB and 40 seconds per PR on fathom-platform. Later PRs must catch up when an earlier one changes.",
+      "No extra disk. Later PRs must catch up just the same."
     ]
   ]}
 />
 
 <Callout tone="decision" title="What you are deciding" focus>
-  Five questions at the end. **How much to build**: three small corrections can go ahead without the rest. **What counts as a PR before it is pushed**. Whether **pushed PRs** join the same list. Whether **agents hand a PR over by pointing at this view**. Whether **several PRs in one worktree** stays the way agents work. A bare "go" takes every recommended answer. Nothing is built until you approve.
+  Three questions at the end. **Which way to go**: I recommend yours, tried by hand on the next graph-enrichment PR before anything is built. Whether **three small Diff tab corrections** go ahead regardless. **When an orchestrator should split work this way**. A bare "go" takes every recommended answer. Nothing is built until you approve.
 </Callout>
 
 **You'll know it works when.**
 
-- In the orchestrator's thread, the Diff tab's left dropdown lists the PRs this work is preparing. Each shows its name, "not pushed" or its number, what it sits on, and its file count. The repository's other 650 local branches, which belong to other work, are not in it.
-- You choose PE-2845 and see its 7 files. You choose PE-2844 and see its 16, with PE-2845 still checked out and nothing in the worktree moved.
-- The Files list offers the same choice and marks the chosen PR's files. A marked file opens whole, side by side, as it does today. For a PR that is not checked out the file is read-only.
-- Each change still names the thread that wrote it, so you can open or query that coder from the PR's diff.
-- An agent renames a branch or amends its commit, and the list is right the next time you open it. On 24 Nov both branches were renamed and one commit amended.
-- A PR cut from another unpushed PR shows its own changes only.
+- An orchestrator starts each PR of a series as a child thread in its own worktree, on a branch cut from the PR below it. The threads sit under the orchestrator in the sidebar.
+- You open PR 1's thread while PR 3's thread is mid-turn. Its Diff tab on "Changes" with Automatic, and its Files list, show PR 1's files only, pushed or not, with nothing to pick.
+- You comment on a line in PR 1's thread. It makes the fix in its own worktree, and nothing in PR 3's worktree moves.
+- When PR 1 changes, the PRs above it are told and bring their branches up to date. Each one's diff still shows only its own changes afterwards.
+- You tell the top orchestrator something about the whole piece of work and it reaches the right PR's thread. It reports each PR's state back to you in one place.
+- A PR's thread can still have its own coder and reviewer, working in that PR's worktree.
 
-The three corrections, which hold whatever else is built:
+The three corrections, which hold whichever way you go:
 
-- "Changes" on Automatic compares a branch cut from another PR's branch against that branch. PE-2845 reads 7 files with nothing chosen.
+- "Changes" on Automatic compares a branch cut from another PR's branch against that branch, also when an agent cut the branch by hand.
 - The base picker appears only beside a comparison it affects. Today it sits beside "Since your message" and "Earlier" and does nothing there, which is what you were looking at when you asked "what should I select here?".
-- The thread details card's Changes figure names the branch it is measured against without a hover. In your screenshot it read "Changes vs orig…" above a linked PR with a different count, and it would read the same after the first correction.
+- The thread details card's Changes figure names the branch it is measured against without a hover. In your screenshot it read "Changes vs orig…".
 
 **Must not.**
 
-- Change anything in the worktree to show a PR. No checkout and no stash: agents are working in it.
-- Show a PR against a base it guessed without naming that base. When it cannot tell, it says so.
-- Push, open or alter a PR. This is for reading.
-- Make the Diff tab or the Files list slower to open, on this machine or over the relay.
+- Merge a PR's branch back into the orchestrator's branch. The branch is the PR. Loom's earlier per-coder worktrees needed that merge, and it is what left a workstream deadlocked for 43 minutes in September.
+- Fill the disk. It is 83% full, so a PR's worktree goes when its thread is settled.
+- Change how a single-PR piece of work runs: one shared worktree stays the default.
+- Push or open a PR. "I want to review befroe we create the pr".
 
 **Approaches in play.**
 
-- Read each PR from its commits (its branch against its base), not from the checked-out files. Wins if what you review is committed, which a PR offered for review is. It is the only approach that shows PE-2844 without touching the worktree, and for #4513 it gives GitHub's own count (4 files, +49 −11). _Recommended._
-- Narrow today's combined diff to one thread's changes, with the "which thread wrote this" filter you already have. Wins if each PR is one thread's work and sits under the checked-out branch. Not enough alone: PE-2844 is not under the checked-out branch, the filter dims other threads' lines without removing them, and PE-2845's commit now names two threads.
-- The agent writes a review document with the diff copied in, as the fathom orchestrator did for both PRs. Wins if you want a guided walk-through. It costs agent work per PR and again each time the PR changes: PE-2845's was rewritten a minute after its commit was amended. It also describes lockfiles, fixtures and version bumps in prose without showing them.
+- A child thread per PR in its own worktree and branch. Wins if reviewing and fixing one PR while another is built matters more than disk and catch-up work. Loom already creates a worktree on a new branch from a chosen base for a handed-off goal, and records that base, which is why Automatic would be right with nothing picked. What is missing is letting a child start that way. _Recommended._
+- The same, tried by hand first: the graph-enrichment orchestrator hands its next PR off as its own goal in a fresh worktree. Wins if you want to know it suits you before anything is built. It is rougher than the real thing: the PR's thread is not nested under the orchestrator, and it starts from the project's main checkout and has to move itself onto the PR below. _Recommended as the first step._
+- A per-PR list in the shared worktree, the first draft. It is viable, since reading a branch that is not checked out is ordinary git. It answers reading only, so it is kept as the fallback if a worktree per PR proves too heavy.
+- jj. It would not remove the need for a worktree per PR, because two agents still cannot share one set of files on disk. What it adds is that later PRs catch up by themselves when an earlier one changes. Loom has no jj support, and upstream has merged none: every jj PR there is closed, the latest set on 26 Oct without maintainer approval. _Not recommended for this._
 - Dropped: push each PR as a draft and read it on the Pull requests page. You said "I want to review befroe we create the pr".
 
 **Decided.**
 
-- "Create the ticket but I want to review befroe we create the pr". Review comes before anything is pushed.
-- "I want to be able to view what is included in a PR". The unit is the PR, not the thread, the turn, or the whole branch against main.
-- Already in place: the card's Changes figure follows the base you pick in the Diff tab. That was one of the two changes offered when you wrote "I don't understand why the diff numbers are so different". It arrived from upstream on 23 Nov, after your screenshot.
-- This extends the October change-review brief, which gave you "Since your message" and the Files marks. Its "everything against the base branch" comparison becomes one comparison per PR; the rest of it stands.
-- _Assumed:_ a line comment on a PR's diff goes where Diff tab comments go today, into the composer of the thread you are reviewing in. The card still offers the coder directly. Redirect if a comment should go straight to the thread that built the PR.
-- _Assumed:_ a PR is its commits. Uncommitted changes show under the checked-out PR, marked as not yet committed. Redirect if they should be left out.
-- _Assumed:_ before it has a title on GitHub, a PR is named by its branch and its first commit's subject.
-- _Assumed:_ web and desktop. Redirect if you review PRs on your phone.
+- "this would still give me a single mechanism for communication for the overall hunk of work - but enable me to communicate with individual sub-orchestrators about a specific PR". One orchestrator for the whole, one thread per PR.
+- "I want to be able to view what is included in a PR". The unit is the PR.
+- The plan for October's upstream pull records your decision on worktrees in its own words: a shared worktree is "the only mode", and separate ones return "later as an opt-in only if wanted". This is that opt-in, for a PR, without the merge back.
+- Already in place: the card's Changes figure follows the base you pick in the Diff tab. It arrived from upstream on 23 Nov, after your screenshot.
+- _Assumed:_ the thread that owns a PR is whatever the orchestrator judges the PR needs: a sub-orchestrator with its own coder and reviewer, or a single coder for a small one. Redirect if every PR should have a sub-orchestrator.
+- _Assumed:_ nothing new is built in the Diff tab or the Files list beyond the three corrections.
 
-**Not doing.** Changes to the Pull requests page or its Code and Guide tabs. Pushing, opening, retargeting or rebasing a PR from this view. Drafting a PR's title or description here. Rewording any agent instruction: that is later work with its own review.
+**Not doing.** The per-PR list, unless the trial sends us back to it. jj. Changes to the Pull requests page. Rewording any agent instruction: that is later work with its own review.
 
 **Questions for you.**
 
 <QuestionForm
   questions={[
     {
-      "id": "how-much",
-      "title": "How much of this should be built?",
-      "subtitle": "The three corrections fix the checked-out PR; they cannot show a PR that is not checked out. My estimate: about a day of coder work for them, and for the per-PR list about the size of one of the three change-review PRs. For scale: at least 4 of your last 50 fathom-platform PRs (90 days) were opened against another PR's branch, and this week's series has two open stacked PRs with two unpushed ones on top.",
+      "id": "which-way",
+      "title": "Which way should this go?",
+      "subtitle": "The trial uses what exists today on the next graph-enrichment PR (\"Linking\", not yet started), so it costs no build. Building the real thing means a child can start in its own worktree; my estimate is that it is less work than the per-PR list, with most of the machinery already there for handed-off goals.",
       "mode": "single",
       "allowOther": true,
       "options": [
         {
-          "id": "corrections-then-list",
-          "label": "The three corrections first, as their own PR, then the per-PR list",
+          "id": "trial-then-build",
+          "label": "Try a thread and worktree per PR by hand on the next graph-enrichment PR, then build it properly if it suits you",
           "recommended": true,
-          "detail": "The corrections are useful whatever else happens and reach you within days. The list is what shows PE-2844, and it reuses the corrected base."
+          "detail": "You learn whether this way of working answers your question before any Loom change. If you say yes, I send the graph-enrichment orchestrator a note to hand its next PR off that way."
         },
         {
-          "id": "corrections-only",
-          "label": "The three corrections only; decide on the list after the next stacked series",
-          "detail": "Cheapest. A PR that is not checked out stays invisible, so the agent's review documents or a terminal command remain the route for it."
+          "id": "build-now",
+          "label": "Build it now: a child thread can start in its own worktree and branch",
+          "detail": "Skips the rough trial. The plan would be written next and reviewed before any code."
+        },
+        {
+          "id": "list",
+          "label": "Keep one shared worktree and build the per-PR list from the first draft",
+          "detail": "You could read PR 1 while PR 3 is built, but a fix to PR 1 still waits for the worktree."
         },
         {
           "id": "nothing",
-          "label": "Build nothing; the manual route is enough",
-          "detail": "You keep picking the parent branch by name, and agents keep writing a review document per PR."
+          "label": "Build nothing, and stop running several PRs under one orchestrator for this sort of work",
+          "detail": "One thread per PR, started by you, as separate pieces of work with no orchestrator over them."
         }
       ]
     },
     {
-      "id": "what-is-a-pr",
-      "title": "What counts as a PR before it is pushed?",
-      "subtitle": "Decides which entries appear in the list, and whether seeing one depends on an agent remembering to do something.",
-      "mode": "single",
-      "allowOther": true,
-      "options": [
-        {
-          "id": "from-git",
-          "label": "Loom works it out: a branch holding commits this work's threads made, measured against the branch it was cut from",
-          "recommended": true,
-          "detail": "Agents do nothing new. Git's own record lists both fathom PRs correctly, before and after their rename. When git holds no record of the branch it was cut from, the entry says it is measured against main, so a wrong base is visible, not silent."
-        },
-        {
-          "id": "declared",
-          "label": "An agent declares it: only a branch an agent has offered for review, with its base, is listed",
-          "detail": "The list then means \"ready for you\", not \"exists\". It needs a new agent tool and instruction text, and a PR an agent forgot to declare does not appear."
-        },
-        {
-          "id": "both",
-          "label": "Loom lists every such branch, and marks the ones an agent has handed over as ready",
-          "detail": "Nothing is hidden and readiness is visible, at the cost of both pieces of work."
-        }
-      ]
-    },
-    {
-      "id": "pushed-prs",
-      "title": "Should PRs that are already pushed appear in the same list?",
-      "subtitle": "A stack mixes both: #4512 and #4513 are pushed, PE-2844 and PE-2845 are not. A pushed PR already has the Pull requests page, where comments go to GitHub, not to the agent.",
+      "id": "corrections",
+      "title": "Do the three small Diff tab corrections go ahead now, as their own PR?",
+      "subtitle": "They are about a day of coder work by my estimate and help under every option above, including the trial, where an agent moves a branch by hand.",
       "mode": "single",
       "options": [
         {
           "id": "yes",
-          "label": "Yes: this work's pushed PRs are listed too, read from your local branch against the PR's base on GitHub, with any commits not yet pushed called out",
-          "recommended": true,
-          "detail": "One place shows the whole stack, the counts match GitHub's, and a fix an agent makes after review is visible before it is pushed. The Pull requests page is unchanged."
+          "label": "Yes, build the three corrections now",
+          "recommended": true
         },
         {
-          "id": "no",
-          "label": "No: only PRs not yet pushed; once pushed, a PR leaves the list",
-          "detail": "Less to build. The stack is then split across two places, and unpushed fixes to a pushed PR have no view."
+          "id": "later",
+          "label": "Not yet; decide after the trial"
         }
       ]
     },
     {
-      "id": "hand-back",
-      "title": "Should agents hand a PR over for review by pointing at this view?",
-      "subtitle": "Today nothing tells an agent how to show you an unpushed PR. Fathom's finish-tracked-work skill asks \"ship this?\" with no step that shows the diff, and the orchestrator built review documents by hand. This is a change to agent instructions, drafted later under its own review.",
+      "id": "when-to-split",
+      "title": "When should an orchestrator give a PR its own thread and worktree?",
+      "subtitle": "This becomes a rule in agents' instructions, written later under its own review. It decides how often you pay the 4 GB and the catch-up work.",
       "mode": "single",
+      "allowOther": true,
       "options": [
         {
-          "id": "point",
-          "label": "Yes: the agent names the PR as it appears in the list and stops copying the diff into a document",
+          "id": "more-than-one",
+          "label": "Whenever a piece of work will produce more than one PR",
           "recommended": true,
-          "detail": "You always read the real diff, complete and current. A written walk-through stays something you can ask for."
+          "detail": "A single-PR piece of work stays as it is today, in one shared worktree."
         },
         {
-          "id": "both",
-          "label": "Yes, and it still writes the review document with the diff copied in",
-          "detail": "Two views of the same change, one of which can go stale."
+          "id": "on-request",
+          "label": "Only when I ask for it",
+          "detail": "Nothing changes unless you say so; you have to remember to ask at the start."
         },
         {
-          "id": "no-change",
-          "label": "No change to agents; I will find the PR in the list myself",
-          "detail": "No instruction work. Agents keep handing over however they do today."
-        }
-      ]
-    },
-    {
-      "id": "one-worktree",
-      "title": "Do agents keep building several PRs in one shared worktree?",
-      "subtitle": "It is how child threads run today, not something the fathom orchestrator chose. Loom once gave each coder its own worktree and went back to a shared one. The wrong-base problem is the same either way.",
-      "mode": "single",
-      "options": [
-        {
-          "id": "keep",
-          "label": "Yes: keep the shared worktree, and the view works whichever branch is checked out",
-          "recommended": true,
-          "detail": "Nothing about how workstreams run changes for this."
-        },
-        {
-          "id": "per-pr",
-          "label": "No: move towards a worktree per PR, as separate work with its own brief",
-          "detail": "Each PR's thread would show its own PR, and two PRs could be built at once (the orchestrator could not run its second and third in parallel). It is a larger change to how workstreams run, and the corrections above are still needed."
+          "id": "stacked-only",
+          "label": "Only when the PRs are stacked on each other",
+          "detail": "Independent PRs from one orchestrator keep sharing a worktree, and can still not be worked on at the same time."
         }
       ]
     }
@@ -202,5 +174,6 @@ The three corrections, which hold whatever else is built:
 
 **Still unknown.**
 
-- Does git record which branch a PR's branch was cut from, without agents being told to? Both fathom branches had it, as a side effect of how they were created; a branch cut from a local branch may not. Reading how agents and scripts create branches (fathom's `task_start.sh`, Loom's own worktree branches) settles it in the plan. If they do not, recording it becomes one line of agent instruction.
-- Which threads count as "this work" once a goal has been handed from one orchestrator to the next, as the graph-enrichment work was? The plan settles it against that goal's real history.
+- How much work is it for PRs 2 and 3 to catch up when PR 1 changes after your review, and how often do they conflict? The trial on the graph-enrichment series shows it. If it is painful, jj comes back as a question about that step alone.
+- Does Automatic pick the right base for a PR cut from another unpushed PR? Reading the code suggests one case where it would go one PR too far down. A seeded three-PR stack settles it in the plan.
+- Can a child be started in its own worktree without the old merge-back machinery? The October pull left a note that a child started that way could wait forever for its worktree. The plan settles it before any estimate is trusted.
