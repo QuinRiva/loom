@@ -14,7 +14,7 @@ import {
 import { cn } from "~/lib/utils";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 
-import { ArchivedBadge } from "./ArchivedSearchResultRow";
+import { ArchivedBadge } from "./ShelllessSearchResultRow";
 import { openThreadSearchTarget } from "./threadSearchSwitches";
 
 /**

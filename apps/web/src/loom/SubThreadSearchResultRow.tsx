@@ -13,7 +13,7 @@ import { CornerDownRightIcon } from "lucide-react";
 import { ThreadSearchMatchExcerpt } from "~/components/ThreadSearchMatch";
 import { cn } from "~/lib/utils";
 
-import { ArchivedBadge } from "./ArchivedSearchResultRow";
+import { ArchivedBadge } from "./ShelllessSearchResultRow";
 
 const scrollIntoView = (node: HTMLLIElement | null) => node?.scrollIntoView({ block: "nearest" });
 
@@ -93,7 +93,7 @@ export type SidebarThreadSearchRow<TThread> =
       readonly thread: TThread;
     }
   | {
-      readonly kind: "archived";
+      readonly kind: "shellless";
       readonly key: string;
       readonly matchKey: string;
       readonly match: EnvironmentThreadSearchMatch;
@@ -101,15 +101,15 @@ export type SidebarThreadSearchRow<TThread> =
   | ThreadSearchSubRow;
 
 /**
- * The threads listed by title, then those listed for their messages with the archived roots among
- * them in the order the server ranked them, each followed by its sub-thread rows.
+ * The threads listed by title, then those listed for their messages with the roots that have no
+ * shell among them in the order the server ranked them, each followed by its sub-thread rows.
  */
 export function sidebarThreadSearchRows<
   TThread extends { readonly environmentId: EnvironmentId; readonly id: ThreadId },
 >(
   titleMatches: ReadonlyArray<TThread>,
   contentMatches: ReadonlyArray<TThread>,
-  archived: ReadonlyArray<EnvironmentThreadSearchMatch>,
+  shellless: ReadonlyArray<EnvironmentThreadSearchMatch>,
   messageOrder: ReadonlyArray<string>,
   subRows: ReadonlyMap<string, ReadonlyArray<ThreadSearchSubRow>>,
 ): Array<SidebarThreadSearchRow<TThread>> {
@@ -124,8 +124,8 @@ export function sidebarThreadSearchRows<
     rank.get(row.matchKey) ?? Number.POSITIVE_INFINITY;
   const messageRows = [
     ...contentMatches.map(threadRow),
-    ...archived.map((match) => ({
-      kind: "archived" as const,
+    ...shellless.map((match) => ({
+      kind: "shellless" as const,
       key: scopedThreadKey(scopeThreadRef(match.environmentId, match.threadId)),
       matchKey: threadSearchMatchKey(match),
       match,
@@ -133,7 +133,7 @@ export function sidebarThreadSearchRows<
   ].toSorted((left, right) => byRank(left) - byRank(right));
   return withThreadSearchSubRows<SidebarThreadSearchRow<TThread>>(
     [...titleMatches.map(threadRow), ...messageRows],
-    (row) => (row.kind === "thread" || row.kind === "archived" ? row.matchKey : null),
+    (row) => (row.kind === "thread" || row.kind === "shellless" ? row.matchKey : null),
     subRows,
   );
 }

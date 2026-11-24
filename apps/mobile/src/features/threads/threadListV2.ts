@@ -18,7 +18,7 @@ import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models
 import {
   threadSearchMatchKey,
   threadSearchSubject,
-  type EnvironmentThreadSearchMatch, // loom: archived search rows
+  type EnvironmentThreadSearchMatch, // loom: search rows with no shell
 } from "@t3tools/client-runtime/state/thread-search";
 import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/shared/paletteSearch";
 import {
@@ -41,9 +41,8 @@ import {
   type ProjectId,
 } from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
-// loom: archived search rows, and sub-thread rows under their top-level thread
+// loom: sub-thread rows under their top-level thread
 import {
-  shelllessArchivedMatches,
   withThreadSearchSubRows,
   type ThreadSearchSubRow,
 } from "@t3tools/client-runtime/state/loom/threadSearch";
@@ -499,9 +498,9 @@ export interface ThreadListV2SettledShelfListItem {
   readonly disabled: boolean;
 }
 
-// loom: a thread-search hit on an archived root, which has no shell; drawn from the match.
-export interface ThreadListV2SearchArchivedListItem {
-  readonly type: "v2-search-archived";
+// loom: a thread-search hit on a root with no shell (archived, or older settled); drawn from the match.
+export interface ThreadListV2SearchShelllessListItem {
+  readonly type: "v2-search-shellless";
   readonly key: string;
   readonly match: EnvironmentThreadSearchMatch;
 }
@@ -519,23 +518,25 @@ export type ThreadListV2ListItem =
   | ThreadListV2WorkingShelfListItem
   | ThreadListV2SnoozedShelfListItem
   | ThreadListV2SettledShelfListItem
-  | ThreadListV2SearchArchivedListItem // loom
+  | ThreadListV2SearchShelllessListItem // loom
   | ThreadListV2SearchSubListItem; // loom
 
-// loom: archived roots the search returned, after the list's own rows, in server order.
-export function threadListV2SearchArchivedItems(
-  matches: ReadonlyArray<EnvironmentThreadSearchMatch>,
+// loom: roots with no shell the search returned (`shelllessMatches`), after the list's own rows,
+// in server order.
+export function threadListV2SearchShelllessItems(
+  shellless: ReadonlyArray<EnvironmentThreadSearchMatch>,
   projectKeys: ReadonlySet<string> | null,
-): ThreadListV2SearchArchivedListItem[] {
-  return shelllessArchivedMatches({
-    matches,
-    isInScope: (match) =>
-      projectKeys === null || projectKeys.has(`${match.environmentId}:${match.projectId}`),
-  }).map((match) => ({
-    type: "v2-search-archived",
-    key: `v2-search-archived:${threadSearchMatchKey(match)}`,
-    match,
-  }));
+): ThreadListV2SearchShelllessListItem[] {
+  return shellless
+    .filter(
+      (match) =>
+        projectKeys === null || projectKeys.has(`${match.environmentId}:${match.projectId}`),
+    )
+    .map((match) => ({
+      type: "v2-search-shellless",
+      key: `v2-search-shellless:${threadSearchMatchKey(match)}`,
+      match,
+    }));
 }
 
 // loom: sub-thread rows directly under their top-level thread's row, wherever the search lists it.
@@ -552,7 +553,7 @@ export function threadListV2WithSearchSubRows(
             environmentId: item.item.thread.environmentId,
             threadId: item.item.thread.id,
           })
-        : item.type === "v2-search-archived"
+        : item.type === "v2-search-shellless"
           ? threadSearchMatchKey(item.match)
           : null,
     subRows,
@@ -570,7 +571,7 @@ export function isThreadListV2ListItem(value: {
     value.type === "v2-working-shelf" ||
     value.type === "v2-snoozed-shelf" ||
     value.type === "v2-settled-shelf" ||
-    value.type === "v2-search-archived" || // loom
+    value.type === "v2-search-shellless" || // loom
     value.type === "v2-search-sub" // loom
   );
 }
@@ -627,8 +628,8 @@ export function threadListV2ListItemsAreEqual(
         previous.expanded === item.expanded &&
         previous.disabled === item.disabled
       );
-    case "v2-search-archived": // loom
-      return previous.type === "v2-search-archived" && previous.match === item.match;
+    case "v2-search-shellless": // loom
+      return previous.type === "v2-search-shellless" && previous.match === item.match;
     case "v2-search-sub": // loom
       return (
         previous.type === "v2-search-sub" &&

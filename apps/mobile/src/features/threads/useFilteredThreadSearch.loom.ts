@@ -1,5 +1,7 @@
+import { useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_THREAD_SEARCH_FILTERS,
+  shelllessMatches,
   threadSearchSubRows,
   type ThreadSearchFilters,
   type ThreadSearchTarget,
@@ -11,6 +13,7 @@ import { useMemo, useState } from "react";
 
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { useThreadSearch } from "../../state/queries";
+import { environmentThreadShells } from "../../state/threads";
 import { requestThreadMessageJump } from "./threadMessageJump";
 
 /**
@@ -59,8 +62,16 @@ export function useFilteredThreadSearch(
     () => threadSearchSubRows(search.matches, unfoldSearch.matches),
     [search.matches, unfoldSearch.matches],
   );
+  const held = useAtomValue(environmentThreadShells.threadRefsAtom);
+  const hiding = useAtomValue(environmentThreadShells.anyEnvironmentHidingAtom);
+  // Hits on roots with no shell here (archived, or older settled), drawn from the match.
+  const shellless = useMemo(
+    () => shelllessMatches({ matches: search.matches, held, hiding }),
+    [search.matches, held, hiding],
+  );
   return {
     search,
+    shellless,
     filters,
     setFilters,
     subRows,

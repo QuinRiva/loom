@@ -1,5 +1,6 @@
 import {
   ThreadId,
+  type EnvironmentId,
   type MessageId,
   type OrchestrationSearchThreadsInput,
   type OrchestrationThreadSearchSource,
@@ -49,15 +50,28 @@ export function threadSearchMatchedSubThreadTitle(
 }
 
 /**
- * Content hits on roots the client holds no shell for. Archived roots are the
- * only such roots (the shell stream drops them); a live root missing from the
- * list was filtered out by the list itself and stays out.
+ * Hits on roots the client holds no shell for, which a surface draws from the match alone:
+ * archived roots (the shell stream drops them) and older settled roots past the five whose shells
+ * a search sends. A held root a list filtered out stays out. While a tag filter hides threads,
+ * unheld live roots stay out too: they cannot be checked against it, and the route will not open them.
  */
-export function shelllessArchivedMatches(input: {
+export function shelllessMatches(input: {
   readonly matches: ReadonlyArray<EnvironmentThreadSearchMatch>;
-  readonly isInScope: (match: EnvironmentThreadSearchMatch) => boolean;
+  /** Every thread the client holds a shell for (`threadRefsAtom`), hidden ones included. */
+  readonly held: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly threadId: ThreadId;
+  }>;
+  readonly hiding: boolean;
+  readonly isInScope?: (match: EnvironmentThreadSearchMatch) => boolean;
 }): EnvironmentThreadSearchMatch[] {
-  return input.matches.filter((match) => match.archivedAt !== null && input.isInScope(match));
+  if (input.matches.length === 0) return [];
+  const held = new Set(input.held.map(threadSearchMatchKey));
+  return input.matches.filter(
+    (match) =>
+      (match.archivedAt !== null || (!input.hiding && !held.has(threadSearchMatchKey(match)))) &&
+      (input.isInScope?.(match) ?? true),
+  );
 }
 
 /**

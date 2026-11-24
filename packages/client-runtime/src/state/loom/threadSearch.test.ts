@@ -15,6 +15,7 @@ import {
 import {
   DEFAULT_THREAD_SEARCH_FILTERS,
   isDefaultThreadSearchFilters,
+  shelllessMatches,
   threadSearchExcerptLabel,
   threadSearchMatchedSubThreadTitle,
   threadSearchShowsExcerpt,
@@ -41,6 +42,20 @@ const match = (
   matchedThreadId: null,
   matchedThreadTitle: null,
   ...overrides,
+});
+
+it("draws every hit the client holds no shell for, and no held one twice", () => {
+  const held = [{ environmentId, threadId: ThreadId.make("listed") }];
+  const matches = [
+    match("listed"),
+    match("older-settled"),
+    match("archived", { archivedAt: "2026-10-02T00:00:00.000Z" }),
+  ];
+  const keys = (hiding: boolean) =>
+    shelllessMatches({ matches, held, hiding }).map((row) => row.threadId);
+  expect(keys(false)).toEqual(["older-settled", "archived"]);
+  // An unheld live root cannot be checked against a tag filter.
+  expect(keys(true)).toEqual(["archived"]);
 });
 
 it("labels sub-thread hits and stays silent on the root's own title", () => {

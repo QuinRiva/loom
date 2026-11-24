@@ -48,14 +48,18 @@ import {
   ThreadSearchPullRequestNumber,
 } from "./ThreadStatusIndicators";
 import { CacheFuelRing } from "../loom/CacheFuelRing"; // loom: prompt-cache liveness
-import { ArchivedBadge } from "../loom/ArchivedSearchResultRow"; // loom: archived roots
+import { ArchivedBadge } from "../loom/ShelllessSearchResultRow"; // loom: roots with no shell
 // loom: search switches, sub-thread rows, and rows that open the thread their excerpt is from
 import {
   threadSearchShowsExcerpt,
   threadSearchTarget,
   type ThreadSearchFilters,
 } from "@t3tools/client-runtime/state/loom/threadSearch";
-import { openThreadSearchTarget, type useThreadSearchSwitches } from "../loom/threadSearchSwitches";
+import {
+  openThreadSearchTarget,
+  useShelllessMatches,
+  type useThreadSearchSwitches,
+} from "../loom/threadSearchSwitches";
 
 function useProviderEntryByEnvironmentAndInstanceId() {
   const { environments } = useEnvironments();
@@ -226,13 +230,12 @@ export function useCommandPaletteThreadItems(input: {
     messages,
   );
 
-  // loom: an archived root has no shell, so its row is built from the match; it ranks with
-  // the listed threads by title and, failing that, in the messages section.
-  const archivedThreadItems = messageSearch.matches.flatMap((match): CommandPaletteActionItem[] => {
-    if (match.archivedAt === null) return [];
-    const projectTitle = projectByKey.get(`${match.environmentId}:${match.projectId}`)?.title;
-    return [
-      {
+  // loom: a root with no shell here (archived, or older settled) has its row built from the
+  // match; it ranks with the listed threads by title and, failing that, in the messages section.
+  const shelllessThreadItems = useShelllessMatches(messageSearch.matches).map(
+    (match): CommandPaletteActionItem => {
+      const projectTitle = projectByKey.get(`${match.environmentId}:${match.projectId}`)?.title;
+      return {
         kind: "action",
         value: `thread:${match.environmentId}:${match.threadId}`,
         searchTerms: [match.title],
@@ -246,7 +249,7 @@ export function useCommandPaletteThreadItems(input: {
         ...(projectTitle ? { description: projectTitle } : {}),
         timestamp: formatRelativeTimeLabel(match.updatedAt),
         icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
-        titleTrailingContent: <ArchivedBadge />,
+        ...(match.archivedAt === null ? {} : { titleTrailingContent: <ArchivedBadge /> }),
         run: async () => {
           await navigate({
             to: "/$environmentId/$threadId",
@@ -255,11 +258,11 @@ export function useCommandPaletteThreadItems(input: {
             ),
           });
         },
-      },
-    ];
-  });
+      };
+    },
+  );
   const itemByValue = new Map(
-    [...threadItems, ...archivedThreadItems].map((item) => [item.value, item]), // loom
+    [...threadItems, ...shelllessThreadItems].map((item) => [item.value, item]), // loom
   );
   const itemForMatch = (match: EnvironmentThreadSearchMatch) =>
     itemByValue.get(`thread:${match.environmentId}:${match.threadId}`);
@@ -323,7 +326,7 @@ export function useCommandPaletteThreadItems(input: {
     .flatMap((value) => messageItemByValue.get(value) ?? []);
 
   return {
-    threadItems: [...threadItems, ...archivedThreadItems], // loom: + archived roots
+    threadItems: [...threadItems, ...shelllessThreadItems], // loom: + roots with no shell
     threadMessageItems,
     now,
     isSearchPending: messageSearch.isPending,

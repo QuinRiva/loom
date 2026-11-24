@@ -532,32 +532,26 @@ export function CommandPalette(props: {
         (right.threadSearch ? threadRecentUse(right.threadSearch) : 0) -
         (left.threadSearch ? threadRecentUse(left.threadSearch) : 0),
     );
-    // loom: archived roots have no shell, so their search hits become items built from the match
-    const archivedItems = search.matches.flatMap((match): CommandPaletteItem[] =>
-      match.archivedAt === null
-        ? []
-        : [
-            {
-              key: scopedThreadKey(match.environmentId, match.threadId),
-              kind: "thread",
-              title: match.title || gt("Untitled thread"),
-              archived: true,
-              searchTerms: [],
-              threadSearch: { title: match.title, activityAt: Date.parse(match.updatedAt) },
-              run: () =>
-                selectDetail({
-                  name: "Thread",
-                  params: {
-                    environmentId: String(match.environmentId),
-                    threadId: String(match.threadId),
-                  },
-                }),
-            },
-          ],
-    );
-    return [...actions, ...projectItems, ...threadItems, ...archivedItems];
+    // loom: roots with no shell here (archived, or older settled) become items built from the match
+    const shelllessItems = filteredSearch.shellless.map((match): CommandPaletteItem => ({
+      key: scopedThreadKey(match.environmentId, match.threadId),
+      kind: "thread",
+      title: match.title || gt("Untitled thread"),
+      archived: match.archivedAt !== null,
+      searchTerms: [],
+      threadSearch: { title: match.title, activityAt: Date.parse(match.updatedAt) },
+      run: () =>
+        selectDetail({
+          name: "Thread",
+          params: {
+            environmentId: String(match.environmentId),
+            threadId: String(match.threadId),
+          },
+        }),
+    }));
+    return [...actions, ...projectItems, ...threadItems, ...shelllessItems];
   }, [
-    search.matches, // loom
+    filteredSearch.shellless, // loom
     chipProjectIds, // loom
     selectTab,
     activeThread,

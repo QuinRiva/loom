@@ -1,6 +1,7 @@
 import {
   DEFAULT_THREAD_SEARCH_FILTERS,
   isDefaultThreadSearchFilters,
+  shelllessMatches,
   threadSearchSubRows,
   type ThreadSearchFilters,
   type ThreadSearchTarget,
@@ -10,6 +11,7 @@ import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environ
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useState } from "react";
 
+import { useAnyEnvironmentHiding, useThreadRefs } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
 import { isAbsolutePreviewablePath } from "../markdown-links";
 import { useRightPanelStore } from "../rightPanelStore";
@@ -48,6 +50,16 @@ export function useThreadSearchSwitches(query: string) {
     subRows: (matches: ReadonlyArray<EnvironmentThreadSearchMatch>) =>
       threadSearchSubRows(matches, open === null ? [] : unfoldSearch.matches),
   };
+}
+
+/** The hits this client holds no shell for, which a surface draws from the match (`shelllessMatches`). */
+export function useShelllessMatches(
+  matches: ReadonlyArray<EnvironmentThreadSearchMatch>,
+  isInScope?: (match: EnvironmentThreadSearchMatch) => boolean,
+) {
+  const held = useThreadRefs();
+  const hiding = useAnyEnvironmentHiding();
+  return shelllessMatches({ matches, held, hiding, ...(isInScope ? { isInScope } : {}) });
 }
 
 /** Opens what a search row targets: navigate, then find at the message or the report beside it. */

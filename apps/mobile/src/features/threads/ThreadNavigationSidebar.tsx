@@ -81,11 +81,11 @@ import {
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
-  threadListV2SearchArchivedItems, // loom
+  threadListV2SearchShelllessItems, // loom
   threadListV2WithSearchSubRows, // loom
 } from "./threadListV2";
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
-import { ArchivedSearchResultRow } from "./ArchivedSearchResultRow.loom"; // loom
+import { ShelllessSearchResultRow } from "./ShelllessSearchResultRow.loom"; // loom
 import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 
 type SidebarListItem =
@@ -107,7 +107,7 @@ interface ThreadNavigationSidebarProps {
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
   readonly onOpenPendingTask: (pendingTask: PendingNewTask) => void;
   readonly onSearchQueryChange: (query: string) => void;
-  // loom: by id, so an archived search hit (no shell) opens too
+  // loom: by id, so a search hit with no shell opens too
   readonly onSelectThread: (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => void;
   readonly onOpenThreadPullRequests: (
     thread: EnvironmentThreadShell,
@@ -307,12 +307,12 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     settledShelfExpanded,
     selectedThreadKey,
   });
-  // loom: archived roots the search returned have no shell; they follow the list's rows, above Show more
-  const searchArchivedItems =
+  // loom: roots the search returned with no shell here follow the list's rows, above Show more
+  const searchShelllessItems =
     props.searchQuery.trim().length === 0
       ? []
-      : threadListV2SearchArchivedItems(
-          threadSearch.matches,
+      : threadListV2SearchShelllessItems(
+          filteredSearch.shellless,
           selectedProjectScope === null
             ? null
             : new Set(
@@ -323,9 +323,9 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
         );
   // loom: each listed top-level thread's sub-thread rows follow it
   const searchItems = threadListV2WithSearchSubRows(
-    searchArchivedItems.length === 0
+    searchShelllessItems.length === 0
       ? threadListV2Items
-      : [...threadListV2Items, ...searchArchivedItems],
+      : [...threadListV2Items, ...searchShelllessItems],
     filteredSearch.subRows,
   );
   const listItems: readonly SidebarListItem[] =
@@ -360,7 +360,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   const { onSelectThread, onOpenThreadPullRequests } = props;
   // A row listed for a message match opens the thread at that message, by
   // tap or by shortcut.
-  // loom: by id, so an archived search hit (no shell) opens too
+  // loom: by id, so a search hit with no shell opens too
   // loom: it opens what its excerpt names, such as the sub-thread behind a "Report:" excerpt.
   const handleSelectThread = (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => {
     const key = threadSearchMatchKey({ environmentId: thread.environmentId, threadId: thread.id });
@@ -548,10 +548,10 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             pane="sidebar"
           />
         );
-      case "v2-search-archived":
-        // loom: an archived root's search hit, drawn from the match
+      case "v2-search-shellless":
+        // loom: a search hit on a root with no shell, drawn from the match
         return (
-          <ArchivedSearchResultRow
+          <ShelllessSearchResultRow
             match={item.match}
             searchQuery={props.searchQuery}
             pane="sidebar"

@@ -13,12 +13,11 @@ import { ThreadSearchMatchExcerpt } from "./thread-search-match";
 import { openThreadSearchTarget } from "./useFilteredThreadSearch.loom";
 
 /**
- * A search hit on a root the client holds no shell for (archived roots), drawn
- * from the match payload alone. Opening it navigates by id to what the row
- * targets (the sub-thread behind a "Report:" excerpt, say); the thread screen
- * loads the detail itself. No swipe actions: restoring lives in Archived threads.
+ * A search hit on a root with no shell here (archived, or older settled), drawn from the match
+ * alone. Opening it navigates by id to what the row targets (the sub-thread behind a "Report:"
+ * excerpt, say); the thread screen loads the detail itself. No swipe actions.
  */
-export const ArchivedSearchResultRow = memo(function ArchivedSearchResultRow(props: {
+export const ShelllessSearchResultRow = memo(function ShelllessSearchResultRow(props: {
   readonly match: EnvironmentThreadSearchMatch;
   readonly searchQuery: string;
   readonly pane?: "sidebar";
@@ -37,7 +36,7 @@ export const ArchivedSearchResultRow = memo(function ArchivedSearchResultRow(pro
     <RowPressable
       interactionClassName={sidebarPane ? "bg-thread-hover" : "bg-row-hover"}
       interactionOpacity={selected ? 0 : 1}
-      accessibilityLabel={`${match.title}, archived`}
+      accessibilityLabel={match.archivedAt === null ? match.title : `${match.title}, archived`}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       className={
@@ -77,9 +76,11 @@ export const ArchivedSearchResultRow = memo(function ArchivedSearchResultRow(pro
             selected={selected}
           />
         </View>
-        <View className="rounded-full border border-border-subtle px-1.5 py-0.5">
-          <Text className={cn("text-3xs font-t3-bold", mutedClassName)}>Archived</Text>
-        </View>
+        {match.archivedAt === null ? null : (
+          <View className="rounded-full border border-border-subtle px-1.5 py-0.5">
+            <Text className={cn("text-3xs font-t3-bold", mutedClassName)}>Archived</Text>
+          </View>
+        )}
         <Text
           className={cn("text-sm tabular-nums", mutedClassName)}
           style={{ fontFamily: THREAD_LIST_V2_MONO_FONT }}
