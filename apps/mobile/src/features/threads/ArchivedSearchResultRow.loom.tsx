@@ -43,7 +43,12 @@ export const ArchivedSearchResultRow = memo(function ArchivedSearchResultRow(pro
       className={
         sidebarPane ? cn("rounded-xl", selected ? "bg-thread-selected" : "bg-drawer") : "bg-screen"
       }
-      onPress={() => openThreadSearchTarget(threadSearchTarget(match), props.onSelectThread)}
+      onPress={() =>
+        openThreadSearchTarget(
+          threadSearchTarget(match, { findInArchived: true }),
+          props.onSelectThread,
+        )
+      }
     >
       <View
         className={cn(

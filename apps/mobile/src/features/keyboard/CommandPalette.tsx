@@ -641,8 +641,8 @@ export function CommandPalette(props: {
     }
     const target =
       item.subThreadRow?.kind === "subThread"
-        ? threadSearchTarget(item.subThreadRow)
-        : match && threadSearchTarget(match);
+        ? threadSearchTarget(item.subThreadRow, { findInArchived: true })
+        : match && threadSearchTarget(match, { findInArchived: true });
     if (target) openThreadSearchTarget(target, openThread);
     else item.run();
   };

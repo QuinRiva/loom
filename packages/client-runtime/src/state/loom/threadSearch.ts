@@ -215,10 +215,13 @@ export interface ThreadSearchTarget {
 
 /**
  * A top-level row opens the thread its excerpt is from: the sub-thread that wrote a "Report:"
- * excerpt, say. A heading opens the top-level thread. No find in an archived thread, as today.
+ * excerpt, say. A heading opens the top-level thread. No find in an archived thread unless
+ * `findInArchived`: web's find needs the timeline of a thread the client lists; the phone's
+ * message jump does not.
  */
 export function threadSearchTarget(
   row: EnvironmentThreadSearchMatch | Extract<ThreadSearchSubRow, { kind: "subThread" }>,
+  { findInArchived = false }: { readonly findInArchived?: boolean } = {},
 ): ThreadSearchTarget {
   if ("kind" in row) {
     const archived = row.match.archivedAt !== null || row.root.archivedAt !== null;
@@ -226,7 +229,7 @@ export function threadSearchTarget(
       environmentId: row.root.environmentId,
       threadId: row.match.threadId,
       find:
-        archived || row.match.messageId === undefined
+        (archived && !findInArchived) || row.match.messageId === undefined
           ? null
           : { messageId: row.match.messageId, snippet: row.match.snippet },
       reportPath: row.match.reportPath ?? null,
@@ -245,7 +248,7 @@ export function threadSearchTarget(
     threadId: row.matchedThreadId ?? row.threadId,
     // The server sets `messageId` only for the top-level thread's own message.
     find:
-      row.archivedAt !== null || row.messageId === undefined
+      (row.archivedAt !== null && !findInArchived) || row.messageId === undefined
         ? null
         : { messageId: row.messageId, snippet: row.snippet },
     reportPath: row.reportPath ?? null,

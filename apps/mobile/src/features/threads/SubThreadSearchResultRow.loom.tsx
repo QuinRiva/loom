@@ -66,7 +66,10 @@ export const SubThreadSearchResultRow = memo(function SubThreadSearchResultRow(p
         if (props.onPress) props.onPress();
         else if (row.kind === "fold") props.onUnfold?.(row.root);
         else if (props.onSelectThread)
-          openThreadSearchTarget(threadSearchTarget(row), props.onSelectThread);
+          openThreadSearchTarget(
+            threadSearchTarget(row, { findInArchived: true }),
+            props.onSelectThread,
+          );
       }}
     >
       <View
