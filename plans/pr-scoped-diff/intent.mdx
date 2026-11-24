@@ -49,7 +49,7 @@ manager_sessions:
 />
 
 <Callout tone="decision" title="What you decided" focus>
-  **Try it by hand first**: the next graph-enrichment PR gets its own thread and worktree with what exists today, and the real thing is built if that suits you. **The three small Diff tab corrections go ahead now**, as their own PR. **An orchestrator splits work this way** when "it intends to produce multiple PRs".
+  **Try it by hand first**: every graph-enrichment PR not yet started gets its own thread and worktree with what exists today, and the real thing is built if that suits you. **The three small Diff tab corrections go ahead now**, as their own PR. **An orchestrator splits work this way** when "it intends to produce multiple PRs".
 </Callout>
 
 **You'll know it works when.**
@@ -85,6 +85,7 @@ The three corrections, which hold whichever way you go:
 **Decided.**
 
 - Asked which way this should go, you chose "Try a thread and worktree per PR by hand on the next graph-enrichment PR, then build it properly if it suits you".
+- On the trial's reach, you asked whether to tell the graph-enrichment orchestrator "that all future PRs should within this hunk of work should be created that way". It was told on 24 Nov: every PR it has not yet started gets its own thread and worktree, and the two already built stay where they are.
 - Asked whether the three corrections go ahead now as their own PR: "Yes, build the three corrections now".
 - Asked when an orchestrator should give a PR its own thread and worktree, you chose "Whenever a piece of work will produce more than one PR" and wrote: "Yeah - basically if it intends to produce multiple PRs." The wording for agents is later work with its own review.
 - "this would still give me a single mechanism for communication for the overall hunk of work - but enable me to communicate with individual sub-orchestrators about a specific PR". One orchestrator for the whole, one thread per PR.
