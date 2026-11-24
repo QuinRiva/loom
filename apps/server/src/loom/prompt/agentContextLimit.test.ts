@@ -18,7 +18,10 @@ import {
   serveMcp,
 } from "../../mcp/toolkits/workstream/mcpHttp.testkit.ts";
 import { LOOM_TOOL_PROSE } from "../../mcp/toolkits/workstream/prose.ts";
-import { ASK_USER_QUESTION_PARAMETERS } from "../../provider/Drivers/Pi/loomExtension.ts";
+import {
+  ASK_USER_QUESTION_PARAMETERS,
+  WITHDRAW_QUESTION_PARAMETERS,
+} from "../../provider/Drivers/Pi/loomExtension.ts";
 import {
   BG_START_PARAMETERS,
   BG_WAIT_PARAMETERS,
@@ -46,6 +49,11 @@ const EXTENSION_TOOLS = [
     description: LOOM_TOOL_PROSE.ask_user_question.description,
     inputSchema: ASK_USER_QUESTION_PARAMETERS,
   },
+  {
+    name: "withdraw_question",
+    description: LOOM_TOOL_PROSE.withdraw_question.description,
+    inputSchema: WITHDRAW_QUESTION_PARAMETERS,
+  },
 ];
 const BG_TOOLS = [
   {
@@ -59,7 +67,10 @@ const BG_TOOLS = [
     inputSchema: BG_WAIT_PARAMETERS,
   },
 ];
-const LOOM_TOOL_NAMES = new Set([...LOOM_TOOL_DEFS.map((def) => def.name), "ask_user_question"]);
+const LOOM_TOOL_NAMES = new Set([
+  ...LOOM_TOOL_DEFS.map((def) => def.name),
+  ...EXTENSION_TOOLS.map((tool) => tool.name),
+]);
 
 const frontmatter = (skillDir: string) => {
   const file = NodePath.join(skillDir, "SKILL.md");
