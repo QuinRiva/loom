@@ -1460,7 +1460,9 @@ const CHAT_MARKDOWN_COMPONENTS = {
       // loom: any issue link its host may also number a pull request with (a project reference
       // link's `#12`, a pasted `/issues/12` URL) reads as a pull request first, like an autolink.
       const referenceCandidateUrl =
-        href && sourceControlClients.parseChangeRequestUrl(href) === null
+        href &&
+        (pullRequestAutolink === "reference" ||
+          sourceControlClients.parseChangeRequestUrl(href) === null)
           ? sourceControlClients.changeRequestUrlFromReferenceAutolink(href)
           : null;
       const confirmBeforeOpen =
