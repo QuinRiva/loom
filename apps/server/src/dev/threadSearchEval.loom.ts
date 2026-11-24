@@ -1,7 +1,8 @@
 /**
  * Thread-search eval on a COPY of a real database (migrated in place): the 57 test queries in
- * `threadSearchQueries.json` by Loom's rankings and upstream's, the cut-off for matches by meaning
- * (with its 16 nonsense queries), and searches whose answer is a sub-thread. Usage: `--help`.
+ * `threadSearchQueries.json` by Loom's rankings and upstream's, the two rules on matches by meaning
+ * (the cut-off and the word rule, with the nonsense queries), and searches whose answer is a
+ * sub-thread. Usage: `--help`.
  */
 // Dev-only harness (not shipped): plain Node/JSON/Date keep it legible, matching `scripts/*.ts`.
 // @effect-diagnostics nodeBuiltinImport:off globalDateInEffect:off globalDate:off globalJsonInEffect:off globalConsoleInEffect:off globalConsole:off
@@ -30,12 +31,13 @@ import queries from "./threadSearchQueries.json" with { type: "json" };
 // Floors on the set's own corpus under `scope: "all"` (origin/main's ranking), whole percent.
 // Exact identifiers: all 8 in the top 3, and `exactR1` of them at #1. Re-baselined 23 Oct 2026.
 // `quiet`: nonsense queries listing nothing by meaning, for a model with a cut-off (24 Nov 2026).
+// A made-up word that a thread then discusses is in the index, and its phrase stops being quiet.
 const FLOORS: Record<
   string,
   { r5?: number; r10?: number; mrr?: number; exactR1: number; quiet?: number }
 > = {
   local: { r5: 67, mrr: 0.5, exactR1: 7 },
-  vertex: { r5: 79, mrr: 0.58, exactR1: 8, quiet: 14 },
+  vertex: { r5: 79, mrr: 0.58, exactR1: 8, quiet: 50 },
   none: { r10: 40, mrr: 0.27, exactR1: 7 },
   "openai-compatible": { exactR1: 8 },
 };
@@ -165,6 +167,8 @@ const main = Effect.gen(function* () {
     readonly query: (typeof queries)[number];
     /** The roots-scope fusion's rank before the cut-off removed anything. */
     readonly uncut: number | null;
+    /** No word of the query is in the index, so the search skipped matches by meaning. */
+    readonly silenced: boolean;
     readonly ranks: Record<Side, number | null>;
     readonly ms: Partial<Record<Side | keyof typeof TIMED, number>>;
     readonly top: ReadonlyArray<string>;
@@ -187,6 +191,7 @@ const main = Effect.gen(function* () {
     const ms: (typeof results)[number]["ms"] = {};
     let top: ReadonlyArray<string> = [];
     let uncut: number | null = null;
+    let silenced = false;
     for (const scope of ["roots", "all"] as const) {
       const ranked = yield* search.rank(query.q, { scope });
       const fused = keep(ranked.fused, query.expected)!;
@@ -196,6 +201,7 @@ const main = Effect.gen(function* () {
       if (scope === "roots") {
         top = fused.slice(0, 5);
         uncut = rankOf(keep(ranked.voted, query.expected), query.expected);
+        silenced = ranked.known === false;
       }
     }
     for (const [name, input] of Object.entries(TIMED) as Array<
@@ -222,7 +228,7 @@ const main = Effect.gen(function* () {
       );
     ranks["upstream search"] = rankOf(ids(messages.matches), query.expected);
     ranks["upstream searchThreads"] = rankOf(ids(threads.matches), query.expected);
-    results.push({ query, uncut, ranks, ms, top });
+    results.push({ query, uncut, silenced, ranks, ms, top });
   }
 
   const groups: Record<string, ReadonlyArray<string>> = {
@@ -293,24 +299,41 @@ const main = Effect.gen(function* () {
         .map((r) => `\n- lost: ${r.query.q} (#${r.uncut} before the cut-off)`)
         .join(""),
   );
-  const nonsense = [];
+  const silenced = results.filter((r) => r.silenced);
+  console.log(
+    `word rule (no query word in the index: nothing by meaning) silences ${silenced.length} test queries` +
+      silenced.map((r) => `\n- silenced: ${r.query.q} (#${r.uncut} without it)`).join(""),
+  );
+  // Rows listed on meaning alone under each pair of the two rules: neither (main), the cut-off
+  // alone, the word rule alone, and both (as built). Either rule can be dropped without the other.
+  const nonsense: Array<{
+    readonly q: string;
+    readonly uncut: number;
+    readonly cut: number;
+    readonly rule: number;
+    readonly both: number;
+  }> = [];
   for (const query of queries.filter((query) => query.source === "nonsense")) {
     const ranked = yield* search.rank(query.q, { scope: "roots" });
     const worded = new Set(
       ranked.hits.filter((hit) => hit.coverage === ranked.terms.length).map((hit) => hit.rootId),
     );
-    const byMeaning = ranked.fused.filter((id) => !worded.has(id));
-    nonsense.push({
-      q: query.q,
-      byMeaning,
-      uncut: ranked.voted.filter((id) => !worded.has(id)).length,
-    });
+    const nearest = yield* embedder.nearest(query.q, 50);
+    const uncut = nearest?.ids.filter((id) => !worded.has(id)).length ?? 0;
+    const cut = [...(nearest?.close ?? [])].filter((id) => !worded.has(id)).length;
+    const known = ranked.known !== false;
+    nonsense.push({ q: query.q, uncut, cut, rule: known ? uncut : 0, both: known ? cut : 0 });
   }
-  const quiet = nonsense.filter((row) => row.byMeaning.length === 0).length;
+  const quietUnder = (key: "uncut" | "cut" | "rule" | "both") =>
+    `${nonsense.filter((row) => row[key] === 0).length}/${nonsense.length}`;
+  const quiet = nonsense.filter((row) => row.both === 0).length;
   console.log(
-    `nonsense queries listing nothing by meaning: ${quiet}/${nonsense.length}\n` +
-      "| nonsense query | rows by meaning, uncut | after the cut-off |\n|---|---|---|\n" +
-      nonsense.map((row) => `| ${row.q} | ${row.uncut} | ${row.byMeaning.length} |`).join("\n"),
+    `nonsense queries listing nothing by meaning: ${quiet}/${nonsense.length} ` +
+      `(neither rule ${quietUnder("uncut")}, cut-off alone ${quietUnder("cut")}, word rule alone ${quietUnder("rule")})\n` +
+      "| nonsense query | neither | cut-off alone | word rule alone | both |\n|---|---|---|---|---|\n" +
+      nonsense
+        .map((row) => `| ${row.q} | ${row.uncut} | ${row.cut} | ${row.rule} | ${row.both} |`)
+        .join("\n"),
   );
 
   // Searches whose answer is a sub-thread: does its workstream come back with nothing switched
@@ -410,6 +433,7 @@ const main = Effect.gen(function* () {
     exact.r1 < floor.exactR1 && `exact-identifier R@1 ${exact.r1}/${exact.n} < ${floor.exactR1}`,
     exact.r3 < exact.n && `exact-identifier R@3 ${exact.r3}/${exact.n}`,
     lost.length > 0 && `${lost.length} expected roots left the first ten under the cut-off`,
+    silenced.length > 0 && `the word rule silenced ${silenced.length} test queries`,
     floor.quiet !== undefined &&
       quiet < floor.quiet &&
       `nonsense listing nothing by meaning ${quiet}/${nonsense.length} < ${floor.quiet}`,

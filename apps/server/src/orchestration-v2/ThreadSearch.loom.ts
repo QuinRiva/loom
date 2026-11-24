@@ -209,15 +209,34 @@ export const makeThreadSearch = Effect.gen(function* () {
           ]),
         );
 
+  /** Whether any term occurs anywhere in the index; CASE stops at the first, the costly prefix last. */
+  const known = (terms: ReadonlyArray<string>) =>
+    terms.length === 0
+      ? Effect.succeed(false)
+      : read(
+          sql.unsafe<{ readonly known: number }>(
+            `SELECT CASE ${terms
+              .map(
+                () =>
+                  "WHEN EXISTS (SELECT 1 FROM loom_thread_search WHERE loom_thread_search MATCH ?) THEN 1",
+              )
+              .join(" ")} ELSE 0 END AS "known"`,
+            matchTerms(terms),
+          ),
+        ).pipe(Effect.map((rows) => rows[0]?.known === 1));
+
   /**
    * Out-of-scope roots leave the candidate set before the top-k cut, not after it. Unfolding one
-   * workstream skips the embedding call: its root is already listed.
+   * workstream skips the embedding call: its root is already listed. A query none of whose words
+   * occurs anywhere (made-up words) skips it too, so it lists nothing: an embedding of nonsense
+   * still has nearest threads, and some clear the cut-off.
    */
-  const semantic = (query: string, scope: SearchScope) => {
+  const semantic = (query: string, terms: ReadonlyArray<string>, scope: SearchScope) => {
+    if (Option.isNone(embedder) || scope.rootThreadId !== undefined)
+      return Effect.succeed({ known: undefined, nearest: undefined });
     const projects = projectsOf(scope);
-    return Option.isNone(embedder) || scope.rootThreadId !== undefined
-      ? Effect.undefined
-      : scope.includeArchived !== false && projects === undefined
+    const nearest =
+      scope.includeArchived !== false && projects === undefined
         ? embedder.value.nearest(query, CANDIDATES)
         : read(sql<{ readonly threadId: string }>`
             SELECT thread_id AS "threadId" FROM orchestration_v2_projection_threads
@@ -228,6 +247,13 @@ export const makeThreadSearch = Effect.gen(function* () {
               embedder.value.nearest(query, CANDIDATES, new Set(rows.map((row) => row.threadId))),
             ),
           );
+    return known(terms).pipe(
+      Effect.flatMap((any) =>
+        (any ? nearest : Effect.undefined).pipe(
+          Effect.map((found) => ({ known: any, nearest: found })),
+        ),
+      ),
+    );
   };
 
   /** Live roots (not deleted, project not deleted) among `ids`. */
@@ -246,13 +272,15 @@ export const makeThreadSearch = Effect.gen(function* () {
   /**
    * Both rankings and their fusion, as root ids best-first (the harness reads them): `voted` is
    * the fusion, `fused` it without the roots neither a full word match nor the embedder's cut-off
-   * lets through. `semantic` is undefined when search is lexical-only.
+   * lets through. `semantic` is undefined when search is lexical-only; `known` false when no query
+   * word is in the index, so the embedder was not asked.
    */
   const rank = Effect.fn("ThreadSearch.rank")(function* (query: string, scope: SearchScope = {}) {
     const terms = toTerms(query);
-    const [rows, nearest] = yield* Effect.all([lexical(terms, scope), semantic(query, scope)], {
-      concurrency: 2,
-    });
+    const [rows, { known, nearest }] = yield* Effect.all(
+      [lexical(terms, scope), semantic(query, terms, scope)],
+      { concurrency: 2 },
+    );
     const hits = rows.filter((row) => !row.sub);
     const subHits = Map.groupBy(
       rows.filter((row) => row.sub),
@@ -288,6 +316,7 @@ export const makeThreadSearch = Effect.gen(function* () {
       roots,
       lexical: lexicalIds,
       semantic: nearest?.ids,
+      known,
       voted,
       fused,
     };

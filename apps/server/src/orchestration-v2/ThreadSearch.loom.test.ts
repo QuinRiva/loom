@@ -165,13 +165,16 @@ layer("ThreadSearch", (it) => {
       assert.deepStrictEqual(ids(yield* search("nebula", { includeArchived: false })), ["live"]);
       assert.deepStrictEqual(ids(yield* search("drift", { includeArchived: false })), []);
 
-      // Semantic side: the archived root is the nearest vector, yet stays out.
+      // Semantic side ("cosmos" is in no thread, so no full word match): the archived root is
+      // the nearest vector, yet stays out.
       const embedder = yield* makeThreadEmbedder(
-        Effect.succeed(stubProvider({ cosmos: [1, 0], "nebula survey\nProbe": [1, 0] })),
+        Effect.succeed(stubProvider({ "cosmos survey": [1, 0], "nebula survey\nProbe": [1, 0] })),
       );
       yield* embedder.sweep;
       const semantic = (includeArchived: boolean) =>
-        search("cosmos", { includeArchived }).pipe(Effect.provideService(ThreadEmbedder, embedder));
+        search("cosmos survey", { includeArchived }).pipe(
+          Effect.provideService(ThreadEmbedder, embedder),
+        );
       assert.equal((yield* semantic(true))[0]?.threadId, "archived");
       assert.notInclude(ids(yield* semantic(false)), "archived");
     }),
@@ -189,11 +192,11 @@ layer("ThreadSearch", (it) => {
         ["here"],
       );
       const embedder = yield* makeThreadEmbedder(
-        Effect.succeed(stubProvider({ quasar: [1, 0], "pulsar timing": [1, 0] })),
+        Effect.succeed(stubProvider({ "quasar timing": [1, 0], "pulsar timing": [1, 0] })),
       );
       yield* embedder.sweep;
       assert.deepStrictEqual(
-        (yield* search("quasar", { projectId: ProjectId.make("other") }).pipe(
+        (yield* search("quasar timing", { projectId: ProjectId.make("other") }).pipe(
           Effect.provideService(ThreadEmbedder, embedder),
         )).map((match) => match.threadId),
         ["there"],
@@ -348,7 +351,7 @@ layer("ThreadSearch", (it) => {
         Effect.succeed({
           ...stubProvider({
             nebula: [1, 0],
-            comet: [0.8, 0.6],
+            "comet notes": [0.8, 0.6],
             alpha: [1, 0],
             beta: [0.5, Math.sqrt(0.75)],
             "nebula notes": [0, 1],
@@ -367,7 +370,33 @@ layer("ThreadSearch", (it) => {
       assert.sameMembers(yield* ids("nebula"), ["close", "worded"]);
       // Mean 0.77, so the margin decides: "close" (0.8) clears 0.62 and the mean, but by less
       // than 0.045, and is cut; "far" (0.92) stays.
-      assert.deepStrictEqual(yield* ids("comet"), ["far"]);
+      assert.deepStrictEqual(yield* ids("comet notes"), ["far"]);
+    }),
+  );
+
+  it.effect("a query none of whose words occurs anywhere lists nothing by meaning", () =>
+    Effect.gen(function* () {
+      yield* reset;
+      yield* thread("near", "nebula notes");
+      // No cut-off for this model: every vector would be listed by meaning.
+      const embedder = yield* makeThreadEmbedder(
+        Effect.succeed(
+          stubProvider({
+            "glorptane vashmere": [1, 0],
+            "glorptane nebula": [1, 0],
+            "nebula notes": [1, 0],
+          }),
+        ),
+      );
+      yield* embedder.sweep;
+      const ids = (query: string) =>
+        search(query).pipe(
+          Effect.provideService(ThreadEmbedder, embedder),
+          Effect.map((matches) => matches.map((match) => match.threadId)),
+        );
+      assert.deepStrictEqual(yield* ids("glorptane vashmere"), []);
+      // One indexed word is enough, though no thread holds both.
+      assert.deepStrictEqual(yield* ids("glorptane nebula"), ["near"]);
     }),
   );
 

@@ -236,7 +236,9 @@ means something close to them, appear below, under **In messages** in the
 palette. Any query of two or more characters searches messages, so `CI` works;
 a word of one or two letters matches only whole words. A thread found only
 by meaning is listed when it is close to what you typed, so a search for
-something no thread discusses usually finds nothing.
+something no thread discusses usually finds nothing. A query none of whose
+words appears in any thread, such as made-up words or every word misspelt,
+finds nothing.
 <!-- loom: thread-content search -->
 
 With nothing switched on, search reads a top-level thread's own messages and
