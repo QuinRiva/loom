@@ -4970,6 +4970,73 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    // loom: a stack of PR branches cut by hand, each compared with the one below it.
+    it.effect("compares each branch of a stack with the branch it was cut from", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-remote-");
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["branch", "-M", "main"]);
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+        yield* git(cwd, ["push", "-u", "origin", "main"]);
+        const commitFile = (name: string) =>
+          Effect.gen(function* () {
+            yield* writeTextFile(cwd, name, `${name}\n`);
+            yield* git(cwd, ["add", name]);
+            yield* git(cwd, ["commit", "-m", name]);
+          });
+        const changesOf = (branch: string) =>
+          Effect.gen(function* () {
+            yield* git(cwd, ["checkout", "--quiet", branch]);
+            const status = yield* driver.statusDetailsLocal(cwd, { includeBranchChanges: true });
+            const preview = yield* driver.getReviewDiffPreview({ cwd });
+            const changes = preview.sources.find((source) => source.kind === "branch-range")!;
+            assert.strictEqual(changes.baseRef, status.branchChanges?.baseRef);
+            return { baseRef: changes.baseRef, files: changes.files?.map((file) => file.path) };
+          });
+
+        yield* git(cwd, ["checkout", "-b", "pr-a"]);
+        yield* commitFile("a.txt");
+        yield* git(cwd, ["push", "-u", "origin", "pr-a"]);
+        // Tracks origin/pr-a, as `git checkout -b` does from a remote branch.
+        yield* git(cwd, ["checkout", "-b", "pr-b", "origin/pr-a"]);
+        yield* commitFile("b.txt");
+        yield* git(cwd, ["checkout", "--track", "-b", "pr-c", "pr-b"]);
+        yield* commitFile("c.txt");
+        // Recorded the way a worktree cut from local pr-b records its base.
+        yield* git(cwd, ["checkout", "--no-track", "-b", "pr-d", "pr-b"]);
+        yield* git(cwd, ["config", "branch.pr-d.t3-merge-base", "pr-b"]);
+        yield* commitFile("d.txt");
+
+        const expected = {
+          "pr-b": { baseRef: "origin/pr-a", files: ["b.txt"] },
+          "pr-c": { baseRef: "pr-b", files: ["c.txt"] },
+          "pr-d": { baseRef: "pr-b", files: ["d.txt"] },
+        };
+        for (const [branch, changes] of Object.entries(expected)) {
+          assert.deepStrictEqual(yield* changesOf(branch), changes, branch);
+        }
+
+        // Publishing pr-b retargets its upstream to origin/pr-b.
+        yield* git(cwd, ["checkout", "--quiet", "pr-b"]);
+        yield* driver.pushCurrentBranch(cwd, null);
+        assert.deepStrictEqual(yield* changesOf("pr-b"), expected["pr-b"]);
+        assert.deepStrictEqual(yield* changesOf("pr-c"), expected["pr-c"]);
+        assert.deepStrictEqual(yield* changesOf("pr-d"), {
+          baseRef: "origin/pr-b",
+          files: ["d.txt"],
+        });
+
+        // A branch tracking its own remote copy still compares with the default branch.
+        assert.deepStrictEqual(yield* changesOf("pr-a"), {
+          baseRef: "origin/main",
+          files: ["a.txt"],
+        });
+      }),
+    );
+
     it.effect("does not guess a Changes base for a branch renamed during the status read", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

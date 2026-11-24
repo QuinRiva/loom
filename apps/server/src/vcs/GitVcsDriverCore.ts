@@ -2409,6 +2409,36 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     return { baseRef: comparisonRef.slice("refs/remotes/".length), comparisonRef };
   });
 
+  // loom: a branch's upstream, and whether it is the branch's own copy or, differently named, the
+  // branch it was cut from (`git checkout -b child origin/parent`, `git branch --track child parent`).
+  const resolveUpstreamBase = Effect.fn("resolveUpstreamBase")(function* (
+    cwd: string,
+    branch: string,
+  ) {
+    const upstream = yield* executeGit(
+      "GitVcsDriver.resolveUpstreamBase",
+      cwd,
+      ["rev-parse", "--symbolic-full-name", `${branch}@{upstream}`],
+      { allowNonZeroExit: true },
+    );
+    const comparisonRef = upstream.stdout.trim();
+    const merge = yield* readConfigValue(cwd, `branch.${branch}.merge`);
+    const local = comparisonRef.startsWith("refs/heads/");
+    if (
+      upstream.exitCode !== 0 ||
+      !merge?.startsWith("refs/heads/") ||
+      !(local || comparisonRef.startsWith("refs/remotes/"))
+    )
+      return null;
+    const shortRef = comparisonRef.replace(/^refs\/(?:heads|remotes)\//, "");
+    return {
+      // A slashed local name handed back as a base would read as a remote ref.
+      base: { baseRef: local && shortRef.includes("/") ? comparisonRef : shortRef, comparisonRef },
+      isOwnCopy:
+        !local && isAliasOfUpstreamHead(branch, merge.slice("refs/heads/".length), shortRef),
+    };
+  });
+
   const findBaseBranchForNoUpstream = Effect.fn("resolveBaseBranchForNoUpstream")(function* (
     cwd: string,
     refName: string,
@@ -2443,8 +2473,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     }
     if (configuredBase !== null) return configuredBase;
     if (configuredBaseBranch.length > 0 && configuredBaseBranch !== refName) {
-      const trackedBase = yield* resolveTrackedRemoteBaseRef(cwd, configuredBaseBranch);
-      if (trackedBase !== null) return trackedBase;
+      // loom: only the base's own remote copy stands in for it; its differently named upstream is
+      // the base's own base, one PR too far down a stack.
+      const trackedBase = yield* resolveUpstreamBase(cwd, configuredBaseBranch);
+      if (trackedBase?.isOwnCopy) return trackedBase.base;
+    } else if (configuredBaseBranch.length === 0) {
+      // loom: with no recorded base, a differently named upstream is the branch's base.
+      const upstreamBase = yield* resolveUpstreamBase(cwd, refName);
+      if (upstreamBase && !upstreamBase.isOwnCopy) return upstreamBase.base;
     }
 
     const primaryRemoteName = yield* findPrimaryRemoteName(cwd).pipe(
