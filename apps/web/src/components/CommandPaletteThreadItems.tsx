@@ -298,11 +298,9 @@ export function useCommandPaletteThreadItems(input: {
             messageSearch.query,
             async (to) => {
               openInstead.current = to;
-              try {
-                await item.run();
-              } finally {
+              await item.run().finally(() => {
                 openInstead.current = undefined;
-              }
+              });
             },
           );
         },
