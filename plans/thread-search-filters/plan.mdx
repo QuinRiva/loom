@@ -4,8 +4,9 @@ reader:
   knows: the brief and the repo's AGENTS.md; none of the search code, the measurements behind this plan or the conversation that produced it
   after_first_screen: what gets built in which layers, the two hard-to-reverse choices (the result shape on the wire and the cut-off rule) with the numbers behind them, and where the plan tightens the brief
 kicker: "Implementation plan · thread search with switches · 24 Nov 2026"
-status: approved
+status: done
 intent: plans/thread-search-filters/intent.mdx
+recap: recaps/thread-search-filters-final-review/recap.mdx
 manager_sessions:
   - id: 01a20a65-71f9-7144-9edc-76362720dfbf
     name: Search filters build plan
@@ -682,3 +683,38 @@ And three in client-runtime, all pure functions. A report hit targets the sub-th
     ["How often search fails, and on which kind of miss", { badge: { label: "carried forward", tone: "neutral" }, md: "Needs searches counted for a fortnight. Not in this PR: it writes what is typed to disk and is its own small change, proposed as a follow-up once the first cut is in use" }],
   ]}
 />
+
+## As built
+
+Built between 24 and 25 Nov 2026 as one PR. The switches, the sub-thread rows, the project filter before the cut and what a row opens are as planned. The departures:
+
+**Removed after the final review, on Carl's decisions.** The recap is `recaps/thread-search-filters-final-review/recap.mdx`.
+
+- **The cut-off in §3 does not ship.** Matching by meaning ranks and lists as it did before this work.
+  - It was built with a margin of 0.045, not 0.06, because 0.06 lost two test searches' threads.
+  - The final review found 7 of the 57 test searches clearing it by less than 0.02, and one right answer hidden on a dev copy.
+  - A second rule was built and measured as a replacement: list nothing when no word of the search occurs in any thread. It turned a one-word search with a typo into an empty list.
+  - Carl dropped both. The harness's nonsense group and its pass mark went with them.
+  - The "0 of 57" and "14 of 16" figures on this plan's first screen describe a rule that is not in the code.
+- **The agents' tool in §7 is unchanged.** `includeSubThreads` was built and removed. The eval §7 names loads only upstream's `t3_thread_search`, so it could not see the parameter either way.
+- **No Reset button.** A lit chip switches off, and clearing or closing the box resets every switch.
+- **The Cmd+K project chip is the current project**, the open thread's or the one a new thread is being started in, on web and on the iPad palette.
+
+**Added, not in the plan.**
+
+- **Every search hit gets a row.** Upstream sends the client records for at most five older settled threads per search. The screens drew a row only for threads they held a record of, so about a third of hits were dropped, on main as well. Rows for the rest are now drawn from the hit itself, as archived rows are. Cmd+K still shows upstream's ten message rows at most, now the best ten of all hits.
+- **Two marked lines in upstream's `apps/server/src/mcp/toolkits/thread/tools.ts`** keep the clients' new request fields off upstream's agent search tool, whose schema copies the search input.
+- **On the phone, a hit in an archived thread opens at the message**, as it did before; the shared target rule takes `findInArchived` for that.
+
+**Built differently.**
+
+- **Wire:** `reportPath` and `messageId` are absent when unset, not null, matching today's `messageId`.
+- **Request:** the filter fields are sent only when a caller passes switches, not always, so the three title-only pickers send exactly what they sent before.
+- **Shown order** is keyed on the full search key, environments included, not on query plus filters alone.
+- **Headings:** a top-level row draws its own excerpt unless its sub-thread rows include the one its best match came from. A top-level row whose excerpt comes from a sub-thread that has no row opens that sub-thread.
+- **Unfold:** no fold row follows an unfold, so a workstream with more than 29 matching sub-threads cannot show the rest.
+- **Web, behaviour:** the sidebar ranks archived threads among the message rows. The chips are small buttons, since the toggle rendered too large and clipped.
+- **Web, files:** `openThreadSearchResult.ts` was folded into `apps/web/src/loom/threadSearchSwitches.ts`, and `CommandPaletteResults.tsx` is untouched. A search row passes its target to upstream's `runThread` through a ref, which leaves that body where upstream has it.
+- **Step 2a also edited both apps' `state/queries.ts`**, which is where the settled result gets its key and where the short-query rule lives.
+
+**Verification as run.** The §9 web table passed live on Cmd+K and the sidebar on a slice of 653 real top-level threads, apart from the nonsense row, which no longer applies. The harness on a full copy of the live database prints the same ranking tables as main, run back to back. Typing to rows took 1.4 to 1.7 s against 1.4 to 2.2 s on the code this was built from, and a response is no larger. Nothing was run on a phone or an iPad; Carl's four checks in §9 are the only proof for them.
