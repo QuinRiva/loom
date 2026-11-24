@@ -291,7 +291,7 @@ export function CommandPalette(props: {
           }),
         )
       : undefined;
-  // loom: switches, a chip for the open thread's project, and unfolded sub-thread rows
+  // loom: switches, a chip for the current project, and unfolded sub-thread rows
   const filteredSearch = useFilteredThreadSearch(
     searchEnvironmentIds,
     query.startsWith(">") ? "" : query,
@@ -299,13 +299,6 @@ export function CommandPalette(props: {
   );
   const search = filteredSearch.search;
   const chipProjectIds = filteredSearch.filters.projectIds;
-  const openProject = activeThread
-    ? projects.find(
-        (project) =>
-          project.environmentId === activeThread.environmentId &&
-          project.id === activeThread.projectId,
-      )
-    : undefined;
   const openThread = (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) =>
     selectDetail({
       name: "Thread",
@@ -316,6 +309,16 @@ export function CommandPalette(props: {
   const newTaskFlow = useNewTaskFlow();
   const draftEnvironmentId =
     useActiveNewTask() === null ? null : (newTaskFlow.selectedProject?.environmentId ?? null);
+  // loom: the project chip's project, the open thread's, else the new thread's
+  const currentProject = activeThread
+    ? projects.find(
+        (project) =>
+          project.environmentId === activeThread.environmentId &&
+          project.id === activeThread.projectId,
+      )
+    : draftEnvironmentId === null
+      ? null
+      : newTaskFlow.selectedProject;
   const triageEnvironmentId = pickTriageEnvironment({
     // The route names the machine even before the thread shell loads.
     onScreen: activeThreadRef?.environmentId ?? draftEnvironmentId,
@@ -780,8 +783,8 @@ export function CommandPalette(props: {
                   filters={filteredSearch.filters}
                   onChange={filteredSearch.setFilters}
                   inset={20}
-                  {...(openProject
-                    ? { project: { label: openProject.title, projectIds: [openProject.id] } }
+                  {...(currentProject
+                    ? { project: { label: currentProject.title, projectIds: [currentProject.id] } }
                     : {})}
                 />
               ) : null}

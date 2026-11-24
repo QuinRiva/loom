@@ -747,7 +747,6 @@ export function HomeScreen(props: HomeScreenProps) {
       filters={filteredSearch.filters}
       onChange={filteredSearch.setFilters}
       inset={sidebarSurface ? 12 : 20}
-      {...(sidebarSurface ? { pane: "sidebar" as const } : {})}
     />
   ) : null;
 

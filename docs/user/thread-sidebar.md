@@ -234,11 +234,7 @@ higher, and for three weeks the thread you last picked for a query ranks higher
 when you type that query again. Threads whose text holds all your words, or
 means something close to them, appear below, under **In messages** in the
 palette. Any query of two or more characters searches messages, so `CI` works;
-a word of one or two letters matches only whole words. A thread found only
-by meaning is listed when it is close to what you typed, so a search for
-something no thread discusses usually finds nothing. A query none of whose
-words appears in any thread, such as made-up words or every word misspelt,
-finds nothing.
+a word of one or two letters matches only whole words.
 <!-- loom: thread-content search -->
 
 With nothing switched on, search reads a top-level thread's own messages and
@@ -259,15 +255,14 @@ Switches under the search box widen or narrow what it reads:
 - **Archived** brings archived threads back into the results, marked
   **Archived**. Opening one shows it without unarchiving it; **Unarchive**
   under the conversation brings it back.
-- **Project.** In the palette, a chip named after the project of the thread
-  you have open limits every result to that project. In the sidebar and on
-  mobile, the thread list's project picker does the same for any project,
-  and you get a full list from that project.
+- **Project.** In the palette, a chip named after the current project (the
+  open thread's, or the one you are starting a new thread in) limits every
+  result to that project. In the sidebar and on mobile, the thread list's
+  project picker does the same for any project.
 
-**Reset** turns every switch off. Clearing or closing the search turns them off
-too, so a switch you forgot never hides results from a later search. The
-sidebar's and mobile's project picker keeps its choice, as it does for the
-thread list.
+Clearing or closing the search turns every switch off, so a switch you forgot
+never hides results from a later search. The sidebar's and mobile's project
+picker keeps its choice, as it does for the thread list.
 
 Use **Settings → Keybindings** to find or customize shortcuts for searching files
 and copying a thread reference. A copied reference uses the thread's pull request

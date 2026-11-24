@@ -631,7 +631,6 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
         filters={filteredSearch.filters}
         onChange={filteredSearch.setFilters}
         inset={12}
-        pane="sidebar"
       />
     ) : null;
   const showAddEnvironment =

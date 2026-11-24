@@ -1,18 +1,12 @@
-import {
-  DEFAULT_THREAD_SEARCH_FILTERS,
-  isDefaultThreadSearchFilters,
-  type ThreadSearchFilters,
-} from "@t3tools/client-runtime/state/loom/threadSearch";
+import type { ThreadSearchFilters } from "@t3tools/client-runtime/state/loom/threadSearch";
 import type { ProjectId } from "@t3tools/contracts";
-import { Pressable, ScrollView } from "react-native";
+import { ScrollView } from "react-native";
 
-import { AppText as Text } from "../../components/ui/AppText";
 import { Chip } from "../../components/ui/Chip";
-import { cn } from "../../lib/cn";
 
 /**
  * The search field's switches, shown while it holds text. `project` is what the project chip
- * offers (the iPad palette's open thread); the lists leave it out, their picker is the project switch.
+ * offers (the iPad palette's current project); the lists leave it out, their picker is the project switch.
  */
 export function ThreadSearchFilterChips(props: {
   readonly filters: ThreadSearchFilters;
@@ -20,7 +14,6 @@ export function ThreadSearchFilterChips(props: {
   readonly project?: { readonly label: string; readonly projectIds: ReadonlyArray<ProjectId> };
   /** Where the first chip starts, to line up with the rows below. */
   readonly inset: number;
-  readonly pane?: "sidebar";
 }) {
   const { filters, onChange, project } = props;
   const { projectIds: _projectIds, ...withoutProject } = filters;
@@ -62,24 +55,6 @@ export function ThreadSearchFilterChips(props: {
             )
           }
         />
-      )}
-      {isDefaultThreadSearchFilters(filters) ? null : (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Reset search filters"
-          hitSlop={6}
-          className="px-1 active:opacity-70"
-          onPress={() => onChange(DEFAULT_THREAD_SEARCH_FILTERS)}
-        >
-          <Text
-            className={cn(
-              "text-sm font-t3-medium",
-              props.pane === "sidebar" ? "text-drawer-foreground-muted" : "text-foreground-muted",
-            )}
-          >
-            Reset
-          </Text>
-        </Pressable>
       )}
     </ScrollView>
   );

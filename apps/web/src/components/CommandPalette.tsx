@@ -3187,19 +3187,7 @@ function OpenCommandPaletteDialog(props: {
           <ThreadSearchFilterChips
             filters={threadSearchSwitches.filters}
             onChange={threadSearchSwitches.setFilters}
-            project={
-              activeThread
-                ? {
-                    id: activeThread.projectId,
-                    title:
-                      projects.find(
-                        (project) =>
-                          project.environmentId === activeThread.environmentId &&
-                          project.id === activeThread.projectId,
-                      )?.title ?? null,
-                  }
-                : null
-            }
+            project={currentProject ? { id: currentProject.id, title: currentProject.title } : null}
           />
         </div>
       ) : null}
