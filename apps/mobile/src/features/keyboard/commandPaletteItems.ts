@@ -1,4 +1,5 @@
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import type { ThreadSearchSubRow } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom
 import {
   foldSearchQuery,
   PALETTE_SECONDARY_LIMIT,
@@ -20,6 +21,8 @@ export interface CommandPaletteItem {
   readonly detail?: string;
   // loom: an archived root, reachable only through content search.
   readonly archived?: boolean;
+  // loom: a sub-thread row or fold row under its top-level thread's row.
+  readonly subThreadRow?: ThreadSearchSubRow;
   readonly searchTerms: ReadonlyArray<string>;
   /** Thread rows rank by match quality and use instead of by `searchTerms`. */
   readonly threadSearch?: ThreadSearchSubject;

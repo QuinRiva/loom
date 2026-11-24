@@ -22,6 +22,7 @@ export function useThreadListSearchMatches(
   search: {
     readonly matches: ReadonlyArray<EnvironmentThreadSearchMatch>;
     readonly query: string;
+    readonly key: string; // loom: the query plus switches the matches were fetched under
   },
 ): ReadonlyMap<string, EnvironmentThreadSearchMatch> {
   const [now] = useState(() => Date.now());
@@ -43,7 +44,8 @@ export function useThreadListSearchMatches(
     ).map(threadSearchMatchKey);
   }, [now, search.matches, search.query, threads]);
   // A list shows every match, so nothing is cut; late ones go below.
-  const order = nextShownOrder(shownOrder, search.query, rankedKeys, Number.POSITIVE_INFINITY);
+  // loom: keyed on query plus switches, so a flipped switch ranks afresh
+  const order = nextShownOrder(shownOrder, search.key, rankedKeys, Number.POSITIVE_INFINITY);
   if (order !== shownOrder) setShownOrder(order);
   return useMemo(() => {
     if (order.keys.length === 0) return NO_MATCHES;

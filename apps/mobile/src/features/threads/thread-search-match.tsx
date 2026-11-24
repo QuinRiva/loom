@@ -4,6 +4,7 @@ import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state
 import {
   threadSearchExcerptLabel,
   threadSearchMatchedSubThreadTitle,
+  threadSearchShowsExcerpt, // loom: a heading over its sub-thread rows has no excerpt
 } from "@t3tools/client-runtime/state/loom/threadSearch";
 
 import { T, Var } from "gt-react-native"; // loom: the sub-thread line
@@ -12,7 +13,11 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { cn } from "../../lib/cn";
 
 export function ThreadSearchMatchExcerpt(props: {
-  readonly match: EnvironmentThreadSearchMatch;
+  // loom: a sub-thread row passes its own hit, which has no shell fields
+  readonly match: Pick<
+    EnvironmentThreadSearchMatch,
+    "source" | "snippet" | "matchedThreadId" | "matchedThreadTitle" | "subThreads"
+  >;
   readonly query: string;
   readonly selected?: boolean;
   readonly compact?: boolean;
@@ -20,7 +25,7 @@ export function ThreadSearchMatchExcerpt(props: {
 }) {
   // loom: a hit on the root's own title has no label; the row already shows the title
   const label = threadSearchExcerptLabel(props.match);
-  if (label === null) return null;
+  if (label === null || !threadSearchShowsExcerpt(props.match)) return null; // loom: heading
   const isUser = props.match.source === "user";
   const parts = splitSearchText(
     props.match.snippet,

@@ -9,7 +9,13 @@ import {
   type EnvironmentThreadSearchMatch,
   type ShownOrder,
 } from "@t3tools/client-runtime/state/thread-search";
-import { threadSearchExcerptLabel } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom
+// loom: excerpt labels, headings over sub-thread rows, and what a result opens
+import {
+  threadSearchExcerptLabel,
+  threadSearchShowsExcerpt,
+  threadSearchTarget,
+} from "@t3tools/client-runtime/state/loom/threadSearch";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell"; // loom
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
 import { THREAD_JUMP_KEYBINDING_COMMANDS } from "@t3tools/contracts";
 import {
@@ -53,8 +59,14 @@ import {
   useThreadShell,
   useVisibleThreadShells,
 } from "../../state/entities";
-import { useThreadSearch } from "../../state/queries";
-import { requestThreadMessageJump } from "../threads/threadMessageJump";
+// loom: the search switches and sub-thread rows
+import {
+  openThreadSearchTarget,
+  useFilteredThreadSearch,
+} from "../threads/useFilteredThreadSearch.loom";
+import { ThreadSearchFilterChips } from "../threads/ThreadSearchFilterChips.loom";
+import { SubThreadSearchResultRow } from "../threads/SubThreadSearchResultRow.loom";
+import { withPaletteSubThreadRows } from "./commandPaletteSubThreads.loom";
 import { useCanShareWithGuest } from "../threads/useCanShareWithGuest";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -279,11 +291,26 @@ export function CommandPalette(props: {
           }),
         )
       : undefined;
-  const search = useThreadSearch(
+  // loom: switches, a chip for the open thread's project, and unfolded sub-thread rows
+  const filteredSearch = useFilteredThreadSearch(
     searchEnvironmentIds,
     query.startsWith(">") ? "" : query,
     environmentLabels === undefined ? {} : { environmentLabels },
   );
+  const search = filteredSearch.search;
+  const chipProjectIds = filteredSearch.filters.projectIds;
+  const openProject = activeThread
+    ? projects.find(
+        (project) =>
+          project.environmentId === activeThread.environmentId &&
+          project.id === activeThread.projectId,
+      )
+    : undefined;
+  const openThread = (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) =>
+    selectDetail({
+      name: "Thread",
+      params: { environmentId: String(thread.environmentId), threadId: String(thread.id) },
+    });
   const serverConfigs = useServerConfigs();
   const startTriage = useStartTriage();
   const newTaskFlow = useNewTaskFlow();
@@ -303,7 +330,10 @@ export function CommandPalette(props: {
   const canShareWithGuest = useCanShareWithGuest(activeThreadRef?.environmentId ?? null);
   const contentMatchByKey = new Map(
     search.matches
-      .filter((match) => threadSearchExcerptLabel(match) !== null) // loom: every source
+      // loom: every source; a heading over its sub-thread rows opens as a title row
+      .filter(
+        (match) => threadSearchExcerptLabel(match) !== null && threadSearchShowsExcerpt(match),
+      )
       .map((match) => [scopedThreadKey(match.environmentId, match.threadId), match]),
   );
   const items = useMemo(() => {
@@ -463,6 +493,7 @@ export function CommandPalette(props: {
       .filter(
         (thread) =>
           thread.archivedAt === null &&
+          (chipProjectIds === undefined || chipProjectIds.includes(thread.projectId)) && // loom
           !isShownUnderParent(
             { environmentId: thread.environmentId, threadId: thread.id },
             thread.lineage,
@@ -527,6 +558,7 @@ export function CommandPalette(props: {
     return [...actions, ...projectItems, ...threadItems, ...archivedItems];
   }, [
     search.matches, // loom
+    chipProjectIds, // loom
     selectTab,
     activeThread,
     activeThreadRef,
@@ -562,7 +594,7 @@ export function CommandPalette(props: {
   const [shownOrder, setShownOrder] = useState<ShownOrder | null>(null);
   const messageOrder = nextShownOrder(
     shownOrder,
-    search.query,
+    search.key, // loom: query plus switches, so a flipped switch ranks afresh
     rankedMessageKeys,
     PALETTE_MESSAGE_LIMIT,
   );
@@ -577,8 +609,13 @@ export function CommandPalette(props: {
     const activeKey = activeThread
       ? scopedThreadKey(activeThread.environmentId, activeThread.id)
       : null;
-    return query.trim() ? ranked : ranked.filter((item) => item.key !== activeKey);
-  }, [activeThread, items, messageMatchKeys, now, query]);
+    // loom: each listed top-level thread's sub-thread rows follow it
+    return withPaletteSubThreadRows(
+      query.trim() ? ranked : ranked.filter((item) => item.key !== activeKey),
+      search.matches,
+      filteredSearch.subRows,
+    );
+  }, [activeThread, items, messageMatchKeys, now, query, search.matches, filteredSearch.subRows]);
   const runResult = (item: CommandPaletteResult) => {
     const thread =
       item.kind === "thread" && query.trim() && !query.startsWith(">")
@@ -586,9 +623,8 @@ export function CommandPalette(props: {
             (candidate) => scopedThreadKey(candidate.environmentId, candidate.id) === item.key,
           )
         : undefined;
-    // A message result opens the thread at that message.
-    const messageId = item.fromMessages ? contentMatchByKey.get(item.key)?.messageId : undefined;
-    if (messageId) requestThreadMessageJump(item.key, messageId);
+    // loom: a message result opens what its excerpt names, at the message when it is its own.
+    const match = item.fromMessages ? contentMatchByKey.get(item.key) : undefined;
     // A pick sends its open with the query, always, so the server records it;
     // the thread screen then skips its own open. The open thread is no pick.
     if (thread && !item.secondary) claimThreadOpen(thread.environmentId, thread.id, Date.now());
@@ -603,7 +639,19 @@ export function CommandPalette(props: {
         },
       });
     }
-    item.run();
+    const target =
+      item.subThreadRow?.kind === "subThread"
+        ? threadSearchTarget(item.subThreadRow)
+        : match && threadSearchTarget(match);
+    if (target) openThreadSearchTarget(target, openThread);
+    else item.run();
+  };
+  // loom: a fold row unfolds in place and keeps the palette open, the highlight on the row
+  // above it so the list does not jump back to the top when the fold row goes.
+  const choose = (item: CommandPaletteResult) => {
+    if (item.subThreadRow?.kind !== "fold") return close(() => runResult(item));
+    setSelection(results[results.indexOf(item) - 1]?.key ?? null);
+    filteredSearch.unfold(item.subThreadRow.root);
   };
   const firstMessageIndex = results.findIndex((item) => item.fromMessages);
   const selectedIndex = Math.max(
@@ -662,7 +710,7 @@ export function CommandPalette(props: {
       );
     } else {
       const item = results[threadJumpIndex(command)];
-      if (item) close(() => runResult(item));
+      if (item) choose(item); // loom
     }
   }
 
@@ -727,11 +775,22 @@ export function CommandPalette(props: {
                     submitBehavior="submit"
                     onSubmitEditing={() => {
                       const item = results[selectedIndex];
-                      if (item) close(() => runResult(item));
+                      if (item) choose(item); // loom
                     }}
                   />
                 </View>
               </View>
+              {query.trim() !== "" && !query.startsWith(">") ? (
+                // loom: the search switches, while the palette searches threads
+                <ThreadSearchFilterChips
+                  filters={filteredSearch.filters}
+                  onChange={filteredSearch.setFilters}
+                  inset={20}
+                  {...(openProject
+                    ? { project: { label: openProject.title, projectIds: [openProject.id] } }
+                    : {})}
+                />
+              ) : null}
               {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- The palette is a modal with no navigation header to register with. */}
               <LegendList
                 ref={listRef}
@@ -776,14 +835,29 @@ export function CommandPalette(props: {
                         <T>In messages</T>
                       </Text>
                     ) : null}
-                    <PaletteRow
-                      item={item}
-                      index={index}
-                      selected={item.key === selectedKey}
-                      searchMatch={item.fromMessages ? contentMatchByKey.get(item.key) : undefined}
-                      searchQuery={search.query}
-                      onSelect={() => close(() => runResult(item))}
-                    />
+                    {item.subThreadRow ? (
+                      // loom: a sub-thread row, or the fold that unfolds the rest
+                      <SubThreadSearchResultRow
+                        row={item.subThreadRow}
+                        searchQuery={search.query}
+                        pane="palette"
+                        height={ROW_HEIGHT}
+                        shortcutIndex={index}
+                        selected={item.key === selectedKey}
+                        onPress={() => choose(item)}
+                      />
+                    ) : (
+                      <PaletteRow
+                        item={item}
+                        index={index}
+                        selected={item.key === selectedKey}
+                        searchMatch={
+                          item.fromMessages ? contentMatchByKey.get(item.key) : undefined
+                        }
+                        searchQuery={search.query}
+                        onSelect={() => close(() => runResult(item))}
+                      />
+                    )}
                   </>
                 )}
               />

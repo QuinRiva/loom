@@ -41,7 +41,12 @@ import {
   type ProjectId,
 } from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
-import { shelllessArchivedMatches } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom
+// loom: archived search rows, and sub-thread rows under their top-level thread
+import {
+  shelllessArchivedMatches,
+  withThreadSearchSubRows,
+  type ThreadSearchSubRow,
+} from "@t3tools/client-runtime/state/loom/threadSearch";
 import { rowAttentionOf } from "@t3tools/client-runtime/state/loom/rollup"; // loom: 3d-3
 import type { MenuAction } from "@react-native-menu/menu";
 
@@ -501,13 +506,21 @@ export interface ThreadListV2SearchArchivedListItem {
   readonly match: EnvironmentThreadSearchMatch;
 }
 
+// loom: a sub-thread's search row, or the fold that unfolds the rest, under its top-level thread.
+export interface ThreadListV2SearchSubListItem {
+  readonly type: "v2-search-sub";
+  readonly key: string;
+  readonly row: ThreadSearchSubRow;
+}
+
 export type ThreadListV2ListItem =
   | ThreadListV2ThreadListItem
   | ThreadListV2PendingListItem
   | ThreadListV2WorkingShelfListItem
   | ThreadListV2SnoozedShelfListItem
   | ThreadListV2SettledShelfListItem
-  | ThreadListV2SearchArchivedListItem; // loom
+  | ThreadListV2SearchArchivedListItem // loom
+  | ThreadListV2SearchSubListItem; // loom
 
 // loom: archived roots the search returned, after the list's own rows, in server order.
 export function threadListV2SearchArchivedItems(
@@ -525,6 +538,29 @@ export function threadListV2SearchArchivedItems(
   }));
 }
 
+// loom: sub-thread rows directly under their top-level thread's row, wherever the search lists it.
+export function threadListV2WithSearchSubRows(
+  items: ReadonlyArray<ThreadListV2ListItem>,
+  subRows: ReadonlyMap<string, ReadonlyArray<ThreadSearchSubRow>>,
+): ReadonlyArray<ThreadListV2ListItem> {
+  if (subRows.size === 0) return items;
+  return withThreadSearchSubRows(
+    items,
+    (item) =>
+      item.type === "v2-thread"
+        ? threadSearchMatchKey({
+            environmentId: item.item.thread.environmentId,
+            threadId: item.item.thread.id,
+          })
+        : item.type === "v2-search-archived"
+          ? threadSearchMatchKey(item.match)
+          : null,
+    subRows,
+  ).map((row) =>
+    "root" in row ? { type: "v2-search-sub" as const, key: `v2-search-sub:${row.key}`, row } : row,
+  );
+}
+
 export function isThreadListV2ListItem(value: {
   readonly type: string;
 }): value is ThreadListV2ListItem {
@@ -534,7 +570,8 @@ export function isThreadListV2ListItem(value: {
     value.type === "v2-working-shelf" ||
     value.type === "v2-snoozed-shelf" ||
     value.type === "v2-settled-shelf" ||
-    value.type === "v2-search-archived" // loom
+    value.type === "v2-search-archived" || // loom
+    value.type === "v2-search-sub" // loom
   );
 }
 
@@ -592,6 +629,14 @@ export function threadListV2ListItemsAreEqual(
       );
     case "v2-search-archived": // loom
       return previous.type === "v2-search-archived" && previous.match === item.match;
+    case "v2-search-sub": // loom
+      return (
+        previous.type === "v2-search-sub" &&
+        previous.key === item.key &&
+        (item.row.kind === "fold"
+          ? previous.row.kind === "fold" && previous.row.omitted === item.row.omitted
+          : previous.row.kind === "subThread" && previous.row.match === item.row.match)
+      );
   }
 }
 
