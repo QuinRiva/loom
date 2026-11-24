@@ -1,0 +1,136 @@
+---
+kicker: "Final review · thread search with switches · branch t3/thread-search-filters-design at 5670936279 against origin/main · 24 Nov 2026"
+reader:
+  who: Carl, Loom's maintainer, deciding whether the search build ships as it stands
+  knows: what he asked for in this goal's threads and how he uses search; none of the plan, the briefs, the reports or the diff
+  after_first_screen: the build gives him the three switches and the default he asked for; before it ships he has two calls to make, one on two unasked rules that make search answer "No threads found" (keep both, one or neither) and one on a missing project chip
+manager_sessions:
+  - id: 01a20b2a-f1fa-7066-b848-f67e29586d7e
+    name: "Search build against Carl's ask"
+    role: recap
+    authored_at: 2026-11-24T01:42:46.190Z
+---
+
+# Ship after two decisions: the switches work, but search can now say "No threads found" for a thread that exists
+
+**The build gives you what you asked for.** With nothing touched, the sidebar box and Cmd+K read top-level threads and reports. They leave out archived threads and sub-threads (**0 archived rows** across 20 searches I ran). Three switches change that: Sub-threads, Archived, and one project. With Sub-threads on, **9 of 10** searches whose answer is a sub-thread list it under its top-level thread, and choosing it opens it. `CI` now returns results. No plan, recap or explainer is indexed.
+
+**Two things need your call.** The build also added two rules that make search answer "No threads found", neither asked for in your own words. One is a tuned similarity threshold, which hid a right answer on one of my runs. The other is a word check, which empties a one-word search that has a typo. And the Cmd+K project chip you picked is missing on a new-thread screen.
+
+An item you leave unmarked takes its recommendation.
+
+## 1. The two decisions
+
+<Card id="hide-loose-matches" eyebrow="DECISION 1 · parts you could do without" heading="The build added two rules that make search answer *No threads found*. Keep both, keep only the one with no tuned number, or drop both?" tone="warning" badge="recommend: C, drop both" meta={["server only", "word matches are unaffected", "the switches are unaffected"]}>
+  **Recommended: C, drop both.** Neither rule moves the right answer in any of the 57 test searches. All they change is what you see when your words match nothing. There, the threshold can hide a right answer and the word rule turns a one-word typo into an empty list.
+
+  - **The similarity threshold.** A thread found only by meaning is listed when its cosine similarity to the query is at least 0.62 and at least 0.045 above that query's average. The two constants are fitted for `gemini-embedding-001`. <Sidenote>`CUTOFFS` in `apps/server/src/orchestration-v2/ThreadEmbedder.loom.ts`</Sidenote>
+  - **The word rule.** If no word you typed occurs in any thread, search lists nothing and skips matching by meaning. It has no constants. <Sidenote>`known` in `apps/server/src/orchestration-v2/ThreadSearch.loom.ts`, added in commit `5670936279`</Sidenote>
+
+  <Table
+    density="compact"
+    columns={["What you would see", "A · keep both (the branch now)", "B · word rule only", "C · neither (as main today)"]}
+    rows={[
+      ["**Made-up words**, 44 phrases", "37 list nothing", "34 list nothing", "all list about 30 threads"],
+      ["**Real words on a topic no thread discusses**, 16 searches", "14 list nothing", "1 lists nothing, 15 list about 30 threads", "all list about 30 threads"],
+      ["**The 57 test searches**: right answer in the first 30, first 10, first", "38, 31, 18", "38, 31, 18", "38, 31, 18"],
+      [
+        "**A right answer hidden**",
+        { tone: "risk", md: "Possible. **7 of 57** right answers clear the threshold by less than 0.02. On the dev copy one that had been first disappeared." },
+        "Not by a tuned number. Of 7 searches with every word misspelt, 1 lost a thread that had been third.",
+        "Never",
+      ],
+      [
+        "**A one-word search with a typo**, 16 tried",
+        { tone: "risk", md: "**16 of 16** list nothing" },
+        { tone: "risk", md: "**16 of 16** list nothing" },
+        "Lists threads by meaning. Its first 10 share a median of 5 threads with the correct spelling's first 10.",
+      ],
+      ["**Left to maintain**", "Two constants per embedding model, the word rule, and 60 nonsense test searches with a pass mark of 50", "The word rule and its one test", "Nothing"],
+    ]}
+  />
+
+  Rows 1 to 4 were measured on a full copy of the live database on 24 Nov, by the thread that built the word rule. The 7-of-57 margin and the dev-copy case are from my own runs. Row 5 is my read-only pass over the live cockpit's vectors and word index.
+
+  **One cost of A that the table cannot show.** Reports are indexed, so a made-up test phrase quoted in any report stops being a word that occurs nowhere, and the pass mark erodes. Four of the first 20 phrases leaked this way within a day.
+
+  **The reading I took.** The summary you answered "Go" to carried the line *No padding: "No threads found" when nothing matches*. That line was the agent's, so I read your "Go" as accepting it, not asking for it. The thread that built the word rule recommends A. If a clean empty result matters more to you than the two red rows, A is the choice.
+
+  **What changes.** **Accept** takes C: the threshold, the word rule, the nonsense test searches and their two user-guide sentences come out. Search lists matches by meaning below word matches, best first, as it does on main today. A threshold can come back later, fitted on the searches the fortnight count records. For **B**, the threshold and the nonsense searches come out and the word rule stays. For **A**, nothing changes. To take A or B, choose Reject and write the letter.
+
+  <Details summary="Evidence: the runs, the margins, the typo check, and why the dev copy differs">
+    **The dev-copy run of the build's harness** (`node apps/server/src/dev/threadSearchEval.loom.ts --db .t3/dev-instances/13979/userdata/statev2.sqlite --provider vertex`, from `apps/server`, at commit `f740f54be7`). 39 of the 57 test searches have their target in the dev copy. With the threshold: right answer first 25 → 24, in the first five 34 → 33, one lost outright. The search "things to do with a toddler in europe" should find *Plan holiday activities*; without the threshold it is first, with it search returns nothing. The harness ended `FAIL: ... 1 expected roots left the first ten under the cut-off`. On the full copy of the live database the same harness passes.
+
+    **My pass over the live vectors.** I embedded each of the 57 test searches and the 16 original nonsense searches with the same Vertex model. I scored them against the 1,035 vectors in the live cockpit database, opened read-only, with the build's formula. No test search loses its right answer today. These seven clear the threshold by less than 0.02:
+
+    <Table
+      density="compact"
+      columns={["Search", "Right answer's score less the threshold", "Its rank by meaning"]}
+      align={["left", "right", "right"]}
+      rows={[
+        ["agent visually checking our deployed app environments", "+0.007", "21"],
+        ["things to do with a toddler in europe", "+0.013", "1"],
+        ["too many requests errors from the claude proxy", "+0.013", "25"],
+        ["prompts not reaching the agent, have to resend", "+0.015", "23"],
+        ["diagram of which release generated every building's outputs", "+0.016", "12"],
+        ["agents ask me things that assume I read everything", "+0.019", "8"],
+        ["logging into providers from the app instead of terminal", "+0.019", "11"],
+      ]}
+    />
+
+    Four right answers score under the threshold; all four are searches for exact words inside a thread, which the word match lists regardless. Of the 16 nonsense searches, two score over the threshold (by 0.026 and 0.004) and five are within 0.01 under it.
+
+    **Why the dev copy differs.** A thread is embedded from its text and re-embedded when that text changes. The dev copy is a slice of the live database, so *Plan holiday activities* was re-embedded there from different text on 24 Nov. The live vector dates from 23 Oct. A live thread that gains messages or reports is re-embedded the same way.
+
+    **The typo check.** I took 16 words common in your threads (a client name, terraform, sidebar, deploy, tenant and so on) and swapped two adjacent letters in each. None of the 16 misspellings occurs in the live word index, so the word rule fires on all of them. Matching by meaning on the misspelling shares 3 to 8 of its first 10 threads with the correct spelling's first 10, median 5.
+
+    With the threshold alone, 14 of the 16 still list at least one thread. The check covers the server's search of messages and meaning. Titles are matched separately as you type.
+
+    **The four-way figures** in rows 1 to 4 are from the word rule's builder: a `VACUUM INTO` copy of the live database, 1,035 vectors, Vertex, nothing switched on, first 30 rows. Local search time was unchanged by the word rule (the check took 0.03 ms at the median).
+  </Details>
+
+  <ReviewChoice itemId="hide-loose-matches" label="1 · drop both rules (C)" placeholder="For A or B, reject and write the letter…" />
+</Card>
+
+<Card id="cmdk-project-chip" eyebrow="DECISION 2 · asked for, partly missing" heading="On a project's new-thread screen, Cmd+K shows no project chip. Should the chip appear there too?" tone="info" badge="recommend: yes" meta={["web and desktop", "about two lines", "check the iPad palette for the same"]}>
+  **Recommended: yes.** The new-thread screen is where "have I already got a thread on this?" gets asked, and there the one-project switch you picked is absent.
+
+  <Table
+    density="compact"
+    columns={["The facts, in plain words", "Where each comes from"]}
+    rows={[
+      ["**What you chose.** \"Current project chip only\", from the options an agent put to you.", "Your answer in the goal's root thread, 23 Nov"],
+      ["**What the build does.** The chip is drawn only while a thread is open. With a thread open it reads `pi-fathom`. On the loom new-thread screen there are two chips, Sub-threads and Archived.", "The build's own screenshots, in the drill-down"],
+      ["**The palette already knows that screen's project.** It uses it for its other commands.", "`currentProject` in `apps/web/src/components/CommandPalette.tsx`"],
+    ]}
+  />
+
+  **The reading I took.** "Current project" means the project of the screen you are on, a new-thread screen included.
+
+  **What changes if you accept.** The chip takes the palette's current project: the open thread's, else the new thread's. The change is in `apps/web/src/components/CommandPalette.tsx`, and the user guide's sentence follows. If you reject, the chip stays tied to an open thread.
+
+  <Details summary="Evidence: the two screenshots">
+    <Image src="shots/cmdk-thread-open.png" alt="Cmd+K with a thread open: chips Sub-threads, Archived and pi-fathom" caption="A thread is open: the third chip is its project." width={860} />
+
+    <Image src="shots/cmdk-new-thread-screen.png" alt="Cmd+K on the loom new-thread screen: chips Sub-threads and Archived only" caption="The loom new-thread screen: no project chip. Sub-threads is on here, which is why Reset shows." width={860} />
+  </Details>
+
+  <ReviewChoice itemId="cmdk-project-chip" label="2 · project chip on the new-thread screen" placeholder="Why, if rejecting…" />
+</Card>
+
+## 2. Two small cuts the orchestrator will make unless you object
+
+- **A new option on the agents' search tool** that leaves sub-threads' own text out. Nobody asked for it, and its description rides in every agent's prompt. It lives in `apps/server/src/mcp/toolkits/workstream/defs.ts` and `apps/server/src/mcp/toolkits/workstream/handlers/threadSearch.ts`, with one test.
+- **The Reset button beside the chips.** With two or three chips, clicking a lit chip does the same, and clearing the box already turns every switch off. In a narrow sidebar it is clipped to "Res". It lives in `apps/web/src/loom/ThreadSearchFilterChips.tsx` and `apps/mobile/src/features/threads/ThreadSearchFilterChips.loom.tsx`.
+
+## 3. What I took "done" to mean
+
+Written from your messages before I opened the build, so you can see at once if I misread you.
+
+- You type in the sidebar box or Cmd+K and, touching nothing, get top-level threads matched on their own words and on reports. Archived threads and sub-threads stay out: "If I've archived a thread ... including it in search results by default seems counterproductive."
+- You can switch sub-threads in, archived in, and narrow to one project. In Cmd+K the project switch is a chip for the current project and nothing bigger.
+- With sub-threads in, a result is the sub-thread itself under its top-level thread, and choosing it opens that sub-thread.
+- Short words such as `CI` find messages.
+- No search over plans, recaps, intent briefs or explainers: "let's leave out all the mdx docs then." Reports stay searched, as they already were.
+
+Three things your messages do not settle, which the build decided and I left alone. The switches return to off whenever the box is cleared or closed, so nothing is remembered between searches. The phone and iPad get the same default and switches, though you named only the sidebar and Cmd+K. With Sub-threads on, a broad search lists about 14 to 28 top-level threads in place of 50, because each brings up to three sub-thread rows.
