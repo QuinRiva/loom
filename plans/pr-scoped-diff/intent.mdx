@@ -1,10 +1,10 @@
 ---
 reader:
-  who: Carl, who asked for a design, then asked whether a thread and worktree per PR is the better way; he decides here which way to go and how much to build
+  who: Carl, who asked for a design, then asked whether a thread and worktree per PR is the better way, and approved this brief on 24 Nov; and the agents who plan and build under it
   knows: the Diff tab and Files list as a user, stacked PRs, orchestrators and their child threads, his own habit of reviewing every PR before it is opened; none of Loom's internal names, none of the earlier plans recently
-  after_first_screen: that his own suggestion answers his question and the earlier per-PR list only half answers it, what Loom lacks for it, and the three decisions he is being asked for
-kicker: "Intent brief · second draft, after your question · 24 Nov 2026"
-status: draft
+  after_first_screen: that a thread and worktree per PR answers his question and the earlier per-PR list only half answers it, what Loom lacks for it, and what he decided
+kicker: "Intent brief · approved 24 Nov 2026"
+status: approved
 manager_sessions:
   - id: 01a20be9-455b-752f-be77-0cae99955154
     name: Per-PR diff view intent brief
@@ -48,8 +48,8 @@ manager_sessions:
   ]}
 />
 
-<Callout tone="decision" title="What you are deciding" focus>
-  Three questions at the end. **Which way to go**: I recommend yours, tried by hand on the next graph-enrichment PR before anything is built. Whether **three small Diff tab corrections** go ahead regardless. **When an orchestrator should split work this way**. A bare "go" takes every recommended answer. Nothing is built until you approve.
+<Callout tone="decision" title="What you decided" focus>
+  **Try it by hand first**: the next graph-enrichment PR gets its own thread and worktree with what exists today, and the real thing is built if that suits you. **The three small Diff tab corrections go ahead now**, as their own PR. **An orchestrator splits work this way** when "it intends to produce multiple PRs".
 </Callout>
 
 **You'll know it works when.**
@@ -76,14 +76,17 @@ The three corrections, which hold whichever way you go:
 
 **Approaches in play.**
 
-- A child thread per PR in its own worktree and branch. Wins if reviewing and fixing one PR while another is built matters more than disk and catch-up work. Loom already creates a worktree on a new branch from a chosen base for a handed-off goal, and records that base, which is why Automatic would be right with nothing picked. What is missing is letting a child start that way. _Recommended._
-- The same, tried by hand first: the graph-enrichment orchestrator hands its next PR off as its own goal in a fresh worktree. Wins if you want to know it suits you before anything is built. It is rougher than the real thing: the PR's thread is not nested under the orchestrator, and it starts from the project's main checkout and has to move itself onto the PR below. _Recommended as the first step._
+- A child thread per PR in its own worktree and branch. Wins if reviewing and fixing one PR while another is built matters more than disk and catch-up work. Loom already creates a worktree on a new branch from a chosen base for a handed-off goal, and records that base, which is why Automatic would be right with nothing picked. What is missing is letting a child start that way. _Chosen, to be built if the trial suits you._
+- The same, tried by hand first: the graph-enrichment orchestrator hands its next PR off as its own goal in a fresh worktree. Wins if you want to know it suits you before anything is built. It is rougher than the real thing: the PR's thread is not nested under the orchestrator, and it starts from the project's main checkout and has to move itself onto the PR below. _Chosen as the first step._
 - A per-PR list in the shared worktree, the first draft. It is viable, since reading a branch that is not checked out is ordinary git. It answers reading only, so it is kept as the fallback if a worktree per PR proves too heavy.
 - jj. It would not remove the need for a worktree per PR, because two agents still cannot share one set of files on disk. What it adds is that later PRs catch up by themselves when an earlier one changes. Loom has no jj support, and upstream has merged none: every jj PR there is closed, the latest set on 26 Oct without maintainer approval. _Not recommended for this._
 - Dropped: push each PR as a draft and read it on the Pull requests page. You said "I want to review befroe we create the pr".
 
 **Decided.**
 
+- Asked which way this should go, you chose "Try a thread and worktree per PR by hand on the next graph-enrichment PR, then build it properly if it suits you".
+- Asked whether the three corrections go ahead now as their own PR: "Yes, build the three corrections now".
+- Asked when an orchestrator should give a PR its own thread and worktree, you chose "Whenever a piece of work will produce more than one PR" and wrote: "Yeah - basically if it intends to produce multiple PRs." The wording for agents is later work with its own review.
 - "this would still give me a single mechanism for communication for the overall hunk of work - but enable me to communicate with individual sub-orchestrators about a specific PR". One orchestrator for the whole, one thread per PR.
 - "I want to be able to view what is included in a PR". The unit is the PR.
 - The plan for October's upstream pull records your decision on worktrees in its own words: a shared worktree is "the only mode", and separate ones return "later as an opt-in only if wanted". This is that opt-in, for a PR, without the merge back.
@@ -92,85 +95,6 @@ The three corrections, which hold whichever way you go:
 - _Assumed:_ nothing new is built in the Diff tab or the Files list beyond the three corrections.
 
 **Not doing.** The per-PR list, unless the trial sends us back to it. jj. Changes to the Pull requests page. Rewording any agent instruction: that is later work with its own review.
-
-**Questions for you.**
-
-<QuestionForm
-  questions={[
-    {
-      "id": "which-way",
-      "title": "Which way should this go?",
-      "subtitle": "The trial uses what exists today on the next graph-enrichment PR (\"Linking\", not yet started), so it costs no build. Building the real thing means a child can start in its own worktree; my estimate is that it is less work than the per-PR list, with most of the machinery already there for handed-off goals.",
-      "mode": "single",
-      "allowOther": true,
-      "options": [
-        {
-          "id": "trial-then-build",
-          "label": "Try a thread and worktree per PR by hand on the next graph-enrichment PR, then build it properly if it suits you",
-          "recommended": true,
-          "detail": "You learn whether this way of working answers your question before any Loom change. If you say yes, I send the graph-enrichment orchestrator a note to hand its next PR off that way."
-        },
-        {
-          "id": "build-now",
-          "label": "Build it now: a child thread can start in its own worktree and branch",
-          "detail": "Skips the rough trial. The plan would be written next and reviewed before any code."
-        },
-        {
-          "id": "list",
-          "label": "Keep one shared worktree and build the per-PR list from the first draft",
-          "detail": "You could read PR 1 while PR 3 is built, but a fix to PR 1 still waits for the worktree."
-        },
-        {
-          "id": "nothing",
-          "label": "Build nothing, and stop running several PRs under one orchestrator for this sort of work",
-          "detail": "One thread per PR, started by you, as separate pieces of work with no orchestrator over them."
-        }
-      ]
-    },
-    {
-      "id": "corrections",
-      "title": "Do the three small Diff tab corrections go ahead now, as their own PR?",
-      "subtitle": "They are about a day of coder work by my estimate and help under every option above, including the trial, where an agent moves a branch by hand.",
-      "mode": "single",
-      "options": [
-        {
-          "id": "yes",
-          "label": "Yes, build the three corrections now",
-          "recommended": true
-        },
-        {
-          "id": "later",
-          "label": "Not yet; decide after the trial"
-        }
-      ]
-    },
-    {
-      "id": "when-to-split",
-      "title": "When should an orchestrator give a PR its own thread and worktree?",
-      "subtitle": "This becomes a rule in agents' instructions, written later under its own review. It decides how often you pay the 4 GB and the catch-up work.",
-      "mode": "single",
-      "allowOther": true,
-      "options": [
-        {
-          "id": "more-than-one",
-          "label": "Whenever a piece of work will produce more than one PR",
-          "recommended": true,
-          "detail": "A single-PR piece of work stays as it is today, in one shared worktree."
-        },
-        {
-          "id": "on-request",
-          "label": "Only when I ask for it",
-          "detail": "Nothing changes unless you say so; you have to remember to ask at the start."
-        },
-        {
-          "id": "stacked-only",
-          "label": "Only when the PRs are stacked on each other",
-          "detail": "Independent PRs from one orchestrator keep sharing a worktree, and can still not be worked on at the same time."
-        }
-      ]
-    }
-  ]}
-/>
 
 **Still unknown.**
 
