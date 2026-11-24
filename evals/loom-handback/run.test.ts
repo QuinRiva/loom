@@ -464,3 +464,16 @@ it("reads a Loom tool called by its bare name as that tool", () => {
     decides([{ name: "workstream_submit", input: {} }], ["mcp__t3-code__workstream_submit"]),
   ).toBe(false);
 });
+
+it("passes a withdraw naming the stale header, and fails another header or none", () => {
+  const check = { kind: "withdraws", header: "Where plans show" } as const;
+  const withdraw = (header: string) => loom("withdraw_question", { header, reason: "Replaced." });
+  expect(grade(check, observed([withdraw("  where plans  show ")])).pass).toBe(true);
+  expect(grade(check, observed([withdraw("Plans: Billing or a tab")])).reason).toBe(
+    "withdrew another header",
+  );
+  expect(grade(check, observed([])).reason).toBe("no withdraw");
+  expect(grade(check, observed([{ name: "tool_search", input: {} }])).reason).toBe(
+    "called tool_search",
+  );
+});

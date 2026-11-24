@@ -1,0 +1,52 @@
+---
+reader:
+  who: Carl, who reported the gap and approved this intent; later, the coder and reviewer held to it
+  knows: his own report and the open-questions list above the composer; nothing of the code
+  after_first_screen: what an agent can now do to its own open questions, and what it must never do
+kicker: "Intent brief · approved and built 24 Nov 2026"
+status: done
+manager_sessions:
+  - id: 01a20a5e-0135-728e-b23b-836b0b34059a
+    name: Replace Superseded Agent Questions
+    role: intent
+    authored_at: 2026-11-23T21:47:54.768Z
+---
+
+# An agent can close a question it no longer needs answered
+
+**Goal.** "We don't seem to have a mechanism to replace earlier questions - I answered an earlier question, then was immediately presented with a question that *should* have replaced it." When an agent's open question goes stale, because a new question replaces it or because what the agent has since learnt settles it, the agent withdraws it and it stops being offered to you.
+
+**What happened.** On 23 Nov the thread designing the phone's goal task tree asked "Where the goal's task tree lives on the phone". Half an hour later, after PR #614 merged, it asked a second question that opens "This replaces the earlier placement question". Both cards stayed open for eight hours. You typed an answer into the first, then met the second 90 seconds later. The agent had no way to close the first: today a question closes only when you answer or dismiss it.
+
+**How often.** Rarely, so this is sized as a small fix. Since 4 Nov agents have asked 207 questions that left them free to keep working. 31 were asked while an earlier one on the same thread was open. Only yours says it replaces another; two more look like a re-ask from their titles, unconfirmed.
+
+**You'll know it works when.**
+
+- An agent asks a question that replaces an open one of its own, then withdraws the old one. The old card leaves your open questions at once, on the web and on the phone. The phone shows the oldest open question first, so today it shows the stale one.
+- An agent whose open question has been settled by what it has since learnt withdraws it. Its reason is readable in the conversation, in words you can follow without the rest of the thread.
+- If the question it names is already answered or dismissed, nothing closes and the agent is told so.
+- **Must not:** withdraw a question that still needs your decision; close a question you have already answered; close a question asked by another thread; remove the withdrawn question's text from the conversation.
+- **Must not cost:** "are we adding substantial tokens to reduce friction (which is real but rare)". The whole addition to what agents read is one small tool, 253 tokens as measured (first estimated at about 120; the measured figure was accepted at ship), and a short clause in the question tool's reply when other questions are open. Nothing is added to the standing instructions. No list of open questions is sent to the agent, per turn or per call.
+
+**Approaches in play.**
+
+- _Chosen:_ one small tool that closes an open question of the agent's own, named by its title, with a reason. Replacing is asking the new question and withdrawing the old one, so one mechanism covers both cases. The card closes the way a dismissed one does today, so every screen that shows questions already copes.
+- Not built: a "replaces" field on the question tool as well. It is a second mechanism for a case the tool already covers. Revisit if agents ask the replacement and forget to withdraw.
+- Dropped: closing an older question when a new one looks similar. The agent knows what it replaces and can say so; a matcher would misfire.
+- Dropped: showing the newest question first. You would still be offered the stale one next.
+
+**Decided.**
+
+- An agent can withdraw a question with nothing replacing it: "Yes: it can also withdraw one, giving a reason shown in the conversation". "It can ask me a question *before* it has info, and then once it has info, it may realise that the question is no longer relevant."
+- The conversation gains no "replaced" label: "No: it shows as a dismissed question does today".
+- _Assumed:_ the reason shows on the agent's own withdrawal step in the conversation, not on the question's row, which follows from the line above. Redirect if wrong.
+- _Assumed:_ withdrawing closes a whole card. Your first card held two questions and only one was stale, so the agent re-asks in the new card whatever still stands. Redirect if single questions inside a card should be closable.
+- _Assumed:_ questions that stop the agent until you answer are out of scope. The agent is waiting inside that question and cannot do anything else.
+- _Assumed:_ an answer you are part-way through typing is lost if its card is withdrawn under you. Too rare to build for; redirect if wrong.
+
+**Not doing.** A cap on how many questions can be open. Closing questions by age. Any change to what your chat messages do to open questions. Telling the agent when you dismiss a question.
+
+**Settled during the build.**
+
+- Agents withdraw unprompted, and only when they should. In the eval, a case built from your example and one where new information settles the question both went from 0 of 5 to 10 of 10. An open question that still needs your decision was kept in 10 of 10, and in 20 further samples with two questions open.
+- The Slack bridge needs no change. It treats a withdrawal as it treats a dismissal and posts that the question was closed without an answer.

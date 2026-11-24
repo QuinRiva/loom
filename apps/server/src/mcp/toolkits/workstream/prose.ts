@@ -183,6 +183,13 @@ export const LOOM_TOOL_PROSE = {
     promptSnippet: "put a question to the person reading this thread and carry on.",
     promptGuidelines: "",
   },
+  withdraw_question: {
+    description:
+      "Close a question of yours that is still open and no longer needs an answer: what you have since learnt settles it, or a question you have just asked replaces it. The reader stops being offered it. A question that still needs their decision stays open.",
+    // pi lists snippets only without a custom prompt, which Loom always sets.
+    promptSnippet: "",
+    promptGuidelines: "",
+  },
   // Local process tools registered by Loom's pi extension (`backgroundJobs.ts`), not MCP tools:
   // bare names, like pi's own `bash`.
   bg_start: {

@@ -22,6 +22,7 @@ import { workstreamChildPrompt } from "../../apps/server/src/loom/prompt/prose.t
 import { buildCodeQueryForkLaunch } from "../../apps/server/src/loom/query/codeQuery.ts";
 import { buildQueryForkLaunch } from "../../apps/server/src/loom/query/documentQuery.ts";
 import { buildQueryPromoteTurn } from "../../apps/server/src/loom/query/documentQueryOverlay.ts";
+import { renderOpenQuestion } from "../../apps/server/src/loom/userInput/askUserQuestion.ts";
 import {
   appendWarnings,
   composeNotifyFramedText,
@@ -1349,6 +1350,174 @@ const CODE_QUERY =
 const QUERY_THREADS =
   "The six promote turns in the nine document query threads of 27 Oct to 10 Nov 2026, each answered with one document_query_promote carrying the turn's exchangeAt; and plans/code-query/plan.mdx §5, which gives code the same thread.";
 
+// ── Scenario G: payment plans in the customer portal. A root that asked the human an open question
+// learns something that makes it stale (plans/replace-open-question/intent.mdx).
+
+const PLANS_ROOT = "thread:acme-root-6b3f";
+const askCall = (
+  header: string,
+  question: string,
+  options: ReadonlyArray<{ label: string; description: string; recommended?: true }>,
+  othersOpen: number,
+): ToolCall => ({
+  name: t("ask_user_question"),
+  input: { questions: [{ header, question, options }] },
+  result: renderOpenQuestion(header, othersOpen),
+});
+const PORTAL_NAV = `/** The portal's top-level tabs, in display order. */
+export const tabs = [
+  { id: "invoices", label: "Invoices", path: "/invoices" },
+  { id: "profile", label: "Profile", path: "/profile" },
+];`;
+const PAYMENT_PLAN_MODEL = `export interface PaymentPlan {
+  id: string;
+  customerId: string;
+  /** Agreed by finance; a plan covers one or more overdue invoices. */
+  invoiceIds: string[];
+  status: "active" | "completed" | "cancelled";
+  instalments: { dueDate: string; amountCents: number; paidAt: string | null }[];
+}`;
+const plansKickoff: ReadonlyArray<Message> = [
+  humanInRoot(
+    "Payment plans are going into the customer portal (acme/app#455): a customer on an agreed plan should see its instalments and the next due date. Work out the design and get a coder going once it's settled. Put any calls you need from me as questions and keep moving; I'll answer when I can.",
+  ),
+  said(
+    "Reading the portal's navigation and the payment plan model.",
+    read(at("apps/portal/src/nav.ts"), PORTAL_NAV),
+    read(at("apps/api/src/plans/model.ts"), PAYMENT_PLAN_MODEL),
+  ),
+];
+const PLACEMENT = "Where payment plans show in the portal";
+const askPlacement = said(
+  "Where the plan shows is your call. Asking, and carrying on with the panel on the Invoices tab.",
+  askCall(
+    PLACEMENT,
+    "I'm designing how customers see an agreed payment plan in the customer portal (acme/app#455). The portal has two tabs today, Invoices and Profile (`apps/portal/src/nav.ts`).\n\nExample: a customer with a three-instalment plan over INV-20418 and INV-20502 opens the portal; they should see the instalments and that the next one, $281.83, is due on 2 Dec.\n\nThis decides which screen the coder builds and where customers look first. I'm proceeding on a panel at the top of the Invoices tab, since the plan pays those invoices off.",
+    [
+      {
+        label: "A panel on the Invoices tab",
+        description:
+          "Seen beside the invoices it pays off; no new tab, but the Invoices tab gets longer.",
+        recommended: true,
+      },
+      {
+        label: "A Payment plans tab of its own",
+        description:
+          "Easy to find from anywhere; one more tab for customers without a plan to ignore.",
+      },
+    ],
+    0,
+  ),
+);
+const BILLING_NAV = `/** The portal's top-level tabs, in display order. */
+export const tabs = [
+  { id: "billing", label: "Billing", path: "/billing" },
+  { id: "profile", label: "Profile", path: "/profile" },
+];
+
+/** Sections of the Billing tab (#458): invoices, payment methods and statements. */
+export const billingSections = ["invoices", "payment-methods", "statements"] as const;`;
+const BILLING_PLACEMENT = "Payment plans: a Billing section or their own tab";
+
+/** The incident: a replacement question asked, the one it replaces still open. */
+const plansReplaced: ReadonlyArray<Message> = [
+  ...plansKickoff,
+  askPlacement,
+  said(
+    "Checking main before writing the coder's brief.",
+    bash(
+      "git fetch -q && git log --oneline -3 origin/main",
+      "a1c9e02 Merge pull request #458 from acme/portal-billing-tab\n7f30b19 feat(portal): a Billing tab replaces Invoices, with payment methods and statements\nc4d2e88 fix(api): statement totals round half up",
+    ),
+    bash("git show origin/main:apps/portal/src/nav.ts", BILLING_NAV),
+  ),
+  said(
+    "#458 merged: the Invoices tab is gone, folded into a new Billing tab. The panel I assumed has nowhere to go, so the placement choice is now a different one. Asking it, and carrying on with a section of the Billing tab.",
+    askCall(
+      BILLING_PLACEMENT,
+      "This replaces the earlier placement question: since it was asked, acme/app#458 merged and folded the Invoices tab into a new Billing tab, with sections for invoices, payment methods and statements (`apps/portal/src/nav.ts` on main).\n\nExample: the customer with the three-instalment plan over INV-20418 and INV-20502 opens Billing; the question is whether the plan is a fourth section there or a tab beside Billing.\n\nThis decides which screen the coder builds. I'm proceeding on a Payment plans section of the Billing tab, next to the invoices it pays off.",
+      [
+        {
+          label: "A section of the Billing tab",
+          description:
+            "Beside the invoices and payment methods it relates to; Billing gets a fourth section.",
+          recommended: true,
+        },
+        {
+          label: "A Payment plans tab of its own",
+          description: "Visible from anywhere; a third top-level tab most customers never need.",
+        },
+      ],
+      1,
+    ),
+  ),
+];
+
+const CURRENCY = "Instalment amounts: which currency";
+/** An open question the ticket turns out to have settled already. */
+const plansSettled: ReadonlyArray<Message> = [
+  ...plansKickoff,
+  said(
+    "The model stores amounts in cents with no currency of their own. Asking which currency customers see, and carrying on with the account currency.",
+    askCall(
+      CURRENCY,
+      "I'm designing how customers see an agreed payment plan in the customer portal (acme/app#455). A plan's instalments are stored in cents with no currency of their own (`apps/api/src/plans/model.ts`), and some customers are billed in another currency than their account's.\n\nExample: a customer whose account is in AUD but whose invoice INV-20611 was billed in NZD; their next instalment could show as A$281.83 or NZ$305.10.\n\nThis decides what the coder converts and what figure customers compare with their bank statement. I'm proceeding on the account currency, as the portal's invoice list already shows.",
+      [
+        {
+          label: "The account currency",
+          description:
+            "Matches the invoice list today; can differ from what the customer was billed in.",
+          recommended: true,
+        },
+        {
+          label: "Each invoice's billing currency",
+          description: "Matches what was billed; a plan over invoices in two currencies shows two.",
+        },
+      ],
+      0,
+    ),
+  ),
+  said(
+    "Reading the ticket in full before writing the coder's brief.",
+    bash(
+      "gh issue view 455 --repo acme/app",
+      "title:\tPortal: show payment plans to customers\nstate:\tOPEN\nauthor:\tfinance-ops\nlabels:\tportal\n--\nCustomers on an agreed payment plan keep emailing finance to ask what they owe next. Show them the plan in the portal: each instalment, whether it is paid, and the next due date.\n\nAmounts in the account currency, the same as the invoice list. We settled this with customers in #431: two currencies on one screen confused them, and statements are in the account currency too.\n\nOut of scope: changing a plan or paying an instalment from the portal.",
+    ),
+  ),
+];
+
+/** An open question that still needs the human, while the root does work it does not touch. */
+const plansStillOpen: ReadonlyArray<Message> = [
+  ...plansKickoff,
+  askPlacement,
+  said(
+    "The API side does not depend on where the plan shows. Checking what the portal already fetches.",
+    bash(
+      "ls apps/api/src/plans/ apps/api/src/portal/",
+      "apps/api/src/plans/:\nmodel.ts\nrepo.ts\n\napps/api/src/portal/:\ninvoices.ts\nprofile.ts\nrouter.ts",
+    ),
+    read(
+      at("apps/portal/src/router.tsx"),
+      `import { tabs } from "./nav";
+
+/** Every tab in nav.ts gets a route; a tab's page may hold any number of panels. */
+export const routes = tabs.map((tab) => ({ path: tab.path, page: () => import(\`./pages/\${tab.id}\`) }));`,
+    ),
+  ),
+  said(
+    "Either placement is a small change on the portal side: a new entry in `nav.ts` gets its route, and the Invoices page takes panels. The endpoint is the same either way. Reading the portal router to name it in the coder's brief.",
+    read(
+      at("apps/api/src/portal/router.ts"),
+      `import { router } from "../router";
+import "./invoices";
+import "./profile";
+
+/** Portal endpoints live under /api/portal and see only the signed-in customer's records. */
+export const portal = router.scope("/api/portal");`,
+    ),
+  ),
+];
+
 // ── Cases
 
 const PLANNER_APPROVAL =
@@ -2229,5 +2398,46 @@ Build §4 of the plan \`${PLAN_PATH}\`: the \`invoice-reminder\` email template 
         "left the",
       ],
     },
+  },
+  {
+    id: "question-replaced-withdraws",
+    kind: "bad",
+    base: "fails",
+    source:
+      "A root that asked where the goal task tree lives on the phone, then after a PR merged asked a question opening 'This replaces the earlier placement question'; both stayed open for eight hours and the human answered the stale one first, 23 Nov 2026 (plans/replace-open-question/intent.mdx).",
+    role: "orchestrator",
+    threadId: PLANS_ROOT,
+    parentId: null,
+    engagedTools: [],
+    messages: plansReplaced,
+    check: { kind: "withdraws", header: PLACEMENT },
+  },
+  {
+    id: "question-settled-withdraws",
+    kind: "bad",
+    base: "fails",
+    source:
+      "The human's case for withdrawal with nothing replacing it: 'it can ask me a question before it has info, and then once it has info, it may realise that the question is no longer relevant' (plans/replace-open-question/intent.mdx, Decided).",
+    role: "orchestrator",
+    threadId: PLANS_ROOT,
+    parentId: null,
+    engagedTools: [],
+    messages: plansSettled,
+    maxSteps: 8,
+    check: { kind: "withdraws", header: CURRENCY },
+  },
+  {
+    id: "question-still-open-kept",
+    kind: "control",
+    base: "passes",
+    source:
+      "Open questions asked while the root kept working: 31 of 207 since 4 Nov 2026 were asked with another open on the thread (plans/replace-open-question/intent.mdx, must-not: 'withdraw a question that still needs your decision').",
+    role: "orchestrator",
+    threadId: PLANS_ROOT,
+    parentId: null,
+    engagedTools: [],
+    messages: plansStillOpen,
+    maxSteps: 8,
+    check: { kind: "none-of", plainSubmit: false, tools: ["withdraw_question"] },
   },
 ];

@@ -20,6 +20,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import type { WorkstreamCaller } from "../../mcp/toolkits/workstream/authorisation.ts";
+import { agentToolName } from "../../mcp/toolkits/workstream/families.ts";
 import { stableCommandId } from "../../mcp/toolkits/workstream/idempotency.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { forkParked } from "../../serverActivation.ts";
@@ -108,8 +109,8 @@ const answerText = (answer: unknown) =>
       : JSON.stringify(answer);
 
 /** The tool result of a non-blocking ask, returned at once. */
-const renderOpenQuestion = (header: string, othersOpen: number) =>
-  `Open on this thread as "${header}"; ${othersOpen} other ${othersOpen === 1 ? "question is" : "questions are"} open. Carry on with your stated assumption; do not wait for the answer or ask again.`;
+export const renderOpenQuestion = (header: string, othersOpen: number) =>
+  `Open on this thread as "${header}"; ${othersOpen} other ${othersOpen === 1 ? "question is" : "questions are"} open.${othersOpen > 0 ? ` If this one replaces any of them, withdraw those with ${agentToolName("withdraw_question")}.` : ""} Carry on with your stated assumption; do not wait for the answer or ask again.`;
 
 /** The tool result for a request that is no longer pending. */
 const renderAskOutcome = (
@@ -196,6 +197,64 @@ export const openAskUserQuestion = Effect.fn("loom.askUserQuestion.open")(functi
     (request) => request.id !== requestId && isOpenQuestion(request),
   ).length;
   return { requestId, rendered: renderOpenQuestion(questions[0]!.header, othersOpen) };
+});
+
+const sameHeader = (left: string, right: string) =>
+  left.trim().replaceAll(/\s+/g, " ").toLowerCase() ===
+  right.trim().replaceAll(/\s+/g, " ").toLowerCase();
+
+/**
+ * Closes the caller's own open question card that has a question under `header`, as a dismissal
+ * does; the oldest when several match, since a re-ask under the same header is the newer. The
+ * reason is not stored: it stays readable on the agent's tool call.
+ */
+export const withdrawAskUserQuestion = Effect.fn("loom.askUserQuestion.withdraw")(function* (
+  caller: WorkstreamCaller,
+  body: { readonly header?: unknown; readonly reason?: unknown },
+) {
+  const header = text(body.header);
+  if (header === undefined || text(body.reason) === undefined)
+    return yield* new LoomAskError({ message: "header and reason must be non-empty." });
+  const orchestrator = yield* OrchestratorV2;
+  const { runtimeRequests, turnItems } = yield* orchestrator
+    .getThreadRecords(caller.threadId, ["runtimeRequests", "turnItems"], {
+      turnItemTypes: ["user_input_request"],
+    })
+    .pipe(Effect.mapError((error) => new LoomAskError({ message: error.message })));
+  const card = runtimeRequests
+    .filter(isOpenQuestion)
+    .toSorted(
+      (left, right) =>
+        DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt),
+    )
+    .find((request) =>
+      turnItems.some(
+        (item) =>
+          item.type === "user_input_request" &&
+          item.requestId === request.id &&
+          item.questions.some((question) => sameHeader(question.header, header)),
+      ),
+    );
+  if (card === undefined)
+    return {
+      rendered: `No open question on this thread has the header "${header}"; it has been answered or dismissed, or was asked under another header. Nothing was closed.`,
+    };
+  yield* orchestrator
+    .dispatch({
+      type: "thread.user-input.dismiss",
+      commandId: CommandId.make(`server:loom:ask-withdraw:${card.id}`),
+      threadId: caller.threadId,
+      requestId: card.id,
+    })
+    .pipe(
+      Effect.mapError(
+        (error) =>
+          new LoomAskError({
+            message: `The question could not be withdrawn: ${"cause" in error ? String(error.cause) : error.message}`,
+          }),
+      ),
+    );
+  return { rendered: `Withdrawn: "${header}".` };
 });
 
 const TERMINAL_RUN = new Set(["completed", "interrupted", "failed", "cancelled", "rolled_back"]);
