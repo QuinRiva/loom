@@ -135,6 +135,10 @@ files too (above). In order, the script:
   `upstream` remote (`pingdotgg/t3code`). Without the `set-default` (or an
   explicit `--repo QuinRiva/loom` on every `gh pr` call), `gh` resolves the PR
   base to the fork parent and fails with "No commits between…".
+  The app's Create PR button reads the same mark:
+  unmarked, it also targets the fork parent, and it names the fork as the head,
+  so the PR would open on upstream. On a fresh clone run the `set-default` once
+  before anything else.
 - **`gh pr merge` prints nothing on success in a piped shell**: silence is
   success, errors go to stderr. Confirm with `gh pr view --json state` before
   deleting the branch (the script does this).
