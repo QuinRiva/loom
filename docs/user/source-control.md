@@ -17,7 +17,7 @@ With the comparison target on **Automatic**, **Changes** compares the branch wit
 cut from: the base T3 Code recorded when it made the branch, else an upstream with a different
 name (as `git checkout -b my-pr origin/earlier-pr` sets), else the default branch. A branch cut
 from another pull request's branch therefore shows only its own changes. The target names the base
-in use, and the thread details card shows it under the Changes totals.
+in use.
 
 ## Review since your last message
 
