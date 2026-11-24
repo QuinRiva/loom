@@ -259,8 +259,7 @@ Switches under the search box widen or narrow what it reads:
   under the conversation brings it back.
 - **Project.** In the palette, a chip named after the project of the thread
   you have open limits every result to that project. In the sidebar and on
-  mobile, the thread list's project picker does the same for any project,
-  and you get a full list from that project.
+  mobile, the thread list's project picker does the same for any project.
 
 **Reset** turns every switch off. Clearing or closing the search turns them off
 too, so a switch you forgot never hides results from a later search. The
