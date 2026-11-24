@@ -1457,11 +1457,17 @@ const CHAT_MARKDOWN_COMPONENTS = {
             ? plainHastText(node)
             : undefined;
       const isPullRequestAutolink = pullRequestCopy !== undefined;
-      const confirmBeforeOpen = pullRequestAutolink === "reference";
-      const pullRequestCandidateUrl =
-        confirmBeforeOpen && href
+      // loom: any issue link its host may also number a pull request with (a project reference
+      // link's `#12`, a pasted `/issues/12` URL) reads as a pull request first, like an autolink.
+      const referenceCandidateUrl =
+        href &&
+        (pullRequestAutolink === "reference" ||
+          sourceControlClients.parseChangeRequestUrl(href) === null)
           ? sourceControlClients.changeRequestUrlFromReferenceAutolink(href)
-          : href;
+          : null;
+      const confirmBeforeOpen =
+        pullRequestAutolink === "reference" || referenceCandidateUrl !== null; // loom
+      const pullRequestCandidateUrl = confirmBeforeOpen ? referenceCandidateUrl : href; // loom
       const pullRequestPreviewTarget = pullRequestCandidateUrl
         ? resolvePullRequestPreviewTarget({
             environmentId,

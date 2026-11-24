@@ -61,7 +61,9 @@ export const isNotFoundOnly = (error: unknown): boolean =>
         path.slice(1).every((segment) => typeof segment === "number") ||
         (path.length === 2 &&
           path[0] === "repository" &&
-          (path[1] === "pullRequest" || path[1] === "issueOrPullRequest"))),
+          (path[1] === "pullRequest" ||
+            path[1] === "issue" || // loom: a pull request's number asked for as an issue
+            path[1] === "issueOrPullRequest"))),
   );
 
 /** GitHub's message for each error in an answer, with the field it names. */

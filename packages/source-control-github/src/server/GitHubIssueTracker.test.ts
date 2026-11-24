@@ -226,6 +226,42 @@ const decodeBody = Schema.decodeUnknownSync(
 );
 
 describe("GitHubIssueTracker", () => {
+  // loom: `#12` links name pull requests through `/issues/`, so GitHub's refusal reads as not found.
+  it.effect("reports a pull request's number read as an issue as not found", () =>
+    Effect.gen(function* () {
+      const pullRequestNumber = yield* GitHubIssueTracker.make.pipe(
+        Effect.provide(
+          transport(
+            HttpClient.make((request) =>
+              Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  new Response(
+                    JSON.stringify({
+                      data: { viewer: { login: "julius" }, repository: { issue: null } },
+                      errors: [
+                        {
+                          type: "NOT_FOUND",
+                          path: ["repository", "issue"],
+                          message: "Could not resolve to an Issue with the number of 50.",
+                        },
+                      ],
+                    }),
+                    { headers: { "content-type": "application/json" } },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      const target = { cwd: "/w", host: "github.com", scope: "acme/web", key: "50" };
+      for (const read of [pullRequestNumber.getIssue, pullRequestNumber.getIssueLink]) {
+        expect(yield* Effect.flip(read(target))).toMatchObject({ reason: "not-found" });
+      }
+    }),
+  );
+
   it.effect("reads only the fields needed to link a GitHub issue and rejects missing issues", () =>
     Effect.gen(function* () {
       const requests: unknown[] = [];
