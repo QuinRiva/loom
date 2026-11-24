@@ -33,14 +33,6 @@ const BATCH = 8;
 const QUERY_TIMEOUT = Duration.seconds(2);
 /** Recent query vectors kept, so a filter flipped on the same words skips the provider call. */
 const QUERY_CACHE = 48;
-/**
- * Per model, a root found only by meaning is listed when its cosine similarity is at least
- * `similarity` and `aboveMean` over the query's mean similarity to every stored root; no entry, no
- * cut. Fitted by the search harness (`threadSearchEval.loom.ts`), which prints what a refit needs.
- */
-const CUTOFFS: Record<string, { readonly similarity: number; readonly aboveMean: number }> = {
-  "vertex/gemini-embedding-001": { similarity: 0.62, aboveMean: 0.045 },
-};
 
 export const providerFromSettings = (
   settings: ThreadSearchEmbeddingSettings,
@@ -131,17 +123,12 @@ const normalise = (vector: Float32Array) => {
 export class ThreadEmbedder extends Context.Service<
   ThreadEmbedder,
   {
-    /**
-     * Root thread ids nearest the query, best first, never one in `skip`, and those of them close
-     * enough to list on meaning alone (the model's cut-off); `undefined` = lexical-only.
-     */
+    /** Root thread ids nearest the query, best first, never one in `skip`; `undefined` = lexical-only. */
     readonly nearest: (
       query: string,
       k: number,
       skip?: ReadonlySet<string>,
-    ) => Effect.Effect<
-      { readonly ids: ReadonlyArray<string>; readonly close: ReadonlySet<string> } | undefined
-    >;
+    ) => Effect.Effect<ReadonlyArray<string> | undefined>;
     /** Bring the stored vectors in line with the root documents and provider. */
     readonly sweep: Effect.Effect<{ readonly embedded: number; readonly identity?: string }>;
   }
@@ -323,29 +310,17 @@ export const makeThreadEmbedder = Effect.fn("ThreadEmbedder.make")(function* (
         ms: (yield* Clock.currentTimeMillis) - started,
       });
     const vector = found.value;
-    let total = 0;
-    const scored = [...current.vectors].map(([threadId, candidate]) => {
-      let score = 0;
-      for (let index = 0; index < vector.length; index++)
-        score += vector[index]! * candidate[index]!;
-      total += score;
-      return [threadId, score] as const;
-    });
-    const ranked = scored
+    return [...current.vectors]
       .filter(([threadId]) => !skip?.has(threadId))
+      .map(([threadId, candidate]) => {
+        let score = 0;
+        for (let index = 0; index < vector.length; index++)
+          score += vector[index]! * candidate[index]!;
+        return [threadId, score] as const;
+      })
       .toSorted((a, b) => b[1] - a[1])
-      .slice(0, k);
-    const cutoff = CUTOFFS[current.provider.name];
-    const floor =
-      cutoff && Math.max(cutoff.similarity, total / (scored.length || 1) + cutoff.aboveMean);
-    return {
-      ids: ranked.map(([threadId]) => threadId),
-      close: new Set(
-        ranked.flatMap(([threadId, score]) =>
-          floor === undefined || score >= floor ? [threadId] : [],
-        ),
-      ),
-    };
+      .slice(0, k)
+      .map(([threadId]) => threadId);
   });
 
   return ThreadEmbedder.of({ nearest, sweep });
