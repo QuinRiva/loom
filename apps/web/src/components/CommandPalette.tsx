@@ -257,6 +257,10 @@ import {
   sourceControlHostIcon,
 } from "./CommandPaletteAddProject";
 import { useCommandPaletteThreadItems } from "./CommandPaletteThreadItems";
+// loom: search switches and sub-thread rows
+import { ThreadSearchFilterChips } from "../loom/ThreadSearchFilterChips";
+import { useThreadSearchSwitches } from "../loom/threadSearchSwitches";
+import { withPaletteSubThreadItems } from "../loom/threadSearchPaletteItems";
 import { useCommandPaletteThemeItems } from "./CommandPaletteThemeItems";
 import {
   PORT_FORWARD_GROUP_PREFIX,
@@ -561,6 +565,7 @@ function OpenCommandPaletteDialog(props: {
   });
   const currentView = viewStack.at(-1)?.view ?? null;
   const threadSearchQuery = currentView === null && !isActionsOnly ? deferredQuery : "";
+  const threadSearchSwitches = useThreadSearchSwitches(threadSearchQuery); // loom
   const [browseGeneration, setBrowseGeneration] = useState(0);
   const [browseNavigation] = useState(createBrowseNavigationCoordinator);
   const [addProjectEnvironmentId, setAddProjectEnvironmentId] = useState<EnvironmentId | null>(
@@ -968,7 +973,12 @@ function OpenCommandPaletteDialog(props: {
     now: searchNow,
     isSearchPending: isThreadSearchPending,
     isSearchFailed: isThreadSearchFailed,
-  } = useCommandPaletteThreadItems({ activeThread: activeThread ?? null, threadSearchQuery });
+    threadSubRows, // loom
+  } = useCommandPaletteThreadItems({
+    activeThread: activeThread ?? null,
+    threadSearchQuery,
+    searchSwitches: threadSearchSwitches, // loom
+  });
   // Recent means used recently: written in or opened, whichever is later. The
   // open thread would always lead that list, so it is left out.
   const activeThreadValue = activeThread
@@ -1975,8 +1985,20 @@ function OpenCommandPaletteDialog(props: {
     },
     messages,
   );
+  // loom: sub-thread rows under their top-level thread, wherever it is listed
+  const groupsWithSubThreads = withPaletteSubThreadItems(
+    searchedGroups,
+    isLinkedThreadSearch ? new Map() : threadSubRows,
+    {
+      query: threadSearchQuery,
+      navigateTo: (ref) =>
+        navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) }),
+      unfold: threadSearchSwitches.unfold,
+    },
+  );
   // Jump shortcuts number the project rows as shown, so a pin cannot move a number to another row.
-  const filteredGroups = searchedGroups.map((group) => {
+  const filteredGroups = groupsWithSubThreads.map((group) => {
+    // loom: + sub-thread rows
     if (group.value !== NEW_THREAD_IN_GROUP) return group;
     const jumpItems = new Map(
       enumerateCommandPaletteItems(
@@ -3159,6 +3181,28 @@ function OpenCommandPaletteDialog(props: {
       showBackHint={isSubmenu}
       value={query}
     >
+      {/* loom: what the thread search reads, while it searches */}
+      {threadSearchQuery.trim().length > 0 && !isLinkedThreadSearch && !isBrowsing ? (
+        <div className="px-3 pt-2">
+          <ThreadSearchFilterChips
+            filters={threadSearchSwitches.filters}
+            onChange={threadSearchSwitches.setFilters}
+            project={
+              activeThread
+                ? {
+                    id: activeThread.projectId,
+                    title:
+                      projects.find(
+                        (project) =>
+                          project.environmentId === activeThread.environmentId &&
+                          project.id === activeThread.projectId,
+                      )?.title ?? null,
+                  }
+                : null
+            }
+          />
+        </div>
+      ) : null}
       {newProjectPathPreview !== null ? (
         <NewProjectSummary
           name={newProjectName}

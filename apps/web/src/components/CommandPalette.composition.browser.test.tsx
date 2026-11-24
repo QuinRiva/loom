@@ -111,6 +111,7 @@ vi.mock("../state/queries", async (original) => ({
   useThreadSearch: (_environmentIds: unknown, query: string) => ({
     matches: [],
     query,
+    key: query, // loom: the hook returns the key its results were fetched under
     isPending: false,
   }),
 }));

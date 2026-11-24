@@ -1,5 +1,4 @@
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { findForMessageMatch, openThreadFindOnQuery } from "./chat/threadFindStore";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment"; // loom: find moved to openThreadSearchTarget
 import {
   claimThreadOpen,
   nextShownOrder,
@@ -50,6 +49,13 @@ import {
 } from "./ThreadStatusIndicators";
 import { CacheFuelRing } from "../loom/CacheFuelRing"; // loom: prompt-cache liveness
 import { ArchivedBadge } from "../loom/ArchivedSearchResultRow"; // loom: archived roots
+// loom: search switches, sub-thread rows, and rows that open the thread their excerpt is from
+import {
+  threadSearchShowsExcerpt,
+  threadSearchTarget,
+  type ThreadSearchFilters,
+} from "@t3tools/client-runtime/state/loom/threadSearch";
+import { openThreadSearchTarget, type useThreadSearchSwitches } from "../loom/threadSearchSwitches";
 
 function useProviderEntryByEnvironmentAndInstanceId() {
   const { environments } = useEnvironments();
@@ -73,7 +79,7 @@ function useProviderEntryByEnvironmentAndInstanceId() {
   );
 }
 
-function useConnectedThreadSearch(query: string) {
+function useConnectedThreadSearch(query: string, filters: ThreadSearchFilters /* loom */) {
   const { environments } = useEnvironments();
   const { projectEnvironmentLocationById } = useEnvironmentLookups();
   const environmentIds: ReadonlyArray<EnvironmentId> = environments
@@ -89,11 +95,10 @@ function useConnectedThreadSearch(query: string) {
           }),
         )
       : undefined;
-  return useThreadSearch(
-    environmentIds,
-    query,
-    environmentLabels === undefined ? {} : { environmentLabels },
-  );
+  return useThreadSearch(environmentIds, query, {
+    ...filters, // loom: switches
+    ...(environmentLabels === undefined ? {} : { environmentLabels }),
+  });
 }
 
 /**
@@ -103,8 +108,9 @@ function useConnectedThreadSearch(query: string) {
 export function useCommandPaletteThreadItems(input: {
   readonly activeThread: { readonly environmentId: EnvironmentId; readonly id: ThreadId } | null;
   readonly threadSearchQuery: string;
+  readonly searchSwitches: ReturnType<typeof useThreadSearchSwitches>; // loom
 }) {
-  const { activeThread, threadSearchQuery } = input;
+  const { activeThread, threadSearchQuery, searchSwitches } = input; // loom: searchSwitches
   const messages = useMessages();
   const gt = useGT();
   const navigate = useNavigate();
@@ -112,16 +118,55 @@ export function useCommandPaletteThreadItems(input: {
   const delegatedUnderParent = useDelegatedUnderParent();
   const { projectEnvironmentLocationById } = useEnvironmentLookups();
   const providerEntryByEnvironmentAndInstanceId = useProviderEntryByEnvironmentAndInstanceId();
-  const messageSearch = useConnectedThreadSearch(threadSearchQuery);
+  const messageSearch = useConnectedThreadSearch(threadSearchQuery, searchSwitches.filters); // loom
   const { projectByKey } = useProjectLookups();
   const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   // Ranking is relative to when the palette opened, so rows do not reorder as time passes.
   const [now] = useState(() => Date.now());
 
+  // loom: `to`, the thread a search row opens (a report's sub-thread); the pick stays this thread's
+  const runThread = async (
+    thread: (typeof threads)[number],
+    to = scopeThreadRef(thread.environmentId, thread.id),
+  ) => {
+    // A pick sends its open with the query, always, so the server records
+    // it; the thread view then skips its own open. The open thread is no pick.
+    const isOpen =
+      activeThread?.environmentId === thread.environmentId && activeThread.id === thread.id;
+    if (threadSearchQuery.trim().length > 0 && !threadSearchQuery.startsWith(">") && !isOpen) {
+      // oxlint-disable-next-line react/purity -- runs in an event handler (oxc#27309)
+      claimThreadOpen(thread.environmentId, thread.id, Date.now());
+    }
+    if (
+      threadSearchQuery.trim().length > 0 &&
+      !threadSearchQuery.startsWith(">") &&
+      thread.lastVisitedAt !== undefined &&
+      !isOpen
+    ) {
+      void visitThread({
+        environmentId: thread.environmentId,
+        input: {
+          threadId: thread.id,
+          visitedAt: thread.updatedAt,
+          opened: true,
+          searchQuery: pickedQuery(threadSearchQuery),
+        },
+      });
+    }
+    await navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(to),
+    });
+  };
+
   const { environments } = useEnvironments();
+  const projectIds = searchSwitches.filters.projectIds; // loom: the project chip narrows titles too
   const threadItems = buildThreadActionItems(
     {
-      threads,
+      threads:
+        projectIds === undefined // loom: project chip
+          ? threads
+          : threads.filter((thread) => projectIds.includes(thread.projectId)),
       delegatedUnderParent,
       ...(environments.length > 1
         ? {
@@ -177,36 +222,7 @@ export function useCommandPaletteThreadItems(input: {
           />
         );
       },
-      runThread: async (thread) => {
-        // A pick sends its open with the query, always, so the server records
-        // it; the thread view then skips its own open. The open thread is no pick.
-        const isOpen =
-          activeThread?.environmentId === thread.environmentId && activeThread.id === thread.id;
-        if (threadSearchQuery.trim().length > 0 && !threadSearchQuery.startsWith(">") && !isOpen) {
-          // oxlint-disable-next-line react/purity -- runs in an event handler (oxc#27309)
-          claimThreadOpen(thread.environmentId, thread.id, Date.now());
-        }
-        if (
-          threadSearchQuery.trim().length > 0 &&
-          !threadSearchQuery.startsWith(">") &&
-          thread.lastVisitedAt !== undefined &&
-          !isOpen
-        ) {
-          void visitThread({
-            environmentId: thread.environmentId,
-            input: {
-              threadId: thread.id,
-              visitedAt: thread.updatedAt,
-              opened: true,
-              searchQuery: pickedQuery(threadSearchQuery),
-            },
-          });
-        }
-        await navigate({
-          to: "/$environmentId/$threadId",
-          params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
-        });
-      },
+      runThread, // loom: hoisted, so a search row can record its pick and open another thread
     },
     messages,
   );
@@ -255,6 +271,8 @@ export function useCommandPaletteThreadItems(input: {
   ).flatMap((match) => {
     const item = itemForMatch(match);
     if (!item) return [];
+    // loom: a heading over its sub-thread rows keeps its project line and draws no excerpt
+    if (!threadSearchShowsExcerpt(match)) return [item];
     // The snippet replaces the project line, so a message row is as tall as a title row.
     const { description: _description, ...rest } = item;
     return [
@@ -272,13 +290,19 @@ export function useCommandPaletteThreadItems(input: {
           matchedThreadTitle: match.matchedThreadTitle, // loom
         },
         // Opens the thread with find on the word at the matched message, so it is in view.
+        // loom: or the sub-thread a report or sub-thread excerpt is from, with its report beside it.
         run: async () => {
-          await item.run();
-          // loom: only a root's own message is in the timeline that opens
-          if (match.messageId === undefined) return;
-          openThreadFindOnQuery(
-            scopedThreadKey(scopeThreadRef(match.environmentId, match.threadId)),
-            findForMessageMatch(match, messageSearch.query),
+          const target = threadSearchTarget(match);
+          const thread = threads.find(
+            (candidate) =>
+              candidate.environmentId === match.environmentId && candidate.id === match.threadId,
+          );
+          await openThreadSearchTarget(target, messageSearch.query, (to) =>
+            target.threadId === match.threadId
+              ? item.run()
+              : thread
+                ? runThread(thread, to)
+                : navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(to) }),
           );
         },
       },
@@ -289,7 +313,7 @@ export function useCommandPaletteThreadItems(input: {
   const [shownOrder, setShownOrder] = useState<ShownOrder | null>(null);
   const order = nextShownOrder(
     shownOrder,
-    messageSearch.query,
+    messageSearch.key, // loom: a flipped switch starts a fresh order
     rankedMessageItems.map((item) => item.value),
     PALETTE_MESSAGE_LIMIT,
   );
@@ -305,5 +329,6 @@ export function useCommandPaletteThreadItems(input: {
     now,
     isSearchPending: messageSearch.isPending,
     isSearchFailed: messageSearch.failed,
+    threadSubRows: searchSwitches.subRows(messageSearch.matches), // loom: sub-thread rows
   };
 }

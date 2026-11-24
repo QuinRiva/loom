@@ -1,3 +1,4 @@
+import { threadSearchShowsExcerpt } from "@t3tools/client-runtime/state/loom/threadSearch";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
 import type { ReactNode } from "react";
 
@@ -53,7 +54,9 @@ export function ArchivedSearchResultRow(props: {
               {props.time}
             </span>
           </span>
-          <ThreadSearchMatchExcerpt match={{ ...props.match, query: props.searchQuery }} />
+          {threadSearchShowsExcerpt(props.match) ? (
+            <ThreadSearchMatchExcerpt match={{ ...props.match, query: props.searchQuery }} />
+          ) : null}
         </span>
       </button>
     </li>

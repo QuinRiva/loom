@@ -45,10 +45,21 @@ import {
   threadSearchSubject,
   type ShownOrder,
 } from "@t3tools/client-runtime/state/thread-search";
-import { shelllessArchivedMatches } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom: archived roots
-import { ArchivedSearchResultRow } from "../loom/ArchivedSearchResultRow"; // loom: archived roots
+// loom: archived roots, search switches, sub-thread rows, and what a result opens
+import {
+  shelllessArchivedMatches,
+  threadSearchShowsExcerpt,
+  threadSearchTarget,
+  type ThreadSearchSubRow,
+} from "@t3tools/client-runtime/state/loom/threadSearch";
+import { ArchivedSearchResultRow } from "../loom/ArchivedSearchResultRow";
+import { ThreadSearchFilterChips } from "../loom/ThreadSearchFilterChips";
+import { openThreadSearchTarget, useThreadSearchSwitches } from "../loom/threadSearchSwitches";
+import {
+  sidebarThreadSearchRows,
+  SubThreadSearchResultRow,
+} from "../loom/SubThreadSearchResultRow";
 import { foldSearchQuery, rankMessageMatches } from "@t3tools/shared/paletteSearch";
-import { findForMessageMatch, openThreadFindOnQuery } from "./chat/threadFindStore";
 import {
   threadRuntimeCanArchive,
   type EnvironmentThreadShell,
@@ -1223,13 +1234,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
   const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
   const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
-  const threadSearch = useThreadSearch(
-    connectedEnvironmentIds,
-    threadSearchQuery,
-    scopedProjectGroups.length === 0
+  const threadSearchSwitches = useThreadSearchSwitches(threadSearchQuery); // loom
+  const threadSearch = useThreadSearch(connectedEnvironmentIds, threadSearchQuery, {
+    ...threadSearchSwitches.filters, // loom: the picker below stays the project switch
+    ...(scopedProjectGroups.length === 0
       ? {}
-      : { projectIds: scopedProjectRefs.map((projectRef) => projectRef.projectId) },
-  );
+      : { projectIds: scopedProjectRefs.map((projectRef) => projectRef.projectId) }),
+  });
   const routeDraftIdForRows = routeTarget?.kind === "draft" ? routeTarget.draftId : null;
   const draftTerminalLabels = useDraftTerminalLabels();
   const visibleDraftSessionCount = useComposerDraftStore((store) => {
@@ -1434,15 +1445,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const [shownMessageOrder, setShownMessageOrder] = useState<ShownOrder | null>(null);
   const messageOrder = nextShownOrder(
     shownMessageOrder,
-    threadSearch.query,
+    threadSearch.key, // loom: a flipped switch starts a fresh order
     [...serverMatchByKey.keys()],
     Number.POSITIVE_INFINITY,
   );
   if (messageOrder !== shownMessageOrder) setShownMessageOrder(messageOrder);
   const { titleMatches: threadTitleResults, contentMatches: threadContentResults } =
     searchSidebarThreads(searchableThreads, threadSearchQuery, new Set(messageOrder.keys));
-  const threadSearchResults = [...threadTitleResults, ...threadContentResults];
-  // loom: archived roots' hits follow the listed rows, drawn from the match alone.
+  // loom: archived roots' hits rank among the message rows (sidebarThreadSearchRows, below),
+  // drawn from the match alone.
   const archivedSearchResults = shelllessArchivedMatches({
     matches: messageOrder.keys.flatMap((key) => serverMatchByKey.get(key) ?? []),
     isInScope: (match) =>
@@ -1457,18 +1468,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         threadId: thread.id,
       });
       const match = serverMatchByKey.get(key);
-      return match ? [[key, match] as const] : [];
+      // loom: a heading over its sub-thread rows draws no excerpt and opens the thread itself
+      return match && threadSearchShowsExcerpt(match) ? [[key, match] as const] : [];
     }),
   );
-  const threadSearchResultKeys = [
-    ...threadSearchResults.map((thread) =>
-      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-    ),
-    ...archivedSearchResults.map((match) =>
-      // loom
-      scopedThreadKey(scopeThreadRef(match.environmentId, match.threadId)),
-    ),
-  ];
+  // loom: every row in list order, each listed thread followed by its sub-thread rows
+  const threadSearchRows = sidebarThreadSearchRows(
+    threadTitleResults,
+    threadContentResults,
+    archivedSearchResults,
+    messageOrder.keys,
+    threadSearchSwitches.subRows(threadSearch.matches),
+  );
+  const threadSearchResultKeys = threadSearchRows.map((row) => row.key); // loom
 
   // The highlight follows its thread, so rows that arrive late do not move
   // it under Enter; a new query starts at the top.
@@ -1566,20 +1578,38 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     setSearchHighlightKey(null);
   };
   const selectThreadSearchResult = (thread: EnvironmentThreadShell) => {
-    const ref = scopeThreadRef(thread.environmentId, thread.id);
     // A row listed for a message match opens find on it, as the palette does.
     const match = threadSearchMatchByKey.get(
       threadSearchMatchKey({ environmentId: thread.environmentId, threadId: thread.id }),
     );
     const query = threadSearch.query;
     clearThreadSearch();
-    navigateToThread(ref);
-    if (match) openThreadFindOnQuery(scopedThreadKey(ref), findForMessageMatch(match, query));
+    // loom: or the sub-thread a report or sub-thread excerpt is from, with its report beside it
+    void openThreadSearchTarget(
+      match
+        ? threadSearchTarget(match)
+        : {
+            environmentId: thread.environmentId,
+            threadId: thread.id,
+            find: null,
+            reportPath: null,
+          },
+      query,
+      navigateToThread,
+    );
   };
-  // loom: an archived root opens shell-less (ThreadRouteView); find needs its timeline first.
+  // loom: an archived root opens shell-less (ThreadRouteView), without find.
   const selectArchivedSearchResult = (match: EnvironmentThreadSearchMatch) => {
+    const query = threadSearch.query;
     clearThreadSearch();
-    navigateToThread(scopeThreadRef(match.environmentId, match.threadId));
+    void openThreadSearchTarget(threadSearchTarget(match), query, navigateToThread);
+  };
+  // loom: a sub-thread row opens the sub-thread; the fold unfolds its workstream in place.
+  const selectSubThreadSearchRow = (row: ThreadSearchSubRow) => {
+    if (row.kind === "fold") return threadSearchSwitches.unfold(row.root);
+    const query = threadSearch.query;
+    clearThreadSearch();
+    void openThreadSearchTarget(threadSearchTarget(row), query, navigateToThread);
   };
   const handleThreadSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -1603,10 +1633,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      const result = threadSearchResults[activeSearchResultIndex];
-      const archived = archivedSearchResults[activeSearchResultIndex - threadSearchResults.length]; // loom
-      if (result) selectThreadSearchResult(result);
-      else if (archived) selectArchivedSearchResult(archived); // loom
+      // loom: archived roots and sub-thread rows
+      const row = threadSearchRows[activeSearchResultIndex];
+      if (row?.kind === "thread") selectThreadSearchResult(row.thread);
+      else if (row?.kind === "archived") selectArchivedSearchResult(row.match);
+      else if (row) selectSubThreadSearchRow(row);
     }
   };
 
@@ -3363,6 +3394,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         }
       >
         <SidebarGroup className="flex-1" role="presentation">
+          {/* loom: what the search reads, under its box while it holds text */}
+          {isSearchingThreads ? (
+            <div className="px-2 pb-1.5">
+              <ThreadSearchFilterChips
+                filters={threadSearchSwitches.filters}
+                onChange={threadSearchSwitches.setFilters}
+              />
+            </div>
+          ) : null}
           {isSearchingThreads ? (
             threadSearchResultKeys.length > 0 ? ( // loom: + archived roots
               <TooltipProvider
@@ -3385,10 +3425,44 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     aria-label={gt("Thread search results")}
                     className="flex flex-col gap-px"
                   >
-                    {threadSearchResults.map((thread, index) => {
-                      const threadKey = scopedThreadKey(
-                        scopeThreadRef(thread.environmentId, thread.id),
-                      );
+                    {threadSearchRows.map((row, index) => {
+                      // loom: listed threads, archived roots and sub-thread rows, in list order
+                      if (row.kind === "subThread" || row.kind === "fold") {
+                        return (
+                          <SubThreadSearchResultRow
+                            key={row.key}
+                            row={row}
+                            isHighlighted={activeSearchResultIndex === index}
+                            resultId={threadSearchResultId(index)}
+                            searchQuery={threadSearch.query}
+                            onHighlight={() => setActiveSearchResultIndex(index)}
+                            onSelect={() => selectSubThreadSearchRow(row)}
+                          />
+                        );
+                      }
+                      if (row.kind === "archived") {
+                        const match = row.match;
+                        const threadKey = row.key;
+                        return (
+                          <ArchivedSearchResultRow
+                            key={threadKey}
+                            match={match}
+                            project={
+                              projectByKey.get(`${match.environmentId}:${match.projectId}`) ?? null
+                            }
+                            time={<RelativeTimeLabel timestamp={match.updatedAt} />}
+                            isHighlighted={activeSearchResultIndex === index}
+                            isRouteActive={routeRowThreadKey === threadKey}
+                            resultId={`sidebar-thread-search-result-${index}`}
+                            resultKey={threadKey}
+                            searchQuery={threadSearch.query}
+                            onHighlight={() => setActiveSearchResultIndex(index)}
+                            onSelect={() => selectArchivedSearchResult(match)}
+                          />
+                        );
+                      }
+                      const thread = row.thread;
+                      const threadKey = row.key;
                       return (
                         <SidebarSearchResultRow
                           isSettled={settledThreadKeys.has(threadKey)}
@@ -3427,30 +3501,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           onSelect={() => selectThreadSearchResult(thread)}
                           onContextMenu={handleSearchResultContextMenu}
                           onFileDropThreads={handleThreadFileDrop}
-                        />
-                      );
-                    })}
-                    {archivedSearchResults.map((match, archivedIndex) => {
-                      // loom: an archived root has no shell; its row is drawn from the match.
-                      const index = threadSearchResults.length + archivedIndex;
-                      const threadKey = scopedThreadKey(
-                        scopeThreadRef(match.environmentId, match.threadId),
-                      );
-                      return (
-                        <ArchivedSearchResultRow
-                          key={threadKey}
-                          match={match}
-                          project={
-                            projectByKey.get(`${match.environmentId}:${match.projectId}`) ?? null
-                          }
-                          time={<RelativeTimeLabel timestamp={match.updatedAt} />}
-                          isHighlighted={activeSearchResultIndex === index}
-                          isRouteActive={routeRowThreadKey === threadKey}
-                          resultId={`sidebar-thread-search-result-${index}`}
-                          resultKey={threadKey}
-                          searchQuery={threadSearch.query}
-                          onHighlight={() => setActiveSearchResultIndex(index)}
-                          onSelect={() => selectArchivedSearchResult(match)}
                         />
                       );
                     })}
