@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the prompt measurements (skill-usage census, child delegation rate, capability census) and write one markdown report
+# Run the prompt measurements (skill-usage census, child delegation rate, capability census, testing-doc census) and write one markdown report
 # ending in a comparison against baselines/. Read-only everywhere. See README.md.
 # Usage: run.sh [--days 14] [--sessions-root DIR] [--db PATH] [--out FILE]
 set -euo pipefail
@@ -27,6 +27,8 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 python3 "$here/capabilities.py" --days "$days" --sessions-root "$sessions" >"$work/capabilities.md" &
 capabilities=$!
+python3 "$here/testing-doc.py" --days "$days" --sessions-root "$sessions" >"$work/testing-doc.md" &
+testing=$!
 echo "census over $sessions, last $days days..." >&2
 python3 "$here/skill-usage.py" --days "$days" --sessions-root "$sessions" >"$work/sessions.jsonl"
 python3 "$here/skill-usage-agg.py" "$work/sessions.jsonl" all >"$work/table.md" 2>"$work/populations.txt"
@@ -37,6 +39,7 @@ echo "delegation from $db..." >&2
 "$here/delegation.sh" "$since_deploy" "$db" >"$work/delegation-since-deploy.txt"
 echo "capability census..." >&2
 wait "$capabilities"
+wait "$testing"
 
 mkdir -p "$(dirname "$out")"
 {
@@ -48,7 +51,8 @@ mkdir -p "$(dirname "$out")"
   echo
   python3 "$here/compare.py" "$here/baselines/skill-usage-30d.md" "$here/baselines/delegation-2026-10-22.txt" \
     "$work/table.md" "$work/triggers.txt" "$work/delegation-cumulative.txt" "$work/delegation-since-deploy.txt" "$days" \
-    "$here/baselines/capabilities-2026-10-26.md" "$work/capabilities.md"
+    "$here/baselines/capabilities-2026-10-26.md" "$work/capabilities.md" \
+    "$here/baselines/testing-doc-2026-10-27.md" "$work/testing-doc.md"
   echo
   echo "## Delegation since $since_tools"
   echo
@@ -71,5 +75,9 @@ mkdir -p "$(dirname "$out")"
   echo "## Capability census, last $days days"
   echo
   cat "$work/capabilities.md"
+  echo
+  echo "## Testing-doc census, last $days days"
+  echo
+  cat "$work/testing-doc.md"
 } >"$out"
 echo "$out"
