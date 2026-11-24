@@ -78,8 +78,8 @@ export const ENGAGED_CHILD_TOOLS = [...HUMAN_INPUT, agentToolName("notify_thread
 
 /**
  * Upstream's base PR tools, resident for orchestrator and shipper (seam 13). Pinned, not read from
- * the toolkit: pull 16 added PR and CI writes, `pull_request_merge` among them, which would merge
- * past `pnpm ship`'s gates; the rest of the toolkit is withheld (pull 16 §4.2, DL-2410).
+ * the toolkit: its other PR and CI tools are withheld by decision, since agents do those jobs by
+ * `gh` and `pull_request_merge` would merge past `pnpm ship` (`plans/agent-pr-ci-tools/intent.mdx`).
  */
 export const PULL_REQUESTS = prefixed([
   "link_pull_request",

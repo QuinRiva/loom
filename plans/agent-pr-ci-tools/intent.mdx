@@ -1,0 +1,105 @@
+---
+reader:
+  who: Carl, who asked why Loom excluded upstream's nine PR and CI tools and ruled that adopting them is work for after pull 16; here to decide what, if anything, gets built
+  knows: pull 16 and the card he answered about these tools; nothing of the evidence gathered since
+  after_first_screen: all nine stay withheld, on evidence, and why; his two answers are folded into Decided
+kicker: "Intent brief · approved 24 Nov 2026 · closed with no build"
+status: done
+manager_sessions:
+  - id: 01a20813-8b62-7325-a0fe-c7d256e0f742
+    name: Upstream PR and CI tools for Loom agents
+    role: intent
+    authored_at: 2026-11-23T11:23:26.032Z
+---
+
+# Upstream's nine PR and CI tools: the evidence says leave them off
+
+Your read was "either these tools aren't useful for loom, or we should adapt loom to support them." Measured over three weeks, it is mostly the first. Your agents already do all nine jobs with `gh` from the shell, **about 850 calls**, with small outputs and almost no failures. **All nine stay withheld**, now as your decision with its evidence rather than a holding position. The one build that could be defended, a **pair of tools for answering review comments**, was offered and not taken: its gain is small.
+
+<Stats
+  items={[
+    { value: "≈850", label: "shell calls doing these nine jobs", detail: "2 to 23 Nov, all projects; `gh pr view` alone is 461" },
+    { value: "1", label: "failure a tool would have prevented", tone: "success", detail: "a review comment posted with a short commit id, retried once" },
+    { value: "0", label: "agent merges where merging is yours", tone: "success", detail: "fathom-platform, the one active human-merge project" },
+    { value: "1 of ≈100", label: "Loom landings merged by hand", tone: "warning", detail: "PR #542, a shipper ran `gh pr merge --admin` instead of `pnpm ship`" },
+  ]}
+/>
+
+<Callout focus title="What it means now">
+  Nothing changes for your agents: no tool, role file or prompt text is touched. The decision is recorded where the next upstream pull will find it (the note beside the withheld list, and DL-2418 in pull 16's decision log). What would reopen it is under Approaches.
+</Callout>
+
+**Goal.** "either these tools aren't useful for loom, or we should adapt loom to support them." Find out which of upstream's nine new tools earn a place in a Loom agent's tool list, and build only that.
+
+## 1. The nine, against what agents did by shell
+
+Counts are bash calls agents typed between 2 and 23 Nov, read from the live database. Calls made inside `pnpm ship` are not in them.
+
+<Table
+  density="compact"
+  columns={["Tool", "Same job by shell, three weeks", "Verdict", "The fact that decides it"]}
+  rows={[
+    ["`pull_request_read`, `pull_request_list`", "About 700: `gh pr view` 461, `gh pr list` 97, `gh pr checks` 60, `gh pr diff` 37, `gh api` reads 51", { "badge": { "label": "leave off", "tone": "neutral" } }, "The shell route works: median output about 1 KB, almost no failed reads. `pull_request_read` has one edge, review threads with their ids in one call, which only matters beside the reply tool."],
+    ["`ci_logs`", "11, every one piped through `grep`, `tail` or `cut`", { "badge": { "label": "leave off", "tone": "neutral" } }, "The pull's account called this the one with a real edge over `gh`. It is not. The tool returns unfiltered log tails, up to 32,000 characters per failing check, so it would put more text into context than agents do today. It also only reads PRs, and about half the 11 were other runs."],
+    { "tone": "info", "cells": ["`pull_request_respond`", "19: 10 `gh pr comment`, 9 calls posting 19 review-thread replies, 0 resolves", { "badge": { "label": "marginal", "tone": "info" } }, "The only write where the shell is awkward: a reply needs a comment id from one GitHub API and a resolve needs a thread id from another. Seven of the nine reply calls were on fathom-platform PRs."] },
+    ["`pull_request_review`", "1", { "badge": { "label": "leave off", "tone": "neutral" } }, "No demand, and an approval would post under your account on colleagues' PRs."],
+    ["`pull_request_update`", "64: `gh pr edit` 46, Copilot review requests 15, close or reopen 3", { "badge": { "label": "leave off", "tone": "neutral" } }, "No shell failures seen."],
+    ["`pull_request_create`", "33, of which 31 outside Loom", { "badge": { "label": "leave off", "tone": "neutral" } }, "In Loom it opens a PR without `pnpm ship`'s rebase and checks. Outside Loom `gh pr create` is what the shipper role prescribes, and it works."],
+    ["`pull_request_merge`", "15 by hand: 13 in pi-craft, pi-fathom and loom-slack-bridge (agents may merge there, and they have no `pnpm ship`), 1 in Loom, 1 external", { "badge": { "label": "leave off", "tone": "neutral" } }, "It checks no merge authority, and it merges with your admin sign-in, which passes Loom's \"Only Carl merges\" rule on GitHub. It does none of what ship does around a merge."],
+    ["`ci_rerun`", "1", { "badge": { "label": "leave off", "tone": "neutral" } }, "No demand."]
+  ]}
+/>
+
+**Why upstream built them, and why that does not carry over.** The tools are not make-work: upstream's PRs give four reasons, each measured, and three of them are about situations Loom is not in.
+
+<Table
+  density="compact"
+  columns={["Upstream's reason", "Their evidence", "In Loom"]}
+  rows={[
+    ["`gh` spends the user's own GitHub quota and needs the user signed in; the tools go through T3's own GitHub app", "About 18,000 `gh` and `cafe` commands in 45 days on three machines. With `gh` rate-limited or signed out, the shell route passed 0 to 1 of 3 runs", "Does not apply. Loom's server signs in with the same `gh` credential the agents use, so a tool call spends the same quota. One rate-limit error in three weeks."],
+    ["The tools work on every host T3 supports, including upstream's own git.cafe", "Agents never found the `cafe` command unless told: 0 of 3", "Does not apply. Every project here is on GitHub."],
+    ["Weaker and GPT models handle `gh` badly", "On two GPT models the shell route failed one call per task and polled for up to 18 model calls; the tools cut tokens 27% and 38%", "Mostly does not apply. Your PR work runs on Claude, where upstream's own result is a tie: both routes pass 27 of 27, and `gh` uses about 10% fewer tokens."],
+    { "tone": "info", "cells": ["Review threads are awkward by shell", "1,435 hand-written GraphQL reads of review threads; 660 replies and resolves", "Applies, at a smaller scale: this is the pair in the table above."] }
+  ]}
+/>
+
+The scale differs too: upstream counted about 400 such commands a day, Loom about 40. One limit on my side: upstream ran the two routes against each other on the same tasks, while Loom's figures are counts of what agents happened to do, so they show the shell route is not failing, not that it is the cheapest possible.
+
+<Callout tone="risk" title="Found on the way: in Loom's checkout these tools can aim at upstream's public repository">
+  The tools pick their target repository from the git remotes and prefer the one named `upstream`, which in Loom is `pingdotgg/t3code`. What points them at `QuinRiva/loom` instead is a git setting that `pnpm ship` rewrites on every run, so on this VM they aim correctly today. On a fresh clone, an exposed create, reply or review tool would act on upstream's public repository under your account. The researcher confirmed this by running the resolver on Loom's real remotes with and without the setting; no call was made to GitHub. Any exposure has to pin the repository first.
+</Callout>
+
+## 2. The brief
+
+**You'll know it works when.**
+
+- A root, orchestrator or shipper thread started after the next deploy lists the same nine PR tools as today (link, watch, guides) and none of the new nine.
+- `pnpm ship` is still how a Loom PR is opened and merged, and the shipper role and ship skill read as they do today.
+- Pull 16's decision log carries the ruling and points at this brief, and the note beside the withheld list says why, so the next upstream pull does not redo the question.
+- **Must not:** change any text an agent reads; expose any tool that writes to GitHub before the target repository is pinned.
+
+**Approaches in play.**
+
+- **Leave all nine off, as a decision.** Wins if the shell route keeps working as measured. _Chosen._ Worth reopening if agents start answering review threads daily, if `gh` starts hitting rate limits, or if a project moves to a host `gh` cannot reach.
+- Not taken: the review-comment pair, `pull_request_read` and `pull_request_respond`. Wins if you want agents answering and resolving Copilot's review threads on fathom-platform PRs to become routine; today they reply and never resolve. It costs about a day of agent work: pin the repository, a sentence of role prose on replying under your name, an eval. It adds roughly 1 KB to each turn that loads them (estimated from the measured 5.0 KB for all nine), and two more Loom choices to re-check at every upstream pull. Any exposure pins the target repository first (the red box above).
+- Dropped: the three read tools first, which is what the pull proposed. The reads work by shell and `ci_logs` has no edge.
+- Dropped: the create and merge tools, with or without a server check. `pnpm ship` rebases, runs the checks, writes the trailers the deploy notice reads and deletes the branch; there is no point at which it could call the tools instead of `gh`. Outside Loom, `gh` is what the roles prescribe and it works.
+
+**Decided.** "I think you're right that we should be done work like this after the merge lands, I think the issue in the past was that we were failing to do this for up work after the merge lands." This brief is that work.
+
+- On which of the nine his agents get, Carl chose, 24 Nov: "None. Keep all nine withheld as a decision, record why, close the follow-up".
+- On whether the server should enforce a project's merge authority, the per-project setting saying whether an agent may merge or must stop at an open PR, he chose: "No. Leave it to role prose, which held".
+
+- _Assumed:_ `pnpm ship` stays the only way an agent opens and merges a Loom PR, because nothing here replaces its checks; redirect if wrong.
+- _Assumed:_ upstream's prompt text telling agents to prefer these tools over `gh` stays out of pi's prompt under every option, as the pull left it.
+- _Assumed:_ the other tools pull 16 withheld (issue tools, feedback, theme, `send_to_user`) stay out of this goal. They are their own rows in the follow-ups list.
+
+**Not doing.** Any change to `pnpm ship`. Any tool that merges, opens, edits or reviews a PR.
+
+**Settled since.**
+
+- The app's own Create PR button picks the repository the same way as the tools. The watch and link tools agents already have do not: they are given the PR's URL or its repository by name. On a clone of Loom with an `upstream` remote and no `gh repo set-default`, the button would open the PR on `pingdotgg/t3code`. Nothing has tripped it: this VM carries the setting and `pnpm ship` rewrites it on every run. No code change; `docs/operations/shipping.md` now says to run `gh repo set-default` once on a fresh clone, and why the app needs it as much as `gh` does.
+
+**Still unknown.**
+
+- Whether `pull_request_update` can request a review from the Copilot bot, the main reason agents edit reviewers today. Only matters if that tool is ever wanted.
