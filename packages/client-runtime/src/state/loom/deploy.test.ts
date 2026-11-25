@@ -52,6 +52,16 @@ describe("deployWords", () => {
     expect(words(null).toast).toBeNull();
   });
 
+  it("says how far behind main the running release is, once the server knows", () => {
+    const behind = (prsBehind: number) =>
+      words(null, { available: { ...running.available!, prsBehind } }).row?.text;
+    expect(behind(12)).toBe(
+      "Running d8e999a, 12 PRs behind main. Builds main and restarts Loom in about 2½ minutes.",
+    );
+    expect(behind(1)).toContain("Running d8e999a, 1 PR behind main.");
+    expect(behind(0)).toContain("Running d8e999a, up to date with main.");
+  });
+
   it("shows no row on a server that cannot deploy itself", () => {
     expect(words(null, { available: null }).row).toBeNull();
   });

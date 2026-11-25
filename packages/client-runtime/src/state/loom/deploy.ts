@@ -115,10 +115,17 @@ export function deployWords(state: LoomDeployState, clock: (iso: string) => stri
   const { available, status, notice } = state;
   const sinceOf = (releaseId: string) =>
     notice !== null && notice.release.id === releaseId ? ` since ${clock(notice.at)}` : "";
+  const prs = available?.prsBehind;
+  const behind =
+    prs === undefined
+      ? ""
+      : prs === 0
+        ? ", up to date with main"
+        : `, ${prs} PR${prs === 1 ? "" : "s"} behind main`;
   const idle =
     available === null
       ? ""
-      : `Running ${short(available.release.sha)}${sinceOf(available.release.id)}. Builds main and restarts Loom in ${roughDuration(available.stopAfterSeconds)}.`;
+      : `Running ${short(available.release.sha)}${sinceOf(available.release.id)}${behind}. Builds main and restarts Loom in ${roughDuration(available.stopAfterSeconds)}.`;
   const downAt = status?.stopAt == null ? "in a few minutes" : `at around ${clock(status.stopAt)}`;
   const watchProblem =
     status?.phase === "watching" && status.reason !== null

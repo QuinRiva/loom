@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off - builds a real origin and mirror with git.
+import * as NodeChildProcess from "node:child_process";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthEnvironmentMaintainScope,
@@ -18,7 +21,14 @@ import { EnvironmentAuth } from "../../auth/EnvironmentAuth.ts";
 import { requiredScopeForRpcMethod } from "../../auth/RpcAuthorization.ts";
 import { ServerSelfUpdate } from "../../cloud/selfUpdate.ts";
 import { ServerConfig } from "../../config.ts";
-import { layer, LoomDeploy, readDeployNotice, readDeployStatus } from "./LoomDeploy.ts";
+import * as ProcessRunner from "../../processRunner.ts";
+import {
+  countPrsBehind,
+  layer,
+  LoomDeploy,
+  readDeployNotice,
+  readDeployStatus,
+} from "./LoomDeploy.ts";
 
 const notice: LoomDeployNotice = {
   id: "r1@2026-10-27T22:15:42Z",
@@ -118,6 +128,48 @@ it.layer(NodeServices.layer)("deploy files and events", (it) => {
     }),
   );
 });
+
+it.live("counts PRs merged to main since the release from a fresh fetch, and none on failure", () =>
+  Effect.gen(function* () {
+    const { fs, file } = yield* inTempDir;
+    const origin = file("origin");
+    const mirror = file("mirror.git");
+    const git = (cwd: string, ...args: Array<string>) =>
+      NodeChildProcess.execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+        cwd,
+        encoding: "utf8",
+      }).trim();
+    const landPr = (n: number) => {
+      git(origin, "checkout", "-q", "-b", `pr${n}`, "main");
+      git(origin, "commit", "-q", "--allow-empty", "-m", `change ${n}`);
+      git(origin, "checkout", "-q", "main");
+      git(
+        origin,
+        "merge",
+        "-q",
+        "--no-ff",
+        "-m",
+        `Merge pull request #${n} from x/pr${n}`,
+        `pr${n}`,
+      );
+    };
+    yield* fs.makeDirectory(origin);
+    git(origin, "init", "-q", "-b", "main");
+    git(origin, "commit", "-q", "--allow-empty", "-m", "released");
+    const released = git(origin, "rev-parse", "HEAD");
+    git(file("."), "clone", "-q", "--bare", origin, mirror);
+    landPr(1);
+    git(origin, "commit", "-q", "--allow-empty", "-m", "a direct commit is not a PR");
+    const count = countPrsBehind(mirror, "main", released);
+    assert.equal(yield* count, 1);
+    landPr(2);
+    assert.equal(yield* count, 2);
+    // The mirror's own branches are `loom-deploy`'s and stay where its last fetch left them.
+    assert.equal(git(mirror, "rev-parse", "main"), released);
+    yield* fs.remove(origin, { recursive: true });
+    assert.isNull(yield* count);
+  }).pipe(Effect.provide(Layer.provideMerge(ProcessRunner.layer, NodeServices.layer))),
+);
 
 it("the server requires environment:maintain to start or cancel a deploy", () => {
   for (const method of [LOOM_WS_METHODS.startDeploy, LOOM_WS_METHODS.cancelDeploy]) {

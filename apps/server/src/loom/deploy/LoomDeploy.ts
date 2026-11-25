@@ -34,6 +34,7 @@ import { ServerConfig } from "../../config.ts";
 import * as ProcessRunner from "../../processRunner.ts";
 import { loomPaths } from "../loomPaths.ts";
 import { LOOM_REPO_ROOT } from "../prompt/roleOverlay.ts";
+import { PR_MERGE } from "./changes.ts";
 import { makeMobileApp } from "./mobileApp.ts";
 import {
   estimateStopAt,
@@ -44,6 +45,7 @@ import {
   releasePaths,
   releaseSha,
   storeOfRelease,
+  storePaths,
 } from "./store.ts";
 
 /** Why a deploy was not started, cancelled or switched to, in words a person reads. */
@@ -127,6 +129,41 @@ const resolveDeployable = Effect.fn("LoomDeploy.resolveDeployable")(function* (b
 });
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Outside refs/heads, so this fetch never holds a lock `loom-deploy`'s fetch of refs/heads/* needs.
+const BEHIND_REF = "refs/loom-deploy/behind";
+
+/**
+ * The PRs merged to `branch` since `sha`, counted in the store's mirror after fetching that branch
+ * alone; null when the fetch or the count fails, so a stale mirror never shows as a count.
+ */
+export const countPrsBehind = Effect.fn("LoomDeploy.countPrsBehind")(function* (
+  mirror: string,
+  branch: string,
+  sha: string,
+) {
+  const runner = yield* ProcessRunner.ProcessRunner;
+  const git = (args: ReadonlyArray<string>) =>
+    runner.run({ command: "git", args: ["-C", mirror, ...args], timeout: "1 minute" }).pipe(
+      Effect.map((result) => (result.code === 0 ? result.stdout : null)),
+      Effect.orElseSucceed(() => null),
+    );
+  const fetched = yield* git([
+    "-c",
+    "gc.auto=0",
+    "-c",
+    "maintenance.auto=false",
+    "fetch",
+    "--quiet",
+    "--no-tags",
+    "--no-write-fetch-head",
+    "origin",
+    `+refs/heads/${branch}:${BEHIND_REF}`,
+  ]);
+  if (fetched === null) return null;
+  const log = yield* git(["log", "--first-parent", "--format=%s", `${sha}..${BEHIND_REF}`]);
+  return log === null ? null : log.split("\n").filter((subject) => PR_MERGE.test(subject)).length;
+});
 
 const make = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
@@ -236,16 +273,44 @@ const make = Effect.gen(function* () {
     id: path.basename(LOOM_REPO_ROOT),
     sha: releaseSha(deployable.root, LOOM_REPO_ROOT),
   };
+  const prsBehind = yield* Ref.make<number | null>(null);
+  const available = (prs: number | null): LoomDeployEvent | null => {
+    if (deployable === undefined || release === undefined) return null;
+    const stopAt = estimateStopAt(readHistory(deployable.root), "1970-01-01T00:00:00Z");
+    return {
+      type: "available",
+      release,
+      stopAfterSeconds: Date.parse(stopAt) / 1000,
+      ...(prs === null ? {} : { prsBehind: prs }),
+    };
+  };
+  // Every five minutes, not per subscriber: a few minutes stale is fine, frozen at the last deploy is not.
+  if (deployable !== undefined && release !== undefined) {
+    yield* countPrsBehind(
+      storePaths(deployable.root).mirror,
+      deployable.defaultRef,
+      release.sha,
+    ).pipe(
+      Effect.provideService(ProcessRunner.ProcessRunner, runner),
+      Effect.flatMap((prs) =>
+        Ref.getAndSet(prsBehind, prs).pipe(
+          Effect.flatMap((held) => {
+            const event = available(prs);
+            return held === prs || event === null ? Effect.void : PubSub.publish(pubsub, event);
+          }),
+        ),
+      ),
+      Effect.repeat(Schedule.spaced("5 minutes")),
+      Effect.forkScoped,
+    );
+  }
 
   const events = Stream.unwrap(
     Effect.gen(function* () {
       const subscription = yield* PubSub.subscribe(pubsub);
       const head: Array<LoomDeployEvent> = [];
-      if (deployable !== undefined && release !== undefined) {
-        const epoch = "1970-01-01T00:00:00Z";
-        const stopAt = estimateStopAt(readHistory(deployable.root), epoch);
-        head.push({ type: "available", release, stopAfterSeconds: Date.parse(stopAt) / 1000 });
-      }
+      const first = available(yield* Ref.get(prsBehind));
+      if (first !== null) head.push(first);
       if (notice !== null) head.push({ type: "notice", notice });
       const status =
         deployable === undefined ? null : yield* readDeployStatus(paths.deployStatusPath);
