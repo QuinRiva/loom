@@ -3,7 +3,7 @@ reader:
   who: Carl, who asked for a design, then asked whether a thread and worktree per PR is the better way, and approved this brief on 24 Nov; and the agents who plan and build under it
   knows: the Diff tab and Files list as a user, stacked PRs, orchestrators and their child threads, his own habit of reviewing every PR before it is opened; none of Loom's internal names, none of the earlier plans recently
   after_first_screen: that a thread and worktree per PR answers his question and the earlier per-PR list only half answers it, what Loom lacks for it, and what he decided
-kicker: "Intent brief · approved 24 Nov 2026"
+kicker: "Intent brief · approved 24 Nov 2026 · trial folded in 25 Nov"
 status: approved
 manager_sessions:
   - id: 01a20be9-455b-752f-be77-0cae99955154
@@ -49,16 +49,18 @@ manager_sessions:
 />
 
 <Callout tone="decision" title="What you decided" focus>
-  **Try it by hand first**: every graph-enrichment PR not yet started gets its own thread and worktree with what exists today, and the real thing is built if that suits you. **The three small Diff tab corrections go ahead now**, as their own PR. **An orchestrator splits work this way** when "it intends to produce multiple PRs".
+  **Tried by hand first**, on the graph-enrichment linking PR. After it, asked whether to plan and build the real thing: "Yes proceed". **The three small Diff tab corrections ship now**, as their own PR: "ship it". **An orchestrator splits work this way** when "it intends to produce multiple PRs".
 </Callout>
 
 **You'll know it works when.**
 
-- An orchestrator starts each PR of a series as a child thread in its own worktree, on a branch cut from the PR below it. The threads sit under the orchestrator in the sidebar.
-- You open PR 1's thread while PR 3's thread is mid-turn. Its Diff tab on "Changes" with Automatic, and its Files list, show PR 1's files only, pushed or not, with nothing to pick.
+- An orchestrator starts each PR of a series as a child thread in its own worktree, on a branch cut from the PR below it, or on the PR's own branch when that already exists. The threads sit under the orchestrator in the sidebar.
+- You open PR 1's thread while PR 3's thread is mid-turn. Its Diff tab on "Changes" with Automatic, and its Files list, show PR 1's files only, pushed or not, with nothing for you to pick and nothing an agent had to set.
 - You comment on a line in PR 1's thread. It makes the fix in its own worktree, and nothing in PR 3's worktree moves.
 - When PR 1 changes, the PRs above it are told and bring their branches up to date. Each one's diff still shows only its own changes afterwards.
 - You tell the top orchestrator something about the whole piece of work and it reaches the right PR's thread. It reports each PR's state back to you in one place.
+- You make a ruling about the whole series in one PR's thread, and the orchestrator has it without you repeating it. In the trial that took about ten relayed messages in two hours.
+- A PR's thread reads the series' shared plan, budget and evidence without asking the orchestrator for them.
 - A PR's thread can still have its own coder and reviewer, working in that PR's worktree.
 
 The three corrections, which hold whichever way you go:
@@ -77,7 +79,9 @@ The three corrections, which hold whichever way you go:
 **Approaches in play.**
 
 - A child thread per PR in its own worktree and branch. Wins if reviewing and fixing one PR while another is built matters more than disk and catch-up work. Loom already creates a worktree on a new branch from a chosen base for a handed-off goal, and records that base, which is why Automatic would be right with nothing picked. What is missing is letting a child start that way. _Chosen, to be built if the trial suits you._
-- The same, tried by hand first: the graph-enrichment orchestrator hands its next PR off as its own goal in a fresh worktree. Wins if you want to know it suits you before anything is built. It is rougher than the real thing: the PR's thread is not nested under the orchestrator, and it starts from the project's main checkout and has to move itself onto the PR below. _Chosen as the first step._
+- The same, tried by hand first: the graph-enrichment orchestrator hands its next PR off as its own goal in a fresh worktree. Wins if you want to know it suits you before anything is built. It is rougher than the real thing: the PR's thread is not nested under the orchestrator, and it starts from the project's main checkout and has to move itself onto the PR below. _Chosen as the first step, and done on 25 Nov._
+  - What worked: you reviewed the linking PR (PE-2853, #4530), changed the design twice and approved the ticket and the PR in its own thread. Nothing in the orchestrator's worktree moved.
+  - What was awkward was mostly the hand route. The thread was not a child, so the orchestrator heard from it only by message. It also had to move itself onto the branch and set its own base.
 - A per-PR list in the shared worktree, the first draft. It is viable, since reading a branch that is not checked out is ordinary git. It answers reading only, so it is kept as the fallback if a worktree per PR proves too heavy.
 - jj. It would not remove the need for a worktree per PR, because two agents still cannot share one set of files on disk. What it adds is that later PRs catch up by themselves when an earlier one changes. Loom has no jj support, and upstream has merged none: every jj PR there is closed, the latest set on 26 Oct without maintainer approval. _Not recommended for this._
 - Dropped: push each PR as a draft and read it on the Pull requests page. You said "I want to review befroe we create the pr".
@@ -85,8 +89,9 @@ The three corrections, which hold whichever way you go:
 **Decided.**
 
 - Asked which way this should go, you chose "Try a thread and worktree per PR by hand on the next graph-enrichment PR, then build it properly if it suits you".
-- On the trial's reach, you asked whether to tell the graph-enrichment orchestrator "that all future PRs should within this hunk of work should be created that way". It was told on 24 Nov: every PR it has not yet started gets its own thread and worktree, and the two already built stay where they are.
-- Asked whether the three corrections go ahead now as their own PR: "Yes, build the three corrections now".
+- On the trial's reach, you asked whether to tell the graph-enrichment orchestrator "that all future PRs should within this hunk of work should be created that way". It was told on 24 Nov. Three PRs were already built by then, not the two this brief first said, so the trial ran on one of those: the linking PR, moved into its own thread and worktree on 25 Nov.
+- Asked whether the three corrections go ahead now as their own PR: "Yes, build the three corrections now". Once they were built and reviewed: "ship it".
+- After the trial, asked whether to go on to a plan and then the build: "Yes proceed". The proposal you answered adds three things the trial showed. A PR's thread can start on a branch that already exists as well as on a new one. Loom records the branch it was cut from when it makes the worktree, so no agent sets it. An orchestrator's brief tells a PR's thread where the series' shared files are.
 - Asked when an orchestrator should give a PR its own thread and worktree, you chose "Whenever a piece of work will produce more than one PR" and wrote: "Yeah - basically if it intends to produce multiple PRs." The wording for agents is later work with its own review.
 - "this would still give me a single mechanism for communication for the overall hunk of work - but enable me to communicate with individual sub-orchestrators about a specific PR". One orchestrator for the whole, one thread per PR.
 - "I want to be able to view what is included in a PR". The unit is the PR.
@@ -94,11 +99,12 @@ The three corrections, which hold whichever way you go:
 - Already in place: the card's Changes figure follows the base you pick in the Diff tab. It arrived from upstream on 23 Nov, after your screenshot.
 - _Assumed:_ the thread that owns a PR is whatever the orchestrator judges the PR needs: a sub-orchestrator with its own coder and reviewer, or a single coder for a small one. Redirect if every PR should have a sub-orchestrator.
 - _Assumed:_ nothing new is built in the Diff tab or the Files list beyond the three corrections.
+- _Assumed:_ when an earlier PR changes, the orchestrator tells the threads of the PRs above it and each brings its own branch up to date. Nothing does it automatically. Redirect once the series shows what that costs.
 
-**Not doing.** The per-PR list, unless the trial sends us back to it. jj. Changes to the Pull requests page. Rewording any agent instruction: that is later work with its own review.
+**Not doing.** The per-PR list. jj. Bringing later PRs up to date automatically. fathom-platform's own bootstrap and ship scripts, which assume one worktree and a base of main: separate work in pi-fathom, not started. Changes to the Pull requests page. Rewording any agent instruction: that is later work with its own review.
 
 **Still unknown.**
 
-- How much work is it for PRs 2 and 3 to catch up when PR 1 changes after your review, and how often do they conflict? The trial on the graph-enrichment series shows it. If it is painful, jj comes back as a question about that step alone.
+- How much work is it for PRs 2 and 3 to catch up when PR 1 changes after your review, and how often do they conflict? The trial has not reached it: no earlier PR has yet changed under a later one. The rest of the graph-enrichment series shows it. If it is painful, jj comes back as a question about that step alone.
 - Does Automatic pick the right base for a PR cut from another unpushed PR? Reading the code suggests one case where it would go one PR too far down. A seeded three-PR stack settles it in the plan.
-- Can a child be started in its own worktree without the old merge-back machinery? The October pull left a note that a child started that way could wait forever for its worktree. The plan settles it before any estimate is trusted.
+- Can a child be started in its own worktree without the old merge-back machinery? The October pull left a note that a child started that way could wait forever for its worktree. The plan's first step is a throwaway test of exactly this, and no size is quoted before it.
