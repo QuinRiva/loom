@@ -6,6 +6,9 @@ import type { LoomDeployChange, ThreadId } from "@t3tools/contracts";
 
 import { run } from "./store.ts";
 
+/** A first-parent commit subject that is a PR landing; its number is the first group. */
+export const PR_MERGE = /^Merge pull request #(\d+)\b/;
+
 const RS = "\x1e";
 const US = "\x1f";
 
@@ -44,7 +47,7 @@ function readChanges(repoUrl: string, mirror: string, from: string, to: string) 
     const [sha = "", subject = "", summary = "", kindText = "", body = ""] = entry
       .trimStart()
       .split(US);
-    const pr = /^Merge pull request #(\d+)\b/.exec(subject)?.[1];
+    const pr = PR_MERGE.exec(subject)?.[1];
     if (pr === undefined) return [];
     const threads = run("git", [
       "-C",

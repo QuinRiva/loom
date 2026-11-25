@@ -558,7 +558,7 @@ export type LoomDeployStatus = typeof LoomDeployStatus.Type;
 /**
  * `loom.subscribeDeploy`: `available` first on a server that can deploy itself, then the startup
  * notice (when there is one), the status (when it changed in the last 24 hours), then each restart
- * warning and status change.
+ * warning and status change. `available` is sent again whenever `prsBehind` changes.
  */
 export const LoomDeployEvent = Schema.Union([
   Schema.Struct({
@@ -566,6 +566,8 @@ export const LoomDeployEvent = Schema.Union([
     release: LoomDeployRelease,
     /** The median start-to-stop of recent deploys: Loom goes down this long after Deploy. */
     stopAfterSeconds: Schema.Number,
+    /** PRs merged to the default branch since this release; absent while unknown. */
+    prsBehind: Schema.optional(Schema.Number),
   }),
   Schema.Struct({ type: Schema.Literal("status"), status: LoomDeployStatus }),
   Schema.Struct({ type: Schema.Literal("notice"), notice: LoomDeployNotice }),
