@@ -1727,29 +1727,23 @@ function CheckoutGitActionsControl({
                 variant="ghost"
                 size="sm"
                 part="row"
+                className="h-auto min-h-8" // loom: room for a wrapped base
                 disabled={!onOpenChanges}
                 onClick={onOpenChanges}
               />
             }
           >
             <FileDiffIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} aria-hidden />
-            <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+            {/* loom: flex-wrap puts the base on its own line under the totals */}
+            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5 gap-y-0.5 py-1.5">
               <span className="shrink-0">
                 <T>Changes</T>
               </span>
               {changesBaseLabel ? (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <span className="pointer-events-auto min-w-0 truncate font-normal text-muted-foreground" />
-                    }
-                  >
-                    {changesBaseLabel}
-                  </TooltipTrigger>
-                  <TooltipPopup side="top" className="max-w-96 break-words">
-                    {changesBaseLabel}
-                  </TooltipPopup>
-                </Tooltip>
+                // loom: wrapped, not truncated: stacked branches share long prefixes.
+                <span className="order-last min-w-0 basis-full whitespace-normal text-xs font-normal text-muted-foreground wrap-anywhere">
+                  {changesBaseLabel}
+                </span>
               ) : null}
               <span className="ml-auto flex shrink-0 items-baseline gap-2 ps-2 font-mono tabular-nums">
                 <span

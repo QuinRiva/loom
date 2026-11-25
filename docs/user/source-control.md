@@ -11,6 +11,14 @@ committed it, or fixed a conflict in it. Use the branch comparison to review eve
 against your base branch. Restore still returns the complete saved workspace. The Turn list offers
 only turns that changed a file. <!-- loom: change review -->
 
+<!-- loom: stacked branch base -->
+
+With the comparison target on **Automatic**, **Changes** compares the branch with the one it was
+cut from: the base T3 Code recorded when it made the branch, else an upstream with a different
+name (as `git checkout -b my-pr origin/earlier-pr` sets), else the default branch. A branch cut
+from another pull request's branch therefore shows only its own changes. The target names the base
+in use.
+
 ## Review since your last message
 
 <!-- loom: change review (plans/change-review) -->

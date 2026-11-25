@@ -693,7 +693,8 @@ export default function DiffPanel({
     }
     return currentLoadDiffFiles(fileDiff);
   });
-  const canSelectBranchBase = canReadFiles && canRefreshGitDiff && selectedGitScope === "branch";
+  const canSelectBranchBase =
+    canReadFiles && canRefreshGitDiff && selectedGitScope === "branch" && !loomReview; // loom: an interval has no base
   const branchRefsCwd = branchDiffPreview.data?.cwd ?? gitCwd;
   const localBranchRefs = useEnvironmentQuery(
     canSelectBranchBase && activeThread && branchRefsCwd
