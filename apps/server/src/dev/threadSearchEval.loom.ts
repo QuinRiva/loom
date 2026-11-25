@@ -1,7 +1,7 @@
 /**
- * Thread-search eval: the 57 queries in `threadSearchQueries.json` against a COPY of a real
- * database (migrated and written in place), ranked by Loom lexical / semantic / fused under
- * both scopes and by upstream's trigram `search` and `searchThreads`. Usage: `--help`.
+ * Thread-search eval on a COPY of a real database (migrated in place): the 57 test queries in
+ * `threadSearchQueries.json` by Loom's rankings and upstream's, and searches whose answer is a
+ * sub-thread. Usage: `--help`.
  */
 // Dev-only harness (not shipped): plain Node/JSON/Date keep it legible, matching `scripts/*.ts`.
 // @effect-diagnostics nodeBuiltinImport:off globalDateInEffect:off globalDate:off globalJsonInEffect:off globalConsoleInEffect:off globalConsole:off
@@ -91,8 +91,28 @@ const pct = (count: number, n: number) => `${count}/${n} (${percent(count, n)}%)
 const main = Effect.gen(function* () {
   const settings = resolveSettings();
   const sql = yield* SqlClient.SqlClient;
+  const provider = providerFromSettings(settings, NodePath.join(stateDir, "models"));
+  // The harness holds each query's vector, so a timed search measures the local work, not Vertex.
+  const queryVectors = new Map<string, Float32Array>();
+  const embedMs: Array<number> = [];
   const embedder = yield* makeThreadEmbedder(
-    Effect.succeed(providerFromSettings(settings, NodePath.join(stateDir, "models"))),
+    Effect.succeed(
+      provider && {
+        name: provider.name,
+        embed: (texts: ReadonlyArray<string>, kind: "query" | "document") =>
+          kind === "document" || texts.length !== 1
+            ? provider.embed(texts, kind)
+            : queryVectors.has(texts[0]!)
+              ? Effect.succeed([queryVectors.get(texts[0]!)!])
+              : Effect.gen(function* () {
+                  const started = performance.now();
+                  const vectors = yield* provider.embed(texts, kind);
+                  embedMs.push(performance.now() - started);
+                  queryVectors.set(texts[0]!, vectors[0]!);
+                  return vectors;
+                }),
+      },
+    ),
   );
   const sweepStarted = Date.now();
   const sweep = yield* embedder.sweep;
@@ -119,6 +139,12 @@ const main = Effect.gen(function* () {
   console.log(corpus);
   const upstream = yield* makeUpstreamThreadSearch;
   yield* search.rank("warm up query"); // first query embed loads lazily
+  // The two searches §6 of plans/thread-search-filters/plan.mdx bounds: the human screens' default
+  // and Sub-threads on. The best of three runs per query, so one GC pause does not decide it.
+  const TIMED = {
+    "human default": { scope: "roots", includeArchived: false },
+    "sub-threads on": { scope: "all", subThreadRows: true },
+  } as const;
   const SIDES = [
     "roots lexical",
     "roots semantic",
@@ -130,10 +156,11 @@ const main = Effect.gen(function* () {
     "upstream searchThreads",
   ] as const;
   type Side = (typeof SIDES)[number];
+  const TESTS = ["sampled", "plan", "exact", "deep"];
   const results: Array<{
     readonly query: (typeof queries)[number];
     readonly ranks: Record<Side, number | null>;
-    readonly ms: Partial<Record<Side, number>>;
+    readonly ms: Partial<Record<Side | keyof typeof TIMED, number>>;
     readonly top: ReadonlyArray<string>;
   }> = [];
   let skipped = 0;
@@ -144,24 +171,33 @@ const main = Effect.gen(function* () {
     const value = yield* effect;
     return [value, performance.now() - started] as const;
   });
-  for (const query of queries) {
+  for (const query of queries.filter((query) => TESTS.includes(query.source))) {
     if (!query.expected.some((id) => live.has(id))) {
       skipped++;
       console.log(`skipped (target gone): ${query.q}`);
       continue;
     }
     const ranks = {} as Record<Side, number | null>;
-    const ms: Partial<Record<Side, number>> = {};
+    const ms: (typeof results)[number]["ms"] = {};
     let top: ReadonlyArray<string> = [];
     for (const scope of ["roots", "all"] as const) {
       const ranked = yield* search.rank(query.q, { scope });
-      const [, wall] = yield* timed(search.searchThreads({ query: query.q, limit: 30, scope }));
-      ms[`${scope} fused`] = wall;
       const fused = keep(ranked.fused, query.expected)!;
       ranks[`${scope} lexical`] = rankOf(keep(ranked.lexical, query.expected), query.expected);
       ranks[`${scope} semantic`] = rankOf(keep(ranked.semantic, query.expected), query.expected);
       ranks[`${scope} fused`] = rankOf(fused, query.expected);
       if (scope === "roots") top = fused.slice(0, 5);
+    }
+    for (const [name, input] of Object.entries(TIMED) as Array<
+      [keyof typeof TIMED, (typeof TIMED)[keyof typeof TIMED]]
+    >) {
+      let best = Infinity;
+      for (let run = 0; run < 3; run++)
+        best = Math.min(
+          best,
+          (yield* timed(search.searchThreads({ query: query.q, limit: 30, ...input })))[1],
+        );
+      ms[name] = best;
     }
     const [messages, messagesMs] = yield* timed(upstream.search({ query: query.q, limit: 50 }));
     const [threads, threadsMs] = yield* timed(
@@ -211,19 +247,66 @@ const main = Effect.gen(function* () {
     }
   }
 
+  const spread = (label: string, values: ReadonlyArray<number>) => {
+    const times = values.toSorted((a, b) => a - b);
+    if (times.length > 0)
+      console.log(
+        `${label}: p50 ${times[times.length >> 1]!.toFixed(1)} ms, ` +
+          `p90 ${times[Math.floor(times.length * 0.9)]!.toFixed(1)} ms, max ${times.at(-1)!.toFixed(1)} ms`,
+      );
+  };
+  spread(`embedding call alone (${embedMs.length} queries)`, embedMs);
   for (const side of [
-    "roots fused",
-    "all fused",
+    ...(Object.keys(TIMED) as Array<keyof typeof TIMED>),
     "upstream search",
     "upstream searchThreads",
-  ] as const) {
-    const times = results.map((r) => r.ms[side] ?? 0).toSorted((a, b) => a - b);
+  ] as const)
+    spread(
+      `${side} wall time`,
+      results.map((r) => r.ms[side] ?? 0),
+    );
+  console.log(`skipped ${skipped}`);
+
+  // Searches whose answer is a sub-thread: does its workstream come back with nothing switched
+  // (the human default) and with Sub-threads on, and is the sub-thread among its rows there?
+  console.log(
+    "\n| sub-thread search | root, nothing switched | root, Sub-threads on | sub-thread row |\n|---|---|---|---|",
+  );
+  let found = 0;
+  let inRows = 0;
+  let subQueries = 0;
+  for (const query of queries.filter((query) => query.source === "subthread")) {
+    if (!query.expected.some((id) => live.has(id))) continue;
+    subQueries++;
+    const plain = yield* search.searchThreads({
+      query: query.q,
+      limit: 30,
+      ...TIMED["human default"],
+    });
+    const on = yield* search.searchThreads({
+      query: query.q,
+      limit: 30,
+      ...TIMED["sub-threads on"],
+    });
+    const at = (matches: typeof on.matches) =>
+      rankOf(
+        matches.map((match) => match.threadId),
+        query.expected,
+      );
+    const row = on.matches
+      .find((match) => query.expected.includes(match.threadId))
+      ?.subThreads?.findIndex((sub) => sub.threadId === query.subThread);
+    if (at(on.matches) !== null) found++;
+    if (row !== undefined && row >= 0) inRows++;
     console.log(
-      `${side} wall time: p50 ${times[times.length >> 1]!.toFixed(1)} ms, ` +
-        `p90 ${times[Math.floor(times.length * 0.9)]!.toFixed(1)} ms, max ${times.at(-1)!.toFixed(1)} ms`,
+      `| ${query.q} | ${at(plain.matches) ?? "none"} | ${at(on.matches) ?? "none"} | ` +
+        `${row === undefined ? "-" : row < 0 ? "not in its 3" : `#${row + 1}`} |`,
     );
   }
-  console.log(`skipped ${skipped}`);
+  console.log(
+    `sub-thread searches: workstream found with Sub-threads on ${found}/${subQueries}, ` +
+      `right sub-thread among its rows ${inRows}/${subQueries}`,
+  );
   // Per query, the top-5 hits each ranker has that another lacks.
   const within5 = (rank: number | null) => rank !== null && rank <= 5;
   const compared = [

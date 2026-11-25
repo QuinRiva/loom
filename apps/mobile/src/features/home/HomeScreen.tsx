@@ -16,6 +16,7 @@ import {
 } from "@t3tools/client-runtime/state/shell";
 import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+import { threadSearchTarget } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom
 import { type EnvironmentId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -60,8 +61,13 @@ import {
 } from "../../native/native-layout-metrics";
 import { useWorkspaceListEmptyTopInset } from "../layout/workspace/workspace-list-insets";
 import { useNativeWorkspaceColumnsSupported } from "../../native/NativeWorkspaceColumns";
-import { useThreadSearch } from "../../state/queries";
-import { requestThreadMessageJump } from "../threads/threadMessageJump";
+// loom: the search switches, sub-thread rows, and what a result opens
+import {
+  openThreadSearchTarget,
+  useFilteredThreadSearch,
+} from "../threads/useFilteredThreadSearch.loom";
+import { ThreadSearchFilterChips } from "../threads/ThreadSearchFilterChips.loom";
+import { SubThreadSearchResultRow } from "../threads/SubThreadSearchResultRow.loom";
 import { useThreadListSearchMatches } from "../threads/useThreadListSearchMatches";
 import { useThreadListV2 } from "../threads/useThreadListV2";
 import { useSidebarRowThreadKey } from "../threads/useSidebarRowThreadKey";
@@ -88,9 +94,10 @@ import {
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
-  threadListV2SearchArchivedItems, // loom
+  threadListV2SearchShelllessItems, // loom
+  threadListV2WithSearchSubRows, // loom
 } from "../threads/threadListV2";
-import { ArchivedSearchResultRow } from "../threads/ArchivedSearchResultRow.loom"; // loom
+import { ShelllessSearchResultRow } from "../threads/ShelllessSearchResultRow.loom"; // loom
 import { LoomAppUpdateNotice } from "../updates/LoomAppUpdateNotice.loom"; // loom: phone app updates
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
@@ -130,7 +137,7 @@ interface HomeScreenProps {
   readonly onAddConnection: () => void;
   readonly onOpenSettings: () => void;
   readonly onStartNewTask: () => void;
-  // loom: by id, so an archived search hit (no shell) opens too
+  // loom: by id, so a search hit with no shell opens too
   readonly onSelectThread: (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
   readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
@@ -353,13 +360,15 @@ export function HomeScreen(props: HomeScreenProps) {
     pickableProjectGroups(projectScopes),
     v2ProjectScopeKey,
   );
-  const threadSearch = useThreadSearch(
+  // loom: the picker stays the project switch; the chips add sub-threads and archived
+  const filteredSearch = useFilteredThreadSearch(
     searchEnvironmentIds,
     props.searchQuery,
     v2ScopedProjectGroup === null
       ? {}
       : { projectIds: v2ScopedProjectGroup.projectRefs.map((ref) => ref.projectId) },
   );
+  const threadSearch = filteredSearch.search; // loom
   const threadSearchMatchByKey = useThreadListSearchMatches(props.threads, threadSearch);
   const v2ProjectTitleByProjectKey = new Map(
     projectScopes.flatMap((scope) =>
@@ -419,7 +428,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const pendingOrder = usePendingThreadOrder();
   const {
     layout: threadListV2Layout,
-    items: threadListV2ShellItems, // loom: archived search hits join below
+    items: threadListV2ShellItems, // loom: search hits with no shell join below
     contentOnlyThreadKeys,
     olderSettledShelf,
   } = useThreadListV2({
@@ -444,37 +453,38 @@ export function HomeScreen(props: HomeScreenProps) {
     settledShelfExpanded,
     selectedThreadKey,
   });
-  // loom: archived roots the search returned have no shell; they follow the list's rows
+  // loom: search hits with no shell here (archived, or older settled) follow the list's rows.
+  // Each listed top-level thread's sub-thread rows follow it.
   const threadListV2Items: ReadonlyArray<ThreadListV2ListItem> =
     props.searchQuery.trim().length === 0
       ? threadListV2ShellItems
-      : [
-          ...threadListV2ShellItems,
-          ...threadListV2SearchArchivedItems(
-            threadSearch.matches,
-            v2ScopedProjectGroup === null
-              ? null
-              : new Set(
-                  v2ScopedProjectGroup.projectRefs.map((ref) =>
-                    scopedProjectKey(ref.environmentId, ref.projectId),
+      : threadListV2WithSearchSubRows(
+          [
+            ...threadListV2ShellItems,
+            ...threadListV2SearchShelllessItems(
+              filteredSearch.shellless,
+              v2ScopedProjectGroup === null
+                ? null
+                : new Set(
+                    v2ScopedProjectGroup.projectRefs.map((ref) =>
+                      scopedProjectKey(ref.environmentId, ref.projectId),
+                    ),
                   ),
-                ),
-          ),
-        ];
+            ),
+          ],
+          filteredSearch.subRows,
+        );
   // Called as `props.onSelectThread(...)`, the compiler would cache this handler on the whole
   // props object, which is new on every render of Home's parent.
   const { onSelectThread } = props;
   // A row listed for a message match opens the thread at that message, by
   // tap or by shortcut.
+  // loom: it opens what its excerpt names, such as the sub-thread behind a "Report:" excerpt.
   const selectThread = (thread: EnvironmentThreadShell) => {
     const key = threadSearchMatchKey({ environmentId: thread.environmentId, threadId: thread.id });
-    const messageId = contentOnlyThreadKeys.has(key)
-      ? threadSearchMatchByKey.get(key)?.messageId
-      : undefined;
-    if (messageId) {
-      requestThreadMessageJump(scopedThreadKey(thread.environmentId, thread.id), messageId);
-    }
-    onSelectThread(thread);
+    const match = contentOnlyThreadKeys.has(key) ? threadSearchMatchByKey.get(key) : undefined;
+    if (match) openThreadSearchTarget(threadSearchTarget(match), onSelectThread);
+    else onSelectThread(thread);
   };
   useThreadJumpShortcuts(threadListV2Items, selectThread, props.onSelectPendingTask);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reads the list's visible range after commit to enable swipe gestures on those rows
@@ -548,10 +558,10 @@ export function HomeScreen(props: HomeScreenProps) {
         />
       );
     }
-    if (item.type === "v2-search-archived") {
-      // loom: an archived root's search hit, drawn from the match
+    if (item.type === "v2-search-shellless") {
+      // loom: a search hit on a root with no shell, drawn from the match
       return (
-        <ArchivedSearchResultRow
+        <ShelllessSearchResultRow
           match={item.match}
           searchQuery={props.searchQuery}
           {...(sidebarSurface ? { pane: "sidebar" as const } : {})} // loom: DL-1909
@@ -559,6 +569,23 @@ export function HomeScreen(props: HomeScreenProps) {
             scopedThreadKey(item.match.environmentId, item.match.threadId) === selectedThreadKey
           }
           onSelectThread={props.onSelectThread}
+        />
+      );
+    }
+    if (item.type === "v2-search-sub") {
+      // loom: a sub-thread row, or the fold that unfolds the rest of its workstream
+      return (
+        <SubThreadSearchResultRow
+          row={item.row}
+          searchQuery={threadSearch.query}
+          {...(sidebarSurface ? { pane: "sidebar" as const } : {})}
+          selected={
+            item.row.kind === "subThread" &&
+            scopedThreadKey(item.row.root.environmentId, item.row.match.threadId) ===
+              selectedThreadKey
+          }
+          onSelectThread={onSelectThread}
+          onUnfold={filteredSearch.unfold}
         />
       );
     }
@@ -714,6 +741,14 @@ export function HomeScreen(props: HomeScreenProps) {
   }
 
   const listHeader = Platform.OS === "ios" ? undefined : <HomeTopContentSpacer />;
+  // loom: the search switches, under the field while it holds text
+  const searchFilterChips = hasSearchQuery ? (
+    <ThreadSearchFilterChips
+      filters={filteredSearch.filters}
+      onChange={filteredSearch.setFilters}
+      inset={sidebarSurface ? 12 : 20}
+    />
+  ) : null;
 
   const v2ListHeader = (
     <>
@@ -741,6 +776,7 @@ export function HomeScreen(props: HomeScreenProps) {
           onProjectChange={props.onProjectChange}
         />
       ) : null}
+      {searchFilterChips /* loom */}
     </>
   );
 
@@ -788,6 +824,7 @@ export function HomeScreen(props: HomeScreenProps) {
   if (Platform.OS === "android" && threadListV2Items.length === 0) {
     return (
       <ScreenContent surface="screen">
+        {searchFilterChips /* loom: a switch that emptied the list stays in sight */}
         <View
           className="flex-1 items-center justify-center px-4"
           style={{ paddingBottom: insets.bottom }}

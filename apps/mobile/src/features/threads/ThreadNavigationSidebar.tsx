@@ -12,6 +12,7 @@ import type {
   EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
+import { threadSearchTarget } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { THREAD_LIST_ROW_LAYOUT } from "./threadListAnimations";
 import { useAtomValue } from "@effect/atom-react";
@@ -27,7 +28,10 @@ import { Button } from "../../components/ui/Button";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { useProjects } from "../../state/entities";
 import { steadyNavigationThreadShellsAtom } from "../../state/threads";
-import { useThreadSearch } from "../../state/queries";
+// loom: the search switches, sub-thread rows, and what a result opens
+import { openThreadSearchTarget, useFilteredThreadSearch } from "./useFilteredThreadSearch.loom";
+import { ThreadSearchFilterChips } from "./ThreadSearchFilterChips.loom";
+import { SubThreadSearchResultRow } from "./SubThreadSearchResultRow.loom";
 import { useThreadListV2ShelfPreferences } from "./use-thread-list-v2-shelf-preferences";
 import { useThreadListNow } from "./use-thread-list-now";
 import { usePendingThreadOrder } from "../../state/thread-order";
@@ -43,7 +47,6 @@ import { useSavedRemoteConnections } from "../../state/use-remote-environment-re
 import { useThreadListV2 } from "./useThreadListV2";
 import { useSidebarRowThreadKey } from "./useSidebarRowThreadKey";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
-import { requestThreadMessageJump } from "./threadMessageJump";
 import { useThreadListSearchMatches } from "./useThreadListSearchMatches";
 import { useHomeListOptions } from "../home/home-list-options";
 import {
@@ -78,10 +81,11 @@ import {
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
-  threadListV2SearchArchivedItems, // loom
+  threadListV2SearchShelllessItems, // loom
+  threadListV2WithSearchSubRows, // loom
 } from "./threadListV2";
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
-import { ArchivedSearchResultRow } from "./ArchivedSearchResultRow.loom"; // loom
+import { ShelllessSearchResultRow } from "./ShelllessSearchResultRow.loom"; // loom
 import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 
 type SidebarListItem =
@@ -103,7 +107,7 @@ interface ThreadNavigationSidebarProps {
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
   readonly onOpenPendingTask: (pendingTask: PendingNewTask) => void;
   readonly onSearchQueryChange: (query: string) => void;
-  // loom: by id, so an archived search hit (no shell) opens too
+  // loom: by id, so a search hit with no shell opens too
   readonly onSelectThread: (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => void;
   readonly onOpenThreadPullRequests: (
     thread: EnvironmentThreadShell,
@@ -218,13 +222,15 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     [projectScopes],
   );
   const selectedProjectScope = resolveHomeProjectFilterScope(projectScopes, projects, options);
-  const threadSearch = useThreadSearch(
+  // loom: the picker stays the project switch; the chips add sub-threads and archived
+  const filteredSearch = useFilteredThreadSearch(
     searchEnvironmentIds,
     props.searchQuery,
     selectedProjectScope === null
       ? {}
       : { projectIds: selectedProjectScope.projectRefs.map((ref) => ref.projectId) },
   );
+  const threadSearch = filteredSearch.search; // loom
   // This map reaches LegendList's extraData, which re-renders every row whenever it changes
   // identity; the hook keeps it stable.
   const threadSearchMatchByKey = useThreadListSearchMatches(threads, threadSearch);
@@ -301,12 +307,12 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     settledShelfExpanded,
     selectedThreadKey,
   });
-  // loom: archived roots the search returned have no shell; they follow the list's rows, above Show more
-  const searchArchivedItems =
+  // loom: roots the search returned with no shell here follow the list's rows, above Show more
+  const searchShelllessItems =
     props.searchQuery.trim().length === 0
       ? []
-      : threadListV2SearchArchivedItems(
-          threadSearch.matches,
+      : threadListV2SearchShelllessItems(
+          filteredSearch.shellless,
           selectedProjectScope === null
             ? null
             : new Set(
@@ -315,11 +321,17 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
                 ),
               ),
         );
+  // loom: each listed top-level thread's sub-thread rows follow it
+  const searchItems = threadListV2WithSearchSubRows(
+    searchShelllessItems.length === 0
+      ? threadListV2Items
+      : [...threadListV2Items, ...searchShelllessItems],
+    filteredSearch.subRows,
+  );
   const listItems: readonly SidebarListItem[] =
     settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0
       ? [
-          ...threadListV2Items,
-          ...searchArchivedItems, // loom
+          ...searchItems, // loom
           {
             type: "v2-show-more",
             key: "v2-show-more",
@@ -331,9 +343,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
                 : {}),
           },
         ]
-      : searchArchivedItems.length === 0 // loom
-        ? threadListV2Items
-        : [...threadListV2Items, ...searchArchivedItems];
+      : searchItems; // loom
 
   const handleSwipeableWillOpen = (methods: SwipeableMethods) => {
     if (openSwipeableRef.current !== methods) {
@@ -350,16 +360,13 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   const { onSelectThread, onOpenThreadPullRequests } = props;
   // A row listed for a message match opens the thread at that message, by
   // tap or by shortcut.
-  // loom: by id, so an archived search hit (no shell) opens too
+  // loom: by id, so a search hit with no shell opens too
+  // loom: it opens what its excerpt names, such as the sub-thread behind a "Report:" excerpt.
   const handleSelectThread = (thread: Pick<EnvironmentThreadShell, "environmentId" | "id">) => {
     const key = threadSearchMatchKey({ environmentId: thread.environmentId, threadId: thread.id });
-    const messageId = contentOnlyThreadKeys.has(key)
-      ? threadSearchMatchByKey.get(key)?.messageId
-      : undefined;
-    if (messageId) {
-      requestThreadMessageJump(scopedThreadKey(thread.environmentId, thread.id), messageId);
-    }
-    onSelectThread(thread);
+    const match = contentOnlyThreadKeys.has(key) ? threadSearchMatchByKey.get(key) : undefined;
+    if (match) openThreadSearchTarget(threadSearchTarget(match), onSelectThread);
+    else onSelectThread(thread);
     openSwipeableRef.current?.close();
   };
   const handleOpenThreadPullRequests = (
@@ -541,10 +548,10 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             pane="sidebar"
           />
         );
-      case "v2-search-archived":
-        // loom: an archived root's search hit, drawn from the match
+      case "v2-search-shellless":
+        // loom: a search hit on a root with no shell, drawn from the match
         return (
-          <ArchivedSearchResultRow
+          <ShelllessSearchResultRow
             match={item.match}
             searchQuery={props.searchQuery}
             pane="sidebar"
@@ -553,6 +560,22 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
               props.selectedThreadKey
             }
             onSelectThread={handleSelectThread}
+          />
+        );
+      case "v2-search-sub":
+        // loom: a sub-thread row, or the fold that unfolds the rest of its workstream
+        return (
+          <SubThreadSearchResultRow
+            row={item.row}
+            searchQuery={threadSearch.query}
+            pane="sidebar"
+            selected={
+              item.row.kind === "subThread" &&
+              scopedThreadKey(item.row.root.environmentId, item.row.match.threadId) ===
+                props.selectedThreadKey
+            }
+            onSelectThread={onSelectThread}
+            onUnfold={filteredSearch.unfold}
           />
         );
       case "v2-show-more":
@@ -601,6 +624,15 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
       }}
     />
   );
+  // loom: the search switches, at the top of the list while the field holds text
+  const searchFilterChips =
+    props.searchQuery.trim().length > 0 ? (
+      <ThreadSearchFilterChips
+        filters={filteredSearch.filters}
+        onChange={filteredSearch.setFilters}
+        inset={12}
+      />
+    ) : null;
   const showAddEnvironment =
     !catalogState.isLoadingConnections &&
     !catalogState.hasReadyEnvironment &&
@@ -678,6 +710,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
                 showsVerticalScrollIndicator={false}
                 style={styles.threadList}
                 ListEmptyComponent={listEmpty}
+                ListHeaderComponent={searchFilterChips} // loom
               />
             </GestureDetector>
           </SwipeableScrollGateProvider>
@@ -702,7 +735,10 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
         }}
       >
         {listItems.length === 0 ? (
-          <View className="flex-1 items-center justify-center">{listEmpty}</View>
+          <>
+            {searchFilterChips /* loom: a switch that emptied the list stays in sight */}
+            <View className="flex-1 items-center justify-center">{listEmpty}</View>
+          </>
         ) : (
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
             <GestureDetector gesture={sidebarScrollGesture}>
@@ -731,6 +767,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
                 showsVerticalScrollIndicator={false}
                 style={styles.threadList}
                 ListEmptyComponent={listEmpty}
+                ListHeaderComponent={searchFilterChips} // loom
               />
             </GestureDetector>
           </SwipeableScrollGateProvider>

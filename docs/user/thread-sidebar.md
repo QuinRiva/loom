@@ -226,25 +226,44 @@ The linked pull request participates in automatic settlement.
 
 ## Find and reference work
 
-On web and desktop, open the command palette with `Cmd/Ctrl+K` to search threads
-across connected environments by title, branch, pull request, or project.
-Threads you open often or recently rank higher, and for three weeks the thread
-you last picked for a query ranks higher when you type that query again.
-Threads whose messages contain all your words appear below, under **In
-messages**, and open at the matching message. Message search needs at least
-one word of three or more letters, or two for Chinese, Japanese, and Korean.
-On mobile, the thread list search also lists message matches and opens them at
-the matching message; on an iPad with a keyboard, `Cmd+K` opens the same
-palette.
+Search threads from the command palette (`Cmd/Ctrl+K` on web and desktop, and
+on an iPad with a keyboard), from the search box at the top of the sidebar, or
+from the thread list search on mobile. Threads match by title, branch, pull
+request, or project as you type. Threads you open often or recently rank
+higher, and for three weeks the thread you last picked for a query ranks higher
+when you type that query again. Threads whose text holds all your words, or
+means something close to them, appear below, under **In messages** in the
+palette. Any query of two or more characters searches messages, so `CI` works;
+a word of one or two letters matches only whole words.
 <!-- loom: thread-content search -->
 
-**In messages** reads a top-level thread's own messages and final answers, its
-purpose and goal, and the reports of every sub-thread, matching related
-wordings as well as exact ones; it does not read sub-threads' own messages or
-briefs. An excerpt says where the words were found (for example
-"Sub-thread: Review" under "Report:"). Archived threads are included and
-marked **Archived**; opening one shows it without unarchiving it, and
-**Unarchive** under the conversation brings it back.
+With nothing switched on, search reads a top-level thread's own messages and
+final answers, its purpose and goal, and the reports of every sub-thread. It
+leaves out archived threads and sub-threads as results. An excerpt says where
+the words were found, for example "Report:" with "Sub-thread: Review" beneath
+it. Choosing a row opens the thread at the matching message; choosing a
+"Report:" row opens the sub-thread that wrote the report, with the report
+beside it on web and desktop.
+
+Switches under the search box widen or narrow what it reads:
+
+- **Sub-threads** also reads sub-threads' own titles, briefs, and messages, and
+  lists each matching sub-thread under its top-level thread, up to three per
+  thread. Choosing one opens that sub-thread, at the matching message when
+  there is one. **+N more sub-threads** shows the rest of that thread's
+  matches in place.
+- **Archived** brings archived threads back into the results, marked
+  **Archived**. Opening one shows it without unarchiving it; **Unarchive**
+  under the conversation brings it back.
+- **Project.** In the palette, a chip named after the current project (the
+  open thread's, or the one you are starting a new thread in) limits every
+  result to that project. In the sidebar and on mobile, the thread list's
+  project picker does the same for any project, and you get a full list from
+  that project.
+
+Clearing or closing the search turns every switch off, so a switch you forgot
+never hides results from a later search. The sidebar's and mobile's project
+picker keeps its choice, as it does for the thread list.
 
 Use **Settings → Keybindings** to find or customize shortcuts for searching files
 and copying a thread reference. A copied reference uses the thread's pull request

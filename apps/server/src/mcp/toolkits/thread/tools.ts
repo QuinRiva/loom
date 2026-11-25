@@ -24,6 +24,7 @@ import {
 } from "@t3tools/contracts";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Schema from "effect/Schema";
+import * as Struct from "effect/Struct"; // loom
 import { McpSchema, Tool, Toolkit } from "effect/ai";
 
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
@@ -198,7 +199,12 @@ const ThreadSearchTool = Tool.make("t3_thread_search", {
     "Search active threads by title, branch, PR, project, then message text. Skips subagent threads. `projectId`: one project, else yours, else all outside a thread. Not exhaustive.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
-    ...OrchestrationSearchThreadsInput.fields,
+    // loom: the clients' sub-thread rows, picker and unfold fields stay off this agent tool
+    ...Struct.omit(OrchestrationSearchThreadsInput.fields, [
+      "subThreadRows",
+      "projectIds",
+      "rootThreadId",
+    ]),
     projectId: Schema.optional(ProjectId),
   }),
   success: Schema.Struct({

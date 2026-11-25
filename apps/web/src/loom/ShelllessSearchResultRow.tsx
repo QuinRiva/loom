@@ -1,3 +1,4 @@
+import { threadSearchShowsExcerpt } from "@t3tools/client-runtime/state/loom/threadSearch";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
 import type { ReactNode } from "react";
 
@@ -6,9 +7,9 @@ import { ThreadSearchMatchExcerpt } from "~/components/ThreadSearchMatch";
 import { Badge } from "~/components/ui/badge";
 import { cn } from "~/lib/utils";
 
-/** Sidebar search row for an archived root: the client holds no shell for it,
+/** Sidebar search row for a root the client holds no shell for (archived, or older settled),
     so everything shown comes from the search match. */
-export function ArchivedSearchResultRow(props: {
+export function ShelllessSearchResultRow(props: {
   match: EnvironmentThreadSearchMatch;
   project: ProjectFaviconProject | null;
   time: ReactNode;
@@ -30,7 +31,9 @@ export function ArchivedSearchResultRow(props: {
         tabIndex={-1}
         aria-selected={props.isHighlighted}
         aria-current={props.isRouteActive ? "page" : undefined}
-        aria-label={`${props.match.title}, archived`}
+        aria-label={
+          props.match.archivedAt === null ? props.match.title : `${props.match.title}, archived`
+        }
         onMouseMove={props.onHighlight}
         onClick={props.onSelect}
         className={cn(
@@ -48,12 +51,14 @@ export function ArchivedSearchResultRow(props: {
             <span className="min-w-0 flex-1 truncate">
               {props.match.title || "Untitled thread"}
             </span>
-            <ArchivedBadge />
+            {props.match.archivedAt === null ? null : <ArchivedBadge />}
             <span className="w-8 shrink-0 text-right text-xs text-muted-foreground/55 tabular-nums">
               {props.time}
             </span>
           </span>
-          <ThreadSearchMatchExcerpt match={{ ...props.match, query: props.searchQuery }} />
+          {threadSearchShowsExcerpt(props.match) ? (
+            <ThreadSearchMatchExcerpt match={{ ...props.match, query: props.searchQuery }} />
+          ) : null}
         </span>
       </button>
     </li>

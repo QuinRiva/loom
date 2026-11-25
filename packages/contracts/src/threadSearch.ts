@@ -44,8 +44,32 @@ export const OrchestrationSearchThreadsInput = Schema.Struct({
   // loom: `roots` (default): each root's own title, purpose, goal and messages plus every
   // report in its tree; `all` adds sub-threads' messages, titles, purposes and briefs, and tasks.
   scope: Schema.optionalKey(OrchestrationThreadSearchScope),
+  // loom: with scope `all`, each match carries its sub-threads' own word matches as `subThreads`,
+  // and `limit` counts those rows too.
+  subThreadRows: Schema.optionalKey(Schema.Boolean),
+  // loom: these projects' roots only, applied before the limit; ignored when `projectId` is set.
+  projectIds: Schema.optionalKey(Schema.Array(ProjectId)),
+  // loom: this workstream only, with no embedding call: how a client unfolds its sub-thread rows.
+  rootThreadId: Schema.optionalKey(ThreadId),
 });
 export type OrchestrationSearchThreadsInput = typeof OrchestrationSearchThreadsInput.Type;
+
+// loom: a sub-thread with a word match of its own; choosing the row opens it.
+export const OrchestrationThreadSearchSubThreadMatch = Schema.Struct({
+  threadId: ThreadId,
+  title: Schema.String,
+  source: OrchestrationThreadSearchSource,
+  snippet: Schema.String.check(Schema.isMaxLength(240)),
+  messageCreatedAt: Schema.NullOr(IsoDateTime),
+  /** Set when the hit is the sub-thread's own message. */
+  messageId: Schema.optionalKey(MessageId),
+  /** Set when `source` is `report`: the report file, absolute. */
+  reportPath: Schema.optionalKey(Schema.String),
+  /** Its own archive time; archived sub-threads are sent only when `includeArchived` is not false. */
+  archivedAt: Schema.NullOr(IsoDateTime),
+});
+export type OrchestrationThreadSearchSubThreadMatch =
+  typeof OrchestrationThreadSearchSubThreadMatch.Type;
 
 export const OrchestrationThreadSearchMatch = Schema.Struct({
   threadId: ThreadId, // loom: always the ROOT thread
@@ -71,6 +95,12 @@ export const OrchestrationThreadSearchMatch = Schema.Struct({
   hits: Schema.optionalKey(Schema.Int),
   /** The message the snippet is from. Older servers omit it. */
   messageId: Schema.optionalKey(MessageId),
+  // loom: set when `source` is `report`: the report file (absolute) of `matchedThreadId`, or the root.
+  reportPath: Schema.optionalKey(Schema.String),
+  // loom: only when `subThreadRows` was sent: best first, at most 3 (limit - 1 with `rootThreadId`).
+  subThreads: Schema.optionalKey(Schema.Array(OrchestrationThreadSearchSubThreadMatch)),
+  // loom: matching sub-threads not sent; a floor for very broad queries.
+  subThreadsOmitted: Schema.optionalKey(Schema.Int),
 });
 export type OrchestrationThreadSearchMatch = typeof OrchestrationThreadSearchMatch.Type;
 

@@ -140,8 +140,8 @@ it("asks environments that omit older settled threads for their rows, with the c
     environmentLabels: { [envA]: "Laptop" },
   };
 
-  // Too short to match messages: only the environment with older rows is asked, for titles.
-  const key = makeThreadSearchKey([envA, envB], "ui", scope);
+  // Titles only: only the environment with older rows is asked.
+  const key = makeThreadSearchKey([envA, envB], "ui", { ...scope, titlesOnly: true }); // loom: short words search messages
   expect(registry.get(search.results(key)).rows).toEqual([
     { environmentId: envA, read: { snapshotSequence: 9, threads: [row] } },
   ]);
@@ -168,6 +168,7 @@ it("asks environments that omit older settled threads for their rows, with the c
 it("keeps the previous results visible only while a refined or widened query is pending", () => {
   const previous = {
     query: "websock",
+    key: "websock", // loom: key
     matches: [
       {
         environmentId: envA,
@@ -187,8 +188,12 @@ it("keeps the previous results visible only while a refined or widened query is 
   };
   expect(visibleThreadSearch("websocke", null, previous)).toBe(previous);
   expect(visibleThreadSearch("webso", null, previous)).toBe(previous);
-  expect(visibleThreadSearch("billing", null, previous)).toEqual({ query: "", matches: [] });
-  const ready = { query: "websocke", matches: [] };
+  expect(visibleThreadSearch("billing", null, previous)).toEqual({
+    query: "",
+    key: "",
+    matches: [],
+  }); // loom: key
+  const ready = { query: "websocke", key: "websocke", matches: [] }; // loom: key
   expect(visibleThreadSearch("websocke", ready, previous)).toBe(ready);
 });
 

@@ -19,7 +19,7 @@ import {
   PROJECT_SEARCH_CONTENTS_QUERY_MAX_LENGTH,
   THREAD_SEARCH_QUERY_MAX_LENGTH,
 } from "@t3tools/contracts";
-import { messageSearchTokens } from "@t3tools/shared/paletteSearch";
+import { isThreadMessageSearchQuery } from "@t3tools/client-runtime/state/loom/threadSearch"; // loom: short words
 import { type VcsRefTarget } from "@t3tools/client-runtime/state/vcs";
 import type {
   EnvironmentId,
@@ -117,6 +117,8 @@ export function useThreadSearch(
 ): {
   readonly matches: ReadonlyArray<EnvironmentThreadSearchMatch>;
   readonly query: string;
+  /** loom: the search key `matches` were fetched under; key a shown order on it (`nextShownOrder`). */
+  readonly key: string;
   readonly isPending: boolean;
   /** No environment could run the search for the current query, so an empty result is not "no matches". */
   readonly failed: boolean;
@@ -125,15 +127,14 @@ export function useThreadSearch(
   const normalizedQuery = query.trim().slice(0, THREAD_SEARCH_QUERY_MAX_LENGTH).trim();
   const debouncedQuery = useDebouncedValue(normalizedQuery, THREAD_SEARCH_DEBOUNCE_MS);
   const anyOlderSettled = useAtomValue(anyOlderSettledAtom(JSON.stringify(environmentIds)));
-  // Messages need a word of three or more letters; older settled titles match from two.
   const canSearch =
     environmentIds.length > 0 &&
-    ((scope.titlesOnly !== true && messageSearchTokens(normalizedQuery).long.length > 0) ||
+    ((scope.titlesOnly !== true && isThreadMessageSearchQuery(normalizedQuery)) || // loom: short words
       (anyOlderSettled && normalizedQuery.length >= 2));
   const settledQuery = canSearch && normalizedQuery === debouncedQuery ? debouncedQuery : null;
-  const searchKeyOf = (searchQuery: string) =>
-    makeThreadSearchKey(environmentIds, searchQuery, scope);
-  const searchKey = settledQuery === null ? null : searchKeyOf(settledQuery);
+  // loom: one key, carried by the settled result
+  const searchKey =
+    settledQuery === null ? null : makeThreadSearchKey(environmentIds, settledQuery, scope);
   const result = useAtomValue(
     searchKey === null ? EMPTY_THREAD_SEARCH_ATOM : threadSearch.results(searchKey),
   );
@@ -143,17 +144,18 @@ export function useThreadSearch(
   // callers keep shown rows in place with `nextShownOrder`.
   const ready =
     settledQuery !== null &&
+    searchKey !== null && // loom: key
     (!result.isLoading || result.matches.length > 0 || result.rows.length > 0)
-      ? { query: settledQuery, matches: result.matches }
+      ? { query: settledQuery, key: searchKey, matches: result.matches } // loom: key
       : null;
   // Kept from earlier renders: React's pattern for information from previous renders.
   const [previous, setPrevious] = useState<SettledThreadSearch | null>(null);
   if (ready !== null && previous?.matches !== ready.matches) setPrevious(ready);
   const visible = canSearch
     ? visibleThreadSearch(normalizedQuery, ready, previous)
-    : { query: "", matches: EMPTY_THREAD_SEARCH_MATCHES };
+    : { query: "", key: "", matches: EMPTY_THREAD_SEARCH_MATCHES }; // loom: key
   // The shown results' rows stay mounted until newer results replace them.
-  const shownKey = visible.query === "" ? null : searchKeyOf(visible.query);
+  const shownKey = visible.key === "" ? null : visible.key; // loom: the key they were fetched under
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mounts the shown search results' rows into the thread family registry until newer results replace them
   useEffect(() => {
     if (shownKey === null) return;
@@ -173,6 +175,7 @@ export function useThreadSearch(
   return {
     matches: visible.matches,
     query: visible.query,
+    key: visible.key, // loom
     isPending,
     failed,
   };

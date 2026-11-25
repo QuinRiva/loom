@@ -12,12 +12,16 @@ import * as Schema from "effect/Schema";
 import { AsyncResult, Atom } from "effect/reactivity";
 import {
   foldSearchQuery,
-  messageSearchTokens,
   THREAD_OPEN_DEDUPE_MS,
   type ThreadSearchSubject,
 } from "@t3tools/shared/paletteSearch";
 import { threadSearchPullRequests } from "@t3tools/shared/threadPullRequests";
 
+import {
+  isThreadMessageSearchQuery,
+  threadSearchFilterInput,
+  ThreadSearchFilterScopeFields,
+} from "./loom/threadSearch.ts"; // loom: search switches
 import type { EnvironmentThreadShell } from "./models.ts";
 import { getThreadSortTimestamp } from "./threadSort.ts";
 
@@ -73,6 +77,7 @@ export const ThreadSearchScope = Schema.Struct({
   projectIds: Schema.optionalKey(Schema.Array(ProjectId)),
   environmentLabels: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   titlesOnly: Schema.optionalKey(Schema.Boolean),
+  ...ThreadSearchFilterScopeFields, // loom: search switches
 });
 export type ThreadSearchScope = typeof ThreadSearchScope.Type;
 
@@ -130,9 +135,7 @@ export function createThreadSearchResultsAtomFamily<E>(options: {
       }
 
       const [environmentIds, query, scope = {}] = parsedKey.value;
-      // The server needs a word of three or more letters to match messages.
-      const searchMessages =
-        scope.titlesOnly !== true && messageSearchTokens(query).long.length > 0;
+      const searchMessages = scope.titlesOnly !== true && isThreadMessageSearchQuery(query); // loom: short words
       const matches: EnvironmentThreadSearchMatch[] = [];
       const rows: Array<ThreadSearchResultsState["rows"][number]> = [];
       let isLoading = false;
@@ -140,19 +143,21 @@ export function createThreadSearchResultsAtomFamily<E>(options: {
       let failures = 0;
 
       for (const environmentId of environmentIds) {
-        const before = options.olderSettledBefore
-          ? get(options.olderSettledBefore(environmentId))
-          : null;
+        // loom: unfolding one workstream needs no older settled titles
+        const before =
+          options.olderSettledBefore && scope.rootThreadId === undefined
+            ? get(options.olderSettledBefore(environmentId))
+            : null;
         if (!searchMessages && before === null) continue;
         const label = scope.environmentLabels?.[environmentId];
         const result = get(
           options.getSearchAtom(environmentId, {
             query,
+            ...threadSearchFilterInput(scope), // loom: switches and projects reach message search
             ...(before === null
               ? {}
               : {
                   olderSettledBefore: before,
-                  ...(scope.projectIds === undefined ? {} : { projectIds: scope.projectIds }),
                   ...(label === undefined ? {} : { environmentLabel: label }),
                   ...(searchMessages ? {} : { titlesOnly: true }),
                 }),
@@ -325,6 +330,9 @@ export function nextShownOrder(
 
 export interface SettledThreadSearch {
   readonly query: string;
+  // loom: the search key they were fetched under; shown order and mounted rows follow it, so a
+  // flipped switch on the same words starts a fresh order.
+  readonly key: string;
   readonly matches: ReadonlyArray<EnvironmentThreadSearchMatch>;
 }
 
@@ -347,5 +355,5 @@ export function visibleThreadSearch(
     before.length > 0 &&
     (current.startsWith(before) || before.startsWith(current))
     ? previous
-    : { query: "", matches: [] };
+    : { query: "", key: "", matches: [] }; // loom: key
 }

@@ -16,7 +16,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { EmbeddingError, type EmbeddingProvider } from "./embedding/EmbeddingProvider.loom.ts";
 import { ThreadEmbedder, makeThreadEmbedder } from "./ThreadEmbedder.loom.ts";
 import { layer as threadSearchLayer, makeThreadSearch } from "./ThreadSearch.loom.ts";
-import { ThreadSearch } from "./ThreadSearch.ts";
+import { searchThreadsWithOlderSettledRows, ThreadSearch } from "./ThreadSearch.ts";
 
 const layer = it.layer(
   SqlitePersistence.layerMemory.pipe(
@@ -199,6 +199,141 @@ layer("ThreadSearch", (it) => {
         ["there"],
       );
     }),
+  );
+
+  it.effect("the client's projectIds apply before the limit", () =>
+    Effect.gen(function* () {
+      yield* reset;
+      for (const index of [1, 2, 3])
+        yield* thread(`there-${index}`, "pulsar timing pulsar", { project: "other" });
+      yield* thread("here", "Notes");
+      yield* message("ask", "here", "user", "a long note that mentions a pulsar once, in passing");
+      const service = yield* ThreadSearch.pipe(Effect.provide(threadSearchLayer));
+      const sql = yield* SqlClient.SqlClient;
+      const viaClient = (projectIds?: ReadonlyArray<ProjectId>) =>
+        searchThreadsWithOlderSettledRows({
+          request: { query: "pulsar", limit: 1, ...(projectIds ? { projectIds } : {}) },
+          search: service.search,
+          searchOlderSettled: () => Effect.succeed([]),
+          sql,
+          readThreads: () => Effect.succeed(Effect.die("unused without olderSettledBefore")),
+          latestSequence: Effect.succeed(0),
+        }).pipe(Effect.map(({ matches }) => matches.map((match): string => match.threadId)));
+
+      assert.notDeepEqual(yield* viaClient(), ["here"]);
+      assert.deepStrictEqual(yield* viaClient([ProjectId.make("project")]), ["here"]);
+    }),
+  );
+
+  it.effect("nests sub-thread rows best first, counts the rest, and never exceeds the limit", () =>
+    Effect.gen(function* () {
+      yield* reset;
+      yield* thread("root", "Orbital work", { updatedAt: "2026-01-05T00:00:00.000Z" });
+      yield* thread("by-title", "comet survey", { parent: "root" });
+      yield* thread("by-purpose", "Probe", { parent: "root", purpose: "chart the comet" });
+      yield* thread("by-message", "Relay", { parent: "root" });
+      yield* message(
+        "relay-ask",
+        "by-message",
+        "user",
+        "is the comet visible from the relay today",
+      );
+      yield* thread("by-answer", "Archive", { parent: "root" });
+      yield* message("archive-answer", "by-answer", "assistant", "the comet left the frame");
+      yield* thread("other", "comet notes");
+      yield* thread("other-child", "comet debris", { parent: "other" });
+
+      const rows = (limit: number) =>
+        search("comet", { subThreadRows: true, limit }).pipe(
+          Effect.map((matches) =>
+            matches.map((match): [string, ReadonlyArray<string>, number | undefined] => [
+              match.threadId,
+              (match.subThreads ?? []).map((sub) => sub.threadId),
+              match.subThreadsOmitted,
+            ]),
+          ),
+        );
+      // By each sub-thread's best document: title, purpose, then the short answer over the long ask.
+      const best = ["by-title", "by-purpose", "by-answer"];
+      assert.deepStrictEqual(yield* rows(30), [
+        ["root", best, 1],
+        ["other", ["other-child"], 0],
+      ]);
+      // The last root that fits keeps its row and folds the sub-thread rows that do not.
+      assert.deepStrictEqual(yield* rows(5), [
+        ["root", best, 1],
+        ["other", [], 1],
+      ]);
+      assert.deepStrictEqual(yield* rows(4), [["root", best, 1]]);
+      assert.deepStrictEqual(yield* rows(2), [["root", ["by-title"], 3]]);
+      const [relay] = (yield* search("relay visible", { subThreadRows: true }))[0]!.subThreads!;
+      assert.deepStrictEqual(
+        [relay?.threadId, relay?.title, relay?.source, relay?.messageId, relay?.archivedAt],
+        ["by-message", "Relay", "user", "relay-ask", null],
+      );
+      // Without the flag, or under the roots scope, a match carries no sub-thread rows.
+      assert.isUndefined((yield* search("comet"))[0]?.subThreads);
+      assert.isUndefined(
+        (yield* search("comet", { subThreadRows: true, scope: "roots" }))[0]?.subThreads,
+      );
+    }),
+  );
+
+  it.effect("rootThreadId unfolds one workstream, its sub-thread rows up to the limit", () =>
+    Effect.gen(function* () {
+      yield* reset;
+      yield* thread("root", "Orbital work");
+      for (const index of [1, 2, 3, 4, 5])
+        yield* thread(`child-${index}`, `comet leg ${index}`, { parent: "root" });
+      yield* thread("other", "comet notes");
+      yield* writeWorkstreamReport(ThreadId.make("child-5"), "The comet report.");
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE loom_thread_workstream SET report_path = '/reports/child-5.md'
+        WHERE thread_id = 'child-5'`;
+
+      const [unfolded, ...rest] = yield* search("comet", {
+        subThreadRows: true,
+        rootThreadId: ThreadId.make("root"),
+        limit: 4,
+      });
+      assert.deepStrictEqual(rest, []);
+      assert.equal(unfolded?.threadId, "root");
+      assert.equal(unfolded?.subThreads?.length, 3);
+      assert.equal(unfolded?.subThreadsOmitted, 2);
+      const report = (yield* search("comet report", {
+        subThreadRows: true,
+        rootThreadId: ThreadId.make("root"),
+      }))[0]?.subThreads?.[0];
+      assert.deepStrictEqual(
+        [report?.threadId, report?.source, report?.reportPath],
+        ["child-5", "report", "/reports/child-5.md"],
+      );
+    }),
+  );
+
+  it.effect(
+    "an archived sub-thread gets a row, marked, only when archived threads are included",
+    () =>
+      Effect.gen(function* () {
+        yield* reset;
+        yield* thread("root", "Orbital work");
+        yield* thread("live-child", "comet live", { parent: "root" });
+        yield* thread("archived-child", "comet shelved", {
+          parent: "root",
+          archivedAt: "2026-01-03T00:00:00.000Z",
+        });
+        const subs = (includeArchived: boolean) =>
+          search("comet", { subThreadRows: true, includeArchived }).pipe(
+            Effect.map((matches) =>
+              (matches[0]?.subThreads ?? []).map((sub) => [sub.threadId, sub.archivedAt]),
+            ),
+          );
+        assert.deepStrictEqual(yield* subs(false), [["live-child", null]]);
+        assert.sameDeepMembers(yield* subs(true), [
+          ["live-child", null],
+          ["archived-child", "2026-01-03T00:00:00.000Z"],
+        ]);
+      }),
   );
 
   it.effect("indexes prompts and each run's answer only once finalised, never notices", () =>
