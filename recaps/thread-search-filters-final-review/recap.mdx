@@ -110,10 +110,9 @@ An item you leave unmarked takes its recommendation.
 
   **What changes if you accept.** The chip takes the palette's current project: the open thread's, else the new thread's. The change is in `apps/web/src/components/CommandPalette.tsx`, and the user guide's sentence follows. If you reject, the chip stays tied to an open thread.
 
-  <Details summary="Evidence: the two screenshots">
-    <Image src="shots/cmdk-thread-open.png" alt="Cmd+K with a thread open: chips Sub-threads, Archived and pi-fathom" caption="A thread is open: the third chip is its project." width={860} />
+  <Details summary="Evidence: what the two screens showed">
+    With a thread open in the pi-fathom project, Cmd+K showed three chips: Sub-threads, Archived and pi-fathom. On the loom new-thread screen it showed two, Sub-threads and Archived, with no project chip. The two screenshots were removed after the merge because they showed thread titles from client work.
 
-    <Image src="shots/cmdk-new-thread-screen.png" alt="Cmd+K on the loom new-thread screen: chips Sub-threads and Archived only" caption="The loom new-thread screen: no project chip. Sub-threads is on here, which is why Reset shows." width={860} />
   </Details>
 
   <ReviewChoice itemId="cmdk-project-chip" label="2 · project chip on the new-thread screen" placeholder="Why, if rejecting…" />
