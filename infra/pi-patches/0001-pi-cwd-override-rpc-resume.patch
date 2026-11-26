@@ -40,7 +40,7 @@
  import { createInterface } from "node:readline";
  import { modelsAreEqual } from "@earendil-works/pi-ai";
  import { setCapabilityOverrides } from "@earendil-works/pi-tui";
-@@ -307,9 +308,39 @@
+@@ -301,9 +302,39 @@
          process.exit(1);
      }
  }
@@ -82,7 +82,7 @@
      }
      catch (error) {
          const message = error instanceof Error ? error.message : String(error);
-@@ -327,7 +358,7 @@
+@@ -321,7 +352,7 @@
          process.exit(1);
      }
  }
@@ -91,7 +91,7 @@
      if (parsed.noSession || parsed.help || parsed.listModels !== undefined) {
          return SessionManager.inMemory(cwd, parsed.sessionId !== undefined ? { id: parsed.sessionId } : undefined);
      }
-@@ -352,6 +383,12 @@
+@@ -346,6 +377,12 @@
      }
      if (parsed.session) {
          const resolved = await resolveSessionPath(parsed.session, cwd, sessionDir);
@@ -104,7 +104,7 @@
          switch (resolved.type) {
              case "path":
              case "local":
-@@ -583,6 +620,7 @@
+@@ -571,6 +608,7 @@
      }
      validateForkFlags(parsed);
      validateSessionIdFlags(parsed);
@@ -112,7 +112,7 @@
      // Run migrations (pass cwd for project-local migrations)
      const { migratedAuthProviders: migratedProviders, deprecationWarnings } = runMigrations(cwd);
      time("runMigrations");
-@@ -606,7 +644,7 @@
+@@ -594,7 +632,7 @@
      const sessionDir = (parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined) ??
          (envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
          startupSettingsManager.getSessionDir();
@@ -123,7 +123,7 @@
          if (appMode === "interactive") {
 --- a/dist/modes/rpc/rpc-mode.js
 +++ b/dist/modes/rpc/rpc-mode.js
-@@ -16,6 +16,25 @@
+@@ -17,6 +17,25 @@
  import { theme } from "../interactive/theme/theme.js";
  import { toJsonEvent } from "../json-event.js";
  import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
@@ -149,15 +149,15 @@
  /**
   * Run in RPC mode.
   * Listens for JSON commands on stdin, outputs events and responses on stdout.
-@@ -494,7 +513,7 @@
+@@ -492,7 +511,7 @@
                  return success(id, "export_html", { path });
              }
              case "switch_session": {
 -                const result = await runtimeHost.switchSession(command.sessionPath);
 +                const result = await runtimeHost.switchSession(command.sessionPath, resolveRpcCwdOverride(command.cwdOverride));
-                 if (!result.cancelled) {
-                     await rebindSession();
-                 }
+                 return success(id, "switch_session", result);
+             }
+             case "fork": {
 --- a/dist/modes/rpc/rpc-types.d.ts
 +++ b/dist/modes/rpc/rpc-types.d.ts
 @@ -103,6 +103,8 @@

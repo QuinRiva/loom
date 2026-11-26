@@ -43,7 +43,7 @@ catalog:
   "@alchemy.run/planetscale": 2.0.0-beta.85
   "@alchemy.run/test": 2.0.0-beta.85
   # loom: the bundled, patched pi (apps/server and provider-pi both depend on it)
-  "@earendil-works/pi-coding-agent": 1.5.1
+  "@earendil-works/pi-coding-agent": 1.6.1
   "@clerk/backend": 3.27.0
   "@clerk/clerk-js": 6.42.3
   "@clerk/electron": 0.1.10
@@ -263,7 +263,7 @@ patchedDependencies:
   expo-network@58.0.4: patches/expo-network@58.0.4.patch
   "@clerk/expo-native-components@0.4.4": patches/@clerk__expo-native-components@0.4.4.patch
   # loom: pi-coding-agent patch (fork-only dependency)
-  "@earendil-works/pi-coding-agent@1.5.1": patches/@earendil-works__pi-coding-agent@1.5.1.patch
+  "@earendil-works/pi-coding-agent@1.6.1": patches/@earendil-works__pi-coding-agent@1.6.1.patch
   "@alchemy.run/test@2.0.0-beta.85": patches/@alchemy.run__test@2.0.0-beta.85.patch
   "@effect/vitest@4.1.5": patches/@effect__vitest@4.1.5.patch
   expo-sharing@58.0.22: patches/expo-sharing@58.0.22.patch
